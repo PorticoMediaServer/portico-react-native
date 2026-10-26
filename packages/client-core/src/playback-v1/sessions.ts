@@ -1,4 +1,6 @@
 import {routePath, encodedRoutePath} from "../../../contracts/src/routes.ts";
+import {decodeStartPlaybackSessionResponse} from '../../../contracts/src/decoders.ts';
+import type {StartPlaybackSessionResponse} from '../../../contracts/src/types.ts';
 /**
  * Playback sessions (spec §5) and the controller that plays one on a `MediaPlayer`.
  *
@@ -19,13 +21,13 @@ import type {MediaPlayer, PlayerEvent, PlayerObservation} from './port.ts';
 import type {QualityRequest} from './quality.ts';
 import type {PlayerFailureCode} from '../client-profile.ts';
 import {TimelineReporter, type TimelineReport, type TimelineReporterOptions} from './timeline.ts';
-import {ContractError, parseDiscTitleRef, parseSession, parseSessionEnd, type DiscTitleRef, type Session, type SessionEnd} from './types.ts';
+import {ContractError, id, parseDiscTitleRef, parseSession, parseSessionEnd, type DiscTitleRef, type Session, type SessionEnd} from './types.ts';
 import {requireSessionChangeCurrent, sessionChangeCurrent, type SessionChangeContext} from './change-context.ts';
 export type {SessionChangeContext} from './change-context.ts';
 
 export type StartTarget =
   | Readonly<{itemId: string}>
-  | Readonly<{channelId: string}>
+  | Readonly<{channelId: string; channelGeneration?: string}>
   | Readonly<{queue: Readonly<{queueId: string; entryId: string}>}>
   | Readonly<{transferId: string}>;
 
@@ -73,37 +75,150 @@ const replans = (c: SessionChange) => c.replan === true || c.versionId !== undef
 
 export type Timers = Readonly<{now?: () => number; setTimer?: (fn: () => void, ms: number) => unknown; clearTimer?: (t: unknown) => void}>;
 
-/** How long a 202 "preparing" start may take before giving up. */
-const MAX_PREPARE_MS = 120_000;
+/** Actual server-directed start preparation, including replies with no session.
+ * Players render the catalogue key while the same original start keeps retrying. */
+export type StartPreparation = Readonly<{messageId: 'player.preparing.slowStart'; retryAfterMs: number}>;
+
+/** An actual declared session-backed 202, never a fabricated playable Session. */
+export type PreparingSessionView = Extract<StartPlaybackSessionResponse, {id: string}>;
+export type StartContext = Readonly<{
+  signal?: AbortSignal;
+  isCurrent?: () => boolean;
+  onPreparing?: (retryAfterMs: number, preparation: StartPreparation) => void;
+  /** Issue a purpose-specific original-start receipt when the actual view first arrives.
+   * Its captured cleanup must re-prove original identity, registration and noninstallation;
+   * a current queue-selection receipt or a later id lookup is not equivalent. */
+  capturePreparing?: (session: PreparingSessionView) => (() => void | Promise<void>) | undefined;
+}>;
+const startRetired = () => Object.assign(new Error('Playback start retired'), {name: 'AbortError'});
+const startIdentity = (value: unknown): Readonly<{id: string; generation: number}> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ContractError('start response');
+  const sessionId = id(Reflect.get(value, 'id'), 'session id'), presentation = Reflect.get(value, 'presentation');
+  if (!presentation || typeof presentation !== 'object' || Array.isArray(presentation)) throw new ContractError('start presentation');
+  const generation: unknown = Reflect.get(presentation, 'generation');
+  if (typeof generation !== 'number' || !Number.isSafeInteger(generation) || generation < 0) throw new ContractError('generation');
+  return {id: sessionId, generation};
+};
+const freezeWire = <T,>(value: T): T => {
+  if (value !== null && typeof value === 'object') {
+    for (const child of Object.values(value)) freezeWire(child);
+    Object.freeze(value);
+  }
+  return value;
+};
+
+/** Decode the official union, then impose the required 202 timing on either branch.
+ * A retry-only reply never passes through parseSession or gains a resource identity. */
+export function parseStartPreparation(value: unknown): Readonly<{retryAfterMs: number; session?: PreparingSessionView}> {
+  let decoded: StartPlaybackSessionResponse;
+  try {decoded = decodeStartPlaybackSessionResponse(value);} catch {throw new ContractError('preparation response');}
+  const retryAfterMs = decoded.retryAfterMs;
+  if (typeof retryAfterMs !== 'number' || !Number.isSafeInteger(retryAfterMs) || retryAfterMs < 1 || retryAfterMs > 10_000)
+    throw new ContractError('preparation retry');
+  return Object.freeze({retryAfterMs, ...('id' in decoded ? {session: freezeWire(decoded)} : {})});
+}
 
 export class SessionsClient {
   private http: V1Http;
   private setTimer: (fn: () => void, ms: number) => unknown;
+  private clearTimer: (timer: unknown) => void;
   constructor(http: V1Http, timers: Timers = {}) {
     this.http = http;
     this.setTimer = timers.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
+    this.clearTimer = timers.clearTimer ?? (timer => clearTimeout(timer as ReturnType<typeof setTimeout>));
   }
 
-  /** Start (or replay a start). `onPreparing` reports each 202 so the UI can say "Getting it ready". */
-  async start(target: StartTarget, options: StartOptions, key: string, extra: {signal?: AbortSignal; onPreparing?: (retryAfterMs: number) => void} = {}): Promise<Session> {
-    const discTitle = parseDiscTitleRef(options.discTitle);
-    if (discTitle && (!options.versionId || options.partIndex !== undefined && options.partIndex !== 0
-      || !('itemId' in target) && !('queue' in target))) throw new ContractError('disc title start');
-    const body = {...target, ...options, ...(discTitle ? {discTitle} : {})};
-    let waited = 0;
-    for (;;) {
-      const r = await call(this.http, {method: 'POST', path: routePath("start_playback_session"), headers: {'Idempotency-Key': key}, body, signal: extra.signal}, [201, 200, 202]);
-      if (r.status !== 202) return parseSession(r.body);
-      const b = r.body as {retryAfterMs?: unknown} | undefined;
-      const wait = Math.min(10_000, Math.max(250, typeof b?.retryAfterMs === 'number' ? b.retryAfterMs : Number(header(r, 'Retry-After') ?? 1) * 1000));
-      waited += wait;
-      if (waited > MAX_PREPARE_MS) throw new PlaybackApiError(504, 'preparation_timeout', 'same_request');
-      extra.onPreparing?.(wait);
-      await new Promise<void>((resolve, reject) => {
-        if (extra.signal?.aborted) { reject(Object.assign(new Error('aborted'), {name: 'AbortError'})); return; }
-        this.setTimer(resolve, wait);
-        extra.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), {name: 'AbortError'})), {once: true});
-      });
+  /** Start (or replay the same start). A valid server 202 keeps this original
+   * request waiting until success, a real refusal or caller retirement. Server
+   * preparation/authority deadlines remain server-owned and are never renewed. */
+  async start(target: StartTarget, options: StartOptions, key: string, extra: StartContext = {}): Promise<Session> {
+    return this.startOriginal(target, options, key, extra, parseSession);
+  }
+
+  /** The channel adapter retains the actual declared linear projection beside
+   * its final response identity. Both use this same status/retry/lifetime path;
+   * an existing channel may have no media URL until its ordinary join/read.
+   * A retry-only body can never be returned as a completed start. The adapter's
+   * decoder runs inside the original receipt's failure/cleanup boundary. */
+  async startResponse<T>(target: StartTarget, options: StartOptions, key: string, extra: StartContext, decode: (body: unknown) => T): Promise<Readonly<{id: string; generation: number; body: T}>> {
+    return this.startOriginal(target, options, key, extra, body => ({...startIdentity(body), body: decode(body)}));
+  }
+
+  private async startOriginal<T>(target: StartTarget, options: StartOptions, key: string, extra: StartContext, read: (body: unknown) => T): Promise<T> {
+    // Capture the original wire and lifetime once, before callbacks or asynchronous work.
+    const http = this.http, signal = extra.signal, isCurrent = extra.isCurrent;
+    const onPreparing = extra.onPreparing, capturePreparing = extra.capturePreparing;
+    const setTimer = this.setTimer, clearTimer = this.clearTimer;
+    if (typeof key !== 'string') throw new ContractError('start key');
+    let body: StartOptions & StartTarget;
+    try {body = JSON.parse(JSON.stringify({...target, ...options}));} catch {throw new ContractError('start request');}
+    const discTitle = parseDiscTitleRef(body.discTitle);
+    if (discTitle && (!body.versionId || body.partIndex !== undefined && body.partIndex !== 0
+      || !('itemId' in body) && !('queue' in body))) throw new ContractError('disc title start');
+    if (discTitle) body = {...body, discTitle};
+    freezeWire(body);
+    const request = Object.freeze({method: 'POST' as const, path: routePath('start_playback_session'),
+      headers: Object.freeze({'Idempotency-Key': key}), body, signal});
+    const current = () => {try {return (isCurrent ? isCurrent() === true : true) && !signal?.aborted;} catch {return false;}};
+    const check = () => {if (!current()) throw startRetired();};
+    let prepared: PreparingSessionView | undefined;
+    let abandon: (() => void | Promise<void>) | undefined;
+    try {
+      for (;;) {
+        check();
+        const r = await call(http, request, [201, 200, 202]);
+        // A late real success must reach the existing caller's unowned-session cleanup.
+        if (r.status !== 202) {
+          const result = read(r.body);
+          const actual = startIdentity(r.body);
+          if (prepared && (prepared.id !== actual.id || prepared.presentation.generation !== actual.generation))
+            throw new ContractError('preparation session changed');
+          return result;
+        }
+        const preparing = parseStartPreparation(r.body);
+        if (preparing.session) {
+          const offered = preparing.session;
+          if ('queue' in body ? offered.queue?.queueId !== body.queue.queueId || offered.queue?.entryId !== body.queue.entryId
+            : 'itemId' in body ? offered.itemId !== body.itemId : 'channelId' in body ? offered.channelId !== body.channelId : false)
+            throw new ContractError('preparation target');
+          if (prepared && (prepared.id !== offered.id || prepared.presentation.generation !== offered.presentation.generation))
+            throw new ContractError('preparation session changed');
+          if (!prepared) {
+            prepared = offered;
+            abandon = capturePreparing?.(offered);
+            if (abandon !== undefined && typeof abandon !== 'function') throw new ContractError('preparation ownership receipt');
+          }
+        }
+        check();
+        // Retain the existing 250ms pacing floor without accepting an invalid wire wait.
+        const wait = Math.max(250, preparing.retryAfterMs);
+        onPreparing?.(wait, Object.freeze({messageId: 'player.preparing.slowStart', retryAfterMs: wait}));
+        check();
+        await new Promise<void>((resolve, reject) => {
+          let done = false, timer: unknown, assigned = false;
+          const finish = (error?: unknown) => {
+            if (done) return;
+            done = true;
+            signal?.removeEventListener('abort', aborted);
+            if (assigned) {try {clearTimer(timer);} catch { /* Listener and promise still retire. */ }}
+            if (error === undefined) resolve(); else reject(error);
+          };
+          const aborted = () => finish(startRetired());
+          signal?.addEventListener('abort', aborted, {once: true});
+          if (!current()) {aborted(); return;}
+          try {
+            timer = setTimer(() => finish(), wait); assigned = true;
+            if (done) {try {clearTimer(timer);} catch { /* A supplied timer may settle synchronously. */ }}
+          } catch (error) {finish(error);}
+        });
+      }
+    } catch (error) {
+      // Only the captured host can retire this genuine resource, with its own
+      // original principal and unowned proof. Retry-only responses supply none.
+      // A cleanup receipt owns its bounded settlement; it cannot replace this
+      // original start's outcome or acquire another operation while DELETE is uncertain.
+      if (abandon) {try {void Promise.resolve(abandon()).catch(() => {});} catch { /* Preserve the original start failure. */ }}
+      throw error;
     }
   }
 
@@ -140,6 +255,8 @@ export type ControllerPhase = 'idle' | 'starting' | 'preparing' | 'active' | 'en
 
 export type ControllerSnapshot = Readonly<{
   phase: ControllerPhase;
+  /** Present only after a genuine 202; no fabricated session is installed. */
+  preparation?: StartPreparation;
   session?: Session;
   /** The last observation of the current generation (position, state). */
   observation?: PlayerObservation;
@@ -225,23 +342,45 @@ export class PlaybackSessionController {
 
   getSnapshot = (): ControllerSnapshot => this.state;
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
-  private publish(p: Partial<ControllerSnapshot>) { this.state = Object.freeze({...this.state, ...p}); for (const l of [...this.listeners]) l(); }
+  private publish(p: Partial<ControllerSnapshot>) { this.state = Object.freeze({...this.state, ...p,
+    ...(p.phase && p.phase !== 'preparing' ? {preparation: undefined} : {})}); for (const l of [...this.listeners]) l(); }
 
   /**
    * Play something. A session already playing on this device is replaced atomically
    * (`replacesSessionId`), so queue advance, version switch and channel surfing keep one slot.
    */
-  async start(target: StartTarget, options: StartOptions = {}, signal?: AbortSignal): Promise<Session | undefined> {
-    if (this.disposed) return undefined;
+  async start(target: StartTarget, options: StartOptions = {}, signal?: AbortSignal,
+    context: Pick<StartContext, 'isCurrent' | 'capturePreparing' | 'onPreparing'> = {}): Promise<Session | undefined> {
+    if (this.disposed || signal?.aborted) return undefined;
+    const before = this.startToken;
+    const originalCurrent = context.isCurrent, capturePreparing = context.capturePreparing, onPreparing = context.onPreparing;
+    const admitted = () => {try {return (originalCurrent ? originalCurrent() === true : true) && !signal?.aborted;} catch {return false;}};
+    // Even a currentness callback may reenter; it cannot let this older invocation
+    // claim over the successor. Claim before touching request getters or publishing.
+    if (!admitted() || this.disposed || before !== this.startToken) return undefined;
     const token = ++this.startToken;
-    const previous = this.state.session;
-    const body: StartOptions = {...options, ...(previous && this.state.phase === 'active' && !options.replacesSessionId ? {replacesSessionId: previous.id} : {})};
-    this.lastStart = {target, options};
+    if (this.state.preparation) {
+      this.publish({preparation: undefined});
+      if (!admitted() || token !== this.startToken || this.disposed) return undefined;
+    }
+    const previous = this.state.session, wasActive = this.state.phase === 'active';
+    const originalTarget: StartTarget = freezeWire(JSON.parse(JSON.stringify(target)));
+    const originalOptions: StartOptions = freezeWire(JSON.parse(JSON.stringify(options)));
+    if (!admitted() || token !== this.startToken || this.disposed) return undefined;
+    const body: StartOptions = {...originalOptions, ...(previous && wasActive && !originalOptions.replacesSessionId ? {replacesSessionId: previous.id} : {})};
+    this.lastStart = {target: originalTarget, options: originalOptions};
     this.retireReporter();
     this.publish({phase: 'starting', error: undefined, ended: undefined, changing: false});
     try {
-      const session = await this.client.start(target, body, this.key(), {signal, onPreparing: () => { if (token === this.startToken) this.publish({phase: 'preparing'}); }});
-      if (token !== this.startToken || this.disposed || signal?.aborted) {
+      const session = await this.client.start(originalTarget, body, this.key(), {signal,
+        isCurrent: () => admitted() && token === this.startToken && !this.disposed,
+        onPreparing: (wait, preparation) => {
+          if (admitted() && token === this.startToken && !this.disposed) this.publish({phase: 'preparing', preparation});
+          if (admitted() && token === this.startToken && !this.disposed) onPreparing?.(wait, preparation);
+        },
+        capturePreparing});
+      if (!admitted() || token !== this.startToken || this.disposed) {
+        if (token === this.startToken && !this.disposed) this.publish({preparation: undefined});
         // The request may have created a session even though its caller moved on.
         if (this.state.session?.id !== session.id || this.disposed) await this.client.stop(session.id).catch(() => {});
         return undefined;
@@ -250,10 +389,11 @@ export class PlaybackSessionController {
       this.carriedFor = undefined;
       this.state = Object.freeze({...this.state, observation: undefined});
       this.leaseAtRisk = false;
-      this.adopt(session, options.state !== 'paused');
+      this.adopt(session, originalOptions.state !== 'paused');
       return session;
     } catch (e) {
-      if (token === this.startToken) this.publish({phase: 'error', error: e as Error});
+      const current = admitted();
+      if (token === this.startToken && !this.disposed) this.publish(current ? {phase: 'error', error: e as Error} : {preparation: undefined});
       throw e;
     }
   }

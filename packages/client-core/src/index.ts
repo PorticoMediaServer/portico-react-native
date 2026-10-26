@@ -25,6 +25,7 @@ export * from './owner-claim-client.ts';
 export * from './route-connection.ts';
 export * from './known-servers.ts';
 export * from './portico-servers.ts';
+export * from './remote-source-choice.ts';
 import type {PreparedChoice} from './prepared-media.ts';
 import type {PlaybackChoices} from './playback-v1/choices.ts';
 import {ListeningDeadlineClock,noListeningDeadlines,type NativeListeningStatus,type NativeListeningV1Control,type NativeListeningV1Event,type ListeningDeadlines,type ListeningPolicy} from './playback/native-listening.ts';
@@ -48,6 +49,7 @@ export * from './client-profile.ts';
 import {readConsoleJson,consoleUTF8Size} from './console-transport.ts';
 import {channelSeconds,channelMessage,type ChannelProjection,type ChannelReference} from './playback/linear-protocol.ts';
 import type {ChannelPlayback,ChannelView,ChannelStartOptions} from './playback-v1/channel-control.ts';
+import type {StartPreparation} from './playback-v1/sessions.ts';
 export type {ChannelStartOptions} from './playback-v1/channel-control.ts';
 export type {ChannelReference,ChannelProjection} from './playback/linear-protocol.ts';
 import type {QueueController} from './queue-controller.ts';
@@ -728,6 +730,8 @@ export function audioTrackLabel(t:{title?:string;language?:string;channels?:numb
   return [trackName(t)||('Track '+ordinal),[codec,layout].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
 }
 export type PlaybackSnapshot = {
+  /** Genuine server-directed start preparation; carries no session or media authority. */
+  preparation?: StartPreparation;
   audioTracks?: AudioTracksSnapshot;
   nativeListening?: NativeListeningStatus;
   listeningDeadlines?: ListeningDeadlines;
@@ -916,6 +920,7 @@ export class PlaybackService {
     };
   }
   private update(patch: Partial<PlaybackSnapshot>) {
+    if(patch.phase==='idle'||patch.phase==='error'||patch.phase==='ended'||'intentId' in patch&&patch.intentId!==this.snapshot.intentId)patch={...patch,preparation:undefined};
     if(patch.intent==='playing'||patch.phase==='idle'||patch.phase==='error'||patch.error||'intentId' in patch&&patch.intentId!==this.snapshot.intentId)patch={...patch,listeningNotice:undefined};
     // A fallback lasts for this song only: its own terminal and new-run resets, separate
     // from the notice, including a real ended fact that keeps the same item and intent.
@@ -1253,6 +1258,7 @@ export class PlaybackService {
     if(this.snapshot.intentId!==intentId||!this.snapshot.channel||options.signal?.aborted||options.isCurrent?.()===false)return;
     await this.channels.open(reference,{
       state:value=>{if(this.snapshot.intentId===intentId&&this.snapshot.channel)this.applyChannel(value);},
+      preparation:value=>{if(this.snapshot.intentId===intentId&&this.snapshot.channel)this.reportStartPreparation(intentId,value);},
       error:(message,terminal)=>{if(this.snapshot.intentId!==intentId||!this.snapshot.channel)return;this.update({error:message,...(terminal?{phase:'error' as const,session:undefined,pendingSeek:undefined}:{} )});}
     },{...options,state});
   }
@@ -1316,9 +1322,14 @@ export class PlaybackService {
     // A parked restore or server-selected start has no new per-title choices to retain.
     if(fresh&&(state==='paused'||itemId===undefined)){this.lastPlay=undefined;this.escalations=0;}
     if(fresh&&this.options.beforeFreshPlayback)this.freshReady=this.options.beforeFreshPlayback().catch(()=>{});
-    if(!this.snapshot.session){this.clearStartup();this.update({phase:'starting',intent:state,itemId,error:undefined,...run});}
-    else this.update({intent:state,error:undefined,...run});
+    if(!this.snapshot.session){this.clearStartup();this.update({phase:'starting',intent:state,itemId,error:undefined,preparation:undefined,...run});}
+    else this.update({intent:state,error:undefined,preparation:undefined,...run});
     return this.snapshot.intentId;
+  }
+  /** Presentation only: the queue/channel start retains the actual original
+   * intent and clears this status on settlement. It never installs a session. */
+  reportStartPreparation(intentId:number,preparation:StartPreparation|undefined):void{
+    if(this.snapshot.intentId===intentId)this.update({preparation});
   }
   async prepareQueueIntent(intentId:number):Promise<boolean>{
     if(this.snapshot.intentId!==intentId||this.snapshot.channel)return false;
@@ -2239,6 +2250,7 @@ export * from './home.ts';
 export * from './play-history.ts';
 export * from './recommendations.ts';
 export * from './notifications.ts';
+export * from './notification-scope.ts';
 export {detailExtraTypes,type DetailExtra,type DetailExtraType,parseCreditPage,type CreditPage,type DetailCredit} from './detail.ts';
 
 export * from './downloads.ts';
