@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <React/RCTViewManager.h>
+#import <React/RCTEventEmitter.h>
 #import <React/UIView+React.h>
 #import <objc/runtime.h>
 #import "../Native/PorticoPlayerView.h"
@@ -10,6 +11,12 @@
 // Bridge registration/tag storage only. The production view, controller, AVPlayer, output,
 // clock, frame conversion, private file ownership and cleanup run without media mocks.
 void RCTRegisterModule(Class moduleClass) {}
+// The standalone harness has no React bridge; production emits this exact id event.
+static NSMutableArray *snapshotRetirements;
+@implementation RCTEventEmitter
+- (void)invalidate { /* Standalone lifecycle stub; not RN event-delivery proof. */ }
+- (void)sendEventWithName:(NSString *)name body:(id)body {if(!snapshotRetirements)snapshotRetirements=[NSMutableArray new];[snapshotRetirements addObject:body];}
+@end
 @implementation RCTViewManager
 @synthesize bridge=_bridge;
 + (NSString *)moduleName {return @"HarnessViewManager";}
@@ -23,9 +30,10 @@ void RCTRegisterModule(Class moduleClass) {}
 + (dispatch_queue_t)resourceLoaderQueue {return dispatch_get_main_queue();}
 + (void)handleChallenge:(NSURLAuthenticationChallenge *)challenge completion:(void (^)(NSURLSessionAuthChallengeDisposition,NSURLCredential *))completion {completion(NSURLSessionAuthChallengeCancelAuthenticationChallenge,nil);}
 @end
-@interface PorticoVideoSnapshot : NSObject
+@interface PorticoVideoSnapshot : RCTEventEmitter
 - (void)capture:(NSString *)identifier source:(NSDictionary *)source resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject;
 - (void)release:(NSString *)identifier resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject;
+- (void)retainForExit:(NSString *)identifier source:(NSDictionary *)source resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject;
 - (void)invalidate;
 @end
 static BOOL expect(BOOL value,const char *what){if(!value)fprintf(stderr,"FAIL %s\n",what);return value;}
@@ -87,6 +95,18 @@ static int runTests(UIWindow *window){@autoreleasepool{
  __block NSDictionary *unmountImage=nil;waitFor(^BOOL{if(!unmountImage)unmountImage=capture(module,@"unmount-cleanup",nextSource,&failure);return unmountImage!=nil;},1);
  NSString *unmountPath=receiptPath(unmountImage);[view removeFromSuperview];
  ok=expect(unmountImage&&![files fileExistsAtPath:unmountPath],"actual view detachment deletes retained image")&&ok;
+ [window.rootViewController.view addSubview:view];
+ // Passive file transfer must be admitted BEFORE the original native attachment leaves.
+ __block NSDictionary *exitImage=nil;waitFor(^BOOL{if(!exitImage)exitImage=capture(module,@"passive-exit",nextSource,&failure);return exitImage!=nil;},1);
+ NSString *exitPath=receiptPath(exitImage);__block BOOL exitAccepted=NO,wrongAccepted=YES,duplicateAccepted=YES;
+ NSMutableDictionary *wrongSource=[nextSource mutableCopy];wrongSource[@"reactTag"]=@43;
+ [module retainForExit:@"passive-exit" source:wrongSource resolver:^(id value){wrongAccepted=[value boolValue];} rejecter:^(NSString *code,NSString *message,NSError *error){}];
+ [module retainForExit:@"passive-exit" source:nextSource resolver:^(id value){exitAccepted=[value boolValue];} rejecter:^(NSString *code,NSString *message,NSError *error){}];
+ [module retainForExit:@"passive-exit" source:nextSource resolver:^(id value){duplicateAccepted=[value boolValue];} rejecter:^(NSString *code,NSString *message,NSError *error){}];
+ [view removeFromSuperview];
+ ok=expect(exitImage&&!wrongAccepted&&exitAccepted&&!duplicateAccepted&&[files fileExistsAtPath:exitPath],"exact once-only transfer keeps original pixels across native source detach")&&ok;
+ ok=expect(release(module,@"passive-exit")&&![files fileExistsAtPath:exitPath]&&!release(module,@"passive-exit"),"passive resource has one exact release without successor lookup")&&ok;
+ ok=expect([snapshotRetirements.lastObject[@"id"]isEqual:@"passive-exit"],"native retirement reports the original file id only")&&ok;
  [window.rootViewController.view addSubview:view];
  __block NSDictionary *leaseImage=nil;waitFor(^BOOL{if(!leaseImage)leaseImage=capture(module,@"lease-cleanup-final",nextSource,&failure);return leaseImage!=nil;},1);
  retainedPath=receiptPath(leaseImage);ok=expect(leaseImage!=nil,"reattached same source provides real frame")&&ok;

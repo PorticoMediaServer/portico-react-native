@@ -48,6 +48,7 @@ import {classifyPlaybackFailure} from './playback-failure';
 import {nativeListeningFor, serverPlaybackV1Kinds} from './native-listening-kinds';
 import {selectionSegments, selectionStartSeconds} from './selection';
 import type {VideoSnapshotCapture, VideoSnapshotSource} from '../video-snapshot';
+import {retainNativeVideoExitImage} from './video-exit-permission';
 import type {NativeExternalPresentationLifetime, NativePictureInPictureState, NativePlaybackReadLifetime, NativeListeningReadPort, NativeOfflinePlaybackLifetime, NativePlaybackStart, NativePlaybackChannelStart, NativePlaybackVersionSelection, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, NativePlaybackVideoSnapshot, PlaybackAuthority} from './types';
 
 /** No credentials: exact admission principal generation for one original start. */
@@ -166,6 +167,7 @@ export class NativePlaybackRuntime {
   private snapshotCapture?: VideoSnapshotCapture;
   private captureFence?: PlaybackFence;
   private captureSource?: VideoSnapshotSource;
+  private readonly videoExitImages = new Set<() => Promise<void>>();
   private captureEpoch = 0;
   private routeRecovery?: ReturnType<typeof setTimeout>;
   private recoverySince = 0;
@@ -1890,12 +1892,43 @@ export class NativePlaybackRuntime {
     if (!source || !capture) throw new Error('snapshot_unavailable');
     if (this.captureSource) throw new Error('snapshot_busy');
     const epoch = ++this.captureEpoch;
+    // Capture the original page/route/actor before any native await. No startEpoch:
+    // replacing playback is allowed to leave passive pixels, replacing the page is not.
+    let context: (() => boolean) | undefined;
+    try {if (this.o.subscribeStartContext) context = this.o.captureStartContext?.();} catch { /* Ordinary capture remains available without passive-page proof. */ }
+    const api = this.o.api, route = api.getRouteSnapshot();
+    const connection = api.getRouteConnection(), pin = connection?.pin.publicKey, certificate = api.getCertificateSessionEpoch();
+    const session = this.o.session(), principal = startupPrincipal(session), token = session?.accessToken, expires = session?.expiresAt, role = session?.viewer.role;
+    const until = session ? Math.min(Date.parse(session.expiresAt), Date.parse(session.authorizationHorizon)) : NaN;
+    const paintCurrent = () => this.currentAuthority() && !!context && context() === true
+      && !!session && Number.isFinite(until) && Date.now() < until && startupPrincipal(this.o.session()) === principal
+      && this.o.session()?.accessToken === token && this.o.session()?.expiresAt === expires && this.o.session()?.viewer.role === role
+      && this.o.api === api && api.getRouteConnection() === connection && !!pin && connection?.pin.publicKey === pin
+      && api.getCertificateSessionEpoch() === certificate && (route ? api.getRouteSnapshot()?.phase === 'ready'
+        && api.getRouteSnapshot()?.revision === route.revision && api.getRouteSnapshot()?.origin === route.origin : api.getRouteSnapshot() === null);
     this.captureFence = fence; this.captureSource = source;
     try {
       const result = await capture.capture(source, options);
       if (epoch !== this.captureEpoch || !this.isSnapshotSourceCurrent(result.source)) { await result.release(); throw new Error('snapshot_stale'); }
       let released: Promise<void> | undefined;
-      return Object.freeze({fence, image: result.image, release: () => released ??= result.release().finally(() => { if (epoch === this.captureEpoch) { this.captureFence = undefined; this.captureSource = undefined; } })});
+      return Object.freeze({fence, image: result.image,
+        retainForExit: () => retainNativeVideoExitImage(fence, {
+          sourceCurrent: () => epoch === this.captureEpoch && this.isSnapshotSourceCurrent(source)
+            && !!this.snapshot.dock.local && !this.snapshot.dock.local.expanded
+            && ['video', 'live'].includes(this.snapshot.dock.local.kind) && sameFence(this.snapshot.dock.local.fence, fence),
+          paintCurrent,
+          subscribe: listener => {
+            const offs: (() => void)[] = [];
+            try {
+              offs.push(this.subscribe(listener)); offs.push(this.o.subscribeAuthority(listener));
+              if (this.o.subscribeStartContext) offs.push(this.o.subscribeStartContext(listener));
+              offs.push(api.subscribeRoute(listener));
+            } catch (error) {for (const off of offs) off();throw error;}
+            return () => {for (const off of offs.splice(0)) off();};
+          },
+          retain: () => result.retainForExit?.() ?? Promise.resolve(undefined),
+        }, this.videoExitImages),
+        release: () => released ??= result.release().finally(() => { if (epoch === this.captureEpoch) { this.captureFence = undefined; this.captureSource = undefined; } })});
     } catch (error) {
       if (epoch === this.captureEpoch) { this.captureFence = undefined; this.captureSource = undefined; }
       throw error;
@@ -1917,7 +1950,7 @@ export class NativePlaybackRuntime {
       this.stopOwnedSession(state.session.id, Math.max(0, Math.round(state.positionSeconds * 1000)));
     }
     this.beginOperation(); this.retired = true; ++this.sourceEpoch; this.externalPresentationBinding = null;
-    this.cancelSnapshot(); this.snapshotCapture?.dispose();
+    this.cancelSnapshot(); for (const release of this.videoExitImages) void release().catch(() => {}); this.snapshotCapture?.dispose();
     this.startController?.abort(); this.sourceController?.abort(); this.clearForcedImage(); this.http.dispose(); this.clearCompletion();
     const identity = this.snapshot.fence?.playback; if (identity) this.choices.stop(identity); this.skipped.clear();
     if (this.routeRecovery) clearTimeout(this.routeRecovery);

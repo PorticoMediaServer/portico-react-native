@@ -8,7 +8,7 @@ import type {QueueHeader} from '../../../../packages/client-core/src/playback-v1
 import type {QueuePlayerState} from '../../../../packages/client-core/src/queue-controller';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import type {PlaybackSubject} from '../../../../packages/client-core/src/presentation/kit-model';
-import type {NativePlaybackRuntimeSnapshot} from '../platform/playback/types';
+import type {NativePlaybackRuntimeSnapshot, NativePlaybackVideoExitImage} from '../platform/playback/types';
 import {sameFence, type DockState, type DockTransition, type PlaybackDock, type PlaybackFence, type RemoteDock} from '../../../../packages/player-core/src';
 import {sameAuthority, type ShellAuthority} from './model';
 import type {NativePlaybackStartFailure} from '../platform/playback/start-failure';
@@ -24,6 +24,7 @@ export type NativeShellPlaybackStart = Readonly<{
 }>;
 export type NativeShellBounds = Readonly<{x: number; y: number; width: number; height: number}>;
 export type NativeShellVideoSnapshot = Readonly<{
+  retainForExit?: () => Promise<NativePlaybackVideoExitImage | undefined>;
   fence: PlaybackFence;
   image: Readonly<{uri: string; width: number; height: number}>;
   release: () => Promise<void>;

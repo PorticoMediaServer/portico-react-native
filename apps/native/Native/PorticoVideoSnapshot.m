@@ -1,5 +1,6 @@
 #import <React/RCTBridgeModule.h>
 #import <React/RCTInvalidating.h>
+#import <React/RCTEventEmitter.h>
 #import <CoreImage/CoreImage.h>
 #import <ImageIO/ImageIO.h>
 #import "PorticoPlaybackController.h"
@@ -9,6 +10,7 @@ static BOOL SnapshotText(id value,NSUInteger limit) {return [value isKindOfClass
 static BOOL SnapshotInteger(id value) {return [value isKindOfClass:NSNumber.class]&&CFGetTypeID((__bridge CFTypeRef)value)!=CFBooleanGetTypeID()&&[value doubleValue]>0&&[value doubleValue]<=9007199254740991.0&&floor([value doubleValue])==[value doubleValue];}
 @interface PorticoSnapshotFlight : NSObject
 @property(nonatomic,copy) NSString *identifier;
+@property(nonatomic) BOOL passive;
 @property(nonatomic,copy) NSDictionary *source;
 @property(nonatomic,copy) NSDictionary *binding;
 @property(nonatomic,weak) PorticoPlaybackController *controller;
@@ -18,7 +20,7 @@ static BOOL SnapshotInteger(id value) {return [value isKindOfClass:NSNumber.clas
 @implementation PorticoSnapshotFlight @end
 
 /** Same capture/release envelope as Android. This module never pauses or reattaches playback. */
-@interface PorticoVideoSnapshot : NSObject <RCTBridgeModule,RCTInvalidating> @end
+@interface PorticoVideoSnapshot : RCTEventEmitter <RCTBridgeModule,RCTInvalidating> @end
 @implementation PorticoVideoSnapshot {
  dispatch_queue_t _encoder;
  NSURL *_directory,*_retainedURL;
@@ -29,6 +31,7 @@ static BOOL SnapshotInteger(id value) {return [value isKindOfClass:NSNumber.clas
 RCT_EXPORT_MODULE()
 + (BOOL)requiresMainQueueSetup {return YES;}
 - (dispatch_queue_t)methodQueue {return dispatch_get_main_queue();}
+- (NSArray<NSString *> *)supportedEvents {return @[@"PorticoVideoSnapshotRetired"];}
 - (instancetype)init {
  if((self=[super init])){
   _encoder=dispatch_queue_create("tv.getportico.video-snapshot",DISPATCH_QUEUE_SERIAL);
@@ -44,8 +47,10 @@ RCT_EXPORT_MODULE()
  return !_invalidated&&UIApplication.sharedApplication.applicationState==UIApplicationStateActive&&flight.controller&&PorticoSnapshotController(flight.source[@"reactTag"],flight.source[@"lease"])==flight.controller&&[flight.binding isEqual:flight.controller.externalPresentationBinding];
 }
 - (void)discardRetained {
+ NSString *retired=_retained.passive?_retained.identifier:nil;
  if(_retainedURL)[NSFileManager.defaultManager removeItemAtURL:_retainedURL error:nil];
  _retainedURL=nil;_retained=nil;
+ if(retired){@try{[self sendEventWithName:@"PorticoVideoSnapshotRetired" body:@{@"id":retired}];}@catch(NSException *exception){ /* Cleanup never depends on a live JS bridge. */ }}
 }
 - (void)fail:(PorticoSnapshotFlight *)flight code:(NSString *)code {
  if(_flight!=flight)return;
@@ -55,7 +60,7 @@ RCT_EXPORT_MODULE()
 - (void)sourceChanged {
  if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self sourceChanged];});return;}
  if(_flight&&![self current:_flight])[self fail:_flight code:@"snapshot_stale"];
- if(_retained&&![self current:_retained])[self discardRetained];
+ if(_retained&&!_retained.passive&&![self current:_retained])[self discardRetained];
 }
 - (void)suspend {
  if(_flight)[self fail:_flight code:@"snapshot_cancelled"];[self discardRetained];
@@ -108,10 +113,21 @@ RCT_REMAP_METHOD(capture,capture:(NSString *)identifier source:(NSDictionary *)s
    if(self->_flight!=flight||![self current:flight]){if(url)[NSFileManager.defaultManager removeItemAtURL:url error:nil];[self fail:flight code:@"snapshot_stale"];return;}
    if(!url){[self fail:flight code:@"snapshot_unavailable"];return;}
    self->_flight=nil;self->_retained=flight;self->_retainedURL=url;
+   // File lifetime starts at capture completion; retainForExit never renews it.
+   dispatch_after(dispatch_time(DISPATCH_TIME_NOW,15*NSEC_PER_SEC),dispatch_get_main_queue(),^{if(self->_retained==flight)[self discardRetained];});
    RCTPromiseResolveBlock completion=flight.resolve;flight.resolve=nil;flight.reject=nil;
    if(completion)completion(@{@"id":identifier,@"uri":url.absoluteString,@"width":@(encodedWidth),@"height":@(encodedHeight)});
   });
  }});
+}
+/** Main-queue transfer of one exact settled image; no old-source capture path. */
+RCT_REMAP_METHOD(retainForExit,retainForExit:(NSString *)identifier source:(NSDictionary *)source resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+ PorticoSnapshotFlight *image=_retained;
+ if(!image||image.passive||![image.identifier isEqual:identifier]||![source isKindOfClass:NSDictionary.class]||![image.source isEqual:source]||![self current:image]||!_retainedURL){resolve(@NO);return;}
+ image.passive=YES;
+ // Drop even weak engine access and original lookup data; retain only immutable file pixels.
+ image.controller=nil;image.source=nil;image.binding=nil;
+ resolve(@YES);
 }
 RCT_REMAP_METHOD(release,release:(NSString *)identifier resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
  BOOL owned=NO;
@@ -124,6 +140,7 @@ RCT_REMAP_METHOD(release,release:(NSString *)identifier resolver:(RCTPromiseReso
  if(_invalidated)return;_invalidated=YES;[NSNotificationCenter.defaultCenter removeObserver:self];
  if(_flight)[self fail:_flight code:@"snapshot_cancelled"];[self discardRetained];
  NSURL *directory=_directory;dispatch_async(_encoder,^{if(directory)[NSFileManager.defaultManager removeItemAtURL:directory error:nil];});
+ [super invalidate];
 }
 - (void)dealloc {
  [NSNotificationCenter.defaultCenter removeObserver:self];NSURL *directory=_directory;

@@ -18,6 +18,7 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.uimanager.UIManagerHelper
+import com.facebook.react.modules.core.DeviceEventManagerModule
 import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -52,7 +53,9 @@ class PorticoVideoSnapshot(context: ReactApplicationContext) : ReactContextBaseJ
   private var invalidated = false
   private var foreground = true
 
-  private class Capture(val id: String, val target: PorticoSnapshotTarget, val promise: Promise, val bitmap: Bitmap) {
+  private class Capture(val id: String, var target: PorticoSnapshotTarget?, val promise: Promise, val bitmap: Bitmap, var source: Map<String, Any?>?) {
+    var passive = false
+    var policy: Runnable? = null
     val cancelled = AtomicBoolean(false)
     var settled = false
     var file: File? = null
@@ -110,18 +113,18 @@ class PorticoVideoSnapshot(context: ReactApplicationContext) : ReactContextBaseJ
       val bitmap = try { Bitmap.createBitmap(maxOf(1, floor(w * scale).toInt()), maxOf(1, floor(h * scale).toInt()), Bitmap.Config.ARGB_8888) }
       catch (_: Exception) { null } catch (_: OutOfMemoryError) { null }
       if (bitmap == null) { promise.reject("snapshot_unavailable", "Video frame allocation failed."); return@post }
-      val work = Capture(id, target, promise, bitmap)
+      val work = Capture(id, target, promise, bitmap, source)
       flight = work
       work.timeout = Runnable { cancel(work, "snapshot_timeout") }
       work.expiry = Runnable { cancel(work, "snapshot_expired") }
       work.detach = object : View.OnAttachStateChangeListener {
         override fun onViewAttachedToWindow(view: View) {}
-        override fun onViewDetachedFromWindow(view: View) { cancel(work, "snapshot_stale") }
+        override fun onViewDetachedFromWindow(view: View) { if (!work.passive) cancel(work, "snapshot_stale") }
       }
       work.surface = object : SurfaceHolder.Callback {
-        override fun surfaceCreated(holder: SurfaceHolder) { cancel(work, "snapshot_stale") }
-        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) { cancel(work, "snapshot_stale") }
-        override fun surfaceDestroyed(holder: SurfaceHolder) { cancel(work, "snapshot_stale") }
+        override fun surfaceCreated(holder: SurfaceHolder) { if (!work.passive) cancel(work, "snapshot_stale") }
+        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) { if (!work.passive) cancel(work, "snapshot_stale") }
+        override fun surfaceDestroyed(holder: SurfaceHolder) { if (!work.passive) cancel(work, "snapshot_stale") }
       }
       target.surface.addOnAttachStateChangeListener(work.detach)
       target.surface.holder.addCallback(work.surface)
@@ -153,7 +156,7 @@ class PorticoVideoSnapshot(context: ReactApplicationContext) : ReactContextBaseJ
     if (flight === work) flight = null
     val width = work.bitmap.width; val height = work.bitmap.height
     work.bitmap.recycle()
-    if (error != null || work.cancelled.get() || !current(work.target)) {
+    if (error != null || work.cancelled.get() || (work.target?.let { !current(it) } ?: true)) {
       file?.delete()
       cancel(work, error ?: "snapshot_stale")
       unlisten(work)
@@ -169,18 +172,62 @@ class PorticoVideoSnapshot(context: ReactApplicationContext) : ReactContextBaseJ
     })
   }
 
+  private fun detachSource(work: Capture) {
+    work.target?.surface?.removeOnAttachStateChangeListener(work.detach)
+    work.target?.surface?.holder?.removeCallback(work.surface)
+  }
   private fun unlisten(work: Capture) {
-    work.target.surface.removeOnAttachStateChangeListener(work.detach)
-    work.target.surface.holder.removeCallback(work.surface)
+    detachSource(work)
     main.removeCallbacks(work.expiry)
+    work.policy?.let { main.removeCallbacks(it) }; work.policy = null
+  }
+
+  @ReactMethod fun addListener(eventName: String) { /* RN event subscription bookkeeping. */ }
+  @ReactMethod fun removeListeners(count: Double) { /* No capture authority comes from listeners. */ }
+
+  /** Transfer only already-encoded pixels. Original expiry is never restarted. */
+  @ReactMethod fun retainForExit(id: String, raw: ReadableMap, promise: Promise) {
+    val expected = try { raw.toHashMap() } catch (_: Exception) { null }
+    main.post {
+      val work = retained
+      val target = work?.target
+      @Suppress("UNCHECKED_CAST") val binding = expected?.get("binding") as? Map<String, Any?>
+      val tag = (expected?.get("reactTag") as? Number)?.toDouble()
+      val full = binding?.toMutableMap()?.apply { put("lease", expected?.get("lease")) }
+      // Resolve the same view and ask its ORIGINAL current-source predicate again.
+      val view = if (tag != null && tag > 0 && tag <= Int.MAX_VALUE && tag == floor(tag))
+        try { UIManagerHelper.getUIManagerForReactTag(reactApplicationContext, tag.toInt())?.resolveView(tag.toInt()) } catch (_: Exception) { null } else null
+      val offered = try { when {
+        expected?.get("engine") == "native" && view is PorticoPlayerView && full != null -> view.snapshotTarget(full)
+        expected?.get("engine") == "mpv" && view is PorticoMpvPlayerView && full != null -> view.snapshotTarget(full)
+        else -> null
+      } } catch (_: Exception) { null }
+      if (work == null || work.id != id || expected != work.source || !work.settled || work.passive || work.cancelled.get() || work.file?.isFile != true || target == null ||
+          offered == null || offered.surface !== target.surface || !current(target) || !current(offered)) { promise.resolve(false); return@post }
+      work.passive = true
+      detachSource(work); work.target = null; work.source = null // No renderer/player/lease survives this transfer.
+      val policy = object : Runnable {
+        override fun run() {
+          if (retained !== work || work.cancelled.get()) return
+          if (!allowed()) { cancel(work, "snapshot_stale"); return }
+          main.postDelayed(this, 50) // Resource-policy revocation, not playback or animation timing.
+        }
+      }
+      work.policy = policy; main.post(policy)
+      promise.resolve(true)
+    }
   }
 
   private fun cancel(work: Capture, code: String) {
-    work.cancelled.set(true)
+    if (work.cancelled.getAndSet(true)) return
     main.removeCallbacks(work.timeout)
     unlisten(work)
     work.file?.delete(); work.file = null
     if (retained === work) retained = null
+    if (work.passive) try {
+      reactApplicationContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+        .emit("PorticoVideoSnapshotRetired", Arguments.createMap().apply { putString("id", work.id) })
+    } catch (_: Exception) { /* File cleanup does not depend on a live JS bridge. */ }
     if (!work.settled) { work.settled = true; work.promise.reject(code, "The video capture is no longer available.") }
     // PixelCopy has no cancellation API. Keep flight occupied and its bitmap alive until callback/encode completion.
   }

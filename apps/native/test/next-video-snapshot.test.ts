@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {NativeModules, Platform} from './react-native-stub.mjs';
+import {NativeModules, Platform, emit} from './react-native-stub.mjs';
 import {createVideoSnapshotCapture, VideoSnapshotError, type VideoSnapshotSource} from '../src-next/platform/video-snapshot.ts';
 const modules = NativeModules as unknown as Record<string, unknown>;
 const source: VideoSnapshotSource = {reactTag: 42, engine: 'native', lease: 'lease-A', binding: {intentId: 3, sessionId: 'session-A', generation: 7, itemId: 'item-A'}};
@@ -156,3 +156,61 @@ test('native source protocol copies only current leased surfaces with bounded, p
   assert.match(mpv, /surfaceOwner !== owner \|\| surface !== target/);
   assert.match(mpv, /loadEpoch, core/);
 });
+
+
+// File ownership vectors only: native pixel/policy behavior requires containing-device checks.
+test('only a live settled original can transfer once; source cancel cannot release claimed file pixels', () => withBridge(async () => {
+  let id = '', current = true, captures = 0, claims = 0, releases = 0;
+  modules.PorticoVideoSnapshot = {
+    capture: async (value: string) => {id = value;captures++;return image(value);},
+    release: async () => {releases++;return true;}, addListener() {}, removeListeners() {},
+    retainForExit: async (value: string, offered: VideoSnapshotSource) => {claims++;assert.equal(value, id);assert.deepEqual(offered, source);return true;},
+  };
+  const helper = createVideoSnapshotCapture({isCurrent: () => current}), frame = await helper.capture(source);
+  const retained = await frame.retainForExit!();assert.ok(retained);
+  assert.equal(await frame.retainForExit!(), undefined);assert.equal(claims, 1);
+  current = false;helper.cancel();await frame.release();
+  assert.equal(releases, 0);assert.equal(retained.signal.aborted, false);assert.equal(captures, 1);
+  emit('PorticoVideoSnapshotRetired', {id: 'successor-id'});assert.equal(retained.signal.aborted, false);
+  emit('PorticoVideoSnapshotRetired', {id});assert.equal(retained.signal.aborted, true);
+  await Promise.all([retained.release(), retained.release()]);assert.equal(releases, 1);
+  helper.dispose();
+}));
+
+test('retirement before transfer declines without native call; retirement during transfer releases its exact file', () => withBridge(async () => {
+  let current = true, claims = 0, releases = 0;
+  const admission = deferred<boolean>();
+  modules.PorticoVideoSnapshot = {capture: async (id: string) => image(id), release: async () => {releases++;return true;},
+    addListener() {}, removeListeners() {}, retainForExit: () => {claims++;return admission.promise;}};
+  const helper = createVideoSnapshotCapture({isCurrent: () => current}), frame = await helper.capture(source);
+  current = false;assert.equal(await frame.retainForExit!(), undefined);assert.equal(claims, 0);
+  current = true;const pending = frame.retainForExit!();current = false;admission.resolve(true);
+  assert.equal(await pending, undefined);assert.equal(releases, 1);
+  // Failed claim has spent/released this file; it cannot be retained afterwards.
+  current = true;assert.equal(await frame.retainForExit!(), undefined);
+  helper.dispose();
+}));
+
+test('native refusal, missing transfer API and disposal cannot create passive permission or a second capture', () => withBridge(async () => {
+  let captures = 0, releases = 0;
+  modules.PorticoVideoSnapshot = {capture: async (id: string) => {captures++;return image(id);},release: async () => {releases++;return true;}};
+  const helper = createVideoSnapshotCapture({isCurrent: () => true}), unavailable = await helper.capture(source);
+  assert.equal(await unavailable.retainForExit!(), undefined);await unavailable.release();
+  modules.PorticoVideoSnapshot = {capture: async (id: string) => {captures++;return image(id);}, release: async () => {releases++;return true;},
+    addListener() {},removeListeners() {},retainForExit: async () => true};
+  const frame = await helper.capture(source), passive = await frame.retainForExit!();assert.ok(passive);
+  await assert.rejects(helper.capture(source), failure('snapshot_busy'));
+  helper.dispose();assert.equal(passive.signal.aborted, true);await passive.release();
+  assert.equal(captures, 2);assert.equal(releases, 2);
+}));
+
+
+test('source cancellation promptly declines a hung transfer without delaying on native release', () => withBridge(async () => {
+  let releases = 0;
+  modules.PorticoVideoSnapshot = {capture: async (id: string) => image(id),
+    release: () => {releases++;return new Promise<boolean>(() => {});},addListener() {},removeListeners() {},
+    retainForExit: () => new Promise<boolean>(() => {})};
+  const helper = createVideoSnapshotCapture({isCurrent: () => true}), frame = await helper.capture(source);
+  const claim = frame.retainForExit!();helper.cancel();
+  assert.equal(await claim, undefined);assert.equal(releases, 1);helper.dispose();
+}));

@@ -89,7 +89,16 @@ export type NativePlaybackSurfaceProps = Readonly<{
   /** Composition only: a retained current-fence image may cover the live producer without unmounting it. */
   surfaceActive: boolean;
 }>;
-export type NativePlaybackVideoSnapshot = Readonly<{fence: PlaybackFence; image: Readonly<{uri: string; width: number; height: number}>; release: () => Promise<void>}>;
+export type NativePlaybackVideoExitImage = Readonly<{
+  fence: PlaybackFence; image: Readonly<{uri: string; width: number; height: number}>;
+  signal: AbortSignal; paintCurrent(): boolean; subscribe(listener: () => void): () => void;
+  release(): Promise<void>;
+}>;
+export type NativePlaybackVideoSnapshot = Readonly<{
+  fence: PlaybackFence; image: Readonly<{uri: string; width: number; height: number}>; release: () => Promise<void>;
+  /** Claim only while the original mini video and captured page are current. Never re-captures. */
+  retainForExit?: () => Promise<NativePlaybackVideoExitImage | undefined>;
+}>;
 export type NativePlaybackSettings = Readonly<{
   passthroughFormats?: import('./passthrough-formats').PassthroughFormats;
   /** Android display matching; absent is the platform's existing Automatic behavior. */
