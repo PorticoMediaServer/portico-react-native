@@ -15,7 +15,7 @@ import {AmbientArt} from '../../kit/artwork';
 import {FocusItem, FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {WindowedGrid, type LayoutSelection} from '../../kit/layout';
 import {Icon} from '../../kit/Icon';
-import {SkeletonBlock, StateView} from '../../kit/states';
+import {LoadingBoundary, SkeletonBlock, StateView} from '../../kit/states';
 import {nativeType, useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {authorityKey} from '../../shell/model';
@@ -48,7 +48,9 @@ export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen,
     if (registry.focus({regionId: gridId, childId: 'play'})) entered.current = true;
   }, [active, focusRevision, gridId, registry, state.phase, theme.isTV]);
   if (state.phase === 'error') return <StateView {...runtime.error(state.error, () => {void controller.load();})} variant="centered"/>;
-  if (!state.row || !state.capabilities || !state.sort) return <View style={{flex: 1, padding: theme.isTV ? 200 : 20}}><SkeletonBlock width="65%" height={theme.isTV ? 62 : 32}/></View>;
+  if (!state.row || !state.capabilities || !state.sort) return <View style={{flex: 1, padding: theme.isTV ? 200 : 20}}>
+    <LoadingBoundary ready={false} skeleton={<SkeletonBlock width="65%" height={theme.isTV ? 62 : 32}/>}/>
+  </View>;
   const row = state.row;
   const model = browseToolbarModel(state.capabilities, 'movies', state.filters, state.sort, {t: runtime.text.t, locale: runtime.text.locale,
     textEntry: !theme.isTV, scope: 'group', owner: runtime.getSnapshot().account.viewerRole === 'owner'});

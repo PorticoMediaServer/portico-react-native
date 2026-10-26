@@ -4,6 +4,7 @@ export {CountdownRing, type CountdownRingProps} from './CountdownRing';
 export {StateSentence, type StateSentenceId, type StateSentenceProps} from './StateSentence';
 export {DetailsPanel, type DetailsPanelProps, type StateFact, type OwnerStateDetails} from './DetailsPanel';
 export {SkeletonBlock, type SkeletonBlockProps} from './SkeletonBlock';
+export {LoadingBoundary, type LoadingBoundaryProps} from './LoadingBoundary';
 export {HomeSkeleton, type HomeSkeletonProps, type PressedSkeletonContent} from './HomeSkeleton';
 export {TitleSkeleton, type TitleSkeletonProps} from './TitleSkeleton';
 export {GridSkeleton, type GridSkeletonProps} from './GridSkeleton';
