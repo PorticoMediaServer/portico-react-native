@@ -28,12 +28,27 @@ export {homeBrowseLabel};
 
 /** Requested row only. Membership IDs locate grid cells; displayed episodes and
  * their actual playback targets retain their independent server identities. */
-export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen, onPlayEntry, onMenu, onFilters, onReshuffle, kindLabel, selection}: {
+type HomeSeeAllProps = {
   controller: NativeHomeRowController; runtime: NativeShellRuntime; active: boolean;
   onBack: () => void; onPlay: (shuffle: boolean) => void; onOpen: (entry: ContentEntry) => void; onPlayEntry: (entry: ContentEntry, current: () => boolean) => void;
   onMenu?: (entry: ContentEntry, anchor: RefObject<View | null>) => void; onFilters: () => void; onReshuffle: () => void;
   kindLabel: (id: string) => string; selection?: LayoutSelection;
-}) {
+};
+
+/** One boundary stays mounted across loading and ready, so the content's own fade
+ * can run; the error branch stays immediate and unchanged. */
+export function HomeSeeAll(props: HomeSeeAllProps) {
+  const runtime = props.runtime, theme = useTheme();
+  const state = useSyncExternalStore(props.controller.subscribe, props.controller.getSnapshot);
+  useEffect(() => {void props.controller.load();}, [props.controller]);
+  if (state.phase === 'error') return <StateView {...runtime.error(state.error, () => {void props.controller.load();})} variant="centered"/>;
+  const loading = !state.row || !state.capabilities || !state.sort;
+  return <LoadingBoundary ready={!loading} immediate={!loading} skeleton={<View style={{flex: 1, padding: theme.isTV ? 200 : 20}}><SkeletonBlock width="65%" height={theme.isTV ? 62 : 32}/></View>}>
+    {!loading && <HomeSeeAllReady {...props}/>}
+  </LoadingBoundary>;
+}
+
+function HomeSeeAllReady({controller, runtime, active, onBack, onPlay, onOpen, onPlayEntry, onMenu, onFilters, onReshuffle, kindLabel, selection}: HomeSeeAllProps) {
   const theme = useTheme(), registry = useFocusRegistry(), t = runtime.text.t, labels = {t, has: defaultI18n.has};
   const window = useWindowDimensions(), [view, setView] = useState<'grid' | 'list'>('grid'), [collapsed, setCollapsed] = useState(false), [headerHeight, setHeaderHeight] = useState(0),
     list = !theme.isTV && view === 'list';
@@ -42,15 +57,12 @@ export function HomeSeeAll({controller, runtime, active, onBack, onPlay, onOpen,
   const data = useSyncExternalStore(controller.collection.subscribe, controller.collection.getSnapshot);
   const entered = useRef(false), gridId = `home-see-all:${authorityKey(runtime.getSnapshot().authority)}:${controller.rowId}`;
   const focusRevision = useSyncExternalStore(registry.subscribe, registry.getSnapshot);
-  useEffect(() => {void controller.load();}, [controller]);
   useEffect(() => {
     if (!theme.isTV || !active || entered.current || state.phase !== 'ready' || !registry.child({regionId: gridId, childId: 'play'})) return;
     if (registry.focus({regionId: gridId, childId: 'play'})) entered.current = true;
   }, [active, focusRevision, gridId, registry, state.phase, theme.isTV]);
-  if (state.phase === 'error') return <StateView {...runtime.error(state.error, () => {void controller.load();})} variant="centered"/>;
-  if (!state.row || !state.capabilities || !state.sort) return <View style={{flex: 1, padding: theme.isTV ? 200 : 20}}>
-    <LoadingBoundary ready={false} skeleton={<SkeletonBlock width="65%" height={theme.isTV ? 62 : 32}/>}/>
-  </View>;
+  // The outer boundary owns error/loading presentation; this ready view only narrows its props.
+  if (state.phase === 'error' || !state.row || !state.capabilities || !state.sort) return null;
   const row = state.row;
   const model = browseToolbarModel(state.capabilities, 'movies', state.filters, state.sort, {t: runtime.text.t, locale: runtime.text.locale,
     textEntry: !theme.isTV, scope: 'group', owner: runtime.getSnapshot().account.viewerRole === 'owner'});
