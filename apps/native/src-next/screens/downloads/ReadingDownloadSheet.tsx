@@ -151,8 +151,8 @@ export function NativeReadingDownloadSheet({context, request}: {context: NativeS
           style={side
             ? {minHeight: 78, marginBottom: 10, borderRadius: 14, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14, opacity: available ? 1 : .5,
                 backgroundColor: selectedVersionId ? alpha(theme.colors.accent, .16) : theme.colors.raisedHigh}
-            : {minHeight: 64, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', opacity: available ? 1 : .5,
-                backgroundColor: theme.colors.raised, borderWidth: selectedVersionId ? 1 : 0, borderColor: theme.colors.accent}}>
+            : {minHeight: 64, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 12, opacity: available ? 1 : .5,
+                backgroundColor: theme.colors.raisedHigh, borderWidth: selectedVersionId ? 1.5 : 0, borderColor: alpha(theme.colors.accentStrong, .75)}}>
           {side && selectedVersionId ? <View pointerEvents="none" accessible={false}
             style={{position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, borderRadius: 14, borderWidth: 2, borderColor: alpha(theme.colors.accentStrong, .7)}}/> : null}
           {side ? <View style={{width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 2,
@@ -162,8 +162,12 @@ export function NativeReadingDownloadSheet({context, request}: {context: NativeS
           {side
             ? <><Text style={[browseType(theme, 16, 800), {color: theme.colors.text, flex: 1}]}>{version.format.toUpperCase()}</Text>
                 <Text style={[browseType(theme, 14.5, 700), {color: theme.colors.textSecondary}]}>{downloadBytes(version.size)}</Text></>
-            : <><View><Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{version.format.toUpperCase()}</Text><Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{downloadBytes(version.size)}</Text></View>
-                {selectedVersionId && <Icon name="i-check" size={20} color={theme.colors.text}/>}</>}
+            : <><View style={{width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', borderWidth: 2,
+                borderColor: selectedVersionId ? theme.colors.accentStrong : theme.colors.lineStrong}}>
+                {selectedVersionId ? <View style={{width: 10, height: 10, borderRadius: 5, backgroundColor: theme.colors.accentStrong}}/> : null}
+              </View>
+                <Text style={[browseType(theme, 15, 700), {color: theme.colors.text, flex: 1}]}>{version.format.toUpperCase()}</Text>
+                <Text style={[browseType(theme, 13, 700), {color: theme.colors.textSecondary}]}>{downloadBytes(version.size)}</Text></>}
         </Focusable>;
       })}
       {freeBytes !== undefined && <Text style={side ? [browseType(theme, 13.5, 400), {color: theme.colors.textTertiary, marginTop: 6}] : [theme.type.caption, {color: theme.colors.textTertiary}]}>{t(theme.platform === 'phone' ? 'next.saved.phone.free' : 'downloads.freeOnDevice', {size: downloadBytes(freeBytes)})}</Text>}
