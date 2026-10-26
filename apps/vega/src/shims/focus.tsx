@@ -118,8 +118,6 @@ type GuideProps = React.ComponentProps<typeof Vega.TVFocusGuideView>;
 type GuideNode = React.ComponentRef<typeof Vega.TVFocusGuideView>;
 
 const HISTORY = 24;
-/** How long after a screen comes to the front a wrong first landing is still put right. */
-const CORRECT_MS = 700;
 
 /**
  * A guide that, when `managing`, chooses where focus goes when it enters. (One component either
@@ -155,20 +153,17 @@ const Remembering = forwardRef<GuideNode, GuideProps & {reachable: boolean; mana
   state.current.front = front;
   const inner = useRef(0);
   const seeking = useRef<(() => void) | undefined>(undefined);
-  const frontSince = useRef(0);
   const pending = useRef(false);
   const decide = useCallback(() => {
     pending.current = false;
     // Never while a field is being typed into: the keyboard has focus then.
     if (!state.current.mounted || !state.current.front || inner.current > 0 || seeking.current || keyboardHasBack()) return;
-    const correcting = () => Date.now() - frontSince.current < CORRECT_MS;
-    if (holder && !(correcting() && members.current.has(holder))) return;
+    // Anything already holding focus is left exactly where it is. A landing inside this region is
+    // the viewer's or the native guide's, and a window in which it could still be "put right" is
+    // the second manager that used to take a valid in-region landing away.
+    if (holder) return;
     const intended = chosen();
-    const settled = () => {
-      if (!holder) return false;
-      if (holder === (intended ?? chosen()) || !members.current.has(holder)) return true;
-      return !correcting();
-    };
+    const settled = () => !!holder;
     // One request. The guide owns where focus goes when it enters, so nothing re-asserts a landing
     // afterwards: a repeated correction is what used to pull focus back off a control the viewer
     // had already moved to.
@@ -207,7 +202,6 @@ const Remembering = forwardRef<GuideNode, GuideProps & {reachable: boolean; mana
   }, [parent, chosen, claim]);
   useEffect(() => {
     if (!front) return;
-    frontSince.current = Date.now();
     for (let around = parent; around; around = around.parent) around.fronts(1);
     claim();
     // The screen that was in front may still hold focus until it has gone.
