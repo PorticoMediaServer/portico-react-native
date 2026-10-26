@@ -7,31 +7,29 @@ import type {ReadNativeHost} from './ReadNativeHost';
 import {nativeReadHost} from './host-component';
 
 type ReadTarget = Extract<NativeShellRoute, {kind: 'read'}>;
-const targetKey = (target: ReadTarget) => JSON.stringify([target.itemId, target.sourceId, target.downloadId, target.expectedSourceRevision, target.contentsTarget?.sourceRevision, target.contentsTarget?.index]);
 type Preferences = React.ComponentProps<typeof ReadNativeHost>['preferences'];
+/** One host per retained read route. A reader opened from search results is a
+ * second route, never a replacement for the one the person was already reading;
+ * each keeps its own guest and session until its own route is retired. */
 export function createNativeReadRenderer(context: NativeShellBootstrapContext, preferences: Preferences, openSettings: () => void): NativeRouteRenderer {
   if (Platform.isTV) throw new Error('native_read_unavailable');
   const Host = nativeReadHost();
-  let alive = true, target: ReadTarget | undefined;
+  let alive = true, sequence = 0;
+  const hosts = new Map<ReadTarget, number>();
   const reconcile = () => {
-    if (!alive || !context.current()) {target = undefined; return;}
-    const route = context.navigation.getSnapshot().route;
-    // Root54: the reader's own Search all books is pushed above it, and the guest
-    // that sent it must still be the same retained host when Back returns. Settings
-    // already survives the same way; any other route retires the target.
-    const aboveReader = route.kind === 'settings-page' || route.kind === 'search-reading';
-    if (route.kind === 'read') {
-      if (!target || targetKey(target) !== targetKey(route)) target = route;
-    } else if (!aboveReader || !context.navigation.retainedRoutes().some(value => value === target)) target = undefined;
+    if (!alive || !context.current()) {hosts.clear(); return;}
+    const retained = new Set<NativeShellRoute>([...context.navigation.retainedRoutes(), context.navigation.getSnapshot().route]);
+    for (const route of [...hosts.keys()]) if (!retained.has(route)) hosts.delete(route);
+    for (const route of retained) if (route.kind === 'read' && !hosts.has(route)) hosts.set(route, ++sequence);
   };
   return {
     render(route) {if (route.kind !== 'read') throw new Error('native_read_route_mismatch'); reconcile(); return null;},
     renderRetained() {
-      reconcile(); if (!target) return null;
-      const active = context.navigation.getSnapshot().route.kind === 'read';
-      return <Host key={targetKey(target)} context={context} target={target} active={active} preferences={preferences}
-        onBack={() => {if (context.current()) context.navigation.back(context.authority());}} onOpenSettings={openSettings}/>;
+      reconcile();
+      const current = context.navigation.getSnapshot().route;
+      return <>{[...hosts].map(([route, key]) => <Host key={key} context={context} target={route} active={current === route} preferences={preferences}
+        onBack={() => {if (context.current()) context.navigation.back(context.authority());}} onOpenSettings={openSettings}/>)}</>;
     },
-    dispose() {alive = false; target = undefined;},
+    dispose() {alive = false; hosts.clear();},
   };
 }

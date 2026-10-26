@@ -170,7 +170,9 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
           if (!current() || signal.aborted) return false;
           let liveNow = false;
           try {liveNow = isLive();} catch {liveNow = false;}
-          if (!liveNow) return false;
+          // The host's own activity can lag a navigation commit, so the shell must
+          // currently be on this exact captured target, not a retained or borrowed route.
+          if (!liveNow || context.navigation.getSnapshot().route !== target) return false;
           const destination: NativeShellRoute = {kind: 'search-reading', query};
           return context.navigation.allows(destination) && context.navigation.open(destination, context.authority());
         },

@@ -45,17 +45,15 @@ export function ReadingSearchScreen({port, runtime, query, onBack}: Readonly<{
       <Text style={[browseType(theme, 12.5, 500), {color: theme.colors.textTertiary, marginHorizontal: 20, marginTop: 8, marginBottom: 10}]}>{t('next.reader.indexedSearchScope')}</Text>
     </View>
     {state.phase === 'error' ? <StateView {...runtime.error(state.error, () => {if (state.query) port.search(state.query);})}/>
-      : state.phase === 'stale' ? <StateView variant="search" title={t('next.states.pageFailed')} body={t('next.states.pageFailedBody')}
-        primaryAction={{id: 'search', label: t('next.states.tryAgain'), onPress: () => port.search(text)}}/>
-        : <FlatList ref={list} style={{flex: 1}} data={rows ?? []} keyExtractor={key} keyboardShouldPersistTaps="handled"
-          onLayout={event => setViewport(event.nativeEvent.layout)} contentContainerStyle={{paddingHorizontal: 12, paddingBottom: insets.bottom + 24}}
-          renderItem={({item}) => <HitRow hit={item} runtime={runtime} onOpen={() => {void port.open(item).catch(runtime.reportError);}}/>}
-          onEndReached={() => {if (state.phase === 'ready') port.more();}}
-          ListEmptyComponent={rows === undefined
-            ? <GridSkeleton elapsedMs={elapsed} scrollOffset={0} viewportHeight={viewport.height} width={viewport.width} totalCount={6} columns={1}/>
-            : state.phase === 'ready' ? <StateView variant="search" title={t('next.reader.noIndexedMatches')} body={t('next.reader.indexedSearchScope')}/> : null}
-          ListFooterComponent={state.phase === 'more' ? <GridSkeleton elapsedMs={0} scrollOffset={0} viewportHeight={viewport.height} width={viewport.width} totalCount={2} columns={1}/>
-            : state.phase === 'ready' && state.error ? <StateView variant="search" {...runtime.error(state.error, () => port.more())}/> : null}/>}
+      : <FlatList ref={list} style={{flex: 1}} data={rows ?? []} keyExtractor={key} keyboardShouldPersistTaps="handled"
+        onLayout={event => setViewport(event.nativeEvent.layout)} contentContainerStyle={{paddingHorizontal: 12, paddingBottom: insets.bottom + 24}}
+        renderItem={({item}) => <HitRow hit={item} runtime={runtime} onOpen={() => port.open(item)}/>}
+        onEndReached={() => {if (state.phase === 'ready' && !state.moreError) port.more();}}
+        ListEmptyComponent={rows === undefined
+          ? <GridSkeleton elapsedMs={elapsed} scrollOffset={0} viewportHeight={viewport.height} width={viewport.width} totalCount={6} columns={1}/>
+          : state.phase === 'ready' ? <StateView variant="search" title={t('next.reader.noIndexedMatches')} body={t('next.reader.indexedSearchScope')}/> : null}
+        ListFooterComponent={state.phase === 'more' ? <GridSkeleton elapsedMs={0} scrollOffset={0} viewportHeight={viewport.height} width={viewport.width} totalCount={2} columns={1}/>
+          : state.phase === 'ready' && state.moreError ? <StateView variant="search" {...runtime.error(state.moreError, () => port.retry())}/> : null}/>}
   </View>;
 }
 
