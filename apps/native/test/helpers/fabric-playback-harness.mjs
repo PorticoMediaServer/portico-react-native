@@ -105,6 +105,7 @@ export async function fabricPlayback(runtime, tv = true, watch, withShell = fals
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
     './listening-presentation': {expandedListeningOccupant},
     '../kit/dock/video-exit-paint': {DockVideoExitImages},
+    '../kit/dock/DockHandover': {DockVideoExitProvider: Container, DockVideoExitCanvas: () => null},
     '../kit/dock/InitialPicturePresentation': {InitialPicturePresentation: 'InitialPicturePresentation'},
     '../kit/dock/initial-picture-model': {initialPictureKey: () => 'initial-picture'},
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},...common,

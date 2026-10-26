@@ -10,7 +10,7 @@ type CaptureOptions = Readonly<{
 /** One adapter/authority owner. Clearing cancels pending work and retires its actual image. */
 export class NativeVideoSnapshotCapture {
   private retained: NativeShellVideoSnapshot | undefined;
-  private pending: {fence: PlaybackFence; controller: AbortController} | undefined;
+  private pending: {fence: PlaybackFence; controller: AbortController; optional: boolean} | undefined;
   private operation = 0;
   private retiring: Promise<void> = Promise.resolve();
   private inFlight: Promise<void> | undefined;
@@ -35,13 +35,15 @@ export class NativeVideoSnapshotCapture {
     return this.retiring;
   }
 
-  prepare(fence: PlaybackFence, isCurrent: () => boolean): Promise<void> {
+  prepare(fence: PlaybackFence, isCurrent: () => boolean, begin?: () => boolean): Promise<void> {
     if (this.retained && sameFence(this.retained.fence, fence)) return Promise.resolve();
-    if (this.pending && sameFence(this.pending.fence, fence)) return this.inFlight ?? Promise.resolve();
+    if (this.pending && sameFence(this.pending.fence, fence) && (!this.pending.optional || begin)) return this.inFlight ?? Promise.resolve();
+    // A normal layout/direct-input request takes priority over optional idle
+    // prefetch. Clearing cancels that original run; it never rebinds its guard.
     const retiring = this.clear(), epoch = this.operation, controller = new AbortController();
     const current = () => !controller.signal.aborted && epoch === this.operation && isCurrent();
-    this.pending = {fence, controller};
-    const work: Promise<void> = retiring.then(() => current() ? this.options.capture(fence, {signal: controller.signal}) : undefined).then(async image => {
+    this.pending = {fence, controller, optional: begin !== undefined};
+    const work: Promise<void> = retiring.then(() => current() && (begin?.() ?? true) ? this.options.capture(fence, {signal: controller.signal}) : undefined).then(async image => {
       if (!image) return;
       if (!current() || !sameFence(image.fence, fence)) {await this.release(image); return;}
       this.retained = image; this.options.changed(this, image);

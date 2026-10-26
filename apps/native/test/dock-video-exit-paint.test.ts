@@ -58,3 +58,49 @@ test('resized geometry and disposal reject original pixels without retargeting t
   r.store.dispose(); await Promise.resolve(); await Promise.resolve();
   assert.equal(r.releases, 1);
 });
+
+test('effect replay clears old claims but a fresh captured frame can serve the still-live original scope', async () => {
+  const r = rig(), pending = r.offer();
+  r.store.clear(); r.finish(); await pending; await Promise.resolve();
+  assert.equal(r.store.take(fence, bounds), undefined);
+  assert.equal(r.releases, 1);
+  let freshClaims = 0, freshReleases = 0;
+  const image = {...r.grant.image, uri: 'file:///fresh-original'};
+  const grant = {...r.grant, image, release: async () => {freshReleases++;}};
+  const frame = {fence, image, retainForExit: async () => {freshClaims++; return grant;}};
+  await r.store.offer(frame, true, bounds, () => true);
+  const retained = r.store.take(fence, bounds);
+  assert.ok(retained); assert.equal(freshClaims, 1);
+  r.store.dispose(); await Promise.resolve(); await Promise.resolve();
+  assert.equal(retained.paintCurrent(), false); assert.equal(freshReleases, 1);
+  await r.store.offer({...frame}, true, bounds, () => true);
+  assert.equal(freshClaims, 1, 'a genuinely disposed owner never reactivates');
+});
+
+test('retiring an unused old file preserves a pending claim for the actual current source', async () => {
+  const r = rig(), first = r.offer(); r.finish(); await first;
+  const nextFence = {...fence, generation: 2}, image = {...r.grant.image, uri: 'file:///second-original'};
+  let resolve!: (value: typeof grant) => void;
+  const grant = {...r.grant, fence: nextFence, image, signal: new AbortController().signal, release: async () => {}};
+  const frame = {fence: nextFence, image, retainForExit: () => new Promise<typeof grant>(done => {resolve = done;})};
+  const pending = r.store.offer(frame, true, bounds, () => true);
+  r.store.retireUnconsumed(nextFence); await Promise.resolve(); await Promise.resolve();
+  assert.equal(r.releases, 1);
+  resolve(grant); await pending;
+  assert.ok(r.store.take(nextFence, bounds));
+  r.store.dispose();
+});
+
+
+test('the exit canvas keeps the original measured conversion and refuses host relayout', async () => {
+  const r = rig(); let hostCurrent = true;
+  const local = {x: 20, y: 690, width: 80, height: 45};
+  const pending = r.store.offer(r.captured, true, bounds, () => true, {bounds: local, current: () => hostCurrent});
+  r.finish(); await pending;
+  const paint = r.store.take(fence, bounds); assert.ok(paint);
+  assert.deepEqual(paint.canvasBounds, local);
+  assert.notEqual(paint.canvasBounds, local);
+  hostCurrent = false;
+  assert.equal(paint.paintCurrent(), false, 'neither a successor host nor its rectangle can be substituted');
+  await paint.release(); assert.equal(r.releases, 1);
+});

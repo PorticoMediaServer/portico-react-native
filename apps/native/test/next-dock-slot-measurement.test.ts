@@ -24,7 +24,7 @@ function elements(node: any): any[] {
   return React.isValidElement<any>(node) ? [node, ...['children', 'row', 'opener', 'art', 'words', 'controls', 'tools', 'line'].flatMap(key => elements(node.props[key]))] : [];
 }
 async function rig(reduced = false) {
-  const timings: Timing[] = [], cancelled: object[] = [], deliveries: DockRect[] = [];
+  const timings: Timing[] = [], cancelled: object[] = [], deliveries: DockRect[] = [], proofs: (() => boolean)[] = [];
   const measurements: {rect: DockRect; deliver: (rect?: DockRect) => void}[] = [];
   const chain: any = new Proxy({}, {get: () => () => chain});
   let motion = {transforms: !reduced, timing: () => ({duration: reduced ? 160 : 180}), spring: () => undefined};
@@ -72,7 +72,7 @@ async function rig(reduced = false) {
     './DockNotice': {DockNotice: 'DockNotice'}, './model': model, './visual': {alpha: () => '#000', dockStyles: {}}, './DockClearance': {useDockClearanceReport() {}}, './useDockPresence': {useDockPresence},
   });
   const dock = new PlaybackDock(scope);
-  let props: DockHostProps = {dock, snapshot: dock.getSnapshot(), presentation: {local: presentation}, onAction() {}, onVideoSlot: rect => deliveries.push(rect)};
+  let props: DockHostProps = {dock, snapshot: dock.getSnapshot(), presentation: {local: presentation}, onAction() {}, onVideoSlot: (rect, proof) => {deliveries.push(rect); if (proof) proofs.push(proof);}};
   let closed = false;
   let tree: any, barTree: any, barProps: any, barHost: ReturnType<typeof createHookHost> | undefined;
   let layout = {x: 24, y: 699.5, width: 80, height: 45};
@@ -107,7 +107,7 @@ async function rig(reduced = false) {
     await act(() => timing.complete?.(finished)); await sync();
   }
   function layoutEvent() {elements(barTree).find(node => node.props.collapsable === false).props.onLayout();}
-  return {dock, start, render, complete, layoutEvent, timings, measurements, deliveries, cancelled, translatedY,
+  return {dock, start, render, complete, layoutEvent, timings, measurements, deliveries, proofs, cancelled, translatedY,
     artNode, get tree() {return tree;}, get barTree() {return barTree;},
     layout(value: typeof layout) {layout = value;},
     async reduce(value: boolean) {motion = {...motion, transforms: !value}; await render();},
@@ -268,5 +268,26 @@ test('a touch occupant handover keeps settled glass in place and admits only the
     r.measurements.at(-1)!.deliver();
     assert.equal(r.deliveries.length, before + 1);
     assert.equal(r.translatedY(), 0);
+  } finally {r.close();}
+});
+
+
+// Authored UNRUN original-layout witness vector. No measured-device or native
+// snapshot-transfer acceptance follows from the controlled callback fixture.
+test('an admitted mini proof survives ordinary facts but not native relayout or source replacement', async () => {
+  const r = await rig();
+  try {
+    await r.start(); await r.complete();
+    r.measurements.at(-1)!.deliver();
+    const original = r.proofs.at(-1)!; assert.equal(original(), true);
+    r.dock.update({...video, positionSeconds: 76}); await r.render();
+    assert.equal(original(), true, 'callback replacement for live facts does not invent a new view opening');
+    r.layoutEvent();
+    assert.equal(original(), false, 'the original native layout witness retires before a new measurement reply');
+    r.measurements.at(-1)!.deliver();
+    const next = r.proofs.at(-1)!; assert.equal(next(), true);
+    assert.equal(original(), false, 'the old proof never adopts the new layout');
+    r.dock.start({...video, fence: {...fence, generation: 2}});
+    assert.equal(next(), false, 'a source change retires the witness even before React rerenders');
   } finally {r.close();}
 });
