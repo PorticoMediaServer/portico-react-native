@@ -10,7 +10,7 @@ import {Button, Chip, Focusable} from '../../../kit/controls';
 import {PosterCard, SquareCard} from '../../../kit/cards';
 import {Menu} from '../../../kit/overlays';
 import {StateView} from '../../../kit/states';
-import {FocusRegion} from '../../../kit/focus';
+import {FocusRegion, focusTestID} from '../../../kit/focus';
 import type {NativeSavedSelectionPort} from '../../saved/SavedScreen';
 import {browseType} from '../../../kit/browse/presentation';
 import {useTheme} from '../../../kit/theme';
@@ -141,7 +141,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   // relative to its own parent, so a parent's layout callback arriving later cannot bake a stale
   // offset into a card, and a sheet is retired with the scope that drew it.
   const page = useRef<ScrollView>(null), contentRoot = useRef<View>(null), [scrollY, setScrollY] = useState(0), [viewportHeight, setViewportHeight] = useState(1080), [contentHeight, setContentHeight] = useState(0);
-  const measured = useRef({scope: '', region: 0, body: 0, grids: new Map<'posters' | 'squares', number>(),
+  const measured = useRef({scope: '', grid: 0, body: 0, grids: new Map<'posters' | 'squares', number>(),
     cards: new Map<string, Readonly<{section: 'posters' | 'squares'; y: number}>>()});
   type JumpOpening = Readonly<{token: number; scope: string}>;
   const jump = useRef<JumpOpening | undefined>(undefined), jumpToken = useRef(0), jumpAlive = useRef(true);
@@ -200,7 +200,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   const owner = useRef<Readonly<{controller: unknown; authority: ShellAuthority}> | undefined>(undefined);
   const replaced = owner.current === undefined || owner.current.controller !== controller || !sameAuthority(owner.current.authority, authority);
   if (replaced) owner.current = {controller, authority};
-  if (replaced || measured.current.scope !== scope) measured.current = {scope, region: 0, body: 0, grids: new Map(), cards: new Map()};
+  if (replaced || measured.current.scope !== scope) measured.current = {scope, grid: 0, body: 0, grids: new Map(), cards: new Map()};
   if (jump.current && (replaced || jump.current.scope !== scope || !active.visible)) jump.current = undefined;
   const opening = jumpOpening && jump.current === jumpOpening && jumpOpening.scope === scope && active.visible ? jumpOpening : undefined;
   // The confirm retires with the query, the period, the destination revision, the authority or
@@ -266,7 +266,9 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   const jumpCurrent = (target: JumpOpening) => jumpAlive.current && jump.current === target && target.scope === scope && active.visible;
   const cardTop = (id: string): number | undefined => {
     const at = measurement.cards.get(id), grid = at ? measurement.grids.get(at.section) : undefined;
-    return at && grid !== undefined ? measurement.region + measurement.body + grid + at.y : undefined;
+    // The toolbar and the cards are siblings under the content root, so the cards region's own y
+    // is already the page-content offset: adding the toolbar's again would count it twice.
+    return at && grid !== undefined ? measurement.grid + measurement.body + grid + at.y : undefined;
   };
   const selectedLetter = (() => {
     if (!jumpLetters.length) return undefined;
@@ -326,11 +328,18 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
     : tab === 'history' ? (snapshot.entries[0] ? `saved-history-${encodeURIComponent(snapshot.entries[0].id)}` : undefined)
       : tab === 'playlists' ? (firstPlaylist ? `saved-tv-playlists-${firstPlaylist.id}` : undefined)
         : snapshot.resources[0] ? `saved-tv-${tab}-${snapshot.resources[0].id}` : undefined;
-  useDestinationEntryFocus(active, firstChild ? {regionId: ids.savedGrid, childId: firstChild} : undefined);
+  // An empty page draws its own Browse Home action, and that is where entry focus belongs when
+  // there is no card to land on: the same child the empty state gives its primary action.
+  const emptyEntry = !firstChild && snapshot.phase === 'ready'
+    && (tab === 'history' ? snapshot.entries.length === 0
+      : tab === 'watchlist' || tab === 'favorites' ? !posters.length && !squares.length : false)
+    ? focusTestID('saved-empty', JSON.stringify(['action', 'browse-home'])) : undefined;
+  const entryChild = firstChild ?? emptyEntry;
+  useDestinationEntryFocus(active, entryChild ? {regionId: ids.savedGrid, childId: entryChild} : undefined);
   useTVPageBack(runtime, {kind: 'saved'}, theme.isTV, {
     registerTop: true, scope: JSON.stringify([active.revision, tab, sort, filter, period]),
     current: () => activation.getSnapshot().visible,
-    start: () => firstChild ? {regionId: ids.savedGrid, childId: firstChild} : undefined,
+    start: () => entryChild ? {regionId: ids.savedGrid, childId: entryChild} : undefined,
     atTop: () => scrollY <= 0, scrollTop: () => page.current?.scrollTo({y: 0, animated: false}),
   });
   const sortLabel = sorts.find(value => value.id === sort)?.label ?? 'web.saved.sort.added';
@@ -344,8 +353,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
           enabled={active.visible} regionId={ids.savedGrid} edges={{up: ids.savedTabs, left: ids.rail}} select={route => {if (route.view === 'playlists') run(controller.select('playlists', {sort: route.sort, direction: route.direction, filter: route.filter}));}}
           openPlaylist={card => openSaved({view: 'playlist', playlistId: card.id})} openResource={value => openSaved({view: 'resource', resourceId: value.id})}/>
       </View> : <><FocusRegion id={ids.savedToolbar} enabled={active.visible} orientation="horizontal"
-        edges={{up: ids.savedTabs, down: ids.savedGrid, left: ids.rail}}
-        onLayout={event => {measurement.region = event.nativeEvent.layout.y;}}>
+        edges={{up: ids.savedTabs, down: ids.savedGrid, left: ids.rail}}>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 14, paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingTop: 24}}>
         {tab !== 'history' ? <>
           <Button focusId="saved-sort" ref={sortAnchor} variant="glass" icon="i-sort" size="compact" onPress={() => setSortOpen(true)} accessibilityLabel={t('saved.sort')}>{t(sortLabel)}</Button>
@@ -369,7 +377,8 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
       </FocusRegion>
       {/* The cards below the toolbar are their own region: a card remembers its column and row
           without the toolbar's controls sharing that memory, and Up from a card returns here. */}
-      <FocusRegion id={ids.savedGrid} enabled={active.visible} orientation="vertical" edges={{up: ids.savedToolbar, left: ids.rail}}>
+      <FocusRegion id={ids.savedGrid} enabled={active.visible} orientation="vertical" edges={{up: ids.savedToolbar, left: ids.rail}}
+        onLayout={event => {measurement.grid = event.nativeEvent.layout.y;}}>
       <View onLayout={event => {measurement.body = event.nativeEvent.layout.y;}}
         style={{paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingTop: 38, minHeight: 520}}>{body}</View>
       </FocusRegion></>}
