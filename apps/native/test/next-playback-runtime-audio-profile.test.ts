@@ -53,6 +53,27 @@ test('audioDecode declares only the fixture-proven pairs; Ogg Opus is left to th
   assert.deepEqual(androidAudioDecodeFor({audioDecoders: [{codec: 'flac'}, {codec: 'opus'}]}).map(d => d.codec).sort(), ['flac', 'opus', 'pcm'], 'Android: only what the device has a decoder for (PCM needs none)');
 });
 
+test('Android audioDecode maps validated per-codec decoder counts and keeps conservative fallbacks', () => {
+  const rows = (counts: readonly (number | undefined)[]) => androidAudioDecodeFor({audioDecoders: counts.map((maxChannels, index) => ({codec: ['flac', 'opus', 'mp3', 'pcm'][index]!, ...(maxChannels === undefined ? {} : {maxChannels})}))});
+  const observed = rows([6, 1, 0, 8]);
+  const by = new Map(observed.map(row => [row.codec, row]));
+  assert.equal(by.get('flac')?.maxChannels, 6, '6-channel FLAC keeps the observed count');
+  assert.equal(by.get('opus')?.maxChannels, 1, 'mono Opus is isolated to its own codec');
+  assert.equal(by.get('mp3')?.maxChannels, 2, 'zero is invalid and keeps the conservative default');
+  assert.equal(by.get('pcm')?.maxChannels, 2, 'PCM stays static and needs no MediaCodec');
+  assert.deepEqual([...by.keys()].sort(), ['flac', 'mp3', 'opus', 'pcm']);
+  for (const count of [undefined, 0, 3.5, 17, NaN, Infinity]) assert.equal(rows([count, 6, 2, 2]).find(row => row.codec === 'flac')?.maxChannels, 2, `invalid ${String(count)} does not widen FLAC`);
+  assert.equal(androidAudioDecodeFor({audioDecoders: [{codec: 'flac', maxChannels: 4}, {codec: 'flac', maxChannels: 6}]}).find(row => row.codec === 'flac')?.maxChannels, 6, 'duplicates aggregate only validated same-codec counts');
+  assert.deepEqual(androidAudioDecodeFor({audioDecoders: []}).map(row => row.codec), ['pcm'], 'empty decoders leave PCM only');
+  assert.ok(androidAudioDecodeFor(null).every(row => row.maxChannels === 2), 'null facts keep the baseline');
+  const baselineFlac = androidAudioDecodeFor(null).find(row => row.codec === 'flac')!, observedFlac = by.get('flac')!;
+  assert.deepEqual(observedFlac.containers, baselineFlac.containers);
+  assert.equal(observedFlac.maxSampleRate, baselineFlac.maxSampleRate);
+  assert.equal(observedFlac.maxBitDepth, baselineFlac.maxBitDepth);
+  assert.equal(observedFlac.via, baselineFlac.via);
+  assert.ok(appleAudioDecode.every(row => row.maxChannels === 2), 'Apple table unchanged');
+});
+
 const source = (container: string, codec: string, sampleRate = 44100): FakeAudioSource => ({bytes: new Uint8Array(1024), container, codec, sampleRate, channels: 2, durationFrames: 441000, trim: {startFrames: 0, endFrames: 0, source: 'none'}});
 const sources: Record<string, FakeAudioSource> = {
   'song-mp3': source('mp3', 'mp3'),

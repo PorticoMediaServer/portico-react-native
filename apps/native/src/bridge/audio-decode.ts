@@ -22,8 +22,10 @@ export const appleAudioDecode: readonly AudioDecodeCapability[] = Object.freeze(
  * What the Android listening owner (ExoPlayer) decodes for the §18.1 plan, as (container, codec)
  * pairs `PorticoAudioPlan.kt` accepts. ALAC is absent: Android has no decoder for it, so the server
  * converts it to FLAC. Ogg Opus is present (Android has both the parser and the decoder), which
- * lets the server answer a bitrate limit with Opus. Channels stop at 2: past that the server
- * downmixes.
+ * lets the server answer a bitrate limit with Opus. Each codec's maxChannels follows the device's
+ * observed per-codec `maxInputChannelCount` when it is a positive safe integer in the producer's
+ * 1..16 range; otherwise it keeps the conservative 2 (the server downmixes above it). PCM stays 2
+ * and needs no MediaCodec.
  */
 export const androidAudioDecode: readonly AudioDecodeCapability[] = Object.freeze([
   {codec: 'flac', containers: ['flac'], maxSampleRate: 96000, maxChannels: 2, maxBitDepth: 24, via: 'Media3'},
@@ -34,10 +36,23 @@ export const androidAudioDecode: readonly AudioDecodeCapability[] = Object.freez
   {codec: 'pcm', containers: ['wav'], maxSampleRate: 96000, maxChannels: 2, maxBitDepth: 24, via: 'Media3'},
 ].map(c => Object.freeze(c)));
 
-/** The table narrowed to the decoders this device reports (`MediaCodecList`); PCM needs none. */
+/** The table narrowed to the decoders this device reports (`MediaCodecList`); PCM needs none.
+ * A codec present in the facts gets its validated observed channel count (1..16), aggregated by
+ * maximum across duplicate rows; an absent/invalid count keeps the conservative 2. The baseline
+ * table and the input facts are never mutated. */
 export function androidAudioDecodeFor(facts: AndroidNativeFacts | null): readonly AudioDecodeCapability[] {
   const decoders = facts?.audioDecoders;
   if (!decoders) return androidAudioDecode;
-  const known = new Set(decoders.map(d => d.codec));
-  return androidAudioDecode.filter(c => c.codec === 'pcm' || known.has(c.codec));
+  const seen = new Set<string>(), observed = new Map<string, number>();
+  for (const decoder of decoders) {
+    seen.add(decoder.codec);
+    const count = decoder.maxChannels;
+    if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 1 || count > 16) continue;
+    observed.set(decoder.codec, Math.max(observed.get(decoder.codec) ?? 0, count));
+  }
+  return Object.freeze(androidAudioDecode.flatMap(row => {
+    if (row.codec === 'pcm') return [row];
+    if (!seen.has(row.codec)) return [];
+    return [Object.freeze({...row, maxChannels: observed.get(row.codec) ?? 2})];
+  }));
 }
