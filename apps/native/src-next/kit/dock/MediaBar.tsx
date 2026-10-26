@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {ActivityIndicator, Text, View, type LayoutChangeEvent} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
-import Animated, {cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming} from 'react-native-reanimated';
+import Animated, {cancelAnimation, runOnJS, useAnimatedReaction, useAnimatedStyle, useSharedValue, withSpring, withTiming} from 'react-native-reanimated';
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
 import {clockText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
 import {Artwork} from '../artwork';
@@ -177,10 +177,14 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
   const gestures = useMemo(() => morph ? Gesture.Race(aside, morph.dockGesture) : aside, [aside, morph]);
   // Local video uses the single ancestor shared with its native picture. Applying
   // x/fade here too would double the chrome's movement and opacity.
+  const sharedTravelFade = morph?.dockTravelFade;
+  useAnimatedReaction(() => sharedPicture && transforms
+    ? Math.max(0, Math.min(1, 1 - Math.abs(x.value) / Math.max(1, width.value))) : 1,
+  value => {if (sharedTravelFade) sharedTravelFade.value = value;}, [sharedPicture, transforms, sharedTravelFade]);
   const animated = useAnimatedStyle(() => {
     // Opacity follows the bar's actual travel while it can transform; reduced
     // motion has no displacement and uses its own linear fade.
-    const travel = transforms && !sharedPicture ? Math.max(0, Math.min(1, 1 - Math.abs(x.value - xOrigin.value) / Math.max(1, width.value))) : 1;
+    const travel = transforms && !sharedPicture ? Math.max(0, Math.min(1, 1 - Math.abs(x.value) / Math.max(1, width.value))) : 1;
     return {opacity: sharedPicture ? 1 : Math.min(travel, fade.value), transform: [{translateX: sharedPicture ? 0 : x.value}, {scale: held.value}]};
   }, [transforms, sharedPicture]);
   const beginHold = useCallback(() => {

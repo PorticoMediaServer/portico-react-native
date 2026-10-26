@@ -75,6 +75,8 @@ export type PlayerMorphController = {
   dockMotionHosted: boolean;
   dockX: SharedValue<number>;
   dockFade: SharedValue<number>;
+  /** Distance-linked paint shared by dock chrome and the persistent picture. */
+  dockTravelFade: SharedValue<number>;
   /** Each physical detector owns a distinct RNGH instance. */
   gesture: PanGesture;
   dockGesture: PanGesture;

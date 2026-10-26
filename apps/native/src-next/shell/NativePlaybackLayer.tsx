@@ -157,7 +157,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
     void adapter.onTransition(collapse ? adapter.dock.collapse(original) : adapter.dock.expand(original)).catch(runtime.reportError);
   }});
   usePlayerMorphPublication(morph, sameAuthority(snapshot.authority, authority) && !theme.isTV && expandedReady ? pictureFence : undefined);
-  const {dockX, dockFade} = morph;
+  const {dockX, dockFade, dockTravelFade} = morph;
   const prepareLayout = useCallback(async (fence: PlaybackFence) => {
     if (!['android', 'ios'].includes(Platform.OS) || theme.isTV) return;
     const revision = ++layoutCaptureRevision.current; layoutCapture.current = revision;
@@ -237,7 +237,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
   }, [adapter, authority, docked, runtime, watch]);
   useEffect(() => {measureExpandedSlot();}, [measureExpandedSlot, watchSlot, window, snapshot.fence]);
   const horizontalVideo = docked && (local?.kind === 'video' || local?.kind === 'live');
-  const dockMotion = useAnimatedStyle(() => ({opacity: horizontalVideo ? dockFade.value : 1, transform: [{translateX: horizontalVideo ? dockX.value : 0}]}));
+  const dockMotion = useAnimatedStyle(() => ({opacity: horizontalVideo ? Math.min(dockFade.value, dockTravelFade?.value ?? 1) : 1, transform: [{translateX: horizontalVideo ? dockX.value : 0}]}));
   const equalizer = useSyncExternalStore(nativeEqualizer.subscribe, nativeEqualizer.getSnapshot);
   // music-plus (MC-8): the line is the committed plan plus the engine's own facts, or nothing.
   const signal = useMemo(() => {const input = nativeMusicSignal(snapshot, equalizer.value); return input ? musicSignalView(input) : undefined;}, [snapshot, equalizer.value]);

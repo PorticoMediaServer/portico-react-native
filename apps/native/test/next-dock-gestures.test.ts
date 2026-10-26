@@ -623,3 +623,21 @@ test('docked video needs a current-fence measured slot, and expansion only ever 
     assert.ok(sameFence(picturePropsOf(r).fence, current.fence), 'the replacement measures its own dock slot');
   } finally {r.close();}
 });
+
+// Authored UI-worklet boundary evidence; no physical picture capture claim.
+test('local video and chrome use actual travel opacity through an interrupted aside', async () => {
+  const r = await rig({docked: true});
+  try {
+    const pan = r.aside();
+    pan.callbacks.onBegin(); pan.callbacks.onUpdate({translationX: 187, velocityX: 0}); await r.tick();
+    assert.equal(r.controller().dockTravelFade.value, .5, 'both paints share the measured374pt bar travel');
+    pan.callbacks.onEnd({translationX: 187, velocityX: 0}, true);
+    const outward = r.animations.filter(animation => animation.owner === r.controller().dockX).at(-1)!;
+    outward.sample?.(280.5); await r.tick();
+    assert.equal(r.controller().dockTravelFade.value, .25, 'release follows actual distance, not an independent fade clock');
+    pan.callbacks.onBegin(); await r.tick();
+    assert.equal(r.controller().dockTravelFade.value, .25, 'interrupting at the current offset cannot brighten the paint');
+    pan.callbacks.onUpdate({translationX: -93.5, velocityX: 0}); await r.tick();
+    assert.equal(r.controller().dockTravelFade.value, .5);
+  } finally {r.close();}
+});

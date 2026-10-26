@@ -41,6 +41,7 @@ async function rig(reduced = false) {
       return ref.current;
     },
     useAnimatedStyle: (read: () => unknown) => ({read}),
+    useAnimatedReaction() {},
     withTiming: (to: number, _config: unknown, complete?: Timing['complete']) => {
       const timing = {to, complete}; timings.push(timing); return timing;
     },

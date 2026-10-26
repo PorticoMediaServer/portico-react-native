@@ -25,7 +25,7 @@ export type PlayerMorphOptions = {
 export function usePlayerMorph({docked, travel, fence, dockMotionHosted = false, onRelease}: PlayerMorphOptions): PlayerMorphController {
   const motion = useMotion();
   const progress = useSharedValue(docked ? 1 : 0), velocity = useSharedValue(0), dragging = useSharedValue(false), releaseVelocity = useSharedValue(0);
-  const dockX = useSharedValue(0), dockFade = useSharedValue(1);
+  const dockX = useSharedValue(0), dockFade = useSharedValue(1), dockTravelFade = useSharedValue(1);
   const origin = useSharedValue(0), span = useSharedValue(travel), lastTime = useSharedValue(0);
   const intent = useRef({fence, docked, epoch: 1});
   if (intent.current.docked !== docked || (intent.current.fence !== fence && !currentMorphFence(intent.current.fence, fence))) {
@@ -71,9 +71,9 @@ export function usePlayerMorph({docked, travel, fence, dockMotionHosted = false,
   useEffect(() => {
     epoch.value = source.epoch; run.value++; dragging.value = false;
     cancelAnimation(progress); cancelAnimation(dockX); cancelAnimation(dockFade);
-    dockX.value = 0; dockFade.value = 1;
+    dockX.value = 0; dockFade.value = 1; dockTravelFade.value = 1;
     request(source.docked);
-  }, [source, request, epoch, run, dragging, progress, dockX, dockFade]);
+  }, [source, request, epoch, run, dragging, progress, dockX, dockFade, dockTravelFade]);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -125,7 +125,7 @@ export function usePlayerMorph({docked, travel, fence, dockMotionHosted = false,
       });
     return {gesture: pan(false), dockGesture: pan(true), chromeGesture: (enabled: boolean) => pan(false).enabled(enabled && !!source.fence && !source.docked)};
   }, [progress, origin, dragging, span, velocity, releaseVelocity, spring, timing, released, source, epoch, run, started, completionFor]);
-  return useMemo(() => ({progress, velocity, dragging, releaseVelocity, request, dockX, dockFade, dockMotionHosted, ...gestures}), [progress, velocity, dragging, releaseVelocity, request, dockX, dockFade, dockMotionHosted, gestures]);
+  return useMemo(() => ({progress, velocity, dragging, releaseVelocity, request, dockX, dockFade, dockTravelFade, dockMotionHosted, ...gestures}), [progress, velocity, dragging, releaseVelocity, request, dockX, dockFade, dockTravelFade, dockMotionHosted, gestures]);
 }
 
 export type PlayerMorphProps = {
