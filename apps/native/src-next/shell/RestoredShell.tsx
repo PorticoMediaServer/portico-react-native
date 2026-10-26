@@ -26,8 +26,11 @@ import {downloadEntryIdentity} from '../screens/downloads/presentation';
 import {Platform, Text, View} from 'react-native';
 import {NativeSettingsAppearance} from '../screens/settings/NativeSettingsAppearance';
 import {homeActionDiagnostics} from '../platform/home-action-diagnostics';
+import {acknowledgeSecureRecordsRecovered, isSecureRecordsLost, secureRecordsRecoveredNotice} from '../platform/secure-records';
+import {SecureRecordsRecovery} from './SecureRecordsRecovery';
 
 type RestoreState = Readonly<{phase: 'loading' | 'ready' | 'ended'; runtime?: RestoredNativeShellRuntime; error?: unknown}>;
+type RootOpening = {attempt: number; active: boolean; source?: RememberedDownloadsOpening; input?: NativeInvitationLink; finishInput?: () => void; current?: () => boolean; recoveryCurrent?: () => boolean; retire?: () => void; restart?: () => void};
 
 /** Informational only: a path change re-renders the error projection. It never
  * retries the restore, starts a timer or adopts a newer source. */
@@ -47,7 +50,7 @@ export function RestoredShell() {
   type DownloadView = {source: RememberedDownloadsOpening; serial: number};
   const [downloadView, setDownloadView] = useState<DownloadView>();
   const viewOwner = useRef<DownloadView | undefined>(undefined), viewSerial = useRef(0);
-  type RootOpening = {attempt: number; active: boolean; source?: RememberedDownloadsOpening; input?: NativeInvitationLink; finishInput?: () => void; current?: () => boolean; retire?: () => void; restart?: () => void};
+  const [recovered, setRecovered] = useState<{opening: RootOpening; notice: object}>();
   const root = useRef<RootOpening | undefined>(undefined);
   if (root.current && root.current.attempt !== attempt) root.current.retire?.();
   useLayoutEffect(() => {
@@ -56,8 +59,11 @@ export function RestoredShell() {
     const installation = beginNativeInstallation(abort.signal);
     homeActionDiagnostics.lifetime?.('root-begin', ticket, installation);
     let alive = true;
-    const rootCurrent = () => alive && ticket.active && root.current === ticket && !abort.signal.aborted && installation.current();
+    const ownsRoot = () => alive && ticket.active && root.current === ticket && !abort.signal.aborted;
+    const rootCurrent = () => ownsRoot() && installation.current();
     ticket.current = rootCurrent;
+    // Reset/restart completion only; never a runtime, server or session admission.
+    ticket.recoveryCurrent = ownsRoot;
     let clock: ReturnType<typeof setInterval> | undefined;
     ticket.retire = () => {
       if (!ticket.active) return;
@@ -80,6 +86,7 @@ export function RestoredShell() {
     };
     ticket.restart = restart;
     const publishState = (next: RestoreState) => {if (rootCurrent()) setState(previous => rootCurrent() ? next : previous);};
+    const showRecovered = () => {const notice = secureRecordsRecoveredNotice(); if (notice && rootCurrent()) setRecovered(previous => rootCurrent() ? {opening: ticket, notice} : previous);};
     viewOwner.current = undefined;
     setDownloadView(previous => rootCurrent() ? undefined : previous);
     setDownloads(previous => rootCurrent() ? undefined : previous);
@@ -160,8 +167,8 @@ export function RestoredShell() {
     }}).then(runtime => {
       if (clock) clearInterval(clock);
       if (!rootCurrent()) {runtime?.dispose(); return;}
-      restored = true; owned = runtime; publishState({phase: runtime ? 'ready' : 'ended', runtime}); if (rootCurrent() && !runtime) fallback();
-    }, error => {if (clock) clearInterval(clock); if (rootCurrent()) {homeActionDiagnostics.error('restore-error', error); restored = true; publishState({phase: 'ended', error}); if (rootCurrent()) fallback();}});
+      restored = true; owned = runtime; publishState({phase: runtime ? 'ready' : 'ended', runtime}); showRecovered(); if (rootCurrent() && !runtime) fallback();
+    }, error => {if (clock) clearInterval(clock); if (rootCurrent()) {homeActionDiagnostics.error('restore-error', error); restored = true; publishState({phase: 'ended', error}); showRecovered(); if (rootCurrent() && !isSecureRecordsLost(error)) fallback();}});
     return () => {ticket.retire?.(); installation.dispose(); unsubscribe(); unfence(); unsettled(); if (clock) clearInterval(clock);};
   }, [attempt]);
   const renderedRoot = root.current;
@@ -169,7 +176,18 @@ export function RestoredShell() {
   const complete = () => {if (renderedCurrent()) renderedRoot?.restart?.();};
   const setupComplete = (serverId: string) => {if (renderedCurrent()) setFirstLibrary(previous => renderedCurrent() ? serverId : previous);};
   const chooseAccounts = () => {if (renderedCurrent()) setShowAccounts(previous => renderedCurrent() ? true : previous);};
+  // A successful confirmed reset invalidates installation metadata. Only its
+  // original closed recovery UI may remain to say restart/reopen; no old shell
+  // object is made current by this branch.
+  if (isSecureRecordsLost(state.error) && renderedRoot?.attempt === attempt && renderedRoot.recoveryCurrent?.())
+    return <SecureRecordsRecovery key={attempt} opening={renderedRoot}/>;
   if (renderedRoot && !renderedCurrent()) return <HomeSkeleton elapsedMs={elapsed} visible/>;
+  if (recovered?.opening === renderedRoot && renderedCurrent()) return <StateLayout testID="native-secure-records-recovered"
+    title={defaultI18n.t('web.hostedAccount.ended')} body={defaultI18n.t('web.hostedAccount.signInAgain')}
+    primaryAction={{id: 'continue', label: defaultI18n.t('action.continue'), onPress: () => {
+      if (!renderedCurrent()) return; acknowledgeSecureRecordsRecovered(recovered.notice);
+      setRecovered(previous => previous === recovered && renderedCurrent() ? undefined : previous);
+    }}}/>;
   if (renderedRoot) renderedRoot.input = incoming?.current() ? incoming : undefined;
   if (incoming?.current()) return <AccountEntry key={'incoming-invitation:' + incoming.id} incomingInvitation={incoming} onSetupComplete={setupComplete}
     onBack={() => {if (!renderedCurrent() || !incoming.current()) return; incoming.dismiss(); renderedRoot?.finishInput?.();}}

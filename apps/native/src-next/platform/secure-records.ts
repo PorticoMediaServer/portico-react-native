@@ -16,6 +16,11 @@ type SecureRecordsRuntime = {
   restart?: () => Promise<boolean>;
 };
 const runtime = (): SecureRecordsRuntime | undefined => NativeModules.PorticoRuntime as SecureRecordsRuntime | undefined;
+let recoveredNotice: object | undefined;
+/** A preparation replay must not silently consume the native one-time notice. */
+export const secureRecordsRecoveredNotice = (): object | undefined => recoveredNotice;
+export const acknowledgeSecureRecordsRecovered = (expected: object): void => {if (recoveredNotice === expected) recoveredNotice = undefined;};
+const prepared = (recovered: boolean): boolean => {if (recovered) recoveredNotice = Object.freeze({}); return recovered;};
 
 /** The code launch preparation rejects with when the records are there and their key is not. */
 export const SECURE_RECORDS_KEY_LOST = 'secure_records_key_lost';
@@ -35,11 +40,11 @@ export async function prepareSecureRecords(wait: (ms: number) => Promise<void> =
   const prepare = native?.prepareSecureRecords;
   if (typeof prepare !== 'function') return false;
   try {
-    return !!(await prepare.call(native));
+    return prepared(!!(await prepare.call(native)));
   } catch (first) {
     if (!isSecureRecordsLost(first)) throw first;
     await wait(SECOND_LOOK_MS);
-    return !!(await prepare.call(native));
+    return prepared(!!(await prepare.call(native)));
   }
 }
 
