@@ -1,3 +1,4 @@
+import {createInitialRegionEntry} from '../src-next/kit/focus/initial-entry.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -175,6 +176,7 @@ async function homeModule(theme: typeof phoneTheme | (() => typeof phoneTheme), 
     '../../platform/ArtworkPipeline': {}, '../../kit/artwork': {AmbientArt: 'AmbientArt'}, '../../kit/controls': {Button: 'Button'},
     '../../kit/cards': {CollectionBanner: 'CollectionBanner', LiveCard: 'LiveCard', PosterCard: 'PosterCard', RankedCard: 'RankedCard', SquareCard: 'SquareCard', WideCard: 'WideCard'},
     '../../kit/focus': {FocusItem: 'FocusItem', FocusRegion: 'FocusRegion', useFocusRegistry: () => registry},
+    '../../kit/focus/initial-entry': {createInitialRegionEntry},
     '../../shell/tv-focus': {tvFocusIds, tvHomeRegionMap}, '../../shell/home-paging': {NativeHomePaging}, './tv-presentation': {tvHomeRows},
     '../../kit/layout': {Hero: 'Hero', FocusPreviewHero: 'FocusPreviewHero', Row: 'Row'},
     '../../kit/layout/FocusAnchor': {useFocusAnchor: () => ({scrollRef: {}, offset: {value: 0}, repeating: false, stop() {}, move() {}, anchor() {}})},

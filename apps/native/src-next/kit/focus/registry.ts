@@ -79,26 +79,43 @@ export function createFocusRegistry() {
     }
     return false;
   };
+  const enabledPath = (id: string): boolean => {
+    const seen = new Set<string>();
+    for (let current: string | undefined = id; current; current = regions.get(current)?.config.parent) {
+      if (seen.has(current)) return false;
+      seen.add(current);
+      const r = regions.get(current);
+      if (!r || r.config.enabled === false) return false;
+    }
+    return true;
+  };
   /** Compound regions remember the actual descendant; native guides still perform every move. */
-  const entryTarget = (id: string, visited = new Set<string>()): FocusHost | undefined => {
+  const resolveEntry = (id: string, visited: Set<string>, allowGuide: boolean): Readonly<{host: FocusHost; address?: FocusAddress}> | undefined => {
     if (visited.has(id)) return;
     visited.add(id);
     const r = regions.get(id);
     if (!r || r.config.enabled === false) return;
     if (r.config.entryPolicy !== 'entry' && r.descendant) {
       const childRegion = regions.get(r.descendant.regionId);
-      if (childRegion?.config.enabled !== false && belongsTo(r.descendant.regionId, id)) {
+      if (childRegion?.config.enabled !== false && belongsTo(r.descendant.regionId, id) && (allowGuide || enabledPath(r.descendant.regionId))) {
         const host = childRegion?.children.get(r.descendant.childId)?.host;
-        if (host) return host;
+        if (host) return {host, address: r.descendant};
       }
     }
-    const first = r.config.entryPolicy === 'entry' ? r.config.entry : r.remembered ?? r.config.entry;
-    for (const childId of [first, r.config.entry, ...order(r)]) {
-      if (childId && r.children.has(childId)) return r.children.get(childId)?.host;
+    if (allowGuide || enabledPath(id)) {
+      const first = r.config.entryPolicy === 'entry' ? r.config.entry : r.remembered ?? r.config.entry;
+      for (const childId of [first, r.config.entry, ...order(r)]) {
+        if (!childId) continue;
+        const host = r.children.get(childId)?.host;
+        if (host) return {host, address: {regionId: id, childId}};
+      }
     }
     const nested = r.config.entryRegion && regions.get(r.config.entryRegion);
-    return nested && nested.config.enabled !== false ? entryTarget(nested.config.id, visited) ?? nested.host : undefined;
+    if (!nested || nested.config.enabled === false) return;
+    return resolveEntry(nested.config.id, visited, allowGuide) ?? (allowGuide && nested.host ? {host: nested.host} : undefined);
   };
+  const entryTarget = (id: string, visited = new Set<string>()): FocusHost | undefined => resolveEntry(id, visited, true)?.host;
+  const entryAddress = (id: string): FocusAddress | undefined => resolveEntry(id, new Set(), false)?.address;
   const focusRegion = (id: string): boolean => {
     const r = regions.get(id);
     return r?.config.enabled !== false && (requestNativeFocus(entryTarget(id)) || requestNativeFocus(r?.host));
@@ -154,7 +171,10 @@ export function createFocusRegistry() {
     subscribe(listener: () => void) {listeners.add(listener); return () => {listeners.delete(listener);};},
     getSnapshot: () => revision,
     capture: (): FocusSnapshot | undefined => active && {...currentSnapshot(active), order: [...currentSnapshot(active).order]},
-    focus, focusRegion, entryTarget, restore,
+    focus, focusRegion, entryTarget, entryAddress, restore,
+    /** capture() also retains historical return proof; this requires a still-attached enabled leaf. */
+    attachedFocus: (): FocusSnapshot | undefined => active && enabledPath(active.regionId) && regions.get(active.regionId)?.children.has(active.childId) ? snapshot(active) : undefined,
+    hasRetainedFocus: () => retained.size > 0,
     cellPosition: (id: string) => regions.get(id)?.cellMemory,
     destinations(address: FocusAddress) {
       const r = regions.get(address.regionId);

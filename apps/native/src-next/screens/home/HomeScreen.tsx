@@ -16,6 +16,7 @@ import {AmbientArt, Artwork} from '../../kit/artwork';
 import {Button} from '../../kit/controls';
 import {useTVPageBack} from '../destinations/useTVPageBack';
 import {FocusItem, FocusRegion, useFocusRegistry, type FocusRegionProps} from '../../kit/focus';
+import {createInitialRegionEntry} from '../../kit/focus/initial-entry';
 import {tvFocusIds, tvHomeRegionMap} from '../../shell/tv-focus';
 import {NativeHomePaging} from '../../shell/home-paging';
 import {tvHomeRows} from './tv-presentation';
@@ -153,7 +154,8 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   }, []);
   const [activeIndex, setActiveIndex] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
-  const scrolled = useRef(false), spotlightEntered = useRef(false);
+  const scrolled = useRef(false);
+  const initialEntry = useMemo(() => createInitialRegionEntry(registry, ids.spotlight), [registry, ids.spotlight]);
   const rowPositions = useRef(new Map<string, {y: number; height: number}>()), offset = useRef(0);
   const vertical = useFocusAnchor(false, theme.isTV && active);
   const moveToTop = vertical.move;
@@ -168,16 +170,6 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     try {return sameAuthority(authority, runtime.getSnapshot().authority);}
     catch (error) {if (error instanceof Error && error.name === 'AbortError') return false; throw error;}
   }, [authority, runtime]);
-  useEffect(() => {
-    if (!theme.isTV || spotlightEntered.current) return;
-    // Only the unopened page may acquire entry focus. An already focused rail,
-    // row or overlay owns it even when the Home document/artwork arrives later.
-    if (registry.capture() || railExpanded) {spotlightEntered.current = true; return;}
-    if (!heroActive || !foreground || !current() || !registry.host(ids.spotlight) || !registry.child(ids.start)) return;
-    // HeroCopy mounts after its artwork is ready. The guide and actual Play
-    // host must both exist before issuing this one platform lifecycle request.
-    if (registry.focus(ids.start)) spotlightEntered.current = true;
-  }, [current, focusRevision, foreground, heroActive, ids, railExpanded, registry, theme.isTV]);
   const pages = useMemo(() => new NativeHomePaging(runtime.home, () => sameAuthority(authority, runtime.getSnapshot().authority), error => runtime.reportError(error)), [authority, runtime]);
   const pagingRevision = useSyncExternalStore(pages.subscribe, pages.getSnapshot, pages.getSnapshot);
   useEffect(() => pages.activate(), [pages]);
@@ -244,6 +236,14 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     reason: serverTextLabel(labels, model.reason.text), facts: homeTitleFactParts(model.entry, runtime.text),
     target: model.primary?.entry, primaryLabel: model.primary ? t(model.primary.label.key, model.primary.label.params) : undefined,
   })) : [], [document, runtime.text, labels, t]);
+  useEffect(() => {
+    if (!theme.isTV) return;
+    initialEntry.request({active: heroActive && foreground && !railExpanded && !recovery.visible && current(), primary: ids.spotlight,
+      // No Spotlight means no Play host will arrive. Use the first actual row's
+      // registered native entry; a present Spotlight still waits for its own copy.
+      allowFallback: !!document && candidates.length === 0,
+      fallback: [...rows.map(row => ids.row(row.id)), ...(hasMixes ? [mixesRegion!.id] : []), ids.customize]});
+  }, [initialEntry, heroActive, foreground, railExpanded, recovery.visible, current, ids, document, candidates.length, rows, hasMixes, mixesRegion, focusRevision, theme.isTV]);
   const renderArtwork = (candidate: HomeCandidate, context: ArtworkRenderContext) => {
     const art = <AmbientArt source={runtime.ambient(candidate.entry.backdropUrl ?? candidate.entry.posterUrl)}
       foreground={showBackdrops ? runtime.artwork(candidate.entry.backdropUrl ?? candidate.entry.posterUrl) : undefined} treatment={theme.layoutMode === 'phone' ? 'phone' : 'hero'} visible={active && foreground && context.visible} priority
@@ -260,16 +260,16 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     const order = [...(offers.playable && candidate.target?.playback ? ['play'] : []), ...(offers.watchlisted !== undefined ? ['my-list'] : []), ...(offers.details ? ['details'] : [])];
     return <HomeRegion focus={theme.isTV ? {...regionMap.spotlight, entry: order[0], orientation: 'horizontal', order,
       style: {flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 18 : 12}} : undefined}>
-      {offers.playable && candidate.target?.playback && <Button focusId="play" icon="i-play" variant="primary" size="hero" onFocus={() => {spotlightEntered.current = true; setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => activate(candidate.entry, candidate.target)}
+      {offers.playable && candidate.target?.playback && <Button focusId="play" icon="i-play" variant="primary" size="hero" onFocus={() => {initialEntry.finish(); setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => activate(candidate.entry, candidate.target)}
         onLongPressAction={theme.isTV ? () => guarded(() => runtime.actions.more(candidate.entry)) : undefined}>{candidate.primaryLabel ?? t('next.home.play')}</Button>}
-      {offers.watchlisted !== undefined && <Button focusId="my-list" icon={offers.watchlisted ? 'i-check' : 'i-plus'} variant="glass" size="hero" onFocus={() => {spotlightEntered.current = true; setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => {
+      {offers.watchlisted !== undefined && <Button focusId="my-list" icon={offers.watchlisted ? 'i-check' : 'i-plus'} variant="glass" size="hero" onFocus={() => {initialEntry.finish(); setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => {
         if (current()) void runtime.actions.myList(candidate.entry, !offers.watchlisted).then(() => {if (current()) return runtime.home.revalidate();}).catch(runtime.reportError);
       }}>{t('next.home.myList')}</Button>}
-      {theme.isTV && offers.details && <Button focusId="details" variant="glass" size="hero" onFocus={() => {spotlightEntered.current = true; setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => guarded(() => runtime.actions.navigate(candidate.entry))}>{t('action.details')}</Button>}
+      {theme.isTV && offers.details && <Button focusId="details" variant="glass" size="hero" onFocus={() => {initialEntry.finish(); setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => guarded(() => runtime.actions.navigate(candidate.entry))}>{t('action.details')}</Button>}
     </HomeRegion>;
   };
   const onRowFocus = (row: HomeRow, entryId: string) => {
-    if (theme.isTV) spotlightEntered.current = true;
+    if (theme.isTV) initialEntry.finish();
     setFocus({rowId: row.id, entryId}); setHeroFocused(false);
     if (focus?.rowId === row.id && focus.entryId === entryId) return;
     const target = focusTarget.current;

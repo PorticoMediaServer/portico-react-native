@@ -1,3 +1,4 @@
+import {createInitialRegionEntry} from '../src-next/kit/focus/initial-entry.ts';
 import {homeActionDiagnostics} from '../src-next/platform/home-action-diagnostics.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -34,6 +35,7 @@ test('initial TV focus reanchors when the compact hero measurement arrives and i
       '../../../../../packages/client-core/src/presentation/kit-model': {},
       '../../platform/ArtworkPipeline': {}, '../../kit/artwork': {}, '../../kit/controls': {Button: 'Button'}, '../../kit/cards': {},
       '../../kit/focus': {FocusItem: 'FocusItem', FocusRegion: 'FocusRegion', useFocusRegistry: () => registry},
+      '../../kit/focus/initial-entry': {createInitialRegionEntry},
       '../../shell/tv-focus': {tvFocusIds, tvHomeRegionMap}, './tv-presentation': {tvHomeRows}, '../../shell/home-paging': {NativeHomePaging},
       '../../kit/layout': {Row: 'Row', Hero: 'Hero', FocusPreviewHero: 'FocusPreviewHero'},
       '../../kit/layout/FocusAnchor': {useFocusAnchor: () => vertical}, '../../kit/layout/types': {}, '../../kit/states': {LoadingPaint: 'LoadingPaint', },
