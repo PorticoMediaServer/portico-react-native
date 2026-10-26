@@ -7,7 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {NativeModules} from './react-native-stub.mjs';
-import {SECOND_LOOK_MS, SECURE_RECORDS_KEY_LOST, canResetSecureRecords, isSecureRecordsLost, prepareSecureRecords, resetSecureRecords, restartApp} from '../src-next/platform/secure-records.ts';
+import {SECOND_LOOK_MS, SECURE_RECORDS_KEY_LOST, acknowledgeSecureRecordsRecovered, canResetSecureRecords, isSecureRecordsLost, prepareSecureRecords, resetSecureRecords, restartApp, secureRecordsRecoveredNotice} from '../src-next/platform/secure-records.ts';
 
 const source = (path: string) => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
 const lost = () => Object.assign(new Error('lost'), {code: SECURE_RECORDS_KEY_LOST});
@@ -44,6 +44,12 @@ test('any other storage failure is not looked at twice and is not a lost key', (
 
 test('a store that reset itself says so', () => withRuntime({prepareSecureRecords: async () => true}, async () => {
   assert.equal(await prepareSecureRecords(), true);
+  const notice = secureRecordsRecoveredNotice(); assert.ok(notice);
+  runtime.prepareSecureRecords = async () => false;
+  assert.equal(await prepareSecureRecords(), false);
+  assert.equal(secureRecordsRecoveredNotice(), notice, 'a fresh root preparation cannot silently consume the pending notice');
+  acknowledgeSecureRecordsRecovered({}); assert.equal(secureRecordsRecoveredNotice(), notice);
+  acknowledgeSecureRecordsRecovered(notice); assert.equal(secureRecordsRecoveredNotice(), undefined);
 }));
 
 test('a runtime with no reset cannot be asked to reset, and nothing is claimed', () => withRuntime({}, async () => {
