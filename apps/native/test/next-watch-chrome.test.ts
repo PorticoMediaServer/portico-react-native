@@ -22,7 +22,7 @@ const {NativeWatchChrome} = await screenModule(new URL('../src-next/screens/watc
   '../../kit/dock/PlayerMorphBridge': {usePublishedPlayerMorph: () => undefined},
   './useSkipPromptMotion': {useSkipPromptMotion: (value: unknown) => ({value, interactive: !!value, bodyStyle: {}, positionStyle: {}})},
   react: {...React, default: React}, 'react-native': {View: 'View', Text: 'Text', useTVEventHandler: (handler: typeof event) => {event = handler;}},
-  'react-native-reanimated': {default: {View: 'Animated'}, cancelAnimation() {}, useAnimatedStyle: (value: () => unknown) => value(), useSharedValue: (value: unknown) => React.useRef({value}).current, withTiming: (value: unknown) => value},
+  'react-native-reanimated': {Easing: {linear: (value: number) => value}, default: {View: 'Animated'}, cancelAnimation() {}, useAnimatedStyle: (value: () => unknown) => value(), useSharedValue: (value: unknown) => React.useRef({value}).current, withTiming: (value: unknown) => value},
   'react-native-gesture-handler': {Gesture: {Pan: gesture}, GestureDetector: 'GestureDetector'},
   '../../../../../packages/client-core/src/up-next': upNext, '../../../../../packages/client-core/src/playback/linear-protocol': {channelSeconds},
   './useSkipPromptMotion': {useSkipPromptMotion: (value: unknown) => ({value, interactive: !!value, bodyStyle: {}, positionStyle: {}})},

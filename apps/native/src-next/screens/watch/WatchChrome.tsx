@@ -2,7 +2,7 @@ import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import {TVControlLabel} from './TVControlLabel';
 import {Text, View, useTVEventHandler} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
-import Animated, {cancelAnimation, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
+import Animated, {cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, Path, Rect, Stop, Text as SvgText} from 'react-native-svg';
 import {sameFence, activeSegment, skipTarget, skipsAutomatically, followedByScene, UNDO_SECONDS, type PlaybackFence, type SegmentMarker, type SegmentMarkerKind, type SkipMode} from '../../../../../packages/player-core/src';
 import {upNextCountdown, upNextOffer} from '../../../../../packages/client-core/src/up-next';
@@ -91,11 +91,11 @@ function LossNotice({notice, top, gutter, available}: {notice: NonNullable<Nativ
   useEffect(() => {
     setExpired(undefined);
     line.value = 1;
-    line.value = withTiming(0, {duration: reduced ? 0 : NOTICE_SECONDS * 1000});
+    line.value = withTiming(0, {duration: reduced ? 0 : NOTICE_SECONDS * 1000, easing: Easing.linear});
     const timer = setTimeout(() => setExpired(notice.key), NOTICE_SECONDS * 1000);
     return () => {clearTimeout(timer); cancelAnimation(line);};
   }, [notice.key, line, reduced]);
-  const drain = useAnimatedStyle(() => ({width: `${line.value * 100}%`}));
+  const drain = useAnimatedStyle(() => ({transform: [{scaleX: Math.max(0, Math.min(1, line.value))}]}));
   if (expired === notice.key) return null;
   const phone = !theme.isTV;
   const icon = notice.value.icon === 'picture' ? 'i-film' : 'i-audio';
@@ -121,9 +121,9 @@ function LossNotice({notice, top, gutter, available}: {notice: NonNullable<Nativ
       </Text>
     </View>
     {!reduced && (phone
-      ? <Animated.View style={[{position: 'absolute', left: 0, bottom: 0, height: 2, backgroundColor: 'rgba(237,245,250,.38)'}, drain]}/>
+      ? <Animated.View style={[{position: 'absolute', left: 0, bottom: 0, width: '100%', transformOrigin: 'left center', height: 2, backgroundColor: 'rgba(237,245,250,.38)'}, drain]}/>
       : <View style={{marginTop: 10, height: 2, borderRadius: 1, overflow: 'hidden', backgroundColor: 'rgba(237,245,250,.18)'}}>
-        <Animated.View style={[{height: 2, backgroundColor: theme.colors.accentStrong}, drain]}/>
+        <Animated.View style={[{width: '100%', transformOrigin: 'left center', height: 2, backgroundColor: theme.colors.accentStrong}, drain]}/>
       </View>)}
   </View>;
 }
@@ -227,11 +227,11 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   useEffect(() => {
     if (!notice) return;
     undoLine.value = 1;
-    undoLine.value = withTiming(0, {duration: UNDO_SECONDS * 1000});
+    undoLine.value = withTiming(0, {duration: UNDO_SECONDS * 1000, easing: Easing.linear});
     const timer = setTimeout(() => setNotice(undefined), UNDO_SECONDS * 1000);
     return () => {clearTimeout(timer); cancelAnimation(undoLine);};
   }, [notice, undoLine]);
-  const undoLineStyle = useAnimatedStyle(() => ({width: `${undoLine.value * 100}%`}));
+  const undoLineStyle = useAnimatedStyle(() => ({transform: [{scaleX: Math.max(0, Math.min(1, undoLine.value))}]}));
   // tv-player 5 and 6: the closing-credits offer and its countdown come from the
   // queue's own post-play facts; nothing here starts a title by itself.
   const view = source.queue.view;
@@ -470,13 +470,13 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         <Text style={{fontFamily: 'Manrope-Bold', fontSize: phone ? 14.5 : 24, fontWeight: phone ? '600' : '700', color: phone ? theme.colors.textSecondary : theme.colors.text}}>{t('player.skipped', {kind: notice.kind})}</Text>
       </View>
       {!phone && <View style={{height: 3, width: 240, borderRadius: 2, backgroundColor: 'rgba(237,245,250,.18)'}}>
-        <Animated.View style={[{height: 3, borderRadius: 2, backgroundColor: theme.colors.accentStrong}, undoLineStyle]}/>
+        <Animated.View style={[{width: '100%', transformOrigin: 'left center', height: 3, borderRadius: 2, backgroundColor: theme.colors.accentStrong}, undoLineStyle]}/>
       </View>}
     </View>
     <Button focusId="watch-skip-undo" testID="watch-skip-undo" variant={phone ? 'glass' : 'glass'} size={phone ? 'compact' : 'hero'} hasTVPreferredFocus={false} icon="i-back" iconSize={phone ? 18 : undefined}
       style={phone ? {height: 36, paddingHorizontal: 14, borderRadius: 8} : undefined} textStyle={phone ? {fontSize: 14.5, fontWeight: '700'} : undefined}
       onPress={() => {if (!controlsCurrent()) return; const from = notice.fromSeconds; setNotice(undefined); if (theme.isTV) controls.hide(fence); if (controlsCurrent()) void playback.seek(fence, from).catch(props.reportError);}}>{t('action.undo')}</Button>
-    {phone && <Animated.View style={[{position: 'absolute', left: 0, bottom: 0, height: 2, backgroundColor: 'rgba(237,245,250,.45)'}, undoLineStyle]}/>}
+    {phone && <Animated.View style={[{position: 'absolute', left: 0, bottom: 0, width: '100%', transformOrigin: 'left center', height: 2, backgroundColor: 'rgba(237,245,250,.45)'}, undoLineStyle]}/>}
   </View> : undefined;
   const paintedPrompt = promptMotion.value;
   const skipPromptNode = paintedPrompt ? <Animated.View pointerEvents={promptMotion.interactive ? 'box-none' : 'none'} accessibilityElementsHidden={!promptMotion.interactive} importantForAccessibility={promptMotion.interactive ? 'auto' : 'no-hide-descendants'} style={[{flexDirection: 'row', alignItems: 'center', gap: 22}, promptMotion.bodyStyle]}>{paintedPrompt.kind === 'credits' && sceneAfter && !phone && <View style={{paddingHorizontal: 18, paddingVertical: 12, borderRadius: 12, backgroundColor: 'rgba(9,19,27,.78)'}}>

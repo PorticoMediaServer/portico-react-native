@@ -314,7 +314,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
           onLayout={event => {scrubWidth.value = event.nativeEvent.layout.width;}}
           style={{flex: 1, height: expandedDockMetrics.scrubZone, justifyContent: 'center', opacity: seekAllowed ? 1 : .4}}>
           <View pointerEvents="none" style={{height: expandedDockMetrics.scrubHeight, borderRadius: 2, backgroundColor: alpha(theme.colors.text, .18)}}>
-            <Animated.View style={[{height: expandedDockMetrics.scrubHeight, borderRadius: 2, backgroundColor: theme.colors.text}, scrubFill]}/>
+            <Animated.View style={[{width: '100%', height: expandedDockMetrics.scrubHeight, borderRadius: 2, backgroundColor: theme.colors.text}, scrubFill]}/>
           </View>
         </Focusable>
       </GestureDetector>
@@ -349,7 +349,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
           {tools}
           {terminal ? null : mid}
         </>}
-        {!expandedBar && !connecting && !terminal && progress !== undefined && <View pointerEvents="none" style={[s.line, {backgroundColor: alpha(theme.colors.text, .14)}]}><View style={{height: 2, width: `${progress * 100}%`, backgroundColor: wide ? theme.colors.accentStrong : theme.colors.text}}/></View>}
+        {!expandedBar && !connecting && !terminal && progress !== undefined && <View pointerEvents="none" style={[s.line, {backgroundColor: alpha(theme.colors.text, .14)}]}><View style={{height: 2, width: '100%', transformOrigin: 'left center', transform: [{scaleX: progress}], backgroundColor: wide ? theme.colors.accentStrong : theme.colors.text}}/></View>}
       </View>
     </Animated.View></GestureDetector>
     <Popover open={menu && !remote} onOpenChange={changeMenu} anchorRef={bar} returnFocusRef={openerRef} initialFocusRef={firstMenu} title={p.identity.title} modal backdropOpacity={0} placement="top-start" width={250} offset={8}
