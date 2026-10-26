@@ -1415,7 +1415,8 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     };
     return <StateLayout testID="accounts-hosted-waiting" icon="i-cloud-off" title={t('web.chooser.accountWaitingTitle')}
       body={t('web.chooser.accountWaitingBody', {server: captured.name})} retry={{progress: retryIn <= 0 ? 1 : 1 - retryIn / Math.max(retryDelay.current, 1), label: t('web.chooser.checkingAgain', {seconds: retryIn})}}
-      primaryAction={{id: 'check-hosted-now', label: t('web.chooser.checkNow'), loading: busy, disabled: busy, onPress: () => {if (current()) connectDirectory(captured, true);}}}
+      // connect#11 draws Check now with the ring: the one action holds the starting focus.
+      primaryAction={{id: 'check-hosted-now', label: t('web.chooser.checkNow'), loading: busy, disabled: busy, hasTVPreferredFocus: true, onPress: () => {if (current()) connectDirectory(captured, true);}}}
       secondaryAction={Platform.isTV ? {id: 'choose-another', label: t('web.chooser.otherServer'), onPress: () => {if (current()) chooseAnother();}}
         : {id: 'account-owner-help', label: t('accounts.signIn.cannotUsePortico'), disabled: busy, onPress: () => {
           if (!current() || busyRef.current || acting.current || adoptingTV.current) return;
