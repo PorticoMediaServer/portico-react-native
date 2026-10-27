@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useEffect, useState} from 'react';
 import {Text, View} from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -16,6 +16,7 @@ export type TVCodePresenterProps = Readonly<{
   status?: React.ReactNode; busy: boolean; onTypeCredentials: () => void; onBack: () => void;
   /** An explicit terminal retry, already bound to the rendered original opening. */
   onNewCode?: () => void;
+  onRetry?: () => void; retryAt?: number; credentialsDisabled?: boolean;
 }> & Readonly<{mode: 'portico'; serverName?: string} | {mode: 'local'; serverName: string}>;
 
 /** Auth8/9 route buttons call the real transaction owner; this view never contacts either authority. */
@@ -26,9 +27,17 @@ function CodePresenter(props: TVCodePresenterProps) {
   const theme = useTheme(), id = `tv.auth.${props.mode}.code`, t = defaultI18n.t, material = glassRecipe();
   const address = props.verificationUri ? new URL(props.verificationUri) : undefined;
   const entryRevision = useTVBusyEntryRevision(props.busy);
-  const entry = props.onNewCode ? 'new-code' : 'credentials';
-  const order = ['credentials', ...(props.onNewCode ? ['new-code'] : []), ...(props.mode === 'portico' ? ['back'] : [])];
-  useDestinationEntryFocus({visible: !props.busy, intent: 'enter', revision: entryRevision * 2 + (props.onNewCode ? 1 : 0)}, {regionId: id, childId: entry});
+  const [, updateDeadline] = useState(0);
+  useEffect(() => {
+    const remaining = (props.retryAt ?? 0) - Date.now();
+    if (!props.onRetry || remaining <= 0) return;
+    const timer = setTimeout(() => updateDeadline(value => value + 1), remaining);
+    return () => clearTimeout(timer);
+  }, [props.onRetry, props.retryAt]);
+  const retryDisabled = props.busy || (props.retryAt ?? 0) > Date.now();
+  const entry = props.onRetry ? 'retry-approval' : props.onNewCode ? 'new-code' : 'credentials';
+  const order = ['credentials', ...(props.onRetry ? ['retry-approval'] : []), ...(props.onNewCode ? ['new-code'] : []), ...(props.mode === 'portico' ? ['back'] : [])];
+  useDestinationEntryFocus({visible: !props.busy, intent: 'enter', revision: entryRevision * 3 + (props.onRetry ? 2 : props.onNewCode ? 1 : 0)}, {regionId: id, childId: entry});
   const type = (size: number, weight: 400 | 600 | 700 | 800 = 400, lineHeight = 1.45) => nativeType({size, weight, tracking: 0, lineHeight: size * lineHeight}, theme.textScale);
   const aside = <View style={{position: 'absolute', right: 140, top: 0, bottom: 0, width: 720, justifyContent: 'center'}}>
     <View style={{paddingTop: 52, paddingHorizontal: 56, paddingBottom: 48, borderRadius: 28, backgroundColor: '#0d1b25C7',
@@ -51,7 +60,8 @@ function CodePresenter(props: TVCodePresenterProps) {
     eyebrow={props.mode === 'local' ? t('accounts.signIn.to') : undefined} body={props.body}>
     {props.status}
     <FocusRegion id={id} entry={entry} order={order} enabled={!props.busy} style={{flexDirection: 'row', gap: 20}}>
-      <Button focusId="credentials" disabled={props.busy} onPress={props.onTypeCredentials} style={{height: 72, paddingHorizontal: 38, borderRadius: 14}}>{t(props.mode === 'portico' ? 'accounts.signIn.onTV' : 'quickConnect.usePassword')}</Button>
+      <Button focusId="credentials" disabled={props.busy || props.credentialsDisabled} onPress={props.onTypeCredentials} style={{height: 72, paddingHorizontal: 38, borderRadius: 14}}>{t(props.mode === 'portico' ? 'accounts.signIn.onTV' : 'quickConnect.usePassword')}</Button>
+      {props.onRetry && <Button focusId="retry-approval" disabled={retryDisabled} onPress={props.onRetry} style={{height: 72, paddingHorizontal: 38, borderRadius: 14}}>{t('action.tryAgain')}</Button>}
       {props.onNewCode && <Button focusId="new-code" disabled={props.busy} onPress={props.onNewCode} style={{height: 72, paddingHorizontal: 38, borderRadius: 14}}>{t('activation.getNewCode')}</Button>}
       {props.mode === 'portico' && <Button focusId="back" variant="glass" disabled={props.busy} onPress={props.onBack} style={{height: 72, paddingHorizontal: 38, borderRadius: 14}}>{t('action.back')}</Button>}
     </FocusRegion>
