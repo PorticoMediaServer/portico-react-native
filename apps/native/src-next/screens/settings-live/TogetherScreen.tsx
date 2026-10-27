@@ -43,12 +43,6 @@ export function NativeTogetherScreen({controller, media, ports, runtime, page, o
   const startRef = useRef<View>(null), joinRef = useRef<View>(null);
   const sheet = form?.kind;
   const view = useMemo(() => ({active: true, binding: {controller, page}, form: undefined as Form | undefined, pending: undefined as {abort: AbortController; form?: Form} | undefined}), [controller, page]);
-  // The refresh below belongs to this page opening, not to the form: it must run once per
-  // committed page/controller, not again when a field changes or a new handler identity is
-  // created. This pins the form of the render that committed, so the guard still sees the
-  // exact form lifetime without adding the form to the trigger.
-  const formRef = useRef<Form | undefined>(undefined);
-  formRef.current = form;
   const viewCurrent = useCallback((expected: Form | undefined) => {
     const local = () => view.active && view.form === expected && !expected?.retired && !page.signal.aborted && !controller.lifetime.signal.aborted;
     return local() && page.current() && local() && controller.lifetime.current() && local();
@@ -75,7 +69,15 @@ export function NativeTogetherScreen({controller, media, ports, runtime, page, o
     const original = view.pending; view.pending = undefined; original?.abort.abort();
   };}, [view]);
   const run = (work: () => Promise<unknown>) => {if (!viewCurrent(form)) return; void work().catch(error => {if (viewCurrent(form)) runtime.reportError(error);});};
-  useEffect(() => {const expected = formRef.current; if (!viewCurrent(expected)) return; void controller.refresh().catch(error => {if (viewCurrent(expected)) runtime.reportError(error);});}, [controller, runtime, viewCurrent]);
+  // The refresh belongs to this page/controller opening, not to the form: it must not run again
+  // when a field changes or a new handler identity is created. `view` is the private binding for
+  // that opening and its `form` field is the exact form lifetime the opening holds, so the guard
+  // reads the committed form without adding either the form state or a render ref to the trigger.
+  useEffect(() => {
+    const expected = view.form;
+    if (!viewCurrent(expected)) return;
+    void controller.refresh().catch(error => {if (viewCurrent(expected)) runtime.reportError(error);});
+  }, [controller, runtime, view, viewCurrent]);
   const room = group && !['idle', 'left', 'joining'].includes(state.phase);
   const back = () => {
     if (!viewCurrent(form)) return;
