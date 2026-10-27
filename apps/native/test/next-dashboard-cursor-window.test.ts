@@ -63,3 +63,33 @@ test('refresh preserves the focused old row until its original focus lease blurs
   window.blur('old', opening.generation); assert.deepEqual(window.snapshot().items.map(row => row.id), ['fresh']);
   assert.equal(window.snapshot().pending, false); window.dispose();
 });
+
+test('a cycle longer than bookmark history eventually requires refresh without extra requests', async () => {
+  const calls: string[] = [];
+  const window = new DashboardCursorWindow(async cursor => {
+    calls.push(cursor); const n = cursor ? Number(cursor.slice(1)) : -1;
+    const successor = n < 0 ? 0 : (n + 1) % 70;
+    return {items: [{id: cursor || 'first'}], nextCursor: `c${successor}`, metadata: 1};
+  }, row => row.id, () => true, () => {});
+  await window.refresh();
+  for (let i = 0; i < 400 && !window.snapshot().refreshRequired; i++) await window.next(window.snapshot());
+  assert.equal(window.snapshot().refreshRequired, true); assert.ok(calls.length > 70 && calls.length < 400);
+  assert.ok(window.snapshot().chunks.length <= 3); assert.ok(window.snapshot().bookmarks.length <= 64); window.dispose();
+});
+
+test('a long acyclic producer chain remains reachable beyond bookmark capacity', async () => {
+  let calls = 0;
+  const window = new DashboardCursorWindow(async cursor => {
+    calls++; const n = cursor ? Number(cursor.slice(1)) : 0;
+    return {items: [{id: `row${n}`}], nextCursor: n < 150 ? `c${n + 1}` : '', metadata: 1};
+  }, row => row.id, () => true, () => {});
+  await window.refresh(); for (let i = 0; i < 150; i++) await window.next(window.snapshot());
+  assert.equal(window.snapshot().refreshRequired, false); assert.equal(window.snapshot().items.at(-1)?.id, 'row150');
+  assert.ok(window.snapshot().chunks.length <= 3); assert.ok(window.snapshot().bookmarks.length <= 64); assert.equal(calls, 151); window.dispose();
+});
+
+test('conflicting retained job revisions require explicit refresh', async () => {
+  const window = new DashboardCursorWindow(async cursor => ({items: [{id: 'job', revision: cursor ? 2 : 1}], nextCursor: cursor ? '' : 'next', metadata: undefined}), row => row.id, () => true, () => {}, (a, b) => a.revision === b.revision);
+  await window.refresh(); await window.next(window.snapshot());
+  assert.equal(window.snapshot().refreshRequired, true); assert.equal(window.snapshot().items[0].revision, 1); window.dispose();
+});

@@ -5,7 +5,7 @@ import {NativeDashboardController, type NativeDashboardReaders} from '../src-nex
 
 const authority = {serverId: 'server', accountId: 'account', profileId: 'primary', epoch: 'one', viewerFence: 'fence'};
 const totals = {streams: 21, paused: 0, converting: 0, bandwidthKbps: 0, people: 21, atHome: 21, away: 0};
-const page = (prefix: string, count: number, cursor?: string) => ({items: Array.from({length: count}, (_, i) => ({id: `${prefix}${i}`})) as never[], nextCursor: cursor, totals, scope: {serverId: 'server', viewerFence: 'fence'}});
+const page = (prefix: string, count: number, cursor?: string) => ({items: Array.from({length: count}, (_, i) => ({id: `${prefix}${i}`})) as never[], nextCursor: cursor, totals, revision: 'rev-1', scope: {serverId: 'server', viewerFence: 'fence'}});
 
 test('TV Dashboard continuation coalesces, keeps prior rows on error and retries its offered cursor', async () => {
   const lifetime = new NativeScreenLifetime({authority: () => authority, current: () => true, subscribeAuthority: () => () => {}});
@@ -72,5 +72,18 @@ test('Dashboard reaches 21 sessions in producer order and retains the server tot
   assert.deepEqual(controller.getSnapshot().sessions.map(row => row.id), [...Array.from({length: 10}, (_, i) => `a${i}`), ...Array.from({length: 10}, (_, i) => `b${i}`), 'c0']);
   assert.equal(controller.getSnapshot().totals?.streams, 21);
   await controller.nextSessions(controller.getSnapshot().sessionWindow!); assert.deepEqual(calls, [undefined, 'p2', 'p3']);
+  controller.dispose(); lifetime.dispose();
+});
+
+test('a changed session page revision refuses the continuation and preserves prior rows', async () => {
+  const lifetime = new NativeScreenLifetime({authority: () => authority, current: () => true, subscribeAuthority: () => () => {}});
+  const readers: NativeDashboardReaders = {
+    sessions: {list: async cursor => cursor ? {...page('changed', 1), revision: 'rev-2'} : page('original', 10, 'next')},
+    console: {measurement: async name => ({name, observedAt: 1, freshUntil: 30001, facts: {}}), alerts: async () => [], jobs: async () => ({items: [], nextCursor: ''}), dispose() {}},
+  };
+  const controller = new NativeDashboardController(lifetime, () => 'administrator', readers);
+  await controller.refresh(); await controller.nextSessions(controller.getSnapshot().sessionWindow!);
+  assert.equal(controller.getSnapshot().sessionWindow?.refreshRequired, true);
+  assert.equal(controller.getSnapshot().sessions[0]?.id, 'original0');
   controller.dispose(); lifetime.dispose();
 });

@@ -315,7 +315,7 @@ test('settings never publishes a save or old private data after revocation', asy
 function dashboardReaders() {
   const calls: string[] = [];
   const readers: NativeDashboardReaders = {
-    sessions: {list: async (_cursor, limit) => {calls.push(`sessions:${limit}`); return {items: [], nextCursor: undefined, total: 0, totals: {streams: 0, paused: 0, converting: 0, bandwidthKbps: 0, people: 0, atHome: 0, away: 0}, scope: {serverId: 'server', viewerFence: 'sessions-fence'}};}},
+    sessions: {list: async (_cursor, limit) => {calls.push(`sessions:${limit}`); return {items: [], nextCursor: undefined, total: 0, totals: {streams: 0, paused: 0, converting: 0, bandwidthKbps: 0, people: 0, atHome: 0, away: 0}, revision: 'rev-1', scope: {serverId: 'server', viewerFence: 'sessions-fence'}};}},
     console: {measurement: async name => {calls.push(name); return {name, observedAt: 1, freshUntil: 30001, facts: {}};}, alerts: async () => {calls.push('alerts'); return [];}, jobs: async () => {calls.push('jobs'); return {items: [], nextCursor: ''};}, dispose() {}},
   };
   return {calls, readers};
@@ -353,7 +353,7 @@ test('Dashboard removes owner-only facts before a demoted viewer read finishes',
   assert.equal(controller.getSnapshot().storage, undefined);
   assert.deepEqual(controller.getSnapshot().alerts, []);
   assert.deepEqual(controller.getSnapshot().jobs, []);
-  finish({items: [], nextCursor: undefined, totals: {streams: 0, paused: 0, converting: 0, bandwidthKbps: 0, people: 0, atHome: 0, away: 0}, scope: {serverId: 'server', viewerFence: 'sessions-fence'}});
+  finish({items: [], nextCursor: undefined, totals: {streams: 0, paused: 0, converting: 0, bandwidthKbps: 0, people: 0, atHome: 0, away: 0}, revision: 'rev-1', scope: {serverId: 'server', viewerFence: 'sessions-fence'}});
   await pending;
   assert.deepEqual(calls, ['sessions:10', 'health', 'storage', 'alerts', 'jobs']);
   controller.dispose(); lifetime.dispose();

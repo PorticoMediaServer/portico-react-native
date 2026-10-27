@@ -18,15 +18,20 @@ export class DashboardCursorWindow<T, M> {
   private focusGeneration?: number;
   private held?: {flight: Flight<T, M>; page: DashboardCursorPage<T, M>; previous: boolean; reset: boolean};
   private seen = new Set<string>();
+  private checkpoint?: string;
+  private power = 1;
+  private distance = 0;
   private value: DashboardCursorSnapshot<T, M> = {scope: {}, generation: 0, chunks: [], items: [], bookmarks: [''], nextCursor: '', pending: false, refreshRequired: false};
   constructor(private readonly read: (cursor: string, signal: AbortSignal) => Promise<DashboardCursorPage<T, M>>,
     private readonly key: (item: T) => string, private readonly current: () => boolean,
-    private readonly changed: (value: DashboardCursorSnapshot<T, M>) => void) {}
+    private readonly changed: (value: DashboardCursorSnapshot<T, M>) => void,
+    private readonly sameRow?: (first: T, second: T) => boolean) {}
   snapshot = (): DashboardCursorSnapshot<T, M> => this.value;
   /** Adopt an already-read producer page as the first page of a fresh query. */
   seed(cursor: string, page: DashboardCursorPage<T, M>): void {
     if (this.disposed || !this.current() || this.flight || this.value.chunks.length) return;
     if (cursor) this.seen.add(cursor);
+    this.restartCycle(page.nextCursor);
     this.publish({...this.value, chunks: [{cursor, items: page.items}], items: page.items, bookmarks: cursor ? ['', cursor] : [''], nextCursor: page.nextCursor ?? '', metadata: page.metadata, pending: false, refreshRequired: !!cursor && page.nextCursor === cursor});
   }
   private publish(value: DashboardCursorSnapshot<T, M>): void {this.value = Object.freeze(value); this.changed(this.value);}
@@ -39,7 +44,7 @@ export class DashboardCursorWindow<T, M> {
   refresh(): Promise<void> {
     if (this.disposed || !this.current()) return Promise.resolve();
     if (this.flight?.reset && this.alive(this.flight)) return this.flight.promise;
-    this.flight?.abort.abort(); this.flight = undefined; this.held = undefined; this.seen.clear(); this.generation++;
+    this.flight?.abort.abort(); this.flight = undefined; this.held = undefined; this.seen.clear(); this.restartCycle(); this.generation++;
     const old = this.value;
     this.publish({...old, generation: this.generation, bookmarks: [''], nextCursor: '', pending: false, error: undefined, refreshRequired: false});
     return this.request(this.value, '', false, true);
@@ -62,6 +67,20 @@ export class DashboardCursorWindow<T, M> {
     const cursor = this.retryCursor, previous = this.retryPrevious;
     return this.request(expected, cursor, previous, this.retryReset);
   }
+  /** Brent's constant-memory checkpoint covers a forward producer chain. */
+  private restartCycle(cursor?: string): void {this.checkpoint = cursor || undefined; this.power = 1; this.distance = 0;}
+  private cycle(cursor: string): boolean {
+    if (!cursor) return false;
+    if (this.checkpoint === undefined) {this.checkpoint = cursor; return false;}
+    if (!Number.isSafeInteger(this.distance + 1)) return true;
+    this.distance++;
+    if (cursor === this.checkpoint) return true;
+    if (this.distance === this.power) {
+      if (this.power > Math.floor(Number.MAX_SAFE_INTEGER / 2)) return true;
+      this.checkpoint = cursor; this.power *= 2; this.distance = 0;
+    }
+    return false;
+  }
   private retryReset = false;
   private retryCursor = '';
   private retryPrevious = false;
@@ -76,7 +95,9 @@ export class DashboardCursorWindow<T, M> {
         const page = await this.read(cursor, abort.signal);
         if (!this.alive(flight)) return;
         const expectedSuccessor = previous ? this.value.chunks[0]?.cursor : undefined;
-        if (previous && expectedSuccessor && page.nextCursor !== expectedSuccessor || !previous && page.nextCursor && (page.nextCursor === cursor || this.seen.has(page.nextCursor))) {
+        const retained = new Map(this.value.items.map(row => [this.key(row), row]));
+        const conflict = this.sameRow && page.items.some(row => {const prior = retained.get(this.key(row)); return prior !== undefined && !this.sameRow!(prior, row);});
+        if (conflict || previous && expectedSuccessor && page.nextCursor !== expectedSuccessor || !previous && page.nextCursor && (page.nextCursor === cursor || this.seen.has(page.nextCursor) || this.cycle(page.nextCursor))) {
           this.flight = undefined; this.publish({...this.value, pending: false, refreshRequired: true}); return;
         }
         this.accept(flight, page, previous, reset);
@@ -98,7 +119,7 @@ export class DashboardCursorWindow<T, M> {
     let bookmarks = [...old.bookmarks];
     if (!previous && flight.cursor && !bookmarks.includes(flight.cursor)) bookmarks.push(flight.cursor);
     if (bookmarks.length > 64) bookmarks = ['', ...bookmarks.slice(-63)];
-    if (previous) this.seen = new Set(chunks.map(chunk => chunk.cursor).filter(Boolean));
+    if (previous) {this.seen = new Set(chunks.map(chunk => chunk.cursor).filter(Boolean)); this.restartCycle(evicted?.cursor ?? old.nextCursor);}
     else if (flight.cursor) {this.seen.add(flight.cursor); if (this.seen.size > 63) this.seen.delete(this.seen.values().next().value!);}
     const ids = new Set<string>(), items: T[] = [];
     for (const chunk of chunks) for (const row of chunk.items) if (!ids.has(this.key(row))) {ids.add(this.key(row)); items.push(row);}

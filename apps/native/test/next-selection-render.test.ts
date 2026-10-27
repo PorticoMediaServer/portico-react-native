@@ -1384,7 +1384,7 @@ test('TV Dashboard presenter binds real continuation and retry to the captured s
   let reject!: (error: Error) => void, complete!: (value: any) => void;
   const calls: (string | undefined)[] = [];
   const controller = new NativeDashboardController(lifetime, () => 'administrator', {
-    sessions: {list: async cursor => {calls.push(cursor); return cursor ? new Promise((resolve, fail) => {complete = resolve; reject = fail;}) : {items: [session('first')] as never[], nextCursor: 'next', totals, scope: {serverId: 'server', viewerFence: 'fence'}};}},
+    sessions: {list: async cursor => {calls.push(cursor); return cursor ? new Promise((resolve, fail) => {complete = resolve; reject = fail;}) : {items: [session('first')] as never[], nextCursor: 'next', totals, revision: 'rev-1', scope: {serverId: 'server', viewerFence: 'fence'}};}},
     console: {measurement: async name => ({name, observedAt: 1, freshUntil: 30001, facts: {}}), alerts: async () => [], jobs: async () => {throw new Error('administrator dispatched owner jobs');}, dispose() {}},
   });
   const runtime = {text: {t: defaultI18n.t, locale: 'en-US'}, error: feedback.error, artwork: () => undefined};
@@ -1406,7 +1406,7 @@ test('TV Dashboard presenter binds real continuation and retry to the captured s
       withNativeControl(retry, host => {assert.ok(host.props.testID?.includes('dashboard-sessions-page-error')); host.props.onPress();});
       await act(() => {}); more = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-sessions-more')!;
       assert.equal(more.props.disabled, true);
-      await act(() => complete({items: [session('last')], nextCursor: undefined, totals, scope: {serverId: 'server', viewerFence: 'fence'}}));
+      await act(() => complete({items: [session('last')], nextCursor: undefined, totals, revision: 'rev-1', scope: {serverId: 'server', viewerFence: 'fence'}}));
       assert.ok(ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-session-last'));
       assert.deepEqual(calls, [undefined, 'next', 'next']);
     } finally {errorView.host.unmount();}

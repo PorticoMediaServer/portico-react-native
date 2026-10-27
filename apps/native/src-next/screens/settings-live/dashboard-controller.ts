@@ -21,7 +21,7 @@ export type NativeDashboardSnapshot = Readonly<{
   error?: unknown;
 }>;
 type SessionPage = Awaited<ReturnType<AdminSessionsClient['list']>>;
-type SessionMeta = Readonly<{totals: SessionPage['totals']; scope: SessionPage['scope']}>;
+type SessionMeta = Readonly<{totals: SessionPage['totals']; scope: SessionPage['scope']; revision: string}>;
 export type NativeDashboardReaders = Readonly<{
   sessions: Pick<AdminSessionsClient, 'list'>;
   console: Pick<ConsoleClient, 'measurement' | 'alerts' | 'jobs' | 'dispose'>;
@@ -33,6 +33,7 @@ export class NativeDashboardController extends NativeScreenStore<NativeDashboard
   private generation = 0;
   private role: NativeDashboardAdmission;
   private sessionFence?: string;
+  private sessionRevision?: string;
   private sessions: DashboardCursorWindow<AdminSession, SessionMeta>;
   private jobs?: DashboardCursorWindow<Job, undefined>;
   readonly lifetime: NativeScreenLifetime;
@@ -52,9 +53,9 @@ export class NativeDashboardController extends NativeScreenStore<NativeDashboard
       if (!this.valid(role)) throw new Error('native_screen_scope_ended');
       const page = await this.readers.sessions.list(cursor || undefined, 10, signal);
       if (!this.valid(role) || signal.aborted) throw new Error('native_screen_scope_ended');
-      if (page.scope.serverId !== this.lifetime.authority.serverId || this.sessionFence && this.sessionFence !== page.scope.viewerFence) throw new Error('dashboard_refresh_required');
-      this.sessionFence = page.scope.viewerFence;
-      return {items: page.items, nextCursor: page.nextCursor, metadata: {totals: page.totals, scope: page.scope}};
+      if (page.scope.serverId !== this.lifetime.authority.serverId || !page.revision || this.sessionFence && this.sessionFence !== page.scope.viewerFence || this.sessionRevision && this.sessionRevision !== page.revision) throw new Error('dashboard_refresh_required');
+      this.sessionFence = page.scope.viewerFence; this.sessionRevision = page.revision;
+      return {items: page.items, nextCursor: page.nextCursor, metadata: {totals: page.totals, scope: page.scope, revision: page.revision}};
     }, row => row.id, () => this.valid(role), window => {
       if (this.valid(role)) this.publish({...this.getSnapshot(), sessionWindow: window, sessions: window.items, nextCursor: window.nextCursor, totals: window.metadata?.totals ?? this.getSnapshot().totals});
     });
@@ -67,7 +68,7 @@ export class NativeDashboardController extends NativeScreenStore<NativeDashboard
       return {...page, metadata: undefined};
     }, row => row.id, () => this.valid('owner'), window => {
       if (this.valid('owner')) this.publish({...this.getSnapshot(), jobWindow: window, jobs: window.items});
-    });
+    }, (first, second) => first.revision === second.revision);
   }
   private retire = (): void => {
     this.generation++; this.sessions.dispose(); this.jobs?.dispose(); this.jobs = undefined;
@@ -75,7 +76,7 @@ export class NativeDashboardController extends NativeScreenStore<NativeDashboard
   };
   private changeRole(role: NativeDashboardAdmission): void {
     if (role === this.role) return;
-    this.generation++; this.sessions.dispose(); this.jobs?.dispose(); this.jobs = undefined; this.sessionFence = undefined;
+    this.generation++; this.sessions.dispose(); this.jobs?.dispose(); this.jobs = undefined; this.sessionFence = undefined; this.sessionRevision = undefined;
     this.role = role;
     this.publish({admission: role, loading: false, sessions: [], alerts: [], jobs: []});
     this.sessions = this.sessionWindow(); if (role === 'owner') this.jobs = this.jobWindow();
@@ -85,7 +86,7 @@ export class NativeDashboardController extends NativeScreenStore<NativeDashboard
     if (this.disposed) return Promise.resolve();
     const role = this.admission(); this.changeRole(role);
     if (role === 'denied') return Promise.resolve();
-    const generation = ++this.generation; this.sessionFence = undefined;
+    const generation = ++this.generation; this.sessionFence = undefined; this.sessionRevision = undefined;
     this.publish({...this.getSnapshot(), loading: true, error: undefined});
     const sessions = this.sessions.refresh();
     const owner = role === 'owner' ? Promise.all([this.readers.console.measurement('health'), this.readers.console.measurement('storage'), this.readers.console.alerts()]) : undefined;
