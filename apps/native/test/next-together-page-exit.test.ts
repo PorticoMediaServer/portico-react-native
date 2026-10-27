@@ -57,6 +57,7 @@ function fixture(phase = 'idle', actualService?: any) {
     pageBack: () => find(tree.type(tree.props), 'together-page-back').props.onPress(), back: () => back, ends: () => ends, pending: () => pending,
     leave: () => navigation.back(authority()), unmount: () => host.unmount(),
     revisit: () => {host.unmount(); navigation.open({kind: 'together'}, authority()); page = capture(); host = mount();},
+    restore: () => {host.unmount(); navigation.open({kind: 'account'}, authority()); navigation.back(authority()); page = capture(); host = mount();},
     replacePrincipal: () => {principal = '2'; for (const fn of authorityListeners) fn();},
     resolveJoin: (value: boolean) => resolveJoin(value), dispose: () => {host.unmount(); pages.dispose(); navigation.dispose(); controller.dispose(); lifetime.dispose();}};
 
@@ -185,5 +186,23 @@ test('retained submit after page exit/revisit refuses while a successor original
     const original = f.pending(); await act(() => oldSubmit());
     assert.deepEqual(f.calls, ['join']); assert.equal(original.signal.aborted, false); assert.equal(original.isCurrent(), true);
     f.resolveJoin(false); await act(async () => {});
+  } finally {f.dispose();}
+});
+
+
+test('returning to the same actual Together occurrence issues a fresh page opening without reviving its old form callbacks', async () => {
+  const f = fixture();
+  try {
+    await act(() => find(f.tree(), 'together-join').props.onPress());
+    const old = find(f.tree(), 'together-form').props.footer.props.onPress, page = f.page();
+    const occurrence = f.navigation.presentationStack().at(-1)?.occurrence;
+    f.restore();
+    assert.equal(f.navigation.presentationStack().at(-1)?.occurrence, occurrence);
+    assert.notEqual(f.page().key, page.key); assert.equal(page.current(), false); assert.equal(f.page().current(), true);
+    assert.equal(find(f.tree(), 'together-form').props.open, false);
+    await act(() => old()); assert.deepEqual(f.calls, []);
+    await act(() => find(f.tree(), 'together-join').props.onPress());
+    assert.equal(find(f.tree(), 'together-form').props.open, true);
+    await act(() => f.pageBack()); assert.equal(find(f.tree(), 'together-form').props.open, false);
   } finally {f.dispose();}
 });

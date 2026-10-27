@@ -11,7 +11,7 @@ const principal = (context: NativeShellBootstrapContext): string | undefined => 
  * the persistent room and follower remain owned by the authority. */
 export function nativeTogetherPages(context: NativeShellBootstrapContext, lifetime: Pick<NativeScreenLifetime, 'current' | 'signal'>) {
   type Issued = Readonly<{snapshot: ReturnType<typeof context.navigation.getSnapshot>; principal?: string; page: NativeTogetherPage; retire: () => void}>;
-  let alive = true, original: Issued | undefined;
+  let alive = true, sequence = 0, original: Issued | undefined;
   return {
     capture(route: Extract<NativeShellRoute, {kind: 'together'}>): NativeTogetherPage {
       const snapshot = context.navigation.getSnapshot(), identity = principal(context);
@@ -31,7 +31,9 @@ export function nativeTogetherPages(context: NativeShellBootstrapContext, lifeti
           || principal(context) !== identity || !owned()) {retire(); return false;}
         return true;
       };
-      const page: NativeTogetherPage = Object.freeze({key: occurrence ?? '', signal: abort.signal, current,
+      // The host key separates rendered page openings (including Back restoration);
+      // admission and pop always use the original real occurrence above.
+      const page: NativeTogetherPage = Object.freeze({key: JSON.stringify([occurrence, ++sequence]), signal: abort.signal, current,
         back: () => {if (current() && occurrence) context.navigation.commitNativePop(snapshot, occurrence);}});
       registration = Object.freeze({snapshot, principal: identity, page, retire}); original = registration;
       offNavigation = context.navigation.subscribe(() => {current();});
