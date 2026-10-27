@@ -45,7 +45,8 @@ type Fixture = Readonly<{at: Failure; width?: number}>;
 async function harness(fixture: Fixture) {
   let hostCalls = 0, current = true, versionCalls = 0;
   const disposals: string[] = [], listeners = new Set<() => void>();
-  const reader = {dispose: () => disposals.push('host'), confirm() {}, setActive() {}, setCrease() {}, setCreaseRef() {}};
+  const received: string[] = [];
+  const reader = {dispose: () => disposals.push('host'), confirm() {}, setActive() {}, setCrease() {}, setCreaseRef() {}, receive(message: string) {received.push(message);}};
   const session = {manifest: {format: 'pdf', revision: 'r'.repeat(64)}, signal: new AbortController().signal,
     progress: async () => {if (fixture.at === 'progress') throw new Error('progress_rejected'); return {progress: null};},
     close: async () => {disposals.push('session');}};
@@ -80,7 +81,7 @@ async function harness(fixture: Fixture) {
     '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/states': {LoadingPaint: 'LoadingPaint', StateView: 'StateView', SkeletonBlock: 'SkeletonBlock'},
     '../../kit/controls/Button': {Button: 'Button'}, '../../kit/theme': {useTheme: () => ({colors: {ink: '#000'}})},
     '../../platform/platformPosture': {usePlatformPosture: () => ({status: 'unavailable'})}, './asset-origin': {readerAssetEntry},
-    './ReadingGuestView': {ReadingGuestView: 'ReadingGuestView', createReadingGuestBridge: () => {hostCalls++; return reader;}},
+    './ReadingGuestView': {ReadingGuestView: 'ReadingGuestView', createReadingGuestBridge: () => {hostCalls++; return {...reader};}},
   });
   const {ReadNativeHost} = await screenModule(new URL('../src-next/screens/read/ReadNativeHost.tsx', import.meta.url), {
     react: {...React, default: React},
@@ -115,7 +116,7 @@ async function harness(fixture: Fixture) {
     './annotation-sync': {NativeAnnotationSync: class {flush() {return Promise.resolve();} subscribe() {return () => {};} getSnapshot() {return {};} dispose() {}}},
     './annotation-authoring': {NATIVE_OFFLINE_ANNOTATION_AUTHORING: false},
   });
-  return {ReadNativeHost, NativeReadingGuestHost, ReadingGuestView, context, reader, get hostCalls() {return hostCalls;}, get versionCalls() {return versionCalls;}, setCurrent(value: boolean) {current = value; for (const listener of [...listeners]) listener();}, disposals};
+  return {ReadNativeHost, NativeReadingGuestHost, ReadingGuestView, context, reader, received, get hostCalls() {return hostCalls;}, get versionCalls() {return versionCalls;}, setCurrent(value: boolean) {current = value; for (const listener of [...listeners]) listener();}, disposals};
 }
 
 function mount(component: (props: any) => unknown, props: any) {
@@ -324,4 +325,28 @@ test('evicting and remounting a guest retains the original live session', async 
   assert.equal(fixture.versionCalls, 1, 'guest remount does not admit a new session');
   second.host.unmount(); live.host.unmount(); await settle();
   assert.equal(fixture.disposals.filter(value => value === 'session').length, 1);
+});
+
+
+test('an old guest error and message cannot affect a retried guest at the same asset URL', async () => {
+  const fixture = await harness({at: 'none'}), live = mount(fixture.ReadNativeHost, propsFor(fixture.context));
+  await act(async () => {live.host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
+  const child = byType(live.tree, 'NativeReadingGuestHost'); assert.ok(child);
+  const guest = mount(fixture.NativeReadingGuestHost, child!.props);
+  try {
+    await act(async () => {guest.host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
+    const firstBoundary = byType(guest.tree, 'ReadingGuestView'); assert.ok(firstBoundary);
+    const oldView = fixture.ReadingGuestView(firstBoundary!.props) as any;
+    await act(() => oldView.props.onError());
+    const error = byType(guest.tree, 'StateView'); assert.ok(error);
+    await act(async () => {error!.props.primaryAction.onPress(); await new Promise<void>(resolve => setImmediate(resolve));});
+    const nextBoundary = byType(guest.tree, 'ReadingGuestView'); assert.ok(nextBoundary);
+    assert.notEqual(nextBoundary!.props.reader, firstBoundary!.props.reader);
+    const nextView = fixture.ReadingGuestView(nextBoundary!.props) as any;
+    await act(() => {oldView.props.onError(); oldView.props.onMessage({nativeEvent: {url: appleReaderEntry, data: 'stale'}});});
+    assert.equal(byType(guest.tree, 'StateView'), undefined);
+    assert.deepEqual(fixture.received, []);
+    nextView.props.onMessage({nativeEvent: {url: appleReaderEntry, data: 'current'}});
+    assert.deepEqual(fixture.received, ['current']); assert.equal(fixture.versionCalls, 1);
+  } finally {guest.host.unmount(); live.host.unmount();}
 });
