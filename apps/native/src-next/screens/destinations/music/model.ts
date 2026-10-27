@@ -195,7 +195,7 @@ export class NativeTVMusicController {
       },
       publish: section => {
         if(all){const projection=Object.freeze({...section,songs:section.items});this.allSongSections.set(projection,section);this.publish({allSongs:projection});}
-        else this.publish({songPage:section,songs:section.items,songTotal:section.totalIsLowerBound?undefined:section.total});
+        else this.publish({songPage:section,songs:section.items,songTotal:this.state.albumDetails?.count??(section.totalIsLowerBound?undefined:section.total)});
       },
     });
     return pager;
