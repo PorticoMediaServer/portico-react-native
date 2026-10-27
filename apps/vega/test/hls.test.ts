@@ -375,7 +375,7 @@ test('download timeout measures byte inactivity and retires its own request', as
   for (const length of [undefined, '1']) {
     const oversizedBody = get();
     const bodyResult = assert.rejects(oversizedBody, (error: SourceError) => error.refused === 'unsupported');
-    const request = requests[requests.length - 1]!;
+    const request: ControlledRequest = requests[requests.length - 1]!;
     if (length) request.headers['content-length'] = length;
     request.progress(128 * 1024 * 1024 + 1);
     await bodyResult;
