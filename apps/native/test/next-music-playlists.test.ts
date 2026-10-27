@@ -307,3 +307,30 @@ test('the real playlist surface closes after listing without writing anything', 
   assert.equal(FakeSavedService.mutations.length, 0, 'closing without choosing writes nothing');
   assert.deepEqual(FakeSavedService.instances.flatMap((writer: any) => writer.committed), [], 'no playlist write was committed');
 });
+
+test('the real picker controller closes without a choice and writes nothing', async () => {
+  reset();
+  const {MusicPlaylistPort} = await screenModule(new URL('../src-next/screens/destinations/music/playlist-port.ts', import.meta.url), {
+    react: {default: {}},
+    '../../../../../../packages/client-core/src/saved': {default: {}, SavedService: FakeSavedService},
+  });
+  const {MusicPlaylistPickerController} = await screenModule(new URL('../src-next/screens/destinations/music/MusicPlaylistPicker.tsx', import.meta.url), {
+    react: {default: {createElement() {}, useSyncExternalStore() {}}, useSyncExternalStore: () => ({})},
+    '../../../../../../packages/i18n/src': {defaultI18n},
+    '../../../kit/overlays': {Menu: 'Menu'},
+    '../lifetime': {nativeDestinationLifetime: () => ({scope: {serverId: 'server', viewerId: 'viewer'}})},
+    '../../native-screen-services': {nativeScreenServices: () => ({requestId: async () => 'request-id'})},
+    './playlist-port': {MusicPlaylistPort},
+  });
+  const controller = new MusicPlaylistPickerController({api: {request: async () => ({})}, current: () => true});
+  const lifetime = {signal: new AbortController().signal, isCurrent: () => true};
+  controller.openAlbum({albumId: 'album-1', load: async () => ['song-1', 'song-2']}, lifetime);
+  await new Promise<void>(resolve => setImmediate(resolve));
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.equal(controller.getSnapshot().open, true, 'the real controller opened the picker');
+  assert.equal(controller.getSnapshot().port?.getSnapshot().playlists.length, 1, 'the real port listed the offer');
+  controller.close();
+  assert.equal(controller.getSnapshot().open, false, 'Cancel closes the actual picker');
+  assert.equal(FakeSavedService.mutations.length, 0, 'closing without choosing performs no mutation');
+  assert.deepEqual(FakeSavedService.instances.flatMap((writer: any) => writer.committed), [], 'no playlist write was committed');
+});
