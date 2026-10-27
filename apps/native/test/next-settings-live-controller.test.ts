@@ -727,3 +727,35 @@ for (const retirement of ['controller-dispose', 'lifetime-abort'] as const) test
   await assert.rejects(opening.resolve(seed)); assert.equal(writes, 0);
   assert.equal(opening.canResolve(seed), false); opening.dispose(); controller.dispose(); lifetime.dispose();
 });
+
+test('recording first-page worker is reserved before a reader synchronously queues newer views', async t => {
+  const fixture = recordingService(), lifetime = new NativeScreenLifetime(authority()), controller = new NativeRecordingsController(lifetime, fixture.service);
+  const calls: string[] = [], pending: Promise<unknown>[] = [];
+  let finishFirst!: (value: DVRPage) => void, finishNewest!: (value: DVRPage) => void;
+  let queuedB!: Promise<void>, queuedC!: Promise<void>, enteredNewest!: () => void;
+  const newestEntered = new Promise<void>(resolve => {enteredNewest = resolve;});
+  const bounded = async <T,>(promise: Promise<T>): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {return await Promise.race([promise, new Promise<never>((_, reject) => {timer = setTimeout(() => reject(new Error('recording reader did not settle')), 1000);})]);}
+    finally {if (timer) clearTimeout(timer);}
+  };
+  t.after(async () => {finishFirst?.(fixture.page); finishNewest?.(fixture.page); controller.dispose(); lifetime.dispose(); await bounded(Promise.allSettled(pending));});
+  fixture.service.list = async view => {
+    calls.push(view);
+    if (view === 'upcoming') {
+      const held = new Promise<DVRPage>(resolve => {finishFirst = resolve;});
+      queuedB = controller.load({view: 'rules'}); pending.push(queuedB);
+      queuedC = controller.load({view: 'history'}); pending.push(queuedC);
+      return held;
+    }
+    if (view === 'history') {enteredNewest(); return new Promise(resolve => {finishNewest = resolve;});}
+    return {...fixture.page, recordings: [{id: view, revision: 1} as Recording]};
+  };
+  const first = controller.load({view: 'upcoming'}); pending.push(first);
+  assert.ok(queuedB); assert.ok(queuedC); assert.equal(queuedB, first); assert.equal(queuedC, first); assert.deepEqual(calls, ['upcoming']);
+  assert.ok(finishFirst); finishFirst(fixture.page); await bounded(newestEntered); assert.deepEqual(calls, ['upcoming', 'history']);
+  const final = controller.load({view: 'rules'}); pending.push(final); assert.equal(final, first); assert.deepEqual(calls, ['upcoming', 'history']);
+  assert.ok(finishNewest); finishNewest(fixture.page); await bounded(Promise.all([first, queuedB, queuedC, final]));
+  assert.deepEqual(calls, ['upcoming', 'history', 'rules']); assert.equal(controller.getSnapshot().query.view, 'rules');
+  assert.equal(controller.getSnapshot().loading, false); assert.equal(controller.getSnapshot().page?.recordings[0]?.id, 'rules');
+});

@@ -55,7 +55,12 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
     }
     // Moving focus quickly across the five chips replaces pending work, instead of queuing
     // private reads for every intermediate selection. At most one page read is in flight.
-    if (!this.worker) this.worker = this.drain().finally(() => {this.worker = undefined;});
+    if (!this.worker) {
+      let resolve!: () => void, reject!: (error: unknown) => void;
+      const worker = new Promise<void>((yes, no) => {resolve = yes; reject = no;});
+      this.worker = worker;
+      void this.drain().then(() => {if (this.worker === worker) this.worker = undefined; resolve();}, error => {if (this.worker === worker) this.worker = undefined; reject(error);});
+    }
     return this.worker;
   }
   private async drain(): Promise<void> {
