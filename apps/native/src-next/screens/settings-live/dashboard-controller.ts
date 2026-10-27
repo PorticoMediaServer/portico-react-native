@@ -49,7 +49,7 @@ export class NativeDashboardController extends NativeScreenStore<NativeDashboard
   private valid = (role: NativeDashboardAdmission): boolean => !this.disposed && this.lifetime.current() && this.role === role && this.admission() === role && role !== 'denied';
   private sessionWindow(): DashboardCursorWindow<AdminSession, SessionMeta> {
     const role = this.role;
-    return new DashboardCursorWindow(async (cursor, signal) => {
+    return new DashboardCursorWindow<AdminSession, SessionMeta>(async (cursor, signal) => {
       if (!this.valid(role)) throw new Error('native_screen_scope_ended');
       const page = await this.readers.sessions.list(cursor || undefined, 10, signal);
       if (!this.valid(role) || signal.aborted) throw new Error('native_screen_scope_ended');
