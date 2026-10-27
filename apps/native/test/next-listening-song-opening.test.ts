@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {act, createHookHost} from './hook-driver.ts';
+import {playbackFence, playbackIdentity, type QueuePlaybackFence, type QueueScope} from '../../../packages/player-core/src';
 import {useListeningSong, type NativeListeningSongState} from '../src-next/shell/use-listening-song.ts';
 import type {NativeListeningSong, NativeListeningSongDetail} from '../src-next/shell/listening-song-detail.ts';
 
@@ -12,7 +13,25 @@ import type {NativeListeningSong, NativeListeningSongDetail} from '../src-next/s
  * Retirement is the original layout cleanup, so it runs before any other effect's setup.
  */
 
-const fence = (entryId: string) => ({kind: 'queue', entryId, run: 1} as never);
+const scope: QueueScope = {
+  serverId: 'server-1',
+  authority: 'hosted',
+  accountId: 'account-1',
+  profileId: 'profile-1',
+  controllerId: 'controller-1',
+  controllerEpoch: '1',
+  commandLaneId: 'lane-1',
+};
+/** A real queue occurrence, validated by the same fence/identity constructors playback uses. */
+const fence = (entryId: string): QueuePlaybackFence => playbackFence({
+  kind: 'queue',
+  playback: playbackIdentity({scope, run: 1}),
+  sessionId: 'session-1',
+  itemId: 'item-1',
+  sourceId: 'source-1',
+  entryId,
+  generation: 1,
+});
 const lifetime = () => {
   const abort = new AbortController();
   return {signal: abort.signal, isCurrent: () => !abort.signal.aborted};
