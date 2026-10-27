@@ -18,8 +18,12 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ci-main-${{ github.run_id }}
-  cancel-in-progress: false
+  # One repo-scoped group per workflow and ref: a superseded scheduled or
+  # dispatched run is cancelled when the next one starts, so a hung run cannot
+  # pile up behind the hourly schedule. Release calls this workflow from its own
+  # workflow name and tag ref, so its checks are never superseded by an hourly run.
+  group: ci-${{ github.repository }}-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 env:
   CI_FULL_TREE: '1'
 jobs:
@@ -87,9 +91,6 @@ jobs:
   apple-contracts:
     runs-on: macos-15
     timeout-minutes: 40
-    concurrency:
-      group: apple-contracts-${{ github.workflow }}-${{ github.run_id }}
-      cancel-in-progress: false
     steps:
       - name: Validate requested public test source
         if: ${{ inputs.apple_reading_commit != '' }}
