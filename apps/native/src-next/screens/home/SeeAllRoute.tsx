@@ -15,6 +15,7 @@ import {nativeEntryRoute, nativeEntryRouteSupported, type NativeShellRoute} from
 import {nativeShellRoutes, type NativeRouteRenderer} from '../../shell/route-registry';
 import {shellLayout} from '../../shell/model';
 import {useTheme} from '../../kit/theme';
+import {authorityKey} from '../../shell/model';
 import {hiddenReadingLibraryOnTV} from '../read/platform';
 import {openNativeReadingBookEntry} from '../read/reading-books-open';
 import {nativeHomeEntryLifetime} from './entry-lifetime';
@@ -176,7 +177,7 @@ function RetainedHomeRow({source, runtime, active, onBack, onPlay, onOpen, onPla
       onFilters={() => setFilters(true)} kindLabel={kindLabel} onReshuffle={() => {if (active) try {const bytes = nativeRouteCrypto.random(4); const sort = source.controller.getSnapshot().sort;
         if (sort) source.controller.setSort({...sort, seed: new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0)});} catch (error) {runtime.reportError(error);}}}/>
     {active && filters && <HomeRowFilters controller={source.controller} runtime={runtime} onClose={() => setFilters(false)}/>}
-    {active && recommendation && chosen && <Menu open items={[{id: 'not-interested', label: defaultI18n.t('entry.notInterested'), icon: 'i-eyeoff' as const,
+    {active && recommendation && chosen && <Menu testID={`home-see-all:${authorityKey(runtime.getSnapshot().authority)}:${source.controller.rowId}.recommendation-menu`} open items={[{id: 'not-interested', label: defaultI18n.t('entry.notInterested'), icon: 'i-eyeoff' as const,
       onSelect: () => {const entry = chosen.entry; setChosen(undefined);
         void onNotInterested(entry, true).then(ok => {if (!ok) return; setUndo(entry);
           if (undoTimer.current) clearTimeout(undoTimer.current);

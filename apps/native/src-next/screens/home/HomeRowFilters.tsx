@@ -63,7 +63,7 @@ export function HomeRowFilters({controller, runtime, onClose}: {controller: Nati
     } else fields[field.id] = {kind: 'text', value: typeof direct[0]?.value === 'string' ? direct[0].value : '', active};
   }
   const selectedCount = counts.find(count => count.id === (state.selectedKind ?? 'all'));
-  const footer = selectedCount && !selectedCount.totalIsLowerBound ? <View style={{alignItems: 'stretch'}}><Button onPress={() => {if (controller.setFilters(draft)) onClose();}}>{t('next.browse.native.showResults', {results: t('count.titles', {count: selectedCount.total})})}</Button></View> : undefined;
+  const footer = selectedCount && !selectedCount.totalIsLowerBound ? <View style={{alignItems: 'stretch'}}><Button focusId="show-results" onPress={() => {if (controller.setFilters(draft)) onClose();}}>{t('next.browse.native.showResults', {results: t('count.titles', {count: selectedCount.total})})}</Button></View> : undefined;
   const body = <FilterBuilder focusPrefix={`home-row-filters:${controller.rowId}`} model={model} labels={{field: value => homeBrowseLabel(value, labels), sort: value => homeBrowseLabel(value, labels), quick: value => homeBrowseLabel(value, labels)}} openFields={open} fields={fields}
     onFieldOpenChange={(id, next) => {setOpen(previous => next ? [...previous.filter(value => value !== id), id] : previous.filter(value => value !== id));
       const field = state.capabilities!.fields.find(value => value.id === id); if (next && field && filterControlOf(field) === 'values') void load(field, facets[id]?.search ?? '');}}

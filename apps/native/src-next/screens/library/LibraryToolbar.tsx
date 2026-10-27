@@ -13,9 +13,9 @@ import {LibrarySortMenu} from './LibrarySortMenu';
  * actual caller action; an absent execution port never creates a dummy button.
  * tablet4: a docked Filters panel carries the quick play states as its own
  * fields, so the toolbar drops them while it is docked. */
-export function LibraryToolbar({model, labels, filterCount, filtersOpen, onFilters, onSort, onReshuffle, onQuick, onSave,
+export function LibraryToolbar({focusScope, model, labels, filterCount, filtersOpen, onFilters, onSort, onReshuffle, onQuick, onSave,
   onJump, jumpEnabled, jumpAnchor, onSelect, selecting, canSave, docked = false, showSelect = true, trailing, gutter}: {
-  model: BrowseToolbarModel; labels: BrowseLabels; filterCount: number; filtersOpen: boolean;
+  focusScope: string; model: BrowseToolbarModel; labels: BrowseLabels; filterCount: number; filtersOpen: boolean;
   onFilters: () => void; onSort: (sort: BrowseSortSelection) => void; onReshuffle: () => void;
   onQuick: (id: string, enabled: boolean) => void; onSave: () => void;
   canSave: boolean;
@@ -31,7 +31,7 @@ export function LibraryToolbar({model, labels, filterCount, filtersOpen, onFilte
   gutter?: number;
 }) {
   const theme = useTheme(), {width} = useWindowDimensions();
-  const sort = <LibrarySortMenu sorts={model.sorts} value={model.sort} label={labels.sort} onValueChange={onSort} onReshuffle={onReshuffle}/>;
+  const sort = <LibrarySortMenu focusScope={focusScope} sorts={model.sorts} value={model.sort} label={labels.sort} onValueChange={onSort} onReshuffle={onReshuffle}/>;
   const filters = <FocusItem focusId="filters"><FiltersButton count={filterCount} open={filtersOpen} onPress={onFilters}/></FocusItem>;
   const controls = <>
     {theme.isTV ? <>{sort}{filters}<Chip ref={jumpAnchor} focusId="jump" disabled={!jumpEnabled} onPress={onJump}>{defaultI18n.t('next.browse.native.jumpTo')}</Chip></>

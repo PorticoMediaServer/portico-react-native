@@ -26,9 +26,9 @@ export function QuickToggle({children, checked, onCheckedChange}: {children: Rea
 export function SaveViewButton({canSave, onSave}: {canSave: boolean; onSave: () => void}) {
   return <Button variant="text" size="compact" icon="i-save" disabled={!canSave} onPress={onSave}>{t('next.browse.native.saveView')}</Button>;
 }
-export function ViewToggle({value, onValueChange}: {value: 'grid' | 'list'; onValueChange: (value: 'grid' | 'list') => void}) {
+export function ViewToggle({value, onValueChange, itemProps}: {itemProps?: (value: 'grid' | 'list') => Pick<React.ComponentProps<typeof Focusable>, 'focusId' | 'testID'>; value: 'grid' | 'list'; onValueChange: (value: 'grid' | 'list') => void}) {
   const theme = useTheme(), phone = theme.platform === 'phone';
-  return <View accessibilityRole="radiogroup" style={{flexDirection: 'row', padding: phone ? 0 : 3, borderRadius: 11, backgroundColor: phone ? 'transparent' : theme.colors.raisedHigh}}>{(['grid', 'list'] as const).map(choice => <Focusable key={choice} focusId={`view-${choice}`} accessibilityRole="radio" accessibilityLabel={t(choice === 'grid' ? 'next.browse.native.grid' : 'next.browse.native.list')} accessibilityState={{checked: value === choice}} onPress={() => onValueChange(choice)} focusKind="row" focusRadius={8} style={{width: phone ? 32 : 38, height: phone ? 30 : 34, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: value === choice ? phone ? theme.colors.raisedHigh : theme.colors.raisedBright : 'transparent'}}><Icon name={choice === 'grid' ? 'i-grid' : 'i-list'} size={20} color={value === choice ? theme.colors.text : theme.colors.textTertiary}/></Focusable>)}</View>;
+  return <View accessibilityRole="radiogroup" style={{flexDirection: 'row', padding: phone ? 0 : 3, borderRadius: 11, backgroundColor: phone ? 'transparent' : theme.colors.raisedHigh}}>{(['grid', 'list'] as const).map(choice => <Focusable key={choice} focusId={`view-${choice}`} {...itemProps?.(choice)} accessibilityRole="radio" accessibilityLabel={t(choice === 'grid' ? 'next.browse.native.grid' : 'next.browse.native.list')} accessibilityState={{checked: value === choice}} onPress={() => onValueChange(choice)} focusKind="row" focusRadius={8} style={{width: phone ? 32 : 38, height: phone ? 30 : 34, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: value === choice ? phone ? theme.colors.raisedHigh : theme.colors.raisedBright : 'transparent'}}><Icon name={choice === 'grid' ? 'i-grid' : 'i-list'} size={20} color={value === choice ? theme.colors.text : theme.colors.textTertiary}/></Focusable>)}</View>;
 }
 export function CardSizeButton({value, options, onValueChange}: NonNullable<BrowseToolbarProps['cardSize']>) {
   const anchorRef = useRef<View>(null), [open, setOpen] = useState(false);
@@ -40,8 +40,8 @@ export function CardSizeButton({value, options, onValueChange}: NonNullable<Brow
   </>;
 }
 
-export function SortMenu({sorts, value, label, onValueChange, onReshuffle, open: suppliedOpen, onOpenChange}: {
-  sorts: readonly BrowseSortCapability[]; value: BrowseToolbarModel['sort']; label: (sort: BrowseSortCapability) => string;
+export function SortMenu({scope, sorts, value, label, onValueChange, onReshuffle, open: suppliedOpen, onOpenChange}: {
+  scope?: string; sorts: readonly BrowseSortCapability[]; value: BrowseToolbarModel['sort']; label: (sort: BrowseSortCapability) => string;
   onValueChange: (value: BrowseSortSelection) => void; onReshuffle?: () => void; open?: boolean; onOpenChange?: (open: boolean) => void;
 }) {
   const theme = useTheme(), anchorRef = useRef<View>(null), [localOpen, setLocalOpen] = useState(false);
@@ -66,11 +66,11 @@ export function SortMenu({sorts, value, label, onValueChange, onReshuffle, open:
         {!theme.isTV && <Icon name="i-down" size={16} color={theme.colors.textTertiary}/>}
       </View>
     </Focusable>
-    <Popover open={open} onOpenChange={setOpen} anchorRef={anchorRef} returnFocusRef={anchorRef} title={t('next.browse.native.sort')} width={theme.isTV ? 560 : 300} placement="bottom-end">
-      <ScrollView style={{maxHeight: theme.isTV ? 680 : 560}} keyboardShouldPersistTaps="handled">{sorts.map(choice => <MenuRow key={choice.id} label={label(choice)} description={choice.expensive ? t('next.browse.native.expensiveSort') : undefined} selected={choice.id === value.field} accessibilityRole="radio" accessibilityState={{checked: choice.id === value.field}} variant={theme.isTV ? 'tv' : 'compact'} style={{minHeight: theme.isTV ? 64 : theme.platform === 'phone' ? 42 : 36}} onPress={() => select(choice)}/>)}</ScrollView>
+    <Popover testID={scope ? `${scope}.sort-menu` : undefined} open={open} onOpenChange={setOpen} anchorRef={anchorRef} returnFocusRef={anchorRef} title={t('next.browse.native.sort')} width={theme.isTV ? 560 : 300} placement="bottom-end">
+      <ScrollView style={{maxHeight: theme.isTV ? 680 : 560}} keyboardShouldPersistTaps="handled">{sorts.map(choice => <MenuRow key={choice.id} focusId={`sort:${choice.id}`} label={label(choice)} description={choice.expensive ? t('next.browse.native.expensiveSort') : undefined} selected={choice.id === value.field} accessibilityRole="radio" accessibilityState={{checked: choice.id === value.field}} variant={theme.isTV ? 'tv' : 'compact'} style={{minHeight: theme.isTV ? 64 : theme.platform === 'phone' ? 42 : 36}} onPress={() => select(choice)}/>)}</ScrollView>
       {active && value.flippable && !active.seeded && <View style={{borderTopWidth: 1, borderTopColor: theme.colors.line, padding: 8, gap: 6}}>
         <Text style={[browseType(theme, theme.isTV ? 20 : 13, 700), {color: theme.colors.textTertiary}]}>{t('next.browse.native.order')}</Text>
-        <Segmented variant="browse" value={value.direction} onValueChange={dir => onValueChange({field: value.field, direction: dir as 'asc' | 'desc'})} items={active.directions.map(dir => ({value: dir, label: direction(dir)}))}/>
+        <Segmented itemProps={item => ({focusId: `order:${item.value}`})} variant="browse" value={value.direction} onValueChange={dir => onValueChange({field: value.field, direction: dir as 'asc' | 'desc'})} items={active.directions.map(dir => ({value: dir, label: direction(dir)}))}/>
       </View>}
     </Popover>
   </>;

@@ -15,11 +15,12 @@ import {GenreBrowseScreen} from './GenreBrowseScreen';
 import {AllGenresScreen} from './AllGenresScreen';
 import {createNativeSearchSelection} from './selection';
 import {createNativeReadingSearchModule} from './reading-register';
+import {authorityKey} from '../../shell/model';
 
 type Root = Readonly<{route: NativeShellRoute; key: number; search: ReturnType<typeof createNativeSearchController>;
   explore: NativeSearchExplore; selection: ReturnType<typeof createNativeSearchSelection>; actions: ReturnType<typeof createNativeSearchActions>}>;
 type GenreRoute = Extract<NativeShellRoute, {kind: 'search-genre'}>;
-type Genre = Readonly<{route: GenreRoute; key: number; controller: ReturnType<typeof createNativeSearchGenreController>; actions: ReturnType<typeof createNativeEntryActions>}>;
+type Genre = Readonly<{route: GenreRoute; key: number; focusScope: string; controller: ReturnType<typeof createNativeSearchGenreController>; actions: ReturnType<typeof createNativeEntryActions>}>;
 type AllRoute = Extract<NativeShellRoute, {kind: 'search-genres'}>;
 type All = Readonly<{route: AllRoute; key: number; explore: NativeSearchExplore; owned: boolean; current: () => boolean}>;
 
@@ -66,7 +67,8 @@ export function createNativeSearchModule(context: NativeShellBootstrapContext): 
             });
             return () => {off(); offCollection?.();};
           }});
-        genres.set(route, {route, key: ++sequence, controller, actions});
+        const key = ++sequence;
+        genres.set(route, {route, key, focusScope: `genre:${authorityKey(context.authority())}:${JSON.stringify(route.value)}:${key}`, controller, actions});
       }
       if (route.kind === 'search-genres' && !all.has(route)) {
         const parent = [...routes].reverse().find(candidate => roots.has(candidate));
@@ -85,7 +87,7 @@ export function createNativeSearchModule(context: NativeShellBootstrapContext): 
       reconcile();
       return <>
         {[...roots.values()].map(entry => <SearchHost key={entry.key} entry={entry} runtime={runtime}/>)}
-        {[...genres.values()].map(entry => <GenreBrowseScreen key={entry.key} name={entry.route.label} value={entry.route.value} destination={entry.controller.source}
+        {[...genres.values()].map(entry => <GenreBrowseScreen key={entry.key} focusScope={entry.focusScope} name={entry.route.label} value={entry.route.value} destination={entry.controller.source}
           activation={entry.controller.activation} runtime={runtime} actions={entry.actions} owner={context.session()?.viewer.role === 'owner'} onBack={() => back(entry.route)}/>)}
         {[...all.values()].map(entry => <AllHost key={entry.key} entry={entry} runtime={runtime} navigation={context.navigation} back={() => back(entry.route)}/>)}
       </>;

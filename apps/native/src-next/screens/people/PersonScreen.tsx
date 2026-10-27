@@ -17,7 +17,7 @@ import type {NativeShellRuntime} from '../../shell/runtime';
 import type {createNativeEntryActions} from '../destinations/entry-actions';
 
 export type NativePersonScreenProps = Readonly<{
-  page: PersonPage; role: PersonRole; collection: WindowedCollection<PersonCredit>;
+  focusScope: string; page: PersonPage; role: PersonRole; collection: WindowedCollection<PersonCredit>;
   runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>;
   onRole: (role: PersonRole) => void; onBack: () => void;
 }>;
@@ -27,7 +27,7 @@ const creditSlotKey = (index: number) => String(index);
 
 /** phone-detail frame7: one sparse credits scroller, with the genuine person,
  * biography and bounded known-for shelf as its header. */
-export function PersonScreen({page, role, collection, runtime, actions, onRole, onBack}: NativePersonScreenProps) {
+export function PersonScreen({focusScope, page, role, collection, runtime, actions, onRole, onBack}: NativePersonScreenProps) {
   const theme = useTheme(), dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   const columns = theme.platform === 'phone' ? 3 : Math.max(3, Math.floor((dimensions.width - 40) / 150));
   const width = (dimensions.width - 32 - (columns - 1) * 10) / columns;
@@ -90,7 +90,7 @@ export function PersonScreen({page, role, collection, runtime, actions, onRole, 
     </View>
   </>;
   const rows = useMemo(() => Math.ceil((state.total ?? page.pageInfo.total) / columns), [columns, page.pageInfo.total, state.total]);
-  if (theme.isTV) return <TVPerson page={page} role={role} collection={collection} runtime={runtime} actions={actions} onRole={onRole} onBack={onBack}/>;
+  if (theme.isTV) return <TVPerson focusScope={focusScope} page={page} role={role} collection={collection} runtime={runtime} actions={actions} onRole={onRole} onBack={onBack}/>;
   return <View style={{flex: 1, backgroundColor: theme.colors.ink}} testID="native-person">
     <VirtualizedList data={collection} getItem={(_data, index) => index} getItemCount={() => rows} keyExtractor={index => String(index)} extraData={version()}
       initialNumToRender={4} maxToRenderPerBatch={4} windowSize={5} ListHeaderComponent={header} onViewableItemsChanged={visible}
@@ -115,8 +115,8 @@ export function PersonScreen({page, role, collection, runtime, actions, onRole, 
  * the person's own facts and biography, then the real windowed credits as a
  * horizontal row; Sort is not produced by the person read, so only the real
  * All/Cast/Crew filter is drawn. */
-export function TVPerson({page, role, collection, runtime, actions, onRole, onBack}: {
-  page: PersonPage; role: PersonRole; collection: WindowedCollection<PersonCredit>;
+export function TVPerson({focusScope, page, role, collection, runtime, actions, onRole, onBack}: {
+  focusScope: string; page: PersonPage; role: PersonRole; collection: WindowedCollection<PersonCredit>;
   runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>;
   onRole: (role: PersonRole) => void; onBack: () => void;
 }) {
@@ -188,6 +188,6 @@ export function TVPerson({page, role, collection, runtime, actions, onRole, onBa
         }}/>
       {state.status === 'error' && <View style={{marginTop: 30, width: 900}}><StateView {...runtime.error(state.error, () => collection.retry())}/></View>}
     </ScrollView>
-    <Menu open={filters} onOpenChange={setFilters} title={t('next.browse.native.filters')} items={filterItems}/>
+    <Menu testID={`${focusScope}.role-filter`} open={filters} onOpenChange={setFilters} title={t('next.browse.native.filters')} items={filterItems}/>
   </View>;
 }

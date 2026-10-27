@@ -34,8 +34,8 @@ const browseLabels = (t: NativeShellRuntime['text']['t']): BrowseLabels => ({fie
 
 /** A genuine across-video Browse source. The header/filter/grid parts are the
  * current Library composition; no Library('*') or local genre expansion exists. */
-export function GenreBrowseScreen({name, value, destination, activation, runtime, actions, owner, onBack}: Readonly<{
-  name: string; value: string; destination: NativeGenreBrowseDestination; activation: NativeDestinationActivationPort;
+export function GenreBrowseScreen({focusScope, name, value, destination, activation, runtime, actions, owner, onBack}: Readonly<{
+  focusScope: string; name: string; value: string; destination: NativeGenreBrowseDestination; activation: NativeDestinationActivationPort;
   runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>; owner: boolean; onBack: () => void;
 }>) {
   const t = runtime.text.t;
@@ -59,7 +59,7 @@ export function GenreBrowseScreen({name, value, destination, activation, runtime
         style={{width: 38, height: 38, justifyContent: 'center', alignItems: 'center'}}><Icon name="i-left" size={22} color={theme.colors.text}/></Focusable></View>
       <Text accessibilityRole="header" style={[browseType(theme, 32, 800, -.035, 36.8), {color: theme.colors.text, marginHorizontal: 20, marginBottom: 8}]}>{name}</Text>
     </View>
-    {state.phase === 'ready' && state.capabilities && state.sort && state.collection ? <GenreGrid destination={destination} runtime={runtime} actions={actions} owner={owner} labels={labels}
+    {state.phase === 'ready' && state.capabilities && state.sort && state.collection ? <GenreGrid focusScope={focusScope} destination={destination} runtime={runtime} actions={actions} owner={owner} labels={labels}
       openFilters={() => {if (active.visible) setFilters(destination.createFilters());}} filtersOpen={!!filters}/>
       : state.phase === 'error' ? <StateView variant="centered" {...runtime.error(state.error, destination.retry)}/>
       : <GridSkeleton elapsedMs={elapsed} scrollOffset={0} viewportHeight={dimensions.height - 160} width={dimensions.width} totalCount={9} columns={3}/>}
@@ -67,8 +67,8 @@ export function GenreBrowseScreen({name, value, destination, activation, runtime
   </View>;
 }
 
-function GenreGrid({destination, runtime, actions, owner, labels, openFilters, filtersOpen}: Readonly<{
-  destination: NativeGenreBrowseDestination; runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>; owner: boolean; labels: BrowseLabels; openFilters: () => void; filtersOpen: boolean;
+function GenreGrid({focusScope, destination, runtime, actions, owner, labels, openFilters, filtersOpen}: Readonly<{
+  focusScope: string; destination: NativeGenreBrowseDestination; runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>; owner: boolean; labels: BrowseLabels; openFilters: () => void; filtersOpen: boolean;
 }>) {
   const t = runtime.text.t, locale = runtime.text.locale;
   const theme = useTheme(), dimensions = useWindowDimensions(), source = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
@@ -89,7 +89,7 @@ function GenreGrid({destination, runtime, actions, owner, labels, openFilters, f
   return <>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{flexGrow: 0}} contentContainerStyle={{paddingHorizontal: 20, paddingTop: 10, gap: 8}}>
       <FiltersButton count={model.applied.length} open={filtersOpen} onPress={openFilters}/>
-      <LibrarySortMenu sorts={model.sorts} value={model.sort} label={labels.sort} translate={t} onValueChange={onSort}
+      <LibrarySortMenu focusScope={focusScope} sorts={model.sorts} value={model.sort} label={labels.sort} translate={t} onValueChange={onSort}
         onReshuffle={() => onSort({...source.sort!, seed: Math.floor(Math.random() * 4294967296)})}/>
     </ScrollView>
     <Text style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary, paddingHorizontal: 20, paddingVertical: 10}]}>

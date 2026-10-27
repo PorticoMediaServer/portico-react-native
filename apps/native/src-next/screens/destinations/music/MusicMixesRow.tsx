@@ -60,16 +60,16 @@ export function MusicMixCard({row, artwork, width = 186, onPlay, onFocus, onMenu
 }
 
 /** Mixes for you: the server's own profile row, absent until it has something real to draw. */
-export function MusicMixesRow({port, artwork, reportError, title = t('music.mixesForYou'), onOpen, marginHorizontal, active = true, focus, onCardFocus, onReady}: {
+export function MusicMixesRow({port, artwork, reportError, title = t('music.mixesForYou'), onOpen, marginHorizontal, active = true, focus, focusScope, onCardFocus, onReady}: {
   port: NativeMusicMixesPort; artwork: (path: string | undefined) => React.ComponentProps<typeof Artwork>['source'];
   reportError: (error: unknown) => void; title?: string; onOpen?: () => void; marginHorizontal?: number; active?: boolean;
-  focus?: Readonly<{id: string; up: string; down?: string; left: string}>; onCardFocus?: (id: string) => void;
+  focusScope?: string; focus?: Readonly<{id: string; up: string; down?: string; left: string}>; onCardFocus?: (id: string) => void;
   onReady?: () => void;
 }) {
   const theme = useTheme(), snapshot = useSyncExternalStore(port.subscribe, port.getSnapshot);
   const revision = useSyncExternalStore(port.subscribeRevision, port.getRevision);
   const [caller, setCaller] = useState<NativeMusicMixesCaller | null>(null);
-  const [menu, setMenu] = useState<Readonly<{row: NativeMusicMixRow; caller: NativeMusicMixesCaller; ref: RefObject<View | null>}> | undefined>();
+  const [menu, setMenu] = useState<Readonly<{row: NativeMusicMixRow; caller: NativeMusicMixesCaller; ref: RefObject<View | null>; scope: string | undefined}> | undefined>();
   const [busy, setBusy] = useState(false);
   const firstAction = useRef<View>(null);
   useEffect(() => {setMenu(undefined); setBusy(false);}, [revision, active]);
@@ -102,7 +102,7 @@ export function MusicMixesRow({port, artwork, reportError, title = t('music.mixe
   const cards = <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: marginHorizontal ?? (theme.isTV ? 96 : 16), paddingVertical: theme.isTV ? 16 : 0}}>
     {snapshot.rows.map(row => <MusicMixTile key={row.id} row={row} artwork={artwork} width={theme.isTV ? 200 : theme.platform === 'tablet' ? 210 : 186}
       disabled={!active || !caller} onFocus={() => onCardFocus?.(`music-mix:${row.id}`)} onPlay={() => play(row)}
-      onMenu={ref => {if (caller?.lifetime.isCurrent()) setMenu({row, caller, ref});}}/>)}
+      onMenu={ref => {if (caller?.lifetime.isCurrent()) setMenu({row, caller, ref, scope: focus?.id ?? focusScope});}}/>)}
   </ScrollView>;
   const headingButton = onOpen && <Focusable disabled={!active} focusId="music-mixes-open" testID="music-mixes-open" accessibilityRole="button" accessibilityLabel={title} onPress={onOpen}
     style={{marginHorizontal: marginHorizontal ?? (theme.isTV ? 96 : 16), marginBottom: 12, flexDirection: 'row', alignItems: 'baseline', gap: 16}}>
@@ -117,7 +117,7 @@ export function MusicMixesRow({port, artwork, reportError, title = t('music.mixe
     </View>}
     {focus ? <FocusRegion id={focus.id} enabled={active} orientation="horizontal" entry={`music-mix:${snapshot.rows[0]!.id}`}
       order={snapshot.rows.map(row => `music-mix:${row.id}`)} edges={{up: onOpen ? `${focus.id}.more` : focus.up, down: focus.down, left: focus.left}}>{cards}</FocusRegion> : cards}
-    {menu && active && menu.caller.lifetime.isCurrent() && <SidePanel open title={t('music.mix.name', {name: menu.row.name})}
+    {menu && active && menu.caller.lifetime.isCurrent() && <SidePanel testID={menu.scope ? `${menu.scope}.${menu.row.id}.menu` : undefined} open title={t('music.mix.name', {name: menu.row.name})}
       onOpenChange={open => {if (!open && !busy) setMenu(undefined);}} returnFocusRef={menu.ref} initialFocusRef={firstAction} showClose={false} dismissOnBack={!busy} width={640}>
       <MenuRow ref={firstAction} focusId="play" label={t('entry.play')} icon="i-play" disabled={busy} onPress={() => command('play')}/>
       <MenuRow focusId="shuffle" label={t('title.shuffle')} icon="i-shuffle" disabled={busy} onPress={() => command('shuffle')}/>

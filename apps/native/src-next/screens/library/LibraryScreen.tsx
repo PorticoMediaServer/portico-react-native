@@ -425,11 +425,11 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
               {section.entries.map(entry => <LibraryCard key={nativeLibraryEntryKey(entry)} entry={entry} width={theme.isTV ? 200 : 112} runtime={runtime} actions={actions}/>) }
             </ScrollView>
             {!theme.isTV && state.library.kind === 'music' && index === 0 && runtime.mixes ? <View onLayout={anchorMixes}>
-              <MusicMixesRow port={runtime.mixes} artwork={runtime.artwork} reportError={runtime.reportError} title={defaultI18n.t('music.mixesForYou')} active={active.visible} onReady={scrollToMixes}/>
+              <MusicMixesRow focusScope={`${ids.libraryToolbar(state.library.id)}.${state.tab.id}.mixes`} port={runtime.mixes} artwork={runtime.artwork} reportError={runtime.reportError} title={defaultI18n.t('music.mixesForYou')} active={active.visible} onReady={scrollToMixes}/>
             </View> : null}
           </View>)}
             {!theme.isTV && state.library.kind === 'music' && !state.discover.appended.length && runtime.mixes ? <View onLayout={anchorMixes}>
-              <MusicMixesRow port={runtime.mixes} artwork={runtime.artwork} reportError={runtime.reportError} title={defaultI18n.t('music.mixesForYou')} active={active.visible} onReady={scrollToMixes}/>
+              <MusicMixesRow focusScope={`${ids.libraryToolbar(state.library.id)}.${state.tab.id}.mixes`} port={runtime.mixes} artwork={runtime.artwork} reportError={runtime.reportError} title={defaultI18n.t('music.mixesForYou')} active={active.visible} onReady={scrollToMixes}/>
             </View> : null}
           </ScrollView> : null}
       </View>
@@ -570,7 +570,7 @@ export function LibraryGrid({destination, runtime, activation, actions, labels, 
   return <View style={{flex: 1}}>
     {selection && selected?.active ? selection.render(path => {const art = path ? runtime.artwork(path) : undefined;
       return art ? <Artwork source={art} width={48} height={48}/> : undefined;}) : <FocusRegion id={ids.libraryToolbar(source.library.id)} entry={theme.isTV ? 'sort' : 'filters'} orientation="horizontal" enabled={active.visible} edges={{left: ids.rail, up: ids.libraryTabs(source.library.id), ...(theme.isTV ? {down: applied.length ? appliedRegion : gridRegion} : {})}}>
-      <LibraryToolbar model={toolbar} labels={labels} filterCount={source.predicates.length} filtersOpen={filtersOpen} docked={dockedFilters} gutter={tabletGeometry?.gutter}
+      <LibraryToolbar focusScope={ids.libraryToolbar(source.library.id)} model={toolbar} labels={labels} filterCount={source.predicates.length} filtersOpen={filtersOpen} docked={dockedFilters} gutter={tabletGeometry?.gutter}
         showSelect={!expanded}
         trailing={theme.isTV || theme.platform === 'phone' ? undefined : <>{count && !dockedFilters ? <Text style={[browseType(theme, 14.5, 600), {color: theme.colors.textSecondary, marginRight: 6}]}>{count}</Text> : null}<ViewToggle value={view.mode} onValueChange={changeView}/></>}
         canSave={nativeLibraryCanSave(source, {predicates: source.predicates, sort: source.sort!})}

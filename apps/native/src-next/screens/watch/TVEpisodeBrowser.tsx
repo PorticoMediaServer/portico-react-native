@@ -123,7 +123,7 @@ export function TVEpisodeBrowser(props: TVEpisodeBrowserProps) {
         }}/>
       <FocusBand focus={focus} show={props.show} open={props.open} nextUp={nextUp} text={props.text} onRetry={props.onRetryEpisode} renderError={props.renderError}/>
     </View>
-    <Menu open={!!menu} onOpenChange={open => {if (!open) setMenu(undefined);}} title={menu ? menu.title || t('title.season', {number: menu.number}) : ''} items={seasonMenu}/>
+    <Menu testID={`${section.id}.season-menu`} open={!!menu} onOpenChange={open => {if (!open) setMenu(undefined);}} title={menu ? menu.title || t('title.season', {number: menu.number}) : ''} items={seasonMenu}/>
   </FocusRegion>;
 }
 
