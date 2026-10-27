@@ -18,11 +18,10 @@ on:
 permissions:
   contents: read
 concurrency:
-  # One repo-scoped group per workflow and ref: a superseded scheduled or
-  # dispatched run is cancelled when the next one starts, so a hung run cannot
-  # pile up behind the hourly schedule. Release calls this workflow from its own
-  # workflow name and tag ref, so its checks are never superseded by an hourly run.
-  group: ci-${{ github.repository }}-${{ github.workflow }}-${{ github.ref }}
+  # A newer CI run supersedes the previous run for this repository, including
+  # scheduled, dispatched and reusable calls. The dispatch controller also checks
+  # other workflows before starting a run, so it never competes with a release.
+  group: ci-${{ github.repository }}
   cancel-in-progress: true
 env:
   CI_FULL_TREE: '1'
