@@ -92,7 +92,7 @@ function songRow(entry: ContentEntry, index: number, runtime: NativeShellRuntime
     artwork: artwork ? <Artwork source={artwork} width={56} height={56} style={{borderRadius: 8, overflow: 'hidden'}}/> : undefined});
 }
 
-function TrackList({songs, runtime, controller, actions, playingId, variant, style, focusPrefix, onTail, offset = 0}: {songs: readonly ContentEntry[]; runtime: NativeShellRuntime; controller: NativeTVMusicController; actions: Actions; playingId?: string; variant: 'album' | 'top-songs'; style?: React.ComponentProps<typeof View>['style']; focusPrefix?: string; onTail?: () => void; offset?: number}) {
+function TrackList({songs, runtime, controller, actions, playingId, variant, style, focusPrefix, onTail, onFocusRow, onBlurRow, offset = 0}: {songs: readonly ContentEntry[]; runtime: NativeShellRuntime; controller: NativeTVMusicController; actions: Actions; playingId?: string; variant: 'album' | 'top-songs'; style?: React.ComponentProps<typeof View>['style']; focusPrefix?: string; onTail?: () => void; onFocusRow?: (entry: ContentEntry) => void; onBlurRow?: (entry: ContentEntry) => void; offset?: number}) {
   const run = (work: Promise<unknown>) => { void work.catch(runtime.reportError); };
   return <View style={style}>
     {songs.map((song, index) => {
@@ -100,17 +100,17 @@ function TrackList({songs, runtime, controller, actions, playingId, variant, sty
         onPlay={() => run(controller.play(song.id))} onMore={() => actions.menu(song)}/>;
       // Only a list that lives in a focus region needs a stable identity of its own.
       const target=focusPrefix?<FocusItem focusId={`${focusPrefix}-${song.id}`}>{row}</FocusItem>:row;
-      return <View key={song.id} onFocus={index>=songs.length-3?onTail:undefined}>{target}</View>;
+      return <View key={song.id} onFocus={()=>{onFocusRow?.(song);if(index>=songs.length-3)onTail?.();}} onBlur={()=>onBlurRow?.(song)}>{target}</View>;
     })}
   </View>;
 }
 
-function AlbumCard({album, runtime, actions, openEntry, width = 200, caption, focusId, preferred = false, onFocus}: {album: MusicAlbumRow; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void; width?: number; caption: string; focusId?: string; preferred?: boolean; onFocus?: () => void}) {
+function AlbumCard({album, runtime, actions, openEntry, width = 200, caption, focusId, preferred = false, onFocus, onBlur}: {album: MusicAlbumRow; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void; width?: number; caption: string; focusId?: string; preferred?: boolean; onFocus?: () => void; onBlur?: () => void}) {
   const anchor = useRef<NativeView>(null);
   const artwork = runtime.artwork(album.posterUrl);
   const entry: ContentEntry = useMemo(() => Object.freeze({id: album.id, libraryId: album.libraryId, kind: 'album', title: album.title,
     ...(album.artist ? {artist: album.artist} : {}), ...(album.year ? {year: album.year} : {})}), [album]);
-  return <SquareCard onFocus={onFocus} width={width} focusId={focusId} hasTVPreferredFocus={preferred} title={album.title} caption={factLine(caption)} artwork={artwork} menuAnchorRef={anchor}
+  return <SquareCard onFocus={onFocus} onBlur={onBlur} width={width} focusId={focusId} hasTVPreferredFocus={preferred} title={album.title} caption={factLine(caption)} artwork={artwork} menuAnchorRef={anchor}
     onNavigate={() => openEntry(entry)} onMore={() => actions.menu(entry, anchor)} moreExpanded={actions.isMenuOpen(entry)}/>;
 }
 
@@ -144,15 +144,15 @@ export function TVAlbumScreen({controller, entry, runtime, actions, openEntry, o
           <MusicFormatBadges badges={snapshot.albumDetails?.badges} size="tv"/>
         </View>
         <ActionBar controller={controller} entry={entry} runtime={runtime} actions={actions} focusId={`music-play-${entry.id}`} onPlaylist={onPlaylist} style={{position: 'absolute', left: 760, top: 410}}/>
-        {snapshot.phase === 'error' && <MusicErrorView error={snapshot.error} onRetry={() => {void controller.load();}} style={{position: 'absolute', left: 760, top: 520, width: 1000, zIndex: 3}}/>}
+        {snapshot.phase === 'error' && <MusicErrorView testID={`music-album-${entry.id}-error`} error={snapshot.error} onRetry={() => {void controller.load();}} style={{position: 'absolute', left: 760, top: 520, width: 1000, zIndex: 3}}/>}
         <View style={{position: 'absolute', left: 724, top: 520, width: 1118, zIndex: 2}}>
           {discs.length > 1 && <View style={{flexDirection: 'row', gap: 14, marginBottom: 14}}>{discs.map(value => <Chip key={value} focusId={`music-disc-${value}`} selected={chosen === value}
             accessibilityRole="radio" accessibilityState={{checked: chosen === value}} onPress={() => setDisc(value)}>{t('title.disc', {number: defaultI18n.number(value, {useGrouping: false})})}</Chip>)}</View>}
-          <TrackList songs={songs} runtime={runtime} controller={controller} actions={actions} playingId={playingId} variant="album" offset={snapshot.songPage.offset} onTail={()=>{void controller.nextSongs(snapshot.songPage);}}/>
+          <TrackList songs={songs} runtime={runtime} controller={controller} actions={actions} playingId={playingId} variant="album" offset={snapshot.songPage.offset} onFocusRow={entry=>controller.focusSong(entry,snapshot.songPage)} onBlurRow={controller.blurSong} onTail={()=>{void controller.nextSongs(snapshot.songPage);}}/>
           <MusicSectionControls id="album-songs" section={snapshot.songPage} next={()=>{void controller.nextSongs(snapshot.songPage);}} previous={()=>{void controller.previousSongs(snapshot.songPage);}} retry={()=>{void controller.retrySongs(snapshot.songPage);}} refresh={()=>{void controller.refreshSongs(snapshot.songPage);}}/>
         </View>
         <SectionHeading title={t('music.moreLikeThis')} detail={t(snapshot.similarBySound?'music.moreLikeThisBySound':'music.moreLikeThisHint')} left={200} top={moreTop}/>
-        {snapshot.similarError?<MusicErrorView error={snapshot.similarError} onRetry={()=>{void controller.load();}} style={{position:'absolute',left:200,top:moreTop+58,width:1000,zIndex:3}}/>:null}
+        {snapshot.similarError?<MusicErrorView testID={`music-similar-${entry.id}-error`} error={snapshot.similarError} onRetry={()=>{void controller.load();}} style={{position:'absolute',left:200,top:moreTop+58,width:1000,zIndex:3}}/>:null}
         <View style={{position: 'absolute', left: 200, top: moreTop+58, flexDirection: 'row', gap: 32, zIndex: 2}}>
           {snapshot.similar.filter(value => value.kind === 'album').slice(0, 7).map(value => <SquareCard key={value.id} width={200} title={value.displayTitle ?? value.title}
             caption={factLine(value.artist?.name ?? '')} artwork={runtime.artwork(value.posterUrl)} onNavigate={()=>{if(controller.similarCurrent(snapshot,value))openEntry(value);}} onMore={()=>{if(controller.similarCurrent(snapshot,value))actions.menu(value);}} moreExpanded={controller.similarCurrent(snapshot,value)&&actions.isMenuOpen(value)}/>)}
@@ -212,7 +212,7 @@ export function TVArtistScreen({controller, entry, runtime, actions, openEntry}:
           order={albums.map(album => `music-artist-album-${album.id}`)} edges={{left: `music-artist-${entry.id}.songs`}}
           style={{position: 'absolute', left: 1240, top: 672, width: 584, flexDirection: 'row', flexWrap: 'wrap', gap: 32, zIndex: 2}}>
           {albums.map(album => <AlbumCard key={album.id} album={album} runtime={runtime} actions={actions} openEntry={openEntry} width={240} focusId={`music-artist-album-${album.id}`}
-            onFocus={album===albums.at(-1)||album===albums.at(-2)?()=>{void controller.nextReleases(snapshot.releases);}:undefined} preferred={album.id === albums[0]?.id && albums.length > 0} caption={album.year === undefined ? '' : defaultI18n.number(album.year, {useGrouping: false})}/>)}
+            onFocus={()=>{controller.focusRelease(album,snapshot.releases);if(album===albums.at(-1)||album===albums.at(-2))void controller.nextReleases(snapshot.releases);}} onBlur={()=>controller.blurRelease(album)} preferred={album.id === albums[0]?.id && albums.length > 0} caption={album.year === undefined ? '' : defaultI18n.number(album.year, {useGrouping: false})}/>)}
         </FocusRegion>
       </View>
       <View style={{width: 1624, marginLeft: 200, paddingTop: 40, gap: 34}}>
@@ -220,12 +220,12 @@ export function TVArtistScreen({controller, entry, runtime, actions, openEntry}:
         {otherReleases.map(group => <View key={group.id}>
           <SectionHeading title={t(group.label)}/>
           <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 32, marginTop: 18}}>
-            {group.entries.map(album => <AlbumCard key={album.id} album={album} runtime={runtime} actions={actions} openEntry={openEntry} width={240} onFocus={album===group.entries.at(-1)?()=>{void controller.nextReleases(snapshot.releases);}:undefined} caption={album.year === undefined ? '' : defaultI18n.number(album.year, {useGrouping: false})}/>)}
+            {group.entries.map(album => <AlbumCard key={album.id} album={album} runtime={runtime} actions={actions} openEntry={openEntry} width={240} onFocus={()=>{controller.focusRelease(album,snapshot.releases);if(album===group.entries.at(-1))void controller.nextReleases(snapshot.releases);}} onBlur={()=>controller.blurRelease(album)} caption={album.year === undefined ? '' : defaultI18n.number(album.year, {useGrouping: false})}/>)}
           </View>
         </View>)}
         <View>
           <SectionHeading title={t('music.similarArtists')} detail={snapshot.similarBySound?t('music.moreLikeThisBySound'):undefined}/>
-          {snapshot.similarError?<MusicErrorView error={snapshot.similarError} onRetry={()=>{void controller.load();}} style={{marginTop:24}}/>:null}
+          {snapshot.similarError?<MusicErrorView testID={`music-similar-${entry.id}-error`} error={snapshot.similarError} onRetry={()=>{void controller.load();}} style={{marginTop:24}}/>:null}
           <View style={{flexDirection: 'row', gap: 40, marginTop: 24}}>
             {snapshot.similar.filter(value => value.kind === 'artist').slice(0, 8).map(value => {
               const albumCovers = (value.artworkPaths ?? []).flatMap(path => {const source = runtime.artwork(path); return source ? [source] : [];});
@@ -253,7 +253,7 @@ export function TVArtistScreen({controller, entry, runtime, actions, openEntry}:
                 accessibilityLabel={t('music.allSongs')}>{t('music.allSongs')}</Button>}
           </View>
           {allSongs.phase === 'loading' && <Text style={[browseType(theme, 22, 600), {color: theme.colors.textSecondary, marginTop: 14}]}>{t('music.loading')}</Text>}
-          {allSongs.songs.length>0 && <TrackList songs={allSongs.songs} runtime={runtime} controller={controller} actions={actions} playingId={playingId} variant="top-songs" offset={allSongs.offset} onTail={()=>{void controller.nextAllSongs(allSongs);}} style={{marginTop: 12, width: 1118}}/>}
+          {allSongs.songs.length>0 && <TrackList songs={allSongs.songs} runtime={runtime} controller={controller} actions={actions} playingId={playingId} variant="top-songs" offset={allSongs.offset} onFocusRow={entry=>controller.focusAllSong(entry,allSongs)} onBlurRow={controller.blurAllSong} onTail={()=>{void controller.nextAllSongs(allSongs);}} style={{marginTop: 12, width: 1118}}/>}
           <MusicSectionControls id="artist-songs" section={allSongs} next={()=>{void controller.nextAllSongs(allSongs);}} previous={()=>{void controller.previousAllSongs(allSongs);}} retry={()=>{void controller.retryAllSongs(allSongs);}} refresh={()=>{void controller.refreshAllSongs(allSongs);}}/>
         </View>
       </View>
