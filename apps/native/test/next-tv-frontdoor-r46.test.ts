@@ -6,6 +6,7 @@ import {createTheme, nativeType} from '../src-next/kit/theme';
 import {shellLayout} from '../src-next/shell/model';
 import {act, createHookHost} from './hook-driver';
 import {screenModule} from './helpers/screen-harness.mjs';
+import * as entryRevision from '../src-next/tv/auth/entry-revision';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
 
@@ -29,6 +30,7 @@ test('the TV front door title declares connect40 .tvl h1 shadow and no other Tex
       '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'}, '../../kit/theme': {nativeType, useTheme: () => theme},
       '../../screens/destinations/useEntryFocus': {useDestinationEntryFocus: () => {}}, '../../shell/model': {shellLayout},
       '../../kit/dev-observation': {useNativeObservation: () => ({})},
+      './entry-revision': entryRevision,
     });
     const props = {busy: false, onPortico: () => {}, onLocal: () => {}};
     host = createHookHost(() => {const provider = TVFrontDoor(props); const child = provider.props.children; tree = child.type(child.props);});

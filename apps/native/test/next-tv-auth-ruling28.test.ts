@@ -16,15 +16,18 @@ const inScope = (component: (props: any) => any, props: any) => {
   const child = [scope.props.children].flat()[0];
   return child.type(child.props);
 };
-const common = {'../../../../../packages/i18n/src': {defaultI18n}, '../../kit/theme': {nativeType, useTheme: () => theme},
+/** The stage's own real entry revision: its source runs, on the React this case supplies
+ * (real hooks under the driver, or the harness stand-in for a single shallow render). */
+const entryRevision = (react: unknown) => screenModule(new URL('../src-next/tv/auth/entry-revision.ts', import.meta.url), {react});
+const common = async (react: unknown) => ({react, '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/theme': {nativeType, useTheme: () => theme},
   '../../kit/controls': {Button: 'Button', Focusable: 'Focusable', TextField: 'Field'}, './TVAuthLayout': {TVAuthLayout: 'Layout'},
-  '../../screens/destinations/useEntryFocus': {useDestinationEntryFocus() {}}};
+  '../../screens/destinations/useEntryFocus': {useDestinationEntryFocus() {}}, './entry-revision': await entryRevision(react)});
 // The existing caller vectors render the pad directly; give its real entry hooks
 // a separate controlled host. Native region/Focusable boundaries remain stubs.
 const numericModule = async (_react: unknown) => {
   const h = hooks(), registry = createFocusRegistry();
   const numeric = await screenModule(new URL('../src-next/tv/auth/TVNumericPad.tsx', import.meta.url), {
-    ...common, react: h.react, 'react-native': {Text: 'Text', View: 'View'},
+    ...await common(h.react), 'react-native': {Text: 'Text', View: 'View'},
     '../../kit/focus': {FocusRegion: 'Region', FocusItem: 'Item', useFocusRegistry: () => registry},
     '../../kit/focus/initial-entry': {createInitialRegionEntry}, '../../kit/Icon': {Icon: 'Icon'},
   });
@@ -34,7 +37,7 @@ const numericModule = async (_react: unknown) => {
 for (const kind of ['portico', 'local'] as const) test(`${kind} credentials use secure platform fields/autofill and only the owner's Submit/Back callbacks`, async () => {
   const focused: unknown[] = [], events: string[] = [];
   const {TVCredentialForm} = await screenModule(new URL('../src-next/tv/auth/TVCredentialForm.tsx', import.meta.url), {
-    ...common, react: {...React, default: React}, 'react-native': {Text: 'Text', View: 'View'},
+    ...await common({...React, default: React}), 'react-native': {Text: 'Text', View: 'View'},
     '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region',
       useFocusRegistry: () => ({focus: (address: unknown) => focused.push(address)})},
   });
@@ -88,7 +91,7 @@ for (const kind of ['portico', 'local'] as const) test(`${kind} credentials use 
 test('both actual TV code modes expose the drawn credential route without starting a transaction', async () => {
   const h = hooks(), calls: string[] = [];
   const {TVCodePresenter} = await screenModule(new URL('../src-next/tv/auth/TVCodePresenter.tsx', import.meta.url), {
-    ...common, react: h.react, 'react-native': {Text: 'Text', View: 'View'}, 'react-native-qrcode-svg': {default: 'QR'}, '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'},
+    ...await common(h.react), 'react-native': {Text: 'Text', View: 'View'}, 'react-native-qrcode-svg': {default: 'QR'}, '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'},
     '../../platform/native-blur': {BlurView: 'Blur', glassRecipe: () => ({nativeBlur: true})},
   });
   for (const mode of ['portico', 'local'] as const) {
@@ -113,7 +116,7 @@ test('sixth MFA digit submits once, rejected controlled state can retry, and Pla
     onSubmit: (value: string) => submitted.push(value), onBack() {}};
   const numeric = await numericModule({...React, default: React});
   const {TVVerificationForm} = await screenModule(new URL('../src-next/tv/auth/TVVerificationForm.tsx', import.meta.url), {
-    ...common, react: {...React, default: React}, 'react-native': {Text: 'Text', View: 'View', useTVEventHandler: (fn: typeof remote) => {remote = fn;}},
+    ...await common({...React, default: React}), 'react-native': {Text: 'Text', View: 'View', useTVEventHandler: (fn: typeof remote) => {remote = fn;}},
     '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'}, '../../kit/Icon': {Icon: 'Icon'},
     './TVNumericPad': numeric,
   });
@@ -141,7 +144,7 @@ test('sixth MFA digit submits once, rejected controlled state can retry, and Pla
 test('recovery uses the authored uppercase/digit/dash keyboard and submits the exact controlled value', async () => {
   const h = hooks(), values: string[] = [], submits: string[] = [];
   const {TVVerificationForm} = await screenModule(new URL('../src-next/tv/auth/TVVerificationForm.tsx', import.meta.url), {
-    ...common, react: h.react, 'react-native': {Text: 'Text', View: 'View', useTVEventHandler() {}}, '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'}, '../../kit/Icon': {Icon: 'Icon'},
+    ...await common(h.react), 'react-native': {Text: 'Text', View: 'View', useTVEventHandler() {}}, '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'}, '../../kit/Icon': {Icon: 'Icon'},
     './TVNumericPad': {TVNumericPad: 'Pad', TVCodeBoxes: 'Boxes'},
   });
   const props = {kind: 'portico', code: '', recovery: true, recoveryCode: 'R7-', busy: false, onCodeChange() {}, onRecoveryChange() {},
@@ -159,7 +162,7 @@ test('profile PIN shares the actual pad, submits four digits once and exposes on
   const submitted: string[] = [], actions: string[] = [], react = {...React, default: React};
   const numeric = await numericModule(react);
   const {TVProfilePINForm} = await screenModule(new URL('../src-next/tv/auth/TVProfilePINForm.tsx', import.meta.url), {
-    ...common, react, 'react-native': {Text: 'Text', View: 'View', useTVEventHandler: (fn: typeof remote) => {remote = fn;}},
+    ...await common(react), 'react-native': {Text: 'Text', View: 'View', useTVEventHandler: (fn: typeof remote) => {remote = fn;}},
     '../../kit/focus': {FocusProvider: 'Provider'}, './TVAuthLayout': {TVProfilePINLayout: 'PINLayout'}, './TVNumericPad': numeric,
   });
   const profile = {id: 'actual-profile', name: 'Actual name', initial: 'A', color: 'blue'};
