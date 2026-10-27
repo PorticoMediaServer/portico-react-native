@@ -469,3 +469,39 @@ test('viewer DVR continuation coalesces and refuses the late page after a view c
   assert.deepEqual(calls, ['upcoming:', 'upcoming:p2', 'history:']);
   controller.dispose(); lifetime.dispose();
 });
+
+test('recorded groups, series rules and a show follow their separate original cursors', async () => {
+  const fixture = recordingService(), lifetime = new NativeScreenLifetime(authority()), controller = new NativeRecordingsController(lifetime, fixture.service);
+  const calls: string[] = [];
+  fixture.service.groups = async (_sort, cursor) => {
+    calls.push(`groups:${cursor ?? ''}`); const start = cursor === 'g2' ? 30 : cursor === 'g3' ? 60 : 0;
+    return {groups: Array.from({length: start === 60 ? 1 : 30}, (_, i) => ({key: `group${start + i}`}) as never), revision: 1, nextCursor: start === 0 ? 'g2' : start === 30 ? 'g3' : ''};
+  };
+  fixture.service.list = async (view, cursor, _sort, group) => {
+    calls.push(`${view}:${group ?? ''}:${cursor ?? ''}`); const start = cursor === 'p2' ? 50 : cursor === 'p3' ? 100 : 0;
+    return {...fixture.page, recordings: group ? Array.from({length: start === 0 ? 50 : 1}, (_, i) => ({id: `show${start + i}`, revision: 1}) as Recording) : [], rules: view === 'rules' ? Array.from({length: start === 100 ? 1 : 50}, (_, i) => ({id: `rule${start + i}`, revision: 1}) as never) : [], nextCursor: start === 0 ? 'p2' : start === 50 && !group ? 'p3' : ''};
+  };
+  await controller.load({view: 'recorded'}); await controller.nextViewerPage(controller.getSnapshot().viewerWindow!); await controller.nextViewerPage(controller.getSnapshot().viewerWindow!);
+  assert.equal(controller.getSnapshot().viewerWindow?.items.length, 61);
+  await controller.load({view: 'recorded', group: 'group0'}); await controller.nextViewerPage(controller.getSnapshot().viewerWindow!);
+  assert.equal(controller.getSnapshot().viewerWindow?.items.length, 51);
+  await controller.load({view: 'rules'}); await controller.nextViewerPage(controller.getSnapshot().viewerWindow!); await controller.nextViewerPage(controller.getSnapshot().viewerWindow!);
+  assert.equal(controller.getSnapshot().viewerWindow?.items.length, 101);
+  assert.deepEqual(calls, ['groups:', 'groups:g2', 'groups:g3', 'recorded:group0:', 'recorded:group0:p2', 'rules::', 'rules::p2', 'rules::p3']);
+  controller.dispose(); lifetime.dispose();
+});
+
+test('viewer DVR page failure retains prior rows and retries the same offered cursor', async () => {
+  const fixture = recordingService(), lifetime = new NativeScreenLifetime(authority()), controller = new NativeRecordingsController(lifetime, fixture.service);
+  const calls: (string | undefined)[] = []; let fail = true;
+  fixture.service.list = async (_view, cursor) => {
+    calls.push(cursor); if (cursor && fail) {fail = false; throw new Error('offline');}
+    return {...fixture.page, recordings: [{id: cursor ? 'later' : 'first', revision: 1} as Recording], nextCursor: cursor ? '' : 'offered'};
+  };
+  await controller.load(); await controller.nextViewerPage(controller.getSnapshot().viewerWindow!);
+  assert.deepEqual(controller.getSnapshot().viewerWindow?.items.map(row => row.kind === 'recording' ? row.value.id : ''), ['first']);
+  assert.ok(controller.getSnapshot().viewerWindow?.error);
+  await controller.retryViewerPage(controller.getSnapshot().viewerWindow!);
+  assert.deepEqual(controller.getSnapshot().viewerWindow?.items.map(row => row.kind === 'recording' ? row.value.id : ''), ['first', 'later']);
+  assert.deepEqual(calls, [undefined, 'offered', 'offered']); controller.dispose(); lifetime.dispose();
+});

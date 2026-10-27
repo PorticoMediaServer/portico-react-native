@@ -81,8 +81,8 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
   focusViewerRow = (id: string, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): void => {if (this.viewerWindow?.snapshot() === expected) this.viewerWindow.focus(id, expected.generation);};
   blurViewerRow = (id: string, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): void => {if (this.viewerWindow?.snapshot().scope === expected.scope) this.viewerWindow.blur(id, expected.generation);};
   focusViewerHost = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): void => {if (this.viewerWindow?.snapshot() === expected) this.viewerWindow.focus(undefined);};
-  pinViewerRow = (id: string, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): boolean => {if (this.viewerWindow?.snapshot() !== expected) return false; this.viewerWindow.pin(id); return true;};
-  unpinViewerRow = (id: string, scope: object): void => {if (this.viewerWindow?.snapshot().scope === scope) this.viewerWindow.unpin(id);};
+  pinViewerRow = (id: string, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): object | undefined => {if (this.viewerWindow?.snapshot() !== expected) return undefined; return this.viewerWindow.pin(id);};
+  unpinViewerRow = (token: object, scope: object): void => {if (this.viewerWindow?.snapshot().scope === scope) this.viewerWindow.unpin(token);};
   loadFacts(): Promise<void> {
     this.assert();
     if (this.getSnapshot().accessDenied) return Promise.resolve();

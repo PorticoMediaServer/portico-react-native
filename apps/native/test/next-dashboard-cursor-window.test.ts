@@ -93,3 +93,12 @@ test('conflicting retained job revisions require explicit refresh', async () => 
   await window.refresh(); await window.next(window.snapshot());
   assert.equal(window.snapshot().refreshRequired, true); assert.equal(window.snapshot().items[0].revision, 1); window.dispose();
 });
+
+test('an old action lease cannot release a successor lease for the same row', async () => {
+  const window = new DashboardCursorWindow(async cursor => ({items: [{id: cursor || 'first'}], nextCursor: cursor === '' ? 'a' : cursor === 'a' ? 'b' : cursor === 'b' ? 'c' : 'd', metadata: 1}), row => row.id, () => true, () => {});
+  await window.refresh(); const old = window.pin('first'); const successor = window.pin('first'); window.unpin(old);
+  await window.next(window.snapshot()); await window.next(window.snapshot()); await window.next(window.snapshot());
+  assert.deepEqual(window.snapshot().items.map(row => row.id), ['first', 'a', 'b']); assert.equal(window.snapshot().pending, true);
+  window.unpin(old); assert.equal(window.snapshot().pending, true);
+  window.unpin(successor); assert.deepEqual(window.snapshot().items.map(row => row.id), ['a', 'b', 'c']); window.dispose();
+});

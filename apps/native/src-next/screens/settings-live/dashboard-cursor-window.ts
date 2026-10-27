@@ -14,7 +14,7 @@ export class DashboardCursorWindow<T, M> {
   private disposed = false;
   private flight?: Flight<T, M>;
   private focused?: string;
-  private owned = new Set<string>();
+  private owned = new Map<object, string>();
   private focusGeneration?: number;
   private held?: {flight: Flight<T, M>; page: DashboardCursorPage<T, M>; previous: boolean; reset: boolean};
   private seen = new Set<string>();
@@ -39,8 +39,8 @@ export class DashboardCursorWindow<T, M> {
   /** Called by the actual focus binding, not by a guessed row index. */
   focus(id?: string, generation = this.generation): void {this.focused = id; this.focusGeneration = id === undefined ? undefined : generation; if (this.held && this.alive(this.held.flight)) this.accept(this.held.flight, this.held.page, this.held.previous, this.held.reset);}
   blur(id: string, generation: number): void {if (this.focused === id && this.focusGeneration === generation) this.focus(undefined);}
-  pin(id: string): void {this.owned.add(id);}
-  unpin(id: string): void {this.owned.delete(id); if (this.held && this.alive(this.held.flight)) this.accept(this.held.flight, this.held.page, this.held.previous, this.held.reset);}
+  pin(id: string): object {const token = {}; this.owned.set(token, id); return token;}
+  unpin(token: object): void {if (!this.owned.delete(token)) return; if (this.held && this.alive(this.held.flight)) this.accept(this.held.flight, this.held.page, this.held.previous, this.held.reset);}
   refresh(): Promise<void> {
     if (this.disposed || !this.current()) return Promise.resolve();
     if (this.flight?.reset && this.alive(this.flight)) return this.flight.promise;
@@ -110,7 +110,7 @@ export class DashboardCursorWindow<T, M> {
   private accept(flight: Flight<T, M>, page: DashboardCursorPage<T, M>, previous: boolean, reset: boolean): void {
     if (!this.alive(flight)) return;
     const old = this.value, candidate = {cursor: flight.cursor, items: page.items};
-    const pinned = new Set(this.owned); if (this.focused) pinned.add(this.focused);
+    const pinned = new Set(this.owned.values()); if (this.focused) pinned.add(this.focused);
     if (reset && old.items.some(row => pinned.has(this.key(row)) && !page.items.some(next => this.key(next) === this.key(row)))) {this.held = {flight, page, previous, reset}; return;}
     const chunks = reset ? [candidate] : previous ? [candidate, ...old.chunks.filter(chunk => chunk.cursor !== flight.cursor)] : [...old.chunks.filter(chunk => chunk.cursor !== flight.cursor), candidate];
     const evicted = chunks.length > 3 ? previous ? chunks[chunks.length - 1] : chunks[0] : undefined;

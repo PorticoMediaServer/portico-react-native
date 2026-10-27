@@ -74,8 +74,9 @@ async function fixture({isTV = true, role = 'owner', primary = 'main', canManage
     '../../../../../packages/client-core/src/presentation/title-page': {}, '../../../../../packages/client-core/src/media-item': {}, '../../../../../packages/client-core/src/library-content': {}, '../../../../../packages/contracts/src/routes': {},
     './recording-overlap-window': overlap, './LiveOwnerRecording': {NewRuleSheet: (props: any) => {editors.push(`new-rule:${props.open}`); return jsx('NewRuleEditor', props);}},
   });
-  const recordingState = {query: {view: 'upcoming'}, loading: false, busy: false, accessDenied: false, page: {recordings: [], rules: [], captureAvailable: true}};
-  const recordings: any = {lifetime, subscribe, getSnapshot: () => recordingState, load: async () => {}, loadFacts: async () => {}};
+  const recordingState: any = {query: {view: 'upcoming'}, loading: false, busy: false, accessDenied: false, page: {recordings: [], rules: [], captureAvailable: true}};
+  const viewerCalls: any[] = [];
+  const recordings: any = {lifetime, subscribe, getSnapshot: () => recordingState, load: async () => {}, loadFacts: async () => {}, nextViewerPage: async (window: unknown) => {viewerCalls.push(window);}, previousViewerPage: async () => {}, retryViewerPage: async () => {}, focusViewerRow: () => {}, blurViewerRow: () => {}, focusViewerHost: () => {}, pinViewerRow: () => true, unpinViewerRow: () => {}};
   const {NativeLiveScreen} = await screenModule(new URL('../src-next/screens/settings-live/LiveScreen.tsx', import.meta.url), {...common,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0, left: 0, right: 0})}, 'react-native-gesture-handler': {GestureDetector: 'GestureDetector'},
     'react-native-reanimated': {default: {View: 'AnimatedView'}, useAnimatedStyle: (fn: () => unknown) => fn()}, '../../../../../packages/client-core/src/channel-guide': channels,
@@ -91,7 +92,7 @@ async function fixture({isTV = true, role = 'owner', primary = 'main', canManage
   let showingRecordings = false;
   const render = () => host.render(showingRecordings ? jsx(recordingModule.NativeRecordingsScreen, {controller: recordings, ports, runtime, owner, onGuide: noop}) : jsx(NativeLiveScreen, {controller, recordings, owner, ports, runtime})); await render();
   const all = () => nodes(host.root), find = (id: string) => all().find(node => node.props?.testID === id);
-  return {host, all, find, admin, editors, backs, pageBack, entries,
+  return {host, all, find, admin, editors, backs, pageBack, entries, recordingState, viewerCalls,
     disposeRuntime() {retirement.abort(); disposed = true;}, disposedReads: () => disposedReads,
     async press(id = 'live-owner-open') {const node = find(id); assert.ok(node, id); assert.ok(!node.props.disabled); node.props.onPress(); await host.settle();},
     async action(which: string) {const action = find('live-no-sources')?.props[which]; assert.ok(action); action.onPress(); await host.settle();},
@@ -185,5 +186,23 @@ test('disposed original runtime refuses retained initial setup and Back before e
     f.disposeRuntime();
     assert.doesNotThrow(() => {initial(); add(); oldBack();});
     assert.equal(f.disposedReads(), 0); assert.deepEqual(f.admin, []);
+  } finally {await f.close();}
+});
+
+test('TV Recordings uses its original viewer window for tail events and keeps FX-234 guards', async () => {
+  const f = await fixture();
+  try {
+    const row = {id: 'recording', revision: 1, state: 'scheduled', start: '2026-10-21T12:00:00Z', end: '2026-10-21T13:00:00Z', programme: {id: 'p', title: 'Programme'}, options: {priority: 0}};
+    const original = {scope: {}, generation: 1, items: [{kind: 'recording', value: row}], chunks: [{cursor: '', items: []}], bookmarks: [''], nextCursor: 'next', pending: false, refreshRequired: false};
+    f.recordingState.page = {recordings: [row], rules: [], captureAvailable: true}; f.recordingState.viewerWindow = original;
+    await f.recordings();
+    const list = f.all().find(node => node.type === 'FlatList'); assert.ok(list);
+    list.props.onEndReached(); assert.deepEqual(f.viewerCalls, [], 'layout alone does not drain pages');
+    list.props.onScrollBeginDrag(); list.props.onEndReached(); assert.deepEqual(f.viewerCalls, [original]);
+    assert.ok(f.find('recordings-page-next')); assert.equal(f.editors.some(value => value.startsWith('new-rule:')), false);
+    const rendered = list.props.renderItem({item: {kind: 'recording', recording: row}, index: 0});
+    const saved = rendered.props.onOpen;
+    f.recordingState.viewerWindow = {...original, scope: {}, generation: 2}; await f.recordings();
+    saved(); await f.host.settle(); assert.equal(f.find('recordings-details'), undefined, 'a stale row cannot open a successor');
   } finally {await f.close();}
 });
