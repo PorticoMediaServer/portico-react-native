@@ -108,3 +108,28 @@ test('twenty visited Reading occurrences project at most two guest slots while p
   }
   residence?.unmount(); renderer.dispose(); f.close();
 });
+
+test('a third guest waits for the exact evicted incarnation teardown', async () => {
+  const f = authorityContext();
+  const {createNativeReadRenderer} = await screenModule(new URL('../src-next/screens/read/ReadRoute.tsx', import.meta.url), {
+    react: {...React, default: React}, 'react-native': {Platform: {isTV: false}}, './host-component': {nativeReadHost: () => 'TrustedReadHost'},
+    './read-route-back': {readRouteBack: (await import('../src-next/screens/read/read-route-back')).readRouteBack},
+  });
+  const renderer = createNativeReadRenderer(f.context, {getSnapshot: () => f.snapshot, subscribe: () => () => {}}, () => {});
+  const routes = [0, 1, 2].map(index => ({kind: 'read', itemId: `item-${index}`, sourceId: `source-${index}`} as const));
+  let element: any, tree: any;
+  f.context.navigation.open(routes[0]!, f.context.authority()); renderer.render(routes[0]!); element = renderer.renderRetained();
+  const residence = createHookHost(() => {tree = element.type(element.props);}); await act(() => residence.mount());
+  const rows = () => {const values = tree.props.children; return (Array.isArray(values) ? values : [values]).filter((value: any) => value?.type === 'TrustedReadHost');};
+  const first = rows()[0], firstTicket = {}; first.props.onGuestState(true, firstTicket);
+  f.context.navigation.open({kind: 'search-reading', query: 'second'}, f.context.authority()); renderer.renderRetained();
+  f.context.navigation.open(routes[1]!, f.context.authority()); renderer.render(routes[1]!); element = renderer.renderRetained(); await act(() => residence.rerender());
+  const second = rows()[1], secondTicket = {}; second.props.onGuestState(true, secondTicket);
+  f.context.navigation.open({kind: 'search-reading', query: 'third'}, f.context.authority()); renderer.renderRetained();
+  f.context.navigation.open(routes[2]!, f.context.authority()); renderer.render(routes[2]!); element = renderer.renderRetained(); await act(() => residence.rerender());
+  assert.equal(rows()[0].props.resident, false); assert.equal(rows()[2].props.resident, false, 'successor waits for the original guest teardown');
+  await act(() => first.props.onGuestState(false, {})); assert.equal(rows()[2].props.resident, false, 'a different ticket cannot acknowledge eviction');
+  await act(() => first.props.onGuestState(false, firstTicket)); assert.equal(rows()[2].props.resident, true);
+  assert.ok(rows().filter((row: any) => row.props.resident).length <= 2);
+  residence.unmount(); renderer.dispose(); f.close();
+});
