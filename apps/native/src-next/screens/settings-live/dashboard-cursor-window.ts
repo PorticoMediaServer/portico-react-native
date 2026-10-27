@@ -13,20 +13,21 @@ export class DashboardCursorWindow<T, M> {
   private generation = 0;
   private disposed = false;
   private flight?: Flight<T, M>;
-  private focused?: string;
+  private focused?: {id: string; token: object};
   private owned = new Map<object, string>();
-  private focusGeneration?: number;
   private held?: {flight: Flight<T, M>; commit: () => void};
   private seen = new Set<string>();
   private checkpoint?: string;
   private power = 1;
   private distance = 0;
+  private agedOut = false;
   private value: DashboardCursorSnapshot<T, M> = {scope: {}, generation: 0, chunks: [], items: [], bookmarks: [''], nextCursor: '', pending: false, refreshRequired: false};
   constructor(private readonly read: (cursor: string, signal: AbortSignal) => Promise<DashboardCursorPage<T, M>>,
     private readonly key: (item: T) => string, private readonly current: () => boolean,
     private readonly changed: (value: DashboardCursorSnapshot<T, M>) => void,
     private readonly sameRow?: (first: T, second: T) => boolean) {}
   snapshot = (): DashboardCursorSnapshot<T, M> => this.value;
+  refreshing = (): boolean => !!this.flight?.reset && this.alive(this.flight);
   /** Adopt an already-read producer page as the first page of a fresh query. */
   seed(cursor: string, page: DashboardCursorPage<T, M>): void {
     if (this.disposed || !this.current() || this.flight || this.value.chunks.length) return;
@@ -37,17 +38,18 @@ export class DashboardCursorWindow<T, M> {
   private publish(value: DashboardCursorSnapshot<T, M>): void {this.value = Object.freeze(value); this.changed(this.value);}
   private alive(flight: Flight<T, M>): boolean {return !this.disposed && this.current() && this.flight === flight && flight.generation === this.generation && !flight.abort.signal.aborted;}
   /** Called by the actual focus binding, not by a guessed row index. */
-  focus(id?: string, generation = this.generation): void {this.focused = id; this.focusGeneration = id === undefined ? undefined : generation; if (this.held && this.alive(this.held.flight)) this.held.commit();}
-  blur(id: string, generation: number): void {if (this.focused === id && this.focusGeneration === generation) this.focus(undefined);}
+  focus(id?: string): object | undefined {const token = id === undefined ? undefined : {}; this.focused = id === undefined ? undefined : {id, token: token!}; if (this.held && this.alive(this.held.flight)) this.held.commit(); return token;}
+  focusToken(id: string): object | undefined {return this.focused?.id === id ? this.focused.token : undefined;}
+  blur(id: string, token: object): void {if (this.focused?.id === id && this.focused.token === token) this.focus(undefined);}
   pin(id: string): object {const token = {}; this.owned.set(token, id); return token;}
   unpin(token: object): void {if (!this.owned.delete(token)) return; if (this.held && this.alive(this.held.flight)) this.held.commit();}
   refresh(): Promise<void> {
     if (this.disposed || !this.current()) return Promise.resolve();
     if (this.flight?.reset && this.alive(this.flight)) return this.flight.promise;
-    this.flight?.abort.abort(); this.flight = undefined; this.held = undefined; this.seen.clear(); this.restartCycle(); this.generation++;
+    this.flight?.abort.abort(); this.flight = undefined; this.held = undefined; this.seen.clear(); this.agedOut = false; this.restartCycle(); this.generation++;
     const old = this.value, start = old.chunks[0]?.cursor ?? '';
     this.publish({...old, generation: this.generation, bookmarks: [''], nextCursor: '', pending: false, error: undefined, refreshRequired: false});
-    return this.request(this.value, start, false, true);
+    return this.request(this.value, start, false, true, true);
   }
   next(expected: DashboardCursorSnapshot<T, M>): Promise<void> {
     if (this.flight && this.flight.expected === expected) return this.flight.promise;
@@ -58,14 +60,15 @@ export class DashboardCursorWindow<T, M> {
     if (this.flight && this.flight.expected === expected) return this.flight.promise;
     if (expected !== this.value || expected.refreshRequired || !expected.chunks.length) return Promise.resolve();
     const first = expected.chunks[0].cursor, index = expected.bookmarks.indexOf(first);
+    if (!first) return Promise.resolve();
+    if (index < 0 || index <= 1 && this.agedOut) return this.request(expected, '', false, true, false);
     const cursor = index > 0 ? expected.bookmarks[index - 1] : '';
-    if (cursor === first) return Promise.resolve();
     return this.request(expected, cursor, true, false);
   }
   retry(expected: DashboardCursorSnapshot<T, M>): Promise<void> {
     if (expected !== this.value || expected.error === undefined || expected.refreshRequired) return Promise.resolve();
     const cursor = this.retryCursor, previous = this.retryPrevious;
-    return this.request(expected, cursor, previous, this.retryReset);
+    return this.request(expected, cursor, previous, this.retryReset, this.retryRehydrate);
   }
   /** Brent's constant-memory checkpoint covers a forward producer chain. */
   private restartCycle(cursor?: string): void {this.checkpoint = cursor || undefined; this.power = 1; this.distance = 0;}
@@ -82,17 +85,18 @@ export class DashboardCursorWindow<T, M> {
     return false;
   }
   private retryReset = false;
+  private retryRehydrate = false;
   private retryCursor = '';
   private retryPrevious = false;
-  private request(expected: DashboardCursorSnapshot<T, M>, cursor: string, previous: boolean, reset: boolean): Promise<void> {
+  private request(expected: DashboardCursorSnapshot<T, M>, cursor: string, previous: boolean, reset: boolean, rehydrate = false): Promise<void> {
     if (this.disposed || !this.current() || expected !== this.value || this.flight) return Promise.resolve();
     const abort = new AbortController();
     const flight: Flight<T, M> = {generation: this.generation, expected, cursor, abort, promise: Promise.resolve(), reset};
-    this.flight = flight; this.retryCursor = cursor; this.retryPrevious = previous; this.retryReset = reset;
+    this.flight = flight; this.retryCursor = cursor; this.retryPrevious = previous; this.retryReset = reset; this.retryRehydrate = rehydrate;
     this.publish({...expected, pending: true, error: undefined});
     flight.promise = (async () => {
       try {
-        if (reset && expected.chunks.length) {
+        if (reset && rehydrate && expected.chunks.length) {
           const pages: {cursor: string; page: DashboardCursorPage<T, M>}[] = [], used = new Set<string>();
           let next = cursor;
           for (let i = 0; i < Math.min(3, expected.chunks.length); i++) {
@@ -108,7 +112,7 @@ export class DashboardCursorWindow<T, M> {
         const expectedSuccessor = previous ? this.value.chunks[0]?.cursor : undefined;
         const retained = new Map(this.value.items.map(row => [this.key(row), row]));
         const conflict = this.sameRow && page.items.some(row => {const prior = retained.get(this.key(row)); return prior !== undefined && !this.sameRow!(prior, row);});
-        if (conflict || previous && expectedSuccessor && page.nextCursor !== expectedSuccessor || !previous && page.nextCursor && (page.nextCursor === cursor || this.seen.has(page.nextCursor) || this.cycle(page.nextCursor))) {
+        if (conflict || previous && expectedSuccessor && page.nextCursor !== expectedSuccessor || !reset && !previous && page.nextCursor && (page.nextCursor === cursor || this.seen.has(page.nextCursor) || this.cycle(page.nextCursor))) {
           this.flight = undefined; this.publish({...this.value, pending: false, refreshRequired: true}); return;
         }
         this.accept(flight, page, previous, reset);
@@ -121,15 +125,16 @@ export class DashboardCursorWindow<T, M> {
   private accept(flight: Flight<T, M>, page: DashboardCursorPage<T, M>, previous: boolean, reset: boolean): void {
     if (!this.alive(flight)) return;
     const old = this.value, candidate = {cursor: flight.cursor, items: page.items};
-    const pinned = new Set(this.owned.values()); if (this.focused) pinned.add(this.focused);
+    const pinned = new Set(this.owned.values()); if (this.focused) pinned.add(this.focused.id);
     if (reset && old.items.some(row => pinned.has(this.key(row)) && !page.items.some(next => this.key(next) === this.key(row)))) {this.held = {flight, commit: () => this.accept(flight, page, previous, reset)}; return;}
     const chunks = reset ? [candidate] : previous ? [candidate, ...old.chunks.filter(chunk => chunk.cursor !== flight.cursor)] : [...old.chunks.filter(chunk => chunk.cursor !== flight.cursor), candidate];
     const evicted = chunks.length > 3 ? previous ? chunks[chunks.length - 1] : chunks[0] : undefined;
     if (evicted && evicted.items.some(row => pinned.has(this.key(row)))) {this.held = {flight, commit: () => this.accept(flight, page, previous, reset)}; return;}
     if (evicted) previous ? chunks.pop() : chunks.shift();
-    let bookmarks = [...old.bookmarks];
+    if (reset) {this.seen.clear(); this.agedOut = false; this.restartCycle(page.nextCursor);}
+    let bookmarks = reset ? [''] : [...old.bookmarks];
     if (!previous && flight.cursor && !bookmarks.includes(flight.cursor)) bookmarks.push(flight.cursor);
-    if (bookmarks.length > 64) bookmarks = ['', ...bookmarks.slice(-63)];
+    if (bookmarks.length > 64) {this.agedOut = true; bookmarks = ['', ...bookmarks.slice(-63)];}
     if (previous) {this.seen = new Set(chunks.map(chunk => chunk.cursor).filter(Boolean)); this.restartCycle(evicted?.cursor ?? old.nextCursor);}
     else if (flight.cursor) {this.seen.add(flight.cursor); if (this.seen.size > 63) this.seen.delete(this.seen.values().next().value!);}
     const ids = new Set<string>(), items: T[] = [];
@@ -145,10 +150,10 @@ export class DashboardCursorWindow<T, M> {
       if (prior !== undefined && this.sameRow && !this.sameRow(prior, row)) {this.flight = undefined; this.publish({...this.value, pending: false, refreshRequired: true}); return;}
       if (prior === undefined) {ids.set(key, row); items.push(row);}
     }
-    const pinned = new Set(this.owned.values()); if (this.focused) pinned.add(this.focused);
+    const pinned = new Set(this.owned.values()); if (this.focused) pinned.add(this.focused.id);
     if (this.value.items.some(row => pinned.has(this.key(row)) && !ids.has(this.key(row)))) {this.held = {flight, commit: () => this.acceptRefresh(flight, pages)}; return;}
     const last = pages[pages.length - 1].page, bookmarks = ['', ...pages.map(page => page.cursor).filter(Boolean)];
-    this.seen = new Set(bookmarks.filter(Boolean)); this.restartCycle(last.nextCursor);
+    this.seen = new Set(bookmarks.filter(Boolean)); this.agedOut = pages[0].cursor !== ''; this.restartCycle(last.nextCursor);
     this.held = undefined; this.flight = undefined;
     this.publish({...this.value, chunks, items, bookmarks, nextCursor: last.nextCursor ?? '', metadata: last.metadata, pending: false, error: undefined});
   }

@@ -57,10 +57,10 @@ test('previous and forward follow retained producer bookmarks without inventing 
 test('refresh preserves the focused old row until its original focus lease blurs', async () => {
   let read = 0;
   const window = new DashboardCursorWindow(async () => ({items: [{id: ++read === 1 ? 'old' : 'fresh'}], nextCursor: '', metadata: read}), row => row.id, () => true, () => {});
-  await window.refresh(); const opening = window.snapshot(); window.focus('old', opening.generation);
+  await window.refresh(); const lease = window.focus('old')!;
   await window.refresh(); assert.deepEqual(window.snapshot().items.map(row => row.id), ['old']);
   assert.equal(window.snapshot().pending, true);
-  window.blur('old', opening.generation); assert.deepEqual(window.snapshot().items.map(row => row.id), ['fresh']);
+  window.blur('old', lease); assert.deepEqual(window.snapshot().items.map(row => row.id), ['fresh']);
   assert.equal(window.snapshot().pending, false); window.dispose();
 });
 
@@ -111,4 +111,24 @@ test('refresh re-reads only the visible bounded cursor window and preserves its 
   assert.deepEqual(calls, ['', 'a', '', 'a']);
   assert.deepEqual(window.snapshot().items.map(row => `${row.id}:${row.revision}`), ['first:new', 'a:new']);
   assert.equal(window.snapshot().nextCursor, 'b'); assert.equal(window.snapshot().pending, false); window.dispose();
+});
+
+test('an old blur receipt cannot release a newer focus lease for the same row', async () => {
+  const window = new DashboardCursorWindow(async cursor => ({items: [{id: cursor || 'first'}], nextCursor: cursor === '' ? 'a' : cursor === 'a' ? 'b' : cursor === 'b' ? 'c' : 'd', metadata: 1}), row => row.id, () => true, () => {});
+  await window.refresh(); const old = window.focus('first')!, current = window.focus('first')!;
+  window.blur('first', old); await window.next(window.snapshot()); await window.next(window.snapshot()); await window.next(window.snapshot());
+  assert.equal(window.snapshot().pending, true); assert.equal(window.snapshot().items[0]?.id, 'first');
+  window.blur('first', current); assert.equal(window.snapshot().pending, false); assert.equal(window.snapshot().items[0]?.id, 'a'); window.dispose();
+});
+
+test('an aged-out previous bookmark returns to the real first page', async () => {
+  const calls: string[] = [];
+  const window = new DashboardCursorWindow(async cursor => {
+    calls.push(cursor); const n = cursor ? Number(cursor.slice(1)) : 0;
+    return {items: [{id: `r${n}`}], nextCursor: `c${n + 1}`, metadata: 1};
+  }, row => row.id, () => true, () => {});
+  await window.refresh(); for (let i = 0; i < 70; i++) await window.next(window.snapshot());
+  for (let i = 0; i < 64 && window.snapshot().chunks[0]?.cursor !== ''; i++) await window.previous(window.snapshot());
+  assert.equal(window.snapshot().chunks[0]?.cursor, ''); assert.equal(window.snapshot().items[0]?.id, 'r0');
+  const length = calls.length; await window.next(window.snapshot()); assert.equal(calls[length], 'c1'); window.dispose();
 });
