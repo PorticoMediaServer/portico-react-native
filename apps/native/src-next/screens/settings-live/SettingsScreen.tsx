@@ -618,7 +618,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
     <Dialog testID="settings-action-confirm" open={shown !== undefined} onOpenChange={open => {if (!open && !confirmFlight.current && shown) closeConfirm(shown);}} initialFocusRef={cancel}
       title={shown?.kind === 'signOut' ? t('settings.signOutConfirm.title', {server: ports.serverName(), device: t(device)}) : t('settings.resetRecommendations.confirmTitle')}
       description={t(shown?.kind === 'signOut' ? theme.isTV ? 'settings.signOutConfirm.bodyTV' : 'settings.signOutConfirm.bodyDownloads' : 'settings.resetRecommendations.confirmBody')}
-      footer={<View style={{flexDirection: 'row', gap: 16}}><Button ref={cancel} variant="glass" disabled={actionBusy} onPress={() => {if (shown) closeConfirm(shown);}}>{t('action.cancel')}</Button><Button variant="glass" textStyle={{color: theme.colors.record}} loading={actionBusy} onPress={() => {
+      footer={<View style={{flexDirection: 'row', gap: 16}}><Button focusId="cancel" ref={cancel} variant="glass" disabled={actionBusy} onPress={() => {if (shown) closeConfirm(shown);}}>{t('action.cancel')}</Button><Button focusId="confirm" variant="glass" textStyle={{color: theme.colors.record}} loading={actionBusy} onPress={() => {
         const opening = shown;
         if (!opening || confirmFlight.current || confirmRef.current !== opening) return;
         // Re-read the route and visibility at the press, not the render that drew the dialog.
