@@ -18,11 +18,12 @@ export function nativeTogetherPages(context: NativeShellBootstrapContext, lifeti
       if (original?.snapshot === snapshot && original.principal === identity) return original.page;
       original?.retire();
       const projection = context.navigation.presentationStack().at(-1), occurrence = projection?.occurrence;
+      const proof = projection && context.navigation.bindPresentation(projection, {current: lifetime.current, subscribe: context.subscribeAuthority});
       const abort = new AbortController();
       let retired = false, registration: Issued, offNavigation = () => {}, offAuthority = () => {};
       const registered = () => alive && !retired && !lifetime.signal.aborted && original === registration;
-      const retire = () => {if (retired) return; retired = true; abort.abort(); offNavigation(); offAuthority();};
-      const owned = () => registered() && lifetime.current() && registered() && context.current() && registered();
+      const retire = () => {if (retired) return; retired = true; abort.abort(); offNavigation(); offAuthority(); proof?.dispose();};
+      const owned = () => registered() && lifetime.current() && registered() && context.current() && registered() && !!proof?.activeCurrent() && registered();
       const current = () => {
         if (!owned() || snapshot.route !== route || projection?.route !== route || !occurrence || identity === undefined
           || context.navigation.getSnapshot() !== snapshot || !owned()
