@@ -1351,3 +1351,64 @@ test('TV People retains its focused continuation host and renders the real scope
     } finally {errorView.host.unmount();}
   } finally {panel.host.unmount(); feedback.dispose(); lifetime.dispose();}
 });
+
+test('TV Dashboard presenter binds real continuation and retry to the captured section', async () => {
+  const {screenModule} = await import('./helpers/screen-harness.mjs');
+  const {act} = await import('./hook-driver.ts');
+  const {NativeDashboardController} = await import('../src-next/screens/settings-live/dashboard-controller.ts');
+  const {NativeScreenLifetime} = await import('../src-next/screens/settings-live/lifetime.ts');
+  const {NativeScreenServices} = await import('../src-next/screens/screen-services.ts');
+  const {defaultI18n} = await import('../../../packages/i18n/src/index.ts');
+  const dashboard = await screenModule(new URL('../src-next/screens/settings-live/DashboardScreen.tsx', import.meta.url), {
+    react: {...React, default: React}, 'react-native': await import('react-native'),
+    '../../../../../packages/i18n/src': {defaultI18n},
+    '../../../../../packages/client-core/src/server-admin/dashboard': await import('../../../packages/client-core/src/server-admin/dashboard.ts'),
+    '../../../../../packages/client-core/src/presentation/content': await import('../../../packages/client-core/src/presentation/content.ts'),
+    '../../../../../packages/client-core/src/server-admin/console-catalogue': await import('../../../packages/client-core/src/server-admin/console-catalogue.ts'),
+    '../../../../../packages/client-core/src/server-admin/now-playing': await import('../../../packages/client-core/src/server-admin/now-playing.ts'),
+    '../../../../../packages/client-core/src/presentation/kit-model': await import('../../../packages/client-core/src/presentation/kit-model.ts'),
+    '../../kit/controls': {Button, Focusable}, '../../kit/focus': await import('../src-next/kit/focus/index.ts'),
+    '../../kit/shell': await import('../src-next/kit/shell/index.ts'), '../../kit/states': {StateView},
+    '../../kit/shell/visual': await import('../src-next/kit/shell/visual.ts'), '../../kit/theme': {useTheme: () => state.theme},
+    '../../kit/artwork': {Artwork: 'Artwork'}, './server/TVServerPageMenu': {TVServerPageMenu: 'TVServerPageMenu'},
+    './server/TVDiskUsage': {TVDiskUsage: 'TVDiskUsage'}, '../../shell/tv-focus': await import('../src-next/shell/tv-focus.ts'),
+    './Screen': {...await import('../src-next/screens/settings-live/Screen.tsx'), useScreenEntry: () => () => {}},
+    './dashboard-presentation': await import('../src-next/screens/settings-live/dashboard-presentation.ts'),
+    './owner-dashboard/use-owner-dashboard': {NativeOwnerDashboardPhone: 'NativeOwnerDashboardPhone'},
+  });
+  const authority = {serverId: 'server', accountId: 'account', profileId: 'primary', epoch: 'one', viewerFence: 'fence'};
+  const owner = {authority: () => authority, current: () => true, subscribeAuthority: () => () => {}, navigation: {open() {}}};
+  const lifetime = new NativeScreenLifetime(owner), feedback = new NativeScreenServices(owner as any, async () => 'id');
+  const totals = {streams: 11, paused: 0, converting: 0, bandwidthKbps: 0, people: 11, atHome: 11, away: 0};
+  const session = (id: string) => ({id, user: 'person', profile: 'profile', device: 'device', title: id, kind: 'vod', state: 'playing', positionMs: 0, decision: {}, location: 'local'});
+  let reject!: (error: Error) => void, complete!: (value: any) => void;
+  const calls: (string | undefined)[] = [];
+  const controller = new NativeDashboardController(lifetime, () => 'administrator', {
+    sessions: {list: async cursor => {calls.push(cursor); return cursor ? new Promise((resolve, fail) => {complete = resolve; reject = fail;}) : {items: [session('first')] as never[], nextCursor: 'next', totals, scope: {serverId: 'server', viewerFence: 'fence'}};}},
+    console: {measurement: async name => ({name, observedAt: 1, freshUntil: 30001, facts: {}}), alerts: async () => [], jobs: async () => {throw new Error('administrator dispatched owner jobs');}, dispose() {}},
+  });
+  const runtime = {text: {t: defaultI18n.t, locale: 'en-US'}, error: feedback.error, artwork: () => undefined};
+  const ports = {serverName: () => 'Server', context: {events: {on: () => () => {}}, navigation: {open() {}, back() {}}}};
+  const panel = mount(dashboard.NativeDashboardScreen, {controller, ports, runtime, deniedFallback: null});
+  try {
+    await act(() => {});
+    const row = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-session-first')!;
+    assert.ok(row); row.props.onFocus(); await act(() => {});
+    let more = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-sessions-more')!;
+    assert.ok(more); assert.equal(more.props.disabled, true); assert.equal(more.props.focusableWhenDisabled, true);
+    withNativeControl(more, host => {assert.equal(host.props.onPress, undefined); assert.notEqual(host.props.focusable, false);});
+    await act(() => reject(new Error('offline')));
+    assert.ok(ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-session-first'));
+    const error = ofType(panel.tree, StateView).find(element => element.props.testID === 'dashboard-sessions-page-error')!;
+    const errorView = mount(StateView, error.props);
+    try {
+      const retry = elements(errorView.tree).find(element => element.props.action?.id === 'retry')!;
+      withNativeControl(retry, host => {assert.ok(host.props.testID?.includes('dashboard-sessions-page-error')); host.props.onPress();});
+      await act(() => {}); more = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-sessions-more')!;
+      assert.equal(more.props.disabled, true);
+      await act(() => complete({items: [session('last')], nextCursor: undefined, totals, scope: {serverId: 'server', viewerFence: 'fence'}}));
+      assert.ok(ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-session-last'));
+      assert.deepEqual(calls, [undefined, 'next', 'next']);
+    } finally {errorView.host.unmount();}
+  } finally {panel.host.unmount(); controller.dispose(); feedback.dispose(); lifetime.dispose();}
+});
