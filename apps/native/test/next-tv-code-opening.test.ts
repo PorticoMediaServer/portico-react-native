@@ -1,3 +1,4 @@
+import * as accountWork from '../src-next/platform/account-work';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
@@ -169,7 +170,7 @@ async function accountEntry(f: ReturnType<typeof fixture>, prepare: () => Promis
     '../../kit/theme': {useTheme: () => createTheme({isTV: true, width: 1920})}, '../../kit/states': {StateLayout: 'Layout'},
     '../../kit/controls': {Button: 'Button', Focusable: 'Focusable', TextField: 'Field'}, '../../kit/artwork': {ProfilePicker: 'Picker'},
     '../../tv/auth': {TVCodePresenter: 'Code', TVFrontDoor: 'Front', TVCredentialForm: 'Credentials'},
-    '../../platform/accounts': {nativeAccounts: approvedAccounts ?? {accountCredentials: () => ({synchronize: async () => {}, getSnapshot: () => ({}), subscribe: () => () => {}})}},
+    '../../platform/account-work': accountWork, '../../platform/accounts': {nativeAccounts: approvedAccounts ?? {accountCredentials: () => ({synchronize: async () => {}, getSnapshot: () => ({}), subscribe: () => () => {}})}},
     '../../platform/server-sign-in': {NativeServerSignIn: LocalSource}, '../../platform/setup-outcome': setupOutcome,
     '../../platform/portico-sign-in': {NativePorticoSignIn: AuthSource},
     '../../platform/server-connections': {browseNearby: async () => []},

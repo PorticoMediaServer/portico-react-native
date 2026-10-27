@@ -1,3 +1,4 @@
+import * as accountWork from '../src-next/platform/account-work';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -74,7 +75,7 @@ async function fixture(context:import('node:test').TestContext,wrongAccount=fals
     '../../../../../packages/client-core/src/presentation/errors':{presentError:()=>({body:'Refused',silent:false})},
     '../../../../../packages/client-core/src/password-strength':passwordPolicy,'../../kit/theme':{useTheme:()=>theme},
     '../../kit/states':{StateLayout:'Layout'},'../../kit/controls':{Button:'Button',TextField:'Field',Focusable:'Focusable'},
-    '../../platform/accounts':{nativeAccounts:accounts},'../../platform/server-sign-in':{NativeServerSignIn:Server},'../../platform/portico-sign-in':auth,
+    '../../platform/account-work': accountWork, '../../platform/accounts':{nativeAccounts:accounts},'../../platform/server-sign-in':{NativeServerSignIn:Server},'../../platform/portico-sign-in':auth,
     '../../platform/server-connections':{browseNearby:async()=>[]},'../../platform/account-authority':{hostedUrl:'https://hosted.example'},
     '../../platform/qr-scanner':{qrScannerAvailable:()=>false},'../../platform/setup-outcome':outcome,'./tv-code-opening':tvOpening,'./directory-chooser':chooser,
     './PhoneAccountSignIn':phone,'./directory-refusal':{directoryAccessRefused:()=>false,directoryClockSkew:()=>false,directoryIdentityUnconfirmed:()=>false},

@@ -1,3 +1,4 @@
+import * as accountWork from '../src-next/platform/account-work';
 import * as tvCodeOpening from '../src-next/screens/accounts/tv-code-opening';
 import * as setupOutcome from '../src-next/platform/setup-outcome';
 import * as passwordPolicy from '../../../packages/client-core/src/password-strength';
@@ -33,7 +34,7 @@ test('a directory connect is fenced to its attempt: Choose another and a success
   }
   const account = {account: {id: 'account'}, familyId: 'family', accessToken: 'token'};
   const nativeAccounts = {accountCredentials: () => ({
-    synchronize: async () => {}, getSnapshot: () => ({session: account}), accessSession: async () => account,
+    subscribe: () => () => {}, synchronize: async () => {}, getSnapshot: () => ({session: account}), accessSession: async () => account,
   })};
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
     './tv-code-opening': tvCodeOpening,
@@ -49,7 +50,7 @@ test('a directory connect is fenced to its attempt: Choose another and a success
     '../../../../../packages/client-core/src/presentation/errors': {presentError: () => ({body: 'error', silent: false})},
     '../../kit/states': {StateLayout: 'Layout'}, '../../kit/controls': {Button: 'Button', Focusable: 'Focusable', TextField: 'Field'},
     '../../kit/Icon': {Icon: 'Icon'}, '../../kit/artwork': {ProfilePicker: 'Picker'}, '../../kit/theme': {useTheme: () => theme},
-    '../../platform/accounts': {nativeAccounts}, '../../platform/server-sign-in': {NativeServerSignIn: SignIn},
+    '../../platform/account-work': accountWork, '../../platform/accounts': {nativeAccounts}, '../../platform/server-sign-in': {NativeServerSignIn: SignIn},
     '../../platform/portico-sign-in': {NativePorticoSignIn: class {dispose() {}}},
     '../../platform/server-connections': {browseNearby: async () => [], nativeNetworkFetch: async () => ({})},
     '../../platform/tv-sign-in': {createNativePorticoTVSignIn: () => ({subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), start: async () => {}, cancel: async () => {}})},

@@ -1,3 +1,4 @@
+import * as accountWork from '../src-next/platform/account-work';
 import {presentError} from '../../../packages/client-core/src/presentation/errors';
 import {routeOrigin} from '../../../packages/client-core/src/route-identity';
 import {NativeLocalInvitation} from '../src-next/platform/local-invitation';
@@ -54,7 +55,7 @@ async function fixture(initialStage: 'welcome' | 'address' = 'welcome') {
     './PhoneSetupApproval': {PhoneSetupApproval: 'PhoneSetupApproval'},
     './directory-chooser': directoryChooser,
     '../../kit/states': {StateLayout: 'Layout'}, '../../kit/controls': {Button: 'Button', TextField: 'Field'}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/artwork': {ProfilePicker: 'Picker'},
-    '../../platform/accounts': {nativeAccounts: {accountCredentials: () => credentials}}, '../../platform/server-sign-in': {NativeServerSignIn: SignIn}, '../../platform/portico-sign-in': {NativePorticoSignIn: Portico},
+    '../../platform/account-work': accountWork, '../../platform/accounts': {nativeAccounts: {accountCredentials: () => credentials}}, '../../platform/server-sign-in': {NativeServerSignIn: SignIn}, '../../platform/portico-sign-in': {NativePorticoSignIn: Portico},
     '../../platform/server-connections': {browseNearby: async () => {events.push('discovery'); return [];}}, '../../platform/tv-sign-in': {}, '../../platform/account-authority': {},
     '../../tv/auth': {}, './PhonePINEntry': {PhonePINEntry: 'PhonePIN'}, './PhoneAccountMoveNotice': {PhoneAccountMoveNotice: 'MoveNotice'}, './PhoneMovePassword': {PhoneMovePassword: 'MovePassword'}, './PhoneMoveCode': {PhoneMoveCode: 'MoveCode'}, './PhoneProfileRecovery': {PhoneProfileRecovery: 'Recovery'}, '../../tv/auth/TVIdentityCodeForm': {TVIdentityCodeForm: 'IdentityCode'}, './DirectoryAccessRefused': {DirectoryAccessRefused: 'Refused'}, '../../platform/hosted-sign-in-unavailable': {HostedSignInUnavailable: class extends Error {}}, './directory-refusal': {directoryAccessRefused: () => false, directoryClockSkew: () => false, directoryIdentityUnconfirmed: () => false}, './PhoneAccountWorkspace': {PhoneAccountWorkspace: 'PhoneAccountWorkspace'}, '../../platform/account-workspace': {NativeAccountWorkspace: class {constructor() {throw new Error('unexpected_account_workspace');}}}, './PhoneNoServers': {PhoneNoServers: 'PhoneNoServers'}, './TVNoServers': {TVNoServers: 'TVNoServers'}, './EndedMoveCodeAction': {EndedMoveCodeAction: 'EndedMoveCodeAction'}, './TVOfflineServers': {TVOfflineServers: 'TVOfflineServers'}, './PhoneFrontDoor': {PhoneFrontDoor: 'PhoneFrontDoor'}, 'react-native-qrcode-svg': {default: 'QR'},
   });
