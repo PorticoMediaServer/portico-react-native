@@ -382,7 +382,7 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
             </View>
           </View>
           {resource?.kind === 'collection' && resource.role === 'owner' && resource.actions.includes('update') && !theme.isTV && <View style={{paddingHorizontal: theme.gutter, paddingTop: 16, gap: 4}}>
-            <Switch checked={resource.visibility === 'server'} disabled={busy || personal?.pending} onCheckedChange={next => run(async () => {await destination.mutatePersonal({action: 'update', visibility: next ? 'server' : 'private'});})}>
+            <Switch focusId="saved-visibility" checked={resource.visibility === 'server'} disabled={busy || personal?.pending} onCheckedChange={next => run(async () => {await destination.mutatePersonal({action: 'update', visibility: next ? 'server' : 'private'});})}>
               {t('web.saved.visibleToAll')}
             </Switch>
             <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{savedVisibilityHelp(resource)}</Text>
@@ -423,7 +423,7 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
               : rows.map(row => <SavedResourceRow key={row.id} row={row} width={width} runtime={runtime} actions={actions} library={savedLibraryName(libraries, row.media.libraryId)}
                 canReorder={canReorder && reordering} onMore={() => openRowMenu(row)}/>)}
             {!!(isPlaylist ? saved?.pagination.next.length : personal?.nextCursor) && <View style={{alignItems: 'center', paddingVertical: 16}}>
-              <Button variant="glass" size="compact" onPress={() => {void destination.next(isPlaylist ? saved?.pagination.next[0]?.sectionId : undefined).catch(report);}}>{t('action.showMore')}</Button>
+              <Button focusId="saved-show-more" variant="glass" size="compact" onPress={() => {void destination.next(isPlaylist ? saved?.pagination.next[0]?.sectionId : undefined).catch(report);}}>{t('action.showMore')}</Button>
             </View>}
           </View>
           {/* collections.html 18's note: on a remote a row's own menu is where it moves or leaves. */}
