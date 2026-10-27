@@ -22,6 +22,7 @@ export class MusicSectionPager<T extends {id: string}> {
   private pending?: Promise<void>;
   private pendingFrom?: MusicSection<T>;
   private failedIndex?: number;
+  private focused?: T;
   private options: Readonly<{
     current: () => boolean; read: (cursor: string, signal: AbortSignal) => Promise<MusicSectionPage<T>>;
     publish: (section: MusicSection<T>) => void;
@@ -37,6 +38,7 @@ export class MusicSectionPager<T extends {id: string}> {
   next = (expected: MusicSection<T>) => {
     if (this.pending && (expected === this.pendingFrom || expected === this.state)) return this.pending;
     if (expected !== this.state || !expected.canNext || expected.phase !== 'ready') return Promise.resolve();
+    if(this.chunks.length===3&&this.focused&&this.chunks[0].page.items.includes(this.focused))return Promise.resolve();
     return this.read((this.chunks.at(-1)?.index ?? -1) + 1, expected);
   };
   previous = (expected: MusicSection<T>) => {
@@ -50,6 +52,10 @@ export class MusicSectionPager<T extends {id: string}> {
     if (expected !== this.state || expected.phase !== 'error' || this.failedIndex === undefined) return Promise.resolve();
     return this.read(this.failedIndex, expected);
   };
+  focus = (item:T, expected:MusicSection<T>) => {
+    if(this.current()&&expected.items.includes(item)&&this.state.items.includes(item))this.focused=item;
+  };
+  blur = (item:T) => {if(this.focused===item)this.focused=undefined;};
   private read(index: number, expected: MusicSection<T>): Promise<void> {
     if (!this.current() || expected !== this.state) return Promise.resolve();
     if (this.pending) return this.pending;
@@ -77,6 +83,11 @@ export class MusicSectionPager<T extends {id: string}> {
         const adjacent = previous !== undefined && index === previous - 1;
         const chunks = previous !== undefined && index < previous
           ? (adjacent ? [chunk, ...this.chunks].slice(0, 3) : [chunk]) : [...this.chunks, chunk].slice(-3);
+        if(this.focused&&!chunks.some(chunk=>chunk.page.items.includes(this.focused!))){
+          // Focus may have moved back while the page was in flight. Keep that
+          // actual host; the same offered cursor remains available after Blur.
+          this.publish({phase:'ready',error:undefined});return;
+        }
         const ids = new Set<string>();
         for (const item of chunks.flatMap(value => value.page.items)) {if (ids.has(item.id)) throw changed(); ids.add(item.id);}
         if (page.nextCursor) this.cursors.set(index + 1, {cursor: page.nextCursor, offset: offset + page.items.length});
