@@ -31,12 +31,12 @@ const find = (node: any, id: string): any => {
 };
 function fixture(phase = 'idle', actualService?: any) {
   const group = {id: 'group', viewerMemberId: 'member', endedReason: 'ended'}, listeners = new Set<() => void>();
-  let state: any = {phase, group: ['idle', 'left'].includes(phase) ? undefined : group, directory: [], busy: false}, back = 0, ends = 0;
+  let state: any = {phase, group: ['idle', 'left'].includes(phase) ? undefined : group, directory: [], busy: false}, back = 0, ends = 0, refreshes = 0;
   let pending: any, resolveJoin!: (value: boolean) => void; const calls: string[] = [];
   const lifetime = new NativeScreenLifetime({authority: () => ({serverId: 's', accountId: 'a', profileId: 'profile', epoch: 'e', viewerFence: 'v'}), current: () => true, subscribeAuthority: () => () => {}});
   const begin = (kind: string, proof: any) => {calls.push(kind); pending = proof; return new Promise<boolean>(resolve => {resolveJoin = resolve;});};
   const service: any = {getSnapshot: () => state, subscribe: (fn: () => void) => {listeners.add(fn); return () => listeners.delete(fn);},
-    refreshDirectory: async () => {}, end: async () => {ends++;}, create: (_draft: unknown, proof: any) => begin('create', proof), open: (_id: string, proof: any) => begin('open', proof),
+    refreshDirectory: async () => {refreshes++;}, end: async () => {ends++;}, create: (_draft: unknown, proof: any) => begin('create', proof), open: (_id: string, proof: any) => begin('open', proof),
     join: (_code: string, _who: string, proof: any) => begin('join', proof)};
   const controller = new NativeTogetherController(lifetime, actualService ?? service);
   const authority = () => lifetime.authority, navigation = new NativeShellNavigation(authority(), authority);
@@ -55,6 +55,7 @@ function fixture(phase = 'idle', actualService?: any) {
   return {get host() {return host;}, tree: () => tree, navigation, page: () => page, calls,
     directory: () => {state = {...state, directory: [{id: 'offered', name: 'Offered', members: [], permissions: {isHost: false}, timeline: {state: 'paused'}}]}; for (const fn of listeners) fn();},
     pageBack: () => find(tree.type(tree.props), 'together-page-back').props.onPress(), back: () => back, ends: () => ends, pending: () => pending,
+    refreshes: () => refreshes,
     leave: () => navigation.back(authority()), unmount: () => host.unmount(),
     revisit: () => {host.unmount(); navigation.open({kind: 'together'}, authority()); page = capture(); host = mount();},
     restore: () => {host.unmount(); navigation.open({kind: 'account'}, authority()); navigation.back(authority()); page = capture(); host = mount();},
@@ -66,6 +67,19 @@ for (const phase of ['idle', 'left', 'live', 'ended'] as const) test(`handheld T
   const f = fixture(phase);
   try {f.pageBack(); assert.equal(f.back(), 1); assert.equal(f.ends(), 0);}
   finally {f.dispose();}
+});
+
+test('the lobby refresh belongs to the page opening, not to its form or an unrelated redraw', async () => {
+  const f = fixture();
+  try {
+    assert.equal(f.refreshes(), 1, 'the committed page opening reads the directory once');
+    await act(() => find(f.tree(), 'together-start').props.onPress());
+    assert.equal(find(f.tree(), 'together-form').props.open, true);
+    await act(() => find(f.tree(), 'together-name').props.onChangeText('Fixture room'));
+    await act(() => find(f.tree(), 'together-display-name').props.onChangeText('Viewer'));
+    await act(() => f.directory());
+    assert.equal(f.refreshes(), 1, 'form edits and unrelated redraws do not refresh the lobby');
+  } finally {f.dispose();}
 });
 test('lobby form closes before page back', async () => {
   const f = fixture();

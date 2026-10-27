@@ -89,7 +89,8 @@ function bridge() {
     adoptListeningSession: async context => { calls.push({name: 'adopt', args: [context]}); const s = (context as {session: {id: string}}).session as Record<string, unknown>; latest = raw(context.owner as string, ++sequence, s); return latest; },
     listeningSnapshot: async owner => { calls.push({name: 'snapshot', args: [owner]}); return latest; },
     acknowledgeListening: async (owner, seq) => { calls.push({name: 'ack', args: [owner, seq]}); return true; },
-    listeningAction: async (owner, action, value) => { calls.push({name: 'action', args: [owner, action, value]}); return true; },
+    listeningAction: async () => {throw new Error('Unguarded action must not be used.');},
+    listeningActionFor: async (owner, target, action, value) => { calls.push({name: 'action', args: [owner, action, value, target]}); return true; },
     listeningAdvance: async (owner, reason, entryId) => { calls.push({name: 'advance', args: [owner, reason, entryId]}); return true; },
     listeningDeadlines: async () => true,
     listeningCredentials: async (owner, token) => { calls.push({name: 'credentials', args: [owner, token]}); return true; },
@@ -126,7 +127,8 @@ test('the adapter hands the session over once, acknowledges snapshots and follow
   await adapter.advance('entry', 'e-9');
   assert.ok(x.calls.some(c => c.name === 'advance' && c.args[1] === 'entry' && c.args[2] === 'e-9'));
   await adapter.action('pause');
-  assert.deepEqual(x.calls.find(c => c.name === 'action')!.args, ['owner-1', 'pause', null]);
+  assert.deepEqual(x.calls.find(c => c.name === 'action')!.args, ['owner-1', 'pause', null,
+    {binding: events.at(-1)!.binding, commandRevision: 2, queue: {queueId: 'q1', entryId: 'e-s3'}}]);
   await adapter.detach(true);
   assert.deepEqual(x.calls.at(-1), {name: 'retire', args: ['owner-1', true]});
 });

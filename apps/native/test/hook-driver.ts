@@ -38,7 +38,7 @@ type Destructor = (() => void) | void;
 type StateCell = {kind: 'state'; value: unknown};
 type RefCell = {kind: 'ref'; ref: {current: unknown}};
 type MemoCell = {kind: 'memo'; deps: Deps; value: unknown};
-type EffectCell = {kind: 'effect'; deps: Deps; destroy: Destructor};
+type EffectCell = {kind: 'effect'; deps: Deps; create?: () => Destructor; destroy: Destructor};
 type StoreCell = {kind: 'store'; unsubscribe: (() => void) | null; subscribe?: (onChange: () => void) => () => void};
 type Cell = StateCell | RefCell | MemoCell | EffectCell | StoreCell;
 
@@ -51,7 +51,7 @@ const hosts = new Set<HookHost>();
 class HookHost {
   private cells: Cell[] = [];
   private cursor = 0;
-  private pending: {cell: EffectCell; create: () => Destructor}[] = [];
+  private pending: {cell: EffectCell; create: () => Destructor; deps: Deps}[] = [];
   private scheduled = false;
   private mounted = false;
   private rendering = false;
@@ -101,8 +101,7 @@ class HookHost {
     useEffect: (create: () => Destructor, deps: Deps) => {
       const cell = this.cell<EffectCell>(() => ({kind: 'effect', deps: undefined, destroy: undefined}));
       if (!this.seen.has(cell) || !sameDeps(cell.deps, deps)) {
-        cell.deps = deps;
-        this.pending.push({cell, create});
+        this.pending.push({cell, create, deps});
       }
       return undefined;
     },
@@ -149,23 +148,40 @@ class HookHost {
   private render() {
     const previous = internals.H;
     internals.H = this.dispatcher;
-    this.cursor = 0;
-    this.rendering = true;
     try {
-      this.body();
+      // A render-phase state adjustment retries the body before anything is committed. Effects
+      // queued by a discarded pass are discarded with it, exactly as React discards that render.
+      for (let pass = 0; ; pass++) {
+        if (pass > 100) throw new Error('hook-driver: render-phase update did not settle');
+        this.pending = [];
+        this.cursor = 0;
+        this.rendering = true;
+        try {
+          this.body();
+        } finally {
+          this.rendering = false;
+        }
+        if (!this.scheduled) break;
+        this.scheduled = false;
+      }
     } finally {
-      this.rendering = false;
       internals.H = previous;
     }
     this.scheduled = false;
   }
 
-  /** Commit: run each scheduled effect's previous cleanup, then the effect. */
+  /** Commit: every changed effect's previous cleanup runs first, then the replacements.
+   * React runs all layout cleanups before any layout setup in the same commit, so one
+   * effect's cleanup is observable to another effect's setup. */
   private commit() {
     const queued = this.pending;
     this.pending = [];
-    for (const {cell, create} of queued) {
+    for (const {cell} of queued) {
       if (this.seen.has(cell) && typeof cell.destroy === 'function') cell.destroy();
+    }
+    for (const {cell, create, deps} of queued) {
+      cell.deps = deps;
+      cell.create = create;
       cell.destroy = create();
       this.seen.add(cell);
     }
@@ -195,6 +211,16 @@ class HookHost {
     }
     this.cells = [];
     this.pending = [];
+  }
+
+  /** React's development StrictMode replay: every mounted effect's cleanup runs, then its
+   * same setup runs again without a new render or fresh state. */
+  replay() {
+    if (!this.mounted) throw new Error('hook-driver: not mounted');
+    const effects = this.cells.filter((cell): cell is EffectCell =>
+      cell.kind === 'effect' && this.seen.has(cell) && typeof cell.create === 'function');
+    for (const cell of effects) if (typeof cell.destroy === 'function') cell.destroy();
+    for (const cell of effects) cell.destroy = cell.create!();
   }
 
   /** One settle pass: render if something scheduled one, then run its effects. */

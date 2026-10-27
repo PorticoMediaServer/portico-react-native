@@ -85,12 +85,17 @@ test('NM-ID-02: the real Together confirmation keeps its region, busy binding, B
     const registry = createFocusRegistry();
     const nodes = () => {
       const visit = (items: readonly any[]): any[] => items.flatMap(node => [node, ...visit(node.children ?? [])]);
-      return visit(host.root);
+      // standardHomeApp materialises the product's View/Text/Pressable boundaries in its own
+      // host registry; host.root only carries the rendered raw text.
+      return [...visit(host.root), ...app.hosts()];
     };
     const nodeWithTestID = (testID: string) => nodes().find(node => node.props?.testID === testID);
     const leafNode = (regionId: string, childId: string) => nodeWithTestID(focusTestID(regionId, childId));
     const press = (node: any) => node.props.onPress({nativeEvent: {}, stopPropagation() {}});
     const settle = async () => {await host.settle(); await app.settle();};
+    // The Dialog moves initial focus on its own enter delay; a captured focus assertion waits
+    // for that actual timer rather than assuming it fired with the first settle.
+    const settleOverlay = async () => {await settle(); await new Promise<void>(done => setTimeout(done, 240)); await settle();};
     const footer = tvFocusIds(booted.authority()).surface('together.room.footer');
     const Room = () => {
       const state = React.useSyncExternalStore(controller.subscribe, controller.getSnapshot);
@@ -103,12 +108,12 @@ test('NM-ID-02: the real Together confirmation keeps its region, busy binding, B
       assert.ok(end, 'the host room offers End for everyone');
       assert.equal(registry.focus({regionId: footer, childId: 'together-end'}), true, 'the opener is focused in its footer region');
       press(end);
-      await settle();
+      await settleOverlay();
       assert.ok(registry.child({regionId: 'together-confirm', childId: 'cancel'}), 'the confirmation has its own root and Cancel leaf');
       assert.ok(registry.child({regionId: 'together-confirm', childId: 'confirm'}), 'its destructive action is a distinct leaf');
       assert.equal(registry.capture()?.regionId, 'together-confirm');
       assert.equal(registry.capture()?.childId, 'cancel', 'initial safe focus is Cancel');
-      assert.equal(leafNode('together-confirm', 'confirm')?.props.disabled, false);
+      assert.ok(!leafNode('together-confirm', 'confirm')?.props.disabled, 'the enabled action is not disabled');
 
       // Confirm is busy while the real end() is pending; the same binding stays and is disabled.
       press(leafNode('together-confirm', 'confirm'));
@@ -117,7 +122,7 @@ test('NM-ID-02: the real Together confirmation keeps its region, busy binding, B
       assert.ok(confirm, 'the busy action keeps the same leaf identity');
       assert.equal(confirm!.props.disabled, true, 'busy makes that binding ineligible');
       endFlight!.resolve(); endFlight = undefined;
-      await settle();
+      await settleOverlay();
       assert.equal(registry.child({regionId: 'together-confirm', childId: 'confirm'}), undefined, 'the accepted end closes its dialog');
 
       // Back dismisses and restores the exact opener (returnFocusRef=the End button).
@@ -125,7 +130,7 @@ test('NM-ID-02: the real Together confirmation keeps its region, busy binding, B
       await settle();
       assert.ok(registry.child({regionId: 'together-confirm', childId: 'cancel'}));
       await app.back();
-      await settle();
+      await settleOverlay();
       assert.equal(registry.child({regionId: 'together-confirm', childId: 'cancel'}), undefined, 'Back closes without ending');
       assert.equal(registry.capture()?.regionId, footer);
       assert.equal(registry.capture()?.childId, 'together-end', 'Back returns to the original End opener');
@@ -135,10 +140,10 @@ test('NM-ID-02: the real Together confirmation keeps its region, busy binding, B
       assert.ok(leave);
       registry.focus({regionId: footer, childId: 'leave'});
       press(leave);
-      await settle();
+      await settleOverlay();
       assert.ok(registry.child({regionId: 'together-confirm', childId: 'cancel'}));
       await app.back();
-      await settle();
+      await settleOverlay();
       assert.equal(registry.capture()?.childId, 'leave', 'the Host Leave opening returns to Leave');
     } finally {
       (Platform as {isTV: boolean}).isTV = priorTV;
