@@ -516,3 +516,34 @@ test('All songs admits only live exact offered entries beyond Top songs and reti
  assert.equal(f.value.contains(sixth),true);assert.equal(f.value.contains({...sixth}),false);assert.equal(f.value.contains(top),true);
  await f.value.loadAllSongs();assert.equal(f.value.contains(sixth),false);f.value.dispose();assert.equal(f.value.contains(top),false);
 });
+
+test('the real All songs row invokes the borrowed menu once and its captured membership retires',async()=>{
+ const songs=Array.from({length:6},(_,i)=>song(`song-${i}`,i+1,180,`Track ${i}`));
+ const f=await controller(artistEntry,{songs,pageSize:3,maximumLimit:3});await f.value.load();await f.value.loadAllSongs();await f.value.nextAllSongs(f.value.getSnapshot().allSongs);
+ let opens=0,commandCurrent:()=>boolean=()=>false;
+ const borrowed={subscribe:()=>()=>{},isOpen:()=>false,open:async(_entry:any,current:()=>boolean)=>{opens++;commandCurrent=current;}};
+ const {createNativeEntryActions}=await screenModule(new URL('../src-next/screens/destinations/entry-actions.ts',import.meta.url),{
+  react:{default:{}},'../native-screen-services':{nativeScreenServices:()=>({reportError:()=>{throw Error('unexpected error');}})},
+  '../watch':{nativeWatchEntryMenu:()=>borrowed},'./lifetime':{nativeDestinationLifetime:()=>({current:()=>true})},
+ });
+ const actions=createNativeEntryActions({navigation:{getSnapshot:()=>({revision:1}),subscribe:()=>()=>{}},subscribeAuthority:()=>()=>{}},
+  {current:()=>true,contains:f.value.contains,subscribe:f.value.subscribe});
+ const hooks={createElement:(type:any,props:any,...children:any[])=>({type,props:{...props,children}}),useSyncExternalStore:(_off:any,get:any)=>get(),useMemo:(fn:any)=>fn(),useState:()=>[undefined,()=>{}],useRef:()=>({current:null}),useCallback:(fn:any)=>fn,useId:()=> 'real-test-gradient'};
+ const {artistReleaseGroups}=await import('../../../packages/client-core/src/presentation/library-tabs.ts');
+ const screens=await screenModule(new URL('../src-next/screens/destinations/music/TVMusicScreens.tsx',import.meta.url),{
+  react:{default:hooks,...hooks},'react-native':{ScrollView:'ScrollView',Text:'Text',View:'View'},'react-native-svg':{default:'Svg',Defs:'Defs',LinearGradient:'LinearGradient',Rect:'Rect',Stop:'Stop'},
+  '../../../../../../packages/i18n/src':{defaultI18n:{t:(key:string)=>key,number:String}},
+  '../../../../../../packages/client-core/src/presentation/kit-model':{cardText:(e:any)=>({title:e.title,caption:[],detail:[]})},
+  '../../../../../../packages/client-core/src/presentation/library-tabs':{artistReleaseGroups},
+  '../../../kit/artwork':{AmbientArt:'AmbientArt',Artwork:'Artwork',ArtistCircle:'ArtistCircle'},'../../../kit/controls':{Button:'Button',Chip:'Chip',Focusable:'Focusable'},
+  '../../../kit/cards':{SquareCard:'SquareCard'},'../../../kit/browse':{TrackRow:'TrackRow'},'../../../kit/browse/presentation':{browseType:()=>({})},
+  '../../../kit/focus':{FocusItem:'FocusItem',FocusRegion:'FocusRegion'},'../../../kit/theme':{useTheme:()=>({colors:{}})},
+  '../../../tv/layout/TVArtFocus':{TVArtFocus:'TVArtFocus'},'./MusicErrorView':{MusicErrorView:'MusicErrorView'},'./MusicFormatBadges':{MusicFormatBadges:'MusicFormatBadges'},
+  './MusicSectionControls':{MusicSectionControls:'MusicSectionControls',musicNearEnd:()=>true},
+ });
+ const tree=screens.TVArtistScreen({controller:f.value,entry:artistEntry,runtime:{text:{},ambient:()=>undefined,artwork:()=>undefined,reportError:()=>{}},actions,openEntry:()=>{}});
+ const nodes:any[]=[];function walk(node:any){if(!node)return;if(Array.isArray(node)){node.forEach(walk);return;}if(typeof node!=='object')return;if(typeof node.type==='function'){walk(node.type(node.props));return;}nodes.push(node);walk(node.props?.children);}walk(tree);
+ const sixth=nodes.find(n=>n.type==='TrackRow'&&n.props.row.id==='song-5');assert(sixth);sixth.props.onMore();assert.equal(opens,1);assert.equal(commandCurrent(),true);
+ const old=f.value.getSnapshot().allSongs.songs[5];actions.menu({...old});assert.equal(opens,1);
+ await f.value.loadAllSongs();assert.equal(commandCurrent(),false);sixth.props.onMore();assert.equal(opens,1);actions.dispose();f.value.dispose();
+});
