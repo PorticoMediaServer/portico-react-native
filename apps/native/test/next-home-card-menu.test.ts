@@ -5,10 +5,12 @@ import {heroSpec} from '../../../packages/design/src';
 import {HomeService} from '../../../packages/client-core/src/home-service';
 import * as homePresentation from '../../../packages/client-core/src/presentation/home-spotlight';
 import * as homeCapabilities from '../../../packages/client-core/src/home-selection';
+import {presentError} from '../../../packages/client-core/src/presentation/errors';
 import * as serverText from '../../../packages/client-core/src/presentation/server-text';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {createTheme, nativeType} from '../src-next/kit/theme';
 import {createFocusRegistry} from '../src-next/kit/focus/registry';
+import {createInitialRegionEntry} from '../src-next/kit/focus/initial-entry';
 import {activateCard, holdCard} from '../src-next/kit/cards/model';
 import {itemSelection} from '../src-next/kit/layout/types';
 import * as shellModel from '../src-next/shell/model';
@@ -16,6 +18,7 @@ import * as tvFocus from '../src-next/shell/tv-focus';
 import {NativeHomePaging} from '../src-next/shell/home-paging';
 import {tvHomeRows} from '../src-next/screens/home/tv-presentation';
 import * as homeModel from '../src-next/screens/home/model';
+import * as homeStart from '../src-next/screens/home/home-start';
 import {homeActionDiagnostics} from '../src-next/platform/home-action-diagnostics';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
@@ -35,22 +38,27 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Continue car
   await home.load();
   const h = hooks(), child = hooks(), registry = createFocusRegistry(), theme = createTheme({isTV: tv, width: tv ? 1920 : 390});
   let hookOwner = h;
-  const react = {...h.react, useRef: (value: unknown) => hookOwner.react.useRef(value)};
+  const react = {...h.react, useRef: (value: unknown) => hookOwner.react.useRef(value), useLayoutEffect: h.react.useEffect};
   const calls: any[] = [], selection = {active: false, isSelected: () => false, onToggle: () => calls.push('toggle'), onEnter() {}, isMenuOpen: () => menuOpen};
   const runtime = {home, text: {t: defaultI18n.t, locale: 'en-US'}, getSnapshot: () => ({authority: currentAuthority, libraries: []}),
     actions: {navigate: (...args: any[]) => calls.push(['navigate', ...args]), play: (...args: any[]) => calls.push(['play', ...args]), more: (...args: any[]) => calls.push(['menu', ...args])},
-    selection: () => selection, playback: {}, artwork() {}, ambient() {}};
+    selection: () => selection, playback: {subscribe: () => () => {}, getSnapshot: () => ({})}, artwork() {}, ambient() {}};
   const {HomeScreen} = await screenModule(new URL('../src-next/screens/home/HomeScreen.tsx', import.meta.url), {
     react, 'react-native': {View: 'View', Text: 'Text', RefreshControl: 'RefreshControl', AppState: {currentState: 'active'}, useWindowDimensions: () => ({width: tv ? 1920 : 390, height: tv ? 1080 : 844})},
     'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (fn: unknown) => fn, useAnimatedScrollHandler: (fn: unknown) => fn}, '@portico/design': {heroSpec},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src/presentation/home-spotlight': homePresentation,
     '../../../../../packages/client-core/src/home-selection': homeCapabilities, '../../../../../packages/client-core/src/presentation/server-text': serverText,
+    '../../../../../packages/client-core/src/presentation/errors': {presentError},
     '../../../../../packages/client-core/src/presentation/kit-model': {}, '../../platform/ArtworkPipeline': {ArtworkPlacementContext: {Provider: 'ArtworkPlacement'}},
+    '../../platform/platformPosture': {usePlatformPosture: () => ({status: 'unavailable'})}, '../destinations/useTVPageBack': {useTVPageBack() {}},
+    '../../kit/focus/initial-entry': {createInitialRegionEntry},
     '../../kit/artwork': {}, '../../kit/controls': {}, '../../kit/cards': {WideCard: 'WideCard'},
     '../../kit/focus': {useFocusRegistry: () => registry}, '../../shell/tv-focus': tvFocus, '../../shell/home-paging': {NativeHomePaging}, './tv-presentation': {tvHomeRows},
     '../../kit/layout': {Row: 'Row', Hero: 'Hero'}, '../../kit/layout/types': {itemSelection},
     '../../kit/layout/FocusAnchor': {useFocusAnchor: () => ({offset: {value: 0}, scrollRef: {current: null}})},
     '../../kit/states': {LoadingPaint: 'LoadingPaint', }, '../../kit/theme': {nativeType, useTheme: () => theme}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../shell/model': shellModel,
+    './home-start': homeStart, '../destinations/music/MusicMixesRow': {MusicMixesRow: 'MusicMixesRow'},
+    './TvHomeRecovery': {TvHomeRecovery: 'TvHomeRecovery'}, './useTvHomeRecovery': {useTvHomeRecovery: () => ({visible: false})},
     './HomeHeroFacts': {}, './model': homeModel,
   });
   try {
