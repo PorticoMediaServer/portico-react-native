@@ -16,8 +16,9 @@ import {Button} from '../../kit/controls/Button';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {useTheme} from '../../kit/theme';
 import {usePlatformPosture} from '../../platform/platformPosture';
-import {readerAssetEntry, readerNavigationAllowed, readerDelivery} from './asset-origin';
-import {readerBridgeDiagnostic, readerStartupDiagnostic, readerStartupProbe} from './startup-diagnostics';
+import {readerAssetEntry, readerDelivery} from './asset-origin';
+import {readerBridgeDiagnostic} from './startup-diagnostics';
+import {ReadingGuestView} from './ReadingGuestView';
 import {NativeAnnotationJournal, nativeAnnotationIdentity, nativeAnnotationLeaseOf, type NativeAnnotationFormat} from './annotation-journal';
 import {nativeAnnotationBridge} from './annotation-session';
 import {NativeAnnotationSync, type NativeAnnotationLivePort} from './annotation-sync';
@@ -199,22 +200,8 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
     {state.failed ? <StateView variant="centered" title={defaultI18n.t('next.states.pageFailed')} body={defaultI18n.t('next.states.pageFailedBody')}
       primaryAction={{id: 'retry', label: defaultI18n.t('next.states.tryAgain'), disabled: !active, onPress: () => setRetry(value => value + 1)}}/>
       : <LoadingPaint ready={!!state.url} immediate={!!state.url} skeleton={<SkeletonBlock width="100%" style={{flex: 1}}/>}>
-        {state.url ? <WebView ref={view} source={{uri: state.url}} style={{flex: 1, backgroundColor: theme.colors.ink}}
-        originWhitelist={['*']} onShouldStartLoadWithRequest={request => readerNavigationAllowed(state.url!, request.url, request.isTopFrame)}
-        injectedJavaScriptBeforeContentLoaded={__DEV__ ? readerStartupProbe : undefined}
-        injectedJavaScriptBeforeContentLoadedForMainFrameOnly
-        onMessage={event => {if (state.reader && host.current === state.reader && readerNavigationAllowed(state.url!, event.nativeEvent.url, true)) {
-          if (__DEV__) {const diagnostic = readerStartupDiagnostic(event.nativeEvent.url, event.nativeEvent.data);
-            if (diagnostic) {console.warn('portico_reader_startup', JSON.stringify(diagnostic)); return;}}
-          observeBridge('guest-to-host', event.nativeEvent.data);
-          state.reader.receive(event.nativeEvent.data);
-        }}}
-        renderError={() => <></>} incognito cacheEnabled={false} sharedCookiesEnabled={false} thirdPartyCookiesEnabled={false} domStorageEnabled={false}
-        allowFileAccess={false} allowFileAccessFromFileURLs={false} allowUniversalAccessFromFileURLs={false} mixedContentMode="never"
-        javaScriptCanOpenWindowsAutomatically={false} setSupportMultipleWindows={false} onOpenWindow={() => {}}
-        onError={failRenderedReader}
-        onContentProcessDidTerminate={failRenderedReader}
-        onRenderProcessGone={failRenderedReader}/> : null}
+        {state.url && state.reader ? <ReadingGuestView url={state.url} view={view} reader={state.reader}
+          currentReader={() => host.current} backgroundColor={theme.colors.ink} observeBridge={observeBridge} onFailure={failRenderedReader}/> : null}
       </LoadingPaint>}
     {!state.url || state.failed ? <View pointerEvents="box-none" style={{position: 'absolute', left: 12, top: insets.top + 8, zIndex: 20}}>
       {/* Authored reader Back, phone-read.html .nb .gr 38px and tablet-read.html .rtop .back 44px:

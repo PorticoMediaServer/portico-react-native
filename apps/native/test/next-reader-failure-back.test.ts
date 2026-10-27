@@ -64,6 +64,11 @@ async function harness(fixture: Fixture) {
   const width = fixture.width ?? 390;
   // Leaf hosts are stable string types: this driver never renders a mocked
   // component, it only traverses the elements ReadNativeHost returns.
+  const {ReadingGuestView} = await screenModule(new URL('../src-next/screens/read/ReadingGuestView.tsx', import.meta.url), {
+    react: {...React, default: React}, 'react-native-webview': {default: 'WebView'},
+    './asset-origin': {readerNavigationAllowed},
+    './startup-diagnostics': {readerStartupDiagnostic: () => undefined, readerStartupProbe: ''},
+  });
   const {ReadNativeHost} = await screenModule(new URL('../src-next/screens/read/ReadNativeHost.tsx', import.meta.url), {
     react: {...React, default: React},
     'react-native': {
@@ -87,6 +92,7 @@ async function harness(fixture: Fixture) {
     '../../kit/controls/Button': {Button: 'Button'},
     '../../kit/theme': {useTheme: () => ({colors: {ink: '#000'}})},
     '../../platform/platformPosture': {usePlatformPosture: () => ({status: 'unavailable'})},
+    './ReadingGuestView': {ReadingGuestView: 'ReadingGuestView'},
     './asset-origin': {readerAssetEntry, readerNavigationAllowed, readerDelivery},
     './startup-diagnostics': {readerBridgeDiagnostic: () => undefined, readerStartupDiagnostic: () => undefined, readerStartupProbe: ''},
     './annotation-journal': {NativeAnnotationJournal: class {bind() {} unbind() {} dispose() {}}, nativeAnnotationIdentity: () => ({}), nativeAnnotationLeaseOf: () => ({})},
@@ -94,7 +100,7 @@ async function harness(fixture: Fixture) {
     './annotation-sync': {NativeAnnotationSync: class {flush() {return Promise.resolve();} subscribe() {return () => {};} getSnapshot() {return {};} dispose() {}}},
     './annotation-authoring': {NATIVE_OFFLINE_ANNOTATION_AUTHORING: false},
   });
-  return {ReadNativeHost, context, reader, get hostCalls() {return hostCalls;}, get versionCalls() {return versionCalls;}, setCurrent(value: boolean) {current = value; for (const listener of [...listeners]) listener();}, disposals};
+  return {ReadNativeHost, ReadingGuestView, context, reader, get hostCalls() {return hostCalls;}, get versionCalls() {return versionCalls;}, setCurrent(value: boolean) {current = value; for (const listener of [...listeners]) listener();}, disposals};
 }
 
 function mount(component: (props: any) => unknown, props: any) {
@@ -178,7 +184,8 @@ test('a healthy guest renders no duplicate native Back and a WebView failure pro
   let backs = 0;
   const view = mount(fixture.ReadNativeHost, propsFor(fixture.context, {onBack: () => {backs++;}}));
   await act(async () => {view.host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
-  const guest = byType(view.tree, 'WebView');
+  const boundary = byType(view.tree, 'ReadingGuestView');
+  const guest = boundary && fixture.ReadingGuestView(boundary.props) as any;
   assert.ok(guest, 'the opened reader hands the document to the guest');
   assert.equal(fixture.hostCalls > 0, true, 'the healthy path creates the reading host');
   assert.equal(byTestID(view.tree, 'native-read-host-back'), undefined, 'the healthy guest already owns the only Back');
@@ -200,7 +207,8 @@ test(`a ${method} projection keeps Retry and the native Back reachable with no d
   let backs = 0;
   const view = mount(fixture.ReadNativeHost, propsFor(fixture.context, {onBack: () => {backs++;}}));
   await act(async () => {view.host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
-  const guest = byType(view.tree, 'WebView');
+  const boundary = byType(view.tree, 'ReadingGuestView');
+  const guest = boundary && fixture.ReadingGuestView(boundary.props) as any;
   assert.ok(guest, 'the healthy guest is present before termination');
   assert.equal(byTestID(view.tree, 'native-read-host-back'), undefined, 'no native Back while the guest is healthy');
   guest!.props[method]();
@@ -250,4 +258,25 @@ test('an old native Back callback cannot borrow the guard from a reopened retain
     freshPress(); const after = navigation.getSnapshot(); assert.equal(after.route.kind, 'shell');
     freshPress(); assert.strictEqual(navigation.getSnapshot(), after, 'fresh admitted render spends Back once');
   } finally {view.host.unmount(); navigation.dispose();}
+});
+
+test('the extracted guest view rejects stale and foreign messages and forwards each native failure', async () => {
+  const {ReadingGuestView} = await screenModule(new URL('../src-next/screens/read/ReadingGuestView.tsx', import.meta.url), {
+    react: {...React, default: React}, 'react-native-webview': {default: 'WebView'},
+    './asset-origin': {readerNavigationAllowed},
+    './startup-diagnostics': {readerStartupDiagnostic: () => undefined, readerStartupProbe: ''},
+  });
+  const received: string[] = [], observed: string[] = [];
+  const reader = {receive: (message: string) => received.push(message)}, replacement = {receive() {}};
+  let current: unknown = reader, failures = 0;
+  const view = ReadingGuestView({url: appleReaderEntry, view: {current: null}, reader,
+    currentReader: () => current, backgroundColor: '#000', observeBridge: (_: string, message: string) => observed.push(message),
+    onFailure: () => {failures++;}}) as Node;
+  const message = (url: string, data: string) => view.props.onMessage({nativeEvent: {url, data}});
+  message(appleReaderEntry, 'current');
+  message('https://untrusted.example/', 'foreign');
+  current = replacement; message(appleReaderEntry, 'stale');
+  assert.deepEqual(received, ['current']); assert.deepEqual(observed, ['current']);
+  view.props.onError(); view.props.onContentProcessDidTerminate(); view.props.onRenderProcessGone();
+  assert.equal(failures, 3);
 });
