@@ -7,6 +7,7 @@ import {shellLayout} from '../src-next/shell/model';
 import {act, createHookHost} from './hook-driver';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {createNativeMeasurementRegistry} from '../src-next/dev/layout-dump/registry';
+import * as entryRevision from '../src-next/tv/auth/entry-revision';
 
 async function observationModule() {
   const react = {...React, default: React};
@@ -32,6 +33,7 @@ test('the TV front door renders its wordmark and only actual authority-choice ca
       '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'}, '../../kit/theme': {nativeType, useTheme: () => theme},
       '../../screens/destinations/useEntryFocus': {useDestinationEntryFocus: (activation: unknown, address: unknown) => entries.push({activation, address})},
       '../../shell/model': {shellLayout}, '../../kit/dev-observation': await observationModule(),
+      './entry-revision': entryRevision,
     });
     const props = {busy: false, onPortico: () => calls.push('portico'), onLocal: () => calls.push('local')};
     host = createHookHost(() => {const provider = TVFrontDoor(props); assert.equal(provider.type, 'Provider'); const child = provider.props.children; tree = child.type(child.props);});
@@ -92,6 +94,7 @@ test('DEV TV heading records only native text events, invalidates changed layout
       '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'}, '../../kit/theme': {nativeType, useTheme: () => theme},
       '../../screens/destinations/useEntryFocus': {useDestinationEntryFocus: () => {}}, '../../shell/model': {shellLayout},
       '../../kit/dev-observation': await observationModule(),
+      './entry-revision': entryRevision,
     });
     const props = {busy: false, onPortico: () => {throw new Error('unexpected sign-in');}, onLocal: () => {throw new Error('unexpected local sign-in');}};
     host = createHookHost(() => {const provider = TVFrontDoor(props); const child = provider.props.children; tree = child.type(child.props);});
