@@ -17,8 +17,10 @@ export function publicTVHandoffAddress(value: string): {url: string; display: st
   const url = new URL(value);
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash) throw new Error('native_tv_handoff_url_invalid');
   const keys = [...url.searchParams.keys()];
+  const management = url.searchParams.get('scope') === 'server' && url.searchParams.get('section') === 'live';
+  const profile = url.searchParams.get('scope') === 'account' && url.searchParams.get('section') === 'profile';
   if (keys.length && (url.pathname !== '/settings' || keys.length !== 2 || new Set(keys).size !== 2
-    || url.searchParams.get('scope') !== 'account' || url.searchParams.get('section') !== 'profile')) throw new Error('native_tv_handoff_url_invalid');
+    || !(profile || management))) throw new Error('native_tv_handoff_url_invalid');
   return {url: url.href, display: `${url.host}${url.pathname}${url.search}`, pathname: url.pathname, search: url.search};
 }
 function useHandoffBack(onBack: () => void, busy = false) {

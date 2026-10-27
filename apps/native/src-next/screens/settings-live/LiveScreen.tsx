@@ -1,4 +1,4 @@
-import React, {useEffect, useId, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {BackHandler, FlatList, Platform, ScrollView, Text, View, VirtualizedList, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {GestureDetector} from 'react-native-gesture-handler';
@@ -20,10 +20,10 @@ import {StateView} from '../../kit/states';
 import {alpha, shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
 import {usePlatformPosture} from '../../platform/platformPosture';
-import {shellLayout} from '../../shell/model';
+import {sameAuthority, shellLayout} from '../../shell/model';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {tvFocusIds} from '../../shell/tv-focus';
-import {Screen, ScreenText, useScreenEntry} from './Screen';
+import {Screen, ScreenText, useScreenBack, useScreenEntry} from './Screen';
 import type {NativeSettingsLivePorts} from './ports';
 import type {NativeLiveController} from './live-controller';
 import type {NativeRecordingsController} from './recordings-controller';
@@ -38,7 +38,10 @@ import {NativeLivePhonePicker} from './LivePhonePicker';
 import {NativeLiveOwnerScreen} from './LiveOwnerScreen';
 import type {NativeLiveOwnerController} from './live-owner-controller';
 import {NativeSeriesRuleSheet} from './LiveSeriesRule';
+import {TVManagementHandoff} from '../../tv/auth';
+import {publicTVHandoffAddress} from '../../tv/auth/TVHandoff';
 import {seriesFormDefaults, type SeriesForm} from './recording-rule-presentation';
+import {nativeServerAdmission} from './server/tv-server-reader';
 
 export function NativeLiveScreen({controller, recordings, owner, ports, runtime}: {controller: NativeLiveController; recordings: NativeRecordingsController; owner: NativeLiveOwnerController; ports: Pick<NativeSettingsLivePorts, 'context' | 'dvrRequestId' | 'requestId'>; runtime: NativeShellRuntime}) {
   const theme = useTheme(), t = runtime.text.t, dimensions = useWindowDimensions(), insets = useSafeAreaInsets(), shadeId = useId().replace(/:/g, '');
@@ -83,6 +86,39 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
   const [series, setSeries] = useState<Readonly<{draft: RecordingDraft; defaults?: SeriesForm}>>(), [toast, setToast] = useState<ToastMessage | null>(null);
   const [reminders, setReminders] = useState<ReadonlyMap<string, GuideReminder>>(new Map()), [later, setLater] = useState<readonly GuideAiring[]>([]);
   const [recordingsOpen, setRecordingsOpen] = useState(false), [recordingsReturn, setRecordingsReturn] = useState(0), [ownerOpen, setOwnerOpen] = useState(false);
+  const [managementReturn, setManagementReturn] = useState(0);
+  const [management, setManagement] = useState<Readonly<{opening: object; url: string}>>();
+  const navigation = ports.context.navigation;
+  const route = useSyncExternalStore(navigation.subscribe, navigation.getSnapshot);
+  const shell = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
+  // An opening cannot be revived by returning to this retained Guide or by replacing
+  // the viewer. Retire in render before an old handler or QR can reach its successor.
+  const scopeKey = JSON.stringify([route.revision, route.destination, shell.authority, ports.context.account.account.role,
+    ports.context.account.account.primaryProfileId, ports.context.account.canManage, ports.context.account.account.disabled,
+    theme.isTV, shell.contentVisible, shell.mediaExpanded, shell.homeObscured]);
+  const managementOwner = useMemo(() => ({retired: false}), [controller, runtime, ports.context, scopeKey]);
+  const managementOwnerRef = useRef(managementOwner);
+  if (managementOwnerRef.current !== managementOwner) managementOwnerRef.current.retired = true;
+  managementOwnerRef.current = managementOwner;
+  useLayoutEffect(() => {managementOwner.retired = false; return () => {managementOwner.retired = true;};}, [managementOwner]);
+  const managementCurrent = () => {
+    const current = runtime.getSnapshot(), actualRoute = navigation.getSnapshot();
+    return !managementOwner.retired && managementOwnerRef.current === managementOwner
+      && controller.lifetime.current() && ports.context.current() && navigation.isCurrent()
+      && !runtime.retirementSignal?.aborted && sameAuthority(controller.lifetime.authority, ports.context.authority())
+      && sameAuthority(controller.lifetime.authority, current.authority)
+      && actualRoute.revision === route.revision && current.destination.kind === 'live' && actualRoute.destination.kind === 'live'
+      && current.contentVisible !== false && !current.mediaExpanded && !current.homeObscured
+      && nativeServerAdmission(ports.context.account, controller.lifetime) === 'owner';
+  };
+  const managementActive = management?.opening === managementOwner && managementCurrent();
+  const managementRef = useRef(management); managementRef.current = management;
+  const managementOwnsPage = () => managementRef.current?.opening === managementOwner && managementCurrent();
+  const closeManagement = () => {
+    if (!management || managementRef.current !== management || !managementCurrent()) return false;
+    setManagement(undefined); setManagementReturn(value => value + 1); return true;
+  };
+  useScreenBack(runtime, closeManagement, theme.isTV && managementActive, {kind: 'live'});
   const [initialOwnerAction, setInitialOwnerAction] = useState<'add' | 'discover'>();
   const opener = useRef<View | null>(null), selectedOpener = useRef<View | null>(null);
   const list = useRef<VirtualizedList<number>>(null), visible = useRef({first: 0, last: 12});
@@ -138,7 +174,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
   const tvRegistry = useFocusRegistry(), tvRange = nativeGuidePanRange(selectedSources, end - start);
   const revealTVCell = (index: number, cell?: GuideCell) => {
     const shell = runtime.getSnapshot();
-    if (!theme.isTV || !controller.lifetime.current() || shell.destination.kind !== 'live' || shell.contentVisible === false || shell.mediaExpanded) return;
+    if (!theme.isTV || managementOwnsPage() || !controller.lifetime.current() || shell.destination.kind !== 'live' || shell.contentVisible === false || shell.mediaExpanded) return;
     // Native focus has already arrived. This only brings that native host's row/time into view.
     if (index < visible.current.first || index >= visible.current.last) list.current?.scrollToIndex({index, animated: false, viewPosition: .5});
     let focusStart = start;
@@ -221,9 +257,9 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
     : <Select testID="live-sort" accessibilityLabel={t('channels.sort')} value={state.options.sort ?? 'number'} options={sortOptions} onValueChange={chooseSort}/>;
   const hasRecordings = state.sources.some(value => value.recordAvailable);
   const controls = ids.surface('live.controls'), grid = ids.surface('live.grid'), filters = ids.surface('live.filters');
-  useTVPageBack(runtime, {kind: 'live'}, theme.isTV, {
+  useTVPageBack(runtime, {kind: 'live'}, theme.isTV && !managementActive, {
     registerTop: true, scope: JSON.stringify([state.revision, view]),
-    current: () => controller.lifetime.current() && !recordingsOpen && !ownerOpen && !selected,
+    current: () => controller.lifetime.current() && !recordingsOpen && !ownerOpen && !managementOwnsPage() && !selected,
     start: () => {
       const channel = guide.channelAt(0); if (!channel) return undefined;
       if (view === 'list') return {regionId: grid, childId: cellFocusId(channel, {kind: 'now'})};
@@ -243,11 +279,29 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
   const filterChips = <FlatList horizontal data={groups} keyExtractor={group => group} showsHorizontalScrollIndicator={false} initialNumToRender={10} maxToRenderPerBatch={10} windowSize={3} style={{flexGrow: landscape ? 1 : 0, flex: landscape ? 1 : undefined, height: theme.isTV ? 64 : phoneChrome ? 34 : 44}} contentContainerStyle={{gap: theme.isTV ? 12 : phoneChrome ? 8 : 10, paddingHorizontal: compact ? 20 : 0}}
           ListHeaderComponent={<View style={{flexDirection: 'row', gap: theme.isTV ? 12 : phoneChrome ? 8 : 10}}>{phoneChrome && sourcePicker}<Chip style={phoneChrome ? {height: 34, borderRadius: 9, paddingHorizontal: 12} : undefined} textStyle={phoneChrome ? shellType(13.5, 700) : undefined} focusId="all" testID="live-filter-all" selected={!state.options.favorites && !state.options.group} onPress={() => select({favorites: false, group: undefined})}>{t('channels.filterAll')}</Chip><Chip style={phoneChrome ? {height: 34, borderRadius: 9, paddingHorizontal: 12} : undefined} textStyle={phoneChrome ? shellType(13.5, 700) : undefined} focusId="favorites" testID="live-filter-favorites" selected={state.options.favorites === true} onPress={() => select({favorites: !state.options.favorites, group: undefined})}>{t('channels.favorites')}</Chip></View>}
           renderItem={({item: group}) => <Chip style={phoneChrome ? {height: 34, borderRadius: 9, paddingHorizontal: 12} : undefined} textStyle={phoneChrome ? shellType(13.5, 700) : undefined} focusId={`group:${group}`} testID={`live-filter-${group}`} selected={state.options.group === group} onPress={() => select({group, favorites: false})}>{group}</Chip>}/>;
-  useDestinationEntryFocus({visible: theme.isTV && !recordingsOpen && recordingsReturn > 0, intent: 'restore', revision: recordingsReturn}, {regionId: controls, childId: 'live-recordings'});
+  useDestinationEntryFocus({visible: theme.isTV && !managementActive && !recordingsOpen && recordingsReturn > 0, intent: 'restore', revision: recordingsReturn}, {regionId: controls, childId: 'live-recordings'});
+  useDestinationEntryFocus({visible: theme.isTV && !managementActive && !recordingsOpen && managementReturn > 0, intent: 'restore', revision: managementReturn}, {regionId: controls, childId: 'live-owner-open'});
   const empty = !state.loading && state.sources.length === 0;
-  const managesServer = ports.context.account.account.role === 'owner';
-  if (ownerOpen) return <NativeLiveOwnerScreen controller={owner} recordings={recordings} ports={ports} runtime={runtime} initialAction={initialOwnerAction} onClose={() => {setInitialOwnerAction(undefined); setOwnerOpen(false); setRecordingsReturn(value => value + 1);}}/>;
-  if (recordingsOpen) return <NativeRecordingsScreen controller={recordings} ports={ports} runtime={runtime} owner={owner} onGuide={() => {setRecordingsReturn(value => value + 1); setRecordingsOpen(false);}}/>;
+  const managesServer = managementCurrent();
+  // The public destination must be registered by Web and admitted by the handoff's
+  // exact public URL validator before a control can offer it.
+  const managementUrl = useMemo(() => {
+    if (!managesServer) return undefined;
+    try {
+      const origin = new URL(ports.context.api.baseUrl);
+      if (origin.pathname !== '/' || origin.search || origin.hash) return undefined;
+      publicTVHandoffAddress(origin.href);
+      return publicTVHandoffAddress(new URL('/settings?scope=server&section=live', origin).href).url;
+    } catch {return undefined;}
+  }, [managesServer, ports.context.api.baseUrl]);
+  const openManagement = (action?: 'add' | 'discover') => {
+    if (!managementCurrent() || managementOwnsPage()) return;
+    if (!theme.isTV) {setInitialOwnerAction(action); setOwnerOpen(true); return;}
+    if (managementUrl) setManagement({opening: managementOwner, url: managementUrl});
+  };
+  if (managementActive && management) return <TVManagementHandoff url={management.url} onBack={closeManagement}/>;
+  if (ownerOpen && !theme.isTV) return <NativeLiveOwnerScreen controller={owner} recordings={recordings} ports={ports} runtime={runtime} initialAction={initialOwnerAction} onClose={() => {setInitialOwnerAction(undefined); setOwnerOpen(false); setRecordingsReturn(value => value + 1);}}/>;
+  if (recordingsOpen) return <NativeRecordingsScreen controller={recordings} ports={ports} runtime={runtime} owner={theme.isTV ? undefined : owner} onGuide={() => {setRecordingsReturn(value => value + 1); setRecordingsOpen(false);}}/>;
   // A later programme leads with Record and offers Remind me; Watch live appears once it is on.
   const onNowProgramme = selected?.program !== undefined && selected.program.start <= now && selected.program.end > now;
   const showTVWatch = !!selected?.channel.tuneAvailable && (onNowProgramme || !selected.program);
@@ -311,9 +365,9 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
         <Text accessibilityRole="header" style={[shellType(32, 800, 36.8, -.035), {color: theme.colors.text, flex: 1}]}>{t('search.chip.liveTV')}</Text>
         {viewSwitch}
         {hasRecordings && <Button testID="live-recordings" variant="icon" size="small" icon="i-rec" accessibilityLabel={t('recordings.title')} onPress={() => setRecordingsOpen(true)}/>}
-        {managesServer && <Button testID="live-owner-open" variant="icon" size="small" icon="i-sliders" accessibilityLabel={t('settings.server.live')} onPress={() => setOwnerOpen(true)}/>}
+        {managesServer && <Button testID="live-owner-open" variant="icon" size="small" icon="i-sliders" accessibilityLabel={t('settings.server.live')} disabled={theme.isTV && !managementUrl} onPress={() => openManagement()}/>}
       </View>}
-      {landscape && <View style={{flexDirection: 'row', gap: 12, alignItems: 'center', height: 50, paddingTop: 6, marginBottom: 6}}><Text accessibilityRole="header" style={[shellType(24, 800, 'normal', -.035), {color: theme.colors.text}]}>{t('search.chip.liveTV')}</Text>{viewSwitch}{filterChips}{sortPicker}{hasRecordings && <Button testID="live-recordings" variant="icon" size="small" icon="i-rec" accessibilityLabel={t('recordings.title')} onPress={() => setRecordingsOpen(true)}/>}{managesServer && <Button testID="live-owner-open" variant="icon" size="small" icon="i-sliders" accessibilityLabel={t('settings.server.live')} onPress={() => setOwnerOpen(true)}/>}</View>}
+      {landscape && <View style={{flexDirection: 'row', gap: 12, alignItems: 'center', height: 50, paddingTop: 6, marginBottom: 6}}><Text accessibilityRole="header" style={[shellType(24, 800, 'normal', -.035), {color: theme.colors.text}]}>{t('search.chip.liveTV')}</Text>{viewSwitch}{filterChips}{sortPicker}{hasRecordings && <Button testID="live-recordings" variant="icon" size="small" icon="i-rec" accessibilityLabel={t('recordings.title')} onPress={() => setRecordingsOpen(true)}/>}{managesServer && <Button testID="live-owner-open" variant="icon" size="small" icon="i-sliders" accessibilityLabel={t('settings.server.live')} disabled={theme.isTV && !managementUrl} onPress={() => openManagement()}/>}</View>}
       {!phoneChrome && <FocusRegion id={controls} orientation="horizontal" edges={{left: ids.rail, down: filters}} stops={theme.isTV ? {up: true} : undefined} style={{flexDirection: 'row', gap: theme.isTV ? 22 : 12, alignItems: 'center', marginBottom: theme.isTV ? 24 : 20, minHeight: theme.isTV ? 64 : undefined}}>
         {theme.isTV && <Text accessibilityRole="header" style={[shellType(44, 800, 'normal', -.03), {color: theme.colors.text, marginRight: 14}]}>{t('search.chip.liveTV')}</Text>}
         {sourcePicker}
@@ -322,7 +376,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
         <Button testID="live-now" variant="glass" size="small" onPress={goNow}>{t('guide.now')}</Button>
         {hasRecordings && <Button focusId="live-recordings" testID="live-recordings" variant="glass" size="small" icon="i-rec" onPress={() => setRecordingsOpen(true)}>{t('recordings.title')}</Button>}
         {!theme.isTV && sortPicker}
-        {managesServer && <Button testID="live-owner-open" variant="glass" size="small" icon="i-sliders" onPress={() => setOwnerOpen(true)}>{t('settings.server.live')}</Button>}
+        {managesServer && <Button testID="live-owner-open" variant="glass" size="small" icon="i-sliders" disabled={theme.isTV && !managementUrl} onPress={() => openManagement()}>{t('settings.server.live')}</Button>}
       </FocusRegion>}
       {!landscape && <FocusRegion id={filters} orientation="horizontal" entry={state.options.favorites ? 'favorites' : state.options.group ? `group:${state.options.group}` : 'all'} edges={{left: ids.rail, up: controls, down: grid}} style={{marginBottom: theme.isTV ? 38 : stackedHeader ? 8 : 30}}>
         {filterChips}
@@ -330,9 +384,9 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
       {stackedHeader && <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingHorizontal: compact ? 20 : 0}}>{view === 'guide' ? dayPicker : <View style={{flexDirection: 'row', gap: 6, alignItems: 'center'}}><Text style={[shellType(13, 700), {color: theme.colors.text}]}>{t('guide.onNow')}</Text><Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{clock(now)}</Text></View>}{sortPicker}</View>}
       {state.error !== undefined ? <StateView {...runtime.error(state.error, () => {void controller.loadSources();})}/> : empty ? <StateView testID="live-no-sources" title={t(managesServer ? 'web.live.empty.noSourcesOwnerTitle' : 'web.live.empty.noSourcesTitle')}
         body={t(managesServer ? 'next.states.setupLiveBody' : 'web.live.empty.noSourcesMember')}
-        primaryAction={managesServer ? {id: 'add-source', label: t('next.states.addTVSource'), icon: 'i-plus', onPress: () => {setInitialOwnerAction('add'); setOwnerOpen(true);}}
+        primaryAction={managesServer ? {id: 'add-source', label: t('next.states.addTVSource'), icon: 'i-plus', disabled: theme.isTV && !managementUrl, onPress: () => openManagement('add')}
           : {id: 'home', label: t('next.states.goHome'), onPress: () => runtime.onDestination({kind: 'home'})}}
-        secondaryAction={managesServer ? {id: 'discover-tuners', label: t('next.states.findTuners'), icon: 'i-search', onPress: () => {setInitialOwnerAction('discover'); setOwnerOpen(true);}} : undefined}/> : <>
+        secondaryAction={managesServer ? {id: 'discover-tuners', label: t('next.states.findTuners'), icon: 'i-search', disabled: theme.isTV && !managementUrl, onPress: () => openManagement('discover')} : undefined}/> : <>
         <GestureDetector gesture={pan.gesture}><View style={{flex: 1}} accessibilityActions={panActive ? [{name: 'decrement', label: t('guide.earlier')}, {name: 'increment', label: t('guide.later')}] : undefined} onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'decrement') pan.adjust(-4 * SLOT_MS); else if (event.nativeEvent.actionName === 'increment') pan.adjust(4 * SLOT_MS);}}>
         {view === 'guide' && <View style={{height: theme.isTV ? 50 : 30, flexDirection: 'row', marginLeft: landscape ? 0 : channelWidth}}>{landscape && <View style={{width: channelWidth, paddingLeft: 4}}>{dayPicker}</View>}<View style={{flex: 1, overflow: 'hidden'}}><Animated.View style={[{flex: 1}, rulerShift]}>{rulerTicks(start - overscan, end + overscan, px, state.options.timezone).map(tick => <View key={tick.atMs} style={{position: 'absolute', left: tick.x - overscan * px, height: theme.isTV ? 28 : 22, borderLeftWidth: 1, borderLeftColor: theme.colors.line}}><Text style={[shellType(theme.isTV ? 20 : 11), {marginLeft: 10, color: theme.colors.textSecondary}]}>{clock(tick.atMs)}</Text></View>)}</Animated.View></View></View>}
         <FocusRegion id={grid} edges={theme.isTV ? {up: filters, left: ids.rail} : undefined} stops={theme.isTV ? {right: true, down: true} : undefined}
@@ -340,7 +394,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
         <VirtualizedList ref={list} key={`${state.revision}:${view}`} data={null} getItem={(_, index) => index} getItemCount={() => data.total ?? 12} keyExtractor={index => String(index)} initialNumToRender={12} maxToRenderPerBatch={12} windowSize={5} removeClippedSubviews={false} getItemLayout={(_, index) => ({index, length: rowHeight + rowGap, offset: index * (rowHeight + rowGap)})}
           onLayout={() => list.current?.scrollToOffset({offset: guideOffset.current, animated: false})} onScroll={event => {guideOffset.current = event.nativeEvent.contentOffset.y;}} scrollEventThrottle={16}
           onViewableItemsChanged={({viewableItems}) => {const indices = viewableItems.map(value => value.index).filter((value): value is number => value !== null); if (!indices.length) return; visible.current = {first: Math.min(...indices), last: Math.max(...indices)}; controller.setViewport({firstRow: visible.current.first, lastRow: visible.current.last, start, end});}}
-          renderItem={({item: index}) => <LiveRow tvRange={tvRange} onTVFocus={revealTVCell} panPosition={panPosition} panActive={panActive} laneWidth={width - channelWidth} clock={clock} entryEnabled={state.revision === 0 && recordingsReturn === 0} key={`${state.revision}:${index}`} index={index} controller={controller} runtime={runtime} start={start} end={end} now={now} channelWidth={channelWidth} rowHeight={rowHeight} px={px} list={view === 'list'} onOpen={open} grid={grid} watch={watch}/>}/>
+          renderItem={({item: index}) => <LiveRow tvRange={tvRange} onTVFocus={revealTVCell} panPosition={panPosition} panActive={panActive} laneWidth={width - channelWidth} clock={clock} entryEnabled={state.revision === 0 && recordingsReturn === 0 && managementReturn === 0} key={`${state.revision}:${index}`} index={index} controller={controller} runtime={runtime} start={start} end={end} now={now} channelWidth={channelWidth} rowHeight={rowHeight} px={px} list={view === 'list'} onOpen={open} grid={grid} watch={watch}/>}/>
         </FocusRegion>
         {phone && view === 'guide' && <Animated.View pointerEvents="none" style={[{position: 'absolute', left: channelWidth, top: 30, bottom: 0}, pastShade]}><Svg width="100%" height="100%" accessible={false}><Defs><LinearGradient id={`${shadeId}-past`} x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.38}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={.12}/></LinearGradient></Defs><Rect width="100%" height="100%" fill={`url(#${shadeId}-past)`}/></Svg></Animated.View>}
         {view === 'guide' && (inNowSpan || panActive) && <View pointerEvents="none" style={{position: 'absolute', left: channelWidth, right: 0, top: 0, bottom: theme.isTV ? 60 : 0, overflow: 'hidden'}}><Animated.View style={[{position: 'absolute', left: nowX, top: 0, bottom: 0, width: theme.isTV ? 3 : 2, backgroundColor: `${theme.colors.accentStrong}88`}, nowShift]}><Animated.View style={[{position: 'absolute', top: theme.isTV ? 0 : 4, width: 60, height: theme.isTV ? 30 : 22, alignItems: 'center', justifyContent: 'center', borderRadius: theme.isTV ? 6 : 4, backgroundColor: theme.colors.accentStrong}, nowPillShift]}><Text style={[shellType(theme.isTV ? 20 : 12, 800), {color: theme.colors.ink}]}>{clock(now)}</Text></Animated.View></Animated.View></View>}
