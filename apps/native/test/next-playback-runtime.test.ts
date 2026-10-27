@@ -2675,22 +2675,42 @@ test('reentrant channel admission cannot publish an old fence over its replaceme
   } finally {d.runtime.dispose();if (replacement) await replacement.catch(() => {});t.mock.timers.reset();}
 });
 
-test('real channel route consumes only its accepted launch and page cleanup leaves the original channel running',async()=>{
+for(const cold of [false,true]) test(`real ${cold?'cold-after-return':'warm-before-return'} channel route consumes once and cleanup leaves its original channel running`,async t=>{
+ if(cold)t.mock.timers.enable({apis:['setTimeout']});
  const {createHookHost,act}=await import('./hook-driver.ts');
  const {NativeWatchChannelRoute}=await screenModule(new URL('../src-next/screens/watch/ChannelRoute.tsx',import.meta.url),{
   react:{...React,default:React},'react-native':{Platform:{isTV:false},View:'View'},'react-native-safe-area-context':{useSafeAreaInsets:()=>({top:0})},
   '../../../../../packages/i18n/src':{defaultI18n:{t:(key:string)=>key}},'../../../../../packages/player-core/src':await import('../../../packages/player-core/src/index.ts'),'../../kit/controls':{Button:'Button'},
  });
- const d=fixture(),authority=d.getAuthority(),navigation=new NativeShellNavigation(authority,()=>d.getAuthority());navigation.top({kind:'live'},authority);const original=navigation.getSnapshot().route;
+ const d=fixture();if(cold)coldChannel(d);const authority=d.getAuthority(),navigation=new NativeShellNavigation(authority,()=>d.getAuthority());navigation.top({kind:'live'},authority);const original=navigation.getSnapshot().route;
  const route={kind:'channel' as const,sourceId:'source-1',channelId:'channel-1'};navigation.open(route,authority);
- const context={current:()=>true,navigation,subscribeAuthority:d.subscribeAuthority,playback:{runtime:d.runtime}};
+ let startReturned=false;const admissionOrder:string[]=[];
+ const context={current:()=>true,navigation,subscribeAuthority:d.subscribeAuthority,playback:{runtime:{getSnapshot:d.runtime.getSnapshot,
+  startChannel:async(input:Parameters<typeof d.runtime.startChannel>[0])=>{
+   const forwarded:typeof input={...input,onAccepted:fence=>{admissionOrder.push(startReturned?'after':'before');input.onAccepted?.(fence);
+    if(!startReturned)assert.equal(navigation.getSnapshot().route,route,'warm admission cannot interrupt unfinished original start metadata');}};
+   await d.runtime.startChannel(forwarded);startReturned=true;
+  }}}};
  let tree:any;const host=createHookHost(()=>{tree=NativeWatchChannelRoute({context,route,title:{renderError:assert.fail}});});
+ let pops=0;const off=navigation.subscribe(()=>{if(navigation.getSnapshot().route===original)pops++;});
  try{
-  await act(()=>host.mount());await settle(100);await act(()=>{});
+  const launch=navigation.getSnapshot();await act(()=>host.mount());await settle(100);await act(()=>{});
+  assert.equal(startReturned,true,'the same actual runtime start has successfully returned');
+  if(cold){
+   assert.equal(d.runtime.playback.getSnapshot().session?.generation,0);assert.equal(d.runtime.getSnapshot().fence,undefined);
+   assert.equal(navigation.getSnapshot(),launch,'generation-zero return cannot consume the original route');assert.equal(pops,0);
+   t.mock.timers.tick(1000);await settle(100);await act(()=>{});
+  }
+  assert.deepEqual(admissionOrder,[cold?'after':'before']);
+  assert.equal(pops,1,'either original callback/completion ordering consumes once');
   const accepted=d.runtime.getSnapshot().fence;assert(accepted?.kind==='channel');assert.equal(navigation.getSnapshot().route,original);
+  if(cold){t.mock.timers.tick(2000);await settle(80);assert.equal(pops,1,'repeated ordinary polls cannot consume another occurrence');}
+  assert.equal(d.requests.filter(request=>request.method==='POST'&&request.path===routePath('start_playback_session')).length,1);
   const deleted=()=>d.requests.filter(request=>request.method==='DELETE').length,before=deleted();
   host.unmount();await settle();assert.deepEqual(d.runtime.getSnapshot().fence,accepted);assert.equal(deleted(),before,'route cleanup does not DELETE adopted output');
   await d.runtime.collapse(accepted);assert.deepEqual(d.runtime.getSnapshot().fence,accepted);assert.equal(d.runtime.getSnapshot().dock.local?.expanded,false);assert.equal(navigation.getSnapshot().route,original);
   d.runtime.open(accepted);await d.runtime.onTransition(d.runtime.dock.collapse(accepted));assert.deepEqual(d.runtime.getSnapshot().fence,accepted);assert.equal(deleted(),before);
- }finally{host.unmount();navigation.dispose();d.runtime.dispose();}
+  await d.runtime.stop(accepted);assert.equal(navigation.getSnapshot().route,original);assert.equal(pops,1);
+  assert.equal(d.requests.filter(request=>request.method==='POST'&&request.path===routePath('start_playback_session')).length,1);
+ }finally{off();host.unmount();navigation.dispose();d.runtime.dispose();if(cold)t.mock.timers.reset();}
 });

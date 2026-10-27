@@ -60,3 +60,25 @@ test('TV keeps its existing pending/error outlet and does not consume a touch la
  platform.isTV=true;const f=await fixture();try{assert.equal(f.output(),null);assert.equal(f.request().onAccepted,undefined);await act(()=>f.reject(new Error('failure')));assert(nodes(f.output()).some(node=>node.type==='Error'));}
  finally{f.dispose();platform.isTV=false;}
 });
+
+
+test('original admission after successful start return consumes once; unsuccessful return never authorizes a late receipt',async()=>{
+ for(const completed of [true,false]){const f=await fixture();try{
+  const launch=f.navigation.getSnapshot();
+  await act(()=>completed?f.resolve():f.reject(new Error('start failed')));
+  assert.equal(f.navigation.getSnapshot(),launch,'successful return without an actual receipt is not admission');
+  await act(()=>f.accept());
+  assert.equal(f.navigation.getSnapshot().route,completed?f.origin:f.route);
+  const after=f.navigation.getSnapshot();await act(()=>{f.accept();f.accept();});assert.equal(f.navigation.getSnapshot(),after);assert.equal(f.attempts(),1);
+ }finally{f.dispose();}}
+});
+
+for(const retirement of ['route','authority','unmount','same-id-revisit'] as const)test(`cold-after-return original receipt refuses after ${retirement}`,async()=>{
+ const f=await fixture();try{
+  await act(()=>f.resolve());
+  if(retirement==='authority')f.retire();else if(retirement==='unmount')f.host.unmount();
+  else if(retirement==='same-id-revisit'){f.navigation.back(authority);f.navigation.open(f.route,authority);}
+  else f.navigation.open({kind:'account'},authority);
+  const original=f.navigation.getSnapshot();await act(()=>{f.accept();f.accept();});assert.equal(f.navigation.getSnapshot(),original);assert.equal(f.attempts(),1);
+ }finally{f.dispose();}
+});

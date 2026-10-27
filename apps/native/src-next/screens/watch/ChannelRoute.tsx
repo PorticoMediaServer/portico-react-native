@@ -34,11 +34,16 @@ export function NativeWatchChannelRoute({context, route, title}: {context: Nativ
     const current = () => !controller.signal.aborted && page.current() && !controller.signal.aborted;
     const changed = () => {if (!current()) controller.abort();};
     const offRoute = context.navigation.subscribe(changed), offAuthority = context.subscribeAuthority(changed);
-    let receipt: ChannelPlaybackFence | undefined;
+    let startCompleted = false, receipt: ChannelPlaybackFence | undefined;
+    const consumeOriginal = () => {
+      if (!startCompleted || !receipt || !current()) return;
+      if (sameFence(context.playback.runtime.getSnapshot().fence, receipt) && current()) page.pop();
+    };
     const accepted = (fence: ChannelPlaybackFence) => {
       if (receipt || !current() || fence.sourceId !== route.sourceId || fence.channelId !== route.channelId) return;
       if (!sameFence(context.playback.runtime.getSnapshot().fence, fence) || !current()) return;
       receipt = fence;
+      consumeOriginal();
     };
     setError(undefined);
     if (current()) void context.playback.runtime.startChannel({sourceId: route.sourceId, channelId: route.channelId,
@@ -46,10 +51,11 @@ export function NativeWatchChannelRoute({context, route, title}: {context: Nativ
       expectedFence: route.tune?.fence, expectedSourceGeneration: route.tune?.sourceGeneration,
       ...(!Platform.isTV ? {onAccepted: accepted} : {}), lifetime: {signal: controller.signal, isCurrent: current}})
       .then(() => {
-        // Let the same start finish its original guide/metadata publication,
-        // then consume only its captured admission receipt. A void refusal has
-        // no receipt; a successor before this await resumes is never popped.
-        if (receipt && current() && sameFence(context.playback.runtime.getSnapshot().fence, receipt) && current()) page.pop();
+        // Warm admission may precede this original metadata completion; cold
+        // admission may follow it. Neither event alone consumes the launch.
+        if (!current()) return;
+        startCompleted = true;
+        consumeOriginal();
       }).catch(failure => {if (current()) setError(failure);});
     return () => {controller.abort(); offRoute(); offAuthority();};
   }, [context, route, page, attempt]);
