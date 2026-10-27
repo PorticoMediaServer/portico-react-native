@@ -63,9 +63,18 @@ test('the structure omits every drawn panel this build cannot draw rather than l
     const rows = structure.headings.flatMap(heading => heading.pages).flatMap(page => page.sections).flatMap(section => section.rows);
     const custom = rows.filter(row => row.kind === 'custom').map(row => row.kind === 'custom' ? row.id : '');
     for (const id of nativeSettingsUnavailablePanelIds) assert.equal(custom.includes(id), false, id);
-    for (const id of nativeAccountPanelIds.filter(id => id !== 'deviceName')) assert.equal(custom.includes(id), true, id);
+    // Device name and downloads storage are drawn only from their real capability:
+    // an installation name and the read-only downloads summary port. This context
+    // has neither, so both rows stay out rather than opening an empty panel.
+    const capabilityGated = new Set<string>(['deviceName', 'downloadsStorage']);
+    for (const id of nativeAccountPanelIds.filter(id => !capabilityGated.has(id))) assert.equal(custom.includes(id), true, id);
     assert.equal(context.capabilities.deviceName, false);
     assert.equal(custom.includes('deviceName'), false, 'a missing installation name supplies no device-name row');
+    assert.equal(context.capabilities.downloads, false);
+    assert.equal(custom.includes('downloadsStorage'), false, 'without the downloads port the storage row is omitted');
+    const withDownloads = settingsStructure(nativeSettingsContext(source('owner'), 'phone', true));
+    const downloadsRows = withDownloads.headings.flatMap(heading => heading.pages).flatMap(page => page.sections).flatMap(section => section.rows);
+    assert.ok(downloadsRows.some(row => row.kind === 'custom' && row.id === 'downloadsStorage'), 'the real downloads port admits its storage row');
     for (const section of structure.headings.flatMap(heading => heading.pages).flatMap(page => page.sections)) assert.ok(section.rows.length > 0, section.id);
     setInstallationIdentity({installationId: 'm0_005_settings_installation_0000000000', name: 'Named phone', platform: 'android', app: 'Portico', appVersion: 'test'});
     const namedContext = nativeSettingsContext(source('owner'), 'phone');

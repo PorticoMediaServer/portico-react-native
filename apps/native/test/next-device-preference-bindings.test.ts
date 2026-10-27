@@ -52,7 +52,7 @@ test('non-device, multi-key and unsupported rows are unavailable without reading
     const f = await fixture(), original = f.source.read, reads: string[] = [], loads = state.loads;
     f.source.read = id => {reads.push(id); return original(id);};
     try {
-      for (const rowId of ['device.playerLink', 'quality.tvSupports', 'playback.skipping', 'general.name', 'unknown.row']) {
+      for (const rowId of ['device.playerLink', 'playback.skipping', 'general.name', 'unknown.row']) {
         assert.equal(readNativeDevicePreference(rowId, f.source), undefined, rowId);
       }
       assert.deepEqual(reads, []);
@@ -102,6 +102,22 @@ test('a device write resolves only after the same source saves and rereads, and 
   }, JSON.stringify(device({cardScale: 1.25, serverCache: {kept: true}})));
 });
 
+test('the TV output row composes both device keys and writes only its own override', async () => {
+  await records(async state => {
+    const f = await fixture();
+    assert.deepEqual(readNativeDevicePreference('quality.tvSupports', f.source), value('none'), 'an unset override reads as nothing chosen');
+    assert.deepEqual(await writeNativeDevicePreference('quality.tvSupports', 'hdr', f.source), value('hdr'));
+    assert.equal(JSON.parse(state.raw!).tvHdr, true);
+    assert.equal(JSON.parse(state.raw!).tvSurround, false);
+    assert.deepEqual(await writeNativeDevicePreference('quality.tvSupports', 'hdr-surround', f.source), value('hdr-surround'));
+    assert.equal(JSON.parse(state.raw!).tvHdr, true);
+    assert.equal(JSON.parse(state.raw!).tvSurround, true);
+    assert.deepEqual(await writeNativeDevicePreference('quality.tvSupports', 'none', f.source), value('none'));
+    assert.equal(JSON.parse(state.raw!).tvHdr, false);
+    assert.equal(JSON.parse(state.raw!).tvSurround, false);
+  });
+});
+
 test('invalid values and unavailable rows never reach the device writer', async () => {
   await records(async state => {
     const f = await fixture(), saves = state.saves, writes: Array<[unknown, unknown]> = [], write = f.source.write;
@@ -111,7 +127,7 @@ test('invalid values and unavailable rows never reach the device writer', async 
         ['device.player', 'speedy'],
         ['audioSubtitles.surround', 'mono'],
         ['quality.disableHdr', 'yes'],
-        ['quality.tvSupports', 'hdr'],
+        ['quality.tvSupports', 'dolby'],
         ['playback.skipping', 'off'],
         ['general.name', 'x'],
         ['unknown.row', 'x'],
