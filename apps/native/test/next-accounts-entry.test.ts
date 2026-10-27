@@ -26,14 +26,20 @@ test('normal product entry signs in locally through actual React/native bridges 
   try {
     app.resetSyntheticStorage(); await app.mount();
     assert.ok(app.hosts().some((host: any) => host.name === 'Image' && host.props.accessibilityLabel === 'Portico'), 'signed-out phone renders the actual brand asset');
-    assert.ok(app.hosts().some((host: any) => host.props.testID === 'accounts-welcome-local'), 'the phone front door is mounted through the standard entry');
+    // auth.html frame 4 is the direct non-TV entry surface, so the real standard
+    // entry mounts PhoneAccountSignIn with its own direct-server command; the
+    // historical two-button front door stays for invitation entry only.
+    assert.ok(app.hosts().some((host: any) => host.name === 'Text' && app.nativeLabel(host) === 'Welcome home.'), 'the actual phone account entry is mounted through the standard entry');
+    assert.ok(app.hosts().some((host: any) => host.name === 'Text' && app.nativeLabel(host) === 'Sign in with your Portico Account to access servers shared with you.'), 'the mounted phone entry is the Portico Account frame, not a substitute surface');
+    assert.equal(app.hosts().filter((host: any) => host.props.testID === 'accounts-welcome-portico' || host.props.testID === 'accounts-welcome-local').length, 0, 'the invitation-only front door is never substituted for the phone account frame');
+    assert.ok(app.hosts().some((host: any) => host.name === 'Pressable' && host.props.testID === 'accounts-auth-local' && app.nativeLabel(host) === 'Sign in directly to a server'), 'the mounted phone entry exposes its own direct-server command');
     assert.equal(app.requests.length, 0, 'empty local startup never synchronizes Portico credentials or contacts Hosted');
-    await app.tapLabel('Use a local server'); await app.fill('Server address', 'https://standard-home.test'); await app.tapLabel('Continue');
+    await app.tapLabel('Sign in directly to a server'); await app.fill('Server address', 'https://standard-home.test'); await app.tapLabel('Continue');
     assert.ok(app.hosts().some((host: any) => app.nativeLabel(host) === 'Synthetic living room uses Portico Accounts'));
     assert.equal(app.hosts().some((host: any) => host.name === 'TextInput' && host.props.accessibilityLabel === 'Password'), false);
     assert.deepEqual(app.requests.map((request: any) => request.path), ['/v1/system']);
     await app.tapLabel('Back'); kind = 'local';
-    await app.tapLabel('Use a local server'); await app.fill('Server address', 'https://standard-home.test'); await app.tapLabel('Continue');
+    await app.tapLabel('Sign in directly to a server'); await app.fill('Server address', 'https://standard-home.test'); await app.tapLabel('Continue');
     await app.fill('Username', 'synthetic_user'); await app.fill('Password', 'synthetic_password'); await app.tapLabel('Sign in');
     assert.ok(app.hosts().some((host: any) => host.name === 'Text' && app.nativeLabel(host) === 'Who’s watching on Synthetic living room?'));
     await app.tapLabel('Synthetic viewer'); await app.fill('Four-digit PIN', '1234');
