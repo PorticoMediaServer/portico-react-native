@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createTheme} from '../src-next/kit/theme.ts';
+import {createTheme, nativeType} from '../src-next/kit/theme.ts';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import * as model from '../src-next/shell/model.ts';
 import {sameDestination} from '../src-next/shell/tv-focus.ts';
@@ -25,7 +25,7 @@ test('medium rail draws the drawn order, selects the current destination and pin
     '../../assets/brandSymbol': {brandSymbol: '<svg/>'},
     '../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},
     '../kit/controls': {Focusable: 'Focusable'}, '../kit/Icon': {Icon: 'Icon'}, '../kit/artwork': {ProfileFace: 'ProfileFace'},
-    '../kit/theme': {useTheme: () => theme}, '../platform/native-blur': {BlurView: 'BlurView'},
+    '../kit/theme': {nativeType, useTheme: () => theme}, '../platform/native-blur': {BlurView: 'BlurView'},
     './model': model, './tv-focus': {sameDestination},
   });
   const libraries = [{id: 'movies', name: 'Movies', kind: 'movie'}, {id: 'shows', name: 'TV Shows', kind: 'tv'},
@@ -57,7 +57,7 @@ test('medium rail drops Live TV when the server has none and keeps the current l
     '../../assets/brandSymbol': {brandSymbol: '<svg/>'},
     '../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},
     '../kit/controls': {Focusable: 'Focusable'}, '../kit/Icon': {Icon: 'Icon'}, '../kit/artwork': {ProfileFace: 'ProfileFace'},
-    '../kit/theme': {useTheme: () => theme}, '../platform/native-blur': {BlurView: 'BlurView'},
+    '../kit/theme': {nativeType, useTheme: () => theme}, '../platform/native-blur': {BlurView: 'BlurView'},
     './model': model, './tv-focus': {sameDestination},
   });
   const element = h.render(() => MediumRail({libraries: [{id: 'shows', name: 'TV Shows', kind: 'tv'}], hasLiveTV: false,
@@ -78,7 +78,7 @@ test('an owner sees the icon-only Server activity after Saved, never a Notificat
     '../../assets/brandSymbol': {brandSymbol: '<svg/>'},
     '../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},
     '../kit/controls': {Focusable: 'Focusable'}, '../kit/Icon': {Icon: 'Icon'}, '../kit/artwork': {ProfileFace: 'ProfileFace'},
-    '../kit/theme': {useTheme: () => theme}, '../platform/native-blur': {BlurView: 'BlurView'},
+    '../kit/theme': {nativeType, useTheme: () => theme}, '../platform/native-blur': {BlurView: 'BlurView'},
     './model': model, './tv-focus': {sameDestination},
   });
   const opened: unknown[] = [];
