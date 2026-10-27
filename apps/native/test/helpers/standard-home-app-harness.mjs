@@ -115,9 +115,17 @@ const nativeURL = data(`import React from ${JSON.stringify(reactURL)};
  const flat=s=>Array.isArray(s)?Object.assign({},...s.map(flat)):s??{};
  function host(name){return function NativeBoundary({ref,children,...props}){
    const own=React.useRef(); if(!own.current)own.current={tag:S.nextHost++,contentOffset:{x:0,y:0},requestTVFocus(){S.hosts.get(this.tag)?.props.onFocus?.({nativeEvent:{}});},setDestinations(){},scrollTo(first=0,second=0){const offset=typeof first==='object'?first:{y:first,x:second};this.contentOffset={x:offset.x??0,y:offset.y??0};},
-    // The installed FlatList answers scrollToIndex from the caller's own getItemLayout; a list
-    // that supplies none leaves the offset alone and only records the request.
-    scrollToIndex({index=0}={}){const layout=typeof props.getItemLayout==='function'?props.getItemLayout(undefined,index):undefined;if(layout&&Number.isFinite(layout.offset))this.contentOffset={x:0,y:layout.offset};this.scrolledToIndex=index;},
+    // The installed list reads its command from the props of the host it currently
+    // renders, not the props captured when this ref first initialised. VirtualizedList
+    // counts getItemCount(data) or data.length, asks getItemLayout(data, index) for the
+    // cell, and scrollToOffset moves the real scroll view along the list's own axis:
+    // x when horizontal, y otherwise.
+    scrollToIndex({index=0,viewOffset=0,viewPosition=0}={}){const latest=S.hosts.get(this.tag)?.props??{},data=latest.data,count=typeof latest.getItemCount==='function'?latest.getItemCount(data):data?.length??0;if(!(index>=0&&index<count))throw Error('scrollToIndex out of range: requested index '+index+' is out of 0 to '+(count-1));const layout=typeof latest.getItemLayout==='function'?latest.getItemLayout(data,index):undefined;if(!layout||!Number.isFinite(layout.offset)){if(typeof latest.onScrollToIndexFailed==='function')return latest.onScrollToIndexFailed({index,averageItemLength:0,highestMeasuredFrameIndex:0});throw Error('scrollToIndex requires getItemLayout or onScrollToIndexFailed in this fixture');}
+     // The caller-declared style height is the list's drawn viewport; this boundary lays
+     // out no measured cells, so viewPosition uses that value and viewOffset is exact.
+     const style=flat(typeof latest.style==='function'?latest.style({pressed:false}):latest.style),viewport=Number.isFinite(style.height)?style.height:0;
+     const offset=Math.max(0,layout.offset-viewPosition*(viewport-layout.length))-viewOffset;
+     this.contentOffset={...this.contentOffset,[latest.horizontal?'x':'y']:offset};this.scrolledToIndex=index;},
     measure(cb){cb(0,0,390,220,0,588)},measureInWindow(cb){cb(0,588,390,220)},setNativeProps(){}};
    // The scroll view's live native offset, not a prop the app set: native answers
    // with where the app's own scrollTo actually left the surface. Delivering the
@@ -125,7 +133,12 @@ const nativeURL = data(`import React from ${JSON.stringify(reactURL)};
    const value=own.current; React.useLayoutEffect(()=>{if(name==='ScrollView'&&!('contentOffset' in props))Object.defineProperty(props,'contentOffset',{configurable:true,get:()=>value.contentOffset});S.hosts.set(value.tag,{name,props,children,host:value});});
    React.useLayoutEffect(()=>{const release=typeof ref==='function'?ref(value):undefined;if(ref&&typeof ref!=='function')ref.current=value;return()=>{if(typeof release==='function')release();else if(typeof ref==='function')ref(null);else if(ref)ref.current=null;S.hosts.delete(value.tag);};},[ref,value]);
    const delivered=React.useRef(false);React.useLayoutEffect(()=>{if(delivered.current||!props.onLayout)return;delivered.current=true;const style=flat(typeof props.style==='function'?props.style({pressed:false}):props.style);props.onLayout({nativeEvent:{layout:{x:0,y:588,width:typeof style.width==='number'?style.width:390,height:typeof style.height==='number'?style.height:220}}});},[props.onLayout,props.style]);
-   return React.createElement(React.Fragment,null,typeof children==='function'?children({pressed:false}):children);
+   // FlatList draws its data through renderItem; this boundary draws every row rather
+   // than a measured window, so the rows the caller supplied are the rows it renders.
+   const items=name==='FlatList'&&typeof props.renderItem==='function'&&Array.isArray(props.data)
+     ?props.data.map((item,index)=>React.createElement(React.Fragment,{key:typeof props.keyExtractor==='function'?props.keyExtractor(item,index):index},props.renderItem({item,index,separators:{highlight(){},unhighlight(){},updateProps(){}}})))
+     :null;
+   return React.createElement(React.Fragment,null,typeof children==='function'?children({pressed:false}):children,items);
  };}
  export const SafeAreaView=host('SafeAreaView'),View=host('View'),Text=host('Text'),Pressable=host('Pressable'),Image=host('Image'),TextInput=host('TextInput'),ScrollView=host('ScrollView'),KeyboardAvoidingView=host('KeyboardAvoidingView'),RefreshControl=host('RefreshControl'),TVFocusGuideView=host('TVFocusGuideView'),ActivityIndicator=host('ActivityIndicator'),Modal=host('Modal'),Switch=host('Switch'),FlatList=host('FlatList'),VirtualizedList=host('VirtualizedList');
  export const Share={share(){throw Error('Unexpected native Share operation in Home fixture')}};

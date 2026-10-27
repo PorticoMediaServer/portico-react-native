@@ -175,14 +175,19 @@ test('NM-ID-02: the real account overlays attach their own root and action ident
       // same identifier), so press that actual host rather than a second derived name.
       press(nodeWithTestID('profile-limits-maximum-age-rating')!);
       await settleOverlay();
-      // The picker's Dialog derives its own root from that same caller testID. The TV sheet
-      // without an explicit initialFocusRef takes focus through the native guide, which this
-      // mounted host does not run, so the claim is the picker's own region, not a captured focus.
-      assert.equal(registry.config('profile-limits-maximum-age-rating-picker')?.id, 'profile-limits-maximum-age-rating-picker', 'the nested picker is its own region from the caller testID');
+      // The picker's Dialog derives its own root from that same caller testID, and its
+      // selected option (the restrictions' "PG") is the entry the TV sheet asks the
+      // native host to focus after its own enter delay.
+      assert.equal(registry.capture()?.regionId, 'profile-limits-maximum-age-rating-picker', 'the nested picker is its own region from the caller testID');
+      assert.equal(registry.capture()?.childId, 'profile-limits-maximum-age-rating-option-PG', 'the picker entry focuses its own selected option');
       assert.ok(nodeWithTestID('profile-limits-maximum-age-rating-picker'), 'the picker mounts its own drawn surface');
+      assert.ok(nodeWithTestID('profile-limits-maximum-age-rating-option-PG'), 'the selected option is drawn inside that surface');
       assert.ok(leaf('profile-limits', 'maximum-age-rating'), 'the limits root still holds the trigger while the picker is open');
       await app.back();
       await settleOverlay();
+      assert.equal(registry.capture()?.regionId, 'profile-limits', 'Back returns inside the limits sheet');
+      assert.equal(registry.capture()?.childId, 'maximum-age-rating', 'Back restores the exact trigger that opened the picker');
+      assert.notEqual(registry.capture()?.regionId, 'profile-limits-maximum-age-rating-picker', 'the closed picker leaves no focus inside its removed region');
       assert.equal(nodeWithTestID('profile-limits-maximum-age-rating-picker'), undefined, 'Back dismisses the picker');
       assert.ok(leaf('profile-limits', 'maximum-age-rating') && leaf('profile-limits', 'cancel'), 'Back leaves the limits sheet with its own leaves');
       holdLimits = deferred();
