@@ -33,7 +33,8 @@ import type {NativeListeningSong} from '../../../shell/listening-song-detail';
 import {RetainedOverlay} from '../../../kit/overlays/SurfacePaintHost';
 import {usePublishedPlayerMorph} from '../../../kit/dock/PlayerMorphBridge';
 import {useOverlayPaintMode} from '../../../kit/overlays/OverlayPaintContext';
-import {NowPlayingLyrics} from './NowPlayingLyrics';
+import {NowPlayingLyrics, type NowPlayingLyricsProps} from './NowPlayingLyrics';
+import {ListeningQueuePaint, ListeningLyricsPaint} from './ListeningPanePaint';
 import {useTVPanelPresence} from '../../../kit/overlays/TVPanelMotion';
 
 const t = defaultI18n.t;
@@ -91,7 +92,7 @@ export type NowPlayingScreenProps = Readonly<{
 const QUEUE_WIDTH = 366;
 const SIDE_BY_SIDE = 700;
 const ListeningChromeGate = createContext(false);
-const listeningPaintTypes = [ListeningSurface, ListeningSwipeArea, ListeningColumn, ListeningPageBackground, ListeningGroup, ListeningSeekPaint, MusicFocusRegion, MusicSignalLine, MusicSignalSheet, ListeningFavoritePaint, View, Text, ScrollView, Artwork, AmbientArt, Button, Icon, React.Fragment];
+const listeningPaintTypes = [ListeningSurface, ListeningSwipeArea, ListeningColumn, ListeningPageBackground, ListeningGroup, ListeningSeekPaint, ListeningQueuePaint, ListeningLyricsPaint, MusicFocusRegion, MusicSignalLine, MusicSignalSheet, ListeningFavoritePaint, View, Text, ScrollView, Artwork, AmbientArt, Button, Icon, React.Fragment];
 const listeningPaintOmissions = [GestureDetector, NowPlayingQueue, NowPlayingLyrics, ListeningSongActions, NativeWatchEqualizer];
 
 export function NowPlayingScreen(props: NowPlayingScreenProps) {
@@ -134,6 +135,7 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
     void queuePolicy.apply(drawnFence, {queueId: drawnQueue.id, expectedRevision: drawnQueue.revision, intent}, lifetime).catch(reportError);
   };
   const focus = useId();
+  const paneOwner = useMemo(() => Object.freeze({}), []);
   const [sheet, setSheet] = useState<'queue' | 'lyrics' | null>(null), [panelTab, setPanelTab] = useState<'queue' | 'lyrics'>('queue'), [panel, setPanel] = useState<'signal' | 'eq' | null>(null);
   // music-plus 6/6b and listening-notices 8: the signal sheet (like the EQ panel) is the top
   // surface while it is open, so Back closes it rather than folding the player, and focus returns
@@ -162,6 +164,11 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
   const travel = useSharedValue(0), paintFraction = useSharedValue(0), dragFraction = useSharedValue<number | null>(null);
   type BeginSeek = Readonly<{occupant: DockOccupant; start: number; span: number; onAction: (command: DockCommand) => void}>;
   const fenceKey = JSON.stringify(occupant.playback.fence ?? null);
+  const knownLyrics = React.isValidElement<NowPlayingLyricsProps>(lyrics) && lyrics.type === NowPlayingLyrics ? lyrics : undefined;
+  const lyricPaint = knownLyrics ? <ListeningLyricsPaint owner={paneOwner} scope={fenceKey} testID={knownLyrics.props.testID}/> : lyrics;
+  const queuePaint = queue ? <ListeningQueuePaint owner={paneOwner} scope={fenceKey} testID={`${testID}-queue`}/> : null;
+  const showingLyrics = side ? !!lyrics && (!queue || panelTab === 'lyrics') : sheet === 'lyrics' && !!lyrics;
+  const showingQueue = side ? !!queue && (!lyrics || panelTab !== 'lyrics') : !!sheet && !showingLyrics && !!queue;
   const scopeGeneration = useRef(0);
   const scopes = useRef<Readonly<{key: string; start?: number; end?: number; enabled: boolean; span: number; generation: number; value: GestureCommitScope<BeginSeek>}> | undefined>(undefined);
   const prior = scopes.current;
@@ -272,11 +279,14 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
       <Button testID={`${testID}-close`} variant="glass" size="small" icon="i-down" accessibilityLabel={t('player.minimize')} onPress={onClose}>{t('action.close')}</Button>
     </View>
     {!side && sheet ? <View style={{width: '100%', maxWidth: 560, height: Math.max(280, Math.round(height * .42)), borderRadius: 16, overflow: 'hidden', backgroundColor: 'rgba(237,245,250,.06)'}}>
-      {sheet === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={artwork} queueEdit={queueEditPort}/> : null}
+      {sheet === 'lyrics' && lyrics ? lyricPaint : queuePaint}
     </View> : null}
     </ListeningGroup>
   </ListeningColumn>;
-  return <TVMusicFocus id={focus} visible={!panel} entry="toggle" onClose={onClose}><RetainedOverlay permit={panel ? undefined : paintPermit} allowedTypes={listeningPaintTypes} omitTypes={listeningPaintOmissions}><ListeningSurface fence={playback.fence} testID={testID} blocked={!!panel || !!sheet}>
+  return <>
+    {paintActive && showingQueue && queue && <NowPlayingQueue paintOwner={paneOwner} paintScope={fenceKey} testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={artwork} queueEdit={queueEditPort}/>}
+    {paintActive && showingLyrics && knownLyrics && React.cloneElement(knownLyrics, {paintOwner: paneOwner, paintScope: fenceKey})}
+    <TVMusicFocus id={focus} visible={!panel} entry="toggle" onClose={onClose}><RetainedOverlay permit={panel ? undefined : paintPermit} allowedTypes={listeningPaintTypes} omitTypes={listeningPaintOmissions}><ListeningSurface fence={playback.fence} testID={testID} blocked={!!panel || !!sheet}>
     {!backgroundHosted && <ListeningPageBackground fence={playback.fence} height={height} ambient={p.ambient}/>}
     <View style={{flex: 1, paddingTop: topInset, paddingBottom: bottomInset}}>
       {panel === 'signal' && signal ? <View style={{position: 'absolute', inset: 0, zIndex: 30}}><MusicSignalSheet view={signal} onClose={closePanel} contextTitle={p.identity.title} returnFocusRef={signalRef}/></View> : null}
@@ -297,12 +307,12 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
               <Text style={[browseType(theme, 20, 800, -0.02), {color: theme.colors.text}]}>{t(lyrics ? 'player.lyrics' : 'player.queue')}</Text>
             </View>}
           </View>
-          {queue && lyrics && panelTab === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={artwork} queueEdit={queueEditPort}/> : lyrics}
+          {queue && lyrics && panelTab === 'lyrics' && lyrics ? lyricPaint : queue ? queuePaint : lyricPaint}
         </View></ListeningGroup>
       </View> : column}
     </View>
     {theme.isTV && notice && <NativeListeningNotice notice={notice} persistent/>}
-  </ListeningSurface></RetainedOverlay></TVMusicFocus>;
+  </ListeningSurface></RetainedOverlay></TVMusicFocus></>;
 }
 
 

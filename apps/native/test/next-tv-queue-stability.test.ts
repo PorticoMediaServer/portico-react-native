@@ -39,6 +39,8 @@ async function fixture() {
     '../../../kit/focus': {FocusRegion: 'FocusRegion'}, '../../../kit/focus/useStableFocusOrder': {useStableFocusOrder},
     './TVQueueSongMenu': {useTVQueueSongMenu}, '../../../kit/overlays': {Menu: 'Menu'}, '../../../kit/theme': {useTheme: () => createTheme({isTV: true, width: 1920})},
     '../../../kit/browse/presentation': {browseType: () => ({})},
+    '../../../kit/overlays/CommittedPaint': {committedPaintScope: () => ({}), useCommittedPaintPublication() {}},
+    './ListeningPanePaint': {ListeningQueuePaint: 'ListeningQueuePaint'},
   });
   const entries = ['a', 'b', 'c', 'd'].map(id => ({id, hidden: false, removed: false}));
   const props: any = {testID: 'queue', regionId: 'queue-region', focusScopeKey: 'actual-fence-A', onPlay: (...args: unknown[]) => calls.push(args),

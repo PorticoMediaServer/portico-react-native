@@ -25,14 +25,15 @@ function cell(initial: any) {
 async function rig() {
   let tree: any, reduce = false, current = true, interactive = true;
   const contexts: any[] = [];
+  const scrubberContexts = () => tree.props.children.props.children;
   const reactions: any[] = [], listeners = new Set<() => void>();
   const controller = {progress: cell(1), dragging: cell(false), presentationGoal: cell(1)};
-  const scope = {}, opening = {};
-  const binding = {fence, scope, opening, controller, current: () => current,
+  const scope = {}, opening = {}, fullOpening = {};
+  const binding = {fence, scope, opening, pageOpen: false, controller, current: () => current,
     subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};}};
   const {ListeningCoverProvider, useListeningPageStyle, useListeningTabBarPaint, ListeningSeekPaint} = await screenModule(new URL('../src-next/kit/dock/ListeningCoverBridge.tsx', import.meta.url), {
     react: {...React, default: React, createContext: () => {const value = {Provider: 'Provider'};contexts.push(value);return value;},
-      useContext: (context: any) => context === contexts[0] ? tree.props.value : context === contexts[1] ? tree.props.children.props.value : tree.props.children.props.children.props.value},
+      useContext: (context: any) => context === contexts[0] ? tree.props.value : context === contexts[1] ? scrubberContexts().props.value : scrubberContexts().props.children.props.value},
     'react-native': {View: 'View'},
     'react-native-gesture-handler': {Gesture: {Pan: () => ({enabled() {return this;}})}, GestureDetector: 'GestureDetector'},
     'react-native-reanimated': {default: {View: 'AnimatedView'},
@@ -44,6 +45,7 @@ async function rig() {
     '../theme': {useTheme: () => ({layers: {player: 30}, colors: {accentStrong: '#abc'}})},
     '../useMotion': {useMotion: () => ({reduce, transforms: !reduce, timing: (kind: string) => ({duration: reduce ? 160 : kind === 'quick' ? 120 : 180, easing: reduce ? 'linear' : 'out'})})},
     '../overlays/OverlayPaintContext': {useOverlayPaintMode: () => ({interactive})}, './ListeningCoverPaint': {ListeningCoverPaint: 'ListeningCoverPaint'},
+    '../overlays/CommittedPaint': {CommittedPaintProvider: 'CommittedPaintProvider'},
   });
   const provider = createHookHost(() => {tree = ListeningCoverProvider({children: null});});provider.mount();
   const step = () => {for (const reaction of reactions) {const now = reaction.read();reaction.apply(now, reaction.previous);reaction.previous = now;}};
@@ -51,14 +53,15 @@ async function rig() {
   let pageStyle: any; const page = createHookHost(() => {pageStyle = useListeningPageStyle(fence as any, 690);}); page.mount();
   let tab: any; const tabHost = createHookHost(() => {tab = useListeningTabBarPaint();});tabHost.mount();
   return {controller, context: () => tree.props.value, step,
-    async publishScrubber(value: any) {let off: any;await act(() => {off = tree.props.children.props.value(value);});return async () => {await act(() => off());};},
+    async publishScrubber(value: any) {let off: any;await act(() => {off = scrubberContexts().props.value(value);});return async () => {await act(() => off());};},
     mountSeek() {
       let seekTree: any;
       const host = createHookHost(() => {seekTree = ListeningSeekPaint({fence, fraction: .1, span: 100, seconds: 10, label: 'Seek'});});host.mount();
       return {host, get tree() {return seekTree;}, view: () => seekTree.props.children, fill: () => seekTree.props.children.props.children.props.children.props.style[1].read()};
     },
     inert() {interactive = false;},
-    async publishSame() {await act(() => tree.props.value.publish({...binding, opening: {}}));step();},
+    async publishSame() {await act(() => tree.props.value.publish({...binding, opening: fullOpening, pageOpen: true}));step();},
+    async nextTrack() {await act(() => tree.props.value.publish({...binding, fence: dockFence('next'), opening: fullOpening, pageOpen: true}));step();page.rerender();},
     async reduce() {reduce = true; provider.rerender();await act(() => {});step();page.rerender();tabHost.rerender();},
     async retire() {current = false;await act(() => {for (const listener of [...listeners]) listener();});step();page.rerender();tabHost.rerender();},
     tabStyle: () => tab.style.read(), measureTab: (height: number) => tab.measure(height),
@@ -117,6 +120,39 @@ test('reduction retargets partial page/group opacity160linear while removing aut
     assert.deepEqual(r.pageStyle().transform, [{translateY: 0}]);
     r.controller.dragging.value = true; r.step();
     assert.equal(r.pageStyle().transform[0].translateY, 690 * .832, 'direct finger progress remains direct under reduction');
+  } finally {r.close();}
+});
+
+test('a track replacement in the same open page preserves group paint without admitting old-fence pixels', async () => {
+  const r = await rig();
+  try {
+    r.controller.presentationGoal.value = 0;r.controller.progress.value = 0;r.step();await r.publishSame();
+    const handles = r.context().groups.map((value: any) => value.running);
+    for (const handle of handles) handle.finish();
+    await r.nextTrack();
+    assert.deepEqual(r.context().groups.map((value: any) => value.value), [1, 1, 1]);
+    assert.deepEqual(r.context().groups.map((value: any) => value.running), handles, 'no second entrance clock on Next');
+    assert.equal(r.pageStyle().opacity, 0, 'preserved numeric opacity never grants the old fence paint permission');
+  } finally {r.close();}
+});
+
+test('reversing an outgoing page retargets its actual partial paint with only the group stagger', async () => {
+  const r = await rig();
+  try {
+    r.controller.presentationGoal.value = 0;r.step();await r.publishSame();
+    for (const value of r.context().groups) value.running.finish();
+    r.controller.presentationGoal.value = 1;r.step();
+    for (const value of r.context().groups) value.running.tick(.45);
+    const outgoing = r.context().groups.map((value: any) => value.running);
+    r.controller.presentationGoal.value = 0;r.step();
+    assert.deepEqual(r.context().groups.map((value: any) => value.running.from), [.45, .45, .45]);
+    assert.deepEqual(r.context().groups.map((value: any) => value.running.delay), [0, 60, 120]);
+    assert.ok(outgoing.every((handle: any) => handle.stopped));
+    for (const value of r.context().groups) value.running.tick(0);
+    r.controller.presentationGoal.value = 1;r.step();
+    r.controller.presentationGoal.value = 0;r.step();
+    assert.deepEqual(r.context().groups.map((value: any) => value.running.delay), [0, 60, 120],
+      'reversal before a delayed group becomes visible must not replay the initial260ms wait');
   } finally {r.close();}
 });
 
