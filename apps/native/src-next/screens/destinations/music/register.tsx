@@ -63,9 +63,12 @@ export function createNativeTVMusicRenderer(context: NativeShellBootstrapContext
         {albumId: page.entry.id, load: () => page.controller.albumMembership()},
         {signal: page.abort.signal, isCurrent: () => current() && pageCurrent()},
       ) : undefined;
-      if (!Platform.isTV) return page.entry.kind === 'album'
-        ? <PhoneAlbumScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back} download={download} onPlaylist={onPlaylist}/>
-        : <PhoneArtistScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back}/>;
+      if (!Platform.isTV) return <>
+        {page.entry.kind === 'album'
+          ? <PhoneAlbumScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back} download={download} onPlaylist={onPlaylist}/>
+          : <PhoneArtistScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back}/>}
+        {page.picker.render(runtime)}
+      </>;
       return <>
         {page.entry.kind === 'album'
           ? <TVAlbumScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onPlaylist={onPlaylist}/>
