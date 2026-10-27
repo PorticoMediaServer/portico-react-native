@@ -110,7 +110,12 @@ test('abandoning an account request cancels the native request', async t => {
 test('native account sources never fall back to the shared fetch transport', () => {
   const source = readFileSync(new URL('../src/bridge/native-account.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /new HostedAccountClient\([^)]*'native',\s*undefined/);
-  assert.equal(source.match(/new HostedAccountClient\(/g)?.length, source.match(/'native',nativeAccountTransport\(/g)?.length);
+  // Every client is built from the one native transport its continuation witness guards,
+  // and that transport is the only one handed to the client.
+  assert.equal(source.match(/new HostedAccountClient\(/g)?.length, 1);
+  assert.equal(source.match(/const transport=nativeAccountTransport\(this\.origin,binding\)/g)?.length, 1);
+  assert.match(source, /new HostedAccountClient\(this\.origin,'native',\(\.\.\.args\)=>\{[^}]*return transport\(\.\.\.args\);\},binding\)/);
+  assert.doesNotMatch(source, /\bfetch\(/);
 });
 
 test('the native transports under account requests refuse redirects', () => {
