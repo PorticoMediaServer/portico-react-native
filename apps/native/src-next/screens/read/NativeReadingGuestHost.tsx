@@ -17,9 +17,9 @@ type Owner = ReturnType<typeof createReadingSessionOwner>;
 type Reader = ReturnType<typeof createReadingGuestBridge>;
 
 /** One disposable rendering ticket over an already accepted logical session. */
-export function NativeReadingGuestHost({owner, active, preferences, onBack, onSettings, onSearchAll, contentsTarget}: {
+export function NativeReadingGuestHost({owner, active, preferences, onBack, onSettings, onSearchAll, contentsTarget, onGuestState}: {
   owner: Owner; active: boolean; preferences: Readonly<{getSnapshot: () => PreferenceSnapshot; subscribe: (listener: () => void) => () => void}>;
-  onBack: () => void; onSettings: () => void; onSearchAll?: ReadingHostSearchAll; contentsTarget?: ReadingHostContentsTarget;
+  onBack: () => void; onSettings: () => void; onSearchAll?: ReadingHostSearchAll; contentsTarget?: ReadingHostContentsTarget; onGuestState?: (mounted: boolean) => void;
 }) {
   const theme = useTheme(), view = useRef<WebView>(null), reader = useRef<Reader | undefined>(undefined);
   const dimensions = useWindowDimensions(), insets = useSafeAreaInsets(), posture = usePlatformPosture();
@@ -36,6 +36,7 @@ export function NativeReadingGuestHost({owner, active, preferences, onBack, onSe
       return owner.current() && alive && !!ticket?.current();};
     const dispose = () => {if (!alive) return; alive = false; offPreferences(); owned?.dispose();
       if (reader.current === owned) reader.current = undefined; ticket?.release();};
+    const report = onGuestState; report?.(true);
     disposeGuest.current = dispose; setState({});
     void (async () => {
       ticket = owner.attach(); ticket.onRetire(dispose); if (!current()) throw new Error('reading_retired');
@@ -57,7 +58,7 @@ export function NativeReadingGuestHost({owner, active, preferences, onBack, onSe
       if (!current()) throw new Error('reading_retired');
       setState({url, reader: owned});
     })().catch(() => {if (current()) setState({failed: true}); dispose();});
-    return () => {if (disposeGuest.current === dispose) disposeGuest.current = undefined; dispose();};
+    return () => {if (disposeGuest.current === dispose) disposeGuest.current = undefined; dispose(); report?.(false);};
   }, [owner, preferences, attempt, !!onSearchAll, contentsTarget]);
   useLayoutEffect(() => {reader.current?.setActive(active);}, [active, state.reader]);
   useLayoutEffect(() => {reader.current?.setCrease(crease ? {left: crease.left, right: crease.right} : undefined);}, [crease, state.reader]);
