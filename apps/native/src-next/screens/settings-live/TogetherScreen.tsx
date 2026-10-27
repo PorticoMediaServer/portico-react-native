@@ -1,5 +1,6 @@
 import React, {forwardRef, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Share, Text, View, type TextInput} from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {GroupEnterLifetime} from '../../../../../packages/client-core/src/group-session';
 import type {MediaItem} from '../../../../../packages/client-core/src';
@@ -24,7 +25,7 @@ import {nativeTogetherLobbyFaces} from './together-presentation';
 import {NativeTogetherTVRoom} from './TogetherTVRoom';
 import type {NativeTogetherMedia} from './together-media';
 
-export function NativeTogetherScreen({controller, media, ports, runtime}: {controller: NativeTogetherController; media: NativeTogetherMedia; ports: Pick<NativeSettingsLivePorts, 'context'>; runtime: NativeShellRuntime}) {
+export function NativeTogetherScreen({controller, media, ports, runtime, onBack}: {controller: NativeTogetherController; media: NativeTogetherMedia; ports: Pick<NativeSettingsLivePorts, 'context'>; runtime: NativeShellRuntime; onBack?: () => void}) {
   const theme = useTheme(), t = runtime.text.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]);
@@ -41,7 +42,6 @@ export function NativeTogetherScreen({controller, media, ports, runtime}: {contr
   const pendingEnter = useRef<AbortController | undefined>(undefined);
   const closeForm = () => {pendingEnter.current?.abort();setSheet(undefined);setTyping(undefined);};
   const enter = async (work: (lifetime?: GroupEnterLifetime) => Promise<boolean>) => {
-    if (!theme.isTV) return work();
     pendingEnter.current?.abort();const abort = new AbortController();pendingEnter.current = abort;
     const route = ports.context.navigation.getSnapshot();
     const principal = () => {const session = ports.context.session();return session && JSON.stringify([session.sessionFamilyId, session.tokenGeneration, session.authorizationHorizon, session.deviceId, session.installationId]);};
@@ -56,12 +56,13 @@ export function NativeTogetherScreen({controller, media, ports, runtime}: {contr
   const run = (work: () => Promise<unknown>) => {void work().catch(error => {if (controller.lifetime.current()) runtime.reportError(error);});};
   useEffect(() => {void controller.refresh().catch(error => {if (controller.lifetime.current()) runtime.reportError(error);});}, [controller, runtime]);
   const room = group && !['idle', 'left', 'joining'].includes(state.phase);
-  if (room && state.phase === 'ended') return <TogetherEndedScreen controller={controller} reason={group.endedReason} text={runtime.text}/>;
-  if (room) return theme.isTV ? <NativeTogetherTVRoom key={`${group.id}/${group.viewerMemberId}`} controller={controller} media={media} state={state} group={group} ports={ports} runtime={runtime}/> : <TogetherRoom controller={controller} ports={ports} runtime={runtime}/>;
+  const back = () => {if (sheet) {closeForm(); return;} pendingEnter.current?.abort(); onBack?.();};
+  if (room && state.phase === 'ended') return <TogetherPage onBack={onBack ? back : undefined}><TogetherEndedScreen controller={controller} reason={group.endedReason} text={runtime.text}/></TogetherPage>;
+  if (room) return <TogetherPage onBack={onBack ? back : undefined}>{theme.isTV ? <NativeTogetherTVRoom key={`${group.id}/${group.viewerMemberId}`} controller={controller} media={media} state={state} group={group} ports={ports} runtime={runtime}/> : <TogetherRoom controller={controller} ports={ports} runtime={runtime}/>}</TogetherPage>;
   const busy = state.busy || state.phase === 'joining';
   const fieldsRegion = ids.surface('together.form'), keyboard = ids.surface('together.keyboard');
   const type = (field: 'name' | 'code' | 'who') => {if (theme.isTV) {setTypingIntent(typing === field ? 'restore' : 'enter'); setTyping(field); setTypingRevision(value => value + 1);}};
-  return <Screen title={t('entry.group.together')}>
+  return <TogetherPage onBack={onBack ? back : undefined}><Screen title={t('entry.group.together')}>
     <ScrollView contentContainerStyle={{paddingHorizontal: theme.isTV ? 0 : 20, paddingBottom: 64}}>
       {state.error && <Banner message={state.error} tone="warning"/>}
       <TogetherLobbyRegion controller={controller} region={region} rail={ids.rail}>
@@ -103,7 +104,7 @@ export function NativeTogetherScreen({controller, media, ports, runtime}: {contr
         </FocusRegion>{theme.isTV && typing && <NativeTVKeyboard id={keyboard} value={typing === 'code' ? code : typing === 'name' ? name : who} onChangeText={value => {if (typing === 'code') setCode(value.toUpperCase().slice(0, 12)); else if (typing === 'name') setName(value.slice(0, 80)); else setWho(value.slice(0, 64));}} activation={{visible: sheet !== undefined, intent: typingIntent, revision: typingRevision}} leftRegionId={fieldsRegion} width={500} testID="together-keyboard"/>}
       </View>
     </Dialog>
-  </Screen>;
+  </Screen></TogetherPage>;
 }
 
 /** This region remounts on return from a room/ended screen. Its entry request must
@@ -112,6 +113,12 @@ function TogetherLobbyRegion({controller, region, rail, children}: {controller: 
   const theme = useTheme();
   const enter = useScreenEntry(theme.isTV ? {regionId: region, childId: 'start'} : undefined, controller.lifetime.current);
   return <FocusRegion id={region} entry="start" orientation="free" edges={{left: rail}} onLayout={enter}>{children}</FocusRegion>;
+}
+
+function TogetherPage({children, onBack}: {children: React.ReactNode; onBack?: () => void}) {
+  const theme = useTheme(), insets = useSafeAreaInsets();
+  return <View style={{flex: 1}}>{children}{!theme.isTV && onBack && <Button variant="icon" icon="i-left" iconOnly accessibilityLabel={defaultI18n.t('action.back')}
+    testID="together-page-back" onPress={onBack} style={{position: 'absolute', top: insets.top + 6, left: 10, zIndex: 10, height: 44, width: 44}}/>}</View>;
 }
 
 function TogetherEndedScreen({controller, reason, text}: {controller: NativeTogetherController; reason: string; text: NativeShellRuntime['text']}) {

@@ -1,9 +1,12 @@
 import test from 'node:test';
+import * as React from 'react';
+import {screenModule} from './helpers/screen-harness.mjs';
 import {bindNativeTogether, type NativeTogetherPlaybackContext} from '../src-next/screens/settings-live/together-playback.ts';
 import {nativeTogetherSession} from '../src-next/screens/settings-live/together-session.ts';
 import {groupPort} from '../src-next/screens/settings-live/group-port.ts';
 import {NativeShellNavigation} from '../src-next/shell/routes.ts';
 import {NativeTogetherController} from '../src-next/screens/settings-live/together-controller.ts';
+import {NativeTogetherMedia} from '../src-next/screens/settings-live/together-media.ts';
 import {NativeScreenLifetime} from '../src-next/screens/settings-live/lifetime.ts';
 import type {Group} from '../../../packages/client-core/src/social-playback.ts';
 import type {GroupSessionSnapshot} from '../../../packages/client-core/src/group-session.ts';
@@ -2442,6 +2445,14 @@ test('renderer output cannot cross a presentation generation or stale native bin
 
 // Real native runtime + real GroupFollower. Only the room facts and media server
 // are fixtures; page disposal must not own the authority's follower/registration.
+const {createNativeTogetherRenderer} = await screenModule(new URL('../src-next/screens/settings-live/TogetherRoute.tsx', import.meta.url), {
+  react: {...React, default: React},
+  '../../shell/route-registry': {nativeShellRoutes: {registerRoute() {}}},
+  './lifetime': {NativeScreenLifetime}, './together-controller': {NativeTogetherController},
+  './together-media': {NativeTogetherMedia}, './together-session': {nativeTogetherSession},
+  './TogetherScreen': {NativeTogetherScreen: 'TogetherScreen'},
+});
+
 function togetherPlayback(d: ReturnType<typeof fixture>, playing = false) {
   const navigation = new NativeShellNavigation(d.getAuthority(), d.getAuthority);
   const context: NativeTogetherPlaybackContext = {api: d.api, authority: d.getAuthority, session: d.getSession,
@@ -2499,6 +2510,65 @@ for (const television of [false, true]) test(`Together installs one authority fo
     off();off();assert.strictEqual(d.runtime.toggle, direct);
     assert.equal(groupPort(), undefined);
   } finally {off?.();room.close();d.runtime.dispose();}
+});
+
+for (const television of [false, true]) test(`Together actual route projects lobby/live/ended and leaves the authority owner after pop/unmount on ${television ? 'TV' : 'touch'}`, async () => {
+  const d = fixture(), room = togetherPlayback(d);
+  const direct = d.runtime.toggle;
+  const pages: {dispose(): void}[] = [];
+  let off: (() => void) | undefined;
+  try {
+    room.publish({directory: [], directoryPhase: 'ready', phase: 'idle', busy: false, clockOffsetMs: 0});
+    off = bindNativeTogether(room.context, television);
+    const original = groupPort(); assert.ok(original);
+    assert.equal(room.navigation.open({kind: 'together'}, d.getAuthority()), true);
+    const page = createNativeTogetherRenderer(room.context); pages.push(page);
+    const lobby = page.render(room.navigation.getSnapshot().route, {});
+    assert.equal(lobby.props.controller.getSnapshot().phase, 'idle');
+    assert.strictEqual(groupPort(), original, 'route creation never replaces the authority registration');
+    assert.equal(original.playerVisible?.(), !television);
+
+    room.publish({directory: [], directoryPhase: 'ready', phase: 'live', group: room.group, busy: false, clockOffsetMs: 0});
+    await settle(80);
+    const actual = d.runtime.getSnapshot(); assert.ok(actual.fence);
+    assert.equal(lobby.props.controller.getSnapshot().phase, 'live');
+    assert.strictEqual(lobby.props.controller.getSnapshot(), original.getSnapshot());
+    assert.equal(original.matches?.(actual.fence), true);
+    const starts = () => d.requests.filter(request => request.method === 'POST' && request.path === routePath('start_playback_session')).length;
+    assert.equal(starts(), 1);
+    if (television) {
+      d.runtime.open(actual.fence);
+      assert.equal(original.playerVisible?.(), true);
+      assert.equal(original.closePlayer?.(), true);
+      assert.equal(original.playerVisible?.(), false);
+    }
+    const before = d.requests.length;
+    const back = lobby.props.onBack;
+    back(); page.dispose();
+    assert.notEqual(room.navigation.getSnapshot().route.kind, 'together');
+    assert.strictEqual(groupPort(), original);
+    assert.equal(original.current(), true);
+    assert.equal(original.matches?.(actual.fence), true, 'actual page disposal leaves the real follower bound');
+    assert.notStrictEqual(d.runtime.toggle, direct);
+    assert.equal(original.playerVisible?.(), true);
+
+    assert.equal(room.navigation.open({kind: 'together'}, d.getAuthority()), true);
+    const successor = createNativeTogetherRenderer(room.context); pages.push(successor);
+    const reopened = room.navigation.getSnapshot(); back();
+    assert.strictEqual(room.navigation.getSnapshot(), reopened, 'old rendered Back cannot pop a new occurrence');
+    const final = successor.render(reopened.route, {});
+    room.publish({directory: [], directoryPhase: 'ready', phase: 'ended', group: {...room.group, state: 'ended', endedReason: 'host-ended'}, busy: false, clockOffsetMs: 0});
+    assert.equal(final.props.controller.getSnapshot().phase, 'ended');
+    assert.strictEqual(final.props.controller.getSnapshot(), original.getSnapshot());
+    successor.dispose();
+    assert.strictEqual(groupPort(), original, 'unmount without pop does not own the authority port');
+    assert.equal(original.current(), true);
+    assert.equal(starts(), 1, 'remount and room projections never install a second follower');
+    assert.equal(d.requests.slice(before).some(request => request.method === 'DELETE'), false);
+  } finally {
+    for (const page of pages.reverse()) page.dispose();
+    off?.(); room.close(); d.runtime.dispose();
+  }
 });
 
 test('Together original pending load cannot publish after authority retirement', async () => {
