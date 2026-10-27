@@ -60,6 +60,11 @@ async function fixture() {
   const runtime = {home, getSnapshot: () => ({authority: currentAuthority, libraries: [], selectionActive}), text: {t: defaultI18n.t, locale: 'en-US'},
     registerScrollToTop: () => () => {}, registerTVPageBack: () => () => {}, reportError(error: unknown) {throw error;}, actions: {}, playback: {}};
   const useFocusAnchor = () => React.useMemo(() => ({scrollRef: {current: null}, offset: {value: 0}, repeating: false, stop() {}, move() {}, anchor() {}}), []);
+  // HomeScreen's TV entry/retry lifetime guard is real source, run on this fixture's hook host
+  // with the screen's own runtime, authority, error, active and resolved inputs.
+  const recovery = await screenModule(new URL('../src-next/screens/home/useTvHomeRecovery.ts', import.meta.url), {
+    react, 'react-native': native, '../../../../../packages/client-core/src/presentation/errors': {presentError}, '../../shell/model': shellModel,
+  });
   const source = process.env.PORTICO_HOME_ENTRY_SOURCE ? pathToFileURL(process.env.PORTICO_HOME_ENTRY_SOURCE) : new URL('../src-next/screens/home/HomeScreen.tsx', import.meta.url);
   const {HomeScreen} = await screenModule(source, {
     react, 'react-native': native, 'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (fn: unknown) => fn, useAnimatedScrollHandler: (fn: unknown) => fn},
@@ -75,7 +80,7 @@ async function fixture() {
     '../../kit/layout': {Hero: 'Hero'}, '../../kit/layout/FocusAnchor': {useFocusAnchor}, '../../kit/layout/types': {},
     '../../kit/states': {LoadingPaint: 'LoadingPaint', HomeSkeleton: 'HomeSkeleton'}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../kit/theme': {nativeType, useTheme: () => theme}, '../../shell/model': shellModel,
     './home-start': homeStart, '../destinations/music/MusicMixesRow': {MusicMixesRow: 'MusicMixesRow'},
-    './TvHomeRecovery': {TvHomeRecovery: 'TvHomeRecovery'}, './useTvHomeRecovery': {useTvHomeRecovery: () => ({visible: false})},
+    './TvHomeRecovery': {TvHomeRecovery: 'TvHomeRecovery'}, './useTvHomeRecovery': recovery,
     './HomeHeroFacts': {}, './model': homeModel,
   });
   let props: any = {}, tree: any, guide: any, target: any, requests = 0;
@@ -130,7 +135,7 @@ test('async empty Home acquires Play exactly once only after both real guide and
   } finally {f.dispose();}
 });
 
-test('a rail visit before async content permanently consumes initial entry, even after rail blur', async () => {
+test('a rail visit that still holds attached focus when async content lands owns initial entry, and a later rail blur never re-acquires it', async () => {
   const f = await fixture();
   try {
     const rail = {regionId: f.ids.rail, childId: 'home'};
@@ -141,6 +146,21 @@ test('a rail visit before async content permanently consumes initial entry, even
     await act(() => f.registry.didBlur(rail));
     await act(() => {});
     assert.equal(f.requests, 0, 'content arriving after user navigation cannot steal focus');
+  } finally {f.dispose();}
+});
+
+test('a rail focus already blurred before async content lands leaves no attached ownership, so arrival requests entry', async () => {
+  const f = await fixture();
+  try {
+    const rail = {regionId: f.ids.rail, childId: 'home'};
+    f.registry.attach(rail, {requestTVFocus() {}});
+    await act(() => f.registry.didFocus(rail));
+    await act(() => f.registry.didBlur(rail));
+    await act(() => {});
+    assert.equal(f.registry.attachedFocus(), undefined, 'the earlier blur leaves no current focus ownership');
+    await f.publish();
+    f.mountGuide(); f.mountPlay(); await act(() => {});
+    assert.equal(f.requests, 1, 'initial entry consumes only currently attached focus, so a blur before arrival leaves entry available');
   } finally {f.dispose();}
 });
 

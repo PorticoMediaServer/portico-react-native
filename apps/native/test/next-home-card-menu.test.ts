@@ -43,8 +43,15 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Continue car
   const runtime = {home, text: {t: defaultI18n.t, locale: 'en-US'}, getSnapshot: () => ({authority: currentAuthority, libraries: []}),
     actions: {navigate: (...args: any[]) => calls.push(['navigate', ...args]), play: (...args: any[]) => calls.push(['play', ...args]), more: (...args: any[]) => calls.push(['menu', ...args])},
     selection: () => selection, playback: {subscribe: () => () => {}, getSnapshot: () => ({})}, artwork() {}, ambient() {}};
+  const native = {View: 'View', Text: 'Text', RefreshControl: 'RefreshControl',
+    AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, useWindowDimensions: () => ({width: tv ? 1920 : 390, height: tv ? 1080 : 844})};
+  // The recovery hook is a real Home entry/retry lifetime guard, so it runs its own source
+  // on this screen's hook host as HomeScreen does instead of being forced to invisible.
+  const recovery = await screenModule(new URL('../src-next/screens/home/useTvHomeRecovery.ts', import.meta.url), {
+    react, 'react-native': native, '../../../../../packages/client-core/src/presentation/errors': {presentError}, '../../shell/model': shellModel,
+  });
   const {HomeScreen} = await screenModule(new URL('../src-next/screens/home/HomeScreen.tsx', import.meta.url), {
-    react, 'react-native': {View: 'View', Text: 'Text', RefreshControl: 'RefreshControl', AppState: {currentState: 'active'}, useWindowDimensions: () => ({width: tv ? 1920 : 390, height: tv ? 1080 : 844})},
+    react, 'react-native': native,
     'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (fn: unknown) => fn, useAnimatedScrollHandler: (fn: unknown) => fn}, '@portico/design': {heroSpec},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src/presentation/home-spotlight': homePresentation,
     '../../../../../packages/client-core/src/home-selection': homeCapabilities, '../../../../../packages/client-core/src/presentation/server-text': serverText,
@@ -58,7 +65,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Continue car
     '../../kit/layout/FocusAnchor': {useFocusAnchor: () => ({offset: {value: 0}, scrollRef: {current: null}})},
     '../../kit/states': {LoadingPaint: 'LoadingPaint', }, '../../kit/theme': {nativeType, useTheme: () => theme}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../shell/model': shellModel,
     './home-start': homeStart, '../destinations/music/MusicMixesRow': {MusicMixesRow: 'MusicMixesRow'},
-    './TvHomeRecovery': {TvHomeRecovery: 'TvHomeRecovery'}, './useTvHomeRecovery': {useTvHomeRecovery: () => ({visible: false})},
+    './TvHomeRecovery': {TvHomeRecovery: 'TvHomeRecovery'}, './useTvHomeRecovery': recovery,
     './HomeHeroFacts': {}, './model': homeModel,
   });
   try {
