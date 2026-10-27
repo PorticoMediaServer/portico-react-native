@@ -113,10 +113,15 @@ test('NM-ID-02: the real Together confirmation keeps its region, busy binding, B
       assert.ok(registry.child({regionId: 'together-confirm', childId: 'confirm'}), 'its destructive action is a distinct leaf');
       assert.equal(registry.capture()?.regionId, 'together-confirm');
       assert.equal(registry.capture()?.childId, 'cancel', 'initial safe focus is Cancel');
-      assert.ok(!leafNode('together-confirm', 'confirm')?.props.disabled, 'the enabled action is not disabled');
+      // The drawn host may omit a false `disabled`; the offered leaf and its real handler are
+      // what prove the action is present and enabled, not a missing node reading as undefined.
+      const offered = leafNode('together-confirm', 'confirm');
+      assert.ok(offered, 'the confirmation offers its destructive action leaf');
+      assert.equal(typeof offered!.props.onPress, 'function', 'the offered action has its real press handler');
+      assert.equal(offered!.props.disabled ?? false, false, 'the enabled action is not disabled');
 
       // Confirm is busy while the real end() is pending; the same binding stays and is disabled.
-      press(leafNode('together-confirm', 'confirm'));
+      press(offered!);
       await settle();
       const confirm = leafNode('together-confirm', 'confirm');
       assert.ok(confirm, 'the busy action keeps the same leaf identity');

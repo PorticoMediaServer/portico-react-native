@@ -153,6 +153,10 @@ class HookHost {
       // queued by a discarded pass are discarded with it, exactly as React discards that render.
       for (let pass = 0; ; pass++) {
         if (pass > 100) throw new Error('hook-driver: render-phase update did not settle');
+        // The update that scheduled this render is spent by entering it; only an adjustment
+        // made while the body runs may retry. Clearing it after the body instead would render
+        // every ordinary update twice.
+        this.scheduled = false;
         this.pending = [];
         this.cursor = 0;
         this.rendering = true;
@@ -162,12 +166,10 @@ class HookHost {
           this.rendering = false;
         }
         if (!this.scheduled) break;
-        this.scheduled = false;
       }
     } finally {
       internals.H = previous;
     }
-    this.scheduled = false;
   }
 
   /** Commit: every changed effect's previous cleanup runs first, then the replacements.
