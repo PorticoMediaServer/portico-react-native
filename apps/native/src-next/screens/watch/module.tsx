@@ -25,6 +25,7 @@ import {NativeTVLiveGuide} from './live-guide';
 import {NativeTVLiveActions} from './live-actions';
 import {NativeLiveActionPanels} from './LiveActionPanels';
 import {NativePlaybackFailed} from './PlaybackFailed';
+import {NativeHandheldPlaybackFailed} from './HandheldPlaybackFailed';
 import {NativeWatchPostPlay} from './PostPlayScreen';
 import {isTablet} from '../../../src/bridge/device-platform';
 import {createNativeWatchPanelNames} from './panel-names';
@@ -204,8 +205,9 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
       const route = {authority: context.authority(), revision: context.navigation.getSnapshot().revision};
       const live = context.playback.getSnapshot();
       const canRetry = live.capabilities.retry === true && !!context.playback.retry && !!live.fence && sameFence(live.fence, failure.fence);
-      return <NativePlaybackFailed context={host} failure={failure} chromeVisible={chromeVisible}
-        {...(canRetry ? {retry: () => {retryFailed(failure, route, host.runtime.reportError);}} : {})}/>;
+      const retry = canRetry ? () => {retryFailed(failure, route, host.runtime.reportError);} : undefined;
+      return Platform.isTV ? <NativePlaybackFailed context={host} failure={failure} chromeVisible={chromeVisible} retry={retry}/>
+        : <NativeHandheldPlaybackFailed failure={failure} retry={retry}/>;
     },
     postPlay: host => host.source.entry ? <NativeWatchPostPlay entry={host.source.entry} api={context.api} scope={detailScope} requestId={bindings.requestId} compact={!Platform.isTV}
       current={current} artwork={host.runtime.artwork} onReplay={() => {if (current()) void context.playback.replay(host.fence).catch(host.runtime.reportError);}}
