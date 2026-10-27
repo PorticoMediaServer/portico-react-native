@@ -5,6 +5,8 @@ import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {Button, Focusable} from '../../../kit/controls';
 import {useTheme} from '../../../kit/theme';
 import {browseType} from '../../../kit/browse/presentation';
+import {committedPaintScope, useCommittedPaintPublication} from '../../../kit/overlays/CommittedPaint';
+import type {ListeningLyricsPaintData} from './ListeningPanePaint';
 
 const t = defaultI18n.t;
 const noService = (): LyricsSnapshot => Object.freeze({data: null, candidates: [], warnings: [], preview: null, busy: false, error: '', generation: 0});
@@ -21,10 +23,13 @@ export type NowPlayingLyricsProps = Readonly<{
   positionSeconds: number;
   playing: boolean;
   onSeek: (seconds: number) => void;
+  /** Touch publisher only; its pure display leaf lives in the retained page. */
+  paintOwner?: object;
+  paintScope?: string;
   testID?: string;
 }>;
 
-export function NowPlayingLyrics({read, target, positionSeconds, playing, onSeek, testID = 'now-playing-lyrics'}: NowPlayingLyricsProps) {
+export function NowPlayingLyrics({read, target, positionSeconds, playing, onSeek, paintOwner, paintScope = '', testID = 'now-playing-lyrics'}: NowPlayingLyricsProps) {
   const theme = useTheme(), scroller = useRef<ScrollView>(null), offsets = useRef(new Map<number, number>());
   const [viewport, setViewport] = useState(0);
   const owned = useMemo(() => {try {return read(target) ?? undefined;} catch {return undefined;}}, [read, target]);
@@ -42,10 +47,29 @@ export function NowPlayingLyrics({read, target, positionSeconds, playing, onSeek
   }, [service]);
   const selected = snapshot.data?.selection.resource, document = selected?.document, source = snapshot.data?.source;
   const current = document ? activeLyricLine(document, positionSeconds, selected?.offsetMs ?? 0, source?.startSeconds ?? 0) : -1;
+  const paintSemantic = useMemo(() => committedPaintScope(paintOwner, paintScope, service, document, selected), [paintOwner, paintScope, service, document, selected]);
+  const resources = paintOwner && !document ? snapshot.data?.resources.filter(resource => !resource.deleted) ?? [] : [];
+  const seeks = paintOwner ? document?.lines.map(line => source ? lyricSeekPosition(line, selected?.offsetMs ?? 0, source) : null) ?? [] : [];
+  const display: ListeningLyricsPaintData | undefined = paintOwner && owned?.enabled ? {
+    error: snapshot.error || undefined,
+    messageOnly: !service,
+    message: !service ? t('player.noLyrics') : !document && !snapshot.busy && !snapshot.error
+      ? t(snapshot.data?.resources.length ? 'player.chooseLyrics' : 'player.noLyrics') : undefined,
+    resources: resources.map(resource => ({id: resource.id, label: resource.provenance.label || resource.language})),
+    lines: document?.lines.map((line, index) => ({index, text: line.text, active: current >= 0 && index === current, seekable: typeof seeks[index] === 'number'})),
+    activeIndex: current,
+  } : undefined;
+  useCommittedPaintPublication(paintOwner, 'listening-lyrics', paintScope, paintSemantic, display ? {data: display, actions: {
+    retry: () => {if (service) void service.refresh();},
+    choose: (id: string) => {const resource = resources.find(value => value.id === id);if (resource && service) void service.choose(resource);},
+    seek: (index: number) => {const at = seeks[index];if (typeof at === 'number' && Number.isFinite(at)) onSeek(at);},
+  }} : undefined);
   useEffect(() => {
+    if (paintOwner) return;
     const y = offsets.current.get(current);
     if (y !== undefined) scroller.current?.scrollTo({y: Math.max(0, y - viewport / 3), animated: true});
-  }, [current, viewport]);
+  }, [current, viewport, paintOwner]);
+  if (paintOwner) return null;
   if (!owned?.enabled) return null;
   const message = (text: string) => <View style={{paddingHorizontal: 18, paddingVertical: 22}}><Text style={[browseType(theme, 14, 500), {textAlign: 'center', color: theme.colors.textSecondary}]}>{text}</Text></View>;
   if (!service) return message(t('player.noLyrics'));

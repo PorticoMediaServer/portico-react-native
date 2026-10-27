@@ -8,6 +8,7 @@ import {useMotion} from '../useMotion';
 import {useTheme} from '../theme';
 import type {OverlayPaintPermit} from '../overlays/SurfacePaintHost';
 import {useOverlayPaintMode} from '../overlays/OverlayPaintContext';
+import {CommittedPaintProvider} from '../overlays/CommittedPaint';
 import {ListeningCoverPaint} from './ListeningCoverPaint';
 import {validRect} from './model';
 import type {DockRect, PlayerMorphController} from './types';
@@ -105,12 +106,12 @@ export function ListeningCoverProvider({children}: {children: React.ReactNode}) 
   const decoded = !!binding?.source && !!decodedSource && !!decodeFrame && sameSource(binding.source, decodedSource.source)
     && decodedSource.width === decodeFrame.width && decodedSource.height === decodeFrame.height;
   const value = useMemo(() => ({canvas, revision, binding, full, mini, decoded, active, pageAlpha, pageHeight, reportPageHeight, groups, pageOwner, holdPage, publish, report}), [revision, binding, full, mini, decoded, active, pageAlpha, pageHeight, reportPageHeight, groups, pageOwner, holdPage, publish, report]);
-  return <Context.Provider value={value}><ScrubberPublication.Provider value={publishScrubber}><ScrubberValue.Provider value={scrubber}>{children}{!theme.isTV && <View ref={canvas} collapsable={false} pointerEvents="none" accessible={false}
+  return <Context.Provider value={value}><CommittedPaintProvider><ScrubberPublication.Provider value={publishScrubber}><ScrubberValue.Provider value={scrubber}>{children}{!theme.isTV && <View ref={canvas} collapsable={false} pointerEvents="none" accessible={false}
     accessibilityElementsHidden importantForAccessibility="no-hide-descendants" onLayout={() => setRevision(value => value + 1)}
     style={{position: 'absolute', inset: 0, zIndex: theme.layers.player + 1}}>
     {active && binding?.source && miniFrame && decodeFrame && <CoverLayer binding={binding as Publication & {source: ArtworkSource}} full={fullFrame} mini={miniFrame} decoded={decoded}
       onReady={source => {if (latestRequest.current === request && binding.current() && binding.source && sameSource(source, binding.source)) setDecodedSource({source, width: decodeFrame.width, height: decodeFrame.height});}}/>}
-  </View>}</ScrubberValue.Provider></ScrubberPublication.Provider></Context.Provider>;
+  </View>}</ScrubberValue.Provider></ScrubberPublication.Provider></CommittedPaintProvider></Context.Provider>;
 }
 
 function CoverLayer({binding, full, mini, decoded, onReady}: {binding: Publication & {source: ArtworkSource}; full?: DockRect; mini: DockRect; decoded: boolean; onReady: (source: ArtworkSource) => void}) {

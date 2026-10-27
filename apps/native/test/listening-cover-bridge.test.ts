@@ -23,6 +23,7 @@ async function rig() {
       useAnimatedReaction() {}, cancelAnimation() {}, withTiming: (value: number) => value, withDelay: (_delay: number, value: number) => value, useAnimatedStyle: (read: () => unknown) => ({read})},
     '../../../../../packages/player-core/src': {sameFence}, '../theme': {useTheme: () => ({layers: {player: 30}})},
     '../overlays/OverlayPaintContext': {useOverlayPaintMode: () => ({interactive: true})},
+    '../overlays/CommittedPaint': {CommittedPaintProvider: 'CommittedPaintProvider'},
     '../useMotion': {useMotion: () => ({transforms: true, timing: () => ({duration: 180})})}, './ListeningCoverPaint': {ListeningCoverPaint: 'ListeningCoverPaint'}, './model': {validRect},
   });
   const provider = createHookHost(() => {tree = ListeningCoverProvider({children: null});}); provider.mount();

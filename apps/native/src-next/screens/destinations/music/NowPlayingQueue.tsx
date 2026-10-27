@@ -14,6 +14,8 @@ import {useStableFocusOrder} from '../../../kit/focus/useStableFocusOrder';
 import {Menu, type MenuEntry} from '../../../kit/overlays';
 import {useTheme} from '../../../kit/theme';
 import {browseType} from '../../../kit/browse/presentation';
+import {committedPaintScope, useCommittedPaintPublication} from '../../../kit/overlays/CommittedPaint';
+import {ListeningQueuePaint, type ListeningQueuePaintData, type ListeningQueuePaintRow} from './ListeningPanePaint';
 
 const t = defaultI18n.t;
 /** A queue run survives track fences but never another authority/run. */
@@ -25,6 +27,9 @@ export const nowPlayingQueueFocusScope = (fence: PlaybackFence) => JSON.stringif
  * The engine remains the sole queue owner. A row plays only through the queue's real command. */
 export type NowPlayingQueueProps = Readonly<{
   view: QueuePlaybackView;
+  /** Touch publisher only; its pure display leaf lives in the retained page. */
+  paintOwner?: object;
+  paintScope?: string;
   /** tablet-play9: this pane is the right column, 366 pt; narrow windows stack it.
    * The host passes its own artwork resolver so the TV rows can show the covers. */
   onPlay?: (queueId: string, entryId: string, revision: string) => void;
@@ -107,7 +112,7 @@ export function nowPlayingQueueEditPort(view: QueuePlaybackView | undefined, fen
 /** tv#7: bounded memory belongs to the actual queue run, including its viewer scope. */
 const rememberedRow = new Map<string, string>();
 
-export function NowPlayingQueue({view, onPlay, artwork, regionId, focusScopeKey, interactive = true, menuScope, edges, queueEdit, testID = 'now-playing-queue'}: NowPlayingQueueProps) {
+export function NowPlayingQueue({view, onPlay, artwork, regionId, focusScopeKey, interactive = true, menuScope, edges, queueEdit, paintOwner, paintScope = '', testID = 'now-playing-queue'}: NowPlayingQueueProps) {
   const theme = useTheme(), tv = theme.isTV, rows = nowPlayingQueueRows(view), [rowMenu, setRowMenu] = useState<RowOpening>(), rowMenuRef = useRef<RowOpening | undefined>(undefined);
   const current = rows.filter(row => row.current), upcoming = rows.filter(row => !row.current), window = nowPlayingQueueWindow(view);
   // Only a real segment label names a run; an unlabeled run keeps the plain Up next heading
@@ -190,32 +195,6 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, focusScopeKey,
     if (!rememberedRow.has(queueId) && rememberedRow.size >= 8) rememberedRow.delete(rememberedRow.keys().next().value!);
     rememberedRow.set(queueId, entryId);
   };
-  const row = (value: Row) => {
-    const source = artwork?.(value.posterUrl);
-    const body = <>
-      {source ? <Artwork source={source} width={44} height={44} style={{borderRadius: 8, overflow: 'hidden', flexShrink: 0}}/> : null}
-      <View style={{flex: 1, minWidth: 0, gap: 3}}>
-        <Text numberOfLines={1} style={[browseType(theme, value.current ? 16 : 15, 700, -0.01), {color: theme.colors.text}]}>{value.title}</Text>
-        {value.detail ? <Text numberOfLines={1} style={[browseType(theme, 13, 400), {color: theme.colors.textSecondary}]}>{value.detail}</Text> : null}
-      </View>
-      {value.seconds ? <Text style={[browseType(theme, 13, 400), {color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{durationText(value.seconds, t)}</Text> : null}
-    </>;
-    const main = !canPlay || value.current ? <View key={`${value.entryId}:main`} testID={`${testID}-row-${value.entryId}`} accessibilityRole="text" accessibilityLabel={[value.title, value.detail].filter(Boolean).join(', ')}
-      style={{flex: 1, minHeight: 52, paddingLeft: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 12}}>{body}</View>
-      : <Focusable key={`${value.entryId}:main`} testID={`${testID}-row-${value.entryId}`} focusId={`${testID}-${value.entryId}`} focusKind="row" focusRadius={10}
-        accessibilityRole="button" accessibilityLabel={t('player.queuePlay', {title: value.title})}
-        onPress={() => onPlay!(view.queue.id, value.entryId, view.queue.revision)}
-        style={({focused}) => ({flex: 1, minHeight: 52, paddingLeft: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 10,
-          backgroundColor: focused ? 'rgba(237,245,250,.16)' : 'transparent'})}>{body}</Focusable>;
-    const facts = value.current ? undefined : queueEdit?.entry(value.entryId);
-    if (!editable || !facts || facts.available !== true || facts.position === undefined) return main;
-    return <View key={value.entryId} style={{flexDirection: 'row', alignItems: 'center'}}>{main}
-      <Focusable testID={`${testID}-row-menu-${value.entryId}`} focusKind="button" accessibilityRole="button" accessibilityLabel={t('server.row.actions', {name: value.title})}
-        onPress={() => openMenu(value)} style={{width: 44, height: 44, alignItems: 'center', justifyContent: 'center'}}>
-        <Text style={[browseType(theme, 18, 800), {color: theme.colors.textSecondary}]}>⋯</Text>
-      </Focusable>
-    </View>;
-  };
   /** tv#7's row: 88 high, the album cover 72 squared and rounded 10, the title at 22, the artist
    * at 19 and the duration at 19; held native rows keep their actual playing marker. */
   const tvRow = (value: Row) => {
@@ -238,10 +217,20 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, focusScopeKey,
       style={({focused}) => ({height: 88, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 18, borderRadius: 15,
         backgroundColor: focused ? theme.colors.raisedHigh : 'transparent'})}>{body}</Focusable>;
   };
-  const heading = (text: string, extra?: string) => <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 10, paddingHorizontal: 14, paddingTop: 16, paddingBottom: 6}}>
-    <Text style={[browseType(theme, 13, 700, 0.06), {color: theme.colors.textSecondary, textTransform: 'uppercase'}]}>{text}</Text>
-    {extra ? <Text numberOfLines={1} style={[browseType(theme, 13, 400), {flex: 1, color: theme.colors.textTertiary}]}>{extra}</Text> : null}
-  </View>;
+  const paintSemantic = useMemo(() => committedPaintScope(paintOwner, paintScope, view.queue.id, view.queue.revision), [paintOwner, paintScope, view.queue.id, view.queue.revision]);
+  const displayRow = (value: Row): ListeningQueuePaintRow => {
+    const facts = value.current ? undefined : queueEdit?.entry(value.entryId);
+    return {id: value.entryId, title: value.title, detail: value.detail, seconds: value.seconds, current: value.current,
+      source: artwork?.(value.posterUrl), playable: canPlay && !value.current,
+      menu: editable && !!facts && facts.available === true && facts.position !== undefined};
+  };
+  const display: ListeningQueuePaintData | undefined = tv ? undefined : {
+    current: current.map(displayRow), groups: groups.map(group => ({key: group.key, label: group.label, rows: group.rows.map(displayRow)})), summary,
+  };
+  const paintActions = {play: canPlay ? (id: string) => onPlay!(view.queue.id, id, view.queue.revision) : undefined,
+    menu: (id: string) => {const value = rows.find(row => row.entryId === id);if (value) openMenu(value);}};
+  useCommittedPaintPublication(paintOwner, 'listening-queue', paintScope, paintSemantic,
+    display && paintOwner ? {data: display, actions: paintActions} : undefined);
   if (tv) {
     // tv#7's sub line is what is left to play, never the whole queue: the engine's own remaining
     // count when it gives one, and a duration only when this queue is a complete window and every
@@ -268,20 +257,10 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, focusScopeKey,
       {songMenu.menu}
     </View>;
   }
-  return <View testID={testID} style={{flex: 1, minHeight: 0}}>
-    <ScrollView contentContainerStyle={{paddingBottom: 16}} showsVerticalScrollIndicator={false}>
-      {current.length ? heading(t('player.queueNowPlaying')) : null}
-      {current.map(row)}
-      {groups.map((group, index) => <React.Fragment key={`${group.key}:${index}`}>
-        {heading(group.label)}
-        {group.rows.map(row)}
-      </React.Fragment>)}
-      {!current.length && !upcoming.length ? <Text style={[browseType(theme, 14, 400), {paddingHorizontal: 14, paddingVertical: 18, color: theme.colors.textTertiary}]}>{t('player.queueEmpty')}</Text> : null}
-    </ScrollView>
-    {rows.length ? <View style={{borderTopWidth: 1, borderTopColor: theme.colors.line, paddingHorizontal: 14, paddingVertical: 12}}>
-      <Text style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary}]}>{summary}</Text>
-    </View> : null}
-    {rowMenu && <Menu key={`${rowMenu.queueId}:${rowMenu.revision}:${rowMenu.row.entryId}`} testID={`${testID}-row-menu`} open presentation="sheet" title={rowMenu.row.title}
-      onOpenChange={open => {if (!open) retire(rowMenu);}} items={menuItems(rowMenu)}/>}
-  </View>;
+  const menu = rowMenu ? <Menu key={`${rowMenu.queueId}:${rowMenu.revision}:${rowMenu.row.entryId}`} testID={`${testID}-row-menu`} open presentation="sheet" title={rowMenu.row.title}
+    onOpenChange={open => {if (!open) retire(rowMenu);}} items={menuItems(rowMenu)}/> : null;
+  return <>
+    {!paintOwner && <ListeningQueuePaint data={display} onPlay={paintActions.play} onMenu={paintActions.menu} testID={testID}/>}
+    {menu}
+  </>;
 }
