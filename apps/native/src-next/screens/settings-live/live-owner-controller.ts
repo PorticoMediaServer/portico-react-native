@@ -8,7 +8,7 @@ import {
   adminResult, parseChannelMapPage, parseLiveDefaults, parseLiveSourceReceipt, parseLiveSources, parseLogoImport, parseSourceDocument, parseTunerDiscovery, parseUploadPreview, type UploadPreview,
   type ChannelMapEdit, type ChannelMapPage, type LiveDefaults, type LiveSource, type LiveSources, type LiveSourceSettings, type LogoImportOutcome, type TunerDiscovery,
 } from './live-owner-model';
-import {parseAdminRules, parseDVRDocument, parseRecordingPolicy, parseTunerView, type AdminRule, type DVRDefaults, type DVRDocument, type RecordingPolicy, type TunerView} from './recording-owner-model';
+import {needsRuleOwner, parseAdminRulePage, parseDVRDocument, parseRecordingPolicy, parseTunerView, type AdminRule, type DVRDefaults, type DVRDocument, type RecordingPolicy, type TunerView} from './recording-owner-model';
 import {recordingGuideRoute, recordingOwnerKey, recordingRulePayload, recordingSeries, type RecordingGrant, type RecordingOwner, type RecordingSeries} from '../../../../../packages/client-core/src/server-admin/recording-policy';
 import {parseChannelGuide} from '../../../../../packages/client-core/src/channel-guide';
 
@@ -163,18 +163,23 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
       return parseLiveSourceReceipt(raw, this.lifetime.authority.serverId);
     }, () => undefined, caller);
   tuners = async (): Promise<TunerView> => parseTunerView(await this.request<unknown>('/v1/admin/dvr/tuners'), this.lifetime.authority.serverId);
-  policy = async (): Promise<RecordingPolicy> => {
-    const [owners, grants] = await Promise.all([this.request<unknown>('/v1/admin/dvr/recording-owners?limit=200'), this.request<unknown>('/v1/admin/dvr/recording-permissions')]);
+  policy = async (cursor = ''): Promise<RecordingPolicy> => {
+    const [owners, grants] = await Promise.all([this.request<unknown>('/v1/admin/dvr/recording-owners?' + new URLSearchParams({limit: '200', cursor})), this.request<unknown>('/v1/admin/dvr/recording-permissions')]);
     return parseRecordingPolicy(owners, grants, this.lifetime.authority.serverId);
   };
   setPermission = async (owner: RecordingOwner, enabled: boolean, inheritProfiles: boolean, revision: number) => {
     await this.request('/v1/admin/dvr/recording-permissions', 'PUT', {owner, enabled, inheritProfiles, revision});
   };
-  rules = async (): Promise<readonly AdminRule[]> => parseAdminRules(await this.request<unknown>('/v1/admin/dvr/recording-groups?limit=100'), this.lifetime.authority.serverId);
+  rules = async (cursor = '') => parseAdminRulePage(await this.request<unknown>('/v1/admin/dvr/recording-groups?' + new URLSearchParams({limit: '100', cursor})), this.lifetime.authority.serverId);
   saveRuleEnabled = async (rule: AdminRule, grants: readonly RecordingGrant[], enabled: boolean) => {
+    if (needsRuleOwner(rule) || rule.owner.authority === '') throw new Error('invalid_rule_owner');
     const payload = recordingRulePayload({id: rule.id, revision: rule.revision, owner: rule.owner, anchor: rule.anchor, kind: rule.kind, name: rule.name, match: rule.match, sourceId: rule.sourceId, enabled, options: rule.options}, grants, this.operationId());
-    await this.request(`/v1/admin/dvr/recording-groups/${encodeURIComponent(rule.id)}`, 'PUT', payload);
+    const response = await this.request<unknown>(`/v1/admin/dvr/recording-groups/${encodeURIComponent(rule.id)}`, 'PUT', payload);
+    const envelope = response as {serverId?: unknown; result?: unknown};
+    const saved = parseAdminRulePage({serverId: envelope?.serverId, result: {items: [envelope?.result]}}, this.lifetime.authority.serverId).items[0]!;
+    if (saved.id !== rule.id || recordingOwnerKey(saved.owner as RecordingOwner) !== recordingOwnerKey(rule.owner) || saved.sourceId !== rule.sourceId || saved.kind !== rule.kind || saved.match !== rule.match || saved.name !== rule.name.trim() || saved.enabled !== enabled || saved.revision <= rule.revision || (rule.options.prePaddingMs !== null && saved.options.prePaddingMs !== rule.options.prePaddingMs) || (rule.options.postPaddingMs !== null && saved.options.postPaddingMs !== rule.options.postPaddingMs) || (rule.options.keepPolicy !== null && JSON.stringify(saved.options.keepPolicy) !== JSON.stringify(rule.options.keepPolicy)) || saved.options.newEpisodesOnly !== rule.options.newEpisodesOnly || saved.options.priority !== rule.options.priority || saved.options.folderTemplate !== rule.options.folderTemplate) throw new Error('invalid_response');
     await this.load(true);
+    return saved;
   };
   deleteRule = async (rule: AdminRule) => {
     await this.request(`/v1/admin/dvr/recording-groups/${encodeURIComponent(rule.id)}?expectedRevision=${rule.revision}&operationId=${encodeURIComponent(this.operationId())}`, 'DELETE');
@@ -185,7 +190,7 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
     if (!route) throw new Error('invalid_guide_date');
     const query = new URLSearchParams({kind: route.kind, start: route.start, end: route.end, timezone: route.timezone, search: route.search, sourceId: route.sourceId, limit: '30'});
     const guide = parseChannelGuide(await this.request<unknown>(`/v1/guide?${query.toString()}`), this.lifetime.authority.serverId, route);
-    return recordingSeries(guide);
+    return recordingSeries(guide, true);
   };
   createRule = async (draft: Parameters<typeof recordingRulePayload>[0], grants: readonly RecordingGrant[]) => {
     const payload = recordingRulePayload(draft, grants, this.operationId());
