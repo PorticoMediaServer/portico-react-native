@@ -165,9 +165,17 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
     let seed: RecordingDetail | undefined;
     const dispose = () => {if (this.detailScope === scope) this.detailScope = undefined; seed = undefined; this.lifetime.signal.removeEventListener('abort', dispose); abort.abort();};
     const scope = {dispose};
-    if (!this.detailScope && this.current() && current() && !this.detailScope) {this.detailScope = scope; this.lifetime.signal.addEventListener('abort', dispose, {once: true}); if (this.lifetime.signal.aborted) dispose();}
+    const unclaimed = () => !this.disposed && !abort.signal.aborted && !this.lifetime.signal.aborted && !this.detailScope;
+    if (unclaimed() && this.current() && unclaimed() && current() && unclaimed()) {this.detailScope = scope; this.lifetime.signal.addEventListener('abort', dispose, {once: true}); if (this.lifetime.signal.aborted) dispose();}
     else abort.abort();
-    const live = () => !abort.signal.aborted && this.detailScope === scope && this.current() && current() && !abort.signal.aborted && this.detailScope === scope && this.current();
+    const own = () => !this.disposed && !this.lifetime.signal.aborted && !abort.signal.aborted && this.detailScope === scope;
+    const live = () => {
+      if (!own()) return false;
+      const root = this.current(); if (!own()) return false; if (!root) {dispose(); return false;}
+      const visible = current(); if (!own()) return false; if (!visible) {dispose(); return false;}
+      const stillRoot = this.current(); if (!own()) return false; if (!stillRoot) {dispose(); return false;}
+      return own();
+    };
     const eligible = (value: RecordingDetail): boolean => {
       if (!live() || value !== seed || value.recording.id !== original.id || value.recording.revision !== original.revision || value.nextOverlap !== '' || !mutableRecording(value.recording) || !validRecordingOptions(value.recording.options)) return false;
       const priorities = value.overlaps.map(overlap => overlap.priority);

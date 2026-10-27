@@ -5,6 +5,7 @@ import {NativeSettingsController, type NativeSettingsReader} from '../src-next/s
 import {NativeDashboardController, type NativeDashboardAdmission, type NativeDashboardReaders} from '../src-next/screens/settings-live/dashboard-controller';
 import {NativeTogetherController, type NativeTogetherService} from '../src-next/screens/settings-live/together-controller';
 import {NativeRecordingsController, type NativeRecordingService} from '../src-next/screens/settings-live/recordings-controller';
+import {RecordingOverlapWindow, type OverlapSnapshot} from '../src-next/screens/settings-live/recording-overlap-window';
 import {NativeLiveController} from '../src-next/screens/settings-live/live-controller';
 import {nativeGuideClock, nativeProgrammeCaption} from '../src-next/screens/settings-live/guide-presentation';
 import {nativeDashboardIdentity} from '../src-next/screens/settings-live/dashboard-presentation';
@@ -17,7 +18,7 @@ import type {ChannelApi, GuideChannel} from '../../../packages/client-core/src/c
 import type {GuideProgram} from '../../../packages/client-core/src/guide/types';
 import type {GuideSourceSummary} from '../../../packages/client-core/src/guide/directory';
 import {nativeGuideCellWindow, nativeGuideElapsedWidth, nativeGuidePanRange, nativeGuidePanTarget} from '../src-next/screens/settings-live/guide-pan-model';
-import type {DVRPage, Recording, RecordingDetail, RecordingStorage} from '../../../packages/client-core/src/dvr';
+import {DVRClient, type DVRPage, type Recording, type RecordingDetail, type RecordingStorage} from '../../../packages/client-core/src/dvr';
 import type {GroupSessionSnapshot} from '../../../packages/client-core/src/group-session';
 import type {GroupMember} from '../../../packages/client-core/src/social-playback';
 import type {PreferenceSnapshot} from '../../../packages/client-core/src/preferences';
@@ -626,4 +627,72 @@ test('Resolve rechecks its original detail opening around busy notification and 
   current = true; const second = controller.detailOpening(recording, () => current), secondSeed = await second.read();
   const pending = second.resolve(secondSeed); assert.equal(writes, 1); current = false; finish(recording);
   await assert.rejects(pending); second.dispose(); controller.dispose(); lifetime.dispose();
+});
+
+
+for (const retirement of ['close', 'authority'] as const) test(`Resolve refuses a fresh eligible seed after ${retirement}`, async () => {
+  const owner = authority(), lifetime = new NativeScreenLifetime(owner), fixture = recordingService();
+  const recording = {id: 'recording', revision: 7, state: 'conflicted', options: {beforeSeconds: 0, afterSeconds: 0, priority: 1, retentionDays: 0, episodeLimit: 0}} as Recording;
+  fixture.service.detail = async () => ({recording, capacity: {known: true, effective: 1}, overlaps: [], nextOverlap: ''});
+  let writes = 0; fixture.service.update = async value => {writes++; return value;};
+  const controller = new NativeRecordingsController(lifetime, fixture.service), opening = controller.detailOpening(recording, () => true), seed = await opening.read();
+  assert.equal(opening.canResolve(seed), true);
+  if (retirement === 'close') opening.dispose(); else owner.replace({profileId: 'successor'});
+  assert.equal(opening.canResolve(seed), false); await opening.resolve(seed); assert.equal(writes, 0);
+  opening.dispose(); controller.dispose(); lifetime.dispose();
+});
+
+test('Resolve refuses dispatch when its last lifetime predicate replaces the original opening', async () => {
+  const owner = authority(), lifetime = new NativeScreenLifetime(owner), fixture = recordingService();
+  const recording = {id: 'recording', revision: 7, state: 'conflicted', options: {beforeSeconds: 0, afterSeconds: 0, priority: 1, retentionDays: 0, episodeLimit: 0}} as Recording;
+  fixture.service.detail = async () => ({recording, capacity: {known: true, effective: 1}, overlaps: [], nextOverlap: ''});
+  let writes = 0; fixture.service.update = async value => {writes++; return value;};
+  const controller = new NativeRecordingsController(lifetime, fixture.service), originalCurrent = owner.current;
+  let busyChecks = 0, replaceOnNextCurrent = false, successor: ReturnType<typeof controller.detailOpening> | undefined;
+  owner.current = () => {if (replaceOnNextCurrent) {replaceOnNextCurrent = false; successor = controller.detailOpening(recording, () => true);} return originalCurrent();};
+  const opening = controller.detailOpening(recording, () => {if (controller.getSnapshot().busy && ++busyChecks === 2) replaceOnNextCurrent = true; return true;});
+  const seed = await opening.read(); assert.equal(opening.canResolve(seed), true);
+  await assert.rejects(opening.resolve(seed)); assert.equal(writes, 0); assert.ok(successor);
+  const successorSeed = await successor!.read(); assert.equal(successor!.canResolve(successorSeed), true);
+  await successor!.resolve(successorSeed); assert.equal(writes, 1);
+  successor!.dispose(); controller.dispose(); lifetime.dispose();
+});
+
+test('overlap window eviction and Previous cannot authorize an incomplete Resolve seed', async () => {
+  const lifetime = new NativeScreenLifetime(authority()), fixture = recordingService();
+  const recording = {id: 'recording', revision: 7, state: 'conflicted', options: {beforeSeconds: 0, afterSeconds: 0, priority: 1, retentionDays: 0, episodeLimit: 0}} as Recording;
+  const page = (cursor: string): RecordingDetail => ({recording, capacity: {known: true, effective: 1}, overlaps: [{id: cursor || 'first', title: 'Peer', start: '', end: '', priority: 2, state: 'conflicted'}], nextOverlap: cursor === '' ? 'p2' : cursor === 'p2' ? 'p3' : cursor === 'p3' ? 'p4' : ''});
+  fixture.service.detail = async (_id, cursor) => page(cursor ?? ''); let writes = 0; fixture.service.update = async value => {writes++; return value;};
+  const controller = new NativeRecordingsController(lifetime, fixture.service), opening = controller.detailOpening(recording, () => true), seed = await opening.read();
+  let state!: OverlapSnapshot; const window = new RecordingOverlapWindow(recording, seed, controller, () => true, value => {state = value;});
+  window.seed(seed); await window.next(state); await window.next(state); await window.next(state);
+  assert.equal(state.chunks.length, 3); assert.equal(state.chunks[0].cursor, 'p2'); assert.equal(state.nextCursor, '');
+  await opening.resolve(seed); await window.previous(state); await opening.resolve(seed);
+  assert.equal(writes, 0); window.dispose(); opening.dispose(); controller.dispose(); lifetime.dispose();
+});
+
+
+test('an observed detail-opening retirement cannot revive when its predicate becomes true again', async () => {
+  const lifetime = new NativeScreenLifetime(authority()), fixture = recordingService(); let current = true, writes = 0;
+  const recording = {id: 'recording', revision: 7, state: 'conflicted', options: {beforeSeconds: 0, afterSeconds: 0, priority: 1, retentionDays: 0, episodeLimit: 0}} as Recording;
+  fixture.service.detail = async () => ({recording, capacity: {known: true, effective: 1}, overlaps: [], nextOverlap: ''});
+  fixture.service.update = async value => {writes++; return value;};
+  const controller = new NativeRecordingsController(lifetime, fixture.service), opening = controller.detailOpening(recording, () => current), seed = await opening.read();
+  assert.equal(opening.canResolve(seed), true); current = false; assert.equal(opening.canResolve(seed), false);
+  current = true; assert.equal(opening.canResolve(seed), false); await opening.resolve(seed); assert.equal(writes, 0);
+  opening.dispose(); controller.dispose(); lifetime.dispose();
+});
+
+test('Resolve must refuse the real DVRClient PATCH when its opening closes during request-ID creation', async () => {
+  const lifetime = new NativeScreenLifetime(authority()), fixture = recordingService();
+  const recording = {id: 'a'.repeat(64), revision: 7, state: 'conflicted', options: {beforeSeconds: 0, afterSeconds: 0, priority: 1, retentionDays: 0, episodeLimit: 0}} as Recording;
+  fixture.service.detail = async () => ({recording, capacity: {known: true, effective: 1}, overlaps: [], nextOverlap: ''});
+  let finishId!: (value: string) => void, patches = 0;
+  const api: ChannelApi = {request: async (_path, method) => {if (method === 'PATCH') patches++; throw new Error('stop after dispatch');}};
+  const client = new DVRClient(api, 'server', () => new Promise(resolve => {finishId = resolve;}));
+  fixture.service.update = client.update.bind(client);
+  const controller = new NativeRecordingsController(lifetime, fixture.service), opening = controller.detailOpening(recording, () => true), seed = await opening.read();
+  const pending = opening.resolve(seed).catch(() => undefined); opening.dispose(); finishId('b'.repeat(64)); await pending;
+  assert.equal(patches, 0, 'retired detail opening must not dispatch the original PATCH');
+  controller.dispose(); client.dispose(); lifetime.dispose();
 });
