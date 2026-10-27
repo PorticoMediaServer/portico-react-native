@@ -87,3 +87,21 @@ test('a changed session page revision refuses the continuation and preserves pri
   assert.equal(controller.getSnapshot().sessions[0]?.id, 'original0');
   controller.dispose(); lifetime.dispose();
 });
+
+test('owner job continuation is fenced when admission becomes administrator', async () => {
+  const lifetime = new NativeScreenLifetime({authority: () => authority, current: () => true, subscribeAuthority: () => () => {}});
+  let role: 'owner' | 'administrator' = 'owner', finish!: (value: {items: never[]; nextCursor: string}) => void, jobReads = 0;
+  const readers: NativeDashboardReaders = {
+    sessions: {list: async () => page('session', 1)},
+    console: {measurement: async name => ({name, observedAt: 1, freshUntil: 30001, facts: {}}), alerts: async () => [], jobs: async cursor => {
+      jobReads++; return cursor ? new Promise(resolve => {finish = resolve;}) : {items: [{id: 'owner-job', revision: 1}] as never[], nextCursor: 'next'};
+    }, dispose() {}},
+  };
+  const controller = new NativeDashboardController(lifetime, () => role, readers);
+  await controller.refresh(); const pending = controller.nextJobs(controller.getSnapshot().jobWindow!);
+  role = 'administrator'; await controller.refresh();
+  assert.deepEqual(controller.getSnapshot().jobs, []); assert.equal(controller.getSnapshot().health, undefined);
+  finish({items: [{id: 'late-owner-job', revision: 1}] as never[], nextCursor: ''}); await pending;
+  assert.deepEqual(controller.getSnapshot().jobs, []); assert.equal(jobReads, 2);
+  controller.dispose(); lifetime.dispose();
+});
