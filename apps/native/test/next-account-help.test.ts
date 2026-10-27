@@ -1,3 +1,4 @@
+import * as tvCodeOpening from '../src-next/screens/accounts/tv-code-opening';
 import * as setupOutcome from '../src-next/platform/setup-outcome';
 import * as passwordPolicy from '../../../packages/client-core/src/password-strength';
 import test from 'node:test';
@@ -22,6 +23,7 @@ test('phone Portico sign-in offers account help and returns to its form', async 
   }
   const account = {synchronize: async () => {}, getSnapshot: () => ({session: undefined})};
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
+    './tv-code-opening': tvCodeOpening,
     react: {...React, default: React},
     'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, BackHandler: {addEventListener: () => ({remove() {}})}, Linking: {openURL: async () => {}}, Platform: {isTV: false},
       NativeModules: {PorticoAccountAuth: {canOpenBrowser: false, canSignInApple: false, bundleId: 'com.example', newRequestId: async () => 'request'}},

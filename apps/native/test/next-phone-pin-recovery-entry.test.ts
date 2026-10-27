@@ -1,3 +1,4 @@
+import * as tvCodeOpening from '../src-next/screens/accounts/tv-code-opening';
 import * as setupOutcome from '../src-next/platform/setup-outcome';
 import * as passwordPolicy from '../../../packages/client-core/src/password-strength';
 import test from 'node:test';
@@ -35,6 +36,7 @@ test('the phone sign-in picker offers the account recovery, keeps its own operat
     dispose() {calls.push('dispose');}
   }
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
+    './tv-code-opening': tvCodeOpening,
     react: {...React, default: React},
     'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, BackHandler: back.api, Platform: {isTV: false}, Dimensions: {get: () => ({width: 390, height: 844})}, NativeModules: {}, View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
     'react-native-qrcode-svg': {default: 'QR'},
@@ -149,6 +151,7 @@ test('a wrong profile PIN uses the profile error context and clears the boxes', 
     dispose() {}
   }
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
+    './tv-code-opening': tvCodeOpening,
     react: {...React, default: React},
     'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, BackHandler: back.api, Platform: {isTV: false}, Dimensions: {get: () => ({width: 390, height: 844})}, NativeModules: {}, View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
     'react-native-qrcode-svg': {default: 'QR'},

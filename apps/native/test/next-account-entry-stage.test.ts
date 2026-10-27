@@ -1,3 +1,4 @@
+import * as tvCodeOpening from '../src-next/screens/accounts/tv-code-opening';
 import * as setupOutcome from '../src-next/platform/setup-outcome';
 import * as passwordPolicy from '../../../packages/client-core/src/password-strength';
 import test from 'node:test';
@@ -25,6 +26,7 @@ async function fixture(initialStage: 'welcome' | 'address' = 'welcome') {
     dispose() {events.push('dispose-command');}
   }
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
+    './tv-code-opening': tvCodeOpening,
     react: {...React, default: React,
       useLayoutEffect: (create: () => void | (() => void), deps: readonly unknown[]) => React.useLayoutEffect(() => {phase = 'layout'; try {return create();} finally {phase = 'render';}}, deps),
       useEffect: (create: () => void | (() => void), deps: readonly unknown[]) => React.useEffect(() => {phase = 'passive'; try {return create();} finally {phase = 'render';}}, deps)},
