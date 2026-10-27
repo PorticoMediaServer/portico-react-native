@@ -64,6 +64,7 @@ async function libraryScreen(width: number, isTV = false) {
   const jumpSheet = await screenModule(new URL('../src-next/screens/library/LibraryJumpSheet.tsx', import.meta.url), modules);
   const module = await screenModule(new URL('../src-next/screens/library/LibraryScreen.tsx', import.meta.url), {
     ...modules, './LibraryJumpSheet': jumpSheet, './jump': libraryJump,
+    '../../kit/cards/TVSparseCardFrame': {TVSparseCardFrame: 'TVSparseCardFrame', TVCardPaintFrame: 'TVCardPaintFrame', TVPendingCardPaint: 'TVPendingCardPaint'},
     '../../platform/home-action-diagnostics': {homeActionDiagnostics},
   });
   return {theme, module, host, registry};

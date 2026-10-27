@@ -1,3 +1,4 @@
+import {nativeSlotOwnerKey, projectNativeSlots} from '../src-next/kit/focus/windowed-slots.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createTheme} from '../src-next/kit/theme.ts';
@@ -18,7 +19,7 @@ test('the grid reports actual offsets within one row and restores that exact mea
     react: {...react, default: react}, 'react-native': {View: 'View'},
     'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (run: unknown) => run, useAnimatedScrollHandler: (handler: unknown) => handler, useSharedValue: (value: unknown) => ({value})},
     '../theme': {useTheme: () => createTheme({isTV: true, width: 1920})}, './FocusAnchor': {useFocusAnchor: () => anchor},
-    './model': {gridWindow}, './types': {itemSelection},
+    './model': {gridWindow}, './types': {itemSelection}, '../focus/windowed-slots': {nativeSlotOwnerKey, projectNativeSlots},
   });
   const ref: {current: {scrollToOffset: (value: number) => void} | null} = {current: null};
   const selections: unknown[] = [];

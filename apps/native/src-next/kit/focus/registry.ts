@@ -25,8 +25,8 @@ const configKey = (c: FocusRegionConfig) => JSON.stringify([c.entry, c.entryRegi
   c.screenStart?.regionId, c.screenStart?.childId, c.edges?.up, c.edges?.down, c.edges?.left, c.edges?.right, c.grid, c.timeGrid, c.stops, c.orientation, c.hold, c.enabled]);
 
 export function createFocusRegistry() {
-  type Child = {host: FocusHost; owner?: object; cell?: FocusCell};
-  type Region = {config: FocusRegionConfig; host?: FocusHost; hostOwner?: object; owner?: object; children: Map<string, Child>; remembered?: string; descendant?: FocusAddress; cellMemory?: Readonly<{column?: number; time?: number}>; navigate?: ReturnType<typeof createCellNavigator>; cellOrder?: readonly string[]; resetCellFocus?: string; returns: Map<object, FocusSnapshot | undefined>};
+  type Child = {host: FocusHost; owner?: object; cell?: FocusCell; entityId?: string};
+  type Region = {config: FocusRegionConfig; host?: FocusHost; hostOwner?: object; owner?: object; children: Map<string, Child>; entities: Map<string, string>; remembered?: string; descendant?: FocusAddress; cellMemory?: Readonly<{column?: number; time?: number}>; navigate?: ReturnType<typeof createCellNavigator>; cellOrder?: readonly string[]; resetCellFocus?: string; returns: Map<object, FocusSnapshot | undefined>};
   const regions = new Map<string, Region>(), listeners = new Set<() => void>();
   const retained = new Map<object, FocusSnapshot[]>(), memory = new Map<string, string>();
   let active: FocusSnapshot | undefined, lastFocus: FocusAddress | undefined, revision = 0, epoch = 0, recoveredEpoch = -1;
@@ -43,7 +43,7 @@ export function createFocusRegistry() {
   };
   const region = (id: string): Region => {
     let value = regions.get(id);
-    if (!value) {value = {config: {id}, children: new Map(), returns: new Map(), remembered: memory.get(id)}; memory.delete(id); regions.set(id, value);}
+    if (!value) {value = {config: {id}, children: new Map(), entities: new Map(), returns: new Map(), remembered: memory.get(id)}; memory.delete(id); regions.set(id, value);}
     return value;
   };
   const order = (r: Region) => r.config.order ?? (r.config.grid || r.config.timeGrid ? r.cellOrder ??= [...r.children].sort(([, a], [, b]) =>
@@ -127,7 +127,8 @@ export function createFocusRegistry() {
     const currentRegion = regions.get(saved.regionId);
     if (saved.cell?.pending && saved.cell.index !== undefined && currentRegion?.config.grid) {
       const replacement = [...currentRegion.children.keys()].find(id => {const cell = cellOf(currentRegion, id);
-        return cell?.index === saved.cell!.index && !cell?.pending;});
+        return cell !== undefined && cell.index === saved.cell!.index && !cell.pending
+          && (saved.cell!.generation === undefined || cell.generation === saved.cell!.generation);});
       if (replacement && focus({regionId: saved.regionId, childId: replacement})) return true;
     }
     if (saved.cell?.kind === 'channel' && currentRegion?.config.timeGrid) {
@@ -187,6 +188,11 @@ export function createFocusRegistry() {
     config: (id: string) => regions.get(id)?.config,
     host: (id: string): FocusHost | undefined => regions.get(id)?.host,
     child: (address: FocusAddress): FocusHost | undefined => regions.get(address.regionId)?.children.get(address.childId)?.host,
+    /** Actual attached entity lookup is distinct from opaque native child identity. */
+    entityAddress: (regionId: string, entityId: string): FocusAddress | undefined => {
+      const r = regions.get(regionId), childId = r?.entities.get(entityId);
+      return childId !== undefined && enabledPath(regionId) && r?.children.has(childId) ? {regionId, childId} : undefined;
+    },
     recovery: (id: string): readonly FocusSnapshot[] => [active, ...[...retained.values()].flat()].filter((saved): saved is FocusSnapshot => saved?.regionId === id),
     isRegionActive: (id: string): boolean => active?.regionId === id || isRetained(id),
     retain(address: FocusAddress | FocusSnapshot) {
@@ -224,15 +230,19 @@ export function createFocusRegistry() {
       if (!host && active?.regionId === id) recover(active);
       if (!host) schedulePrune(id);
     },
-    attach(address: FocusAddress, host: FocusHost | null, owner?: object, cell?: FocusCell) {
+    attach(address: FocusAddress, host: FocusHost | null, owner?: object, cell?: FocusCell, entityId?: string) {
       const r = host ? region(address.regionId) : regions.get(address.regionId);
       if (!r) return;
       const old = r.children.get(address.childId);
       if (host && old && (old.host !== host || old.owner !== owner)) throw new Error(`Duplicate live focus child: ${address.regionId}/${address.childId}`);
       if (!host && owner && old?.owner !== owner) return;
-      if (old?.host === (host ?? undefined) && JSON.stringify(old?.cell) === JSON.stringify(cell)) return;
+      if (old?.host === (host ?? undefined) && JSON.stringify(old?.cell) === JSON.stringify(cell) && old?.entityId === entityId) return;
+      const entityOwner = entityId === undefined ? undefined : r.entities.get(entityId);
+      if (host && entityOwner !== undefined && entityOwner !== address.childId) throw new Error(`Duplicate live focus entity: ${address.regionId}/${entityId}`);
+      if (old?.entityId !== undefined && r.entities.get(old.entityId) === address.childId) r.entities.delete(old.entityId);
       r.navigate = undefined; r.cellOrder = undefined;
-      if (host) r.children.set(address.childId, {host, owner, cell}); else r.children.delete(address.childId);
+      if (host) {r.children.set(address.childId, {host, owner, cell, entityId}); if (entityId !== undefined) r.entities.set(entityId, address.childId);}
+      else r.children.delete(address.childId);
       emit();
       if (!host && same(active, address) && active) recover(active);
       if (!host) schedulePrune(address.regionId);
