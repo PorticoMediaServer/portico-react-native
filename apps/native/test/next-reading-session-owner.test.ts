@@ -79,3 +79,18 @@ test('late refused acquisition releases once even when original close ignores ab
   await assert.rejects(pending); assert.equal(closes, 1); assert.equal(releases, 1);
   await owner.dispose(); assert.equal(releases, 1);
 });
+
+test('revocation while evicted cannot reopen the original occurrence', async () => {
+  let live = true, opens = 0, closes = 0; const listeners = new Set<() => void>(), signal = new AbortController();
+  const session = {manifest: {itemId: 'item', sourceId: 'source', revision: 'a'.repeat(64)}, signal: signal.signal,
+    progress: async () => ({progress: null}), close: async () => {closes++;},
+    headPDF: async () => ({}), readRange: async () => new Uint8Array(), readAsset: async () => new Uint8Array(),
+    page: async () => ({}), saveProgress: async () => ({saved: false, progress: null})};
+  const owner = createReadingSessionOwner({current: () => live,
+    subscribe: listener => {listeners.add(listener); return () => {listeners.delete(listener);};},
+    acquire: async () => {opens++; return {session: session as any, release() {}};}});
+  await owner.ensure(); const guest = owner.attach(); guest.release();
+  live = false; for (const listener of [...listeners]) listener(); await owner.dispose();
+  live = true; assert.equal(owner.current(), false); assert.throws(() => owner.attach());
+  await assert.rejects(async () => owner.ensure()); assert.equal(opens, 1); assert.equal(closes, 1);
+});
