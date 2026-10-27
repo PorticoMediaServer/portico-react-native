@@ -12,6 +12,18 @@ const channel = {id: 'actual-channel', kind: 'channel', title: 'Actual Channel',
   channelId: 'actual-channel', sourceId: 'actual-guide-source', provenance: 'live-source'}};
 const groups = [{id: 'movies', entityKind: 'movie', items: [movie]}, {id: 'people', entityKind: 'person', items: [person]}, {id: 'live-tv', entityKind: 'channel', items: [channel]}];
 
+/** The actual focus module and hook, loaded from their own sources after the
+ * standard-home React boundary is registered. The shallow card render below sits
+ * under no FocusItem, so the real hook reads that genuine default. */
+async function focusNamespace(react: any) {
+  const [{createTheme}, registry, hostRef] = await Promise.all([
+    import('../src-next/kit/theme.ts'), import('../src-next/kit/focus/registry.ts'), import('../src-next/kit/focus/useHostRef.ts')]);
+  const theme = createTheme({width: 390, isTV: false});
+  return screenModule(new URL('../src-next/kit/focus/FocusRegion.tsx', import.meta.url), {react: {...react, createContext: (value: any) => ({value}), forwardRef: (render: any) => render},
+    'react-native': {findNodeHandle: () => undefined, TVFocusGuideView: 'TVFocusGuideView', View: 'View'}, '../theme': {useTheme: () => theme},
+    './registry': registry, './useHostRef': hostRef});
+}
+
 async function fixture(mount = false) {
   let beforeQueue: ((signal: AbortSignal) => Promise<void>) | undefined;
   const app = await standardHomeApp({mountUI: false, nativeResponse: async (request: {path: string; method: string; signal: AbortSignal}, f: {pin: {serverId: string}}) => {
@@ -62,6 +74,7 @@ test('Search actions preserve exact current media/Person/channel identities with
     const {SearchGridCard} = await screenModule(new URL('../src-next/screens/search/SearchGridCard.tsx', import.meta.url), {
       react: host.react, 'react-native': {View: 'View'},
       '../../kit/cards': {PosterCard: 'PosterCard', SquareCard: 'SquareCard', CircleCard: 'CircleCard', EpisodeTile: 'EpisodeTile'},
+      '../../kit/focus': await focusNamespace(host.react),
       '../home/model': {homeCardText}, './model': {nativeSearchEntryKey},
     });
     const personCard = host.render(() => SearchGridCard({entry: person, group: 'people', runtime: f.runtime, actions: f.actions, width: 120}));
