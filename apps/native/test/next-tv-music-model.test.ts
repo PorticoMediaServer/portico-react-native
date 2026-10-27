@@ -20,7 +20,7 @@ class Builder {
   build() { return {pivot: 'songs', ...this.body}; }
 }
 
-type Fixture = {songs?: readonly any[]; total?: number; similar?: readonly any[]; albums?: readonly any[]; maximumLimit?: number; pageSize?: number; current?: () => boolean; onPage?: (start: number) => void; revision?: (start: number) => string; lowerBound?: boolean; browseError?: (start:number) => Error | undefined;waitPage?:(start:number)=>Promise<void>|undefined;nextCursor?:(start:number,next:string)=>string;albumPageSize?:number;onAlbumPage?:(start:number)=>void; similarError?: () => Error | undefined; capabilitiesError?: () => Error | undefined; artistDetails?:any;bySound?:boolean;similarResponse?:unknown;waitSimilar?:Promise<void>;onSimilar?:()=>void;entityMissing?:boolean;entityRevision?:{catalog:number;viewer:number};waitEntity?:Promise<void>;onEntity?:()=>void};
+type Fixture = {songs?: readonly any[]; total?: number; similar?: readonly any[]; albums?: readonly any[]; maximumLimit?: number; pageSize?: number; current?: () => boolean; onPage?: (start: number) => void; revision?: (start: number) => string; lowerBound?: boolean; reuseRows?: boolean; browseError?: (start:number) => Error | undefined;waitPage?:(start:number)=>Promise<void>|undefined;nextCursor?:(start:number,next:string)=>string;albumPageSize?:number;onAlbumPage?:(start:number)=>void; similarError?: () => Error | undefined; capabilitiesError?: () => Error | undefined; artistDetails?:any;bySound?:boolean;similarResponse?:unknown;waitSimilar?:Promise<void>;onSimilar?:()=>void;entityMissing?:boolean;entityRevision?:{catalog:number;viewer:number};waitEntity?:Promise<void>;onEntity?:()=>void};
 async function controller(entry: any, options: Fixture = {}) {
   const songs = options.songs ?? [], total = options.total ?? songs.length, similar = options.similar ?? [], albums = options.albums ?? [];
   const calls:any[]=[],browseBodies:any[]=[],reads:string[]=[];
@@ -49,7 +49,7 @@ async function controller(entry: any, options: Fixture = {}) {
       const failure = options.browseError?.(start);
       if (failure) throw failure;
       const pageSize = options.pageSize ?? songs.length;
-      const rows = songs.slice(start, start + pageSize).map(row=>({...row}));
+      const rows = songs.slice(start, start + pageSize).map(row=>options.reuseRows?row:({...row}));
       const nextCursor = start + pageSize < total ? String(start + pageSize) : '';
       options.onPage?.(start);
       return {pivot: 'songs', applied: {query: null, sort: []}, pageInfo: {start, total, revision: options.revision?.(start) ?? 'r', hasMore: nextCursor !== '', nextCursor:options.nextCursor?.(start,nextCursor)??nextCursor, ...(options.lowerBound ? {totalIsLowerBound: true} : {})}, entries: rows};
@@ -528,19 +528,7 @@ test('the real All songs row invokes the borrowed menu once and its captured mem
  });
  const actions=createNativeEntryActions({navigation:{getSnapshot:()=>({revision:1}),subscribe:()=>()=>{}},subscribeAuthority:()=>()=>{}},
   {current:()=>true,contains:f.value.contains,subscribe:f.value.subscribe});
- const hooks={createElement:(type:any,props:any,...children:any[])=>({type,props:{...props,children}}),useSyncExternalStore:(_off:any,get:any)=>get(),useMemo:(fn:any)=>fn(),useState:()=>[undefined,()=>{}],useRef:()=>({current:null}),useCallback:(fn:any)=>fn,useId:()=> 'real-test-gradient'};
- const {artistReleaseGroups}=await import('../../../packages/client-core/src/presentation/library-tabs.ts');
- const screens=await screenModule(new URL('../src-next/screens/destinations/music/TVMusicScreens.tsx',import.meta.url),{
-  react:{default:hooks,...hooks},'react-native':{ScrollView:'ScrollView',Text:'Text',View:'View'},'react-native-svg':{default:'Svg',Defs:'Defs',LinearGradient:'LinearGradient',Rect:'Rect',Stop:'Stop'},
-  '../../../../../../packages/i18n/src':{defaultI18n:{t:(key:string)=>key,number:String}},
-  '../../../../../../packages/client-core/src/presentation/kit-model':{cardText:(e:any)=>({title:e.title,caption:[],detail:[]})},
-  '../../../../../../packages/client-core/src/presentation/library-tabs':{artistReleaseGroups},
-  '../../../kit/artwork':{AmbientArt:'AmbientArt',Artwork:'Artwork',ArtistCircle:'ArtistCircle'},'../../../kit/controls':{Button:'Button',Chip:'Chip',Focusable:'Focusable'},
-  '../../../kit/cards':{SquareCard:'SquareCard'},'../../../kit/browse':{TrackRow:'TrackRow'},'../../../kit/browse/presentation':{browseType:()=>({})},
-  '../../../kit/focus':{FocusItem:'FocusItem',FocusRegion:'FocusRegion'},'../../../kit/theme':{useTheme:()=>({colors:{}})},
-  '../../../tv/layout/TVArtFocus':{TVArtFocus:'TVArtFocus'},'./MusicErrorView':{MusicErrorView:'MusicErrorView'},'./MusicFormatBadges':{MusicFormatBadges:'MusicFormatBadges'},
-  './MusicSectionControls':{MusicSectionControls:'MusicSectionControls',musicNearEnd:()=>true},
- });
+ const screens=await tvMusicScreens();
  let navigations=0;const render=()=>screens.TVArtistScreen({controller:f.value,entry:artistEntry,runtime:{text:{},ambient:()=>undefined,artwork:()=>undefined,reportError:()=>{}},actions,openEntry:()=>{navigations++;}});const tree=render();
  const nodes:any[]=[];function walk(node:any){if(!node)return;if(Array.isArray(node)){node.forEach(walk);return;}if(typeof node!=='object')return;if(typeof node.type==='function'){walk(node.type(node.props));return;}nodes.push(node);walk(node.props?.children);}walk(tree);
  const sixth=nodes.find(n=>n.type==='TrackRow'&&n.props.row.id==='song-5');assert(sixth);sixth.props.onMore();assert.equal(opens,1);assert.equal(commandCurrent(),true);
@@ -599,4 +587,76 @@ test('continuation retains the originally dispatched artist query and endpoint r
  const f=await controller(original,{songs,pageSize:2,maximumLimit:2});await f.value.loadAllSongs();
  original.title='another artist';original.libraryId='another library';await f.value.nextAllSongs(f.value.getSnapshot().allSongs);
  assert.deepEqual(f.browseBodies.map(body=>body.query.value),['Kendrick Lamar','Kendrick Lamar']);assert.equal(f.reads.filter(path=>path==='browse:music').length,2);f.value.dispose();
+});
+
+async function tvMusicScreens(){
+ const hooks={createElement:(type:any,props:any,...children:any[])=>({type,props:{...props,children}}),useSyncExternalStore:(_off:any,get:any)=>get(),useMemo:(fn:any)=>fn(),useState:()=>[undefined,()=>{}],useRef:()=>({current:null}),useCallback:(fn:any)=>fn,useId:()=> 'real-test-gradient'};
+ const {artistReleaseGroups}=await import('../../../packages/client-core/src/presentation/library-tabs.ts');
+ const screens=await screenModule(new URL('../src-next/screens/destinations/music/TVMusicScreens.tsx',import.meta.url),{
+  react:{default:hooks,...hooks},'react-native':{ScrollView:'ScrollView',Text:'Text',View:'View'},'react-native-svg':{default:'Svg',Defs:'Defs',LinearGradient:'LinearGradient',Rect:'Rect',Stop:'Stop'},
+  '../../../../../../packages/i18n/src':{defaultI18n:{t:(key:string,args?:unknown)=>args?`${key}:${JSON.stringify(args)}`:key,number:String}},
+  '../../../../../../packages/client-core/src/presentation/kit-model':{cardText:(e:any)=>({title:e.title,caption:[],detail:[]})},
+  '../../../../../../packages/client-core/src/presentation/library-tabs':{artistReleaseGroups},
+  '../../../kit/artwork':{AmbientArt:'AmbientArt',Artwork:'Artwork',ArtistCircle:'ArtistCircle'},'../../../kit/controls':{Button:'Button',Chip:'Chip',Focusable:'Focusable'},
+  '../../../kit/cards':{SquareCard:'SquareCard'},'../../../kit/browse':{TrackRow:'TrackRow'},'../../../kit/browse/presentation':{browseType:()=>({})},
+  '../../../kit/focus':{FocusItem:'FocusItem',FocusRegion:'FocusRegion'},'../../../kit/theme':{useTheme:()=>({colors:{}})},
+  '../../../tv/layout/TVArtFocus':{TVArtFocus:'TVArtFocus'},'./MusicErrorView':{MusicErrorView:'MusicErrorView'},'./MusicFormatBadges':{MusicFormatBadges:'MusicFormatBadges'},
+  './MusicSectionControls':{MusicSectionControls:'MusicSectionControls',musicNearEnd:()=>true},
+ });
+ return screens;
+}
+
+test('invalid offered cursor preserves rows and refuses continuation until the actual section Refresh resets it',async()=>{
+ let fail=true;const songs=Array.from({length:4},(_,i)=>song(`song-${i}`,i+1,180,`Track ${i}`));
+ const f=await controller(albumEntry,{songs,pageSize:2,maximumLimit:2,browseError:start=>start&&fail?Object.assign(new Error('rejected'),{code:'invalid_cursor'}):undefined});
+ await f.value.load();const offered=f.value.getSnapshot().songPage;await f.value.nextSongs(offered);
+ const invalid=f.value.getSnapshot().songPage;assert.equal(invalid.phase,'refresh-required');assert.equal(invalid.items,offered.items);
+ fail=false;await f.value.retrySongs(invalid);await f.value.nextSongs(invalid);assert.equal(f.browseBodies.length,2,'no rejected-cursor retry or implicit page one');
+ const surface=await phoneSurface(f.value,albumEntry);const controls=surface.render().find(n=>n.type==='MusicSectionControls');assert(controls);
+ controls.props.refresh();await f.value.load();assert.deepEqual(f.browseBodies.map(b=>b.cursor??null),[null,'2',null]);
+ await f.value.nextSongs(f.value.getSnapshot().songPage);assert.deepEqual(f.browseBodies.map(b=>b.cursor??null),[null,'2',null,'2']);f.value.dispose();
+});
+
+function renderedMusicNodes(tree:any):any[]{
+ const nodes:any[]=[];function walk(node:any){if(!node)return;if(Array.isArray(node)){node.forEach(walk);return;}if(typeof node!=='object')return;if(typeof node.type==='function'){walk(node.type(node.props));return;}nodes.push(node);walk(node.props?.children);}walk(tree);return nodes;
+}
+
+test('the retained real album TrackRow cannot borrow a More action after that section requires a revision refresh',async()=>{
+ const songs=Array.from({length:4},(_,i)=>song(`song-${i}`,i+1,180,`Track ${i}`));
+ const f=await controller(albumEntry,{songs,pageSize:2,maximumLimit:2,revision:start=>start?'r2':'r1'});await f.value.load();
+ let opens=0,current:()=>boolean=()=>false;const borrowed={subscribe:()=>()=>{},isOpen:()=>false,open:async(_entry:any,proof:()=>boolean)=>{opens++;current=proof;}};
+ const {createNativeEntryActions}=await screenModule(new URL('../src-next/screens/destinations/entry-actions.ts',import.meta.url),{
+  react:{default:{}},'../native-screen-services':{nativeScreenServices:()=>({reportError:()=>{throw Error('unexpected error');}})},
+  '../watch':{nativeWatchEntryMenu:()=>borrowed},'./lifetime':{nativeDestinationLifetime:()=>({current:()=>true})},
+ });
+ const actions=createNativeEntryActions({navigation:{getSnapshot:()=>({revision:1}),subscribe:()=>()=>{}},subscribeAuthority:()=>()=>{}},{current:()=>true,contains:f.value.contains,subscribe:f.value.subscribe});
+ const screens=await tvMusicScreens();const nodes=renderedMusicNodes(screens.TVAlbumScreen({controller:f.value,entry:albumEntry,runtime:{text:{},ambient:()=>undefined,artwork:()=>undefined,reportError:()=>{}},actions,openEntry:()=>{}}));
+ const row=nodes.find(n=>n.type==='TrackRow');assert(row);row.props.onMore();assert.equal(opens,1);assert.equal(current(),true);
+ const first=f.value.getSnapshot().songs[0];await f.value.nextSongs(f.value.getSnapshot().songPage);
+ assert.equal(f.value.getSnapshot().songs[0],first,'retain displayed row and native host');assert.equal(f.value.contains(first),false);assert.equal(current(),false);
+ row.props.onMore();assert.equal(opens,1,'original More cannot adopt stale album section membership');actions.dispose();f.value.dispose();
+});
+
+test('controller and actual album/artist header omit lower-bound totals and retain exact offered counts',async()=>{
+ const screens=await tvMusicScreens();
+ for(const entry of [albumEntry,{...artistEntry,albumCount:7}])for(const lowerBound of [true,false]){
+  const f=await controller(entry,{songs:[song('song-1',1,180,'Track')],total:10,pageSize:1,maximumLimit:1,lowerBound});await f.value.load();
+  assert.equal(f.value.getSnapshot().songTotal,lowerBound?undefined:10);
+  const Screen=entry.kind==='album'?screens.TVAlbumScreen:screens.TVArtistScreen;
+  const nodes=renderedMusicNodes(Screen({controller:f.value,entry,runtime:{text:{},ambient:()=>undefined,artwork:()=>undefined,reportError:()=>{}},actions:{menu(){},isMenuOpen:()=>false},openEntry:()=>{}}));
+  const text=JSON.stringify(nodes.filter(n=>n.type==='Text').map(n=>n.props.children));
+  assert.equal(text.includes(entry.kind==='album'?'title.songCount:':'music.onServer:'),!lowerBound,'header uses only an exact offered count');f.value.dispose();
+ }
+ const f=await controller({...albumEntry,count:37},{songs:[song('song-1',1,180,'Track')],total:10,lowerBound:true});await f.value.load();assert.equal(f.value.getSnapshot().songTotal,37,'exact entity count remains usable');f.value.dispose();
+});
+
+test('controller focus and blur callbacks from a retired song section cannot pin or unpin its successor using the same immutable rows',async()=>{
+ const songs=Array.from({length:5},(_,i)=>Object.freeze(song(`song-${i}`,i+1,180,`Track ${i}`)));
+ const f=await controller(albumEntry,{songs,pageSize:1,maximumLimit:1,reuseRows:true});await f.value.load();const old=f.value.getSnapshot().songPage,first=old.items[0];
+ const oldFocus=()=>f.value.focusSong(first,old),oldBlur=()=>f.value.blurSong(first,old);
+ await f.value.load();await f.value.nextSongs(f.value.getSnapshot().songPage);await f.value.nextSongs(f.value.getSnapshot().songPage);
+ oldFocus();await f.value.nextSongs(f.value.getSnapshot().songPage);assert.equal(f.value.getSnapshot().songPage.offset,1);
+ await f.value.previousSongs(f.value.getSnapshot().songPage);const original=f.value.getSnapshot().songPage;
+ f.value.focusSong(first,original);oldBlur();const count=f.browseBodies.length;await f.value.nextSongs(original);assert.equal(f.browseBodies.length,count);
+ f.value.blurSong(first,original);await f.value.nextSongs(original);assert.equal(f.browseBodies.length,count+1);f.value.dispose();
 });

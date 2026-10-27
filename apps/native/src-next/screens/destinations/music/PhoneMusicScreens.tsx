@@ -222,7 +222,7 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
               <Text style={[browseType(theme, 11, 700), {width: 70, textAlign: 'right', color: theme.colors.textTertiary}]}>{t('next.browse.duration')}</Text>
               <View style={{width: 44}}/>
             </View>
-            {snapshot.songs.map((song,index)=><View key={song.id} onFocus={()=>{controller.focusSong(song,snapshot.songPage);if(index>=snapshot.songs.length-3)void controller.nextSongs(snapshot.songPage);}} onBlur={()=>controller.blurSong(song)}><TabletSongLine song={song} index={snapshot.songPage.offset+index} runtime={runtime} controller={controller} actions={actions} playingId={playback?.playback.itemId}/></View>)}
+            {snapshot.songs.map((song,index)=><View key={song.id} onFocus={()=>{controller.focusSong(song,snapshot.songPage);if(index>=snapshot.songs.length-3)void controller.nextSongs(snapshot.songPage);}} onBlur={()=>controller.blurSong(song,snapshot.songPage)}><TabletSongLine song={song} index={snapshot.songPage.offset+index} runtime={runtime} controller={controller} actions={actions} playingId={playback?.playback.itemId}/></View>)}
             <MusicSectionControls id="album-songs" section={snapshot.songPage} next={()=>{void controller.nextSongs(snapshot.songPage);}} previous={()=>{void controller.previousSongs(snapshot.songPage);}} retry={()=>{void controller.retrySongs(snapshot.songPage);}} refresh={()=>{void controller.refreshSongs(snapshot.songPage);}}/>
           </View>
           {details.length ? <View style={{width: 250}}>
@@ -253,7 +253,7 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
       </View>
       <View style={{paddingHorizontal: 20, marginTop: 18}}><MusicActions controller={controller} entry={entry} runtime={runtime} actions={actions} moreRef={more} roundMore={false} download={download}/></View>
       {snapshot.phase === 'error' ? <MusicErrorView testID={`music-page-${entry.id}-error`} error={snapshot.error} onRetry={() => {void controller.load();}} style={{margin: 20}}/> : null}
-      {snapshot.songs.length ? <View style={{marginTop: 16}}><SongLines songs={snapshot.songs} runtime={runtime} controller={controller} actions={actions} playingId={playback?.playback.itemId} offset={snapshot.songPage.offset} onFocusRow={entry=>controller.focusSong(entry,snapshot.songPage)} onBlurRow={controller.blurSong} onTail={()=>{void controller.nextSongs(snapshot.songPage);}}/></View> : null}
+      {snapshot.songs.length ? <View style={{marginTop: 16}}><SongLines songs={snapshot.songs} runtime={runtime} controller={controller} actions={actions} playingId={playback?.playback.itemId} offset={snapshot.songPage.offset} onFocusRow={entry=>controller.focusSong(entry,snapshot.songPage)} onBlurRow={entry=>controller.blurSong(entry,snapshot.songPage)} onTail={()=>{void controller.nextSongs(snapshot.songPage);}}/></View> : null}
       <View style={{paddingHorizontal:20}}><MusicSectionControls id="album-songs" section={snapshot.songPage} next={()=>{void controller.nextSongs(snapshot.songPage);}} previous={()=>{void controller.previousSongs(snapshot.songPage);}} retry={()=>{void controller.retrySongs(snapshot.songPage);}} refresh={()=>{void controller.refreshSongs(snapshot.songPage);}}/></View>
       <SimilarAlbums snapshot={snapshot} controller={controller} runtime={runtime} actions={actions} openEntry={openEntry}/>
     </ScrollView>
@@ -324,7 +324,7 @@ export function PhoneArtistScreen({controller, entry, runtime, actions, openEntr
         {releases.map(group=><View key={group.id} style={{marginTop:28,paddingHorizontal:32}}>
           <Text style={[browseType(theme,19,700),{color:theme.colors.text,marginBottom:10}]}>{t(group.label)}</Text>
           <ScrollView horizontal onScroll={event=>{if(musicNearEnd(event.nativeEvent,true))void controller.nextReleases(snapshot.releases);}} scrollEventThrottle={100} showsHorizontalScrollIndicator={false} contentContainerStyle={{gap:14}}>
-            {group.entries.map(album=><AlbumCard key={album.id} album={album} controller={controller} runtime={runtime} actions={actions} openEntry={openEntry} onFocus={()=>controller.focusRelease(album,snapshot.releases)} onBlur={()=>controller.blurRelease(album)}/>)}
+            {group.entries.map(album=><AlbumCard key={album.id} album={album} controller={controller} runtime={runtime} actions={actions} openEntry={openEntry} onFocus={()=>controller.focusRelease(album,snapshot.releases)} onBlur={()=>controller.blurRelease(album,snapshot.releases)}/>)}
           </ScrollView>
         </View>)}
         <View style={{paddingHorizontal:32}}><MusicSectionControls id="artist-releases" section={snapshot.releases} next={()=>{void controller.nextReleases(snapshot.releases);}} previous={()=>{void controller.previousReleases(snapshot.releases);}} retry={()=>{void controller.retryReleases(snapshot.releases);}} refresh={()=>{void controller.refreshReleases(snapshot.releases);}}/></View>
@@ -357,7 +357,7 @@ export function PhoneArtistScreen({controller, entry, runtime, actions, openEntr
       {releases.map(group=><View key={group.id} style={{marginTop:14}}>
         <Text style={[browseType(theme,19,700),{color:theme.colors.text,marginHorizontal:20,marginBottom:10}]}>{t(group.label)}</Text>
         <ScrollView horizontal onScroll={event=>{if(musicNearEnd(event.nativeEvent,true))void controller.nextReleases(snapshot.releases);}} scrollEventThrottle={100} showsHorizontalScrollIndicator={false} contentContainerStyle={{gap:12,paddingHorizontal:20}}>
-          {group.entries.map(album=><AlbumCard key={album.id} album={album} controller={controller} runtime={runtime} actions={actions} openEntry={openEntry} onFocus={()=>controller.focusRelease(album,snapshot.releases)} onBlur={()=>controller.blurRelease(album)}/>)}
+          {group.entries.map(album=><AlbumCard key={album.id} album={album} controller={controller} runtime={runtime} actions={actions} openEntry={openEntry} onFocus={()=>controller.focusRelease(album,snapshot.releases)} onBlur={()=>controller.blurRelease(album,snapshot.releases)}/>)}
         </ScrollView>
       </View>)}
       <View style={{paddingHorizontal:20}}><MusicSectionControls id="artist-releases" section={snapshot.releases} next={()=>{void controller.nextReleases(snapshot.releases);}} previous={()=>{void controller.previousReleases(snapshot.releases);}} retry={()=>{void controller.retryReleases(snapshot.releases);}} refresh={()=>{void controller.refreshReleases(snapshot.releases);}}/></View>
