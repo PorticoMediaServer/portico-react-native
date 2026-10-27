@@ -7,7 +7,7 @@ export type DashboardCursorSnapshot<T, M> = Readonly<{
   bookmarks: readonly string[]; nextCursor: string; metadata?: M;
   pending: boolean; error?: unknown; refreshRequired: boolean;
 }>;
-type Flight<T, M> = {generation: number; expected: DashboardCursorSnapshot<T, M>; cursor: string; abort: AbortController; promise: Promise<void>};
+type Flight<T, M> = {generation: number; expected: DashboardCursorSnapshot<T, M>; cursor: string; abort: AbortController; promise: Promise<void>; reset: boolean};
 
 export class DashboardCursorWindow<T, M> {
   private generation = 0;
@@ -27,6 +27,7 @@ export class DashboardCursorWindow<T, M> {
   focus(id?: string): void {this.focused = id; if (this.held && this.alive(this.held.flight)) this.accept(this.held.flight, this.held.page, this.held.previous, this.held.reset);}
   refresh(): Promise<void> {
     if (this.disposed || !this.current()) return Promise.resolve();
+    if (this.flight?.reset && this.alive(this.flight)) return this.flight.promise;
     this.flight?.abort.abort(); this.flight = undefined; this.held = undefined; this.seen.clear(); this.generation++;
     const old = this.value;
     this.publish({...old, generation: this.generation, bookmarks: [''], nextCursor: '', pending: false, error: undefined, refreshRequired: false});
@@ -55,14 +56,15 @@ export class DashboardCursorWindow<T, M> {
   private request(expected: DashboardCursorSnapshot<T, M>, cursor: string, previous: boolean, reset: boolean): Promise<void> {
     if (this.disposed || !this.current() || expected !== this.value || this.flight) return Promise.resolve();
     const abort = new AbortController();
-    const flight: Flight<T, M> = {generation: this.generation, expected, cursor, abort, promise: Promise.resolve()};
+    const flight: Flight<T, M> = {generation: this.generation, expected, cursor, abort, promise: Promise.resolve(), reset};
     this.flight = flight; this.retryCursor = cursor; this.retryPrevious = previous;
     this.publish({...expected, pending: true, error: undefined});
     flight.promise = (async () => {
       try {
         const page = await this.read(cursor, abort.signal);
         if (!this.alive(flight)) return;
-        if (!previous && page.nextCursor && (page.nextCursor === cursor || this.seen.has(page.nextCursor))) {
+        const expectedSuccessor = previous ? this.value.chunks[0]?.cursor : undefined;
+        if (previous && expectedSuccessor && page.nextCursor !== expectedSuccessor || !previous && page.nextCursor && (page.nextCursor === cursor || this.seen.has(page.nextCursor))) {
           this.flight = undefined; this.publish({...this.value, pending: false, refreshRequired: true}); return;
         }
         this.accept(flight, page, previous, reset);
@@ -83,11 +85,12 @@ export class DashboardCursorWindow<T, M> {
     let bookmarks = [...old.bookmarks];
     if (!previous && flight.cursor && !bookmarks.includes(flight.cursor)) bookmarks.push(flight.cursor);
     if (bookmarks.length > 64) bookmarks = ['', ...bookmarks.slice(-63)];
-    if (!previous && flight.cursor) {this.seen.add(flight.cursor); if (this.seen.size > 63) this.seen.delete(this.seen.values().next().value!);}
+    if (previous) this.seen = new Set(chunks.map(chunk => chunk.cursor).filter(Boolean));
+    else if (flight.cursor) {this.seen.add(flight.cursor); if (this.seen.size > 63) this.seen.delete(this.seen.values().next().value!);}
     const ids = new Set<string>(), items: T[] = [];
     for (const chunk of chunks) for (const row of chunk.items) if (!ids.has(this.key(row))) {ids.add(this.key(row)); items.push(row);}
     this.held = undefined; this.flight = undefined;
-    this.publish({...old, chunks, items, bookmarks, nextCursor: previous ? old.nextCursor : page.nextCursor ?? '', metadata: page.metadata, pending: false, error: undefined});
+    this.publish({...old, chunks, items, bookmarks, nextCursor: previous ? evicted?.cursor ?? old.nextCursor : page.nextCursor ?? '', metadata: page.metadata, pending: false, error: undefined});
   }
   dispose(): void {if (this.disposed) return; this.disposed = true; this.generation++; this.flight?.abort.abort(); this.flight = undefined; this.held = undefined;}
 }

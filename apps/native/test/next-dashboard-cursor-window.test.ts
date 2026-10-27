@@ -21,9 +21,11 @@ test('cursor window retains the focused chunk until focus moves and refuses a re
 test('retired cursor reads cannot publish into a refreshed query', async () => {
   let finish!: (page: DashboardCursorPage<{id: string}, number>) => void, call = 0;
   const window = new DashboardCursorWindow<{id: string}, number>(async () => {
-    call++; return call === 1 ? new Promise(resolve => {finish = resolve;}) : {items: [{id: 'fresh'}], metadata: 2};
+    call++;
+    if (call === 2) return new Promise(resolve => {finish = resolve;});
+    return {items: [{id: call === 1 ? 'old' : 'fresh'}], nextCursor: call === 1 ? 'next' : '', metadata: call};
   }, row => row.id, () => true, () => {});
-  const stale = window.refresh(); await window.refresh();
+  await window.refresh(); const stale = window.next(window.snapshot()); await window.refresh();
   finish({items: [{id: 'stale'}], metadata: 1}); await stale;
   assert.deepEqual(window.snapshot().items.map(row => row.id), ['fresh']);
   window.dispose();
@@ -37,4 +39,17 @@ test('eviction waits for the real focused row to leave its chunk', async () => {
   window.focus(undefined);
   assert.deepEqual(window.snapshot().items.map(row => row.id), ['a', 'b', 'c']); assert.equal(window.snapshot().pending, false);
   window.dispose();
+});
+
+test('previous and forward follow retained producer bookmarks without inventing cursors', async () => {
+  const calls: string[] = [];
+  const next: Record<string, string> = {'': 'a', a: 'b', b: 'c', c: 'd', d: ''};
+  const window = new DashboardCursorWindow(async cursor => {calls.push(cursor); return {items: [{id: cursor || 'first'}], nextCursor: next[cursor], metadata: 1};}, row => row.id, () => true, () => {});
+  await window.refresh(); await window.next(window.snapshot()); await window.next(window.snapshot()); await window.next(window.snapshot());
+  assert.deepEqual(window.snapshot().items.map(row => row.id), ['a', 'b', 'c']);
+  await window.previous(window.snapshot());
+  assert.deepEqual(window.snapshot().items.map(row => row.id), ['first', 'a', 'b']);
+  await window.next(window.snapshot());
+  assert.deepEqual(window.snapshot().items.map(row => row.id), ['a', 'b', 'c']);
+  assert.deepEqual(calls, ['', 'a', 'b', 'c', '', 'c']); window.dispose();
 });
