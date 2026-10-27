@@ -15,6 +15,7 @@ import {useTVMenuCapture} from '../platform/tv-menu';
 import {useFocusRegistry, type FocusSnapshot} from '../kit/focus';
 import {tvFocusIds, sameDestination} from './tv-focus';
 import {HomeScreen} from '../screens/home/HomeScreen';
+import {canYieldTVHomeMenu, homeStartModel, resolveTVHomeStart} from '../screens/home/home-start';
 import {authorityKey, canOpenLibrary, librariesDestination, mediumRailMetrics, phoneBarHeight, sameAuthority, selectedTab, shellLayout, type ShellDestination, type ShellTab} from './model';
 import {nativeScreenChromeHidden, subscribeNativeScreenChrome} from './chrome';
 import type {NativeShellRuntime, NativeShellSnapshot} from './runtime';
@@ -80,9 +81,21 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const releaseRailDim = useCallback((lease: Readonly<{retired: boolean}>) => setRailDim(current => current === lease ? undefined : current), []);
   const [homeScrolled, setHomeScrolled] = useState(false);
   const focused = registry.capture();
-  const homeStart = destination.kind === 'home' && snapshot.homeVisible && !snapshot.homeObscured
-    && !snapshot.mediaExpanded && !tvListeningPresent && !homeScrolled && !accountOpen && !chromeHidden && snapshot.contentVisible !== false
-    && focused?.regionId === ids.spotlight && focused.childId === 'play';
+  let homeStart = false;
+  if (theme.isTV && destination.kind === 'home' && snapshot.homeVisible && !snapshot.mediaExpanded && !tvListeningPresent
+    && snapshot.contentVisible !== false && !runtime.retirementSignal?.aborted) {
+    const document = runtime.home.getSnapshot().document, mixes = runtime.mixes?.getSnapshot();
+    const start = resolveTVHomeStart(registry, homeStartModel(document, snapshot.authority, {
+      readLibraryIds: new Set(snapshot.libraries.filter(library => library.kind === 'books').map(library => library.id)),
+      mixesReady: mixes?.phase === 'ready' && mixes.rows.length > 0, playbackAvailable: !!runtime.playback,
+    }));
+    homeStart = canYieldTVHomeMenu(start, focused, {home: true, visible: snapshot.homeVisible, obscured: snapshot.homeObscured,
+      expanded: snapshot.mediaExpanded, listening: tvListeningPresent, scrolled: homeScrolled, account: accountOpen,
+      rail: railExpanded || focused?.regionId === ids.rail, chromeHidden, contentVisible: true,
+      // The existing return lease is reactive and lasts through actual overlay exit.
+      // Keyboard/overlay Menu-capture leases retain their independent precedence.
+      overlay: !!snapshot.selectionActive || registry.hasRetainedFocus()});
+  }
   useTVMenuCapture(theme.isTV && !homeStart);
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const sidebarRevision = useRef(0);

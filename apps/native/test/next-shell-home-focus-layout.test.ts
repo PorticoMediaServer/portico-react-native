@@ -6,6 +6,7 @@ import {createFocusRegistry} from '../src-next/kit/focus/registry';
 import {tvFocusIds, tvHomeRegionMap} from '../src-next/shell/tv-focus';
 import {NativeHomePaging} from '../src-next/shell/home-paging';
 import {tvHomeRows} from '../src-next/screens/home/tv-presentation';
+import * as homeStart from '../src-next/screens/home/home-start';
 import {createTheme} from '../src-next/kit/theme';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
@@ -17,12 +18,14 @@ test('initial TV focus reanchors when the compact hero measurement arrives and i
   const previousFrame = globalThis.requestAnimationFrame;
   globalThis.requestAnimationFrame = callback => {frames.push(callback); return frames.length;};
   try {
-    const entry = {id: 'episode', title: 'Actual episode', kind: 'episode', libraryId: 'tv'};
+    const entry = {id: 'episode', title: 'Actual episode', kind: 'episode', libraryId: 'tv',
+      homeActions: {play: true, myList: true, details: true, state: {watchlisted: false}}};
     const row = {id: 'continue', kind: 'continue', artworkShape: 'landscape', entries: [entry]};
-    const document = {rows: [row], spotlight: []}, authority = {serverId: 'actual'};
+    const authority = {serverId: 'actual', viewerFence: 'viewer'};
+    const document = {rows: [row], spotlight: [], serverId: authority.serverId, viewerFence: authority.viewerFence};
     let currentAuthority = authority;
     const vertical = {scrollRef: {}, offset: {value: 146}, repeating: false, stop() {}, move() {}, anchor: (...args: number[]) => anchors.push(args)};
-    const runtime = {home: {subscribe() {}, getSnapshot: () => ({document, phase: 'ready'})},
+    const runtime = {home: {subscribe() {}, getSnapshot: () => ({document, phase: 'ready'})}, playback: {},
       getSnapshot: () => ({authority: currentAuthority, libraries: [], selectionActive: false}), selection: () => ({}), text: {t: (key: string) => key, locale: 'en-US'}};
     const {HomeScreen} = await screenModule(new URL('../src-next/screens/home/HomeScreen.tsx', import.meta.url), {
       react: h.react,
@@ -36,7 +39,7 @@ test('initial TV focus reanchors when the compact hero measurement arrives and i
       '../../platform/ArtworkPipeline': {}, '../../kit/artwork': {}, '../../kit/controls': {Button: 'Button'}, '../../kit/cards': {},
       '../../kit/focus': {FocusItem: 'FocusItem', FocusRegion: 'FocusRegion', useFocusRegistry: () => registry},
       '../../kit/focus/initial-entry': {createInitialRegionEntry},
-      '../../shell/tv-focus': {tvFocusIds, tvHomeRegionMap}, './tv-presentation': {tvHomeRows}, '../../shell/home-paging': {NativeHomePaging},
+      '../../shell/tv-focus': {tvFocusIds, tvHomeRegionMap}, './tv-presentation': {tvHomeRows}, '../../shell/home-paging': {NativeHomePaging}, './home-start': homeStart,
       '../../kit/layout': {Row: 'Row', Hero: 'Hero', FocusPreviewHero: 'FocusPreviewHero'},
       '../../kit/layout/FocusAnchor': {useFocusAnchor: () => vertical}, '../../kit/layout/types': {}, '../../kit/states': {LoadingPaint: 'LoadingPaint', },
       '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../kit/theme': {useTheme: () => createTheme({isTV: true, width: 1920})}, '../../shell/model': {sameAuthority: (a: unknown, b: unknown) => a === b},
@@ -86,7 +89,7 @@ test('initial TV focus reanchors when the compact hero measurement arrives and i
     tree = render();
     const count = anchors.length;
     for (const props of [{railExpanded: true}, {active: false}]) rowBox(render(props)).props.onLayout({nativeEvent: {layout: {y: 820, height: 300}}});
-    currentAuthority = {serverId: 'foreign'};
+    currentAuthority = {...authority, serverId: 'foreign'};
     rowBox(render()).props.onLayout({nativeEvent: {layout: {y: 588, height: 300}}});
     assert.equal(anchors.length, count, 'rail, hidden Home and stale authorities cannot move the focused page');
   } finally {globalThis.requestAnimationFrame = previousFrame;}

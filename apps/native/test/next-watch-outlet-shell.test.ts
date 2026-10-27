@@ -1,3 +1,4 @@
+import * as homeStart from '../src-next/screens/home/home-start';
 import {listeningCoverFixture} from './helpers/screen-harness.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -15,10 +16,11 @@ test('the real shell mounts one persistent player and a separate box-none watch 
   const registry = createFocusRegistry(), theme = createTheme({isTV: true, width: 1920});
   const snapshot = {authority, destination: {kind: 'home'}, libraries: [], profile: {}, account: {actions: []}, selectionActive: false, homeVisible: true};
   let root: any, tree: any;
-  const runtime = {getSnapshot: () => snapshot, subscribe: () => () => {}, playback: {}, memory: {read: async () => undefined}, reportError(error: unknown) {throw error;},
+  const runtime = {home: {getSnapshot: () => ({document: undefined})}, getSnapshot: () => snapshot, subscribe: () => () => {}, playback: {}, memory: {read: async () => undefined}, reportError(error: unknown) {throw error;},
     renderWatch: () => React.createElement('WatchChrome'),
     renderRoutes: () => React.createElement('TitleRoutes'), renderSelection: () => React.createElement('MenuOverlays'), renderDestination() {}};
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
+    '../screens/home/home-start': homeStart,
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
     '../kit/dock/ListeningCoverBridge': listeningCoverFixture,

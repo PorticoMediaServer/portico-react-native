@@ -1,3 +1,4 @@
+import * as homeStart from '../src-next/screens/home/home-start';
 import {listeningCoverFixture} from './helpers/screen-harness.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -43,7 +44,8 @@ test(`${adapter}: the real TV shell retains its page opener and retires Menu bef
   let snapshot: any = {authority, destination: {kind: 'home'}, libraries: [], hasLiveTV: false, profile: {}, account: {actions: []}, selectionActive: false,
     homeVisible: true, homeObscured: false, mediaExpanded: false};
   const navigations: unknown[] = [], tops: unknown[] = [], menuCapture: boolean[] = [];
-  const runtime = {playback: {}, retirementSignal: original.signal, getSnapshot: () => {
+  let homeDocument: any = {...authority, rows: [], spotlight: []};
+  const runtime = {home: {getSnapshot: () => ({document: homeDocument})}, playback: {}, retirementSignal: original.signal, getSnapshot: () => {
     if (original.signal.aborted) {retiredReads++; throw new Error('retired shell accessor');}
     return snapshot;
   }, subscribe: () => () => {}, reportError(error: unknown) {throw error;},
@@ -52,6 +54,7 @@ test(`${adapter}: the real TV shell retains its page opener and retires Menu bef
     registerTVRailBack: (fn: () => boolean) => {railBack = fn; return () => {railBack = undefined;};},
     renderRoutes() {}, renderSelection() {}, renderDestination() {}};
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
+    '../screens/home/home-start': homeStart,
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
     '../kit/dock/ListeningCoverBridge': listeningCoverFixture,
@@ -160,6 +163,31 @@ test(`${adapter}: the real TV shell retains its page opener and retires Menu bef
     const beforePlayer = requests.length;
     await act(() => menuFallback!());
     assert.equal(requests.length, beforePlayer, 'full player context Menu does nothing');
+    // Actual ShellSession uses the shared resolved start; it must not keep the
+    // former hardcoded Play yield when the real Home has no such action.
+    const emptyGraph = focusModel.tvHomeRegionMap(authority, []);
+    await act(() => {
+      rail().props.onExpandedChange(false);
+      snapshot = {...snapshot, mediaExpanded: false};
+      registry.attach(ids.start, null);
+      registry.configure({...emptyGraph.spotlight, order: [], entry: undefined});
+      registry.configure({...emptyGraph.customize, order: ['customize']});
+      registry.attach(ids.last, {requestTVFocus() {registry.didFocus(ids.last);}});
+      registry.didFocus(ids.last); sessionHost!.rerender();
+    });
+    assert.equal(menuCapture.at(-1), false, 'resolved empty Home yields at its real Customize start');
+    const releaseOverlay = registry.retain(ids.last);
+    try {
+      await act(() => {sessionHost!.rerender();});
+      assert.equal(menuCapture.at(-1), true, 'the original overlay return lease keeps Menu while Home retains focus');
+    } finally {await act(() => releaseOverlay());}
+    assert.equal(menuCapture.at(-1), false, 'actual return-lease removal reopens Home yield without a second owner');
+    await act(() => {homeDocument = undefined; sessionHost!.rerender();});
+    assert.equal(menuCapture.at(-1), true, 'loading cannot infer an empty Home or release Menu');
+    await act(() => {homeDocument = {...authority, rows: [], spotlight: []}; sessionHost!.rerender();});
+    assert.equal(menuCapture.at(-1), false);
+    await act(() => {registry.didFocus({regionId: ids.rail, childId: 'home'}); rail().props.onExpandedChange(true);});
+    assert.equal(menuCapture.at(-1), true, 'an open rail keeps its own Back step');
     const retained = menuFallback!, retainedSetup = menuSetup!;
     assert.equal(typeof retainedSetup, 'function');
     let successorCalls = 0;

@@ -1,3 +1,4 @@
+import * as homeStart from '../src-next/screens/home/home-start';
 import {listeningCoverFixture} from './helpers/screen-harness.mjs';
 import {homeActionDiagnostics} from '../src-next/platform/home-action-diagnostics.ts';
 import {focusTestID, createFocusRegistry} from '../src-next/kit/focus/registry.ts';
@@ -256,6 +257,7 @@ function shellRuntime(onMemoryRead?: () => void) {
 }
 async function shellSession(state: ReturnType<typeof lifecycle>, runtime: NativeShellRuntime, registry = createFocusRegistry()) {
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
+    '../screens/home/home-start': homeStart,
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
     '../kit/dock/ListeningCoverBridge': listeningCoverFixture,

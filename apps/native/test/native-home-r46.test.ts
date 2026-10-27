@@ -13,6 +13,7 @@ import {createTheme, nativeType} from '../src-next/kit/theme';
 import {tvFocusIds, tvHomeRegionMap} from '../src-next/shell/tv-focus';
 import {NativeHomePaging} from '../src-next/shell/home-paging';
 import {tvHomeRows} from '../src-next/screens/home/tv-presentation';
+import * as homeStart from '../src-next/screens/home/home-start';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 const descendants = (node: any): any[] => Array.isArray(node) ? node.flatMap(descendants) : node?.props ? [node, ...descendants(node.props.children)] : [];
@@ -177,7 +178,7 @@ async function homeModule(theme: typeof phoneTheme | (() => typeof phoneTheme), 
     '../../kit/cards': {CollectionBanner: 'CollectionBanner', LiveCard: 'LiveCard', PosterCard: 'PosterCard', RankedCard: 'RankedCard', SquareCard: 'SquareCard', WideCard: 'WideCard'},
     '../../kit/focus': {FocusItem: 'FocusItem', FocusRegion: 'FocusRegion', useFocusRegistry: () => registry},
     '../../kit/focus/initial-entry': {createInitialRegionEntry},
-    '../../shell/tv-focus': {tvFocusIds, tvHomeRegionMap}, '../../shell/home-paging': {NativeHomePaging}, './tv-presentation': {tvHomeRows},
+    '../../shell/tv-focus': {tvFocusIds, tvHomeRegionMap}, '../../shell/home-paging': {NativeHomePaging}, './tv-presentation': {tvHomeRows}, './home-start': homeStart,
     '../../kit/layout': {Hero: 'Hero', FocusPreviewHero: 'FocusPreviewHero', Row: 'Row'},
     '../../kit/layout/FocusAnchor': {useFocusAnchor: () => ({scrollRef: {}, offset: {value: 0}, repeating: false, stop() {}, move() {}, anchor() {}})},
     '../../kit/layout/types': {itemSelection: () => ({})},
@@ -188,6 +189,28 @@ async function homeModule(theme: typeof phoneTheme | (() => typeof phoneTheme), 
     './model': {authorizedHome: (value: unknown) => value, platformRows: () => rows, homeRowHasContent, homeCardText: () => ({title: 'x'}), homePlayTarget: () => undefined, pageAtVisibleEnd: () => false},
   });
 }
+
+test('resolved empty TV Home keeps the real Customize control and native region instead of returning text alone', async () => {
+  const h = hooks(), authority = {serverId: 'actual', viewerFence: 'viewer'};
+  const document = {rows: [], spotlight: [], serverId: authority.serverId, viewerFence: authority.viewerFence};
+  let opened = 0;
+  const emptyCopy = {type: 'EmptyCopy', props: {}};
+  const runtime = {
+    home: {subscribe() {}, getSnapshot: () => ({document, phase: 'ready'}), more() {}, revalidate: async () => {}, retry: async () => {}},
+    getSnapshot: () => ({authority, libraries: [], selectionActive: false}), selection: () => ({}), text: defaultI18n,
+    registerScrollToTop: () => () => {}, artwork: () => undefined, ambient: () => undefined, setHomeWindow() {}, playback: undefined,
+    actions: {navigate() {}, play() {}, more() {}, seeAll() {}, customize() {opened++;}}, reportError() {}, onArtworkError() {},
+    renderHomeEmpty: () => emptyCopy, error: () => ({}),
+  };
+  const {HomeScreen} = await homeModule(tvTheme, [], h.react);
+  const tree = h.render(() => HomeScreen({runtime, authority}));
+  assert.ok(descendants(tree).includes(emptyCopy));
+  assert.equal(descendants(tree).some(node => node.type === 'Hero'), false, 'no absent Spotlight paint/controls are introduced');
+  const control = descendants(tree).find(node => node.type === 'Button' && node.props.focusId === 'customize');
+  assert.ok(control); control.props.onPress(); assert.equal(opened, 1);
+  const region = descendants(tree).find(node => node.props.focus?.id === tvFocusIds(authority as any).customize);
+  assert.deepEqual(region.props.focus.order, ['customize']);
+});
 
 test('phone Home wires the drawn row rhythm, the 13 px sub-line and the live row sub-line', async () => {
   const entry = {id: 'episode-1', title: 'The Last of Us', kind: 'episode', libraryId: 'tv', seasonNumber: 1, episodeNumber: 1, duration: 3840, progressSeconds: 845} as unknown as ContentEntry;
