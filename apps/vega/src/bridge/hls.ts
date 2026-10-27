@@ -293,6 +293,29 @@ export class HlsSource {
     }
   }
 
+  /** A sealed cohort may wait while current media can play toward its frontier.
+   * Once required coverage is gone, an invalid original proof cannot be healed
+   * by adopting native ranges or silently idling forever with frozen charges. */
+  private waitForCohort(track: Track, generation: number): boolean {
+    const buffer = track.buffer, cohort = this.cohorts.get(buffer), control = this.cohortControl;
+    if (!cohort) return false;
+    const original = () => !this.closed && this.generation === generation && this.cohortControl === control &&
+      this.tracks.includes(track) && track.buffer === buffer && this.cohorts.get(buffer) === cohort && !this.audioHold && !this.audioDirty;
+    let covered = false, failure: unknown;
+    try {
+      const at = this.target !== undefined && !this.live ? this.elementTime(this.target) : Number(this.player.currentTime);
+      const ranges = this.cohortRanges(buffer);
+      if (!Number.isFinite(at)) throw new SourceError(false, 'buffer clock unavailable');
+      covered = ranges.some(([start, end]) => start <= at + 0.05 && end > at + 0.05);
+    } catch (error) { failure = error; }
+    // Reentrant seek/selection/retirement owns its own disposition. No native
+    // callback occurs after this final original-demand proof.
+    if (!original()) return true;
+    if (failure) throw failure;
+    if (!covered) throw new SourceError(false, 'media working set cannot progress', 0, 'unsupported');
+    return true;
+  }
+
   private coversCurrent(track: Track): boolean {
     if (this.arrival) return false;
     const at = this.target !== undefined && !this.live ? this.elementTime(this.target) : Number(this.player.currentTime);
@@ -1096,7 +1119,7 @@ export class HlsSource {
             if (!this.arrival && last && last.end - Number(this.player.currentTime) > this.aheadTarget() && Number(this.player.currentTime) >= this.placed[0].start - 0.05) continue;
           } else if (segment.start > position + this.aheadTarget()) continue;
           // A sealed buffer admits no new media until its exact old cohort is gone.
-          if (this.cohorts.has(track.buffer)) continue;
+          if (this.waitForCohort(track, generation)) continue;
           if (track.deferred?.number === segment.number && this.retainedBytes() + track.deferred.bytes > MEDIA_BUDGET) {
             if (this.coversCurrent(track)) continue;
             throw new SourceError(false, 'media working set too large', 0, 'unsupported');

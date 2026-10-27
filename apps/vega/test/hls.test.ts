@@ -1047,3 +1047,37 @@ test('the last empty-result getter cannot lend completion a successor or changed
     }
   }
 });
+
+
+test('the actual pump refuses unprovable sealed media when required coverage drains', async () => {
+  for (const drift of ['range', 'unreadable', 'media', 'init', 'staging'] as const) {
+    resetServer(); resetWorld(); film(3);
+    const {source, player, failures} = start(base + 'index.m3u8');
+    await source.open(0); await stopTestPump(source as any); source.settled();
+    const hls = source as any, buffer = player.source.buffers[0];
+    player.currentTime = 1;
+    await hls.sealCohorts(hls.generation);
+    const cohort = hls.cohorts.get(buffer), original = [...hls.retained];
+    assert.ok(cohort);
+    let refunds = 0, removes = 0;
+    const removeCharge = hls.retained.delete.bind(hls.retained);
+    hls.retained.delete = (entry: unknown) => { refunds++; return removeCharge(entry); };
+    buffer.remove = () => { removes++; };
+    if (drift === 'range') buffer.spans = [[1, 6]];
+    else if (drift === 'unreadable') Object.defineProperty(buffer, 'buffered', {get() {throw new Error('native ranges unavailable');}});
+    else hls.charge(buffer, hls.generation, 123, drift);
+    const appended = buffer.appended.length;
+    player.advance(6);
+    hls.startPump(hls.generation);
+    await until(() => failures.length > 0);
+    assert.equal(failures.length, 1, drift);
+    assert.equal(failures[0].refused, drift === 'unreadable' ? '' : 'unsupported', drift);
+    assert.equal(buffer.appended.length, appended, drift); assert.equal(removes, 0, drift); assert.equal(refunds, 0, drift);
+    assert.ok(original.every(entry => hls.retained.has(entry)), drift);
+    assert.equal(hls.cohorts.get(buffer), cohort, 'invalid proof is never unsealed or adopted');
+    await Promise.all([...hls.pumpRuns.values()]);
+    assert.equal(hls.pumpRuns.size, 0, 'terminal original demand leaves no idle pump');
+    assert.equal(failures.length, 1);
+    source.close();
+  }
+});
