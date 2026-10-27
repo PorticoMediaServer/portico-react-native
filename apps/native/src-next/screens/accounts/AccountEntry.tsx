@@ -23,6 +23,7 @@ import {HostedSignInUnavailable} from '../../platform/hosted-sign-in-unavailable
 import {NativePorticoSignIn, porticoUsernameUnavailable, type NativeFactorWitness} from '../../platform/portico-sign-in';
 import {nativeNetworkFetch, browseNearby} from '../../platform/server-connections';
 import {createNativePorticoTVSignIn} from '../../platform/tv-sign-in';
+import {createTVApprovalFinalization, type TVApprovalFinalization} from './tv-approval-finalization';
 import {createTVCodeOpening, type TVCodeCapture, type TVCodeKind, type TVCodeOpening} from './tv-code-opening';
 import {hostedUrl} from '../../platform/account-authority';
 import {TVCredentialForm, TVCodePresenter, TVVerificationForm, TVRequiredSetupHandoff, TVFrontDoor, TVProfilePINForm, TVForgotPINHandoff} from '../../tv/auth';
@@ -257,7 +258,17 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     setFactorOpening(Object.freeze({source, witness, owner, life}));
     return () => {owner.live = false; life.abort();};
   }, [stage]);
-  useEffect(() => {const subscription = AppState.addEventListener('change', state => {activeRef.current = state === 'active'; if (!activeRef.current) {retireOwnerRecoveryContact(); stopRetry();} setAppActive(activeRef.current);}); return () => subscription.remove();}, []);
+  useEffect(() => {const subscription = AppState.addEventListener('change', state => {
+    activeRef.current = state === 'active';
+    if (!activeRef.current) {
+      retireOwnerRecoveryContact(); stopRetry();
+      const opening = tvOpening.current;
+      if (stageRef.current === 'tv' && opening) {
+        retireTVOpening(false, opening); stageRef.current = 'welcome'; setStage('welcome');
+      }
+    }
+    setAppActive(activeRef.current);
+  }); return () => subscription.remove();}, [retireTVOpening]);
   useLayoutEffect(() => {
     if (stage !== 'address') return;
     const ticket = {active: true}; nearbySource.current = ticket;
@@ -479,10 +490,11 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   directoryConnectRef.current = connectDirectory;
   const chooseAnother = () => cancelDirectory();
   async function openTV<T>(capture: TVCodeCapture<T, NativeServerSignIn | undefined>,
-    accept: (grant: T, current: () => boolean) => Promise<(() => void | Promise<void>) | undefined>) {
+    accept: (grant: T, current: () => boolean) => Promise<(() => void | Promise<void>) | undefined>,
+    approval?: Readonly<{create: (grant: T, current: () => boolean) => TVApprovalFinalization; finish: () => Promise<void>}>) {
     const opening: TVCodeOpening = createTVCodeOpening(capture, {
       owns: value => tvOpening.current === value,
-      current: original => lifetime.current && stageRef.current === 'tv'
+      current: original => lifetime.current && activeRef.current && stageRef.current === 'tv'
         && (original.kind !== 'local' || operation.current === original.source),
       publish: (owner, state) => setTVView({opening: owner, state}),
       busy: (pending, adopting) => {adoptingTV.current = adopting; setBusy(pending || acting.current);},
@@ -495,6 +507,12 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
         if (!current() || !completed) return;
         retireTVOpening(false, opening);
         await finish();
+      },
+      approval: approval ? (_original, grant, current) => approval.create(grant, current) : undefined,
+      approved: approval ? async () => {retireTVOpening(false, opening); setError(undefined); await approval.finish();} : undefined,
+      approvalRetired: () => {
+        if (!opening.current()) return;
+        retireTVOpening(false, opening); stageRef.current = 'welcome'; setStage('welcome');
       },
       replace: async (original, current) => {if (current()) await startTV(original.kind, original.source);},
       credentials: async (original, current) => {await typeTVCredentials(original.kind, current, opening);},
@@ -518,10 +536,11 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
         if (current()) return () => consume(result);
       });
     }
-    return openTV({kind, source: undefined, service: createNativePorticoTVSignIn()}, async (grant, current) => {
-      if (!current()) return;
-      await nativeAccounts.adoptPorticoTVSession(grant);
-      if (current()) return directory;
+    const service = createNativePorticoTVSignIn(), credentials = nativeAccounts.accountCredentials();
+    return openTV({kind, source: undefined, service}, async () => undefined, {
+      create: (grant, current) => createTVApprovalFinalization({service, grant, credentials, current,
+        adopt: (original, callerCurrent) => nativeAccounts.adoptPorticoTVSession(original, callerCurrent)}),
+      finish: directory,
     });
   };
   const portico = async (auto?: {active: boolean; entry: {active: boolean}}) => {
@@ -1583,16 +1602,19 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const consentBody = tvKind === 'local' && server
     ? tvState.verificationUri ? t('accounts.consent.local', {server: server.name, address: tvState.verificationUri}) : undefined
     : t('accounts.consent.portico');
-  const newCode = tvState.phase === 'error' || tvState.phase === 'denied' || error
+  const approval = renderedTV?.approval();
+  const retryApproval = approval?.phase === 'failed' ? () => {void renderedTV?.retryApproval();} : undefined;
+  const newCode = (approval ? approval.phase === 'terminal' && renderedTV?.canTypeCredentials()
+    : tvState.phase === 'error' || tvState.phase === 'denied' || error)
     ? () => {void renderedTV?.newCode();} : undefined;
   if (Platform.isTV) return <TVCodePresenter {...(tvKind === 'local' ? {mode: 'local' as const, serverName: server!.name} : {mode: 'portico' as const})} body={consentBody}
     verificationUri={tvState.verificationUri} verificationUriComplete={tvState.verificationUriComplete} userCode={tvState.userCode}
     status={<>{status}<Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t(tvState.phase === 'denied' ? 'activation.declined' : tvState.phase === 'error' ? 'activation.failed' : 'activation.codeRefreshes')}</Text></>}
-    busy={busy} onTypeCredentials={() => {void renderedTV?.credentials();}} onBack={codeBack} onNewCode={newCode}/>;
+    busy={busy} onTypeCredentials={() => {void renderedTV?.credentials();}} onBack={codeBack} onNewCode={newCode} onRetry={retryApproval} retryAt={approval?.retryAt} credentialsDisabled={!!approval && !renderedTV?.canTypeCredentials()}/>;
   return layout(t('activation.title'), consentBody,
     <View style={{gap: 16, marginBottom: 20}}>{tvState.verificationUriComplete && <QRCode value={tvState.verificationUriComplete} size={theme.isTV ? 240 : 180}/>}
       <Text selectable style={[theme.type.title, {color: theme.colors.text}]}>{tvState.userCode ?? t('activation.preparingCode')}</Text>
       {tvState.verificationUri && <Text selectable style={[theme.type.body, {color: theme.colors.textSecondary}]}>{tvState.verificationUri}</Text>}
       <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t(tvState.phase === 'denied' ? 'activation.declined' : tvState.phase === 'error' ? 'activation.failed' : 'activation.codeRefreshes')}</Text></View>,
-    newCode ? {id: 'new-code', label: t('activation.getNewCode'), disabled: busy, loading: busy, onPress: newCode} : undefined);
+    retryApproval ? {id: 'retry-approval', label: t('action.tryAgain'), disabled: busy || (approval?.retryAt ?? 0) > Date.now(), loading: busy, onPress: retryApproval} : newCode ? {id: 'new-code', label: t('activation.getNewCode'), disabled: busy, loading: busy, onPress: newCode} : undefined);
 }

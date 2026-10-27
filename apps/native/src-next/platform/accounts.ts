@@ -151,12 +151,12 @@ export class NativeAccounts {
       return client.login(username, password, id, signal);
     });
   }
-  adoptPorticoTVSession(session: HostedSession) {
+  adoptPorticoTVSession(session: HostedSession, callerCurrent?: () => boolean) {
     return this.authenticatePorticoAccount(async signal => {
       const me = decodeMeGetResponse(await new HttpLocalApi(hostedUrl, session.accessToken, nativeNetworkFetch).request(hostedPath('me_get'), 'GET', undefined, signal));
       if (me.account.id !== session.account.id) throw Object.assign(new Error('native_account_identity_mismatch'), {code: 'identity_mismatch'});
       return session;
-    });
+    }, callerCurrent);
   }
   async localTVConsent(api: HttpLocalApi, session: () => LocalSession | undefined) {
     const current = session(), generation = this.generation; this.assertCurrent(generation);

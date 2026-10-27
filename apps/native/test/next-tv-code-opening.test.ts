@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
+import {CredentialSessionService, type CredentialRecord} from '../../../packages/client-core/src/credentials';
+import type {HostedSession} from '../../../packages/client-core/src';
+import * as tvApproval from '../src-next/screens/accounts/tv-approval-finalization';
 import {ApiError} from '../../../packages/client-core/src/index.ts';
 import {SetupCodeService, type SetupCodeJournal, type SetupCodeSnapshot} from '../../../packages/client-core/src/setup-code.ts';
 import {defaultI18n} from '../../../packages/i18n/src';
@@ -21,7 +24,8 @@ const deferred = <T,>() => {let resolve!: (value: T) => void, reject!: (error: u
   const promise = new Promise<T>((yes, no) => {resolve = yes; reject = no;}); return {promise, resolve, reject};};
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
 const settle = async () => {for (let i = 0; i < 4; i++) await act(() => {});};
-type Grant = {accepted: true};
+type Grant = HostedSession & {accepted: true};
+const approvedGrant = (): Grant => ({accepted: true, account: {id: 'account', username: 'Viewer', displayName: 'Viewer'}, familyId: 'family', accessToken: 'fixture-access', refreshToken: 'fixture-refresh', expiresAt: new Date(Date.now() + 3600000).toISOString(), refreshExpiresAt: new Date(Date.now() + 86400000).toISOString()});
 
 /** Real durable service + real opening + real presenter. The issuing API/storage
  * are in-memory boundaries; this does not exercise native hosts, crypto or HTTP. */
@@ -29,7 +33,8 @@ function fixture() {
   let owner: TVCodeOpening | undefined, stage = 'tv', alive = true, source = {};
   let view: {opening: TVCodeOpening; state: Omit<SetupCodeSnapshot<Grant>, 'grant'>} | undefined;
   let error: unknown, busy = false, ids = 0, failNext = false;
-  let holdNext: ReturnType<typeof deferred<void>> | undefined;
+  let holdNext: ReturnType<typeof deferred<void>> | undefined, holdCompletion: ReturnType<typeof deferred<void>> | undefined;
+  let failCompletion = false;
   const journals = new Map<string, SetupCodeJournal<Grant>>();
   const services: {service: SetupCodeService<Grant>; callbacks: (() => void)[]; cancels: number}[] = [];
   const calls = {create: 0, poll: 0, cancel: 0, accept: 0, credentials: 0};
@@ -44,13 +49,15 @@ function fixture() {
         return {deviceCode: 'd'.repeat(48), userCode: code, verificationUri, verificationUriComplete: verificationUri + '#code=' + code,
           expiresAt: new Date(Date.now() + 600_000).toISOString(), expiresIn: 600, interval: 5};
       },
-      async poll() {calls.poll++; if (poll === 'approved') return {accepted: true};
+      async poll() {calls.poll++; if (poll === 'approved') return approvedGrant();
         throw new ApiError(400, poll === 'denied' ? 'access_denied' : 'authorization_pending', 'fixture response', false);},
       async cancel() {calls.cancel++;},
     }, {async change(update) {
       const hold = holdNext; holdNext = undefined; if (hold) await hold.promise;
       if (failNext) {failNext = false; throw new Error('fixture storage unavailable');}
-      const next = update(journals.get(authority)); journals.set(authority, next); return next;
+      const old = journals.get(authority), next = update(old);
+      if (old?.current?.grant && !next.current) {const hold = holdCompletion; holdCompletion = undefined; if (hold) await hold.promise; if (failCompletion) {failCompletion = false; throw new Error('fixture completion journal unavailable');}}
+      journals.set(authority, next); return next;
     }}, async () => `00000000-0000-4000-8000-${String(++ids).padStart(12, '0')}`,
     {requestTimeoutMs: 15_000, tickMs: 1000, replaceBeforeMs: 60_000, random: () => 0});
     const entry = {service, callbacks: [] as (() => void)[], cancels: 0}; services.push(entry);
@@ -80,6 +87,7 @@ function fixture() {
     return opening;
   }
   return {mount, newService, calls, services, view: () => view!, error: () => error, busy: () => busy, stage: () => stage,
+    failCompletion: () => {failCompletion = true;}, holdCompletion: () => holdCompletion = deferred<void>(),
     poll: (value: typeof poll) => {poll = value;}, failNext: () => {failNext = true;},
     holdNext: () => holdNext = deferred<void>(), holdAccept: () => acceptHold = deferred<void>(),
     changeSource: () => {source = {};},
@@ -113,9 +121,9 @@ async function presenter(f: ReturnType<typeof fixture>, kind: TVCodeKind) {
     refresh: () => act(() => host.rerender())};
 }
 
-async function accountEntry(f: ReturnType<typeof fixture>, prepare: () => Promise<Record<string, unknown>> = async () => ({})) {
+async function accountEntry(f: ReturnType<typeof fixture>, prepare: () => Promise<Record<string, unknown>> = async () => ({}), approvedAccounts?: unknown) {
   let tree: any, completed = 0;
-  const back = new Set<() => boolean>();
+  const back = new Set<() => boolean>(); let appStateChange: (value: string) => void = () => {};
   // Observe actual hook references/state publications without relying on hook
   // positions. Capability bookkeeping is deliberately not a TV UI gate.
   const refs = new Set<{current: unknown}>(), writes: unknown[] = [];
@@ -143,7 +151,7 @@ async function accountEntry(f: ReturnType<typeof fixture>, prepare: () => Promis
   }
   const modules: Record<string, unknown> = {
     react: observedReact,
-    'react-native': {Platform: {isTV: true}, AppState: {currentState: 'active', addEventListener: () => ({remove() {}})},
+    'react-native': {Platform: {isTV: true}, AppState: {currentState: 'active', addEventListener: (_: string, listener: (value: string) => void) => {appStateChange = listener; return {remove() {}};}},
       BackHandler: {addEventListener: (_: string, fn: () => boolean) => {back.add(fn); return {remove: () => back.delete(fn)};}},
       TVEventControl: {enableTVMenuKey() {}, disableTVMenuKey() {}}, View: 'View', Text: 'Text', Image: 'Image', NativeModules: {}},
     'react-native-qrcode-svg': {default: 'QR'}, '../../../../../packages/i18n/src': {defaultI18n},
@@ -155,12 +163,13 @@ async function accountEntry(f: ReturnType<typeof fixture>, prepare: () => Promis
     '../../kit/theme': {useTheme: () => createTheme({isTV: true, width: 1920})}, '../../kit/states': {StateLayout: 'Layout'},
     '../../kit/controls': {Button: 'Button', Focusable: 'Focusable', TextField: 'Field'}, '../../kit/artwork': {ProfilePicker: 'Picker'},
     '../../tv/auth': {TVCodePresenter: 'Code', TVFrontDoor: 'Front', TVCredentialForm: 'Credentials'},
-    '../../platform/accounts': {nativeAccounts: {accountCredentials: () => ({synchronize: async () => {}, getSnapshot: () => ({})})}},
+    '../../platform/accounts': {nativeAccounts: approvedAccounts ?? {accountCredentials: () => ({synchronize: async () => {}, getSnapshot: () => ({})})}},
     '../../platform/server-sign-in': {NativeServerSignIn: LocalSource}, '../../platform/setup-outcome': setupOutcome,
     '../../platform/portico-sign-in': {NativePorticoSignIn: AuthSource},
     '../../platform/server-connections': {browseNearby: async () => []},
     '../../platform/tv-sign-in': {createNativePorticoTVSignIn: () => f.newService('portico')},
-    './directory-chooser': directoryChooser, './tv-code-opening': tvCodeOpening,
+    './directory-chooser': directoryChooser, './tv-code-opening': tvCodeOpening, './tv-approval-finalization': tvApproval,
+    '../../../../../packages/client-core/src': {HttpHostedApi: class {async servers() {return {items: []};}}},
     './PhoneFrontDoor': {PhoneFrontDoor: 'PhoneFrontDoor'},
   };
   // Unvisited native/credential branches may import names, but an unexpected
@@ -171,7 +180,7 @@ async function accountEntry(f: ReturnType<typeof fixture>, prepare: () => Promis
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), strict);
   const host = createHookHost(() => {tree = AccountEntry({onComplete: () => {completed++;}});});
   await act(() => host.mount());
-  return {host, tree: () => tree, completed: () => completed, back, accounts, refs, writes, AuthSource,
+  return {host, background: () => appStateChange('background'), tree: () => tree, completed: () => completed, back, accounts, refs, writes, AuthSource,
     async enter(kind: TVCodeKind) {
       if (kind === 'portico') await act(() => {tree.props.onPortico();});
       else {
@@ -389,3 +398,117 @@ for (const kind of ['local', 'portico'] as const) {
     } finally {f.cleanup();}
   });
 }
+
+
+async function approvedAccounts() {
+  const calls: string[] = []; let record: CredentialRecord<string> | undefined, verificationError: unknown;
+  let verificationHold: ReturnType<typeof deferred<void>> | undefined;
+  const credentials = new CredentialSessionService({authorityFromSession: session => session.familyId, refresh: async () => approvedGrant(), revoke: async family => {calls.push(`revoke:${family}`);}},
+    {load: async () => record, save: async value => {record = structuredClone(value);}}, async () => 'test-request');
+  await credentials.synchronize();
+  const modules: Record<string, unknown> = {
+    'react-native': {NativeModules: {}},
+    '../../../../packages/client-core/src': {HttpLocalApi: class {async request() {calls.push('verify'); if (verificationHold) await verificationHold.promise; if (verificationError) throw verificationError; return {account: {id: 'account'}};}}},
+    '../../../../packages/client-core/src/sign-in': {ServerSignInProbe: class {cancel() {}}},
+    './credentials': {createCredentials: () => credentials}, './account-authority': {hostedUrl: 'https://accounts.example'},
+    '../../../../packages/contracts/src/hosted/routes': {routePath: () => '/v1/me'},
+    '../../../../packages/contracts/src/hosted/decoders': {decodeMeGetResponse: (value: unknown) => value},
+  };
+  const {NativeAccounts} = await screenModule(new URL('../src-next/platform/accounts.ts', import.meta.url), new Proxy(modules, {get: (all, key: string) => all[key] ?? {}}));
+  const native = new NativeAccounts(), actualAdopt = native.adoptPorticoTVSession.bind(native); let uncertainOnce = false;
+  native.adoptPorticoTVSession = async (...args: any[]) => {calls.push('admit'); const value = await actualAdopt(...args); if (uncertainOnce) {uncertainOnce = false; throw new Error('Adoption outcome unavailable');} return value;};
+  return {native, credentials, calls, fail: (value: unknown) => {verificationError = value;},
+    hold: () => verificationHold = deferred<void>(), uncertain: () => {uncertainOnce = true;}};
+}
+async function approvalPresenter(entry: Awaited<ReturnType<typeof accountEntry>>) {
+  const {TVCodePresenter} = await screenModule(new URL('../src-next/tv/auth/TVCodePresenter.tsx', import.meta.url), {
+    react: {...React, default: React}, 'react-native': {View: 'View', Text: 'Text'}, 'react-native-qrcode-svg': {default: 'QR'},
+    '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/controls': {Button: 'Button'}, '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'},
+    '../../kit/theme': {useTheme: () => createTheme({isTV: true, width: 1920}), nativeType}, '../../screens/destinations/useEntryFocus': {useDestinationEntryFocus() {}},
+    '../../platform/native-blur': {glassRecipe: () => ({nativeBlur: false}), BlurView: 'Blur'}, './entry-revision': {useTVBusyEntryRevision}, './TVAuthLayout': {TVAuthLayout: 'Layout'},
+  });
+  let tree: any; const host = createHookHost(() => {const wrapped = TVCodePresenter(entry.tree().props); tree = wrapped.props.children.type(wrapped.props.children.props);});
+  await act(() => host.mount());
+  return {host, refresh: () => act(() => host.rerender()), button: (id: string) => nodes(tree).find(node => node.type === 'Button' && node.props.focusId === id)};
+}
+async function approveAccount(t: any, f: ReturnType<typeof fixture>, entry: Awaited<ReturnType<typeof accountEntry>>) {
+  await entry.enter('portico'); t.mock.timers.tick(0); await settle();
+  f.poll('approved'); t.mock.timers.tick(5000); await settle();
+}
+
+test('FX213 actual AccountEntry/Presenter retries an original approval through actual NativeAccounts credential admission', async t => {
+  t.mock.timers.enable({apis: ['Date', 'setTimeout']});
+  const f = fixture(), accounts = await approvedAccounts(), entry = await accountEntry(f, undefined, accounts.native);
+  let presenter: Awaited<ReturnType<typeof approvalPresenter>> | undefined;
+  try {
+    accounts.fail(new ApiError(503, 'unavailable', 'Temporary refusal', true)); await approveAccount(t, f, entry);
+    assert.equal(entry.tree().type, 'Code'); assert.equal(entry.tree().props.onNewCode, undefined); assert.ok(entry.tree().props.onRetry);
+    presenter = await approvalPresenter(entry); assert.equal(presenter.button('retry-approval').props.disabled, false);
+    const retained = entry.tree().props;
+    accounts.fail(undefined); await act(() => {presenter!.button('retry-approval').props.onPress(); presenter!.button('retry-approval').props.onPress();}); await settle();
+    assert.equal(accounts.credentials.getSnapshot().session?.familyId, 'family'); assert.equal(f.calls.create, 1); assert.equal(f.calls.poll, 1);
+    assert.deepEqual(accounts.calls, ['admit', 'verify', 'admit', 'verify']); assert.notEqual(entry.tree().type, 'Code');
+    retained.onRetry(); retained.onTypeCredentials(); retained.onBack(); await settle(); assert.notEqual(entry.tree().type, 'Code');
+  } finally {presenter?.host.unmount(); entry.host.unmount(); f.cleanup();}
+});
+for (const uncertain of [false, true]) test(`FX213 actual entry retries journal only after ${uncertain ? 'uncertain' : 'successful'} adoption`, async t => {
+  t.mock.timers.enable({apis: ['Date', 'setTimeout']});
+  const f = fixture(), accounts = await approvedAccounts(), entry = await accountEntry(f, undefined, accounts.native);
+  try {
+    if (uncertain) accounts.uncertain(); else f.failCompletion(); await approveAccount(t, f, entry);
+    assert.ok(entry.tree().props.onRetry); assert.equal(entry.tree().props.credentialsDisabled, true); assert.equal(entry.tree().props.onNewCode, undefined);
+    const old = entry.tree().props; old.onTypeCredentials(); await settle(); assert.equal(entry.tree().type, 'Code'); assert.equal(entry.accounts.length, 0);
+    await act(() => {old.onRetry();}); await settle();
+    assert.deepEqual(accounts.calls, ['admit', 'verify']); assert.equal(f.calls.cancel, 0); assert.notEqual(entry.tree().type, 'Code');
+  } finally {entry.host.unmount(); f.cleanup();}
+});
+for (const during of ['adoption', 'journal']) test(`FX213 actual background during ${during} retires original UI without successor navigation or adopted-family cancellation`, async t => {
+  t.mock.timers.enable({apis: ['Date', 'setTimeout']});
+  const f = fixture(), accounts = await approvedAccounts(), entry = await accountEntry(f, undefined, accounts.native);
+  try {
+    const hold = during === 'adoption' ? accounts.hold() : f.holdCompletion(); await approveAccount(t, f, entry);
+    assert.equal(entry.tree().type, 'Code'); const retained = entry.tree().props;
+    await act(() => entry.background()); assert.equal(entry.tree().type, 'Front'); const successor = entry.tree();
+    hold.resolve(); await settle(); retained.onTypeCredentials(); retained.onBack(); await settle();
+    assert.equal(entry.tree().type, 'Front'); assert.equal(entry.completed(), 0); assert.equal(f.calls.cancel, 0);
+    if (during === 'journal') {assert.equal(accounts.credentials.getSnapshot().session?.familyId, 'family'); assert.ok(!accounts.calls.includes('revoke:family'));}
+    else assert.equal(accounts.credentials.getSnapshot().session, undefined);
+    assert.equal(f.calls.create, 1); assert.equal(successor.type, 'Front');
+  } finally {entry.host.unmount(); f.cleanup();}
+});
+test('FX213 complete=false retires actual entry without a directory transition or new consent', async t => {
+  t.mock.timers.enable({apis: ['Date', 'setTimeout']});
+  const f = fixture(), accounts = await approvedAccounts(), entry = await accountEntry(f, undefined, accounts.native);
+  try {
+    await entry.enter('portico'); f.services[0].service.complete = async () => false;
+    t.mock.timers.tick(0); await settle(); f.poll('approved'); t.mock.timers.tick(5000); await settle();
+    assert.equal(entry.tree().type, 'Front'); assert.equal(f.calls.create, 1); assert.equal(f.calls.cancel, 0);
+    assert.equal(accounts.credentials.getSnapshot().session?.familyId, 'family');
+  } finally {entry.host.unmount(); f.cleanup();}
+});
+test('FX213 actual Retry button honours 429 deadline with no automatic approval request', async t => {
+  t.mock.timers.enable({apis: ['Date', 'setTimeout']});
+  const f = fixture(), accounts = await approvedAccounts(), entry = await accountEntry(f, undefined, accounts.native);
+  let presenter: Awaited<ReturnType<typeof approvalPresenter>> | undefined;
+  try {
+    accounts.fail(new ApiError(429, 'rate_limited', 'Wait', true, 10)); await approveAccount(t, f, entry); presenter = await approvalPresenter(entry);
+    assert.equal(presenter.button('retry-approval').props.disabled, true); const retry = entry.tree().props.onRetry;
+    accounts.fail(undefined); retry(); await settle(); assert.deepEqual(accounts.calls, ['admit', 'verify']);
+    t.mock.timers.tick(10000); await settle(); await presenter.refresh(); assert.equal(presenter.button('retry-approval').props.disabled, false);
+    assert.deepEqual(accounts.calls, ['admit', 'verify']); await act(() => retry()); await settle(); assert.equal(accounts.calls.filter(value => value === 'admit').length, 2);
+  } finally {presenter?.host.unmount(); entry.host.unmount(); f.cleanup();}
+});
+
+test('FX213 adopted journal failure refuses direct credentials/New-code and Back preserves the exact canonical family', async t => {
+  t.mock.timers.enable({apis: ['Date', 'setTimeout']});
+  const f = fixture(), accounts = await approvedAccounts(), entry = await accountEntry(f, undefined, accounts.native);
+  try {
+    f.failCompletion(); await approveAccount(t, f, entry);
+    const opening = [...entry.refs].find(ref => ref.current && typeof ref.current === 'object' && 'retryApproval' in ref.current)!.current as TVCodeOpening;
+    await opening.newCode(); await opening.credentials(); await settle();
+    assert.equal(entry.tree().type, 'Code'); assert.equal(entry.accounts.length, 0); assert.equal(f.calls.cancel, 0); assert.equal(f.calls.create, 1);
+    await act(() => entry.tree().props.onBack()); await settle();
+    assert.equal(entry.tree().type, 'Front'); assert.equal(f.calls.cancel, 0); assert.equal(accounts.credentials.getSnapshot().session?.familyId, 'family');
+    assert.ok(!accounts.calls.includes('revoke:family'));
+  } finally {entry.host.unmount(); f.cleanup();}
+});

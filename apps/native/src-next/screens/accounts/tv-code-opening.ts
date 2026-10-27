@@ -1,3 +1,4 @@
+import type {TVApprovalFinalization, TVApprovalSnapshot} from './tv-approval-finalization';
 import type {SetupCodeService, SetupCodeSnapshot} from '../../../../../packages/client-core/src/setup-code';
 
 export type TVCodeKind = 'local' | 'portico';
@@ -8,6 +9,9 @@ export type TVCodeOpening = Readonly<{
   pending: () => boolean;
   start: () => Promise<void>;
   newCode: () => Promise<void>;
+  approval: () => TVApprovalSnapshot | undefined;
+  retryApproval: () => Promise<void>;
+  canTypeCredentials: () => boolean;
   credentials: () => Promise<void>;
   retire: (cancel?: boolean) => void;
 }>;
@@ -21,11 +25,15 @@ export function createTVCodeOpening<T, S>(capture: TVCodeCapture<T, S>, options:
   busy: (pending: boolean, adopting: boolean) => void;
   error: (failure: unknown) => void;
   accept: (original: TVCodeCapture<T, S>, grant: T, current: () => boolean) => Promise<void>;
+  approval?: (original: TVCodeCapture<T, S>, grant: T, current: () => boolean) => TVApprovalFinalization;
+  approved?: () => Promise<void>;
+  approvalRetired?: () => void;
   replace: (original: TVCodeCapture<T, S>, current: () => boolean) => Promise<void>;
   credentials: (original: TVCodeCapture<T, S>, current: () => boolean) => Promise<void>;
 }): TVCodeOpening {
   const original = Object.freeze({...capture});
   let phase: 'live' | 'new-code' | 'credentials' | 'adopting' | 'retired' = 'live';
+  let approval: TVApprovalFinalization | undefined, approvedGrant: T | undefined;
   let starting = false, off: (() => void) | undefined, cancellation: Promise<void> | undefined;
   const current = () => phase !== 'retired' && options.owns(opening) && options.current(original);
   const pending = () => starting || phase !== 'live' && phase !== 'retired';
@@ -39,7 +47,7 @@ export function createTVCodeOpening<T, S>(capture: TVCodeCapture<T, S>, options:
     return cancellation;
   };
   const transition = async (next: 'new-code' | 'credentials') => {
-    if (!current() || pending()) return;
+    if (!current() || pending() || approval && !approval.canCancel()) return;
     phase = next; unlink(); changed();
     const same = () => phase === next && current();
     try {
@@ -55,6 +63,24 @@ export function createTVCodeOpening<T, S>(capture: TVCodeCapture<T, S>, options:
       changed();
     }
   };
+  const accept = async (grant: T) => {
+    if (phase !== 'live' || !current()) return;
+    phase = 'adopting'; unlink(); changed();
+    const same = () => phase === 'adopting' && current();
+    try {
+      if (!same() || !original.service.isCurrent(grant) || !same()) return;
+      if (options.approval) {
+        if (!approval) approval = options.approval(original, grant, same);
+        if (!same()) return;
+        const result = await approval.run();
+        if (!same()) return;
+        if (result === 'complete') await options.approved?.();
+        else if (result === 'retired') options.approvalRetired?.();
+        else {const value = approval.getSnapshot(); if (same() && value.error) options.error(value.error);}
+      } else await options.accept(original, grant, same);
+    } catch (failure) {if (same()) options.error(failure);}
+    finally {if (same()) phase = 'live'; changed();}
+  };
   const read = () => {
     // Refuse before even reading a retired source, not just before setState.
     if (phase !== 'live' || !current()) return;
@@ -63,18 +89,18 @@ export function createTVCodeOpening<T, S>(capture: TVCodeCapture<T, S>, options:
     const {grant, ...presentation} = value;
     options.publish(opening, presentation);
     if (phase !== 'live' || !current() || value.phase !== 'approved' || grant === undefined) return;
-    phase = 'adopting'; unlink(); changed();
-    const same = () => phase === 'adopting' && current();
-    void (async () => {
-      if (!same() || !original.service.isCurrent(grant)) return;
-      await options.accept(original, grant, same);
-    })().catch(failure => {if (same()) options.error(failure);}).finally(() => {
-      if (same()) phase = 'live';
-      changed();
-    });
+    approvedGrant = grant;
+    void accept(grant);
   };
   const opening: TVCodeOpening = Object.freeze({
     kind: original.kind, current, pending,
+    approval: () => current() ? approval?.getSnapshot() : undefined,
+    canTypeCredentials: () => current() && (!approval || approval.canCancel()),
+    async retryApproval() {
+      if (!current() || pending() || !approval || approvedGrant === undefined) return;
+      if (!current() || approval.getSnapshot().phase !== 'failed') return;
+      await accept(approvedGrant);
+    },
     async start() {
       if (!current() || starting || off) return;
       starting = true; off = original.service.subscribe(read); changed();
@@ -85,13 +111,13 @@ export function createTVCodeOpening<T, S>(capture: TVCodeCapture<T, S>, options:
     newCode: () => transition('new-code'), credentials: () => transition('credentials'),
     retire(abandon = false) {
       if (phase === 'retired') return;
-      const owned = options.owns(opening);
-      phase = 'retired'; unlink();
+      const owned = options.owns(opening), mayCancel = !approval || approval.canCancel();
+      phase = 'retired'; unlink(); approval?.retire();
       if (!owned) return;
       original.service.pause();
       // Unmount only pauses. Explicit abandonment cancels this original once;
       // its late storage/network failure has no presentation owner to update.
-      if (abandon) void cancel().catch(() => {});
+      if (abandon && mayCancel) void cancel().catch(() => {});
     },
   });
   return opening;
