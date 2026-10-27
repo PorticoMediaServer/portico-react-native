@@ -1,4 +1,4 @@
-import {HttpLocalApi} from '../../../../packages/client-core/src';
+import {HttpLocalApi, throwIfAborted} from '../../../../packages/client-core/src';
 import {currentUTCTimestamp} from '../../../../packages/client-core/src/local-session';
 import {routeBytes, routeOrigin} from '../../../../packages/client-core/src/route-identity';
 import {CodedError} from '../../../../packages/client-core/src/server-messages';
@@ -31,7 +31,7 @@ export class NativeSetupApproval {
   }
   dispose() {this.controller.abort(); this.off();}
   private assertOpening() {
-    this.signal.throwIfAborted();
+    throwIfAborted(this.signal);
     if (!this.opening.current() || this.deciding && !this.opening.canApprove()) throw invalid();
   }
   private async access() {
