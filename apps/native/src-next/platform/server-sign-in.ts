@@ -1,6 +1,6 @@
 import {linkNativeAbortSignals} from './abort-signals';
 import {accountExpectation, nativeAccountWork} from './account-work';
-import {HttpLocalApi, assertFirstContactIdentity, type HostedServer, type HostedSession, type LocalSession} from '../../../../packages/client-core/src';
+import {HttpLocalApi, transportJSON, assertFirstContactIdentity, type HostedServer, type HostedSession, type LocalSession} from '../../../../packages/client-core/src';
 import {ServerSignInProbe, parseServerSignIn, type ServerSignIn} from '../../../../packages/client-core/src/sign-in';
 import {directSignIn, directSignInContinuation, completeDirectSignInChallenge, selectDirectProfile, parseDirectSnapshot, type DirectSignIn, type DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
 import {connectHostedServer, connectPairedServer, connectPairedPorticoServer, inspectDirectServer} from '../../../../packages/client-core/src/server-connections';
@@ -34,6 +34,8 @@ import type {HostedRequestApi} from '../../../../packages/client-core/src/portic
 const cancelled = () => Object.assign(new Error('native_sign_in_cancelled'), {name: 'AbortError'});
 const mismatch = () => Object.assign(new Error('native_sign_in_authority_changed'), {code: 'identity_mismatch'});
 const captureAccount = (session: Omit<HostedSession, 'refreshToken'>) => Object.freeze({...session, account: Object.freeze({...session.account})});
+// Preserve exactly the JSON wire value before canonical admission can await storage.
+const captureCommandBody = (body: unknown): unknown => body === undefined ? undefined : JSON.parse(transportJSON(body));
 
 /** Current product sign-in commands. UI frames are separate; no retired screen is imported.
  * Every path uses the canonical probe, real verified routes, account/profile API and secure store. */
@@ -398,9 +400,9 @@ export class NativeServerSignIn {
       await cleanup.logout();
     };
     const officialHosted: HostedRequestApi = {request: async <T,>(path: string, method?: string, body?: unknown, callerSignal?: AbortSignal) => {
-      assertHostedCurrent(); const linked = linkNativeAbortSignals([signal, callerSignal]);
+      assertHostedCurrent(); const originalBody = captureCommandBody(body), linked = linkNativeAbortSignals([signal, callerSignal]);
       try {const result = await nativeAccountWork(credentials, session =>
-        new HttpLocalApi(hostedUrl, session.accessToken, nativeNetworkFetch).request<T>(path, method, body, linked.signal),
+        new HttpLocalApi(hostedUrl, session.accessToken, nativeNetworkFetch).request<T>(path, method, originalBody, linked.signal),
         {expected, signal: linked.signal, isCurrent: this.current}); assertHostedCurrent(); return result;}
       catch (error) {assertHostedCurrent(); throw hostedSignInUnavailable(error) ?? error;}
       finally {linked.dispose();}
@@ -640,9 +642,9 @@ export class NativeServerSignIn {
           finally {paired.connection.dispose();}
           const expected = accountExpectation(account);
           const hosted: HostedRequestApi = {request: async <T,>(path: string, method?: string, body?: unknown, callerSignal?: AbortSignal) => {
-            const linked = linkNativeAbortSignals([this.controller.signal, callerSignal]);
+            const originalBody = captureCommandBody(body), linked = linkNativeAbortSignals([this.controller.signal, callerSignal]);
             try {return await nativeAccountWork(credentials,
-              issued => new HttpLocalApi(hostedUrl, issued.accessToken, nativeNetworkFetch).request<T>(path, method, body, linked.signal),
+              issued => new HttpLocalApi(hostedUrl, issued.accessToken, nativeNetworkFetch).request<T>(path, method, originalBody, linked.signal),
               {expected, signal: linked.signal, isCurrent: () => this.current() && hostedCurrent()});}
             finally {linked.dispose();}
           }};
