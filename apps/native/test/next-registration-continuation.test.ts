@@ -61,3 +61,21 @@ test('native ignores a late verified lookup after the original caller leaves', a
   await assert.rejects(pending, {code: 'cancelled'});
   assert.equal(p.source.registrationAfterCollision(p.registration), undefined); p.source.dispose();
 });
+
+test('retired invitation caller cannot open a provider browser after a late start', async () => {
+  let release!: (value: unknown) => void, started!: () => void, live = true, opened = 0;
+  const waiting = new Promise<void>(resolve => {started = resolve;});
+  const bridge = {loadContinuation: async () => null, newBinding: async () => 'a'.repeat(43), saveContinuation: async () => {}, newRequestId: async () => 'request', cancel() {}, canOpenBrowser: true, openBrowser: async () => {opened++; return '';}};
+  const api = {options: async () => ({providers: []}), start: async () => {started(); return new Promise(resolve => {release = resolve;});}};
+  const nativeAccounts = {onCancel: () => () => {}, accountClient: () => api};
+  const {NativePorticoSignIn} = await screenModule(new URL('../src-next/platform/portico-sign-in.ts', import.meta.url), {
+    react: {default: {}}, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}},
+    '../../../../packages/client-core/src/hosted-security': {MFARequiredError}, '../../../../packages/client-core/src/server-messages': {CodedError},
+    '../../../../packages/client-core/src': {ApiError}, '../../../../packages/contracts/src/hosted/routes': {},
+    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://example.test'},
+  });
+  const source = new NativePorticoSignIn(); await source.prepare();
+  const attempt = source.provider('google', () => live); await waiting; live = false;
+  release({transactionId: 'original', authorizationUrl: 'https://example.test/authorize'});
+  await assert.rejects(attempt, {code: 'cancelled'}); assert.equal(opened, 0); source.dispose();
+});

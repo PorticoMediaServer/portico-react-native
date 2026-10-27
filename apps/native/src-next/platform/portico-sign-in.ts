@@ -85,9 +85,10 @@ export class NativePorticoSignIn {
       throw error;
     } finally {this.authenticating = false;}
   }
-  async password(username: string, password: string) {
+  async password(username: string, password: string, callerCurrent?: () => boolean) {
     const id = await this.bridge.newRequestId(); this.check();
-    return this.authenticate(signal => this.api().login(username, password, id, signal));
+    if (callerCurrent && !callerCurrent()) throw new CodedError('cancelled', 'native_portico_changed');
+    return this.authenticate(signal => this.api().login(username, password, id, signal), callerCurrent);
   }
   /** Issue, or reuse, the witness for the private challenge this port holds. The
    * returned object is frozen and opaque; the token and challenge never leave here. */
@@ -123,27 +124,32 @@ export class NativePorticoSignIn {
       hostedBody('account_recovery_request', {username: username.trim().toLowerCase(), contactAddress: contactAddress.trim(),
         requestId: await this.bridge.newRequestId()}), this.abort.signal);
   }
-  async provider(provider: IdentityProvider) {
+  async provider(provider: IdentityProvider, callerCurrent?: () => boolean) {
+    const current = () => {this.check(); if (callerCurrent && !callerCurrent()) throw new CodedError('cancelled', 'native_provider_changed');};
+    current();
     const nativeApple = provider === 'apple' && this.nativeApple;
-    const start = await this.api().start(provider, {mode: 'login', requestId: await this.bridge.newRequestId(), nativeApple,
-      ...(!nativeApple ? {completion: 'code' as const} : {})}, this.abort.signal); this.check();
+    const requestId = await this.bridge.newRequestId(); current();
+    const start = await this.api().start(provider, {mode: 'login', requestId, nativeApple,
+      ...(!nativeApple ? {completion: 'code' as const} : {})}, this.abort.signal); current();
     const binding = this.continuation?.binding;
     if (!binding) throw new Error('native_continuation_missing');
     this.providerAttempt = Object.freeze({transactionId: start.transactionId, nativeApple, continuationBinding: binding});
     this.providerRefresh = undefined;
-    await this.checkpoint({transactionId: start.transactionId, completionCode: undefined});
-    this.check();
+    current(); await this.checkpoint({transactionId: start.transactionId, completionCode: undefined}); current();
     if (nativeApple) {
-      const assertion = await this.bridge.signInApple(start.nativeNonce); this.check();
-      this.transaction = await this.api().nativeApple(start.transactionId, assertion.idToken, assertion.displayName ?? '', this.abort.signal);
+      current(); const assertion = await this.bridge.signInApple(start.nativeNonce); current();
+      const transaction = await this.api().nativeApple(start.transactionId, assertion.idToken, assertion.displayName ?? '', this.abort.signal); current();
+      this.transaction = transaction;
     } else {
       if (this.bridge.canOpenBrowser !== true || !start.authorizationUrl) throw new Error('native_provider_unavailable');
-      const returned = parseAccountReturn(await this.bridge.openBrowser(start.authorizationUrl, start.transactionId), start.transactionId, hostedUrl); this.check();
+      current(); const result = await this.bridge.openBrowser(start.authorizationUrl, start.transactionId); current();
+      const returned = parseAccountReturn(result, start.transactionId, hostedUrl);
       this.providerAttempt = Object.freeze({transactionId: start.transactionId, nativeApple: false, completionCode: returned.completionCode, continuationBinding: binding});
-      await this.checkpoint({completionCode: returned.completionCode});
-      this.transaction = await this.api().transaction(start.transactionId, this.abort.signal, returned.completionCode) ?? undefined;
+      current(); await this.checkpoint({completionCode: returned.completionCode}); current();
+      const transaction = await this.api().transaction(start.transactionId, this.abort.signal, returned.completionCode); current();
+      this.transaction = transaction ?? undefined;
     }
-    this.check(); if (!this.transaction) throw new Error('native_provider_incomplete');
+    current(); if (!this.transaction) throw new Error('native_provider_incomplete');
     return this.transaction;
   }
   /** Only a confirmed failed public-username insert rotates the onboarding proof.
