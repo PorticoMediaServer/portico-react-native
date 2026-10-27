@@ -33,7 +33,7 @@ async function rig() {
   let current: any; const initialOpening = {}; const listeners = new Set<() => void>();
   const controller = {progress: {value: .5}, dragging: {value: true}};
   async function publish(nextFence: any = fence, nextScope: object = {}, nextSource: any = source, opening: object = initialOpening) {
-    const entry = {fence: nextFence, source: nextSource, controller, scope: nextScope, opening, current: () => current === entry, subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};}};
+    const entry = {fence: nextFence, source: nextSource, controller, scope: nextScope, opening, pageOpen: false, current: () => current === entry, subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};}};
     current = entry;
     await act(() => {ctx().publish(entry);});
     return entry;

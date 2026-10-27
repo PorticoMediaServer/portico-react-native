@@ -217,8 +217,8 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
   const audioArtwork = useMemo(() => audioFence && sameAuthority(snapshot.authority, authority) ? runtime.artwork(snapshot.entry?.posterUrl) : undefined,
     [audioFence, snapshot.authority, authority, runtime, snapshot.entry?.posterUrl]);
   const coverPublication = useMemo(() => audioFence ? {fence: audioFence, source: audioArtwork,
-    controller: morph, scope: coverScope, opening: coverOpeningKey, current: coverCurrent, subscribe: coverSubscribe} : undefined,
-    [audioFence, audioArtwork, morph, coverScope, coverOpeningKey, coverCurrent, coverSubscribe]);
+    controller: morph, scope: coverScope, opening: coverOpeningKey, pageOpen: listeningOpen, current: coverCurrent, subscribe: coverSubscribe} : undefined,
+    [audioFence, audioArtwork, morph, coverScope, coverOpeningKey, listeningOpen, coverCurrent, coverSubscribe]);
   useListeningCoverPublication(coverPublication);
   usePlayerMorphPublication(morph, sameAuthority(snapshot.authority, authority) && !theme.isTV ? audioFence ?? (expandedReady ? pictureFence : undefined) : undefined);
   const {dockX, dockFade, dockTravelFade} = morph;

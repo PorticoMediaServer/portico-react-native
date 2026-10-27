@@ -13,7 +13,7 @@ import {ListeningCoverPaint} from './ListeningCoverPaint';
 import {validRect} from './model';
 import type {DockRect, PlayerMorphController} from './types';
 
-type Publication = Readonly<{fence: PlaybackFence; source?: ArtworkSource; controller: PlayerMorphController; scope: object | undefined; opening: object; current: () => boolean; subscribe?: (listener: () => void) => () => void}>;
+type Publication = Readonly<{fence: PlaybackFence; source?: ArtworkSource; controller: PlayerMorphController; scope: object | undefined; opening: object; pageOpen: boolean; current: () => boolean; subscribe?: (listener: () => void) => () => void}>;
 export type ListeningScrubber = Readonly<{fence: PlaybackFence; gesture: PanGesture; scope: number;
   activeScope: SharedValue<number>; ticket: SharedValue<number>; drag: SharedValue<number | null>; base: SharedValue<number>; travel: SharedValue<number>}>;
 type Slot = 'full' | 'mini';
@@ -36,6 +36,7 @@ const belongs = (frame: Frame | undefined, value: Publication | undefined, kind:
 export function ListeningCoverProvider({children}: {children: React.ReactNode}) {
   const theme = useTheme(), motion = useMotion(), canvas = useRef<View>(null);
   const pageHeight = useSharedValue(0), pageAlpha = useSharedValue(0), first = useSharedValue(0), second = useSharedValue(0), third = useSharedValue(0);
+  const startedScene = useSharedValue(0);
   const reportPageHeight = useCallback((height: number) => {pageHeight.value = Number.isFinite(height) && height > 0 ? height : 0;}, [pageHeight]);
   const groups = useMemo(() => [first, second, third] as const, [first, second, third]);
   const [revision, setRevision] = useState(0);
@@ -62,10 +63,16 @@ export function ListeningCoverProvider({children}: {children: React.ReactNode}) 
       && Object.keys(frame.bounds).every(key => frame.bounds[key as keyof DockRect] === previous.bounds[key as keyof DockRect]) ? previous : frame);
   }, []);
   const active = useSyncExternalStore(binding?.subscribe ?? noSubscribe, binding?.current ?? notCurrent);
-  const phase = useRef<{fence: PlaybackFence; scope: object | undefined; ticket: number} | undefined>(undefined);
+  const phase = useRef<{fence: PlaybackFence; scope: object | undefined; opening: object; pageOpen: boolean; ticket: number} | undefined>(undefined);
   const counter = useRef(0);
-  if (binding && (!phase.current || !sameFence(phase.current.fence, binding.fence) || phase.current.scope !== binding.scope)) {
-    phase.current = {fence: binding.fence, scope: binding.scope, ticket: ++counter.current};
+  if (binding) {
+    const prior = phase.current, sameScope = prior?.scope === binding.scope, sameSource = !!prior && sameFence(prior.fence, binding.fence);
+    // A first mini drag can precede the admitted full body. That handoff keeps
+    // its clock, as does a new track while the same full page remains open.
+    const handoff = !!prior && !prior.pageOpen && binding.pageOpen && sameScope && sameSource;
+    const fresh = !prior || !sameScope || prior.opening !== binding.opening && !handoff || !sameSource && !binding.pageOpen;
+    phase.current = {fence: binding.fence, scope: binding.scope, opening: binding.opening, pageOpen: binding.pageOpen,
+      ticket: fresh ? ++counter.current : prior.ticket};
   }
   const ticket = phase.current?.ticket ?? 0, progress = binding?.controller.progress, dragging = binding?.controller.dragging;
   const goal = binding?.controller.presentationGoal, standard = motion.timing('standard'), quick = motion.timing('quick', 'in');
@@ -74,30 +81,36 @@ export function ListeningCoverProvider({children}: {children: React.ReactNode}) 
     goal: goal?.value ?? (progress?.value === 1 ? 1 : 0), reduced}), (now, previous) => {
     if (!now.valid) {
       cancelAnimation(pageAlpha); pageAlpha.value = 0;
-      for (const value of [first, second, third]) {cancelAnimation(value); value.value = 0;}
+      // Invalid paint is hidden by active/fence matching. Keep only numeric
+      // opacity so a same-page replacement need not replay the entrance.
+      for (const value of [first, second, third]) cancelAnimation(value);
       return;
     }
-    const fresh = !previous?.valid || previous.ticket !== now.ticket;
-    if (fresh) for (const value of [first, second, third]) {cancelAnimation(value); value.value = 0;}
+    const fresh = startedScene.value !== now.ticket;
+    if (fresh) {
+      startedScene.value = now.ticket;
+      for (const value of [first, second, third]) {cancelAnimation(value); value.value = 0;}
+    }
     const entering = now.goal === 0 || now.drag && now.p < .9999;
     const wasEntering = previous && (previous.goal === 0 || previous.drag && previous.p < .9999);
     if (entering && (fresh || !wasEntering)) {
-      first.value = withDelay(now.reduced ? 0 : 260, withTiming(1, standard));
-      second.value = withDelay(now.reduced ? 0 : 320, withTiming(1, standard));
-      third.value = withDelay(now.reduced ? 0 : 380, withTiming(1, standard));
+      const interrupted = !fresh && (first.value > 0 || second.value > 0 || third.value > 0);
+      first.value = withDelay(now.reduced || interrupted ? 0 : 260, withTiming(1, standard));
+      second.value = withDelay(now.reduced ? 0 : interrupted ? 60 : 320, withTiming(1, standard));
+      third.value = withDelay(now.reduced ? 0 : interrupted ? 120 : 380, withTiming(1, standard));
     } else if (!entering && (fresh || wasEntering)) {
       first.value = withTiming(0, quick); second.value = withTiming(0, quick); third.value = withTiming(0, quick);
-    } else if (previous?.reduced !== now.reduced) {
+    } else if (!previous?.valid || previous.reduced !== now.reduced) {
       first.value = withTiming(entering ? 1 : 0, entering ? standard : quick);
       second.value = withTiming(entering ? 1 : 0, entering ? standard : quick);
       third.value = withTiming(entering ? 1 : 0, entering ? standard : quick);
     }
     if (now.reduced && !now.drag) {
-      if (fresh || previous?.goal !== now.goal || previous.drag || previous.reduced !== now.reduced) pageAlpha.value = withTiming(now.goal === 0 ? 1 : 0, standard);
+      if (fresh || !previous?.valid || previous.goal !== now.goal || previous.drag || previous.reduced !== now.reduced) pageAlpha.value = withTiming(now.goal === 0 ? 1 : 0, standard);
     } else {
       cancelAnimation(pageAlpha); pageAlpha.value = Math.max(0, Math.min(1, (1 - now.p) * 2.5));
     }
-  }, [active, ticket, progress, dragging, goal, reduced, standard, quick, pageAlpha, first, second, third]);
+  }, [active, ticket, progress, dragging, goal, reduced, standard, quick, pageAlpha, first, second, third, startedScene]);
   useEffect(() => () => {cancelAnimation(pageAlpha); cancelAnimation(first); cancelAnimation(second); cancelAnimation(third);}, [pageAlpha, first, second, third]);
   const fullFrame = belongs(full, binding, 'full', revision) ? full.bounds : undefined, miniFrame = belongs(mini, binding, 'mini', revision) ? mini.bounds : undefined;
   const decodeFrame = fullFrame ?? miniFrame;
