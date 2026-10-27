@@ -505,3 +505,35 @@ test('viewer DVR page failure retains prior rows and retries the same offered cu
   assert.deepEqual(controller.getSnapshot().viewerWindow?.items.map(row => row.kind === 'recording' ? row.value.id : ''), ['first', 'later']);
   assert.deepEqual(calls, [undefined, 'offered', 'offered']); controller.dispose(); lifetime.dispose();
 });
+
+test('recording first-page request captures one immutable original query before awaiting', async () => {
+  const fixture = recordingService(), lifetime = new NativeScreenLifetime(authority()), controller = new NativeRecordingsController(lifetime, fixture.service);
+  const calls: unknown[][] = []; let finish!: (page: DVRPage) => void;
+  fixture.service.list = async (view, cursor, sort, group) => {calls.push([view, cursor, sort, group]); return cursor ? {...fixture.page, nextCursor: ''} : new Promise(resolve => {finish = resolve;});};
+  const query: {view: 'upcoming' | 'rules'; sort?: 'title'; group?: string} = {view: 'upcoming'};
+  const first = controller.load(query); query.view = 'rules'; query.sort = 'title'; query.group = 'replacement';
+  finish({...fixture.page, nextCursor: 'offered'}); await first;
+  await controller.nextViewerPage(controller.getSnapshot().viewerWindow!);
+  assert.deepEqual(calls, [['upcoming', undefined, 'recent', undefined], ['upcoming', 'offered', 'recent', undefined]]);
+  assert.deepEqual(controller.getSnapshot().query, {view: 'upcoming'}); controller.dispose(); lifetime.dispose();
+});
+
+test('viewer row focus from a retained same-generation handler pins the chunk during page IO', async () => {
+  const fixture = recordingService(), lifetime = new NativeScreenLifetime(authority()), controller = new NativeRecordingsController(lifetime, fixture.service);
+  let finish!: (page: DVRPage) => void;
+  fixture.service.list = async (_view, cursor) => {
+    if (cursor === 'p4') return new Promise(resolve => {finish = resolve;});
+    const id = cursor === undefined ? 'a' : cursor === 'p2' ? 'b' : 'c';
+    return {...fixture.page, recordings: [{id, revision: 1} as Recording], nextCursor: cursor === undefined ? 'p2' : cursor === 'p2' ? 'p3' : 'p4'};
+  };
+  await controller.load(); await controller.nextViewerPage(controller.getSnapshot().viewerWindow!); await controller.nextViewerPage(controller.getSnapshot().viewerWindow!);
+  const original = controller.getSnapshot().viewerWindow!, pending = controller.nextViewerPage(original);
+  const token = controller.focusViewerRow('a', original); assert.ok(token);
+  finish({...fixture.page, recordings: [{id: 'd', revision: 1} as Recording]}); await pending;
+  assert.equal(controller.getSnapshot().viewerWindow?.pending, true);
+  assert.equal(controller.getSnapshot().viewerWindow?.items[0]?.value && (controller.getSnapshot().viewerWindow!.items[0].value as Recording).id, 'a');
+  controller.blurViewerRow('a', token!, original);
+  assert.equal((controller.getSnapshot().viewerWindow!.items[0].value as Recording).id, 'b');
+  await controller.load({view: 'history'}); assert.equal(controller.focusViewerRow('b', original), undefined);
+  controller.dispose(); lifetime.dispose();
+});

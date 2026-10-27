@@ -39,10 +39,11 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
     this.assert();
     if (this.getSnapshot().accessDenied) return Promise.resolve();
     this.viewerWindow?.dispose(); this.viewerWindow = undefined;
+    const original = Object.freeze({...query});
     const epoch = ++this.epoch, previous = this.getSnapshot();
-    const same = JSON.stringify(previous.query) === JSON.stringify(query);
-    this.publish({...previous, query: Object.freeze({...query}), page: same ? previous.page : undefined, groups: same ? previous.groups : undefined, viewerWindow: undefined, loading: true, error: undefined});
-    this.pending = {query, epoch};
+    const same = JSON.stringify(previous.query) === JSON.stringify(original);
+    this.publish({...previous, query: original, page: same ? previous.page : undefined, groups: same ? previous.groups : undefined, viewerWindow: undefined, loading: true, error: undefined});
+    this.pending = {query: original, epoch};
     // Moving focus quickly across the five chips replaces pending work, instead of queuing
     // private reads for every intermediate selection. At most one page read is in flight.
     if (!this.worker) this.worker = this.drain().finally(() => {this.worker = undefined;});
@@ -61,9 +62,9 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
   }
   private installViewerWindow(query: NativeRecordingQuery, epoch: number, first: ViewerPage): void {
     if (query.view === 'storage') return;
-    const original = Object.freeze({...query}), revision = first.revision;
+    const original = query, revision = first.revision;
     const current = () => this.current() && epoch === this.epoch && !this.getSnapshot().accessDenied;
-    const rows = (page: ViewerPage): ViewerRow[] => 'groups' in page ? page.groups.map(value => ({kind: 'group', value})) : query.view === 'rules' ? page.rules.map(value => ({kind: 'rule', value})) : page.recordings.map(value => ({kind: 'recording', value}));
+    const rows = (page: ViewerPage): ViewerRow[] => 'groups' in page ? page.groups.map(value => ({kind: 'group', value})) : original.view === 'rules' ? page.rules.map(value => ({kind: 'rule', value})) : page.recordings.map(value => ({kind: 'recording', value}));
     const key = (row: ViewerRow): string => row.kind === 'group' ? row.value.key : row.value.id;
     const window = new DashboardCursorWindow<ViewerRow, ViewerPage>(async (cursor, signal) => {
       if (!current() || signal.aborted) throw screenScopeEnded();
@@ -79,10 +80,10 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
   previousViewerPage = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): Promise<void> => this.viewerWindow?.previous(expected) ?? Promise.resolve();
   retryViewerPage = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): Promise<void> => this.viewerWindow?.retry(expected) ?? Promise.resolve();
   viewerFocusToken = (id: string): object | undefined => this.viewerWindow?.focusToken(id);
-  focusViewerRow = (id: string, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): object | undefined => {const window = this.viewerWindow; return window && window.snapshot() === expected ? window.focus(id) : undefined;};
+  focusViewerRow = (id: string, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): object | undefined => {const window = this.viewerWindow; if (!window || !this.current() || this.getSnapshot().accessDenied || this.viewerWindow !== window || !window.isWitness(expected)) return undefined; const row = expected.items.find(item => item.kind === 'group' ? item.value.key === id : item.value.id === id); if (!row || !window.snapshot().items.includes(row) || !this.current() || this.viewerWindow !== window || this.getSnapshot().accessDenied || !window.isWitness(expected) || !window.snapshot().items.includes(row)) return undefined; return window.focus(id);};
   blurViewerRow = (id: string, token: object, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): void => {const window = this.viewerWindow; if (window && window.snapshot().scope === expected.scope) window.blur(id, token);};
-  focusViewerHost = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): void => {const window = this.viewerWindow; if (window && window.snapshot() === expected) window.focus(undefined);};
-  pinViewerRow = (id: string, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): object | undefined => {const window = this.viewerWindow; if (!window || window.snapshot() !== expected) return undefined; return window.pin(id);};
+  focusViewerHost = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): void => {const window = this.viewerWindow; if (window && window.snapshot() === expected && this.current() && this.viewerWindow === window && !this.getSnapshot().accessDenied && window.snapshot() === expected) window.focus(undefined);};
+  pinViewerRow = (id: string, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): object | undefined => {const window = this.viewerWindow; if (!window || !this.current() || this.getSnapshot().accessDenied || this.viewerWindow !== window || window.snapshot() !== expected) return undefined; return window.pin(id);};
   unpinViewerRow = (token: object, scope: object): void => {const window = this.viewerWindow; if (window && window.snapshot().scope === scope) window.unpin(token);};
   loadFacts(): Promise<void> {
     this.assert();

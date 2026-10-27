@@ -1393,7 +1393,11 @@ test('TV Dashboard presenter binds real continuation and retry to the captured s
   try {
     await act(() => {});
     const row = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-session-first')!;
-    assert.ok(row); withNativeControl(row, host => host.props.onFocus({nativeEvent: {}})); await act(() => {});
+    assert.ok(row);
+    const initialMore = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-sessions-more')!;
+    withNativeControl(initialMore, host => host.props.onPress()); await act(() => {});
+    withNativeControl(row, host => host.props.onFocus({nativeEvent: {}}));
+    assert.ok(controller.sessionFocusToken('first'), 'the original drawn handler can lease its resident row while pending');
     let more = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-sessions-more')!;
     assert.ok(more); assert.equal(more.props.disabled, true); assert.equal(more.props.focusableWhenDisabled, true);
     withNativeControl(more, host => {assert.equal(host.props.onPress, undefined); assert.notEqual(host.props.focusable, false);});
@@ -1408,6 +1412,7 @@ test('TV Dashboard presenter binds real continuation and retry to the captured s
       assert.equal(more.props.disabled, true);
       await act(() => complete({items: [session('last')], nextCursor: undefined, totals, revision: 'rev-1', scope: {serverId: 'server', viewerFence: 'fence'}}));
       assert.ok(ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-session-last'));
+      withNativeControl(row, host => host.props.onBlur({nativeEvent: {}})); assert.equal(controller.sessionFocusToken('first'), undefined);
       assert.deepEqual(calls, [undefined, 'next', 'next']);
     } finally {errorView.host.unmount();}
   } finally {panel.host.unmount(); controller.dispose(); feedback.dispose(); lifetime.dispose();}

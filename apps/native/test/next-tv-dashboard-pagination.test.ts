@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {AdminSessionsClient} from '../../../packages/client-core/src/playback-v1/admin-sessions';
 import {NativeScreenLifetime} from '../src-next/screens/settings-live/lifetime';
 import {NativeDashboardController, type NativeDashboardReaders} from '../src-next/screens/settings-live/dashboard-controller';
 
@@ -122,4 +123,43 @@ test('coalesced refresh cannot reset the session revision fence between visible 
   const duplicate = controller.refresh(); finish({...page('wrong', 1), revision: 'rev-3'}); await Promise.all([first, duplicate]);
   assert.equal(controller.getSnapshot().sessionWindow?.refreshRequired, true); assert.deepEqual(controller.getSnapshot().sessions.map(row => row.id), ['old10', 'old20']);
   controller.dispose(); lifetime.dispose();
+});
+
+test('a retained same-generation row may acquire focus while its next page waits', async () => {
+  const lifetime = new NativeScreenLifetime({authority: () => authority, current: () => true, subscribeAuthority: () => () => {}});
+  let finish!: (value: ReturnType<typeof page>) => void;
+  const readers: NativeDashboardReaders = {
+    sessions: {list: async cursor => cursor === 'p4' ? new Promise(resolve => {finish = resolve;}) : cursor === undefined ? page('a', 1, 'p2') : cursor === 'p2' ? page('b', 1, 'p3') : page('c', 1, 'p4')},
+    console: {measurement: async name => ({name, observedAt: 1, freshUntil: 30001, facts: {}}), alerts: async () => [], jobs: async () => ({items: [], nextCursor: ''}), dispose() {}},
+  };
+  const controller = new NativeDashboardController(lifetime, () => 'administrator', readers);
+  await controller.refresh(); await controller.nextSessions(controller.getSnapshot().sessionWindow!); await controller.nextSessions(controller.getSnapshot().sessionWindow!);
+  const original = controller.getSnapshot().sessionWindow!, pending = controller.nextSessions(original);
+  const token = controller.focusSession('a0', original); assert.ok(token);
+  finish(page('d', 1)); await pending;
+  assert.equal(controller.getSnapshot().sessionWindow?.pending, true); assert.equal(controller.getSnapshot().sessions[0]?.id, 'a0');
+  controller.blurSession('a0', token!, original); assert.equal(controller.getSnapshot().sessions[0]?.id, 'b0');
+  const refreshed = controller.refresh(); assert.equal(controller.focusSession('b0', original), undefined);
+  controller.dispose(); await refreshed; lifetime.dispose();
+});
+
+test('real AdminSessionsClient accepts the producer empty revision across continuation', async () => {
+  const lifetime = new NativeScreenLifetime({authority: () => authority, current: () => true, subscribeAuthority: () => () => {}});
+  const fence = 'a'.repeat(64), calls: string[] = [], stamp = '2026-10-22T07:00:00Z';
+  const session = (id: string) => ({id, protocol: 'v1', user: {id: 'account', name: 'Account'}, profile: {id: 'primary', name: 'Primary'}, device: {id: 'device', name: 'Device'}, kind: 'vod', state: 'playing', positionMs: 0, decision: {}, location: 'local', startedAt: stamp});
+  const client = new AdminSessionsClient({send: async request => {
+    calls.push(request.path); const cursor = new URL(request.path, 'https://server.invalid').searchParams.get('cursor');
+    return {status: 200, headers: {}, body: {scope: {serverId: 'server', viewerFence: fence}, observedAt: stamp, items: [session(cursor ? 'second' : 'first')], page: {limit: 10, total: 2, start: cursor ? 1 : 0, revision: '', ...(cursor ? {} : {nextCursor: 'offered'})}, totals: {streams: 2, paused: 0, converting: 0, bandwidthKbps: 0, people: 1, atHome: 2, away: 0}}};
+  }});
+  const readers: NativeDashboardReaders = {sessions: client, console: {measurement: async name => ({name, observedAt: 1, freshUntil: 30001, facts: {}}), alerts: async () => [], jobs: async () => ({items: [], nextCursor: ''}), dispose() {}}};
+  const controller = new NativeDashboardController(lifetime, () => 'administrator', readers);
+  await controller.refresh(); await controller.nextSessions(controller.getSnapshot().sessionWindow!);
+  assert.deepEqual(controller.getSnapshot().sessions.map(row => row.id), ['first', 'second']);
+  assert.equal(controller.getSnapshot().sessionWindow?.refreshRequired, false); assert.equal(calls.length, 2);
+  controller.dispose(); lifetime.dispose();
+});
+
+test('real AdminSessionsClient keeps the canonical absent-revision decoder refusal', async () => {
+  const client = new AdminSessionsClient({send: async () => ({status: 200, headers: {}, body: {scope: {serverId: 'server', viewerFence: 'a'.repeat(64)}, observedAt: '2026-10-22T07:00:00Z', items: [], page: {limit: 10, total: 0, start: 0}, totals: {streams: 0, paused: 0, converting: 0, bandwidthKbps: 0, people: 0, atHome: 0, away: 0}}})});
+  await assert.rejects(client.list(), /invalid_activity_summary/);
 });

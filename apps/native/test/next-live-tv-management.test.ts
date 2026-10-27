@@ -12,6 +12,10 @@ import * as guidePresentation from '../src-next/screens/settings-live/guide-pres
 import * as guidePan from '../src-next/screens/settings-live/guide-pan-model';
 import * as rules from '../src-next/screens/settings-live/recording-rule-presentation';
 import * as overlap from '../src-next/screens/settings-live/recording-overlap-window';
+import * as mediaItem from '../../../packages/client-core/src/media-item';
+import * as content from '../../../packages/client-core/src/library-content';
+import * as routes from '../../../packages/contracts/src/routes';
+import * as titlePage from '../../../packages/client-core/src/presentation/title-page';
 import * as shellModel from '../src-next/shell/model';
 import {tvFocusIds} from '../src-next/shell/tv-focus';
 import {createTheme, nativeType} from '../src-next/kit/theme';
@@ -71,12 +75,12 @@ async function fixture({isTV = true, role = 'owner', primary = 'main', canManage
     '../../kit/states': {StateView: (props: any) => jsx('StateView', props)}, '../../kit/shell/visual': {alpha: (value: string) => value, shellType: () => ({})},
     '../../kit/theme': {useTheme: () => theme}, '../../shell/tv-focus': {tvFocusIds}, './Screen': {Screen: 'Screen', ScreenText: 'ScreenText', useScreenBack, useScreenEntry: () => noop}, './recording-rule-presentation': rules};
   const recordingModule = await screenModule(new URL('../src-next/screens/settings-live/RecordingsScreen.tsx', import.meta.url), {...common,
-    '../../../../../packages/client-core/src/presentation/title-page': {}, '../../../../../packages/client-core/src/media-item': {}, '../../../../../packages/client-core/src/library-content': {}, '../../../../../packages/contracts/src/routes': {},
+    '../../../../../packages/client-core/src/presentation/title-page': titlePage, '../../../../../packages/client-core/src/media-item': mediaItem, '../../../../../packages/client-core/src/library-content': content, '../../../../../packages/contracts/src/routes': routes,
     './recording-overlap-window': overlap, './LiveOwnerRecording': {NewRuleSheet: (props: any) => {editors.push(`new-rule:${props.open}`); return jsx('NewRuleEditor', props);}},
   });
   const recordingState: any = {query: {view: 'upcoming'}, loading: false, busy: false, accessDenied: false, page: {recordings: [], rules: [], captureAvailable: true}};
-  const viewerCalls: any[] = [];
-  const recordings: any = {lifetime, subscribe, getSnapshot: () => recordingState, load: async () => {}, loadFacts: async () => {}, nextViewerPage: async (window: unknown) => {viewerCalls.push(window);}, previousViewerPage: async () => {}, retryViewerPage: async () => {}, viewerFocusToken: () => undefined, focusViewerRow: () => {}, blurViewerRow: () => {}, focusViewerHost: () => {}, pinViewerRow: () => true, unpinViewerRow: () => {}};
+  const viewerCalls: any[] = [], viewerLoads: any[] = [];
+  const recordings: any = {lifetime, subscribe, getSnapshot: () => recordingState, load: async (query: unknown) => {viewerLoads.push(query);}, loadFacts: async () => {}, detail: () => new Promise(() => {}), nextViewerPage: async (window: unknown) => {viewerCalls.push(window);}, previousViewerPage: async () => {}, retryViewerPage: async () => {}, viewerFocusToken: () => undefined, focusViewerRow: () => {}, blurViewerRow: () => {}, focusViewerHost: () => {}, pinViewerRow: () => true, unpinViewerRow: () => {}};
   const {NativeLiveScreen} = await screenModule(new URL('../src-next/screens/settings-live/LiveScreen.tsx', import.meta.url), {...common,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0, left: 0, right: 0})}, 'react-native-gesture-handler': {GestureDetector: 'GestureDetector'},
     'react-native-reanimated': {default: {View: 'AnimatedView'}, useAnimatedStyle: (fn: () => unknown) => fn()}, '../../../../../packages/client-core/src/channel-guide': channels,
@@ -92,7 +96,7 @@ async function fixture({isTV = true, role = 'owner', primary = 'main', canManage
   let showingRecordings = false;
   const render = () => host.render(showingRecordings ? jsx(recordingModule.NativeRecordingsScreen, {controller: recordings, ports, runtime, owner, onGuide: noop}) : jsx(NativeLiveScreen, {controller, recordings, owner, ports, runtime})); await render();
   const all = () => nodes(host.root), find = (id: string) => all().find(node => node.props?.testID === id);
-  return {host, all, find, admin, editors, backs, pageBack, entries, recordingState, viewerCalls,
+  return {host, all, find, admin, editors, backs, pageBack, entries, recordingState, viewerCalls, viewerLoads, context, recordingsController: recordings, runtime,
     disposeRuntime() {retirement.abort(); disposed = true;}, disposedReads: () => disposedReads,
     async press(id = 'live-owner-open') {const node = find(id); assert.ok(node, id); assert.ok(!node.props.disabled); node.props.onPress(); await host.settle();},
     async action(which: string) {const action = find('live-no-sources')?.props[which]; assert.ok(action); action.onPress(); await host.settle();},
@@ -204,5 +208,71 @@ test('TV Recordings uses its original viewer window for tail events and keeps FX
     const saved = rendered.props.onOpen;
     f.recordingState.viewerWindow = {...original, scope: {}, generation: 2}; await f.recordings();
     saved(); await f.host.settle(); assert.equal(f.find('recordings-details'), undefined, 'a stale row cannot open a successor');
+  } finally {await f.close();}
+});
+
+for (const change of ['route', 'query', 'revision', 'normal-close'] as const) test(`recording Play keeps its original action receipt across ${change}`, async () => {
+  const f = await fixture();
+  try {
+    const row = {id: 'recording', revision: 1, state: 'completed', itemId: 'item', libraryId: 'library', start: '2026-10-21T12:00:00Z', end: '2026-10-21T13:00:00Z', programme: {id: 'p', title: 'Programme'}, options: {priority: 0}};
+    const original = {scope: {}, generation: 1, items: [{kind: 'recording', value: row}], chunks: [{cursor: '', items: []}], bookmarks: [''], nextCursor: '', pending: false, refreshRequired: false};
+    f.recordingState.page = {recordings: [row], rules: [], captureAvailable: true}; f.recordingState.viewerWindow = original;
+    let finish!: (value: unknown) => void, reads = 0, plays = 0;
+    f.context.api.request = () => {reads++; return new Promise(resolve => {finish = resolve;});};
+    f.context.playback = {start: async () => {plays++;}};
+    await f.recordings(); const list = f.all().find(node => node.type === 'FlatList')!;
+    const rendered = list.props.renderItem({item: {kind: 'recording', recording: row}, index: 0}); rendered.props.onMenu(); await f.host.settle();
+    const menu = f.find('recordings-menu'); assert.ok(menu); const play = menu.props.items.find((item: any) => item.id === 'play'); assert.ok(play); play.onSelect(); assert.equal(reads, 1);
+    menu.props.onOpenChange(false, 'action'); await f.host.settle();
+    if (change === 'route') await f.replace('route');
+    if (change === 'query') {f.recordingState.query = {view: 'history'}; f.recordingState.viewerWindow = {...original, scope: {}, generation: 2}; await f.recordings();}
+    if (change === 'revision') {f.recordingState.viewerWindow = {...original, items: [{kind: 'recording', value: {...row, revision: 2}}]}; await f.recordings();}
+    finish({id: 'item', kind: 'movie', title: 'Programme', libraryId: 'library', available: true, durationMs: 60000, progressMs: 0}); await f.host.settle();
+    assert.equal(plays, change === 'normal-close' ? 1 : 0);
+  } finally {await f.close();}
+});
+
+for (const kind of ['recording', 'group', 'rule'] as const) test(`old drawn ${kind} opener cannot adopt a new route occurrence`, async () => {
+  const f = await fixture();
+  try {
+    const recording = {id: 'recording', revision: 1, state: 'completed', itemId: 'item', libraryId: 'library', start: '2026-10-21T12:00:00Z', end: '2026-10-21T13:00:00Z', programme: {id: 'p', title: 'Programme'}, options: {priority: 0}};
+    const group = {key: 'group', title: 'Group', recordings: 1, unwatched: 0, recording};
+    const rule = {id: 'rule', revision: 1, config: {name: 'Rule', sourceId: 'source', enabled: true, episodes: 'all', allowedChannels: [], blockedChannels: [], keywords: [], blockedKeywords: [], options: {priority: 0, retentionDays: 0, episodeLimit: 0, beforeSeconds: 0, afterSeconds: 0}}};
+    const item = kind === 'recording' ? recording : kind === 'group' ? group : rule;
+    const original = {scope: {}, generation: 1, items: [{kind, value: item}], chunks: [{cursor: '', items: []}], bookmarks: [''], nextCursor: '', pending: false, refreshRequired: false};
+    f.recordingState.query = {view: kind === 'group' ? 'recorded' : kind === 'rule' ? 'rules' : 'upcoming'};
+    f.recordingState.page = {recordings: kind === 'recording' ? [recording] : [], rules: kind === 'rule' ? [rule] : [], captureAvailable: true};
+    f.recordingState.groups = kind === 'group' ? {groups: [group]} : undefined; f.recordingState.viewerWindow = original;
+    await f.recordings(); let list = f.all().find(node => node.type === 'FlatList')!;
+    const args = {item: kind === 'recording' ? {kind: 'recording', recording} : item, index: 0};
+    const old = list.props.renderItem(args).props.onOpen; await f.replace('route');
+    const before = f.viewerLoads.length; old(); await f.host.settle(); assert.equal(f.viewerLoads.length, before);
+    assert.equal(f.find('recordings-details'), undefined); assert.equal(f.find('recordings-rule-editor'), undefined);
+    list = f.all().find(node => node.type === 'FlatList')!; list.props.renderItem(args).props.onOpen(); await f.host.settle();
+    if (kind === 'group') assert.equal(f.viewerLoads.length, before + 1);
+    if (kind === 'recording') assert.ok(f.find('recordings-details'));
+    if (kind === 'rule') assert.ok(f.find('recordings-rule-editor'));
+  } finally {await f.close();}
+});
+
+test('same recording detail reopen retires the old opening and follows the fresh overlap cursor', async () => {
+  const f = await fixture();
+  try {
+    const row: any = {id: 'recording', revision: 1, state: 'conflicted', itemId: '', libraryId: '', start: '2026-10-21T12:00:00Z', end: '2026-10-21T13:00:00Z', reason: '', programme: {id: 'p', title: 'Programme'}, options: {priority: 0}};
+    const window = {scope: {}, generation: 1, items: [{kind: 'recording', value: row}], chunks: [{cursor: '', items: []}], bookmarks: [''], nextCursor: '', pending: false, refreshRequired: false};
+    f.recordingState.page = {recordings: [row], rules: [], captureAvailable: true}; f.recordingState.viewerWindow = window;
+    const reads: {cursor?: string; resolve: (detail: any) => void}[] = [];
+    f.recordingsController.detail = (_id: string, cursor?: string) => new Promise(resolve => {reads.push({cursor, resolve});});
+    const detail = (nextOverlap: string, id: string) => ({recording: row, capacity: {known: true, effective: 1}, overlaps: [{id, title: id, start: '2026-10-21T12:00:00Z', end: '2026-10-21T13:00:00Z', priority: 1, state: 'scheduled'}], nextOverlap});
+    await f.recordings(); const list = f.all().find(node => node.type === 'FlatList')!;
+    const open = list.props.renderItem({item: {kind: 'recording', recording: row}, index: 0}).props.onOpen;
+    open(); await f.host.settle(); assert.equal(reads.length, 1); reads[0].resolve(detail('p2', 'old')); await f.host.settle();
+    const oldDialog = f.find('recordings-details'), oldMore = f.find('recordings-overlap-next'); assert.ok(oldDialog); assert.ok(oldMore);
+    oldMore.props.onPress(); await f.host.settle(); assert.equal(reads[1].cursor, 'p2');
+    oldDialog.props.onOpenChange(false); open(); await f.host.settle(); assert.equal(reads.length, 3);
+    reads[1].resolve(detail('', 'late-old')); await f.host.settle(); oldMore.props.onPress(); oldDialog.props.onOpenChange(false); await f.host.settle(); assert.equal(reads.length, 3);
+    reads[2].resolve(detail('p2', 'fresh')); await f.host.settle(); const newMore = f.find('recordings-overlap-next'); assert.ok(newMore);
+    newMore.props.onPress(); await f.host.settle(); assert.equal(reads[3].cursor, 'p2');
+    reads[3].resolve(detail('', 'fresh-later')); await f.host.settle(); assert.equal(f.find('recordings-overlap-next'), undefined);
   } finally {await f.close();}
 });

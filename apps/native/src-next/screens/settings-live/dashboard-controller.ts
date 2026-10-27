@@ -21,7 +21,7 @@ export type NativeDashboardSnapshot = Readonly<{
   error?: unknown;
 }>;
 type SessionPage = Awaited<ReturnType<AdminSessionsClient['list']>>;
-type SessionMeta = Readonly<{totals: SessionPage['totals']; scope: SessionPage['scope']; revision: string}>;
+type SessionMeta = Readonly<{totals: SessionPage['totals']; scope: SessionPage['scope']; revision?: string}>;
 export type NativeDashboardReaders = Readonly<{
   sessions: Pick<AdminSessionsClient, 'list'>;
   console: Pick<ConsoleClient, 'measurement' | 'alerts' | 'jobs' | 'dispose'>;
@@ -53,8 +53,8 @@ export class NativeDashboardController extends NativeScreenStore<NativeDashboard
       if (!this.valid(role)) throw new Error('native_screen_scope_ended');
       const page = await this.readers.sessions.list(cursor || undefined, 10, signal);
       if (!this.valid(role) || signal.aborted) throw new Error('native_screen_scope_ended');
-      if (page.scope.serverId !== this.lifetime.authority.serverId || !page.revision || this.sessionFence && this.sessionFence !== page.scope.viewerFence || this.sessionRevision && this.sessionRevision !== page.revision) throw new Error('dashboard_refresh_required');
-      this.sessionFence = page.scope.viewerFence; this.sessionRevision = page.revision;
+      if (page.scope.serverId !== this.lifetime.authority.serverId || this.sessionFence && this.sessionFence !== page.scope.viewerFence || this.sessionRevision && this.sessionRevision !== page.revision) throw new Error('dashboard_refresh_required');
+      this.sessionFence = page.scope.viewerFence; if (page.revision) this.sessionRevision = page.revision;
       return {items: page.items, nextCursor: page.nextCursor, metadata: {totals: page.totals, scope: page.scope, revision: page.revision}};
     }, row => row.id, () => this.valid(role), window => {
       if (this.valid(role)) this.publish({...this.getSnapshot(), sessionWindow: window, sessions: window.items, nextCursor: window.nextCursor, totals: window.metadata?.totals ?? this.getSnapshot().totals});
@@ -97,6 +97,8 @@ export class NativeDashboardController extends NativeScreenStore<NativeDashboard
       this.publish({...this.getSnapshot(), loading: false, ...(facts ? {health: facts[0], storage: facts[1], alerts: facts[2]} : {})});
     }, error => {if (this.valid(role) && generation === this.generation) this.publish({...this.getSnapshot(), loading: false, error});});
   }
+  restartSessions = (expected: DashboardCursorSnapshot<AdminSession, SessionMeta>): Promise<void> => {const window = this.sessions, role = this.role; if (window.snapshot() !== expected || !expected.refreshRequired || !this.valid(role) || this.sessions !== window || window.snapshot() !== expected) return Promise.resolve(); this.sessionFence = undefined; this.sessionRevision = undefined; return window.restart(expected);};
+  restartJobs = (expected: DashboardCursorSnapshot<Job, undefined>): Promise<void> => {const window = this.jobs; return window && this.valid('owner') ? window.restart(expected) : Promise.resolve();};
   nextSessions = (expected: DashboardCursorSnapshot<AdminSession, SessionMeta>) => this.sessions.next(expected);
   previousSessions = (expected: DashboardCursorSnapshot<AdminSession, SessionMeta>) => this.sessions.previous(expected);
   retrySessions = (expected: DashboardCursorSnapshot<AdminSession, SessionMeta>) => this.sessions.retry(expected);
@@ -105,11 +107,11 @@ export class NativeDashboardController extends NativeScreenStore<NativeDashboard
   retryJobs = (expected: DashboardCursorSnapshot<Job, undefined>) => this.jobs?.retry(expected) ?? Promise.resolve();
   sessionFocusToken = (id: string): object | undefined => this.sessions.focusToken(id);
   jobFocusToken = (id: string): object | undefined => this.jobs?.focusToken(id);
-  focusSession = (id: string, expected: DashboardCursorSnapshot<AdminSession, SessionMeta>): object | undefined => {const now = this.sessions.snapshot(); return this.valid(this.role) && now === expected && now.items.some(row => row.id === id) ? this.sessions.focus(id) : undefined;};
+  focusSession = (id: string, expected: DashboardCursorSnapshot<AdminSession, SessionMeta>): object | undefined => {const window = this.sessions, role = this.role; if (!this.valid(role) || this.sessions !== window || !window.isWitness(expected)) return undefined; const row = expected.items.find(item => item.id === id); if (!row || !window.snapshot().items.includes(row) || this.sessions !== window || !this.valid(role) || this.sessions !== window || !window.isWitness(expected) || !window.snapshot().items.includes(row)) return undefined; return window.focus(id);};
   blurSession = (id: string, token: object, expected: DashboardCursorSnapshot<AdminSession, SessionMeta>): void => {if (this.sessions.snapshot().scope === expected.scope) this.sessions.blur(id, token);};
-  focusJob = (id: string, expected: DashboardCursorSnapshot<Job, undefined>): object | undefined => {const now = this.jobs?.snapshot(); return this.valid('owner') && now && now === expected && now.items.some(row => row.id === id) ? this.jobs?.focus(id) : undefined;};
+  focusJob = (id: string, expected: DashboardCursorSnapshot<Job, undefined>): object | undefined => {const window = this.jobs; if (!window || !this.valid('owner') || this.jobs !== window || !window.isWitness(expected)) return undefined; const row = expected.items.find(item => item.id === id); if (!row || !window.snapshot().items.includes(row) || this.jobs !== window || !this.valid('owner') || this.jobs !== window || !window.isWitness(expected) || !window.snapshot().items.includes(row)) return undefined; return window.focus(id);};
   blurJob = (id: string, token: object, expected: DashboardCursorSnapshot<Job, undefined>): void => {const window = this.jobs; if (window && window.snapshot().scope === expected.scope) window.blur(id, token);};
-  focusSessionHost = (expected: DashboardCursorSnapshot<AdminSession, SessionMeta>): void => {const now = this.sessions.snapshot(); if (now === expected && this.valid(this.role)) this.sessions.focus(undefined);};
-  focusJobHost = (expected: DashboardCursorSnapshot<Job, undefined>): void => {const now = this.jobs?.snapshot(); if (now && now === expected && this.valid('owner')) this.jobs?.focus(undefined);};
+  focusSessionHost = (expected: DashboardCursorSnapshot<AdminSession, SessionMeta>): void => {const window = this.sessions; if (window.snapshot() === expected && this.valid(this.role) && this.sessions === window && window.snapshot() === expected) window.focus(undefined);};
+  focusJobHost = (expected: DashboardCursorSnapshot<Job, undefined>): void => {const window = this.jobs; if (window && window.snapshot() === expected && this.valid('owner') && this.jobs === window && window.snapshot() === expected) window.focus(undefined);};
   dispose(): void {if (this.disposed) return; this.retire(); this.disposed = true; this.lifetime.signal.removeEventListener('abort', this.retire); this.readers.console.dispose(); this.clearListeners();}
 }

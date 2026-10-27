@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {DashboardCursorWindow, type DashboardCursorPage} from '../src-next/screens/settings-live/dashboard-cursor-window';
+import {DashboardCursorWindow, type DashboardCursorPage, type DashboardCursorSnapshot} from '../src-next/screens/settings-live/dashboard-cursor-window';
 
 test('cursor window retains the focused chunk until focus moves and refuses a repeated offered cursor', async () => {
   const calls: string[] = [];
@@ -106,7 +106,7 @@ test('an old action lease cannot release a successor lease for the same row', as
 test('refresh re-reads only the visible bounded cursor window and preserves its focused row', async () => {
   const calls: string[] = []; let revision = 'old';
   const window = new DashboardCursorWindow(async cursor => {calls.push(cursor); return {items: [{id: cursor || 'first', revision}], nextCursor: cursor === '' ? 'a' : cursor === 'a' ? 'b' : '', metadata: revision};}, row => row.id, () => true, () => {});
-  await window.refresh(); await window.next(window.snapshot()); window.focus('a', window.snapshot().generation);
+  await window.refresh(); await window.next(window.snapshot()); window.focus('a');
   revision = 'new'; await window.refresh();
   assert.deepEqual(calls, ['', 'a', '', 'a']);
   assert.deepEqual(window.snapshot().items.map(row => `${row.id}:${row.revision}`), ['first:new', 'a:new']);
@@ -131,4 +131,56 @@ test('an aged-out previous bookmark returns to the real first page', async () =>
   for (let i = 0; i < 64 && window.snapshot().chunks[0]?.cursor !== ''; i++) await window.previous(window.snapshot());
   assert.equal(window.snapshot().chunks[0]?.cursor, ''); assert.equal(window.snapshot().items[0]?.id, 'r0');
   const length = calls.length; await window.next(window.snapshot()); assert.equal(calls[length], 'c1'); window.dispose();
+});
+
+test('synchronous duplicate sees the actual pending flight and shares its settlement', async () => {
+  let state!: DashboardCursorSnapshot<{id: string}, number>, duplicate: Promise<void> | undefined, finish!: (page: DashboardCursorPage<{id: string}, number>) => void, calls = 0;
+  const window = new DashboardCursorWindow<{id: string}, number>(async () => {calls++; return new Promise(resolve => {finish = resolve;});}, row => row.id, () => true, value => {state = value; if (value.pending && !duplicate) duplicate = window.next(original);});
+  window.seed('', {items: [{id: 'one'}], nextCursor: 'next', metadata: 1}); const original = state;
+  const pending = window.next(original); assert.equal(duplicate, pending); assert.equal(calls, 1);
+  let settled = false; void duplicate!.then(() => {settled = true;}); await Promise.resolve(); assert.equal(settled, false);
+  finish({items: [{id: 'two'}], metadata: 1}); await pending; assert.equal(settled, true); window.dispose();
+});
+
+test('a synchronous pending notification can retire a flight before it dispatches', async () => {
+  let calls = 0;
+  const window = new DashboardCursorWindow<{id: string}, number>(async () => {calls++; return {items: [], metadata: 1};}, row => row.id, () => true, value => {if (value.pending) window.dispose();});
+  await window.refresh(); assert.equal(calls, 0);
+});
+
+test('abort reentry keeps the successor flight instead of erasing it', async () => {
+  let calls = 0, successor: Promise<void> | undefined, finish!: (page: DashboardCursorPage<{id: string}, number>) => void;
+  const window = new DashboardCursorWindow<{id: string}, number>((_cursor, signal) => {
+    calls++;
+    if (calls === 1) return new Promise((_, reject) => signal.addEventListener('abort', () => {successor = window.refresh(); reject(new Error('aborted'));}, {once: true}));
+    return new Promise(resolve => {finish = resolve;});
+  }, row => row.id, () => true, () => {});
+  window.seed('', {items: [{id: 'first'}], nextCursor: 'next', metadata: 1});
+  const old = window.next(window.snapshot()), outer = window.refresh();
+  assert.equal(calls, 2); assert.ok(successor); finish({items: [{id: 'successor'}], metadata: 2});
+  await Promise.all([old, outer, successor!]); assert.deepEqual(window.snapshot().items.map(row => row.id), ['successor']); window.dispose();
+});
+
+test('expired visible cursor requires explicit first-page recovery without retrying that cursor', async () => {
+  const calls: string[] = []; let expire = false;
+  const window = new DashboardCursorWindow(async cursor => {
+    calls.push(cursor); if (expire && cursor === 'a') throw Object.assign(new Error('invalid_request'), {code: 'invalid_request'});
+    const next: Record<string, string> = {'': 'a', a: 'b', b: 'c', c: 'd'};
+    return {items: [{id: cursor || 'first'}], nextCursor: next[cursor], metadata: 1};
+  }, row => row.id, () => true, () => {});
+  await window.refresh(); await window.next(window.snapshot()); await window.next(window.snapshot()); await window.next(window.snapshot());
+  const lease = window.focus('b')!; expire = true; await window.refresh();
+  assert.equal(window.snapshot().refreshRequired, true); const count = calls.length; await window.refresh(); assert.equal(calls.length, count);
+  await window.restart(window.snapshot()); assert.equal(calls.at(-1), ''); assert.equal(window.snapshot().pending, true);
+  window.blur('b', lease); assert.equal(window.snapshot().items[0]?.id, 'first'); assert.equal(window.snapshot().refreshRequired, false); window.dispose();
+});
+
+test('a reentrant refresh notification prevents the retired continuation from dispatching', async () => {
+  const calls: string[] = []; let reentered = false, successor: Promise<void> | undefined;
+  const window = new DashboardCursorWindow(async cursor => {calls.push(cursor); return {items: [{id: 'fresh'}], metadata: 1};}, row => row.id, () => true, value => {
+    if (value.pending && !reentered) {reentered = true; successor = window.refresh();}
+  });
+  window.seed('', {items: [{id: 'old'}], nextCursor: 'next', metadata: 1});
+  const old = window.next(window.snapshot()); await Promise.all([old, successor!]);
+  assert.deepEqual(calls, ['']); assert.deepEqual(window.snapshot().items.map(row => row.id), ['fresh']); window.dispose();
 });
