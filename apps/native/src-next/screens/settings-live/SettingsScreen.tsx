@@ -340,6 +340,23 @@ type EngineChooser = Readonly<{
   options: readonly Readonly<{value: string; label: string; description?: string}>[];
   apply: (value: string) => void;
 }>;
+type EngineWitness = Readonly<{page: string; controller: unknown; preferences: unknown; mount: object; route: unknown}>;
+/** The exact committed player-chooser owner. The opening and its `engineRef` identity are checked
+ * first; only once those pass are the published witness, this mount and the live route observed —
+ * `navigation.getSnapshot()` is called here, on the actual navigation, at the original position. */
+function engineOpeningAlive(
+  opening: EngineChooser | undefined,
+  engineRef: Readonly<{current: EngineChooser | undefined}>,
+  witnesses: Readonly<{live: Readonly<{current: EngineWitness | undefined}>; mounted: Readonly<{current: boolean}>}>,
+  controller: NativeSettingsController,
+  navigation: NativeSettingsLivePorts['context']['navigation'],
+): boolean {
+  if (!opening || engineRef.current !== opening) return false;
+  const live = witnesses.live.current;
+  return witnesses.mounted.current && !!live && live.page === opening.page && live.controller === opening.controller
+    && live.preferences === opening.preferences && live.mount === opening.mount && live.route === opening.route
+    && opening.route === navigation.getSnapshot() && controller.lifetime.current();
+}
 function SettingsPageBody({page, ports, controller, runtime, devicePreferences, region, column, reportedOutputs, awayLimitLabel, onStreaming, onQuality}: {reportedOutputs?: Readonly<{hdr: boolean; surround: boolean}>; awayLimitLabel?: string; onStreaming: () => void; onQuality: () => void; page: SettingsPage; ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; devicePreferences: NativeDevicePreferences; region: string; column: string}) {
   const theme = useTheme(), t = runtime.text.t, state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [advanced, setAdvanced] = useState(false);
@@ -373,7 +390,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
   const [engineOpen, setEngineOpen] = useState<EngineChooser>();
   const engineRef = useRef<EngineChooser | undefined>(undefined), engineToken = useRef(0);
   const engineMounted = useRef(true), engineRetired = useRef(false);
-  const engineLive = useRef<Readonly<{page: string; controller: unknown; preferences: unknown; mount: object; route: unknown}>>(undefined);
+  const engineLive = useRef<EngineWitness | undefined>(undefined);
   // The committed owner is published in the layout turn, never during render: an abandoned
   // render cannot replace the witness, and the cleanup clears only the owner it published.
   useLayoutEffect(() => {
@@ -381,13 +398,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
     engineLive.current = owner;
     return () => {if (engineLive.current === owner) engineLive.current = undefined;};
   }, [page.id, controller, devicePreferences, engineMount, route]);
-  const engineOwnerAlive = (opening: EngineChooser) => {
-    const live = engineLive.current;
-    return engineMounted.current && !!live && live.page === opening.page && live.controller === opening.controller
-      && live.preferences === opening.preferences && live.mount === opening.mount && live.route === opening.route
-      && opening.route === navigation.getSnapshot() && controller.lifetime.current();
-  };
-  const engineAlive = (opening: EngineChooser | undefined) => !!opening && engineRef.current === opening && engineOwnerAlive(opening);
+  const engineAlive = (opening: EngineChooser | undefined) => engineOpeningAlive(opening, engineRef, {live: engineLive, mounted: engineMounted}, controller, navigation);
   const engineShown = engineOpen && !state.busy && engineAlive(engineOpen) ? engineOpen : undefined;
   const retireEngine = () => {engineRef.current = undefined; setEngineOpen(undefined);};
   const closeEngine = (opening: EngineChooser) => {if (!engineAlive(opening)) return; retireEngine();};
@@ -401,9 +412,9 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
   // A page, source, route or unmount change retires the exact opening in the same layout turn.
   useLayoutEffect(() => {
     if (!engineOpen) return;
-    if (!state.busy && engineAlive(engineOpen)) return;
+    if (!state.busy && engineOpeningAlive(engineOpen, engineRef, {live: engineLive, mounted: engineMounted}, controller, navigation)) return;
     retireEngine();
-  }, [engineOpen, state.busy, page.id, controller, devicePreferences, route]);
+  }, [engineOpen, state.busy, page.id, controller, devicePreferences, route, navigation]);
   const openConfirm = (kind: AccountConfirm['kind']) => {
     // A delayed row action from an old page may not reopen its modal on the successor page.
     if (confirmScope.current !== scope || confirmOwner.current !== controller) return;

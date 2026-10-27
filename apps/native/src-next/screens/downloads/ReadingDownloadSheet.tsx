@@ -21,14 +21,17 @@ import {captureNativeDownloadPaintCurrent} from './download-opening';
 
 type Version = Readonly<{sourceId: string; format: string; size: number; inventoryAvailable: boolean; policy: DownloadOptionsView}>;
 type Opening = {current: () => boolean; paintCurrent: () => boolean; retire: () => void; dispose: () => void; pending: boolean; lease: ReturnType<typeof createNativeDownloadsDevice>; versions: readonly Version[]; abort: AbortController; signal: AbortSignal};
-type Family = {retired: boolean; active?: Opening};
+type Family = {retired: boolean; active?: Opening;
+  /** Private: the exact context and request this family was constructed for. Reading them here
+   * keeps the memo's original keys honest without publishing or comparing them anywhere else. */
+  binding: Readonly<{context: NativeShellBootstrapContext; request: NativeDownloadRequest}>};
 type State = Readonly<{opening?: Opening; versions?: readonly Version[]; policy?: DownloadOptionsView; busy?: string; error?: unknown}>;
 
 /** The existing download sheet's original-publication branch. Real source IDs
  * and exact byte sizes come from Reading versions; no media-quality ladder. */
 export function NativeReadingDownloadSheet({context, request}: {context: NativeShellBootstrapContext; request: NativeDownloadRequest}) {
   const theme = useTheme(), t = defaultI18n.t;
-  const family = useMemo<Family>(() => ({retired: false}), [context, request]);
+  const family = useMemo<Family>(() => ({retired: false, binding: {context, request}}), [context, request]);
   const rendered = useRef(family);
   if (rendered.current !== family) {rendered.current.retired = true; rendered.current.active?.retire(); rendered.current = family;}
   const [state, setState] = useState<State>({}), [retry, setRetry] = useState(0), [selected, setSelected] = useState<string>();

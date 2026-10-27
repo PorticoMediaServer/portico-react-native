@@ -21,7 +21,7 @@ export class NativeTogetherController extends NativeScreenStore<GroupSessionSnap
   open = (id: string, lifetime?: GroupEnterLifetime) => this.action(() => this.service.open(id, lifetime));
   create = (name: string, displayName: string, hostAuthority: GroupHostAuthority, lifetime?: GroupEnterLifetime) => this.action(() => this.service.create({name, displayName, hostAuthority}, lifetime));
   join = (code: string, displayName: string, lifetime?: GroupEnterLifetime) => this.action(() => this.service.join(code, displayName, lifetime));
-  currentGroup = (original: Group): Group | undefined => {
+  currentGroup = (original: Pick<Group, 'id' | 'viewerMemberId'>): Group | undefined => {
     const value = this.getSnapshot();
     return !this.disposed && this.lifetime.current() && (value.phase === 'live' || value.phase === 'reconnecting')
       && value.group?.id === original.id && value.group.viewerMemberId === original.viewerMemberId ? value.group : undefined;

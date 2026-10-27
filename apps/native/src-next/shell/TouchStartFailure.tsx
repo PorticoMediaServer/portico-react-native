@@ -14,6 +14,19 @@ import type {NativeShellRuntime} from './runtime';
 
 type Opening = {owner: NativePlaybackStartFailure | NativePlaybackCapacityWait; active: boolean; action: number; busy?: string};
 
+/** The exact retained ticket, opening and rendered-owner tuple for one first-start refusal. The
+ * arguments are the same originals the effect already held: no ref is read while calling it, and
+ * `owner.isCurrent()` stays the last check. */
+function ticketCurrent(
+  ticket: Opening | undefined,
+  opening: Readonly<{current: Opening | undefined}>,
+  owner: Opening['owner'] | undefined,
+  rendered: Readonly<{current: Opening['owner'] | undefined}>,
+): boolean {
+  return !!ticket && ticket.active && opening.current === ticket
+    && ticket.owner === owner && rendered.current === ticket.owner && ticket.owner.isCurrent();
+}
+
 /** A first-start refusal has no admitted picture or player chrome. Touch presents the
  * original retained operation; it never creates a Play request from the current selection. */
 export function TouchStartFailure({failure, wait, runtime}: {
@@ -30,8 +43,7 @@ export function TouchStartFailure({failure, wait, runtime}: {
   const [error, setError] = useState<unknown>(), [busy, setBusy] = useState<string>();
   const [report, setReport] = useState(false), [sent, setSent] = useState(false);
   const [now, setNow] = useState(Date.now), began = useRef(Date.now());
-  const current = (ticket = opening.current) => !!ticket && ticket.active && opening.current === ticket &&
-    ticket.owner === owner && rendered.current === ticket.owner && ticket.owner.isCurrent();
+  const current = (ticket = opening.current) => ticketCurrent(ticket, opening, owner, rendered);
   useLayoutEffect(() => {
     if (!owner) return;
     const ticket: Opening = {owner, active: true, action: 0}; opening.current = ticket;
@@ -48,17 +60,17 @@ export function TouchStartFailure({failure, wait, runtime}: {
   }, [owner]);
   useEffect(() => {
     const ticket = opening.current;
-    if (!failure || failure !== owner || failure.scope !== 'account' || !current(ticket)) return;
+    if (!failure || failure !== owner || failure.scope !== 'account' || !ticketCurrent(ticket, opening, owner, rendered)) return;
     let alive = true;
     const apply = (value: readonly RemotePlaybackControls[]) => {
-      if (!alive || !current(ticket)) return;
+      if (!alive || !ticketCurrent(ticket, opening, owner, rendered)) return;
       offered.current = value;setSessions({owner: ticket!.owner, items: value});
     };
     const off = failure.subscribeSessions(apply);
     // remote() is the retained port's COMPLETE scoped read; no UI pagination, hint
     // interpretation or start loop. The port alone decides whether re-admission is allowed.
     void failure.remote().then(value => apply(value.items), reason => {
-      if (alive && current(ticket)) setError(reason);
+      if (alive && ticketCurrent(ticket, opening, owner, rendered)) setError(reason);
     });
     return () => {alive = false;off();};
   }, [failure, owner]);

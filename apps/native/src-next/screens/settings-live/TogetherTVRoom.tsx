@@ -63,6 +63,10 @@ export function NativeTogetherTVRoom({state, group, controller, media, ports, ru
   const enter = useScreenEntry({regionId: entryRegion, childId: entryChild}, controller.lifetime.current);
   const current = () => ports.context.navigation.getSnapshot().route.kind === 'together' ? controller.currentGroup(group) : undefined;
   useEffect(() => {
+    // This effect's own immutable witness over the two scalars its keys already track: the route
+    // check and the controller's exact guard stay inside the subscription/RAF callbacks.
+    const witness: Pick<Group, 'id' | 'viewerMemberId'> = Object.freeze({id: group.id, viewerMemberId: group.viewerMemberId});
+    const current = () => ports.context.navigation.getSnapshot().route.kind === 'together' ? controller.currentGroup(witness) : undefined;
     const port = groupPort();if (!port) return;
     let wasVisible = port.playerVisible?.() !== false, frame: number | undefined;
     const off = port.subscribe(() => {
