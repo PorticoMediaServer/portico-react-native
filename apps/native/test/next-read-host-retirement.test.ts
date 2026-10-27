@@ -132,11 +132,13 @@ test(`actual live host with its presentation binding fences original close on ${
   let tree: unknown; const source = {getSnapshot: () => preferences, subscribe: () => () => {}};
   const host = createHookHost(() => {tree = ReadNativeHost({context, target: route, binding, active: true,
     preferences: source, onBack() {}, onOpenSettings() {}});});
-  await act(async () => {host.mount(); for (let i = 0; i < 4; i++) await new Promise<void>(resolve => setImmediate(resolve));});
-  assert.ok(tree); assert.equal(calls.filter(method => method === 'POST').length, 1);
-  if (removal === 'route') navigation.back(authority);
-  else {valid = false; for (const listener of [...listeners]) listener();}
-  await act(async () => {for (let i = 0; i < 3; i++) await new Promise<void>(resolve => setImmediate(resolve));});
-  assert.equal(calls.filter(method => method === 'DELETE').length, removal === 'route' ? 1 : 0);
-  host.unmount(); binding!.dispose(); navigation.dispose();
+  try {
+    await act(async () => {host.mount(); for (let i = 0; i < 4; i++) await new Promise<void>(resolve => setImmediate(resolve));});
+    assert.equal((tree as {type?: unknown} | undefined)?.type, 'NativeReadingGuestHost', 'the original accepted session reached the ready guest outlet');
+    assert.equal(calls.filter(method => method === 'POST').length, 1);
+    if (removal === 'route') navigation.back(authority);
+    else {valid = false; for (const listener of [...listeners]) listener();}
+    await act(async () => {for (let i = 0; i < 3; i++) await new Promise<void>(resolve => setImmediate(resolve));});
+    assert.equal(calls.filter(method => method === 'DELETE').length, removal === 'route' ? 1 : 0);
+  } finally {host.unmount(); binding!.dispose(); navigation.dispose();}
 });
