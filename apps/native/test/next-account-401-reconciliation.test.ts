@@ -14,6 +14,7 @@ import * as invitationCode from '../../../packages/client-core/src/short-invitat
 import * as identity from '../../../packages/client-core/src/route-identity';
 import * as accountWork from '../src-next/platform/account-work';
 import * as abortSignals from '../src-next/platform/abort-signals';
+import * as localInvitation from '../src-next/platform/local-invitation';
 import * as tvOpening from '../src-next/screens/accounts/tv-code-opening';
 import * as outcome from '../src-next/platform/setup-outcome';
 import * as chooser from '../src-next/screens/accounts/directory-chooser';
@@ -236,11 +237,12 @@ async function serverCommand(f: F, kind: string, produce?: (hosted: any) => Prom
     './app-session-storage': {nativeAppSessions: {read: async () => selection}, subscribeNativeAppSessions: () => () => {}},
     './member-account-move': {NativeMemberAccountMove: class {captureHosted: () => Promise<any>; constructor(ports: any) {this.captureHosted = ports.captureHosted;} dispose() {}}},
     './hosted-sign-in-unavailable': {hostedSignInUnavailable: () => undefined},
-    // The command class publishes these local-invitation helpers at construction; these
-    // closure tests never open a local invitation.
-    './local-invitation': {NativeLocalInvitation: {parseEntry: () => undefined, parseShortEntry: () => undefined, formatCode: () => ''}},
+    // The real local-invitation namespace: these closure tests never open one,
+    // and an unexpected parse or format call would run the real guard.
+    './local-invitation': localInvitation,
   };
-  const {NativeServerSignIn} = await screenModule(new URL('../src-next/platform/server-sign-in.ts', import.meta.url), new Proxy(modules, {get: (all, key: string) => all[key] ?? {}}));
+  const {NativeServerSignIn} = await screenModule(new URL('../src-next/platform/server-sign-in.ts', import.meta.url), new Proxy(modules,
+    {get: (all, name: string) => all[name] ?? new Proxy({}, {get: (_, key) => () => {throw new Error('Unvisited command port ' + name + ':' + String(key));}})}));
   const command = new NativeServerSignIn({accountCredentials: () => f.owner, onCancel: () => () => {}, admission: async () => ({})});
   return {command, start: () => command.connectPortico({id: 'server'}), member: async () => {await command.inspect(api.baseUrl); const move = await command.createMemberMove('password'); return move.captureHosted();}, selection: () => {assert.deepEqual(selection, before);}};
 }

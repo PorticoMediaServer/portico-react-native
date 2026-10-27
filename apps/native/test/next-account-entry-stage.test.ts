@@ -5,6 +5,8 @@ import {NativeLocalInvitation} from '../src-next/platform/local-invitation';
 import * as joinLink from '../../../packages/client-core/src/join-link';
 import * as invitationCode from '../../../packages/client-core/src/short-invitation-code';
 import * as tvCodeOpening from '../src-next/screens/accounts/tv-code-opening';
+import * as tvApprovalCredentials from '../src-next/screens/accounts/tv-approval-credentials';
+import * as tvApprovalFinalization from '../src-next/screens/accounts/tv-approval-finalization';
 import * as setupOutcome from '../src-next/platform/setup-outcome';
 import * as passwordPolicy from '../../../packages/client-core/src/password-strength';
 import test from 'node:test';
@@ -15,6 +17,7 @@ import {createTheme} from '../src-next/kit/theme';
 import {act, createHookHost} from './hook-driver';
 import {screenModule} from './helpers/screen-harness.mjs';
 import * as directoryChooser from '../src-next/screens/accounts/directory-chooser';
+import * as qrScanner from '../src-next/platform/qr-scanner';
 import type {NativeAccountEntryStage} from '../src-next/screens/accounts/AccountEntry';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
@@ -53,9 +56,9 @@ async function fixture(initialStage: 'welcome' | 'address' = 'welcome', options:
     './tv-code-opening': tvCodeOpening,
     '../../../../../packages/client-core/src/join-link': joinLink,
     '../../../../../packages/client-core/src/short-invitation-code': invitationCode,
-    '../../platform/qr-scanner': {qrScannerAvailable: () => false, scanQRCode: async () => undefined},
+    '../../platform/qr-scanner': qrScanner,
     './PhoneAccountSignIn': {PhoneAccountSignIn: 'PhoneAccountSignIn'},
-    './tv-approval-finalization': {}, './tv-approval-credentials': {},
+    './tv-approval-finalization': tvApprovalFinalization, './tv-approval-credentials': tvApprovalCredentials,
     react: {...React, default: React,
       useLayoutEffect: (create: () => void | (() => void), deps: readonly unknown[]) => React.useLayoutEffect(() => {phase = 'layout'; try {return create();} finally {phase = 'render';}}, deps),
       useEffect: (create: () => void | (() => void), deps: readonly unknown[]) => React.useEffect(() => {phase = 'passive'; try {return create();} finally {phase = 'render';}}, deps)},
