@@ -35,8 +35,11 @@ export function NativeTogetherTVRoom({state, group, controller, media, ports, ru
   const [visible, setVisible] = useState<readonly string[]>(() => entries.slice(0, 4).flatMap(value => value.unavailable || !value.itemId ? [] : [value.itemId]));
   const wanted = JSON.stringify([...new Set([group.timeline.itemId, ...visible].filter(Boolean))]);
   const [clock, setClock] = useState(controller.serverNow), [bodyHeight, setBodyHeight] = useState(0), [titleHeight, setTitleHeight] = useState(68.2);
-  const [confirm, setConfirm] = useState<'end' | 'leave'>(), [memberMenu, setMemberMenu] = useState<string>(), [queueMenu, setQueueMenu] = useState<string>();
+  const [confirm, setConfirm] = useState<'end' | 'leave'>(), [confirmOpener, setConfirmOpener] = useState<'end' | 'leave'>('leave'), [memberMenu, setMemberMenu] = useState<string>(), [queueMenu, setQueueMenu] = useState<string>();
   const cancel = useRef<View>(null), endRef = useRef<View>(null), leaveRef = useRef<View>(null), menuReturn = useRef<View | null>(null);
+  // `confirm` is cleared while the dialog closes. The opener is its own committed state so the
+  // focus lifecycle still restores the exact control that opened this occurrence, not a ref
+  // derived from the state that is already being cleared.
   const queueRefs = useRef(new Map<string, View>()), memberRefs = useRef(new Map<string, View>());
   const viewable = useRef<NonNullable<FlatListProps<GroupQueueEntry>['onViewableItemsChanged']>>(({viewableItems}) => {
     const next = viewableItems.flatMap(value => value.item.unavailable || !value.item.itemId ? [] : [value.item.itemId]);
@@ -88,7 +91,7 @@ export function NativeTogetherTVRoom({state, group, controller, media, ports, ru
     : live.permissions.isHost && live.members.some(value => value.id === id && eligibleHost(value)));
   const remove = (id: string) => run(() => controller.queueRemove(id), live => live.permissions.canManageQueue
     && (controller.getSnapshot().queue ?? live.queue)?.entries.some(value => value.entryId === id) === true);
-  const askLeave = () => {const live = current();if (!live) return;if (live.permissions.isHost) setConfirm('leave');else run(() => controller.leave(), value => !value.permissions.isHost);};
+  const askLeave = () => {const live = current();if (!live) return;if (live.permissions.isHost) {setConfirmOpener('leave'); setConfirm('leave');}else run(() => controller.leave(), value => !value.permissions.isHost);};
   const deadline = playing ? group.host.pauseAt : group.host.endAt;
   const countdown = deadline ? defaultI18n.clock(Math.max(0, Math.ceil((Date.parse(deadline) - clock) / 1000))) : undefined;
   const notice = away ? [t('web.together.hostDropped'), countdown ? t(playing ? 'web.together.pausesIn' : 'web.together.endsIn', {time: countdown}) : undefined].filter(Boolean).join(' ') : state.error;
@@ -174,14 +177,14 @@ export function NativeTogetherTVRoom({state, group, controller, media, ports, ru
     </View>
     <FocusRegion id={footer} entry="leave" orientation="horizontal" edges={{left: ids.rail, up: queueRegion}} onLayout={entryRegion === footer ? enter : undefined} style={{position: 'absolute', left: 200, bottom: 46, flexDirection: 'row', gap: 18}}>
       <Button ref={leaveRef} focusId="leave" testID="together-leave" variant="text" textStyle={{color: theme.colors.text}} style={{borderWidth: 1.5, borderColor: alpha(theme.colors.text, .22)}} disabled={state.busy} onPress={askLeave}>{t('web.together.leave')}</Button>
-      {group.permissions.isHost && <Button ref={endRef} testID="together-end" variant="text" textStyle={{color: theme.colors.text}} style={{borderWidth: 1.5, borderColor: alpha(theme.colors.text, .22)}} disabled={state.busy} onPress={() => setConfirm('end')}>{t('web.together.endAll')}</Button>}
+      {group.permissions.isHost && <Button ref={endRef} testID="together-end" variant="text" textStyle={{color: theme.colors.text}} style={{borderWidth: 1.5, borderColor: alpha(theme.colors.text, .22)}} disabled={state.busy} onPress={() => {setConfirmOpener('end'); setConfirm('end');}}>{t('web.together.endAll')}</Button>}
     </FocusRegion>
     <Menu testID="together-queue-menu" open={!!queueMenu && !!currentQueue} onOpenChange={open => {if (!open) setQueueMenu(undefined);}} title={currentQueue?.unavailable ? t('web.together.notAvailable') : menuRead?.phase === 'ready' ? menuRead.item.title : undefined} presentation="sideSheet" returnFocusRef={menuReturn} items={currentQueue ? [
       ...(canControl && !currentQueue.unavailable && currentQueue.itemId ? [{id: 'watch', label: t('web.together.watchThis'), disabled: state.busy, onSelect: () => transport('load', {entryId: currentQueue.entryId})}] : []),
       ...(group.permissions.canManageQueue ? [{id: 'remove', label: t('web.together.removeFromQueue'), disabled: state.busy, onSelect: () => remove(currentQueue.entryId)}] : []),
     ] : []}/>
     <Menu testID="together-member-menu" open={!!memberMenu && !!currentMember && group.permissions.isHost && eligibleHost(currentMember)} onOpenChange={open => {if (!open) setMemberMenu(undefined);}} title={currentMember?.private ? t('together.privateViewer') : currentMember?.displayName} presentation="sideSheet" returnFocusRef={menuReturn} items={currentMember && group.permissions.isHost && eligibleHost(currentMember) ? [{id: 'host', label: t('web.together.makeHost'), disabled: state.busy, onSelect: () => transfer(currentMember.id)}] : []}/>
-    <Dialog testID="together-confirm" open={!!confirm} onOpenChange={open => {if (!open) setConfirm(undefined);}} title={t(confirm === 'end' ? 'confirm.endGroup.title' : 'confirm.leaveAsHost.title')} description={t(confirm === 'end' ? 'confirm.endGroup.body' : 'confirm.leaveAsHost.body')} initialFocusRef={cancel} returnFocusRef={confirm === 'end' ? endRef : leaveRef} footer={<View style={{flexDirection: 'row', justifyContent: 'flex-end', gap: 18}}><Button focusId="cancel" ref={cancel} variant="glass" onPress={() => setConfirm(undefined)}>{t('action.cancel')}</Button><Button focusId="confirm" variant="text" style={{backgroundColor: alpha(theme.colors.record, .14)}} textStyle={{color: theme.colors.record}} disabled={state.busy} onPress={() => run(async () => {const done = confirm === 'end' ? await controller.end() : (await controller.leave(), true); if (done && current()) setConfirm(undefined);}, live => live.permissions.isHost)}>{t(confirm === 'end' ? 'confirm.endGroup.action' : 'confirm.leaveAsHost.action')}</Button></View>}><View/></Dialog>
+    <Dialog testID="together-confirm" open={!!confirm} onOpenChange={open => {if (!open) setConfirm(undefined);}} title={t(confirm === 'end' ? 'confirm.endGroup.title' : 'confirm.leaveAsHost.title')} description={t(confirm === 'end' ? 'confirm.endGroup.body' : 'confirm.leaveAsHost.body')} initialFocusRef={cancel} returnFocusRef={confirmOpener === 'end' ? endRef : leaveRef} footer={<View style={{flexDirection: 'row', justifyContent: 'flex-end', gap: 18}}><Button focusId="cancel" ref={cancel} variant="glass" onPress={() => setConfirm(undefined)}>{t('action.cancel')}</Button><Button focusId="confirm" variant="text" style={{backgroundColor: alpha(theme.colors.record, .14)}} textStyle={{color: theme.colors.record}} disabled={state.busy} onPress={() => run(async () => {const done = confirm === 'end' ? await controller.end() : (await controller.leave(), true); if (done && current()) setConfirm(undefined);}, live => live.permissions.isHost)}>{t(confirm === 'end' ? 'confirm.endGroup.action' : 'confirm.leaveAsHost.action')}</Button></View>}><View/></Dialog>
   </Screen>;
 }
 
