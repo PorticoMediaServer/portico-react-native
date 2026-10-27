@@ -80,7 +80,6 @@ test('a directory connect is fenced to its attempt: Choose another and a success
   const host = createHookHost(() => {tree = AccountEntry({onComplete: () => {completed++;}});});
   await act(() => host.mount());
   try {
-    await act(() => {tree.props.onPortico();});
     await act(() => host.rerender());
     assert.equal(tree.type, 'Layout'); assert.equal(tree.props.title, defaultI18n.t('portico.landing.pickTitle'));
     const rows = () => nodes(tree.props.beforeActions).filter(node => node.type === 'Focusable');
