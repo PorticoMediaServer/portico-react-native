@@ -16,6 +16,7 @@ const {TVPerson} = await screenModule(new URL('../src-next/screens/people/Person
   '../../kit/Icon': {Icon: 'Icon'}, '../../kit/states': {StateView: 'StateView'},
   '../../kit/browse/presentation': {browseType: (_theme: unknown, size: number, weight: number, tracking = 0) => ({fontSize: size, fontWeight: weight, tracking})},
   '../../kit/theme': themed, '../../kit/overlays': {Menu: 'Menu', MenuEntry: {}},
+  '../../tv/layout/TVShelf': {TVShelf: 'TVShelf'},
 });
 const descendants = (node: any): any[] => Array.isArray(node) ? node.flatMap(descendants) : node?.props ? [node, ...descendants(node.props.children)] : [];
 const flat = (style: any): any => Array.isArray(style) ? Object.assign({}, ...style.map(flat)) : style ?? {};
@@ -34,7 +35,7 @@ const runtime = {artwork: () => undefined, text: {locale: 'en-US'}, registerTVPa
 test('TV person draws the ten-foot composition from the real person page', () => {
   const opened: any[] = [], roles: string[] = [], backs: number[] = [];
   let tree: any;
-  const host = createHookHost(() => {tree = TVPerson({page, role: 'all', collection, runtime, actions: {open: (entry: unknown) => opened.push(entry)} as any,
+  const host = createHookHost(() => {tree = TVPerson({focusScope: 'person:spielberg', page, role: 'all', collection, runtime, actions: {open: (entry: unknown) => opened.push(entry)} as any,
     onRole: (role: any) => roles.push(role), onBack: () => {backs.push(1);}});});
   host.mount();
   try {
@@ -53,9 +54,13 @@ test('TV person draws the ten-foot composition from the real person page', () =>
     const menu = nodes.find(node => node.type === 'Menu');
     assert.deepEqual(menu.props.items.map((item: any) => item.id), ['all', 'cast', 'crew']);
     menu.props.items[2].onSelect(); assert.deepEqual(roles, ['crew']);
-    const first = nodes.find(node => node.props.testID === 'person-credit-0');
-    assert.equal(first.props.hasTVPreferredFocus, true, 'the first real credit is the page focus target');
-    first.props.onNavigate(); assert.deepEqual(opened, [credits[0]!.media]);
+    const shelf = nodes.find(node => node.type === 'TVShelf');
+    assert.ok(shelf, 'the credits are drawn by the shared TV shelf');
+    assert.deepEqual(shelf.props.items, [0, 1], 'every real credit keeps its own shelf slot');
+    const card = shelf.props.renderItem(0, {index: 0, id: '0', onFocus: () => {}, onBlur: () => {}});
+    assert.equal(card.props.testID, 'person-credit-0');
+    assert.equal(card.props.hasTVPreferredFocus, true, 'the first real credit is the page focus target');
+    card.props.onNavigate(); assert.deepEqual(opened, [credits[0]!.media]);
     assert.equal(backHandler?.(), true);
     assert.deepEqual(backs, [1]);
   } finally {host.unmount();}

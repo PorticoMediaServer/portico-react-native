@@ -6,9 +6,13 @@ import {parsePreferenceSnapshot} from '../../../packages/client-core/src/prefere
 import type {NativeShellBootstrapContext} from '../src-next/shell/bootstrap';
 import {NativeShellNavigation} from '../src-next/shell/routes';
 import * as registryPort from '../src-next/shell/route-registry.ts';
+import {authorityKey} from '../src-next/shell/model.ts';
 import {nativeDestinationLifetime} from '../src-next/screens/destinations/lifetime.ts';
 import {NativeSearchDestination} from '../src-next/screens/search/model.ts';
 import {NativeSearchExplore} from '../src-next/screens/search/explore.ts';
+import {NativeLoadedDestinations} from '../src-next/screens/search/loaded-destinations.ts';
+import {createNativeReadingSearch} from '../src-next/screens/search/reading-search.ts';
+import {NativeBulkMedia} from '../src-next/screens/destinations/bulk-media.ts';
 import * as navigationPorts from '../src-next/screens/search/navigation.ts';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {presentError} from '../../../packages/client-core/src/presentation/errors';
@@ -96,14 +100,28 @@ async function setup() {
     '../../../../../packages/client-core/src/presentation/errors': {presentError},
     '../../../../../packages/client-core/src/media-selection': {mediaSelectionKey},
     '../../kit/overlays': {Dialog: 'Dialog'}, '../../kit/controls': {Button: 'Button'},
-    '../../shell/selection-display': {selectedItemsLabel}, '../../kit/selection': {SelectionBar: 'SelectionBar', SelectionPhoneActionBar: 'SelectionPhoneActionBar'},
+    '../../shell/selection-display': {selectedItemsLabel}, '../../kit/selection': {SelectionBar: 'SelectionBar', SelectionPhoneActionBar: 'SelectionPhoneActionBar',
+      BulkEditor: 'BulkEditor', DeleteMediaDialog: 'DeleteMediaDialog'},
     '../../kit/theme': {useTheme: unavailable}, '../destinations/lifetime': {nativeDestinationLifetime},
     '../native-screen-services': {nativeScreenServices: () => ({requestId: unavailable, reportError: (error: unknown) => errors.push(error)})},
     './model': {nativeSearchEntryKey},
+    // Search owns these real controllers; the picker dialog itself is a drawn host and
+    // its own focus/identity coverage is next-shell-tv-overlay-ids.
+    './loaded-destinations': {NativeLoadedDestinations},
+    '../destinations/bulk-media': {NativeBulkMedia},
+    '../destinations/DestinationPicker': {NativeDestinationPicker: 'NativeDestinationPicker'},
   });
   const registry = registryPort;
+  // The reader's Search-all-books route is registered too; it is a TV-refused route,
+  // so its real factory is registered and never opened here.
+  const readingRegister = await screenModule(new URL('../src-next/screens/search/reading-register.tsx', import.meta.url), {
+    react: hooks().react, 'react-native': {Platform: {isTV: true}, View: 'View'},
+    '../destinations/lifetime': {nativeDestinationLifetime},
+    './reading-search': {createNativeReadingSearch}, './ReadingSearchScreen': {ReadingSearchScreen: 'ReadingSearchScreen'},
+  });
   await screenModule(new URL('../src-next/screens/search/register.tsx', import.meta.url), {
     react: hooks().react, 'react-native': {Platform: {isTV: true}, View: 'View'}, '../../shell/route-registry': registry,
+    '../../shell/model': {authorityKey},
     '../destinations/lifetime': {nativeDestinationLifetime},
     '../destinations/entry-actions': {createNativeEntryActions: () => ({dispose() {}, menuState: {subscribe: () => () => {}, getSnapshot: () => 0}})},
     './selection': {createNativeSearchSelection},
@@ -111,6 +129,7 @@ async function setup() {
     './navigation': navigationPorts, './explore': {NativeSearchExplore: RecordingExplore},
     './SearchScreen': {SearchScreen: 'SearchScreen'}, './GenreBrowseScreen': {GenreBrowseScreen: 'GenreBrowseScreen'},
     './AllGenresScreen': {AllGenresScreen: 'AllGenresScreen'},
+    './reading-register': readingRegister,
   });
   return {context, navigation, authority, paths, errors, authorityListeners, preferenceListeners,
     retire: () => {current = false; for (const listener of [...authorityListeners]) listener();},
