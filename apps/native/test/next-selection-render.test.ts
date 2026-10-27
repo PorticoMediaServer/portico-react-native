@@ -1388,7 +1388,8 @@ for (const role of ['administrator', 'owner'] as const) test(`TV Dashboard ${rol
     console: {measurement: async name => ({name, observedAt: 1, freshUntil: 30001, facts: {}}), alerts: async () => [], jobs: async cursor => {jobCalls.push(cursor); return {items: [{id: cursor ? 'later' : 'first', kind: 'scan', revision: 1}] as never[], nextCursor: cursor ? '' : 'job-next'};}, dispose() {}},
   });
   const runtime = {text: {t: defaultI18n.t, locale: 'en-US'}, error: feedback.error, artwork: () => undefined};
-  const ports = {serverName: () => 'Server', context: {events: {on: () => () => {}}, navigation: {open() {}, back() {}}}};
+  let sessionEvent: (() => void) | undefined;
+  const ports = {serverName: () => 'Server', context: {events: {on: (name: string, listener: () => void) => {if (name === 'admin.sessions') sessionEvent = listener; return () => {sessionEvent = undefined;};}}, navigation: {open() {}, back() {}}}};
   const panel = mount(dashboard.NativeDashboardScreen, {controller, ports, runtime, deniedFallback: null});
   try {
     await act(() => {});
@@ -1418,8 +1419,12 @@ for (const role of ['administrator', 'owner'] as const) test(`TV Dashboard ${rol
       assert.equal(more.props.disabled, true);
       await act(() => complete({items: [session('last')], nextCursor: undefined, totals, revision: 'rev-1', scope: {serverId: 'server', viewerFence: 'fence'}}));
       assert.ok(ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-session-last'));
+      assert.ok(sessionEvent); sessionEvent!(); await act(() => {});
+      assert.ok(controller.sessionFocusToken('first')); assert.equal(controller.getSnapshot().sessionWindow?.pending, true);
+      await act(() => complete({items: [session('last')], nextCursor: undefined, totals, revision: 'rev-1', scope: {serverId: 'server', viewerFence: 'fence'}}));
+      assert.ok(ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-session-last'));
       withNativeControl(row, host => host.props.onBlur({nativeEvent: {}})); assert.equal(controller.sessionFocusToken('first'), undefined);
-      assert.deepEqual(calls, [undefined, 'next', 'next']);
+      assert.deepEqual(calls, [undefined, 'next', 'next', undefined, 'next']);
     } finally {errorView.host.unmount();}
   } finally {panel.host.unmount(); controller.dispose(); feedback.dispose(); lifetime.dispose();}
 });
