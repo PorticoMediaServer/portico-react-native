@@ -300,23 +300,23 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
         </>}
         {!!error && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{presentError(error, 'profiles').body}</Text>}</View>}
       secondaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: back}}/>
-    <Dialog open={addOpen} onOpenChange={open => {if (!open) {activeTicket.current?.abort(); setAddOpen(false);}}} title={t('profile.addTitle')}
-      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={actionBusy} onPress={() => {activeTicket.current?.abort(); setAddOpen(false);}}>{t('action.cancel')}</Button><Button loading={actionBusy} disabled={!addName.trim()} onPress={submitAdd}>{t('action.save')}</Button></View>}>
+    <Dialog testID="profile-add" open={addOpen} onOpenChange={open => {if (!open) {activeTicket.current?.abort(); setAddOpen(false);}}} title={t('profile.addTitle')}
+      footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={actionBusy} onPress={() => {activeTicket.current?.abort(); setAddOpen(false);}}>{t('action.cancel')}</Button><Button focusId="save" loading={actionBusy} disabled={!addName.trim()} onPress={submitAdd}>{t('action.save')}</Button></View>}>
       <TextField label={t('profile.name')} value={addName} onChangeText={setAddName} maxLength={120} testID="profile-add-name"/>
     </Dialog>
-    <Dialog open={edit?.kind === 'rename'} onOpenChange={open => {if (!open) closeEdit();}} title={t('profile.renameTitle', {name: edit?.profile.name ?? ''})}
-      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={actionBusy} onPress={closeEdit}>{t('action.cancel')}</Button><Button loading={actionBusy} disabled={!nameDraft.trim()} onPress={submitRename}>{t('action.save')}</Button></View>}>
+    <Dialog testID="profile-rename" open={edit?.kind === 'rename'} onOpenChange={open => {if (!open) closeEdit();}} title={t('profile.renameTitle', {name: edit?.profile.name ?? ''})}
+      footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={actionBusy} onPress={closeEdit}>{t('action.cancel')}</Button><Button focusId="save" loading={actionBusy} disabled={!nameDraft.trim()} onPress={submitRename}>{t('action.save')}</Button></View>}>
       <TextField label={t('profile.name')} value={nameDraft} onChangeText={setNameDraft} maxLength={120} testID="profile-rename-name"/>
     </Dialog>
-    <Dialog open={edit?.kind === 'pin'} onOpenChange={open => {if (!open) closeEdit();}} title={t('profile.pinTitle', {name: edit?.profile.name ?? ''})}
-      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={actionBusy} onPress={closeEdit}>{t('action.cancel')}</Button><Button loading={actionBusy} disabled={pinDraft.length !== 4 || pinAgain.length !== 4} onPress={submitPin}>{t('action.save')}</Button></View>}>
+    <Dialog testID="profile-pin-edit" open={edit?.kind === 'pin'} onOpenChange={open => {if (!open) closeEdit();}} title={t('profile.pinTitle', {name: edit?.profile.name ?? ''})}
+      footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={actionBusy} onPress={closeEdit}>{t('action.cancel')}</Button><Button focusId="save" loading={actionBusy} disabled={pinDraft.length !== 4 || pinAgain.length !== 4} onPress={submitPin}>{t('action.save')}</Button></View>}>
       <TextField label={t('profile.pinChoose')} value={pinDraft} onChangeText={setPinDraft} keyboardType="number-pad" secureTextEntry maxLength={4} testID="profile-pin-new"/>
       <TextField label={t('profile.pinRepeat')} value={pinAgain} onChangeText={setPinAgain} keyboardType="number-pad" secureTextEntry maxLength={4} testID="profile-pin-again" containerStyle={{marginTop: 12}}/>
     </Dialog>
-    <Dialog open={!!removePin} onOpenChange={open => {if (!open) {activeTicket.current?.abort(); setRemovePin(undefined);}}} title={t('profile.removePinConfirm.title', {name: removePin?.name ?? ''})} description={t('profile.removePinConfirm.body', {name: removePin?.name ?? ''})}
-      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={actionBusy} onPress={() => setRemovePin(undefined)}>{t('action.cancel')}</Button><Button loading={actionBusy} onPress={removePinAction}>{t('profile.removePin')}</Button></View>}><View/></Dialog>
-    <Dialog open={!!forgetProfile} onOpenChange={open => {if (!open) {activeTicket.current?.abort(); setForgetProfile(undefined);}}} title={t('profile.forgetDevices')}
-      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={actionBusy} onPress={() => setForgetProfile(undefined)}>{t('action.cancel')}</Button><Button loading={actionBusy} onPress={forgetAction}>{t('profile.forgetDevices')}</Button></View>}><View/></Dialog>
+    <Dialog testID="profile-remove-pin" open={!!removePin} onOpenChange={open => {if (!open) {activeTicket.current?.abort(); setRemovePin(undefined);}}} title={t('profile.removePinConfirm.title', {name: removePin?.name ?? ''})} description={t('profile.removePinConfirm.body', {name: removePin?.name ?? ''})}
+      footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={actionBusy} onPress={() => setRemovePin(undefined)}>{t('action.cancel')}</Button><Button focusId="remove-pin" loading={actionBusy} onPress={removePinAction}>{t('profile.removePin')}</Button></View>}><View/></Dialog>
+    <Dialog testID="profile-forget-devices" open={!!forgetProfile} onOpenChange={open => {if (!open) {activeTicket.current?.abort(); setForgetProfile(undefined);}}} title={t('profile.forgetDevices')}
+      footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={actionBusy} onPress={() => setForgetProfile(undefined)}>{t('action.cancel')}</Button><Button focusId="forget-devices" loading={actionBusy} onPress={forgetAction}>{t('profile.forgetDevices')}</Button></View>}><View/></Dialog>
     {limitsProfile && lease ? <ProfileLimitsSheet profile={limitsProfile} lease={lease} identityFor={identityForLimits} onClose={() => setLimitsProfile(undefined)} onSaved={() => {setNotice(t('limits.saved', {name: limitsProfile.name})); setLimitsProfile(undefined);}}/> : null}
   </>;
 }
@@ -395,16 +395,16 @@ function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {pr
     });
   };
   return <BottomSheet open onOpenChange={open => {if (!open && !busy) onClose();}} title={t('limits.title', {name: profile.name})} description={t('limits.subtitle')}
-    testID="profile-limits" footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={busy} onPress={onClose}>{t('action.cancel')}</Button><Button loading={busy} disabled={!draft || !owner || !current(owner)} onPress={save}>{t('limits.save')}</Button></View>}>
+    testID="profile-limits" footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={busy} onPress={onClose}>{t('action.cancel')}</Button><Button focusId="save" loading={busy} disabled={!draft || !owner || !current(owner)} onPress={save}>{t('limits.save')}</Button></View>}>
     {error ? <StateView title={presentError(error, 'profiles').title} body={presentError(error, 'profiles').body}/> : !draft ? <StateView title={t('status.loading')}/> : <View style={{gap: 14}}>
-      {system ? <Select label={t('limits.highestRating')} description={t('limits.highestRatingHelp')} value={draft.maximumAgeRating} options={ratingOptions}
+      {system ? <Select focusId="maximum-age-rating" testID="profile-limits-maximum-age-rating" label={t('limits.highestRating')} description={t('limits.highestRatingHelp')} value={draft.maximumAgeRating} options={ratingOptions}
         onValueChange={value => setDraft(current => current ? {...current, maximumAgeRating: value} : current)}/> : null}
-      <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}><Switch checked={draft.allowUnrated} onCheckedChange={value => setDraft(current => current ? {...current, allowUnrated: value} : current)}/><Text style={[theme.type.body, {color: theme.colors.text}]}>{t('limits.allowUnrated')}</Text></View>
+      <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}><Switch focusId="allow-unrated" checked={draft.allowUnrated} onCheckedChange={value => setDraft(current => current ? {...current, allowUnrated: value} : current)}/><Text style={[theme.type.body, {color: theme.colors.text}]}>{t('limits.allowUnrated')}</Text></View>
       <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('limits.allowUnratedHelp')}</Text>
       <Text style={[theme.type.captionStrong, {color: theme.colors.textTertiary, marginTop: 6}]}>{t('limits.features')}</Text>
       {([['allowDownloads', 'limits.feature.downloads'], ['allowLiveTv', 'limits.feature.liveTv'], ['allowDvr', 'limits.feature.dvr'], ['allowWatchTogether', 'limits.feature.watchTogether']] as const).map(([key, label]) =>
         <View key={key} style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12}}><Text style={[theme.type.body, {color: theme.colors.text}]}>{t(label)}</Text>
-          <Switch checked={draft[key]} onCheckedChange={value => setDraft(current => current ? {...current, [key]: value} : current)}/></View>)}
+          <Switch focusId={`feature:${key}`} checked={draft[key]} onCheckedChange={value => setDraft(current => current ? {...current, [key]: value} : current)}/></View>)}
       {draft.blockedLabels.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('limits.hiddenLabels', {labels: draft.blockedLabels.join(', ')})}</Text> : null}
     </View>}
   </BottomSheet>;
