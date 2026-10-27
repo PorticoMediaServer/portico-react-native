@@ -37,7 +37,7 @@ const child = (tree: any, id: string): any => {
   for (const node of React.Children.toArray(tree?.props?.children) as any[]) {
     if (!React.isValidElement<any>(node)) continue;
     if (node.props.testID === id) return node;
-    const rendered = typeof node.type === 'function' && node.props.context ? node.type(node.props) : node;
+    const rendered = typeof node.type === 'function' && !Reflect.get(node.type, 'prototype')?.isReactComponent && node.props.context ? (node.type as React.FunctionComponent<any>)(node.props) : node;
     const found = child(rendered, id);
     if (found) return found;
   }

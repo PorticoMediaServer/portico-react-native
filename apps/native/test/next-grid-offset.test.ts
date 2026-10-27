@@ -25,7 +25,7 @@ test('the grid reports actual offsets within one row and restores that exact mea
   try {
     const tree = host.render(() => WindowedGrid({collection, getKey: String, renderItem: (_item: string, context: {selection?: unknown}) => {selections.push(context.selection); return null;}, renderPlaceholder: () => null,
       itemWidth: 200, itemHeight: 360, onScrollOffset: (value: number) => measured.push(value), onGeometry: (columns: number, stride: number) => geometries.push([columns, stride])}, ref));
-    assert.deepEqual(geometries, [], 'unmeasured geometry is never published');
+    assert.deepEqual([...geometries], [], 'unmeasured geometry is never published');
     assert.deepEqual(selections, [undefined], 'a real item renders without a fabricated selection port');
     tree.props.onLayout({nativeEvent: {layout: {width: 1000, height: 700}}});
     host.render(() => WindowedGrid({collection, getKey: String, renderItem: () => null, renderPlaceholder: () => null, itemWidth: 200, itemHeight: 360,

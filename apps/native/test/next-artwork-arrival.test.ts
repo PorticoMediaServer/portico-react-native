@@ -14,7 +14,7 @@ test('decode order cannot overtake reading order; ready siblings start forty mil
   const f = fixture(), seen: [number, number][] = [];
   const first = f.queue.register(0), second = f.queue.register(1), third = f.queue.register(2);
   third.ready(() => seen.push([2, f.time()])); second.ready(() => seen.push([1, f.time()]));
-  f.advance(100); assert.deepEqual(seen, []);
+  f.advance(100); assert.deepEqual([...seen], []);
   first.ready(() => seen.push([0, f.time()])); f.advance(80);
   assert.deepEqual(seen, [[0, 100], [1, 140], [2, 180]]);
 });

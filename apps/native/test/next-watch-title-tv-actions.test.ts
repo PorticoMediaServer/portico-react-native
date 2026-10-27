@@ -82,7 +82,7 @@ test('TV Down from the hero buttons skips the strip for the first content row an
     assert.equal(actions.props.edges.down, row.props.id);
     assert.equal(row.props.edges.up, actions.props.id);
     assert.equal(actions.props.entry, 'watch-title-play');
-    assert.deepEqual(posters().map(node => node.props.focusId), ['first', 'second']);
+    assert.deepEqual(posters().map((node: React.ReactElement<{focusId: string}>) => node.props.focusId), ['first', 'second']);
     const strip = descendants(tree).find(node => node.props.testID === 'watch-title-tabs');
     assert.equal(strip.props.passive, true); assert.equal(strip.props.onValueChange, undefined);
     assert.ok(descendants(tree).some(node => node.type === 'Text' && node.props.children === 'About'), 'Details stays mounted below related rows');
