@@ -410,8 +410,8 @@ function LibrarySelectionBars({store, artwork}: {store: Store; artwork: (path?: 
     <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{result.status === 'saved' ? defaultI18n.t('next.selection.saved') : presentError({code: 'unavailable'}, 'detail', {operation: 'action'}).body}</Text>
   </View>);
   // select 26: Try again holds focus when a title failed, Done otherwise.
-  const footer = personal && <><Button ref={doneRef} disabled={store.personalBusy()} onPress={done}>{defaultI18n.t('next.selection.done')}</Button>
-    {failed && <Button ref={retryRef} disabled={store.personalBusy()} onPress={retry}>{defaultI18n.t('next.selection.retry')}</Button>}</>;
+  const footer = personal && <><Button ref={doneRef} focusId="done" disabled={store.personalBusy()} onPress={done}>{defaultI18n.t('next.selection.done')}</Button>
+    {failed && <Button ref={retryRef} focusId="retry" disabled={store.personalBusy()} onPress={retry}>{defaultI18n.t('next.selection.retry')}</Button>}</>;
   return <>
     <View pointerEvents="box-none" style={{position: 'absolute', inset: 0, zIndex: theme.layers.navigation + 1}}>
       {!theme.isTV && <View style={{position: 'absolute', left: 0, right: 0, bottom: 0}}><SelectionPhoneActionBar {...props} bottomInset={Math.max(34, insets.bottom)}/></View>}

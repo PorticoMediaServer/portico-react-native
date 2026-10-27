@@ -18,9 +18,9 @@ type Sort = Readonly<{id: string; labelKey: string; directions: readonly ('asc' 
 /** collections.html 15 draws one Sort chip, one Show chip and the count. Both chips open the
  * kit's menu; the sort list, its directions and the show options with their counts are the
  * server's own published policy, and choosing one sends that policy back unchanged. */
-export function PlaylistToolbar({sorts, filters, value, enabled, onSelect}: {
+export function PlaylistToolbar({sorts, filters, value, enabled, focusScope, onSelect}: {
   sorts: readonly Sort[]; filters: readonly ContentFilter[]; value: PlaylistToolbarValue;
-  enabled: boolean; onSelect: (next: Partial<PlaylistToolbarValue>) => void;
+  enabled: boolean; focusScope: string; onSelect: (next: Partial<PlaylistToolbarValue>) => void;
 }) {
   const theme = useTheme(), chip = {height: 64, paddingHorizontal: 26, borderRadius: 14, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, backgroundColor: alpha(theme.colors.text, .08)};
   const sortAnchor = useRef<View>(null), filterAnchor = useRef<View>(null);
@@ -42,7 +42,7 @@ export function PlaylistToolbar({sorts, filters, value, enabled, onSelect}: {
       <Icon name="i-filter" size={26} color={theme.colors.textTertiary}/>
       <Text style={[browseType(theme, 22, 700), {color: theme.colors.text}]}>{filterLabel}</Text>
     </Focusable>
-    <Popover open={sortOpen} onOpenChange={setSortOpen} anchorRef={sortAnchor} returnFocusRef={sortAnchor} title={t('next.browse.native.sort')} width={560} placement="bottom-end">
+    <Popover open={sortOpen} onOpenChange={setSortOpen} anchorRef={sortAnchor} returnFocusRef={sortAnchor} title={t('next.browse.native.sort')} width={560} placement="bottom-end" testID={`${focusScope}.sort-menu`}>
       <ScrollView style={{maxHeight: 680}}>{sorts.map(sort => {
         const flipped = value.direction === 'asc' ? 'desc' as const : 'asc' as const;
         return <MenuRow key={sort.id} focusId={`tv-saved-sort:${sort.id}`} label={t('playlists.sort', {field: sort.id})}
@@ -59,8 +59,8 @@ export function PlaylistToolbar({sorts, filters, value, enabled, onSelect}: {
           items={activeSort.directions.map(dir => ({value: dir, label: t('web.filters.direction', {kind: kind(value.sort), dir})}))}/>
       </View>}
     </Popover>
-    <Popover open={filterOpen} onOpenChange={setFilterOpen} anchorRef={filterAnchor} returnFocusRef={filterAnchor} title={t('playlists.filter')} width={560} placement="bottom-end">
-      <ScrollView style={{maxHeight: 680}}>{filters.flatMap(filter => filter.options.map(option => <MenuRow key={`${filter.id}:${option.id}`} focusId={`tv-saved-show:${option.id}`}
+    <Popover open={filterOpen} onOpenChange={setFilterOpen} anchorRef={filterAnchor} returnFocusRef={filterAnchor} title={t('playlists.filter')} width={560} placement="bottom-end" testID={`${focusScope}.filter-menu`}>
+      <ScrollView style={{maxHeight: 680}}>{filters.flatMap(filter => filter.options.map(option => <MenuRow key={`${filter.id}:${option.id}`} focusId={`tv-saved-show:${filter.id}:${option.id}`}
         label={t('playlists.filter.option', {group: option.id})} trailing={defaultI18n.number(option.count)}
         selected={value.filter === option.id} accessibilityRole="radio" accessibilityState={{checked: value.filter === option.id}} variant="tv"
         onPress={() => {onSelect({filter: option.id as PlaylistListFilter}); setFilterOpen(false);}}/>))}</ScrollView>

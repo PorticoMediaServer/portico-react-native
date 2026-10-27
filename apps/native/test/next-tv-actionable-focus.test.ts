@@ -730,3 +730,145 @@ for (const kind of ['trusted', 'identity'] as const) for (const closeBy of ['can
     if (descriptor) Object.defineProperty(globalThis, 'require', descriptor); else delete (globalThis as any).require;
   }
 });
+
+for (const kind of ['sort', 'filter'] as const) test(`actual Saved directory supplies retained toolbar scopes to the real ${kind} Popover and keyed rows`, async t => {
+  t.mock.timers.enable({apis: ['setTimeout']});
+  const b = await bindings(), o = await overlayBindings(b), direction = await import('../../../packages/client-core/src/presentation/browse-toolbar');
+  const presentation = await import('../src-next/kit/browse/presentation'), savedText = await import('../src-next/screens/saved/presentation');
+  const react: any = {...b.react, useImperativeHandle() {}}; react.default = react; // Scroll-page handle is outside this caller-ID vector.
+  const toolbar = await screenModule(new URL('../src-next/screens/saved/PlaylistToolbar.tsx', import.meta.url), {
+    react, 'react-native': b.native, '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src/presentation/browse-toolbar': direction,
+    '../../kit/controls': {Focusable: b.Focusable, Segmented: 'Segmented'}, '../../kit/overlays': o.menu, '../../kit/Icon': {Icon: 'Icon'},
+    '../../kit/browse/presentation': presentation, '../../kit/theme': {useTheme: () => b.theme}});
+  const {SavedTVDirectory} = await screenModule(new URL('../src-next/screens/saved/SavedTVDirectory.tsx', import.meta.url), {
+    react, 'react-native': b.native, '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/controls': {Focusable: b.Focusable},
+    '../../kit/artwork': {}, '../../kit/cards/primitives': {}, '../../kit/focus': b.focus, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/states': {StateView: 'State'},
+    '../../kit/browse/presentation': presentation, '../../kit/theme': {useTheme: () => b.theme}, './PlaylistToolbar': toolbar, './presentation': savedText});
+  const snapshot = {phase: 'ready', saved: {projection: {sections: [], query: {sort: 'title', direction: 'asc', category: 'all'},
+    sorts: [{id: 'title', directions: ['asc', 'desc']}], filters: [{id: 'ownership', options: [{id: 'all', count: 4}]}, {id: 'visibility', options: [{id: 'all', count: 3}]}]}, pagination: {next: []}}};
+  const routes: any[][] = [[], []], trees: any[] = [], tools: any[] = [], source: ReturnType<typeof createHookHost>[] = [], drivers: ReturnType<typeof createHookHost>[] = [];
+  const destinations = [0, 1].map(() => ({subscribe: () => () => {}, getSnapshot: () => snapshot}));
+  const selects = [0, 1].map(index => (value: any) => routes[index]!.push(value));
+  let enabled = true, overlay: any, renderer: ReturnType<typeof createHookHost> | undefined;
+  const directoryProps = (index: number) => ({view: 'playlists', destination: destinations[index], runtime: {}, libraries: [], enabled: index ? true : enabled,
+    regionId: `saved.original-${index}`, select: selects[index], openPlaylist() {}, openResource() {}});
+  try {
+    for (const index of [0, 1]) {
+      source[index] = createHookHost(() => {trees[index] = SavedTVDirectory(directoryProps(index));}); source[index]!.mount();
+      drivers[index] = createHookHost(() => {const node = nodes(trees[index]).find(node => node.type === toolbar.PlaylistToolbar); tools[index] = node.type(node.props);}); drivers[index]!.mount();
+    }
+    const menu = (index = 0) => nodes(tools[index]).find(node => node.type === o.menu.Popover && node.props.testID.endsWith(`.${kind}-menu`)).props;
+    assert.equal(menu().testID, `saved.original-0.toolbar.${kind}-menu`); assert.equal(menu(1).testID, `saved.original-1.toolbar.${kind}-menu`);
+    const declared = () => nodes(trees[0]).find(node => node.type === b.focus.FocusRegion && node.props.id === 'saved.original-0.toolbar');
+    const parent = b.region(() => declared().props), openerNode = () => nodes(tools[0]).find(node => node.type === b.Focusable && node.props.focusId === `tv-saved-${kind}`);
+    const opener = b.target('saved.original-0.toolbar', () => openerNode().props), originalRef = opener.props.ref;
+    (opener.host as any).measureInWindow = (callback: any) => callback(10, 10, 100, 50);
+    enabled = false; source[0]!.rerender(); drivers[0]!.rerender(); parent.refresh(); opener.refresh();
+    assert.equal(opener.props.disabled, true); assert.equal(opener.props.onPress, undefined); assert.deepEqual(routes, [[], []]);
+    enabled = true; source[0]!.rerender(); drivers[0]!.rerender(); parent.refresh(); opener.refresh();
+    assert.equal(opener.props.ref, originalRef); opener.props.onFocus({}); opener.props.onPress(); drivers[0]!.rerender();
+    renderer = createHookHost(() => {overlay = o.menu.Popover(menu());}); renderer.mount(); renderer.flush();
+    const boundary = nodes(overlay).find(node => node.type === o.surface.FocusBoundary), declaration = boundary.type(boundary.props);
+    const guide = b.region(() => declaration.props), rows = nodes(menu().children).filter(node => node.type === o.menu.MenuRow);
+    const targets = rows.map(row => b.target(menu().testID, () => row.type.render(row.props, row.props.ref).props));
+    assert.equal(guide.guide.props.testID, `portico.region.${encodeURIComponent(menu().testID)}`);
+    assert.equal(b.registry.entryTarget(menu().testID), targets[0]!.host, 'the actual guide entry resolves to its first real row');
+    assert.equal(new Set(targets.map(target => target.props.testID)).size, rows.length);
+    if (kind === 'filter') {
+      assert.deepEqual(rows.map(row => row.props.focusId), ['tv-saved-show:ownership:all', 'tv-saved-show:visibility:all']);
+      targets[1]!.props.onPress(); assert.deepEqual(routes[0], [{view: 'playlists', filter: 'all'}]);
+    } else {
+      assert.deepEqual(rows.map(row => row.props.focusId), ['tv-saved-sort:title']);
+      const segmented = nodes(menu().children).find(node => node.type === 'Segmented');
+      assert.deepEqual(['asc', 'desc'].map(value => segmented.props.itemProps({value}).focusId), ['tv-saved-order:asc', 'tv-saved-order:desc']);
+      assert.equal([...o.back][0]!(), true); assert.deepEqual(routes[0], []);
+    }
+    assert.deepEqual(routes[1], [], 'the other retained directory receives no command');
+    drivers[0]!.rerender(); renderer.rerender(); t.mock.timers.tick(500); renderer.rerender();
+    assert.equal(opener.calls, 1, 'actual Popover lifecycle restores the original directory chip');
+    targets.forEach(target => target.dispose()); guide.dispose();
+  } finally {renderer?.unmount(); drivers.forEach(driver => driver.unmount()); source.forEach(driver => driver.unmount()); b.dispose(); t.mock.timers.reset();}
+});
+
+test('actual Lyrics read-error Retry keeps its original prefix, native host and reader command through snapshot changes', async () => {
+  const b = await bindings(), o = await overlayBindings(b), lyrics = await import('../../../packages/client-core/src/lyrics');
+  const committed = await screenModule(new URL('../src-next/kit/overlays/CommittedPaint.tsx', import.meta.url), {react: b.react, './OverlayPaintContext': b.paint});
+  const {NowPlayingLyrics} = await screenModule(new URL('../src-next/screens/destinations/music/NowPlayingLyrics.tsx', import.meta.url), {
+    react: b.react, 'react-native': b.native, '../../../../../../packages/client-core/src/lyrics': lyrics, '../../../../../../packages/i18n/src': {defaultI18n},
+    '../../../kit/controls': {Button: o.Button, Focusable: b.Focusable}, '../../../kit/theme': {useTheme: () => b.theme},
+    '../../../kit/browse/presentation': await import('../src-next/kit/browse/presentation'), '../../../kit/overlays/CommittedPaint': committed});
+  let snapshot: any = {data: null, candidates: [], warnings: [], preview: null, busy: false, error: 'Read refused', generation: 1}, tree: any, reads = 0, refreshes = 0, disposed = 0;
+  const original = {subscribe: () => () => {}, getSnapshot: () => snapshot, async refresh() {refreshes++;}, dispose() {disposed++;}};
+  const target = Object.freeze({libraryId: 'music', itemId: 'original-song', sessionId: 'original-session', sessionGeneration: 1, sourceId: 'original-source'});
+  const read = (received: unknown) => {assert.equal(received, target); reads++; return {enabled: true, service: original};};
+  const source = createHookHost(() => {tree = NowPlayingLyrics({read, target, positionSeconds: 0, playing: false, onSeek() {assert.fail('Retry never seeks');}, testID: 'original-lyrics'});}); source.mount();
+  const region = b.region(() => ({id: 'original.lyrics.panel'})), button = () => nodes(tree).find(node => node.type === o.Button);
+  const retry = b.target('original.lyrics.panel', () => actualButtonProps(o, button().props));
+  try {
+    assert.equal(reads, 1); assert.equal(refreshes, 1, 'existing mount read is unchanged');
+    assert.equal(retry.props.testID, 'original-lyrics-retry'); assert.equal(b.registry.child({regionId: 'original.lyrics.panel', childId: 'retry'}), retry.host);
+    const ref = retry.props.ref;
+    for (const busy of [true, false]) {snapshot = {...snapshot, busy}; source.rerender(); region.refresh(); retry.refresh(); assert.equal(retry.props.ref, ref); assert.equal(reads, 1); assert.equal(refreshes, 1);}
+    b.paint.OverlayPaintModeContext.current = b.paint.OVERLAY_PAINT_INERT; retry.refresh();
+    assert.equal(retry.props.onPress, undefined); assert.equal(b.registry.child({regionId: 'original.lyrics.panel', childId: 'retry'}), undefined);
+    b.paint.OverlayPaintModeContext.current = b.paint.OVERLAY_PAINT_LIVE; retry.refresh(); retry.props.onPress();
+    assert.equal(refreshes, 2); assert.equal(reads, 1, 'explicit Retry keeps the original reader');
+    source.unmount(); assert.equal(disposed, 1);
+  } finally {source.unmount(); b.dispose();}
+});
+
+for (const failed of [false, true]) test(`actual Library selection result footer binds Done/Retry to the named TV panel (${failed ? 'failed' : 'saved'})`, async t => {
+  t.mock.timers.enable({apis: ['setTimeout']});
+  const b = await bindings(), o = await overlayBindings(b), selection = await import('../../../packages/client-core/src/selection-model');
+  const scope = await import('../src-next/screens/destinations/lifetime'), display = await import('../src-next/shell/selection-display');
+  const module = await screenModule(new URL('../src-next/screens/library/selection.tsx', import.meta.url), {
+    react: b.react, 'react-native': b.native, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 0})},
+    '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src/presentation/errors': await import('../../../packages/client-core/src/presentation/errors'),
+    '../../../../../packages/client-core/src/catalogue-query-selection': await import('../../../packages/client-core/src/catalogue-query-selection'),
+    '../../../../../packages/client-core/src/selection-model': selection, '../../../../../packages/client-core/src/media-selection': await import('../../../packages/client-core/src/media-selection'),
+    '../../shell/selection-display': display, '../../kit/selection': {SelectionBar: 'SelectionBar', SelectionPhoneActionBar: 'PhoneBar', BulkEditor: 'Bulk', DeleteMediaDialog: 'Delete'},
+    '../../kit/theme': {useTheme: () => b.theme}, '../../kit/overlays': o.surface, '../../kit/controls': {Button: o.Button},
+    '../destinations/lifetime': scope, '../native-screen-services': {nativeScreenServices: () => ({})}, '../destinations/DestinationPicker': {NativeDestinationPicker: 'Picker'},
+    '../search/loaded-destinations': {NativeLoadedDestinations: class {}}, '../destinations/bulk-media': {NativeBulkMedia: class {}}, './model': {},
+    './play-selection': {createNativeLibraryPlaySelection() {throw new Error('footer vector must not create a producer');}}});
+  const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'original', viewerFence: 'viewer'};
+  const context = {session: () => ({viewer: {...authority, authority: 'local'}}), authority: () => authority, current: () => true, subscribeAuthority: () => () => {}};
+  const port = module.createNativeLibrarySelection(context, {}, {subscribe: () => () => {}, getSnapshot: () => ({visible: true})});
+  const element = port.render(); // Obtain the real private presenter through its public factory.
+  let busy = false, token = 1, active = true, clears = 0, retries = 0, tree: any, panel: any;
+  const view = {active: true, selectedKeys: ['original'], target: {mode: 'explicit'}, summary: {count: 1, types: [{kind: 'movie', count: 1}], every: {}}};
+  // The selection operation port is controlled; all presenter guards and kit bindings are real.
+  const store = {subscribe: () => () => {}, getSnapshot: () => 1, snapshot: () => view, active: () => active, personal: () => ({results: [{key: 'original', title: 'Original', status: failed ? 'failed' : 'saved'}]}),
+    personalBusy: () => busy, busy: () => busy, resultsToken: () => token, whole: () => undefined, destination: () => undefined, destinationKind: () => undefined, bulk: () => undefined,
+    queueControl: () => false, loadedCount: () => 1, entries: () => [], clear() {clears++; active = false;}, async retryPersonal() {retries++;}};
+  const source = createHookHost(() => {tree = element.type({...element.props, store});});
+  let renderer: ReturnType<typeof createHookHost> | undefined;
+  try {
+    b.region(() => ({id: 'original.library', order: ['opener']})); const opener = b.target('original.library', () => ({focusId: 'opener'})); opener.props.onFocus({});
+    source.mount(); const props = () => nodes(tree).find(node => node.type === o.surface.SidePanel).props;
+    assert.equal(props().testID, 'library-selection-results');
+    renderer = createHookHost(() => {panel = o.surface.SidePanel(props());}); renderer.mount();
+    const boundary = nodes(panel).find(node => node.type === o.surface.FocusBoundary), declaration = boundary.type(boundary.props), guide = b.region(() => declaration.props);
+    const footer = (id: string) => nodes(props().footer).find(node => node.type === o.Button && node.props.focusId === id).props;
+    const done = b.target('library-selection-results', () => actualButtonProps(o, footer('done')));
+    const retry = failed ? b.target('library-selection-results', () => actualButtonProps(o, footer('retry'))) : undefined;
+    const targets = [done, ...(retry ? [retry] : [])], oldDone = footer('done').onPress, oldRetry = retry ? footer('retry').onPress : undefined;
+    const refs = targets.map(target => target.props.ref);
+    t.mock.timers.tick(180); assert.equal((retry ?? done).calls, 1, 'the existing initial ref chooses Retry only for actual failed results');
+    assert.deepEqual(targets.map(target => target.props.testID), ['done', ...(failed ? ['retry'] : [])].map(id => registryModule.focusTestID('library-selection-results', id)));
+    busy = true; source.rerender(); renderer.rerender(); targets.forEach(target => target.refresh());
+    targets.forEach(target => {assert.equal(target.props.disabled, true); assert.equal(target.props.onPress, undefined);});
+    assert.equal([...o.back][0]!(), true); assert.equal(clears, 0, 'busy results still own Back');
+    oldDone(); oldRetry?.(); assert.equal(clears, 0); assert.equal(retries, 0);
+    busy = false; token++; source.rerender(); renderer.rerender(); targets.forEach(target => target.refresh());
+    targets.forEach((target, index) => {
+      assert.equal(target.props.ref, refs[index]);
+      assert.equal(b.registry.child({regionId: 'library-selection-results', childId: index ? 'retry' : 'done'}), target.host);
+    });
+    oldDone(); oldRetry?.(); assert.equal(clears, 0); assert.equal(retries, 0, 'retained old result callbacks still refuse a successor token');
+    if (retry) {retry.props.onPress(); assert.equal(retries, 1); assert.equal([...o.back][0]!(), true);}
+    else done.props.onPress();
+    source.rerender(); assert.equal(tree, null); renderer.unmount(); targets.forEach(target => target.dispose()); guide.dispose();
+    assert.equal(clears, 1); assert.equal(opener.calls, 1, 'actual panel teardown restores the original captured library opener');
+  } finally {renderer?.unmount(); source.unmount(); port.dispose(); b.dispose(); t.mock.timers.reset();}
+});
