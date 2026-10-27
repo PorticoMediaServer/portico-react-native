@@ -11,7 +11,7 @@ import * as audioEffects from '../../../packages/client-core/src/audio-effects';
 import * as i18n from '../../../packages/i18n/src';
 import * as signalPath from '../src-next/screens/destinations/music/signal-path-model.ts';
 import {nativeShellBackTransition} from '../src-next/shell/playback.ts';
-import {sameAuthority} from '../src-next/shell/model.ts';
+import {authorityKey, sameAuthority} from '../src-next/shell/model.ts';
 import {NativeVideoSnapshotCapture} from '../src-next/shell/video-snapshot.ts';
 import * as watchSlotLayout from '../src-next/shell/watch-slot-layout.ts';
 import {NativeWatchOutlet, type NativeExpandedVideoSlot, type NativeWatchReader} from '../src-next/shell/watch-outlet.ts';
@@ -23,6 +23,8 @@ import {tvFocusIds} from '../src-next/shell/tv-focus.ts';
 import type {NativeWatchPictureSlot} from '../src-next/screens/watch/picture-slot.tsx';
 import {act, createHookHost} from './hook-driver.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
+import {groupPort, subscribeGroupPort} from '../src-next/screens/settings-live/group-port.ts';
+import {useListeningSong} from '../src-next/shell/use-listening-song.ts';
 
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane'}, run: 1}, sessionId: 'session', itemId: 'item', sourceId: 'source', entryId: 'entry', generation: 1});
@@ -52,7 +54,7 @@ async function layer(withWatch = true, canonical?: NativeWatchReader, options: {
   let node: any = {measureInWindow: (callback: any) => {callbacks.push(callback);}};
   const morph = {dragging: {value: false}, dockX: {value: 0}, dockFade: {value: 1}};
   const signalFacts = await screenModule(new URL('../src-next/screens/destinations/music/signal-facts.ts', import.meta.url), {
-    'react-native': {Platform: {OS: options.os ?? 'android'}},
+    react: {...React, default: React}, 'react-native': {Platform: {OS: options.os ?? 'android'}},
   });
   const musicSignal = await screenModule(new URL('../src-next/screens/destinations/music/MusicSignal.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': {Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
@@ -77,13 +79,16 @@ async function layer(withWatch = true, canonical?: NativeWatchReader, options: {
     '../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => ({title: 'Fixture'})},
     '../kit/dock/model': dockModel,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, right: 0, bottom: 0, left: 0})},
-    '../screens/destinations/music/NowPlayingScreen': {NowPlayingScreen: 'NowPlayingScreen', ListeningPagePreview: 'ListeningPagePreview', ListeningPageBackground: 'ListeningPageBackground'},
+    '../screens/destinations/music/NowPlayingScreen': {NowPlayingScreen: 'NowPlayingScreen', ListeningPagePreview: 'ListeningPagePreview', ListeningPageBackground: 'ListeningPageBackground', TVListeningRoute: 'TVListeningRoute'},
     '../screens/destinations/music/NowPlayingLyrics': {NowPlayingLyrics: 'NowPlayingLyrics'},
     '../screens/destinations/music/ListeningNotice': {NativeListeningNotice: 'NativeListeningNotice'},
     '../screens/destinations/music/MusicSignal': musicSignal,
     '../screens/destinations/music/signal-facts': signalFacts,
     '../platform/playback/equalizer': {nativeEqualizer}, '../../../../packages/client-core/src/audio-effects': audioEffects,
-    './model': {sameAuthority}, './playback': {nativeShellBackTransition}, './video-snapshot': {NativeVideoSnapshotCapture}, './watch-slot-layout': watchSlotLayout, './TVStartFailure': {TVStartFailure: 'TVStartFailure'}, './TouchStartFailure': {TouchStartFailure: 'TouchStartFailure'},
+    './model': {authorityKey, sameAuthority}, './playback': {nativeShellBackTransition}, './video-snapshot': {NativeVideoSnapshotCapture}, './watch-slot-layout': watchSlotLayout, './TVStartFailure': {TVStartFailure: 'TVStartFailure'}, './TouchStartFailure': {TouchStartFailure: 'TouchStartFailure'},
+    '../screens/watch/PlayOnSheets': {NativePlayOnSheets: 'PlayOnSheets'}, './use-listening-song': {useListeningSong},
+    './TouchPlaybackPreparation': {TouchPlaybackPreparation: 'TouchPlaybackPreparation'},
+    './TVPlaybackPreparation': {TVPlaybackPreparation: 'TVPlaybackPreparation'},
   });
   let runtime: any = {text: {}, reportError: (error: unknown) => {throw error;}, artwork: () => undefined, ambient: () => undefined, watch: withWatch ? canonical ?? outlet.source : undefined};
   const host = createHookHost(() => {tree = NativePlaybackLayer({adapter, runtime, authority}); if (tree) tree.props.ref.current = node;});
@@ -253,7 +258,8 @@ test('actual WatchHost panel/control geometry reaches the persistent layer throu
   const measurements: ((x: number, y: number, width: number, height: number) => void)[] = [];
   const {NativeWatchHost} = await screenModule(new URL('../src-next/screens/watch/WatchHost.tsx', import.meta.url), {
     '../../kit/dock/PlayerMorphBridge': {useInitialPlayerPaint: () => undefined},
-    react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => wide, Dimensions: {get: () => wide}},
+    react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => wide, Dimensions: {get: () => wide},
+      StatusBar: {pushStackEntry: () => ({}), popStackEntry() {}}},
     '../../../../../packages/player-core/src': {sameFence}, '../../shell/model': {sameAuthority},
     '../../platform/layout/player-presentation': {resolvePlayerPresentation, playerControlsRevealDeadline, playerPostureCrossFadeMs: 250},
     '../../platform/platformPosture': {usePlatformPosture: () => posture},
@@ -262,6 +268,9 @@ test('actual WatchHost panel/control geometry reaches the persistent layer throu
     'react-native-reanimated': {default: {View: 'AnimatedView'}, useSharedValue: (value: any) => React.useRef({value}).current, useAnimatedStyle: (run: any) => run(),
       withTiming: (value: any) => value, cancelAnimation: () => {}},
     '../../kit/useMotion': {useMotion: () => ({reduce: false, timing: () => ({duration: 0})})},
+    '../settings-live/group-port': {groupPort, subscribeGroupPort}, '../../kit/focus': {useOptionalFocusRegistry: () => undefined},
+    '../../kit/useScreenReader': {useScreenReader: () => false},
+    '../../kit/overlays/TVPanelMotion': {TVPanelTransition: 'TVPanelTransition', TVPanelSlide: 'TVPanelSlide', TVPanelScrim: 'TVPanelScrim', useTVPanelPresence: () => ({open: false, value: undefined, exited() {}})},
   });
   const {NativeWatchPicture} = await screenModule(new URL('../src-next/screens/watch/picture-slot.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => wide},

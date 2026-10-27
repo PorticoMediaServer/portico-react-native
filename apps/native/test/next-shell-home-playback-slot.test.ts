@@ -7,9 +7,16 @@ import {PlaybackDock, playbackFence} from '../../../packages/player-core/src';
 import {focusTestID} from '../src-next/kit/focus/registry';
 import {tvFocusIds} from '../src-next/shell/tv-focus';
 import {createTheme} from '../src-next/kit/theme';
-import {sameAuthority} from '../src-next/shell/model';
+import {authorityKey, sameAuthority} from '../src-next/shell/model';
 import {sameFence} from '../../../packages/player-core/src';
 import * as watchSlotLayout from '../src-next/shell/watch-slot-layout.ts';
+import * as dockModel from '../src-next/kit/dock/model.ts';
+import {useListeningSong} from '../src-next/shell/use-listening-song.ts';
+import {nativeEqualizer} from '../src-next/platform/playback/equalizer.ts';
+import {nativeShellBackTransition} from '../src-next/shell/playback.ts';
+import {listeningNoticeKey} from '../../../packages/client-core/src/audio-effects.ts';
+import {defaultI18n} from '../../../packages/i18n/src/index.ts';
+import * as signalPath from '../src-next/screens/destinations/music/signal-path-model.ts';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
@@ -23,23 +30,45 @@ test('actual playback layer converts measured window slot to its own origin and 
   const playbackListeners = new Set<() => void>();let publication: any;
   const adapter = {getSnapshot: () => current, subscribe: (listener: () => void) => {playbackListeners.add(listener);return () => {playbackListeners.delete(listener);};}, Surface: 'ActualSurface', dock};
   const morph = {dragging: {value: false}, dockX: {value: 0}, dockFade: {value: 1}};
+  const theme = createTheme({isTV: false, width: 390});
+  const react = {...h.react, useLayoutEffect: h.react.useEffect, useId: () => 'listening'};
+  react.default = react;
+  const signalFacts = await screenModule(new URL('../src-next/screens/destinations/music/signal-facts.ts', import.meta.url), {
+    react, 'react-native': {Platform: {OS: 'android'}},
+  });
+  const musicSignal = await screenModule(new URL('../src-next/screens/destinations/music/MusicSignal.tsx', import.meta.url), {
+    react, 'react-native': {Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
+    'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'LinearGradient', Rect: 'Rect', Stop: 'Stop', Path: 'Path'},
+    '../../../../../../packages/i18n/src': {defaultI18n}, './signal-path-model': signalPath,
+    '../../../kit/Icon': {Icon: 'Icon'}, '../../../kit/controls': {Button: 'Button', Focusable: 'Focusable'}, '../../../kit/overlays': {SidePanel: 'SidePanel'},
+    '../../../kit/theme': {useTheme: () => theme, nativeType: () => ({})},
+  });
   const {NativePlaybackLayer} = await screenModule(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
     './listening-presentation': {captureListeningOpening, expandedListeningOccupant, localListeningOccupant},
-    '../screens/destinations/music/NowPlayingScreen': {NowPlayingScreen: 'NowPlayingScreen', ListeningPagePreview: 'ListeningPagePreview', ListeningPageBackground: 'ListeningPageBackground'},
+    '../screens/destinations/music/NowPlayingScreen': {NowPlayingScreen: 'NowPlayingScreen', ListeningPagePreview: 'ListeningPagePreview', ListeningPageBackground: 'ListeningPageBackground', TVListeningRoute: 'TVListeningRoute'},
     '../kit/dock/video-exit-paint': {DockVideoExitImages},
     '../kit/dock/DockHandover': {DockVideoExitProvider: 'DockVideoExitProvider', DockVideoExitCanvas: 'DockVideoExitCanvas'},
     '../kit/dock/InitialPicturePresentation': {InitialPicturePresentation: 'InitialPicturePresentation'},
     '../kit/dock/initial-picture-model': {initialPictureKey: () => 'initial-picture'},
     '../kit/dock/ListeningCoverBridge': {...listeningCoverFixture, useListeningCoverPublication: (value: unknown) => {publication = value;}},
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},
-    react: h.react, 'react-native': {BackHandler: {}, Image: 'Image', Platform: {OS: 'android'}, View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
+    react, 'react-native': {BackHandler: {addEventListener: () => ({remove() {}})}, Image: 'Image', Platform: {OS: 'android'}, View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
     'react-native-gesture-handler': {GestureDetector: 'GestureDetector'}, '../../../../packages/player-core/src': {sameFence},
     'react-native-reanimated': {default: {View: 'Animated.View'}, useAnimatedStyle: (style: () => unknown) => style()},
+    'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, right: 0, bottom: 0, left: 0})},
     '../kit/focus': {focusTestID}, './tv-focus': {tvFocusIds},
-    '../kit/theme': {useTheme: () => createTheme({isTV: false, width: 390})},
+    '../kit/theme': {useTheme: () => theme},
     '../kit/dock': {DockHost: 'DockHost', PlayerMorph: 'PlayerMorph', bindNativeDock: () => () => {}, usePlayerMorph: () => morph},
     '../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => ({title: 'Fixture'})},
-    './model': {sameAuthority}, './playback': {}, './video-snapshot': {NativeVideoSnapshotCapture: class {async clear() {} async prepare() {}}},
+    '../kit/dock/model': dockModel, './model': {authorityKey, sameAuthority}, './playback': {nativeShellBackTransition},
+    '../screens/destinations/music/NowPlayingLyrics': {NowPlayingLyrics: 'NowPlayingLyrics'},
+    '../screens/destinations/music/ListeningNotice': {NativeListeningNotice: 'ListeningNotice'},
+    '../screens/destinations/music/MusicSignal': musicSignal, '../screens/destinations/music/signal-facts': signalFacts,
+    '../screens/watch/PlayOnSheets': {NativePlayOnSheets: 'PlayOnSheets'}, './use-listening-song': {useListeningSong},
+    '../platform/playback/equalizer': {nativeEqualizer}, '../../../../packages/client-core/src/audio-effects': {listeningNoticeKey},
+    './TouchPlaybackPreparation': {TouchPlaybackPreparation: 'TouchPlaybackPreparation'},
+    './TVPlaybackPreparation': {TVPlaybackPreparation: 'TVPlaybackPreparation'},
+    './video-snapshot': {NativeVideoSnapshotCapture: class {async clear() {} async prepare() {}}},
     './watch-slot-layout': watchSlotLayout, './TVStartFailure': {TVStartFailure: 'TVStartFailure'}, './TouchStartFailure': {TouchStartFailure: 'TouchStartFailure'},
   });
   const retirement = new AbortController();

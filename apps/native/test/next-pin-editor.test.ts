@@ -16,13 +16,21 @@ function nodes(node: any): any[] {
 test('ruling39 pin rows keep immediate toggles and handle accessibility moves without a Save/Reset or arrow footer', async () => {
   const host = hooks(), theme = createTheme({width: 390, isTV: false}), calls: unknown[] = [];
   const state = {phase: 'ready', busy: false, libraries: {revision: 3, pinnedLibraryIds: ['b', 'a']}, resources: {order: []}};
+  // The drawn row motion boundary: shared values and gesture factories are
+  // controlled UI seams. The pure drop model and every pin write stay real.
+  const motion = {default: {View: 'Animated.View'}, useSharedValue: (value: unknown) => ({value}),
+    useAnimatedStyle: (read: () => unknown) => ({read}), runOnJS: (fn: (...args: unknown[]) => void) => fn};
+  const {usePinDragPaint} = await screenModule(new URL('../src-next/screens/destinations/pins-drag-paint.ts', import.meta.url), {
+    react: host.react, 'react-native-reanimated': motion,
+  });
+  const pan = () => {const builder: any = new Proxy({}, {get: () => (..._args: unknown[]) => builder}); return builder;};
   const {NativePinEditorSheet} = await screenModule(new URL('../src-next/screens/destinations/PinEditorSheet.tsx', import.meta.url), {
-    react: host.react, 'react-native': {Text: 'Text', View: 'View'},
-    'react-native-gesture-handler': {Gesture: {Pan: () => new Proxy({}, {get: () => () => ({})})}, GestureDetector: 'GestureDetector'},
+    react: host.react, 'react-native': {Text: 'Text', View: 'View'}, 'react-native-reanimated': motion,
+    'react-native-gesture-handler': {Gesture: {Pan: pan}, GestureDetector: 'GestureDetector'},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src/presentation/errors': {},
     '../../kit/controls': {Focusable: 'Focusable'}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/overlays': {Banner: 'Banner', BottomSheet: 'BottomSheet'},
     '../../kit/browse/presentation': {browseType: () => ({}), alpha: (color: string) => color}, '../../kit/theme': {useTheme: () => theme},
-    './pins-drag': {nativePinDrop},
+    './pins-drag': {nativePinDrop}, './pins-drag-paint': {usePinDragPaint},
   });
   const controller = {subscribe() {}, getSnapshot: () => state, pinLibrary: (...value: unknown[]) => calls.push(value), placeLibrary() {}, moveLibrary() {}};
   const tree = host.render(() => NativePinEditorSheet({controller, libraries: [{id: 'a', name: 'Actual A'}, {id: 'b', name: 'Actual B'}, {id: 'c', name: 'Actual C'}], onClose() {}}));

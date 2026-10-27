@@ -18,6 +18,7 @@ import {focusTestID} from '../src-next/kit/focus/registry.ts';
 import {tvFocusIds} from '../src-next/shell/tv-focus.ts';
 import {act, createHookHost} from './hook-driver.ts';
 import {screenModule as transformModule} from './helpers/screen-harness.mjs';
+import {useListeningSong} from '../src-next/shell/use-listening-song.ts';
 
 // The same tests can read an immutable git-show base mirror for red evidence.
 const screenModule = (file: URL, modules: any) => transformModule(process.env.NATIVE_DOCK_BASE_DIR && file.pathname.includes('/src-next/')
@@ -76,7 +77,7 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
     const callbacks: any = {}, config: any = {};
     const result: any = {callbacks, config};
     for (const name of ['onBegin', 'onStart', 'onUpdate', 'onEnd', 'onFinalize']) result[name] = (fn: any) => {callbacks[name] = fn; return result;};
-    for (const name of ['activeOffsetX', 'activeOffsetY', 'failOffsetX', 'failOffsetY', 'enabled']) result[name] = (value: any) => {config[name] = value; return result;};
+    for (const name of ['activeOffsetX', 'activeOffsetY', 'failOffsetX', 'failOffsetY', 'enabled', 'minDistance']) result[name] = (value: any) => {config[name] = value; return result;};
     return result;
   };
   const Gesture = {Pan: pan, Race: (...gestures: any[]) => ({gestures})};
@@ -122,11 +123,14 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},
     ...common, '../../../../packages/player-core/src': {sameFence}, '../kit/theme': {useTheme: () => theme},
     '../kit/focus': {focusTestID}, './tv-focus': {tvFocusIds},
-    '../kit/dock/model': model,
-    '../screens/destinations/music/NowPlayingScreen': {NowPlayingScreen: 'NowPlayingScreen', ListeningPagePreview: 'ListeningPagePreview', ListeningPageBackground: 'ListeningPageBackground'},
+    '../kit/dock/model': model, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, right: 0, bottom: 0, left: 0})},
+    '../screens/destinations/music/NowPlayingScreen': {NowPlayingScreen: 'NowPlayingScreen', ListeningPagePreview: 'ListeningPagePreview', ListeningPageBackground: 'ListeningPageBackground', TVListeningRoute: 'TVListeningRoute'},
     '../screens/destinations/music/NowPlayingLyrics': {NowPlayingLyrics: 'NowPlayingLyrics'},
     '../screens/destinations/music/ListeningNotice': {NativeListeningNotice: 'ListeningNotice'},
     '../screens/destinations/music/MusicSignal': signalView, '../screens/destinations/music/signal-facts': signalFacts,
+    '../screens/watch/PlayOnSheets': {NativePlayOnSheets: 'PlayOnSheets'}, './use-listening-song': {useListeningSong},
+    './TouchPlaybackPreparation': {TouchPlaybackPreparation: 'TouchPlaybackPreparation'},
+    './TVPlaybackPreparation': {TVPlaybackPreparation: 'TVPlaybackPreparation'},
     '../platform/playback/equalizer': {nativeEqualizer}, '../../../../packages/client-core/src/audio-effects': {listeningNoticeKey},
     '../kit/dock': {DockHost, PlayerMorph, usePlayerMorph, bindNativeDock: () => async (command: any) => {actions.push(command);}},
     '../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => ({id: 'item', kind: 'video', title: 'Film', subtitle: []})},
@@ -171,7 +175,10 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
   const opener = () => elements(barTree).find(node => node.type === 'Focusable' && node.props.delayLongPress === 500).props;
   const flushJS = async () => {await act(() => {while (js.length) js.shift()!();}); await sync();};
   const complete = async (animation: Animation, force = false) => {if (!animation.cancelled || force) {animation.apply?.(); animation.complete?.(true);} await flushJS();};
-  const tickPicture = async () => {const reaction = reactions.at(-1); const next = reaction.read(); reaction.callback(next, reaction.previous); reaction.previous = next; await flushJS();};
+  // The picture's own progress reaction is the one that reports stacking/goal
+  // state; other hosts register their own reactions around it.
+  const pictureReaction = () => reactions.filter(value => {const read = value.read(); return !!read && typeof read === 'object' && 'drag' in read;}).at(-1)!;
+  const tickPicture = async () => {const reaction = pictureReaction(); const next = reaction.read(); reaction.callback(next, reaction.previous); reaction.previous = next; await flushJS();};
   const tick = async () => {for (const reaction of reactions) {const next = reaction.read(); reaction.callback(next, reaction.previous); reaction.previous = next;} await flushJS();};
   // Reanimated mappers are input-driven. No unchanged-progress tick may invent
   // a zero derivative, and only state updates scheduled by actual callbacks may
