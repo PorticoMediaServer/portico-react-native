@@ -9,6 +9,7 @@ const cancelled = () => Object.assign(new Error('remembered_downloads_device_clo
  * artifact before any file is returned. No API/service/connect path exists. */
 export function createRememberedDownloadsDevice(identity: RememberedDownloadsViewer, ownerCurrent: () => boolean) {
   let closed = false, offIdentity = () => {};
+  const lifetime = new AbortController();
   const active = () => {try {return !closed && identity.current() && ownerCurrent();} catch {return false;}};
   if (!active()) throw cancelled();
   const listeners = new Set<() => void>(), plays = new Map<string, OfflineEntry>();
@@ -18,7 +19,7 @@ export function createRememberedDownloadsDevice(identity: RememberedDownloadsVie
   const changed = () => {if (!current()) {dispose(); return;} listeners.forEach(listener => listener());};
   let offDevice = () => {};
   function dispose() {
-    if (closed) return; closed = true; plays.clear(); offIdentity(); offDevice();
+    if (closed) return; closed = true; lifetime.abort(); plays.clear(); offIdentity(); offDevice();
     if (custody.current()) {custody.release(); offlineDownloads.disconnect(); offlineDownloads.adopt(undefined);}
     for (const listener of listeners) {try {listener();} catch { /* Retirement cannot be reversed. */ }} listeners.clear();
   }
@@ -50,5 +51,25 @@ export function createRememberedDownloadsDevice(identity: RememberedDownloadsVie
       if (!entry || entry.id !== progress.entryId || entry.itemId !== progress.itemId) return;
       entryCurrent(entry); offlineDownloads.recordProgress(progress);},
   });
-  return Object.freeze({device, current, open: async () => {check(); await offlineDownloads.open(); check();}, dispose});
+  // These ports retain the original entry and custody; no online connection is
+  // available to the remembered owner. Each async result is checked again.
+  const publicationCurrent = (entry: OfflineEntry) => {try {entryCurrent(entry); return true;} catch {return false;}};
+  const publicationSource = (entry: OfflineEntry) => {
+    const live = entryCurrent(entry), source = offlineDownloads.publicationSource(live); entryCurrent(entry); return source;
+  };
+  const readingFacts = async (entry: OfflineEntry) => {
+    const live = entryCurrent(entry), facts = await offlineDownloads.readingFacts(live); entryCurrent(entry); return facts;
+  };
+  const publicationLease = (entry: OfflineEntry) => {
+    const live = entryCurrent(entry);
+    const lease = offlineDownloads.publicationLease(live, {signal: lifetime.signal, current: () => publicationCurrent(entry)});
+    try {entryCurrent(entry); return lease;} catch (error) {lease.dispose(); throw error;}
+  };
+  const readingSession = async (entry: OfflineEntry, paused: () => boolean) => {
+    const live = entryCurrent(entry);
+    const session = await offlineDownloads.readingSession(live, {signal: lifetime.signal, current: () => publicationCurrent(entry),
+      paused: () => {try {return paused() !== false;} catch {return true;}}});
+    try {entryCurrent(entry); return session;} catch (error) {await session.close(); throw error;}
+  };
+  return Object.freeze({device, current, publicationSource, readingFacts, publicationLease, readingSession, open: async () => {check(); await offlineDownloads.open(); check();}, dispose});
 }

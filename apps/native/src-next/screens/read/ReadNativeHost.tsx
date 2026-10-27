@@ -1,229 +1,149 @@
-import {readingHighlightsSavePort} from '../../platform/reading-highlights-save';
-import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {AppState, NativeModules, View, useWindowDimensions} from 'react-native';
-import WebView from 'react-native-webview';
-import {createReadingHost, preferenceValue, ReadingError, type ReadingSession, type PreferenceSnapshot} from '../../../../../packages/client-core/src';
-import {routeBase64} from '../../../../../packages/client-core/src/route-identity';
+import React, {useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import {AppState, View, useWindowDimensions} from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {preferenceValue, ReadingError, type PreferenceSnapshot, type ReadingSession} from '../../../../../packages/client-core/src';
+import type {ReadingHostSession} from '../../../../../packages/client-core/src/reading-host';
 import {defaultI18n} from '../../../../../packages/i18n/src';
-import {nativeRouteCrypto} from '../../platform/server-connections';
 import {createNativeDownloadsDevice} from '../downloads/device';
 import {offlineDownloads} from '../../../platform/offline-downloads';
-import type {ReadingHostSession} from '../../../../../packages/client-core/src/reading-host';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
-import type {NativeShellRoute} from '../../shell/routes';
+import type {NativeShellRoute, NativePresentationBinding} from '../../shell/routes';
 import {LoadingPaint, StateView, SkeletonBlock} from '../../kit/states';
 import {Button} from '../../kit/controls/Button';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {useTheme} from '../../kit/theme';
-import {usePlatformPosture} from '../../platform/platformPosture';
-import {readerAssetEntry, readerNavigationAllowed, readerDelivery} from './asset-origin';
-import {readerBridgeDiagnostic, readerStartupDiagnostic, readerStartupProbe} from './startup-diagnostics';
+import {NativeReadingGuestHost} from './NativeReadingGuestHost';
+import {closeReadingResource, createReadingSessionOwner} from './reading-session-owner';
 import {NativeAnnotationJournal, nativeAnnotationIdentity, nativeAnnotationLeaseOf, type NativeAnnotationFormat} from './annotation-journal';
 import {nativeAnnotationBridge} from './annotation-session';
 import {NativeAnnotationSync, type NativeAnnotationLivePort} from './annotation-sync';
 import {NATIVE_OFFLINE_ANNOTATION_AUTHORING} from './annotation-authoring';
 
 type Target = Readonly<{itemId: string; sourceId: string; downloadId?: string; expectedSourceRevision?: string; contentsTarget?: Readonly<{sourceId: string; sourceRevision: string; index: number}>}>;
-const annotationDiagnosticCodes = new Set(['cancelled', 'conflict', 'invalid_document', 'invalid_location', 'invalid_response',
-  'invalid_revision', 'not_permitted', 'response_size', 'source_changed']);
-/** Only trusted immutable app code is loaded. The real API/session never enters
- * the WebView; the single browser controller receives structural byte callbacks. */
-export function ReadNativeHost({context, target, active, preferences, onBack, onOpenSettings}: {
-  context: NativeShellBootstrapContext; target: Target; active: boolean; preferences: Readonly<{getSnapshot: () => PreferenceSnapshot; subscribe: (listener: () => void) => () => void}>; onBack: () => void; onOpenSettings: () => void;
+type Session = ReadingHostSession & Pick<ReadingSession, 'close'>;
+const cancelled = () => new ReadingError('cancelled');
+
+/** The live adapter owns the original session and its authority. A guest never owns it. */
+export function ReadNativeHost({context, target, active, preferences, onBack, onOpenSettings, resident = true, binding, onGuestState}: {
+  context: NativeShellBootstrapContext; target: Target; active: boolean; preferences: Readonly<{getSnapshot: () => PreferenceSnapshot; subscribe: (listener: () => void) => () => void}>;
+  onBack: () => void; onOpenSettings: () => void; resident?: boolean; binding?: NativePresentationBinding; onGuestState?: (mounted: boolean, incarnation: object) => void;
 }) {
-  const observedBridge = useRef(new Set<string>());
-  const observeBridge = (direction: 'guest-to-host' | 'host-to-guest', message: string) => {
-    if (!__DEV__) return;
-    const diagnostic = readerBridgeDiagnostic(message);
-    if (!diagnostic) return;
-    const key = `${direction}:${diagnostic.kind}:${diagnostic.method ?? ''}:${diagnostic.failed}`;
-    if (observedBridge.current.has(key)) return;
-    observedBridge.current.add(key);
-    console.warn('portico_reader_bridge', JSON.stringify({direction, ...diagnostic,
-      host: Boolean(host.current), view: Boolean(view.current), active: callbacks.current.active}));
-  };
-  const theme = useTheme(), view = useRef<WebView>(null), host = useRef<ReturnType<typeof createReadingHost>>(undefined);
-  const dimensions = useWindowDimensions(), posture = usePlatformPosture(), insets = useSafeAreaInsets();
-  // foldable6/tablet-read5: only a real vertical crease for this exact window may
-  // request the two-page spread; an absent report keeps the ordinary one page.
-  const crease = posture.status === 'available' && posture.window?.width === dimensions.width && posture.window.height === dimensions.height
-    ? posture.folds.find(value => value.orientation === 'vertical' && value.bounds.left > 0 && value.bounds.left <= value.bounds.right && value.bounds.right <= dimensions.width)?.bounds : undefined;
-  const creaseRef = useRef(crease); creaseRef.current = crease;
-  const callbacks = useRef({onBack, onOpenSettings, active}); callbacks.current = {onBack, onOpenSettings, active};
-  const [state, setState] = useState<Readonly<{url?: string; failed?: boolean; reader?: ReturnType<typeof createReadingHost>; close?: () => Promise<void>}>>({}), [retry, setRetry] = useState(0);
-  // Private offline annotation journal and its guarded reconnect merge (offline-annotation-sync).
+  const theme = useTheme(), dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
+  const callbacks = useRef({active, onBack, onOpenSettings}); callbacks.current = {active, onBack, onOpenSettings};
+  const [retry, setRetry] = useState(0);
+  const mounted = useRef(false);
+  useLayoutEffect(() => {mounted.current = true; return () => {mounted.current = false;};}, []);
   const journal = useMemo(() => new NativeAnnotationJournal(), [context]);
   const annotations = useMemo(() => new NativeAnnotationSync(context, journal), [context, journal]);
   const quietRetry = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const livePort = useRef<NativeAnnotationLivePort | undefined>(undefined);
+  const annotationOwner = useRef<object | undefined>(undefined);
   useEffect(() => () => {clearTimeout(quietRetry.current); annotations.dispose();}, [annotations]);
   useEffect(() => {
-    // Containment: no automatic merge is active before the functional corrections are reviewed.
     if (!NATIVE_OFFLINE_ANNOTATION_AUTHORING) return;
-    // Only the active reader, or the app returning to it, attempts a merge; nothing runs in the background.
     if (active && !target.downloadId) void annotations.flush(livePort.current);
     const subscription = AppState.addEventListener('change', next => {if (!target.downloadId && next === 'active' && callbacks.current.active) void annotations.flush(livePort.current);});
     return () => subscription.remove();
   }, [active, annotations, target.downloadId]);
-  useEffect(() => annotations.subscribe(() => {
-    const snapshot = annotations.getSnapshot();
-    if (__DEV__ && (snapshot.queued || snapshot.unresolved || snapshot.phase === 'error')) {
-      // Only closed codes may leave this boundary; unknown messages can contain private records or paths.
-      const error = snapshot.error instanceof ReadingError && annotationDiagnosticCodes.has(snapshot.error.code)
-        ? snapshot.error.code : snapshot.error == null ? '' : 'native_error';
-      console.warn('portico_annotation_journal', JSON.stringify({phase: snapshot.phase, queued: snapshot.queued,
-        unresolved: snapshot.unresolved, error}));
-    }
-  }), [annotations]);
-  type Owner = {retired: boolean; active?: {live: boolean; abort: AbortController}};
-  const ownership = useMemo<Owner>(() => ({retired: false}), [context, target, preferences, retry]);
-  const rendered = useRef(ownership);
-  if (rendered.current !== ownership) {rendered.current.retired = true; if (rendered.current.active) {rendered.current.active.live = false; rendered.current.active.abort.abort();} rendered.current = ownership;}
-  useLayoutEffect(() => {
-    const ticket = {live: true, abort: new AbortController()}; ownership.active = ticket;
-    const life = ticket.abort, captured = context.session();
-    if (!captured || !context.current()) return;
-    let alive = true, session: (ReadingHostSession & Pick<ReadingSession, 'close'>) | undefined;
-    let ownedHost: ReturnType<typeof createReadingHost> | undefined;
-    const downloads = target.downloadId ? createNativeDownloadsDevice(context) : undefined;
-    const apiCurrent = () => ticket.live && !ownership.retired && ownership.active === ticket && rendered.current === ownership && !life.signal.aborted && context.current() && context.session()?.sessionFamilyId === captured.sessionFamilyId;
-    const current = () => alive && apiCurrent();
-    const client = target.downloadId ? undefined : context.api.reading({viewer: captured.viewer, isCurrent: apiCurrent, signal: life.signal});
-    const authority = context.subscribeAuthority(() => {if (!apiCurrent()) life.abort();});
-    const offPreferences = preferences.subscribe(() => {if (current()) host.current?.confirm();});
-    let disposal: Promise<void> | undefined;
-    const dispose = () => {
-      if (disposal) return disposal;
-      alive = false; if (!target.downloadId) {livePort.current = undefined; journal.unbind();} ticket.live = false; authority(); offPreferences(); ownedHost?.dispose(); if (host.current === ownedHost) host.current = undefined;
-      // Explicit close uses the captured current viewer, before local retirement.
-      disposal = (async () => {
-        const deadline = new AbortController(), timer = setTimeout(() => deadline.abort(), 2000);
-        try {if (context.current()) await session?.close(deadline.signal);} finally {clearTimeout(timer); life.abort(); client?.dispose(); downloads?.dispose();}
-      })();
-      return disposal;
-    };
-    observedBridge.current.clear();
-    setState({});
-    /** Root54: a search hit named one exact source revision. The freshly opened
-     * publication proves it again here, before any annotation flush, progress read
-     * or guest document: converted sources compare their original revision, exactly
-     * as the reader's own source-change check does. A mismatch refuses through the
-     * existing failed state and never opens the latest revision instead. */
-    const assertExpectedSource = (opened: Pick<ReadingHostSession, 'manifest'>): void => {
-      if (target.expectedSourceRevision === undefined) return;
-      const revision = opened.manifest.conversion?.originalRevision ?? opened.manifest.revision;
-      if (revision !== target.expectedSourceRevision) throw new ReadingError('source_changed');
-    };
-    void (async () => {
-      if (target.downloadId) {
-        if (!downloads) throw new Error('reading_unavailable');
-        await downloads.device.open(); if (!current()) throw new Error('reading_retired');
-        const entry = offlineDownloads.getSnapshot().entries.find(value => value.id === target.downloadId && value.itemId === target.itemId);
-        if (!entry || offlineDownloads.publicationSource(entry).sourceId !== target.sourceId) throw new Error('reading_unavailable');
-        // This is a write gate, not a claimed user setting: only the server's real
-        // published value (or its own registry default) of boolean false permits an
-        // offline progress write. A missing, non-boolean or unreadable preference
-        // withholds it rather than assuming permission.
-        const paused = () => {
-          try {return preferenceValue(preferences.getSnapshot(), 'privacy.pauseWatchHistory') !== false;} catch {return true;}
-        };
-        session = await offlineDownloads.readingSession(entry, {signal: life.signal, current, paused});
-        assertExpectedSource(session);
-      } else {
-        if (!client) throw new Error('reading_unavailable');
-        const versions = await client.versions(target.itemId, life.signal);
-        if (!versions.versions.some(value => value.sourceId === target.sourceId && value.inventoryAvailable)) throw new Error('reading_unavailable');
-        const onlineSession = await client.open({itemId: target.itemId, sourceId: target.sourceId}, life.signal);
-        session = onlineSession;
-        assertExpectedSource(onlineSession);
-        if (NATIVE_OFFLINE_ANNOTATION_AUTHORING) {
-          livePort.current = onlineSession.manifest.canAnnotate === true
-            && typeof onlineSession.annotations === 'function' && typeof onlineSession.mutateAnnotation === 'function' ? onlineSession : undefined;
-          journal.bind(nativeAnnotationIdentity(captured.viewer), nativeAnnotationLeaseOf(onlineSession));
-          if (current()) void annotations.flush(livePort.current);
+
+  const owner = useMemo(() => {
+    const captured = context.session();
+    const authorityCurrent = () => {if (!captured || !context.current()) return false;
+      const actual = context.session();
+      return !!actual && actual.sessionFamilyId === captured.sessionFamilyId
+        && (['authority', 'serverId', 'accountId', 'profileId', 'role'] as const).every(key => actual.viewer[key] === captured.viewer[key])
+        && context.current();};
+    const current = () => authorityCurrent() && (!binding || binding.retainedCurrent()) && authorityCurrent();
+    return createReadingSessionOwner({current, subscribe: listener => binding ? binding.subscribe(listener) : context.subscribeAuthority(listener), acquire: async (signal, ownerCurrent) => {
+      if (!captured || !ownerCurrent()) throw cancelled();
+      const downloads = target.downloadId ? createNativeDownloadsDevice(context) : undefined;
+      // The original authority, not the retired guest, permits only the bounded
+      // close of this captured session. Authority replacement still refuses IO.
+      const clientLife = new AbortController();
+      const client = target.downloadId ? undefined : context.api.reading({viewer: captured.viewer, isCurrent: authorityCurrent, signal: clientLife.signal});
+      let original: Session | undefined, released = false;
+      const annotationTicket = {};
+      const release = () => {if (released) return; released = true;
+        if (annotationOwner.current === annotationTicket) {annotationOwner.current = undefined; livePort.current = undefined; journal.unbind();}
+        clientLife.abort(); client?.dispose(); downloads?.dispose();};
+      try {
+        if (target.downloadId) {
+          if (!downloads) throw new Error('reading_unavailable');
+          await downloads.device.open(); if (!ownerCurrent()) throw cancelled();
+          const entry = offlineDownloads.getSnapshot().entries.find(value => value.id === target.downloadId && value.itemId === target.itemId);
+          if (!entry || offlineDownloads.publicationSource(entry).sourceId !== target.sourceId) throw new Error('reading_unavailable');
+          const paused = () => {try {return preferenceValue(preferences.getSnapshot(), 'privacy.pauseWatchHistory') !== false;} catch {return true;}};
+          original = await offlineDownloads.readingSession(entry, {signal, current: ownerCurrent, paused});
+        } else {
+          if (!client) throw new Error('reading_unavailable');
+          const versions = await client.versions(target.itemId, signal); if (!ownerCurrent()) throw cancelled();
+          if (!versions.versions.some(value => value.sourceId === target.sourceId && value.inventoryAvailable)) throw new Error('reading_unavailable');
+          original = await client.open({itemId: target.itemId, sourceId: target.sourceId}, signal);
         }
+        if (!ownerCurrent()) throw cancelled();
+        const revision = original.manifest.conversion?.originalRevision ?? original.manifest.revision;
+        if (target.expectedSourceRevision !== undefined && revision !== target.expectedSourceRevision) throw new ReadingError('source_changed');
+        if (!target.downloadId && NATIVE_OFFLINE_ANNOTATION_AUTHORING) {
+          annotationOwner.current = annotationTicket;
+          livePort.current = original.manifest.canAnnotate === true && typeof original.annotations === 'function' && typeof original.mutateAnnotation === 'function' ? original as NativeAnnotationLivePort : undefined;
+          journal.bind(nativeAnnotationIdentity(captured.viewer), nativeAnnotationLeaseOf(original));
+          if (ownerCurrent()) void annotations.flush(livePort.current);
+        }
+        const issued = original.manifest.format;
+        const format: NativeAnnotationFormat | undefined = issued === 'epub' || issued === 'pdf' || issued === 'cbz' ? issued : undefined;
+        const bridge = !target.downloadId && format ? nativeAnnotationBridge({session: original, journal, identity: nativeAnnotationIdentity(captured.viewer),
+          source: {itemId: target.itemId, sourceId: target.sourceId, sourceRevision: original.manifest.revision, format}, fresh: ownerCurrent,
+          onQueued: () => {if (quietRetry.current || !NATIVE_OFFLINE_ANNOTATION_AUTHORING) return;
+            quietRetry.current = setTimeout(() => {quietRetry.current = undefined; if (ownerCurrent()) void annotations.flush(livePort.current);}, 15_000);}}) : original;
+        const accepted = original;
+        const session: Session = {manifest: bridge.manifest, signal: bridge.signal, headPDF: bridge.headPDF, readRange: bridge.readRange,
+          readAsset: bridge.readAsset, page: bridge.page, progress: bridge.progress, saveProgress: bridge.saveProgress,
+          ...(bridge.openSequential ? {openSequential: bridge.openSequential} : {}), ...(bridge.annotations ? {annotations: bridge.annotations} : {}),
+          ...(bridge.mutateAnnotation ? {mutateAnnotation: bridge.mutateAnnotation} : {}),
+          close: async closeSignal => {if (authorityCurrent()) await accepted.close(closeSignal);}};
+        if (!ownerCurrent()) throw cancelled();
+        return {session, release};
+      } catch (error) {
+        if (original && authorityCurrent()) {try {await closeReadingResource({session: original, release});} catch { /* Preserve the original admission failure. */ }}
+        else release();
+        throw error;
       }
-      const initialProgress = await session.progress(life.signal);
-      const bundle: unknown = await NativeModules.PorticoReaderAssets?.bundle();
-      const url = bundle && typeof bundle === 'object' && 'url' in bundle ? bundle.url : undefined;
-      if (!readerAssetEntry(url) || !current()) throw new Error('reader_assets_unavailable');
-      const highlightsSave = {saveHighlights: readingHighlightsSavePort()};
-      const issued = session.manifest.format;
-      const format: NativeAnnotationFormat | undefined = issued === 'epub' || issued === 'pdf' || issued === 'cbz' ? issued : undefined;
-      const bridge = !target.downloadId && format ? nativeAnnotationBridge({session, journal, identity: nativeAnnotationIdentity(captured.viewer),
-        source: {itemId: target.itemId, sourceId: target.sourceId, sourceRevision: session.manifest.revision, format}, fresh: current,
-        onQueued: () => {
-          // A transport failure kept the original edit; the guest sees the real error. Retry later, never in a loop.
-          if (quietRetry.current) return;
-          if (!NATIVE_OFFLINE_ANNOTATION_AUTHORING) return;
-          quietRetry.current = setTimeout(() => {quietRetry.current = undefined; if (current()) void annotations.flush(livePort.current);}, 15_000);
-        }}) : session;
-      ownedHost = createReadingHost({...highlightsSave, session: bridge, channel: routeBase64(nativeRouteCrypto.random(24)), preferences: preferences.getSnapshot, ...(creaseRef.current ? {crease: {left: creaseRef.current.left, right: creaseRef.current.right}} : {}),
-        // Core fences ordinary packets. Its credentialless retirement packet
-        // must still reach the captured guest after this authority has ended.
-        initialProgress, initialContentsTarget: target.contentsTarget,
-        onUnavailable: () => {if (current()) setState({failed: true}); void dispose().catch(() => {});},
-        current, send: message => {observeBridge('host-to-guest', message); view.current?.injectJavaScript(readerDelivery(message));},
-        // Root54: the guest's own Search all books is only a request to the app that
-        // owns navigation. It is admitted for this exact live reader and the authority
-        // the shell still allows; the literal words travel unchanged into the explicit
-        // search-reading route, which is pushed above this reader so Back returns here.
-        onSearchAll: (query, signal, isLive) => {
-          if (!current() || signal.aborted) return false;
-          let liveNow = false;
-          try {liveNow = isLive();} catch {liveNow = false;}
-          // The host's own activity can lag a navigation commit, so the shell must
-          // currently be on this exact captured target, not a retained or borrowed route.
-          if (!liveNow || context.navigation.getSnapshot().route !== target) return false;
-          const destination: NativeShellRoute = {kind: 'search-reading', query};
-          return context.navigation.allows(destination) && context.navigation.open(destination, context.authority());
-        },
-        onBack: () => {if (current() && callbacks.current.active) callbacks.current.onBack();}, onSettings: () => {if (current() && callbacks.current.active) callbacks.current.onOpenSettings();}});
-      // The guest may handshake before the post-render activity effect runs.
-      host.current = ownedHost; ownedHost.setActive(callbacks.current.active);
-      setState({url, reader: ownedHost, close: dispose});
-    })().catch(() => {if (current()) {setState({failed: true});} void dispose().catch(() => {});});
-    return () => {ticket.live = false; if (ownership.active === ticket) ownership.active = undefined; void dispose().catch(() => {});};
-  }, [annotations, context, journal, target, preferences, retry, ownership]);
-  useEffect(() => {host.current?.setActive(active);}, [active, state.url]);
-  useEffect(() => {host.current?.setCrease(crease ? {left: crease.left, right: crease.right} : undefined);}, [crease, state.url]);
-  // A retired WebView's delayed error/message must never act on a successor
-  // reader that happens to use the same trusted asset URL.
-  const failRenderedReader = () => {
-    if (!state.reader || host.current !== state.reader) return;
-    setState({failed: true});
-    void state.close?.().catch(() => {});
+    }});
+  }, [context, target, preferences, retry, journal, annotations, binding]);
+  // Render replacement retires the old original before a late callback can borrow the new one.
+  const rendered = useRef(owner);
+  if (rendered.current !== owner) {void rendered.current.dispose().catch(() => {}); rendered.current = owner;}
+  const snapshot = useSyncExternalStore(owner.subscribe, owner.snapshot, owner.snapshot);
+  const latest = useRef({owner, snapshot, retry, active, resident}); latest.current = {owner, snapshot, retry, active, resident};
+  const retryTicket = useMemo(() => ({spent: false}), [owner, snapshot]);
+  const retryOriginal = () => {
+    const same = () => mounted.current && !retryTicket.spent && rendered.current === owner && latest.current.owner === owner
+      && latest.current.snapshot === snapshot && latest.current.retry === retry && latest.current.active && latest.current.resident
+      && callbacks.current.active && snapshot.phase === 'failed' && !snapshot.session;
+    if (!same()) return;
+    try {if (!owner.current() || !context.current() || (binding && !binding.activeCurrent()) || !owner.current() || owner.snapshot() !== snapshot) return;} catch {return;}
+    if (!same()) return; retryTicket.spent = true; setRetry(value => value + 1);
   };
+  useEffect(() => {void Promise.resolve().then(() => owner.ensure()).catch(() => {}); return () => {void owner.dispose().catch(() => {});};}, [owner]);
+  const onSearchAll = (query: string, signal: AbortSignal, isLive: () => boolean) => {
+    if (!owner.current() || signal.aborted) return false;
+    let live = false; try {live = isLive();} catch {live = false;}
+    if (!live || !owner.current() || (binding && !binding.activeCurrent()) || context.navigation.getSnapshot().route !== target) return false;
+    const destination: NativeShellRoute = {kind: 'search-reading', query};
+    return context.navigation.allows(destination) && owner.current() && context.navigation.open(destination, context.authority());
+  };
+  if (snapshot.phase === 'ready' && resident) return <NativeReadingGuestHost owner={owner} active={active} preferences={preferences}
+    onBack={onBack} onSettings={onOpenSettings} onSearchAll={onSearchAll} contentsTarget={target.contentsTarget} onGuestState={onGuestState} activeCurrent={binding?.activeCurrent}/>;
+  if (!resident) return null;
+  const failed = snapshot.phase === 'failed' || snapshot.phase === 'retired';
   return <View pointerEvents={active ? 'auto' : 'none'} accessibilityElementsHidden={!active} importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
     style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink, opacity: active ? 1 : 0}}>
-    {state.failed ? <StateView variant="centered" title={defaultI18n.t('next.states.pageFailed')} body={defaultI18n.t('next.states.pageFailedBody')}
-      primaryAction={{id: 'retry', label: defaultI18n.t('next.states.tryAgain'), disabled: !active, onPress: () => setRetry(value => value + 1)}}/>
-      : <LoadingPaint ready={!!state.url} immediate={!!state.url} skeleton={<SkeletonBlock width="100%" style={{flex: 1}}/>}>
-        {state.url ? <WebView ref={view} source={{uri: state.url}} style={{flex: 1, backgroundColor: theme.colors.ink}}
-        originWhitelist={['*']} onShouldStartLoadWithRequest={request => readerNavigationAllowed(state.url!, request.url, request.isTopFrame)}
-        injectedJavaScriptBeforeContentLoaded={__DEV__ ? readerStartupProbe : undefined}
-        injectedJavaScriptBeforeContentLoadedForMainFrameOnly
-        onMessage={event => {if (state.reader && host.current === state.reader && readerNavigationAllowed(state.url!, event.nativeEvent.url, true)) {
-          if (__DEV__) {const diagnostic = readerStartupDiagnostic(event.nativeEvent.url, event.nativeEvent.data);
-            if (diagnostic) {console.warn('portico_reader_startup', JSON.stringify(diagnostic)); return;}}
-          observeBridge('guest-to-host', event.nativeEvent.data);
-          state.reader.receive(event.nativeEvent.data);
-        }}}
-        renderError={() => <></>} incognito cacheEnabled={false} sharedCookiesEnabled={false} thirdPartyCookiesEnabled={false} domStorageEnabled={false}
-        allowFileAccess={false} allowFileAccessFromFileURLs={false} allowUniversalAccessFromFileURLs={false} mixedContentMode="never"
-        javaScriptCanOpenWindowsAutomatically={false} setSupportMultipleWindows={false} onOpenWindow={() => {}}
-        onError={failRenderedReader}
-        onContentProcessDidTerminate={failRenderedReader}
-        onRenderProcessGone={failRenderedReader}/> : null}
-      </LoadingPaint>}
-    {!state.url || state.failed ? <View pointerEvents="box-none" style={{position: 'absolute', left: 12, top: insets.top + 8, zIndex: 20}}>
-      {/* Authored reader Back, phone-read.html .nb .gr 38px and tablet-read.html .rtop .back 44px:
-          outside the guest so a failed or not-yet-open Read still has the only way back. The
-          caller supplies admission; this only presses while it is the active render. */}
-      <Button testID="native-read-host-back" variant="icon" size="compact" icon="i-left" iconOnly
-        accessibilityLabel={defaultI18n.t('action.back')} focusRadius={dimensions.width >= 700 ? 22 : 19}
-        onPress={() => {if (callbacks.current.active) onBack();}}
+    {failed ? <StateView variant="centered" title={defaultI18n.t('next.states.pageFailed')} body={defaultI18n.t('next.states.pageFailedBody')}
+      primaryAction={{id: 'retry', label: defaultI18n.t('next.states.tryAgain'), disabled: !active || snapshot.phase === 'retired' || !!snapshot.session || !context.current(), onPress: retryOriginal}}/>
+      : <LoadingPaint ready={false} skeleton={<SkeletonBlock width="100%" style={{flex: 1}}/>}/>}
+    <View pointerEvents="box-none" style={{position: 'absolute', left: 12, top: insets.top + 8, zIndex: 20}}>
+      <Button testID="native-read-host-back" variant="icon" size="compact" icon="i-left" iconOnly accessibilityLabel={defaultI18n.t('action.back')}
+        focusRadius={dimensions.width >= 700 ? 22 : 19} onPress={() => {if (callbacks.current.active) onBack();}}
         style={{height: dimensions.width >= 700 ? 44 : 38, width: dimensions.width >= 700 ? 44 : 38, paddingHorizontal: 0}}/>
-    </View> : null}
+    </View>
   </View>;
 }
