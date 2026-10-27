@@ -402,8 +402,14 @@ test('separate setup uses genuine React form, core auth, verified route and nati
       },
     );
   } finally {
-    held.release();
-    await app.unmount();
-    app.disposeLoader();
+    try {
+      held.release();
+    } finally {
+      try {
+        await app.unmount();
+      } finally {
+        app.disposeLoader();
+      }
+    }
   }
 });

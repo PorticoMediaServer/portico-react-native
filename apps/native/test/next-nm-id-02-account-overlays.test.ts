@@ -183,9 +183,18 @@ test('NM-ID-02: the real account overlays attach their own root and action ident
       await host.unmount();
     }
   } finally {
-    await host.unmount();
-    await app.unmount();
-    app.disposeLoader();
-    runtime?.dispose();
+    try {
+      await host.unmount();
+    } finally {
+      try {
+        await app.unmount();
+      } finally {
+        try {
+          app.disposeLoader();
+        } finally {
+          runtime?.dispose();
+        }
+      }
+    }
   }
 });

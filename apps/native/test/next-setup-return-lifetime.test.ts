@@ -37,7 +37,13 @@ test('native setup completion refuses a retired opening and releases only its or
       source.dispose();
     });
     await t.test('setup approval retains healthy lookup and original-opening refusal with native cancellation', () => nativeApproval(app, value => {lookupResponse = value;}));
-  } finally {await app.unmount(); app.disposeLoader();}
+  } finally {
+    try {
+      await app.unmount();
+    } finally {
+      app.disposeLoader();
+    }
+  }
 });
 
 async function nativeApproval(app: Awaited<ReturnType<typeof standardHomeApp>>, offerLookup: (value: ServerClaimLookupResponse) => void) {

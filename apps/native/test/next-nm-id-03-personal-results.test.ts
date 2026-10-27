@@ -159,9 +159,18 @@ test('NM-ID-03: a failed Saved personal result keeps the same operation on Retry
       (Platform as {isTV: boolean}).isTV = priorTV;
     }
   } finally {
-    await host.unmount();
-    await app.unmount();
-    app.disposeLoader();
-    runtime?.dispose();
+    try {
+      await host.unmount();
+    } finally {
+      try {
+        await app.unmount();
+      } finally {
+        try {
+          app.disposeLoader();
+        } finally {
+          runtime?.dispose();
+        }
+      }
+    }
   }
 });

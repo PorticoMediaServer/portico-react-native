@@ -46,7 +46,10 @@ test('genuine member Home authority offers no owner deletion or owner header, in
       false,
     );
   } finally {
-    await app.unmount();
-    app.disposeLoader();
+    try {
+      await app.unmount();
+    } finally {
+      app.disposeLoader();
+    }
   }
 });

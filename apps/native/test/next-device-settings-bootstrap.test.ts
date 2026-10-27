@@ -33,5 +33,19 @@ test('actual bootstrap device commits reach the existing capability publisher an
     const record = JSON.parse(await NativeModules.PorticoRuntime.loadQueueRecord('preferences:v1'));
     assert.deepEqual(record.unrelated, {kept: true}); assert.equal(record.cardScale, 1.25);
     runtime.dispose(); assert.throws(() => source.read('forceStereo'), {name: 'AbortError'});
-  } finally {release.resolve(); runtime?.dispose(); await app.unmount(); app.disposeLoader();}
+  } finally {
+    try {
+      release.resolve();
+    } finally {
+      try {
+        runtime?.dispose();
+      } finally {
+        try {
+          await app.unmount();
+        } finally {
+          app.disposeLoader();
+        }
+      }
+    }
+  }
 });

@@ -26,8 +26,11 @@ test('actual Home selection Queue and single-title More picker use genuine kind 
       },
     );
   } finally {
-    await app.unmount();
-    app.disposeLoader();
+    try {
+      await app.unmount();
+    } finally {
+      app.disposeLoader();
+    }
   }
 });
 
