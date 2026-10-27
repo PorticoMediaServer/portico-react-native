@@ -17,7 +17,8 @@ Object.defineProperty(globalThis, '__DEV__', {configurable: true, value: false})
 after(() => {if (previousDev) Object.defineProperty(globalThis, '__DEV__', previousDev); else Reflect.deleteProperty(globalThis, '__DEV__');});
 
 type Node = {type: unknown; props: Record<string, any>};
-function find(value: unknown, type: string): Node | undefined {
+/** `type` is the element type itself: the real guest component is a function, while stubbed kit elements are their tag string. */
+function find(value: unknown, type: unknown): Node | undefined {
   if (Array.isArray(value)) {for (const child of value) {const found = find(child, type); if (found) return found;} return;}
   if (!value || typeof value !== 'object' || !('props' in value)) return;
   const node = value as Node; return node.type === type ? node : find(node.props.children, type);
@@ -68,7 +69,7 @@ test('twenty original sessions can evict and restore real guest components witho
   const mount = async (index: number, active: boolean, onGuestState: (present: boolean, incarnation: object) => void) => {
     let tree: unknown, isActive = active; const host = createHookHost(() => {tree = NativeReadingGuestHost({owner: owners[index], active: isActive, preferences, onBack() {}, onSettings() {}, onGuestState});});
     await act(async () => {host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
-    const boundary = find(tree, 'ReadingGuestView'); assert.ok(boundary);
+    const boundary = find(tree, ReadingGuestView); assert.ok(boundary);
     const webview = ReadingGuestView(boundary!.props); assert.equal(webview.type, 'WebView');
     let input: ((message: string) => void) | undefined;
     boundary!.props.view.current = {injectJavaScript(script: string) {
@@ -125,7 +126,8 @@ test('twenty original sessions can evict and restore real guest components witho
       assert.equal(owners[index]!.snapshot().manifest, sessions[index].manifest);
       assert.equal(owners[index]!.snapshot().manifest?.sourceId, `source-${index}`);
       assert.equal(owners[index]!.snapshot().confirmedProgress, progresses[index]);
-      assert.deepEqual(mounted.get(index)?.guest.initialProgress, progresses[index]); assert.equal(opens, 20); assert.equal(closes, 19 - index);
+      /** The guest receives the frozen, null-prototype decoded copy the owner confirmed, so compare the data, not the prototype chain. */
+      assert.deepEqual(structuredClone(mounted.get(index)?.guest.initialProgress), progresses[index]); assert.equal(opens, 20); assert.equal(closes, 19 - index);
       const old = evicted.get(index), current = mounted.get(index);
       if (old && current) {old.props.onError(); old.props.onMessage({nativeEvent: {url: appleReaderEntry, data: 'stale'}});
         assert.equal(find(current.tree(), 'StateView'), undefined, 'evicted callbacks cannot fail the restored guest');}
