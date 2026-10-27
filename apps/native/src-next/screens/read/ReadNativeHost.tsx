@@ -222,7 +222,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
           caller supplies admission; this only presses while it is the active render. */}
       <Button testID="native-read-host-back" variant="icon" size="compact" icon="i-left" iconOnly
         accessibilityLabel={defaultI18n.t('action.back')} focusRadius={dimensions.width >= 700 ? 22 : 19}
-        onPress={() => {if (callbacks.current.active) callbacks.current.onBack();}}
+        onPress={() => {if (callbacks.current.active) onBack();}}
         style={{height: dimensions.width >= 700 ? 44 : 38, width: dimensions.width >= 700 ? 44 : 38, paddingHorizontal: 0}}/>
     </View> : null}
   </View>;

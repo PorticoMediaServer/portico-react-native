@@ -5,6 +5,9 @@ import {act, createHookHost} from './hook-driver.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {appleReaderEntry, readerAssetEntry, readerNavigationAllowed, readerDelivery} from '../src-next/screens/read/asset-origin';
 import {defaultI18n} from '../../../packages/i18n/src';
+import {NativeShellNavigation, type NativeShellRoute} from '../src-next/shell/routes';
+import type {ShellAuthority} from '../src-next/shell/model';
+import {readRouteBack} from '../src-next/screens/read/read-route-back';
 
 // BLK-MOB-001: the native host replaces the whole guest with Retry when a Read
 // fails, so these vectors exercise the actual unmodified ReadNativeHost render
@@ -220,4 +223,31 @@ test('tablet width uses the authored 44px Back control', async () => {
   assert.ok(back);
   assert.equal(flatten(back!.props.style).height, 44, 'tablet-read.html .rtop .back is 44px');
   view.host.unmount();
+});
+
+test('an old native Back callback cannot borrow the guard from a reopened retained reader', async () => {
+  const fixture = await harness({at: 'pending'});
+  const authority: ShellAuthority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'original', viewerFence: 'viewer'};
+  const navigation = new NativeShellNavigation(authority, () => authority);
+  const target: Extract<NativeShellRoute, {kind: 'read'}> = {kind: 'read', itemId: 'item', sourceId: 'source'};
+  const context = {...fixture.context, navigation};
+  navigation.open(target, authority);
+  const original = navigation.getSnapshot();
+  const firstProps = propsFor(context, {target, onBack: readRouteBack(navigation, original, target, () => true)});
+  const view = mount(fixture.ReadNativeHost, firstProps);
+  try {
+    view.host.mount();
+    const oldPress = byTestID(view.tree, 'native-read-host-back')!.props.onPress;
+    navigation.open({kind: 'licenses'}, authority);
+    view.update({...firstProps, active: false});
+    oldPress(); assert.equal(navigation.getSnapshot().route.kind, 'licenses');
+    navigation.back(authority);
+    const reopened = navigation.getSnapshot();
+    assert.strictEqual(reopened.route, target); assert.notStrictEqual(reopened, original);
+    view.update({...firstProps, active: true, onBack: readRouteBack(navigation, reopened, target, () => true)});
+    const freshPress = byTestID(view.tree, 'native-read-host-back')!.props.onPress;
+    oldPress(); assert.strictEqual(navigation.getSnapshot(), reopened, 'old render cannot select the new callback through the host ref');
+    freshPress(); const after = navigation.getSnapshot(); assert.equal(after.route.kind, 'shell');
+    freshPress(); assert.strictEqual(navigation.getSnapshot(), after, 'fresh admitted render spends Back once');
+  } finally {view.host.unmount(); navigation.dispose();}
 });
