@@ -2,18 +2,18 @@ import type {GroupSessionSnapshot} from '../../../../../packages/client-core/src
 import type {PlaybackFence} from '../../../../../packages/player-core/src';
 
 /**
- * tv-more18: the one live group session the Together route owns, published read-only for the
+ * tv-more18: the one live group session the restored authority owns, published read-only for the
  * player chrome's group pill and people sheet.
  *
  * This is a registration slot, not a store: it holds no copy of members, permissions, the
  * queue or any command. The snapshot is the owner´s own `GroupSessionSnapshot`, the commands
  * are the owner´s own controller actions, and the registration is retired by the owner on
- * dispose, authority change or route change. When nothing is registered, nothing is claimed.
+ * authority disposal or replacement. When nothing is registered, nothing is claimed.
  */
 export type NativeGroupPort = Readonly<{
   getSnapshot: () => GroupSessionSnapshot;
   subscribe: (listener: () => void) => () => void;
-  /** True while the owning controller still belongs to the live authority and route. */
+  /** True while the owning controller still belongs to the live restored authority. */
   current: () => boolean;
   /** The exact admitted local occurrence, never a same-title identity guess. */
   matches?: (fence?: PlaybackFence) => boolean;

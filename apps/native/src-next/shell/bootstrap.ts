@@ -1,7 +1,7 @@
 import {AppState, Dimensions, Platform} from 'react-native';
 import {NativeScreenLifetime} from '../screens/settings-live/lifetime';
 import {sendNativeDeviceReport} from '../screens/settings-live/device-client-report';
-import {bindNativeTVTogether} from '../screens/settings-live/together-playback';
+import {bindNativeTogether} from '../screens/settings-live/together-playback';
 import {audiobookPreferences} from '../../../../packages/client-core/src/audiobook-preferences';
 import {routePath, type RouteResponse} from '../../../../packages/contracts/src/routes';
 import {HomeService} from '../../../../packages/client-core/src/home-service';
@@ -249,7 +249,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const windowSubscription = Dimensions.addEventListener('change', watch.invalidate);
     cleanups.push(() => windowSubscription.remove());
     const context: NativeShellBootstrapContext = {...contextBase, playback, watch, get account() {return currentAccount();}};
-    if (Platform.isTV) cleanups.push(bindNativeTVTogether(context));
+    cleanups.push(bindNativeTogether(context, Platform.isTV));
     const text = nativeRuntimeRegionText(context);
     bindNativeServerPreferences(context, {read: readers.readPreferences, apply: readers.applyPreferences, accept: next => {
       assertCurrent();

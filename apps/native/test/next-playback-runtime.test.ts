@@ -1,4 +1,12 @@
 import test from 'node:test';
+import {bindNativeTogether, type NativeTogetherPlaybackContext} from '../src-next/screens/settings-live/together-playback.ts';
+import {nativeTogetherSession} from '../src-next/screens/settings-live/together-session.ts';
+import {groupPort} from '../src-next/screens/settings-live/group-port.ts';
+import {NativeShellNavigation} from '../src-next/shell/routes.ts';
+import {NativeTogetherController} from '../src-next/screens/settings-live/together-controller.ts';
+import {NativeScreenLifetime} from '../src-next/screens/settings-live/lifetime.ts';
+import type {Group} from '../../../packages/client-core/src/social-playback.ts';
+import type {GroupSessionSnapshot} from '../../../packages/client-core/src/group-session.ts';
 import {fabricPlayback} from './helpers/fabric-playback-harness.mjs';
 import assert from 'node:assert/strict';
 import {HttpLocalApi, type LocalSession} from '../../../packages/client-core/src/index.ts';
@@ -152,7 +160,9 @@ function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFil
     },
   });
   const start = async (id: string, startSeconds = 30) => { await runtime.start({entry: {id, kind: itemKind(id), title: id, libraryId: 'library', playback: {itemId: id, startSeconds}}, target: {itemId: id, startSeconds}}); await settle(); };
-  return {server, engine, runtime, requests, scopedRequests, start,
+  return {server, engine, runtime, requests, scopedRequests, start, api,
+    getAuthority: () => authority, getSession: () => session,
+    subscribeAuthority: (listener: () => void) => {authorityListeners.add(listener);return () => {authorityListeners.delete(listener);};},
     groupedVersions: (value: boolean) => { groupedVersions = value; },
     resume: (value: number | null) => { resumePositionMs = value; },
     markers: (value: readonly Marker[]) => { markers = value; },
@@ -2427,4 +2437,83 @@ test('renderer output cannot cross a presentation generation or stale native bin
     const last = timelineBodies(d.requests).at(-1)!;
     assert.equal(last.generation, d.engine.lastCommand.binding.generation); assert.equal(last.observedPlayback, undefined);
   } finally {d.runtime.dispose();}
+});
+
+
+// Real native runtime + real GroupFollower. Only the room facts and media server
+// are fixtures; page disposal must not own the authority's follower/registration.
+function togetherPlayback(d: ReturnType<typeof fixture>, playing = false) {
+  const navigation = new NativeShellNavigation(d.getAuthority(), d.getAuthority);
+  const context: NativeTogetherPlaybackContext = {api: d.api, authority: d.getAuthority, session: d.getSession,
+    current: () => !!d.getSession(), subscribeAuthority: d.subscribeAuthority, playback: d.runtime, navigation};
+  const service = nativeTogetherSession(context);
+  const group: Group = {id: 'room', name: 'Room', state: playing ? 'playing' : 'paused', hostAuthority: 'host-only', hostMemberId: 'member',
+    revision: '1', playbackRevision: '1', settingsRevision: '1', governanceRevision: '1', queueRevision: '1', reconnectGeneration: '1',
+    lastCommand: '', lastCommandId: '', endedReason: '', eventOrdinal: '1', createdAt: '2026-10-26T00:00:00Z', updatedAt: '2026-10-26T00:00:00Z',
+    permissions: {isHost: true, canControl: true, canManageQueue: true}, authority: {deviceId: 'device', playbackId: null, state: 'fresh'},
+    host: {presence: 'connected', lastSeenAt: '2026-10-26T00:00:00Z', pauseAt: null, endAt: null},
+    timeline: {itemId: 'movie-group', currentEntryId: 'room-entry', state: playing ? 'playing' : 'paused', anchorPositionUs: '12000000',
+      anchorAt: new Date().toISOString(), rate: {numerator: '1', denominator: '1'}, queuePosition: 0, waitUntil: null},
+    settings: {shuffleEnabled: false, repeatMode: 'none'}, sync: {noCorrectionUnderMs: 1000, rateCorrectionMinimum: '0.98', rateCorrectionMaximum: '1.02', rateCorrectionMaxMs: 3000, seekAtOrOverMs: 5000},
+    readiness: {aggregate: 'ready', ready: 1, buffering: 0, lagging: 0, stale: 0, memberCount: 1}, members: [], queue: null, viewerMemberId: 'member'};
+  let snapshot: GroupSessionSnapshot = {directory: [], directoryPhase: 'ready', phase: 'live', group, busy: false, clockOffsetMs: 0};
+  service.getSnapshot = () => snapshot;
+  service.readiness = async () => {};
+  const publish = (next: GroupSessionSnapshot) => {snapshot = next;service.notice('fixture room change');};
+  return {context, service, group, publish, navigation, close: () => {service.dispose();navigation.dispose();}};
+}
+
+for (const television of [false, true]) test(`Together installs one authority follower with paused load on ${television ? 'TV' : 'touch'}`, async () => {
+  const d = fixture(), room = togetherPlayback(d);
+  const direct = d.runtime.toggle;
+  let off: (() => void) | undefined;
+  try {
+    off = bindNativeTogether(room.context, television);
+    assert.strictEqual(bindNativeTogether(room.context, television), off);
+    const registered = groupPort();assert.ok(registered);
+    await settle(80);
+    const actual = d.runtime.getSnapshot();
+    assert.equal(actual.playback.itemId, room.group.timeline.itemId);
+    assert.equal(actual.playback.intent, 'paused');
+    assert.ok(actual.fence && registered.matches?.(actual.fence));
+    const starts = d.requests.filter(r => r.method === 'POST' && r.path === routePath('start_playback_session'));
+    assert.equal(starts.length, 1, 'one follower load, not one per route or subscription');
+    const page = new NativeTogetherController(new NativeScreenLifetime(room.context), room.service);
+    page.dispose();page.lifetime.dispose();
+    room.navigation.open({kind: 'together'}, d.getAuthority());room.navigation.back(d.getAuthority());
+    assert.strictEqual(groupPort(), registered, 'page exit leaves the persistent owner live');
+    assert.equal(registered.current(), true);
+    const commands: string[] = [];
+    room.service.transport = async command => {commands.push(command);return true;};
+    await d.runtime.toggle(actual.fence!);
+    assert.deepEqual(commands, ['play'], 'one viewer command reaches the room once');
+    room.publish({directory: [], directoryPhase: 'ready', phase: 'live', busy: false, clockOffsetMs: 0,
+      group: {...room.group, playbackRevision: '2', timeline: {...room.group.timeline, state: 'playing', anchorAt: new Date().toISOString()}}});
+    await settle(80);
+    assert.equal(d.runtime.getSnapshot().playback.intent, 'playing');
+    assert.deepEqual(commands, ['play'], 'follower correction uses the direct adapter without room echo');
+    const before = d.requests.length;
+    room.publish({directory: [], directoryPhase: 'ready', phase: 'left' , busy: false, clockOffsetMs: 0});
+    assert.equal(d.runtime.getSnapshot().playback.itemId, room.group.timeline.itemId);
+    assert.equal(d.requests.slice(before).some(r => r.method === 'DELETE'), false, 'room leave carries on locally');
+    off();off();assert.strictEqual(d.runtime.toggle, direct);
+    assert.equal(groupPort(), undefined);
+  } finally {off?.();room.close();d.runtime.dispose();}
+});
+
+test('Together original pending load cannot publish after authority retirement', async () => {
+  const d = fixture(), room = togetherPlayback(d, true);
+  let release!: () => void;
+  const held = new Promise<void>(resolve => {release = resolve;});
+  let entered!: () => void;
+  const started = new Promise<void>(resolve => {entered = resolve;});
+  d.intercept(async request => {if (request.path === '/v1/items/movie-group') {entered();await held;}});
+  let off: (() => void) | undefined;
+  try {
+    off = bindNativeTogether(room.context, false);
+    await Promise.race([started, new Promise((_, reject) => {const timer = setTimeout(() => reject(new Error('group load did not start')), 2000);started.finally(() => clearTimeout(timer));})]);
+    d.changeAuthority();off();release();await settle(80);
+    assert.equal(d.requests.some(r => r.method === 'POST' && r.path === routePath('start_playback_session')), false);
+    assert.equal(groupPort(), undefined);
+  } finally {release();off?.();room.close();d.runtime.dispose();}
 });
