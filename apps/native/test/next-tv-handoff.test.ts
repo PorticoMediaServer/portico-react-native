@@ -15,23 +15,29 @@ const scope = (component: (props: any) => any, props: any) => {
   const child = [tree.props.children].flat()[0];
   return child.type(child.props);
 };
-const handoffModule = (react: unknown, back: unknown, entry = (..._args: unknown[]) => {}) => screenModule(new URL('../src-next/tv/auth/TVHandoff.tsx', import.meta.url), {
+const handoffModule = async (react: unknown, back: unknown, entry = (..._args: unknown[]) => {}) => {
+  const revision = await screenModule(new URL('../src-next/tv/auth/entry-revision.ts', import.meta.url), {react});
+  return screenModule(new URL('../src-next/tv/auth/TVHandoff.tsx', import.meta.url), {
   react, 'react-native': {View: 'View', Text: 'Text', BackHandler: back}, 'react-native-qrcode-svg': {default: 'QR'},
   '../../../../../packages/i18n/src': {catalogue, defaultI18n, enUS}, '../../kit/controls': {Button: 'Button'},
   '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'}, '../../kit/theme': {nativeType, useTheme: () => theme},
   '../../kit/states/sentence-parts': {stateSentenceParts}, '../../platform/native-blur': {BlurView: 'Blur', glassRecipe: () => ({nativeBlur: true})},
-  '../../screens/destinations/useEntryFocus': {useDestinationEntryFocus: entry}, './TVAuthLayout': {TVAuthLayout: 'Layout'},
+  '../../screens/destinations/useEntryFocus': {useDestinationEntryFocus: entry}, './TVAuthLayout': {TVAuthLayout: 'Layout'}, './entry-revision': revision,
 });
+};
 
 test('TV hand-off URLs contain only a public address, including the real profile-management query', async () => {
   const h = hooks(), {publicTVHandoffAddress} = await handoffModule(h.react, {});
   assert.equal(publicTVHandoffAddress('http://server.example:32500/settings?scope=account&section=profile').display,
     'server.example:32500/settings?scope=account&section=profile');
   assert.equal(publicTVHandoffAddress('https://server.example/settings/profile').url, 'https://server.example/settings/profile');
+  assert.equal(publicTVHandoffAddress('https://server.example/settings?scope=server&section=live').url, 'https://server.example/settings?scope=server&section=live');
   for (const url of ['file:///settings/profile', 'javascript:alert(1)', 'https://user:password@server.example/settings/profile',
     'https://server.example/settings/profile#grant', 'https://server.example/settings/profile?token=private',
     'https://server.example/settings?scope=account&section=profile&token=private',
-    'https://server.example/settings?scope=account&scope=profile', 'https://server.example/account?code=private']) {
+    'https://server.example/settings?scope=account&scope=profile', 'https://server.example/account?code=private', 'https://server.example/settings?scope=server&section=profile',
+    'https://server.example/settings?scope=account&section=live', 'https://server.example/settings?scope=server&section=live&token=private',
+    'https://server.example/settings?scope=server&section=live&section=live']) {
     assert.throws(() => publicTVHandoffAddress(url));
   }
 });
