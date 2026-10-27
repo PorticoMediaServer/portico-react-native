@@ -758,6 +758,10 @@ class Runner:
                 # Retain this tree's identities only while its leader can still
                 # create descendants; a later exit is then cleanable to the end.
                 owned.capture()
+                # This runner is the subreaper. A package/build helper can finish while
+                # its test file is still checking that cleanup succeeded; reap only
+                # adopted zombies now, leaving the leader's status to subprocess.
+                owned.reap()
             if self._stop_requested(stop):
                 verdict = INTERRUPTED
                 break
