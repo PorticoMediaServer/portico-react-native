@@ -77,6 +77,15 @@ export type NativeRouteSnapshot = Readonly<{authority: ShellAuthority; route: Na
 /** One actual opening in this authority's history, including root/current. The
  * occurrence is presentation identity, never a route admission or command. */
 export type NativeRoutePresentation = Readonly<{occurrence: string; route: NativeShellRoute; destination: ShellDestination}>;
+/** Resource lifetime for one already-admitted occurrence. It is not command
+ * authority: commands still capture their own original snapshot/revision. */
+export type NativePresentationBinding = Readonly<{
+  original: NativeRoutePresentation;
+  retainedCurrent: () => boolean;
+  activeCurrent: () => boolean;
+  subscribe: (listener: () => void) => () => void;
+  dispose: () => void;
+}>;
 export type NativeDestinationIntent = 'enter' | 'restore' | 'top';
 export type NativeDestinationActivation = Readonly<{visible: boolean; intent: NativeDestinationIntent; revision: number}>;
 export type NativeDestinationActivationPort = Readonly<{subscribe: (listener: () => void) => () => void; getSnapshot: () => NativeDestinationActivation}>;
@@ -144,6 +153,59 @@ export class NativeShellNavigation {
   presentationStack = (): readonly NativeRoutePresentation[] => {
     try {return this.isCurrent() ? this.presentations : noPresentations;} catch {return noPresentations;}
   };
+  /** Bind only an exact owner-issued record that is still admitted. A later
+   * occurrence, equal descriptor or restored authority cannot revive the lease.
+   * The supplied authority subscription is the original bootstrap's live port. */
+  bindPresentation = (original: NativeRoutePresentation, authority: Readonly<{
+    current: () => boolean; subscribe: (listener: () => void) => () => void;
+  }>): NativePresentationBinding | undefined => {
+    const expectedAuthority=this.snapshot.authority;
+    const owns=()=>this.isCurrent()&&sameAuthority(expectedAuthority,this.snapshot.authority)&&authority.current();
+    try {if(!this.presentations.includes(original)||!owns()||!this.allows(original.route,original.destination)
+      ||!owns()||!this.presentations.includes(original))return undefined;}catch{return undefined;}
+    let retired=false,checking=false,previousActive=this.presentations.at(-1)?.occurrence===original.occurrence;
+    const registration={},listeners=new Set<()=>void>();let ownedRegistration:object|undefined=registration;
+    let offNavigation=()=>{},offAuthority=()=>{};
+    const registered=()=>!retired&&ownedRegistration===registration;
+    const emit=()=>{for(const listener of [...listeners]){try{listener();}catch{/* A sink never grants resource ownership. */}}};
+    const retire=()=>{
+      if(!registered())return;
+      retired=true;ownedRegistration=undefined;
+      offNavigation();offAuthority();
+      const sinks=[...listeners];listeners.clear();
+      for(const listener of sinks){try{listener();}catch{/* Finish once-only original-lease retirement. */}}
+    };
+    const retainedCurrent=()=>{
+      if(!registered()||checking)return false;
+      checking=true;
+      try {
+        const retained=()=>registered()&&this.presentations.some(value=>value.occurrence===original.occurrence&&value.route===original.route);
+        // Each external predicate may reenter, dispose this binding or replace
+        // authority/history. Recheck the original registration after each one.
+        if(!this.isCurrent()||!registered()||!sameAuthority(expectedAuthority,this.snapshot.authority)
+          ||!authority.current()||!registered()||!retained()
+          ||!this.allows(original.route,original.destination)||!registered()
+          ||!this.isCurrent()||!registered()||!authority.current()||!registered()||!retained()){
+          retire();return false;
+        }
+        return registered();
+      }catch{retire();return false;}
+      finally{checking=false;}
+    };
+    const activeCurrent=()=>retainedCurrent()&&registered()&&this.presentations.at(-1)?.occurrence===original.occurrence
+      &&this.presentations.at(-1)?.route===original.route;
+    const notify=()=>{
+      const active=activeCurrent();if(!registered())return;
+      if(active!==previousActive){previousActive=active;emit();}
+    };
+    offNavigation=this.subscribe(notify);offAuthority=authority.subscribe(notify);
+    if(!retainedCurrent()){offNavigation();offAuthority();return undefined;}
+    return Object.freeze({original,retainedCurrent,activeCurrent,
+      subscribe:(listener:()=>void)=>{if(!registered())return()=>{};listeners.add(listener);return()=>{listeners.delete(listener);};},
+      dispose:retire,
+    });
+  };
+
   getIntent = (): NativeDestinationIntent => this.intent;
   isCurrent = (): boolean => this.current(this.snapshot.authority);
   allows = (route: NativeShellRoute, origin: ShellDestination = route.kind === 'shell' ? route.destination : this.snapshot.destination): boolean =>
