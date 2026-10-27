@@ -47,18 +47,19 @@ function fixture(isTV = false, failed?: (...args: any[]) => unknown) {
   window = {width: 890, height: 626}; posture = {status: 'unavailable', window: null, folds: []};
   let source: any = {authority, fence, retired: false, dock: {local: {fence, expanded: true, kind: 'video'}}, playback: {intent: 'playing'}};
   const listeners = new Set<() => void>(), calls: string[] = [], reveals: number[] = [];
+  let minimizes = 0;
   const controls = new NativeWatchControls(isTV);
   const outlet = new NativeWatchOutlet(() => ({authority, fence: source.fence, window}));
   const playback = {getSnapshot: () => source, subscribe: (f: () => void) => {listeners.add(f); return () => {listeners.delete(f);};}};
   const setPresentation = (context: any) => {calls.push('presentation'); controls.source(source.fence, {...context, expanded: source.dock.local?.expanded === true, paused: source.playback.intent === 'paused'});};
   const reveal = controls.revealAfterLayout.bind(controls);
   controls.revealAfterLayout = (f, deadline) => {calls.push('reveal'); reveals.push(deadline); return reveal(f, deadline);};
-  const bindings = {chrome: () => ({quality: 'actual selected quality'}), panel: () => null, content: () => null, failed};
+  const bindings = {chrome: () => ({quality: 'actual selected quality', onMinimize: () => {minimizes++;}}), panel: () => null, content: () => null, failed};
   let tree: any;
   const current = () => authority;
   const host = createHookHost(() => {tree = NativeWatchHost({authority, current, playback, outlet, runtime: {text: {}}, controls, bindings, setPresentation, isTV});});
   host.mount();
-  return {host, controls, outlet, calls, reveals, tree: () => tree,
+  return {host, controls, outlet, calls, reveals, minimizes: () => minimizes, tree: () => tree,
     source: (change: any) => {source = {...source, ...change}; for (const listener of listeners) listener();},
     dispose: () => {host.unmount(); controls.dispose(); outlet.dispose();}};
 }
@@ -131,5 +132,26 @@ test('handheld failed fence is presented only while its panel does not own the s
     assert.equal(child(d.tree(), 'watch-failed-pane'), undefined);
     await act(() => d.controls.closePanel(fence));
     assert.ok(child(d.tree(), 'watch-failed-pane'));
+  } finally {d.dispose();}
+});
+
+
+for (const scenario of [
+  {name: 'portrait phone', width: 390, height: 844, folds: []},
+  {name: 'portrait tablet', width: 768, height: 1024, folds: []},
+  {name: 'book fold', width: 890, height: 626, folds: [{bounds: {left: 445, right: 445, top: 0, bottom: 626}, orientation: 'vertical', state: 'half-opened'}]},
+  {name: 'tabletop fold', width: 626, height: 890, folds: [{bounds: {left: 0, right: 626, top: 445, bottom: 445}, orientation: 'horizontal', state: 'half-opened'}]},
+] as const) test(`${scenario.name} failure is confined to the measured picture and leaves chrome mounted`, async () => {
+  const d = fixture(false, () => 'failure');
+  try {
+    await act(() => {window = {width: scenario.width, height: scenario.height}; posture = {status: 'available', window, folds: scenario.folds}; d.host.rerender();});
+    await act(() => d.source({playback: {intent: 'playing', phase: 'error', positionSeconds: 42}, capabilities: {retry: true}}));
+    const pane = child(d.tree(), 'watch-failed-pane'), picture = d.tree().props.children[0];
+    assert.deepEqual(pane.props.style, picture.props.style);
+    const chrome = child(d.tree(), 'watch-controls-pane');
+    assert.ok(chrome, 'player chrome remains mounted for minimize and exit');
+    chrome.props.children.props.onMinimize(fence); assert.equal(d.minimizes(), 1);
+    await act(() => d.controls.open('audio', fence));
+    assert.equal(child(d.tree(), 'watch-failed-pane'), undefined);
   } finally {d.dispose();}
 });

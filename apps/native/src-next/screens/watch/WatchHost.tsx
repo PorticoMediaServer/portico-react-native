@@ -232,7 +232,7 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
         edgeInsets={layout.mode === 'book' && layout.controls ? {right: layout.surface.width - layout.controls.width} : undefined}/>
     </View>}
     {isTV ? <TVWatchPanel context={context} render={bindings.panel}/> : panelOpen && <View testID="watch-panel-pane" pointerEvents="box-none" style={context.renderer.panel ? positioned(context.renderer.panel) : {position: 'absolute', inset: 0}}>{bindings.panel(context)}</View>}
-    {failed && <View testID="watch-failed-pane" pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>{failed}</View>}
+    {failed && <View testID="watch-failed-pane" pointerEvents="box-none" style={isTV ? {position: 'absolute', inset: 0} : positioned(layout.surface)}>{failed}</View>}
     </>}
   </Animated.View>;
   return <View testID="watch-host" pointerEvents="box-none" style={{position: 'absolute', inset: 0}}>
