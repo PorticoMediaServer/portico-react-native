@@ -4,6 +4,8 @@ import * as React from 'react';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {downloadEntryIdentity} from '../src-next/screens/downloads/presentation';
 import {createTheme} from '../src-next/kit/theme';
+import * as serverConnections from '../src-next/platform/server-connections';
+import * as secureRecords from '../src-next/platform/secure-records';
 import {act, createHookHost} from './hook-driver';
 import {screenModule} from './helpers/screen-harness.mjs';
 
@@ -11,6 +13,7 @@ type Deferred = {promise: Promise<undefined>; resolve: () => void};
 
 function modules(state: {
   reads: () => unknown; hints: (listener: () => void) => () => void; restores: Deferred[]; deferred: boolean;
+  failure?: unknown; onFallback?: () => void;
 }) {
   return {
     react: {...React, default: React},
@@ -20,7 +23,7 @@ function modules(state: {
       let disposed = false;
       return {current: () => !disposed && !signal?.aborted, dispose: () => {disposed = true;}};
     }},
-    './remembered-downloads-opening': {createRememberedDownloadsOpening: async () => undefined},
+    './remembered-downloads-opening': {createRememberedDownloadsOpening: async () => {state.onFallback?.(); return undefined;}},
     '../screens/downloads/RememberedDownloadsScreen': {RememberedDownloadsScreen: 'RememberedDownloadsScreen', RememberedDownloadsShortcut: 'RememberedDownloadsShortcut'},
     '../screens/downloads/presentation': {downloadEntryIdentity},
     '../kit/states': {HomeSkeleton: 'HomeSkeleton', StateView: 'StateView', StateLayout: 'StateLayout'},
@@ -28,13 +31,14 @@ function modules(state: {
     '../kit/controls': {Focusable: 'Focusable'},
     '../kit/Icon': {Icon: 'Icon'},
     '../kit/theme': {useTheme: () => createTheme({isTV: false, width: 390})},
-    '../platform/server-connections': {deviceOnline: () => true, onNetworkChange: () => () => {}},
+    '../platform/server-connections': serverConnections,
     '../platform/home-action-diagnostics': {homeActionDiagnostics: {error() {}, lifetime() {}}},
-    '../platform/secure-records': {acknowledgeSecureRecordsRecovered() {}, isSecureRecordsLost: () => false, secureRecordsRecoveredNotice: () => undefined},
+    '../platform/secure-records': secureRecords,
     './SecureRecordsRecovery': {SecureRecordsRecovery: 'SecureRecordsRecovery'},
     '../../../../packages/client-core/src/presentation/errors': {presentError: () => ({title: 'failed', body: 'failed'})},
     './assembly': {createNativeShellBindings: () => ({})},
     './bootstrap': {restoreNativeShellRuntime: () => {
+      if (state.failure !== undefined) return Promise.reject(state.failure);
       let resolve: () => void = () => {};
       const promise = new Promise<undefined>(done => {resolve = () => done(undefined);});
       state.restores.push({promise, resolve});
@@ -93,5 +97,44 @@ test('a storage hint while a restore is pending still fences and restarts it', a
     assert.equal(restores.length, 2, 'a pending restore is fenced and restarted');
     await act(() => restores.forEach(item => item.resolve()));
     assert.equal(tree.type, 'AccountEntry');
+  } finally {host.unmount();}
+});
+
+/** The key service's own refusal: the records are there and their key is not. */
+const lostRecordsKey = () => Object.assign(new Error('the saved records key is gone'), {code: secureRecords.SECURE_RECORDS_KEY_LOST});
+
+test('a restore that reports the saved-records key lost opens the real recovery, not the downloads fallback', async () => {
+  const restores: Deferred[] = [];
+  let fallbacks = 0;
+  const failure = lostRecordsKey();
+  const {RestoredShell} = await screenModule(new URL('../src-next/shell/RestoredShell.tsx', import.meta.url), modules({
+    reads: async () => undefined, hints: () => () => {}, restores, deferred: false,
+    failure, onFallback: () => {fallbacks++;},
+  }));
+  let tree: any;
+  const host = createHookHost(() => {tree = RestoredShell({});});
+  await act(() => host.mount());
+  try {
+    assert.equal(tree.type, 'SecureRecordsRecovery', 'the real classifier reads the key-loss code');
+    assert.equal(fallbacks, 0, 'a lost key does not start the ordinary downloads fallback');
+  } finally {host.unmount();}
+});
+
+test('an unexpected restore failure is never misread as a lost saved-records key', async () => {
+  const restores: Deferred[] = [];
+  let fallbacks = 0;
+  // Same shape, different code: only the real key-loss code may claim the records are lost.
+  const failure = Object.assign(new Error('the shell could not be assembled'), {code: 'assembly_failed'});
+  const {RestoredShell} = await screenModule(new URL('../src-next/shell/RestoredShell.tsx', import.meta.url), modules({
+    reads: async () => undefined, hints: () => () => {}, restores, deferred: false,
+    failure, onFallback: () => {fallbacks++;},
+  }));
+  let tree: any;
+  const host = createHookHost(() => {tree = RestoredShell({});});
+  await act(() => host.mount());
+  try {
+    assert.notEqual(tree.type, 'SecureRecordsRecovery', 'an ordinary failure never opens the records recovery');
+    assert.equal(tree.type, 'StateView', 'the ordinary restore recovery is drawn instead');
+    assert.equal(fallbacks, 1, 'the ordinary failure keeps its downloads fallback');
   } finally {host.unmount();}
 });
