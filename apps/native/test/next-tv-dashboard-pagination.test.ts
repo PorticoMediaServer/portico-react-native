@@ -43,3 +43,22 @@ test('Dashboard refresh retires a pending continuation without publishing stale 
   assert.equal(controller.getSnapshot().sessions[0]?.id, 'fresh0');
   controller.dispose(); lifetime.dispose();
 });
+
+test('owner jobs use their own offered cursor and retirement denies later reads', async () => {
+  const lifetime = new NativeScreenLifetime({authority: () => authority, current: () => true, subscribeAuthority: () => () => {}});
+  let role: 'owner' | 'administrator' = 'owner';
+  const jobs: string[] = [];
+  const readers: NativeDashboardReaders = {
+    sessions: {list: async () => page('session', 1)},
+    console: {measurement: async name => ({name, observedAt: 1, freshUntil: 30001, facts: {}}), alerts: async () => [], jobs: async cursor => {
+      jobs.push(cursor ?? ''); return {items: [{id: cursor ? 'second' : 'first'}] as never[], nextCursor: cursor ? '' : 'jobs-next'};
+    }, dispose() {}},
+  };
+  const controller = new NativeDashboardController(lifetime, () => role, readers);
+  const paging = controller as unknown as NativeDashboardController & Paging;
+  await controller.refresh(); await paging.nextJobs();
+  assert.deepEqual(jobs, ['', 'jobs-next']); assert.deepEqual(controller.getSnapshot().jobs.map(job => job.id), ['first', 'second']);
+  role = 'administrator'; await controller.refresh(); assert.deepEqual(controller.getSnapshot().jobs, []);
+  await paging.nextJobs(); assert.deepEqual(jobs, ['', 'jobs-next']);
+  controller.dispose(); lifetime.dispose();
+});
