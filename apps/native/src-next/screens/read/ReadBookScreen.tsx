@@ -69,7 +69,7 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
   const series = controller.series(), saved = manifest ? controller.savedProgression(manifest) : undefined;
   // tablet-read 2b: the rest of this series, read from the same signed series
   // producer the series page uses, once this page's own manifest is ready.
-  useEffect(() => {if (state.phase === 'ready' && manifest && series) void controller.loadSeriesShelf(manifest, series).catch(() => {});}, [controller, manifest, series?.id, state.phase]);
+  useEffect(() => {if (state.phase === 'ready' && manifest && series) void controller.loadSeriesShelf(manifest, series).catch(() => {});}, [controller, manifest, series, state.phase]);
   const savedProgress = state.progress?.progress;
   const currentSection = savedProgress && !savedProgress.stale ? savedProgress.location.section : undefined;
   const contents = manifest?.format === 'epub' ? manifest.contents ?? [] : [];

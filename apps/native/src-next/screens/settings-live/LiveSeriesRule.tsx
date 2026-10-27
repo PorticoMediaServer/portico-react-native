@@ -36,7 +36,7 @@ export function NativeSeriesRuleSheet({controller, draft, defaults, runtime, ope
   const busyCommand = useRef(false);
   const current = () => !lifetime || !lifetime.signal.aborted && lifetime.isCurrent();
   const changeForm: typeof setForm = value => {if (!lifetime || !command.current) setForm(value);};
-  useEffect(() => {if (open && (!lifetime || !command.current)) {setForm(defaults ?? {episodes: 'new', anyChannel: false, keep: 'count:0', beforeSeconds: 0, afterSeconds: 0}); setPreview(undefined); setError(undefined); setBusy(false);}}, [open, defaults]);
+  useEffect(() => {if (open && (!lifetime || !command.current)) {setForm(defaults ?? {episodes: 'new', anyChannel: false, keep: 'count:0', beforeSeconds: 0, afterSeconds: 0}); setPreview(undefined); setError(undefined); setBusy(false);}}, [open, defaults, lifetime]);
   const built = useMemo(() => draft ? seriesConfig(draft, form) : undefined, [draft, form]);
   // The match count changes with the episode and channel choices only; the limits cannot.
   useEffect(() => {
@@ -47,7 +47,7 @@ export function NativeSeriesRuleSheet({controller, draft, defaults, runtime, ope
     return () => {live = false;};
   }, [open, form.episodes, form.anyChannel, controller]); // eslint-disable-line react-hooks/exhaustive-deps
   const titleMatch = built?.config.matchKind === 'title';
-  useEffect(() => {if (titleMatch) changeForm(value => value.anyChannel ? {...value, anyChannel: false} : value);}, [titleMatch]);
+  useEffect(() => {if (titleMatch && (!lifetime || !command.current)) setForm(value => value.anyChannel ? {...value, anyChannel: false} : value);}, [titleMatch, lifetime]);
   const save = async () => {
     if (!built || busy || busyCommand.current || !current()) return;
     busyCommand.current = true;

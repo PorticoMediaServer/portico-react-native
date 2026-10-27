@@ -42,7 +42,7 @@ export function NativeTogetherScreen({controller, media, ports, runtime, page, o
   const [who, setWho] = useState(profile?.name ?? ''), [authority, setAuthority] = useState<GroupHostAuthority>('host-only');
   const startRef = useRef<View>(null), joinRef = useRef<View>(null);
   const sheet = form?.kind;
-  const view = useMemo(() => ({active: true, form: undefined as Form | undefined, pending: undefined as {abort: AbortController; form?: Form} | undefined}), [controller, page]);
+  const view = useMemo(() => ({active: true, binding: {controller, page}, form: undefined as Form | undefined, pending: undefined as {abort: AbortController; form?: Form} | undefined}), [controller, page]);
   const viewCurrent = (expected: Form | undefined) => {
     const local = () => view.active && view.form === expected && !expected?.retired && !page.signal.aborted && !controller.lifetime.signal.aborted;
     return local() && page.current() && local() && controller.lifetime.current() && local();

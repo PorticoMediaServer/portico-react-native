@@ -13,7 +13,7 @@ const {createNativeWatchModule} = await screenModule(new URL('../src-next/screen
   '../../../../../packages/client-core/src/playback-v1/quality': {}, './factory': {createNativeWatchScreens: (ports: any) => {captured = ports; return {watch: {}, dispose() {}};}},
   './PlaybackInfoPanel': {}, './WatchPanels': {}, './panel-options': {NativeWatchPanelOptions: class {dispose() {}}}, '../../shell/model': {sameAuthority},
   './track-identity': {}, './ChannelRoute': {}, './live-guide': {}, './live-actions': {}, './LiveActionPanels': {}, './PlaybackFailed': {NativePlaybackFailed: 'TVFailure'},
-  './HandheldPlaybackFailed': {NativeHandheldPlaybackFailed: 'HandheldFailure'}, './PostPlayScreen': {}, '../../../src/bridge/device-platform': {}, './panel-names': {},
+  './HandheldPlaybackFailed': {NativeHandheldPlaybackFailed: 'HandheldFailure'}, './PostPlayScreen': {}, '../../platform/device-platform': {}, './panel-names': {},
   '../../platform/server-preferences': {}, '../../../../../packages/client-core/src/presentation/browse-toolbar': {},
 });
 

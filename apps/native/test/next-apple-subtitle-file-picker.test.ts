@@ -94,7 +94,7 @@ test('the actual Apple factory injects only the installed platform picker into i
     const platform = {OS: 'ios', isTV: kind === 'tv', Version: 27};
     const actual = await port(kind === 'missing' ? {} : {...native(), pick: async () => {picks++;return file();}}, async () => 'factory-request', platform);
     let captured: any;
-    const runtime = {installSnapshotCapture() {}};
+    const runtime = {installSnapshotCapture() {}, queue: {playEntry: () => {assert.fail('unexpected queue.playEntry');}}};
     const {createNativeShellPlaybackAdapter} = await screenModule(new URL('../src-next/platform/playback/native.ios.tsx', import.meta.url), {
       react: {default: {}},
       'react-native': {

@@ -102,7 +102,7 @@ export async function fabricPlayback(runtime, tv = true, watch, withShell = fals
     session: () => ({viewer: {authority: 'local', profileId: 'profile'}}), authority: () => runtime.getSnapshot().authority,
     subscribeSettings: () => () => {}, settings: () => ({engine: 'native'})});
   const signalFacts = await screenModule(new URL('../../src-next/screens/destinations/music/signal-facts.ts', import.meta.url), {react, 'react-native': native});
-  const signalView = await screenModule(new URL('../../src-next/screens/destinations/music/MusicSignal.tsx', import.meta.url), {react, 'react-native': native, '../../../../../../packages/i18n/src': {defaultI18n}, '../../../kit/Icon': {Icon: 'Icon'}, '../../../kit/controls': {Focusable: 'Focusable'}, '../../../kit/theme': {useTheme: () => theme, nativeType: () => ({})}, './signal-path-model': signalPath});
+  const signalView = await screenModule(new URL('../../src-next/screens/destinations/music/MusicSignal.tsx', import.meta.url), {react, 'react-native': native, 'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'LinearGradient', Rect: 'Rect', Stop: 'Stop', Path: 'Path'}, '../../../../../../packages/i18n/src': {defaultI18n}, '../../../kit/Icon': {Icon: 'Icon'}, '../../../kit/controls': {Focusable: 'Focusable'}, '../../../kit/theme': {useTheme: () => theme, nativeType: () => ({})}, './signal-path-model': signalPath});
   const {NativePlaybackLayer} = await screenModule(new URL('../../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
     './listening-presentation': {captureListeningOpening, expandedListeningOccupant, localListeningOccupant},

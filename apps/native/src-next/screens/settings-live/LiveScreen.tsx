@@ -96,7 +96,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
   const scopeKey = JSON.stringify([route.revision, route.destination, shell.authority, ports.context.account.account.role,
     ports.context.account.account.primaryProfileId, ports.context.account.canManage, ports.context.account.account.disabled,
     theme.isTV, shell.contentVisible, shell.mediaExpanded, shell.homeObscured]);
-  const managementOwner = useMemo(() => ({retired: false}), [controller, runtime, ports.context, scopeKey]);
+  const managementOwner = useMemo(() => ({retired: false, binding: {controller, runtime, context: ports.context, scopeKey}}), [controller, runtime, ports.context, scopeKey]);
   const managementOwnerRef = useRef(managementOwner);
   if (managementOwnerRef.current !== managementOwner) managementOwnerRef.current.retired = true;
   managementOwnerRef.current = managementOwner;

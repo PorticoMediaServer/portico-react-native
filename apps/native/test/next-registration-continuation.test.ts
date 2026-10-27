@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {screenModule} from './helpers/screen-harness.mjs';
-import * as continuationQueue from '../src/bridge/continuation-queue';
+import * as continuationQueue from '../src-next/platform/continuation-queue';
 import {ApiError} from '../../../packages/client-core/src/index';
 import {CodedError} from '../../../packages/client-core/src/server-messages';
 import {MFARequiredError, parseNativeAccountContinuation} from '../../../packages/client-core/src/hosted-security';
@@ -18,7 +18,7 @@ async function port(beforeWork?: () => Promise<void>) {
     react: {default: {}}, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}},
     '../../../../packages/client-core/src/hosted-security': {MFARequiredError}, '../../../../packages/client-core/src/server-messages': {CodedError},
     '../../../../packages/client-core/src': {ApiError}, '../../../../packages/contracts/src/hosted/routes': {},
-    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://example.test'}, '../../src/bridge/continuation-queue': continuationQueue,
+    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://example.test'}, './continuation-queue': continuationQueue,
   });
   const source = new NativePorticoSignIn(); await source.prepare();
   const registration = await source.register('taken', 'Name', 'password', 'a@example.test');
@@ -73,7 +73,7 @@ test('retired invitation caller cannot open a provider browser after a late star
     react: {default: {}}, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}},
     '../../../../packages/client-core/src/hosted-security': {MFARequiredError}, '../../../../packages/client-core/src/server-messages': {CodedError},
     '../../../../packages/client-core/src': {ApiError}, '../../../../packages/contracts/src/hosted/routes': {},
-    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://example.test'}, '../../src/bridge/continuation-queue': continuationQueue,
+    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://example.test'}, './continuation-queue': continuationQueue,
   });
   const source = new NativePorticoSignIn(); await source.prepare();
   const attempt = source.provider('google', () => live); await waiting; live = false;
@@ -92,7 +92,7 @@ test('continuation storage serializes an old in-flight save, skips a retired wai
     react: {default: {}}, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}},
     '../../../../packages/client-core/src/hosted-security': {MFARequiredError, parseNativeAccountContinuation}, '../../../../packages/client-core/src/server-messages': {CodedError},
     '../../../../packages/client-core/src': {ApiError}, '../../../../packages/contracts/src/hosted/routes': {},
-    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://example.test'}, '../../src/bridge/continuation-queue': continuationQueue,
+    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://example.test'}, './continuation-queue': continuationQueue,
   });
   let oldLive = true, skippedLive = true;
   const old = new NativePorticoSignIn(() => oldLive), skipped = new NativePorticoSignIn(() => skippedLive), successor = new NativePorticoSignIn();
@@ -123,7 +123,7 @@ test('legacy reset and update share ordering with a current native prepare', asy
     react: {default: {}}, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}},
     '../../../../packages/client-core/src/hosted-security': {MFARequiredError, parseNativeAccountContinuation}, '../../../../packages/client-core/src/server-messages': {CodedError},
     '../../../../packages/client-core/src': {ApiError}, '../../../../packages/contracts/src/hosted/routes': {},
-    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://mixed.example'}, '../../src/bridge/continuation-queue': continuationQueue,
+    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://mixed.example'}, './continuation-queue': continuationQueue,
   });
   const owner = await legacy.nativeAccount('https://mixed.example'), oldBinding = owner.continuation.binding;
   const oldPrepared = new next.NativePorticoSignIn(); await oldPrepared.prepare();
@@ -192,7 +192,7 @@ test('native restart without its original registration ID does not read or compl
     react: {default: {}}, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}},
     '../../../../packages/client-core/src/hosted-security': {MFARequiredError, parseNativeAccountContinuation}, '../../../../packages/client-core/src/server-messages': {CodedError},
     '../../../../packages/client-core/src': {ApiError}, '../../../../packages/contracts/src/hosted/routes': {},
-    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://restart.example'}, '../../src/bridge/continuation-queue': continuationQueue,
+    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://restart.example'}, './continuation-queue': continuationQueue,
   });
   const first = new NativePorticoSignIn(); await first.prepare();
   const retained = await first.register('taken', 'Name', 'password', 'a@example.test'); first.dispose();
@@ -212,7 +212,7 @@ test('a caller that disposes its source and returns true cannot allocate or disp
     const {NativePorticoSignIn}=await screenModule(new URL('../src-next/platform/portico-sign-in.ts',import.meta.url),{
       react:{default:{}},'react-native':{NativeModules:{PorticoAccountAuth:bridge}},
       '../../../../packages/client-core/src/hosted-security':{MFARequiredError},'../../../../packages/client-core/src/server-messages':{CodedError},'../../../../packages/client-core/src':{ApiError},
-      '../../../../packages/contracts/src/hosted/routes':{},'./accounts':{nativeAccounts},'./abort-signals':{},'./account-authority':{hostedUrl:'https://predicate.example'},'../../src/bridge/continuation-queue':continuationQueue,
+      '../../../../packages/contracts/src/hosted/routes':{},'./accounts':{nativeAccounts},'./abort-signals':{},'./account-authority':{hostedUrl:'https://predicate.example'},'./continuation-queue':continuationQueue,
     });
     source=new NativePorticoSignIn(()=>currentSource());await source.prepare();
     const original=kind==='verify'?await source.register('taken','Name','password','a@example.test'):undefined;calls.ids=0;

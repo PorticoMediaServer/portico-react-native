@@ -67,7 +67,7 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
     if (!controller.isCurrent() || !theme.isTV || state.phase !== 'ready') return;
     const frame = requestAnimationFrame(() => controller.isCurrent() && focusTarget(state.showConflict ? reload.current : first.current ?? addView.current));
     return () => cancelAnimationFrame(frame);
-  }, [state.phase, state.showConflict, theme.isTV]);
+  }, [controller, state.phase, state.showConflict, theme.isTV]);
   /** collections.html 29: the list comes back with the new row held, focused and in view, so Up
    * and Down move it at once. The pick-up listener only moves a row that holds focus, so a held
    * row no one can reach would be a dead end. */

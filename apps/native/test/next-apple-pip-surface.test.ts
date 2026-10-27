@@ -10,6 +10,7 @@ test('Apple retained view receives only the runtime request counter and exact bi
   const runtime = {
     getSnapshot: () => state, subscribe: () => () => {}, installSnapshotCapture() {}, attachSurface: () => () => {},
     setSubtitleDisplay() {}, setSurfaceTag() {},
+    queue: {playEntry: () => {assert.fail('unexpected queue.playEntry');}},
     prepareExternalPresentation: async (...args: unknown[]) => {commands.push(['prepare', ...args]);return binding;},
     requestPictureInPicture: async (...args: unknown[]) => {commands.push(['request', ...args]);return false;},
   };

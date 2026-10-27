@@ -27,7 +27,7 @@ import {NativeLiveActionPanels} from './LiveActionPanels';
 import {NativePlaybackFailed} from './PlaybackFailed';
 import {NativeHandheldPlaybackFailed} from './HandheldPlaybackFailed';
 import {NativeWatchPostPlay} from './PostPlayScreen';
-import {isTablet} from '../../../src/bridge/device-platform';
+import {isTablet} from '../../platform/device-platform';
 import {createNativeWatchPanelNames} from './panel-names';
 import {nativeServerPreferences} from '../../platform/server-preferences';
 import {browseValueLabel} from '../../../../../packages/client-core/src/presentation/browse-toolbar';

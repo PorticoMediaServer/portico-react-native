@@ -89,6 +89,7 @@ export function useTvHomeRecovery({runtime, authority, error, active, resolved, 
   }, [enabled, foreground, live, runtime]);
   // The rendered session is the one whose ticket is still open. A retired opening leaves its
   // state behind inert: no action can use it, and a new transient failure replaces it.
+  const authorityId = authorityKey(authority);
   // A transient failure opens one opening; a further error on the same opening only refreshes
   // its copy. Creation happens here, never inside a state updater.
   useEffect(() => {
@@ -101,7 +102,7 @@ export function useTvHomeRecovery({runtime, authority, error, active, resolved, 
     const ticket: TvHomeRecoveryTicket = {retired: false};
     opening.current = ticket; step.current = 0; immediate.current = false;
     setSession({ticket, presented: next, attempts: 0, delayMs: 0});
-  }, [enabled, error, resolved, reopen, authorityKey(authority), runtime]);
+  }, [enabled, error, resolved, reopen, authorityId, runtime]);
   useEffect(() => {alive.current = true; return () => {
     // Retire and clear this opening before the StrictMode setup runs again, so the next setup
     // opens a fresh one instead of inheriting a dead ticket.

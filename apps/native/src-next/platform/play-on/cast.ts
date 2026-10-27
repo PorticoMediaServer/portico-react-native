@@ -4,9 +4,9 @@ import type {CastDockIdentity} from '../../kit/dock';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {LocalSession} from '../../../../../packages/client-core/src';
 import {sameFence, type DockPlayback, type QueuePlaybackFence, type RemoteDock} from '../../../../../packages/player-core/src';
-import {castTransport,validCastAttachment} from '../../../src/bridge/cast';
-import {castControllerStorage, castControllerStorageReady} from '../../../src/bridge/cast-controller-storage';
-import {castOffered} from '../../../src/app/cast-offered';
+import {castTransport,validCastAttachment} from './cast-transport';
+import {castControllerStorage, castControllerStorageReady} from './cast-controller-storage';
+import {castOffered} from './cast-offered';
 import type {NativePlaybackAdapter, NativePlaybackRuntimeSnapshot, PlaybackAuthority} from '../playback/types';
 
 type Device = Readonly<{state:string;deviceName:string;deviceId?:string;attachmentId?:string}>;

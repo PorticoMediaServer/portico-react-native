@@ -7,7 +7,7 @@ import {routePath as hostedPath, routeBody as hostedBody} from '../../../../pack
 import {nativeAccounts} from './accounts';
 import {linkNativeAbortSignals} from './abort-signals';
 import {hostedUrl} from './account-authority';
-import {serializeContinuation, observeContinuationBinding, continuationBindingCurrent} from '../../src/bridge/continuation-queue';
+import {serializeContinuation, observeContinuationBinding, continuationBindingCurrent} from './continuation-queue';
 
 /** An opaque, frozen witness for the private factor challenge this port holds. It
  * carries no challenge token and cannot be forged: only this exact cached object is

@@ -14,7 +14,8 @@ async function factory({tv = false, supported = true, bridge = {localFile() {}},
     recordProgress: () => {deviceCalls.push('journal');},
   };
   const started = Promise.resolve();
-  const runtime = {installSnapshotCapture() {}, startOffline: (...args: unknown[]) => {starts.push(args);return started;}};
+  const runtime = {installSnapshotCapture() {}, startOffline: (...args: unknown[]) => {starts.push(args);return started;},
+    queue: {playEntry: () => {assert.fail('unexpected queue.playEntry');}}};
   const {createNativeShellPlaybackAdapter} = await screenModule(new URL('../src-next/platform/playback/native.ios.tsx', import.meta.url), {
     react: {default: {}},
     'react-native': {

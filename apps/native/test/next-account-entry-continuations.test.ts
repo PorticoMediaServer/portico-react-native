@@ -8,7 +8,7 @@ import * as security from '../../../packages/client-core/src/hosted-security';
 import {CodedError} from '../../../packages/client-core/src/server-messages';
 import * as routes from '../../../packages/contracts/src/hosted/routes';
 import * as passwordPolicy from '../../../packages/client-core/src/password-strength';
-import * as queue from '../src/bridge/continuation-queue';
+import * as queue from '../src-next/platform/continuation-queue';
 import * as tvOpening from '../src-next/screens/accounts/tv-code-opening';
 import * as outcome from '../src-next/platform/setup-outcome';
 import * as chooser from '../src-next/screens/accounts/directory-chooser';
@@ -45,7 +45,7 @@ async function fixture(context:import('node:test').TestContext,wrongAccount=fals
     react:{default:{}},'react-native':{NativeModules:{PorticoAccountAuth:bridge}},
     '../../../../packages/client-core/src/hosted-security':security,'../../../../packages/client-core/src/server-messages':{CodedError},
     '../../../../packages/client-core/src':{ApiError},'../../../../packages/contracts/src/hosted/routes':routes,
-    './accounts':{nativeAccounts:accounts},'./abort-signals':{},'./account-authority':{hostedUrl:'https://hosted.example'},'../../src/bridge/continuation-queue':queue,
+    './accounts':{nativeAccounts:accounts},'./abort-signals':{},'./account-authority':{hostedUrl:'https://hosted.example'},'./continuation-queue':queue,
   });
   class Server {
     static parseInvitationEntry(raw:string){return raw?{...entry,raw}:undefined;}

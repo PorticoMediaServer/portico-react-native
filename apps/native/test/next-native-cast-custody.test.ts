@@ -79,9 +79,9 @@ async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:P
   const {NativeCastCaller} = await screenModule(new URL('../src-next/platform/play-on/cast.ts', import.meta.url), {
     react: {default: {}}, 'react-native': {NativeEventEmitter: Emitter, NativeModules: {PorticoCast: bridge}, Platform: {isTV: false}},
     '../../../../../packages/client-core/src/cast': {CastController,sameCastRemote,parseCastEvent},
-    '../../../../../packages/player-core/src': {sameFence}, '../../../src/bridge/cast': {castTransport: transport,validCastAttachment:(value:unknown)=>value===attachmentId},
-    '../../../src/bridge/cast-controller-storage': {castControllerStorage: {get: (key:string) => options.returning?records.get(key):undefined, set() {}}, castControllerStorageReady: Promise.resolve()},
-    '../../../src/app/cast-offered': {castOffered},
+    '../../../../../packages/player-core/src': {sameFence}, './cast-transport': {castTransport: transport,validCastAttachment:(value:unknown)=>value===attachmentId},
+    './cast-controller-storage': {castControllerStorage: {get: (key:string) => options.returning?records.get(key):undefined, set() {}}, castControllerStorageReady: Promise.resolve()},
+    './cast-offered': {castOffered},
   });
   const session = {sessionFamilyId: 'family',deviceId:'device',serverIdentity:{publicKey:'a'.repeat(43),fingerprint:'b'.repeat(43)}, viewer: {...scope, role: 'member'}};
   const caller = new NativeCastCaller({api, session: () => session, playback: () => adapter, current: () => current, deviceName: () => 'Phone', reportError: (error: unknown) => {throw error;}});
