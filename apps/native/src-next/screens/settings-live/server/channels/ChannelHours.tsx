@@ -1,3 +1,4 @@
+import {clonePortableDto} from '../../../../../../../packages/client-core/src';
 import React,{useCallback,useLayoutEffect,useMemo,useState,useSyncExternalStore} from 'react';
 import {Text,View} from 'react-native';
 import type {LibraryChannelBlock,LibraryChannelConfig,LibraryChannelRule} from '../../../../../../../packages/client-core/src/library-channels';
@@ -22,7 +23,7 @@ export function NativeChannelHours({config,presets,locked,isCurrent,onChange,onE
   const held=draft&&view.draft===draft&&draft.base===config&&!draft.abort.signal.aborted&&current()?draft:undefined;
   const open=(original?:LibraryChannelBlock)=>{
     if(!current()||view.applying||original&&!config.blocks.includes(original))return;
-    try{const block:LibraryChannelBlock=original?structuredClone(original):{id:'block-'+nativeChannelOperationId().slice(0,24),weekdays:[],startMinute:0,endMinute:0,priority:0,ruleId:config.defaultRuleId,fallbackRuleId:config.defaultRuleId,anchor:'channel-cursor',overrun:'finish'};
+    try{const block:LibraryChannelBlock=original?clonePortableDto(original):{id:'block-'+nativeChannelOperationId().slice(0,24),weekdays:[],startMinute:0,endMinute:0,priority:0,ruleId:config.defaultRuleId,fallbackRuleId:config.defaultRuleId,anchor:'channel-cursor',overrun:'finish'};
       view.draft?.abort.abort();const next:Draft={base:config,...(original?{original}:{}),block,from:original?minuteText(block.startMinute):'',to:original?minuteText(block.endMinute):'',abort:new AbortController()};view.draft=next;setDraft(next);setError(false);onEditing(true);
     }catch{setError(true);}
   };

@@ -1,3 +1,4 @@
+import {clonePortableDto} from '../../../../../../../packages/client-core/src';
 import React,{useEffect,useLayoutEffect,useState,useSyncExternalStore} from 'react';
 import {Text,View} from 'react-native';
 import {ChannelFieldsSource} from '../../../../../../../packages/client-core/src/server-admin/channel-fields-source';
@@ -29,7 +30,7 @@ export function NativeBlockPresets({group,isCurrent,onEditing}:{group:NativeChan
   const held=draft&&view?.draft===draft&&view.opening===draft.ticket&&current()?draft:undefined;
   const heldRemoval=removing&&view?.removing===removing&&view.opening===removing&&current()?removing:undefined;
   const close=(ticket:Ticket|undefined)=>{if(!ticket||!view||!current()||view.opening!==ticket)return;view.opening=undefined;view.draft=undefined;view.removing=undefined;void fields?.select([]);setDraft(undefined);setRemoving(undefined);setError(false);onEditing(false);};
-  const open=(original?:BlockPreset)=>{if(!view||view.opening||view.draft||view.removing||!writable()||original&&!source.getSnapshot().items.includes(original))return;const body:BlockPresetBody=original?structuredClone(original.body):{libraryId:'',criteria:[],order:'shuffle',durationMinutes:240,startMinute:-1,days:[],description:''};const ticket:FormTicket=Object.freeze({kind:'form',original,revision:original?.revision??0});const next:Draft={ticket,original,name:original?.name??'',body,start:body.startMinute<0?'':clock(body.startMinute),duration:String(body.durationMinutes)};view.opening=ticket;view.removing=undefined;setRemoving(undefined);view.draft=next;setDraft(next);setError(false);onEditing(true);};
+  const open=(original?:BlockPreset)=>{if(!view||view.opening||view.draft||view.removing||!writable()||original&&!source.getSnapshot().items.includes(original))return;const body:BlockPresetBody=original?clonePortableDto(original.body):{libraryId:'',criteria:[],order:'shuffle',durationMinutes:240,startMinute:-1,days:[],description:''};const ticket:FormTicket=Object.freeze({kind:'form',original,revision:original?.revision??0});const next:Draft={ticket,original,name:original?.name??'',body,start:body.startMinute<0?'':clock(body.startMinute),duration:String(body.durationMinutes)};view.opening=ticket;view.removing=undefined;setRemoving(undefined);view.draft=next;setDraft(next);setError(false);onEditing(true);};
   const change=(next:Draft)=>{if(!view||!held||view.opening!==held.ticket||view.draft!==held||!writable())return;view.draft=next;setDraft(next);setError(false);};
   const patch=(body:Partial<BlockPresetBody>)=>{if(held)change({...held,body:{...held.body,...body}});};
   const save=async()=>{
