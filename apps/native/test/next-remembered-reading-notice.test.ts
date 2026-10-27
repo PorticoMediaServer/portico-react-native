@@ -20,7 +20,8 @@ test('saved-only Settings shows a local notice and closes onto the same original
     dispose: async () => {closes++; ownerCurrent = false;}};
   const reading = {owner, preferences: {getSnapshot: () => ({}), subscribe: () => () => {}}};
   const {RememberedReadingScreen} = await screenModule(new URL('../src-next/screens/downloads/RememberedReadingScreen.tsx', import.meta.url), {
-    react: {...React, default: React}, 'react-native': {View: 'View'},
+    react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
+    'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 47})},
     '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},
     '../../kit/overlays/surface': {Dialog: 'Dialog'}, '../../kit/controls': {Button: 'Button'},
     '../../kit/states': {LoadingPaint: 'LoadingPaint', SkeletonBlock: 'SkeletonBlock', StateView: 'StateView'},

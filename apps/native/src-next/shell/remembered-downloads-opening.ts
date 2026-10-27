@@ -1,4 +1,5 @@
 import {Platform} from 'react-native';
+import {defaultI18n} from '../../../../packages/i18n/src';
 import {captureRememberedDownloadsViewer} from './remembered-downloads-viewer';
 import {createRememberedDownloadsDevice} from './remembered-downloads-device';
 import {readRememberedPlaybackSettings} from './remembered-playback-settings';
@@ -27,8 +28,8 @@ export async function createRememberedDownloadsOpening(installation: Installatio
   let player: ReturnType<typeof createNativeReceiptOnlyPlayback> | undefined;
   let offIdentity = () => {}, offDevice = () => {};
   let reading: RememberedDownloadsOpening['reading'];
-  // Filled only after the canonical catalogue has reached the normal native mirror.
-  let noticeCopy: RememberedDownloadsOpening['noticeCopy'];
+  const noticeCopy = Object.freeze({title: defaultI18n.t('next.reading.savedOnlySettingsTitle'),
+    body: defaultI18n.t('next.reading.savedOnlySettingsBody')});
   const canRead = (entry: OfflineEntry) => {try {if (!current() || !device || !reading || !noticeCopy || device.device.playabilityReason(entry) !== null) return false;
     device.publicationSource(entry); return current();} catch {return false;}};
   const listeners = new Set<() => void>();
@@ -70,7 +71,7 @@ export async function createRememberedDownloadsOpening(installation: Installatio
       // The root owns this lease; account-route borrowers cannot retire it.
       dispose: () => {},
     });
-    const source = Object.freeze({entry, device: device.device, ...(player ? {player} : {}), ...(reading ? {reading, canRead} : {}), current, dispose});
+    const source = Object.freeze({entry, device: device.device, ...(player ? {player} : {}), ...(reading ? {reading, canRead, noticeCopy} : {}), current, dispose});
     return source;
   } catch (error) {dispose(); throw error;}
 }
