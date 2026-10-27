@@ -118,7 +118,7 @@ export class NativeTVMusicController {
     if (!this.current()) return false;
     const state = this.state;
     if(this.similarEntries.has(entry))return this.similarCurrent(state,entry);
-    return state.entry === entry || state.songs.includes(entry) || state.allSongs.phase!=='refresh-required' && state.allSongs.songs.includes(entry)
+    return state.entry === entry || (this.options.entry.kind!=='album'||state.songPage.phase!=='refresh-required') && state.songs.includes(entry) || state.allSongs.phase!=='refresh-required' && state.allSongs.songs.includes(entry)
       || this.releaseCurrent(entry);
   };
   /** The presenter borrows one DTO from the exact offered release object.
@@ -210,11 +210,11 @@ export class NativeTVMusicController {
   previousAllSongs = (expected: MusicSection<ContentEntry>) => (this.allSongSections.has(expected)?this.allSongPager?.previous(this.allSongSections.get(expected)!):undefined) ?? Promise.resolve();
   retryAllSongs = (expected: MusicSection<ContentEntry>) => expected===this.state.allSongs&&!this.allSongPager?this.loadAllSongs():(this.allSongSections.has(expected)?this.allSongPager?.retry(this.allSongSections.get(expected)!):undefined)??Promise.resolve();
   focusSong = (entry: ContentEntry, expected: MusicSection<ContentEntry>) => this.songPager?.focus(entry,expected);
-  blurSong = (entry: ContentEntry) => this.songPager?.blur(entry);
+  blurSong = (entry: ContentEntry, expected: MusicSection<ContentEntry>) => this.songPager?.blur(entry,expected);
   focusRelease = (entry: MusicAlbumRow, expected: MusicSection<MusicAlbumRow>) => this.releasePager?.focus(entry,expected);
-  blurRelease = (entry: MusicAlbumRow) => this.releasePager?.blur(entry);
+  blurRelease = (entry: MusicAlbumRow, expected: MusicSection<MusicAlbumRow>) => this.releasePager?.blur(entry,expected);
   focusAllSong = (entry: ContentEntry, expected: MusicSection<ContentEntry>) => {const section=this.allSongSections.get(expected);if(section)this.allSongPager?.focus(entry,section);};
-  blurAllSong = (entry: ContentEntry) => this.allSongPager?.blur(entry);
+  blurAllSong = (entry: ContentEntry, expected: MusicSection<ContentEntry>) => {const section=this.allSongSections.get(expected);if(section)this.allSongPager?.blur(entry,section);};
   refreshSongs = (expected: MusicSection<ContentEntry>) => expected===this.state.songPage?this.load():Promise.resolve();
   refreshReleases = (expected: MusicSection<MusicAlbumRow>) => expected===this.state.releases?this.load():Promise.resolve();
   refreshAllSongs = (expected: MusicSection<ContentEntry>) => expected===this.state.allSongs?this.loadAllSongs():Promise.resolve();
@@ -261,7 +261,7 @@ export class NativeTVMusicController {
     const complete=!page.nextCursor&&page.items.length===page.total;
     const duration=details?.duration??(complete&&page.items.length>0&&page.items.every(entry=>entry.duration!==undefined)
       ?page.items.reduce((sum,entry)=>sum+entry.duration!,0):undefined);
-    this.publish({phase:'ready',songTotal:details?.count??page.total,songDurationSeconds:duration,albumDetails:details,favorite});
+    this.publish({phase:'ready',songTotal:details?.count??(page.totalIsLowerBound?undefined:page.total),songDurationSeconds:duration,albumDetails:details,favorite});
     // Optional recommendations have their own honest error, retaining ready tracks.
     if (!this.current() || signal.aborted) return;
     await this.loadSimilar(signal);
@@ -276,7 +276,7 @@ export class NativeTVMusicController {
     const page = await this.browse(capabilities, builder => builder.where('artist', 'equals', this.options.entry.title).sort('playCount', 'desc').limit(Math.min(5, capabilities.queryLimits.maximumLimit)), signal);
     if (!this.current() || signal.aborted) return;
     if (page.entries.some(entry => entry.kind !== 'song')) throw new Error(unreadableServerResponse);
-    this.publish({phase:'ready',songs:page.entries,songTotal:page.pageInfo.total,favorite});
+    this.publish({phase:'ready',songs:page.entries,songTotal:page.pageInfo.totalIsLowerBound?undefined:page.pageInfo.total,favorite});
     // The optional entity projection supplies real Details and the Similar
     // revision; neither ever holds the artist's own songs and releases.
     if (!this.current() || signal.aborted) return;

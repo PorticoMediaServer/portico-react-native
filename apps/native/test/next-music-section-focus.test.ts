@@ -166,7 +166,7 @@ test('a real focused row host prevents section eviction until focus transfers to
  const pager=new MusicSectionPager<{id:string}>({current:()=>true,publish:()=>{},read:async cursor=>{calls++;const n=Number(cursor||0);return {items:[{id:String(n)}],nextCursor:n<4?String(n+1):'',offset:n,total:5,revision:'r'};}});
  await pager.load();await pager.next(pager.getSnapshot());await pager.next(pager.getSnapshot());const original=pager.getSnapshot(),row=original.items[0];
  const bound=realRegion(),rowHost={requestTVFocus(){}},nextHost={requestTVFocus(){}};
- const rendered=nativeChain(React.createElement(Focusable,{focusId:'original-song',onFocus:()=>pager.focus(row,original),onBlur:()=>pager.blur(row),onPress:()=>{}}) as Element);
+ const rendered=nativeChain(React.createElement(Focusable,{focusId:'original-song',onFocus:()=>pager.focus(row,original),onBlur:()=>pager.blur(row,original),onPress:()=>{}}) as Element);
  const next=nativeChain(React.createElement(Button,{focusId:'music-next-artist-all',onPress:()=>{void pager.next(pager.getSnapshot());}},'Next') as Element);
  try{
   rendered.node.props.ref(rowHost);rendered.node.props.onFocus({nativeEvent:{}});
