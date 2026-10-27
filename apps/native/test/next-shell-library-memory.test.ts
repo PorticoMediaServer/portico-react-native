@@ -9,6 +9,7 @@ import {createFocusRegistry} from '../src-next/kit/focus/registry';
 import {createTheme} from '../src-next/kit/theme';
 import * as shellModel from '../src-next/shell/model';
 import * as focusModel from '../src-next/shell/tv-focus';
+import * as menuKey from '../src-next/platform/menu-key';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
 test('a real screen-owned Library destination is remembered and a late initial read cannot restore its old ID', async () => {
@@ -27,7 +28,7 @@ test('a real screen-owned Library destination is remembered and a late initial r
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
     '../kit/dock/ListeningCoverBridge': listeningCoverFixture,
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},
-    '../platform/tv-menu': {useTVMenuCapture: () => {}},
+    '../platform/tv-menu': {useTVMenuCapture: () => {}}, '../platform/menu-key': menuKey,
     react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
     'react-native-reanimated': {default: {View: 'AnimatedView'}, useAnimatedStyle: (fn: () => unknown) => fn(), useSharedValue: (value: number) => React.useRef({value}).current, withTiming: (value: unknown) => value},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 44, bottom: 34})}, '../kit/overlays': {OverlaysProvider: 'OverlaysProvider'},
@@ -37,7 +38,7 @@ test('a real screen-owned Library destination is remembered and a late initial r
   });
   let root: any, tree: any;
   const rootHost = createHookHost(() => {root = NativeShell({runtime});}); rootHost.mount();
-  const session = nodes(root).find(node => typeof node.type === 'function');
+  const session = nodes(root).find(node => node.type?.name === 'ShellSession');
   const page = createHookHost(() => {tree = session.type({runtime, snapshot});});
   try {
     await act(() => page.mount());

@@ -9,6 +9,7 @@ import {createFocusRegistry} from '../src-next/kit/focus/registry';
 import {createTheme} from '../src-next/kit/theme';
 import * as model from '../src-next/shell/model';
 import * as focus from '../src-next/shell/tv-focus';
+import * as menuKey from '../src-next/platform/menu-key';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
 test('the real shell mounts one persistent player and a separate box-none watch chrome outlet below menus', async () => {
@@ -25,7 +26,7 @@ test('the real shell mounts one persistent player and a separate box-none watch 
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
     '../kit/dock/ListeningCoverBridge': listeningCoverFixture,
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},
-    '../platform/tv-menu': {useTVMenuCapture: () => {}},
+    '../platform/tv-menu': {useTVMenuCapture: () => {}}, '../platform/menu-key': menuKey,
     react: {...React, default: React}, 'react-native': {View: 'View', useWindowDimensions: () => ({width: 1920, height: 1080})},
     'react-native-reanimated': {default: {View: 'AnimatedView'}, useAnimatedStyle: (fn: () => unknown) => fn(), useSharedValue: (value: number) => React.useRef({value}).current, withTiming: (value: unknown) => value},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 0})}, '../kit/overlays': {OverlaysProvider: 'OverlaysProvider'},
@@ -38,7 +39,7 @@ test('the real shell mounts one persistent player and a separate box-none watch 
   let sessionHost: ReturnType<typeof createHookHost> | undefined;
   try {
     await act(() => {rootHost.mount();});
-    const session = nodes(root).find(node => typeof node.type === 'function');
+    const session = nodes(root).find(node => node.type?.name === 'ShellSession');
     sessionHost = createHookHost(() => {tree = session.type({runtime, snapshot});});
     await act(() => {sessionHost!.mount();});
     const rendered = nodes(tree), player = rendered.filter(node => node.type === 'PersistentPlaybackLayer');

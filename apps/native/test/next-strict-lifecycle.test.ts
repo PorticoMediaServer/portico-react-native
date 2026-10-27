@@ -12,12 +12,17 @@ import {heroSpec} from '@portico/design';
 import {sameFence, type PlaybackFence} from '../../../packages/player-core/src/index.ts';
 import {createRotationClock} from '../src-next/kit/layout/model.ts';
 import * as shellModel from '../src-next/shell/model.ts';
+import * as menuKey from '../src-next/platform/menu-key';
+import * as homeModel from '../src-next/screens/home/model';
+import * as errorPresentation from '../../../packages/client-core/src/presentation/errors';
+import {createTheme} from '../src-next/kit/theme';
+import {createInitialRegionEntry} from '../src-next/kit/focus/initial-entry';
 import type {DockOccupant} from '../src-next/kit/dock/types.ts';
 import type {NativeShellRuntime} from '../src-next/shell/runtime.ts';
 import {act, createHookHost} from './hook-driver.ts';
 import {surfacePaintFixture, screenModule} from './helpers/screen-harness.mjs';
 import {currentMorphFence} from '../src-next/kit/dock/morph-fence.ts';
-import {releaseDock, validRect} from '../src-next/kit/dock/model.ts';
+import {releaseDock, validRect, sameDockFence} from '../src-next/kit/dock/model.ts';
 import {playerPostureCrossFadeMs} from '../src-next/platform/layout/player-presentation.ts';
 
 // Run the actual owned hooks/components with React's hook driver. Native hosts
@@ -98,6 +103,7 @@ async function dockModule(state: ReturnType<typeof lifecycle>) {
   return screenModule(new URL('../src-next/kit/dock/useDockPresence.ts', import.meta.url), {
     react: state.react, 'react-native-reanimated': state.animated,
     '../../../../../packages/player-core/src/index': {sameFence}, '../useMotion': {useMotion: () => state.motion},
+    './model': {sameDockFence},
   });
 }
 
@@ -256,16 +262,17 @@ function shellRuntime(onMemoryRead?: () => void) {
   return {runtime, reads, destinations, authority(next: shellModel.ShellAuthority) {snapshot = {...snapshot, authority: next};}};
 }
 async function shellSession(state: ReturnType<typeof lifecycle>, runtime: NativeShellRuntime, registry = createFocusRegistry()) {
+  const theme = createTheme({isTV: false, width: 390});
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
     '../screens/home/home-start': homeStart,
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
     '../kit/dock/ListeningCoverBridge': listeningCoverFixture,
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},
-    '../platform/tv-menu': {useTVMenuCapture: () => {}},
+    '../platform/tv-menu': {useTVMenuCapture: () => {}}, '../platform/menu-key': menuKey,
     react: state.react, 'react-native': state.native, 'react-native-reanimated': state.animated,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0})},
-    '../kit/theme': {useTheme: () => ({isTV: false, colors: {ink: '#071018'}})}, '../kit/useMotion': {useMotion: () => state.motion}, './model': shellModel,
+    '../kit/theme': {useTheme: () => theme}, '../kit/useMotion': {useMotion: () => state.motion}, './model': shellModel,
     '../kit/focus': {useFocusRegistry: () => registry}, './tv-focus': {tvFocusIds, sameDestination},
     '../kit/overlays': {OverlaysProvider: 'OverlaysProvider'}, '../kit/shell': {AccountMenu: 'AccountMenu'}, '../kit/browse': {},
     '../screens/home/HomeScreen': {HomeScreen: 'HomeScreen'}, './PhoneTabBar': {PhoneTabBar: 'PhoneTabBar'}, './MediumRail': {MediumRail: 'MediumRail'}, './chrome': {nativeScreenChromeHidden: () => false, subscribeNativeScreenChrome: () => () => {}},
@@ -356,8 +363,19 @@ test('Home scroll registration follows the move function and runtime rather than
     };
     return {runtime, top() {callback?.();}, get registered() {return !!callback;}};
   }
+  const recovery = await screenModule(new URL('../src-next/screens/home/useTvHomeRecovery.ts', import.meta.url), {
+    react: state.react, 'react-native': state.native,
+    '../../../../../packages/client-core/src/presentation/errors': errorPresentation, '../../shell/model': shellModel,
+  });
   const {HomeScreen} = await screenModule(new URL('../src-next/screens/home/HomeScreen.tsx', import.meta.url), {
     react: state.react, 'react-native': state.native, 'react-native-reanimated': state.animated,
+    '@portico/design': {heroSpec}, '../../../../../packages/client-core/src/presentation/errors': errorPresentation,
+    // Physical posture and page Back are host bridges outside this registration fixture;
+    // the sibling Home registration fixture keeps the same inert seams.
+    '../../platform/platformPosture': {usePlatformPosture: () => ({status: 'unavailable', folds: []})},
+    '../destinations/useTVPageBack': {useTVPageBack() {}}, '../../kit/focus/initial-entry': {createInitialRegionEntry},
+    './home-start': homeStart, '../destinations/music/MusicMixesRow': {MusicMixesRow: 'MusicMixesRow'},
+    './TvHomeRecovery': {TvHomeRecovery: 'TvHomeRecovery'}, './useTvHomeRecovery': recovery,
     '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},
     '../../../../../packages/client-core/src/presentation/home-spotlight': {}, '../../../../../packages/client-core/src/home-selection': {},
     '../../../../../packages/client-core/src/presentation/server-text': {}, '../../../../../packages/client-core/src/presentation/kit-model': {},
@@ -366,7 +384,7 @@ test('Home scroll registration follows the move function and runtime rather than
     '../../kit/layout/FocusAnchor': {useFocusAnchor: () => anchor}, '../../kit/states': {LoadingPaint: 'LoadingPaint', HomeSkeleton: 'HomeSkeleton'},
     '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../kit/theme': {useTheme: () => ({isTV: false, layoutMode: 'phone', platform: 'phone', spec: {hero: {homeHeight: {phone: 560}}}})},
     '../../shell/model': shellModel, './HomeHeroFacts': {HomeHeroFacts: 'HomeHeroFacts', HomeRemoteHint: 'HomeRemoteHint'},
-    './model': {authorizedHome: () => undefined, homeRowHasContent: () => true, initialHomeFocus: () => undefined},
+    './model': homeModel,
   });
   const first = port('first'), second = port('second'), home = mount(HomeScreen, {runtime: first.runtime, authority});
   try {
@@ -391,10 +409,10 @@ test('original shell retirement detaches focus memory before region teardown wit
   const session = await shellSession(state, runtime, registry);
   try {
     const before = reads;
-    registry.configure({id: 'original-page'});assert.ok(reads > before, 'live focus publications still read the original runtime');
+    registry.configure({id: 'original-page', order: []});assert.ok(reads > before, 'live focus publications still read the original runtime');
     life.abort();const retiredReads = reads;
     // Region's actual registry configure/release publications can precede React cleanup.
-    assert.doesNotThrow(() => {registry.configure({id: 'outgoing-page'});registry.mountRegion('outgoing-page', {})();});
+    assert.doesNotThrow(() => {registry.configure({id: 'outgoing-page', order: []});registry.mountRegion('outgoing-page', {})();});
     assert.equal(reads, retiredReads, 'no retired getSnapshot read or successor lookup');
     assert.throws(() => runtime.getSnapshot(), /native_shell_cancelled/, 'business accessor remains guarded');
   } finally {session.host.unmount();}
