@@ -5,6 +5,7 @@ import type {NativeRouteRenderer} from '../../shell/route-registry';
 import type {NativeShellRoute} from '../../shell/routes';
 import type {ReadNativeHost} from './ReadNativeHost';
 import {nativeReadHost} from './host-component';
+import {readRouteBack} from './read-route-back';
 
 type ReadTarget = Extract<NativeShellRoute, {kind: 'read'}>;
 type Preferences = React.ComponentProps<typeof ReadNativeHost>['preferences'];
@@ -26,9 +27,10 @@ export function createNativeReadRenderer(context: NativeShellBootstrapContext, p
     render(route) {if (route.kind !== 'read') throw new Error('native_read_route_mismatch'); reconcile(); return null;},
     renderRetained() {
       reconcile();
-      const current = context.navigation.getSnapshot().route;
-      return <>{[...hosts].map(([route, key]) => <Host key={key} context={context} target={route} active={current === route} preferences={preferences}
-        onBack={() => {if (context.current()) context.navigation.back(context.authority());}} onOpenSettings={openSettings}/>)}</>;
+      if (!alive || !context.current()) return null;
+      const expected = context.navigation.getSnapshot();
+      return <>{[...hosts].map(([route, key]) => <Host key={key} context={context} target={route} active={expected.route === route} preferences={preferences}
+        onBack={readRouteBack(context.navigation, expected, route, () => alive && context.current())} onOpenSettings={openSettings}/>)}</>;
     },
     dispose() {alive = false; hosts.clear();},
   };
