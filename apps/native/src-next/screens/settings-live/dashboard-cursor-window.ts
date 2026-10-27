@@ -22,6 +22,12 @@ export class DashboardCursorWindow<T, M> {
     private readonly key: (item: T) => string, private readonly current: () => boolean,
     private readonly changed: (value: DashboardCursorSnapshot<T, M>) => void) {}
   snapshot = (): DashboardCursorSnapshot<T, M> => this.value;
+  /** Adopt an already-read producer page as the first page of a fresh query. */
+  seed(cursor: string, page: DashboardCursorPage<T, M>): void {
+    if (this.disposed || !this.current() || this.flight || this.value.chunks.length) return;
+    if (cursor) this.seen.add(cursor);
+    this.publish({...this.value, chunks: [{cursor, items: page.items}], items: page.items, bookmarks: cursor ? ['', cursor] : [''], nextCursor: page.nextCursor ?? '', metadata: page.metadata, pending: false, refreshRequired: !!cursor && page.nextCursor === cursor});
+  }
   private publish(value: DashboardCursorSnapshot<T, M>): void {this.value = Object.freeze(value); this.changed(this.value);}
   private alive(flight: Flight<T, M>): boolean {return !this.disposed && this.current() && this.flight === flight && flight.generation === this.generation && !flight.abort.signal.aborted;}
   /** Called by the actual focus binding, not by a guessed row index. */

@@ -2,10 +2,14 @@ import {DVRClient, type DeletePreview, type DVRPage, type DVRSummary, type DVRVi
 import type {ChannelApi} from '../../../../../packages/client-core/src/channel-guide';
 import type {DVRCommandLifetime} from '../../../../../packages/client-core/src/dvr';
 import {NativeScreenLifetime, NativeScreenStore, screenScopeEnded} from './lifetime';
+import {DashboardCursorWindow, type DashboardCursorSnapshot} from './dashboard-cursor-window';
 
 export type NativeRecordingQuery = Readonly<{view: DVRView; cursor?: string; sort?: 'recent' | 'title' | 'oldest'; group?: string}>;
+type ViewerRow = {kind: 'recording'; value: Recording} | {kind: 'rule'; value: RecordingRule} | {kind: 'group'; value: RecordingGroups['groups'][number]};
+type ViewerPage = DVRPage | RecordingGroups;
 export type NativeRecordingsSnapshot = Readonly<{
   query: NativeRecordingQuery; page?: DVRPage; groups?: RecordingGroups; storage?: RecordingStorage; summary?: DVRSummary;
+  viewerWindow?: DashboardCursorSnapshot<ViewerRow, ViewerPage>;
   loading: boolean; busy: boolean; error?: unknown; accessDenied: boolean;
 }>;
 export type NativeRecordingService = Pick<DVRClient, 'list' | 'groups' | 'summary' | 'storage' | 'detail' | 'deletePreview' | 'preview' | 'newRuleID' | 'schedule' | 'update' | 'cancel' | 'keep' | 'delete' | 'saveRule' | 'deleteRule' | 'saveStorage' | 'onAccessChanged' | 'dispose'>;
@@ -20,11 +24,12 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
   private pending?: Readonly<{query: NativeRecordingQuery; epoch: number}>;
   private worker?: Promise<void>;
   private facts?: Promise<void>;
+  private viewerWindow?: DashboardCursorWindow<ViewerRow, ViewerPage>;
   constructor(lifetime: NativeScreenLifetime, service: NativeRecordingService) {
     super({query: {view: 'upcoming'}, loading: false, busy: false, accessDenied: false});
     this.lifetime = lifetime; this.service = service;
     service.onAccessChanged(() => {
-      this.pending = undefined; this.epoch++;
+      this.pending = undefined; this.epoch++; this.viewerWindow?.dispose(); this.viewerWindow = undefined;
       if (this.current()) this.publish({query: this.getSnapshot().query, loading: false, busy: false, accessDenied: true, error: {status: 403}});
     });
   }
@@ -33,9 +38,10 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
   load(query: NativeRecordingQuery = this.getSnapshot().query): Promise<void> {
     this.assert();
     if (this.getSnapshot().accessDenied) return Promise.resolve();
+    this.viewerWindow?.dispose(); this.viewerWindow = undefined;
     const epoch = ++this.epoch, previous = this.getSnapshot();
     const same = JSON.stringify(previous.query) === JSON.stringify(query);
-    this.publish({...previous, query: Object.freeze({...query}), page: same ? previous.page : undefined, groups: same ? previous.groups : undefined, loading: true, error: undefined});
+    this.publish({...previous, query: Object.freeze({...query}), page: same ? previous.page : undefined, groups: same ? previous.groups : undefined, viewerWindow: undefined, loading: true, error: undefined});
     this.pending = {query, epoch};
     // Moving focus quickly across the five chips replaces pending work, instead of queuing
     // private reads for every intermediate selection. At most one page read is in flight.
@@ -49,10 +55,31 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
         const result = query.view === 'storage' ? {storage: await this.service.storage()}
           : query.view === 'recorded' && !query.group ? {groups: await this.service.groups(query.sort ?? 'recent', query.cursor)}
           : {page: await this.service.list(query.view, query.cursor, query.sort ?? 'recent', query.group)};
-        if (this.current() && epoch === this.epoch && !this.getSnapshot().accessDenied) this.publish({...this.getSnapshot(), ...result, loading: false, error: undefined});
+        if (this.current() && epoch === this.epoch && !this.getSnapshot().accessDenied) {this.publish({...this.getSnapshot(), ...result, loading: false, error: undefined}); if ('page' in result && result.page || 'groups' in result && result.groups) this.installViewerWindow(query, epoch, ('page' in result ? result.page : result.groups)!);}
       } catch (error) {if (this.current() && epoch === this.epoch && !this.getSnapshot().accessDenied) this.publish({...this.getSnapshot(), loading: false, error});}
     }
   }
+  private installViewerWindow(query: NativeRecordingQuery, epoch: number, first: ViewerPage): void {
+    if (query.view === 'storage') return;
+    const original = Object.freeze({...query}), revision = first.revision;
+    const current = () => this.current() && epoch === this.epoch && !this.getSnapshot().accessDenied;
+    const rows = (page: ViewerPage): ViewerRow[] => 'groups' in page ? page.groups.map(value => ({kind: 'group', value})) : query.view === 'rules' ? page.rules.map(value => ({kind: 'rule', value})) : page.recordings.map(value => ({kind: 'recording', value}));
+    const key = (row: ViewerRow): string => row.kind === 'group' ? row.value.key : row.value.id;
+    const window = new DashboardCursorWindow<ViewerRow, ViewerPage>(async (cursor, signal) => {
+      if (!current() || signal.aborted) throw screenScopeEnded();
+      const page = original.view === 'recorded' && !original.group ? await this.service.groups(original.sort ?? 'recent', cursor) : await this.service.list(original.view as Exclude<DVRView, 'storage'>, cursor, original.sort ?? 'recent', original.group);
+      if (!current() || signal.aborted) throw screenScopeEnded();
+      if (page.revision !== revision) throw new Error('dashboard_refresh_required');
+      return {items: rows(page), nextCursor: page.nextCursor, metadata: page};
+    }, key, current, value => {if (current() && this.viewerWindow === window) this.publish({...this.getSnapshot(), viewerWindow: value});});
+    this.viewerWindow = window;
+    window.seed(original.cursor ?? '', {items: rows(first), nextCursor: first.nextCursor, metadata: first});
+  }
+  nextViewerPage = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): Promise<void> => this.viewerWindow?.next(expected) ?? Promise.resolve();
+  previousViewerPage = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): Promise<void> => this.viewerWindow?.previous(expected) ?? Promise.resolve();
+  retryViewerPage = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): Promise<void> => this.viewerWindow?.retry(expected) ?? Promise.resolve();
+  focusViewerRow = (id: string, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): void => {if (this.viewerWindow?.snapshot() === expected) this.viewerWindow.focus(id, expected.generation);};
+  blurViewerRow = (id: string, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): void => {if (this.viewerWindow?.snapshot().scope === expected.scope) this.viewerWindow.blur(id, expected.generation);};
   loadFacts(): Promise<void> {
     this.assert();
     if (this.getSnapshot().accessDenied) return Promise.resolve();
@@ -135,7 +162,7 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
     catch (error) {this.requireCommand(original);throw error;}
   };
   deleteRule = (rule: RecordingRule, future: 'keep' | 'cancel') => this.act(service => service.deleteRule(rule, future));
-  dispose(): void {if (this.disposed) return; this.disposed = true; this.epoch++; this.pending = undefined; this.service.dispose(); this.publish({query: this.getSnapshot().query, loading: false, busy: false, accessDenied: true}); this.clearListeners();}
+  dispose(): void {if (this.disposed) return; this.disposed = true; this.epoch++; this.pending = undefined; this.viewerWindow?.dispose(); this.viewerWindow = undefined; this.service.dispose(); this.publish({query: this.getSnapshot().query, loading: false, busy: false, accessDenied: true}); this.clearListeners();}
 }
 
 export function createNativeRecordingsController(lifetime: NativeScreenLifetime, api: ChannelApi, requestId: () => Promise<string>): NativeRecordingsController {
