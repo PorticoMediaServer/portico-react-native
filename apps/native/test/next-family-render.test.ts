@@ -25,10 +25,13 @@ const rnStub = new URL('./react-native-stub.mjs', import.meta.url).href;
 const native = data(`export * from ${JSON.stringify(rnStub)};
   export const View='View',Text='Text',Image='Image',TextInput='TextInput',Pressable='Pressable',Modal='Modal',ScrollView='ScrollView',FlatList='FlatList',VirtualizedList='VirtualizedList',TVFocusGuideView='TVFocusGuideView',ActivityIndicator='ActivityIndicator';
   export const Platform={get OS(){return globalThis.__porticoFamilyRenderTest.os;},get isTV(){return globalThis.__porticoFamilyRenderTest.theme.isTV;}},PixelRatio={get:()=>1},Alert={alert(){}},BackHandler={addEventListener:()=>({remove(){}})};
+  // Android family fixtures never install the Apple Menu recognizer.
+  export const TVEventControl={enableTVMenuKey(){throw Error('unexpected_apple_tv_menu_capture');},disableTVMenuKey(){throw Error('unexpected_apple_tv_menu_release');}};
   export const useWindowDimensions=()=>({width:globalThis.__porticoFamilyRenderTest.theme.width,height:globalThis.__porticoFamilyRenderTest.theme.isTV?1080:844,scale:1,fontScale:1});
   const flatten=s=>Array.isArray(s)?Object.assign({},...s.map(flatten)):s??{};
   export const StyleSheet={create:s=>s,flatten,absoluteFill:{position:'absolute',inset:0},absoluteFillObject:{position:'absolute',inset:0}};
   class Value {constructor(value){this.value=value} setValue(value){this.value=value} stopAnimation(){}}
+  export const Easing={linear:value=>value,bezier:()=>value=>value};
   export const Animated={View:'AnimatedView',Value,timing:(_,config)=>{globalThis.__porticoFamilyRenderTest.timings.push(config);return {start(){}}}};`);
 const animated = data(`import {useRef} from ${JSON.stringify(import.meta.resolve('react'))};
   export const useSharedValue=value=>useRef({value}).current,useAnimatedStyle=fn=>fn(),cancelAnimation=()=>{},withTiming=value=>{globalThis.__porticoFamilyRenderTest.workletTargets.push(value);return value;},withSpring=value=>value,withDelay=(_,value)=>value,runOnJS=fn=>fn,runOnUI=fn=>fn,useAnimatedRef=()=>useRef(null),useAnimatedScrollHandler=()=>{},useAnimatedReaction=()=>{},scrollTo=()=>{};
@@ -72,6 +75,8 @@ const {SelectionHoldFeedback} = await import('../src-next/kit/selection/Selectio
 const {Artwork} = await import('../src-next/kit/artwork/Artwork.tsx');
 const {AmbientArt} = await import('../src-next/kit/artwork/Surfaces.tsx');
 const {ArtworkAlphaMask} = await import('../src-next/platform/ArtworkAlphaMask.tsx');
+const {BlurView: MaterialBlurView} = await import('../src-next/platform/native-blur.tsx');
+const {OverlayPortal} = await import('../src-next/kit/overlays/OverlayHost.tsx');
 const {default: browseGalleries} = await import('../src-next/dev/families/browse/browse.gallery.tsx');
 const {FilterBuilder, FacetChips} = await import('../src-next/kit/browse/index.ts');
 const {Focusable, Tabs, Segmented} = await import('../src-next/kit/controls/index.ts');
@@ -162,7 +167,8 @@ test('TV cards retain a sole native target and only the current enabled focused 
   } finally {a.host.unmount(); b.host.unmount();}
 });
 
-test('scheduled native Image callbacks reject an old retry and an unmounted source; visibility mounts no probe', () => {
+test('scheduled native Image callbacks reject an old retry and an unmounted source; visibility mounts no probe', t => {
+  t.mock.timers.enable({apis: ['setTimeout']});
   state.theme = createTheme({isTV: false, width: 390});
   const calls: string[] = [];
   state.slot = {active: true, recovering: false, gaveUp: false, cached: false, attempt: 0, loaded: () => calls.push('loaded'), failed: () => calls.push('failed')};
@@ -181,6 +187,8 @@ test('scheduled native Image callbacks reject an old retry and an unmounted sour
       original.props.onLoad({nativeEvent: {source: {width: 240, height: 360}}}); assert.deepEqual(calls, []);
       const actual = find(image.tree, 'Image');
       actual.props.onLoad({nativeEvent: {source: {width: 240, height: 360}}}); image.host.flush();
+      assert.deepEqual(calls, ['loaded'], 'decode completes before the actual placed-art arrival turn');
+      t.mock.timers.tick(0); image.host.flush();
       assert.deepEqual(calls, ['loaded', 'ready']);
       image.host.unmount(); actual.props.onError(); assert.deepEqual(calls, ['loaded', 'ready']);
     } finally {image.host.unmount();}
@@ -321,7 +329,7 @@ test('TV shelves reserve focus overflow without shifting the card edge and prese
     const first = nodes(scroll).find(node => node.props.testID === 'first')!;
     const placed = nodes(scroll).find(node => node.props.style?.position === 'absolute')!;
     assert.equal(placed.props.style.left, 200);
-    assert.equal(placed.props.style.top + scroll.props.style.marginTop, 0, 'ring clearance does not add space below the heading');
+    assert.equal(placed.props.style.top + Object.assign({}, ...scroll.props.style).marginTop, 0, 'ring clearance does not add space below the heading');
     assert.ok(placed.props.style.top >= 18, 'the 1.08 scale and 8px outer ring fit above the track');
     first.props.onFocus(); row.host.flush(); assert.deepEqual(focused, ['first', 'first']);
     assert.deepEqual(ranges.at(-1), [0, 1]);
@@ -465,8 +473,11 @@ test('state icon glass excludes its Android foreground from root capture and ret
       for (const isTV of [false, true]) {
         state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
         const layout = mount(StateLayout, {title: 'Actual state', icon: 'i-download'});
+        let material: ReturnType<typeof mount> | undefined;
         try {
-          const blur = nodes(layout.tree).find(node => node.type === 'BlurView');
+          const boundary = nodes(layout.tree).find(node => node.type === MaterialBlurView);
+          material = boundary ? mount(boundary.type, boundary.props) : undefined;
+          const blur = material?.tree as Element | undefined;
           const disk = nodes(layout.tree).find(node => node.props.style?.width === (isTV ? 88 : 54) && node.props.style?.height === (isTV ? 88 : 54))!;
           assert.ok(disk);
           const androidGlass = os === 'android' && !isTV;
@@ -481,12 +492,13 @@ test('state icon glass excludes its Android foreground from root capture and ret
             assert.equal(blur, undefined, 'Android TV keeps the drawn translucent fill without video blur');
           } else {
             assert.ok(blur);
+            assert.equal(blur.type, 'BlurView', 'the actual material adapter retains the native blur host');
             assert.equal(blur.props.blurAmount, 20);
             assert.equal(blur.props.blurType, 'dark');
             assert.equal(blur.props.overlayColor, os === 'android' ? `${state.theme.colors.text}1A` : undefined);
             assert.equal(blur.props.reducedTransparencyFallbackColor, state.theme.colors.raised);
             if (androidGlass) {
-              assert.equal(disk.props.children, blur, 'Android must not capture any sibling foreground into its own blur');
+              assert.equal(disk.props.children, boundary, 'Android must not capture any sibling foreground into its own blur');
               assert.equal(find(blur, Icon), icon, 'the native root capture excludes the BlurView subtree');
               const border = nodes(blur.props.children).find(node => node.props.style?.borderWidth === 1)!;
               assert.ok(border, 'the drawn border remains in the excluded foreground subtree');
@@ -502,7 +514,7 @@ test('state icon glass excludes its Android foreground from root capture and ret
               assert.equal(nodes(blur.props.children).includes(icon), false, 'Apple retains its existing native material composition');
             }
           }
-        } finally {layout.host.unmount();}
+        } finally {material?.host.unmount(); layout.host.unmount();}
       }
     }
   } finally {state.theme = previous.theme; state.os = previous.os;}
@@ -731,9 +743,9 @@ test('right-end Popover positions from native measurements and reanchors while t
     surface.host.flush();
     const content = nodes(surface.tree).find(node => node.props.onLayout)!;
     content.props.onLayout({nativeEvent: {layout: {height: 525}}}); surface.host.flush();
-    assert.deepEqual((surface.tree as Element).props.rect, {x: 560, y: 491, width: 640, height: 525});
+    assert.deepEqual(find(surface.tree, OverlayPortal).props.rect, {x: 560, y: 491, width: 640, height: 525});
     anchor = {...anchor, x: 82, y: 958}; nextFrame!(0); surface.host.flush();
-    assert.deepEqual((surface.tree as Element).props.rect, {x: 570, y: 501, width: 640, height: 525});
+    assert.deepEqual(find(surface.tree, OverlayPortal).props.rect, {x: 570, y: 501, width: 640, height: 525});
     assert.equal(nodes(surface.tree).find(node => (node.type as any)?.name === 'FocusBoundary')!.props.modal, true);
   } finally {surface.host.unmount(); globalThis.requestAnimationFrame = request; globalThis.cancelAnimationFrame = cancel;}
   assert.equal(cancelled, true);

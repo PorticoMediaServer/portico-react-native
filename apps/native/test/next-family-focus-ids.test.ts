@@ -25,6 +25,8 @@ const native = moduleURL(`export * from ${JSON.stringify(nativeStub)};
   export const View='View',Text='Text',TextInput='TextInput',Pressable='Pressable',Modal='Modal',ScrollView='ScrollView',FlatList='FlatList',TVFocusGuideView='TVFocusGuideView',ActivityIndicator='ActivityIndicator';
   export const Image='Image',PixelRatio={get:()=>1},Animated={View:'AnimatedView'};
   export const BackHandler={addEventListener:()=>({remove(){}})};
+  // Android family fixtures never install the Apple Menu recognizer.
+  export const TVEventControl={enableTVMenuKey(){throw Error('unexpected_apple_tv_menu_capture');},disableTVMenuKey(){throw Error('unexpected_apple_tv_menu_release');}};
   export const useWindowDimensions=()=>({width:1920,height:1080,scale:1,fontScale:1});
   const flatten=s=>Array.isArray(s)?Object.assign({},...s.map(flatten)):s??{};
   export const StyleSheet={create:s=>s,flatten,absoluteFill:{position:'absolute',inset:0}};`);
