@@ -83,21 +83,21 @@ function HomeSeeAllReady({controller, runtime, active, onBack, onPlay, onOpen, o
       </View>;
   const toolbar = <View style={{backgroundColor: collapsed && !tv ? theme.colors.ink : undefined}}>
     {!tv && collapsed && <View style={{paddingHorizontal: theme.gutter, paddingTop: 12, paddingBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 10}}>
-      <Focusable onPress={onBack} accessibilityRole="button" accessibilityLabel={t('next.home.shell.home')} style={{flexDirection: 'row', alignItems: 'center', gap: 4}}><Icon name="i-left" size={20}/><Text style={[theme.type.body, {color: theme.colors.text}]}>{t('next.home.shell.home')}</Text></Focusable>
+      <Focusable focusId="toolbar-back" onPress={onBack} accessibilityRole="button" accessibilityLabel={t('next.home.shell.home')} style={{flexDirection: 'row', alignItems: 'center', gap: 4}}><Icon name="i-left" size={20}/><Text style={[theme.type.body, {color: theme.colors.text}]}>{t('next.home.shell.home')}</Text></Focusable>
       <Text numberOfLines={1} accessibilityRole="header" style={[nativeType({size: 17, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {flex: 1, color: theme.colors.text}]}>{title}</Text>
     </View>}
     <View style={{paddingLeft: gutter, paddingRight: tv ? 96 : theme.gutter, flexDirection: 'row', alignItems: 'center', gap: tv ? 14 : 8, paddingBottom: tv ? 34 : 16, flexWrap: tv ? undefined : 'wrap'}}>
-        <SortMenu sorts={model.sorts} value={model.sort} label={value => homeBrowseLabel(value, labels)} onValueChange={controller.setSort}
-          onReshuffle={onReshuffle}/>
-        <FiltersButton count={state.filters.length} onPress={onFilters}/>
+        <FocusItem focusId="sort"><SortMenu scope={gridId} sorts={model.sorts} value={model.sort} label={value => homeBrowseLabel(value, labels)} onValueChange={controller.setSort}
+          onReshuffle={onReshuffle}/></FocusItem>
+        <FocusItem focusId="filters"><FiltersButton count={state.filters.length} onPress={onFilters}/></FocusItem>
         <View style={{width: 1, height: tv ? 40 : 24, backgroundColor: theme.colors.line, marginHorizontal: 6}}/>
-        <Chip selected={!state.selectedKind} onPress={() => controller.selectKind(undefined)} count={state.counts.find(value => value.id === 'all')?.total}>{t('search.chip.all')}</Chip>
-        {controller.kinds.map(kind => <Chip key={kind.id} selected={state.selectedKind === kind.id} onPress={() => controller.selectKind(kind.id)} count={state.counts.find(value => value.id === kind.id)?.total}>{kindLabel(kind.id)}</Chip>)}
+        <FocusItem focusId="kind:all"><Chip selected={!state.selectedKind} onPress={() => controller.selectKind(undefined)} count={state.counts.find(value => value.id === 'all')?.total}>{t('search.chip.all')}</Chip></FocusItem>
+        {controller.kinds.map(kind => <FocusItem key={kind.id} focusId={`kind:${kind.id}`}><Chip selected={state.selectedKind === kind.id} onPress={() => controller.selectKind(kind.id)} count={state.counts.find(value => value.id === kind.id)?.total}>{kindLabel(kind.id)}</Chip></FocusItem>)}
         <View style={{width: 1, height: tv ? 40 : 24, backgroundColor: theme.colors.line, marginHorizontal: 6}}/>
-        {model.quick.filter(quick => homeSeeAllQuickOrder(quick.id, tv)).map(quick => <QuickToggle key={quick.id} checked={quick.active} onCheckedChange={checked => {
+        {model.quick.filter(quick => homeSeeAllQuickOrder(quick.id, tv)).map(quick => <FocusItem key={quick.id} focusId={`quick:${quick.id}`}><QuickToggle checked={quick.active} onCheckedChange={checked => {
           const remaining = state.filters.filter(node => JSON.stringify(node) !== JSON.stringify(quick.query)); controller.setFilters(checked ? [...remaining, quick.query] : remaining);
-        }}>{quick.label?.text ?? homeBrowseLabel(quick, labels)}</QuickToggle>)}
-        {!tv && <View style={{marginLeft: 'auto'}}><ViewToggle value={view} onValueChange={setView}/></View>}
+        }}>{quick.label?.text ?? homeBrowseLabel(quick, labels)}</QuickToggle></FocusItem>)}
+        {!tv && <View style={{marginLeft: 'auto'}}><ViewToggle itemProps={value => ({focusId: `view:${value}`})} value={view} onValueChange={setView}/></View>}
         {total && <Text style={[theme.type.caption, {marginLeft: tv ? 'auto' : 8, color: theme.colors.textTertiary}]}>{t('count.titles', {count: total.total})}</Text>}
       </View>
   </View>;

@@ -3,7 +3,7 @@ import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {nativeShellRoutes, type NativeRouteRenderer} from '../../shell/route-registry';
 import {type NativeShellRoute} from '../../shell/routes';
 import type {NativeShellRuntime} from '../../shell/runtime';
-import {sameAuthority} from '../../shell/model';
+import {authorityKey, sameAuthority} from '../../shell/model';
 import {createNativeEntryActions} from '../destinations/entry-actions';
 import {NativeCollectionController} from './controller';
 import {NativeCollectionScreen} from './CollectionScreen';
@@ -45,7 +45,7 @@ function CollectionHost({route, context, runtime}: {route: CollectionRoute; cont
     void port.playSegments([{source: {container: {kind: 'collection', id: route.collectionId}}, ...(shuffle ? {order: {mode: 'shuffle' as const}} : {})}],
       {signal: operation.signal, isCurrent}).catch(runtime.reportError);
   };
-  return <NativeCollectionScreen state={state} runtime={runtime} onPlay={() => play(false)} onShuffle={() => play(true)}
+  return <NativeCollectionScreen focusScope={`collection:${authorityKey(authority)}:${route.libraryId}:${route.collectionId}`} state={state} runtime={runtime} onPlay={() => play(false)} onShuffle={() => play(true)}
     onSort={(sort, direction) => {void controller.sort(sort, direction).catch(runtime.reportError);}}
     onOpen={actions.open}
     onBack={() => {if (current()) context.navigation.back(authority);}}

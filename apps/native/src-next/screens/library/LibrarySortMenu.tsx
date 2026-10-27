@@ -12,8 +12,8 @@ import {useTheme} from '../../kit/theme';
 
 /** Library's real vocabulary and native focus identities. The composition uses
  * the accepted Sort primitives; no capability or display label is invented. */
-export function LibrarySortMenu({sorts, value, label, onValueChange, onReshuffle, translate = defaultI18n.t}: {
-  sorts: readonly BrowseSortCapability[]; value: BrowseToolbarModel['sort']; label: (sort: BrowseSortCapability) => string;
+export function LibrarySortMenu({focusScope, sorts, value, label, onValueChange, onReshuffle, translate = defaultI18n.t}: {
+  focusScope: string; sorts: readonly BrowseSortCapability[]; value: BrowseToolbarModel['sort']; label: (sort: BrowseSortCapability) => string;
   onValueChange: (value: BrowseSortSelection) => void; onReshuffle: () => void; translate?: I18n['t'];
 }) {
   const theme = useTheme(), anchor = useRef<View>(null), [open, setOpen] = useState(false), active = sorts.find(sort => sort.id === value.field);
@@ -34,7 +34,7 @@ export function LibrarySortMenu({sorts, value, label, onValueChange, onReshuffle
       {active && <><Text style={[browseType(theme, theme.isTV ? 22 : phone ? 13.5 : 14.5, 700), {color: theme.colors.text}]}>{label(active)}</Text>
         {value.flippable && !active.seeded && <Text style={[browseType(theme, theme.isTV ? 22 : phone ? 13.5 : 14.5), {color: theme.colors.textTertiary}]}>{direction(value.direction)}</Text>}</>}
     </Focusable>
-    <Popover open={open} onOpenChange={setOpen} anchorRef={anchor} returnFocusRef={anchor} title={translate('next.browse.native.sort')}
+    <Popover testID={`${focusScope}.sort-menu`} open={open} onOpenChange={setOpen} anchorRef={anchor} returnFocusRef={anchor} title={translate('next.browse.native.sort')}
       width={theme.isTV ? 560 : 300} placement="bottom-end">
       <ScrollView style={{maxHeight: theme.isTV ? 680 : 560}}>{sorts.map(choice => <MenuRow key={choice.id} focusId={`sort:${choice.id}`} label={label(choice)}
         description={choice.expensive ? translate('next.browse.native.expensiveSort') : undefined} selected={choice.id === value.field}

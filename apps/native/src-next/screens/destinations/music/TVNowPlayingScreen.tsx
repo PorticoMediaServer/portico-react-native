@@ -133,10 +133,10 @@ function TVNowPlayingContent({occupant, queue, artwork, width, height, onAction,
             interactive={page.open && page.ready} focusScopeKey={nowPlayingQueueFocusScope(occupant.playback.fence)} regionId={`${id}.queue`} edges={{left: `${id}.transport`}}/>
         </TVPageGroup>}
       </View>
-      <Menu open={more} onOpenChange={setMore} title={t('next.controls.more')} presentation="sideSheet" returnFocusRef={moreRef}
+      <Menu testID={`${id}.more`} open={more} onOpenChange={setMore} title={t('next.controls.more')} presentation="sideSheet" returnFocusRef={moreRef}
         items={equalizer.supported ? [{id: 'eq', label: t('next.media.eq.title'), icon: 'i-gauge', onSelect: () => setPanel('eq')}] : []}/>
       {panel === 'signal' && signal && <MusicSignalSheet view={signal} contextTitle={p.identity.title} onClose={close} returnFocusRef={signalRef}/>}
-      {panel === 'lyrics' && lyrics && <SidePanel open title={t('player.lyrics')} width={640} topInset={0} onOpenChange={open => {if (!open) close();}} returnFocusRef={lyricsRef}>{lyrics}</SidePanel>}
+      {panel === 'lyrics' && lyrics && <SidePanel testID={`${id}.lyrics`} open title={t('player.lyrics')} width={640} topInset={0} onOpenChange={open => {if (!open) close();}} returnFocusRef={lyricsRef}>{lyrics}</SidePanel>}
       {panel === 'eq' && <View style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}>
         <View style={{position: 'absolute', left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height,
           transformOrigin: 'top left', transform: [{scale: canvas.scale}]}}>
