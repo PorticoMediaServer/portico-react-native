@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {screenModule} from './helpers/screen-harness.mjs';
+import {artistReleaseGroups} from '../../../packages/client-core/src/presentation/library-tabs.ts';
 import {defaultI18n} from '../../../packages/i18n/src';
 
 const stubs = {
@@ -16,6 +17,8 @@ const stubs = {
   '../../../kit/states': {StateView: 'StateView'},
   '../../../kit/browse/presentation': {alpha: () => '', browseType: () => ({})},
   '../../../kit/theme': {useTheme: () => ({})},
+  './MusicSectionControls':{MusicSectionControls:'MusicSectionControls',musicNearEnd:()=>true},
+  '../../../../../../packages/client-core/src/presentation/library-tabs':{artistReleaseGroups},
   './MusicErrorView': {MusicErrorView: 'MusicErrorView'},
   './MusicFormatBadges': {MusicFormatBadges: 'MusicFormatBadges'},
 };
@@ -55,7 +58,7 @@ async function tabletMusic(kind: 'album' | 'artist', phase: 'loading' | 'ready' 
   const snapshot = {phase, songs: kind === 'artist' && phase === 'ready' ? [{id: 's1', title: 'Song'}] : [],
     albums: kind === 'artist' && phase === 'ready' ? [{id: 'al1', libraryId: 'music', title: 'Album'}] : [],
     similar: [], similarError: undefined, favorite: false, error: phase === 'error' ? new Error('load refused') : undefined,
-    albumDetails: undefined, songTotal: 0, songDurationSeconds: undefined};
+    albumDetails: undefined, songTotal: 0, songDurationSeconds: undefined, songPage:{phase:'ready',items:[],offset:0,nextCursor:'',canNext:false,canPrevious:false},releases:{phase:'ready',items:[],offset:0,nextCursor:'',canNext:false,canPrevious:false}};
   const controller = {subscribe: () => () => {}, getSnapshot: () => snapshot, load: () => {loads.push('load'); return Promise.resolve();},
     play: async () => {}, toggleFavorite: async () => {}, albumMembership: async () => [], contains: () => true, similarCurrent: () => true};
   const runtime = {artwork: () => undefined, ambient: () => undefined, text: {locale: 'en-US'}, reportError() {}, playback: undefined};
@@ -73,7 +76,9 @@ async function tabletMusic(kind: 'album' | 'artist', phase: 'loading' | 'ready' 
     '../../../kit/Icon': {Icon: 'Icon'},
     '../../../kit/browse/presentation': {alpha: () => '', browseType: () => ({})},
     '../../../kit/theme': {useTheme: () => theme},
-    './MusicErrorView': {MusicErrorView: 'MusicErrorView'},
+    './MusicSectionControls':{MusicSectionControls:'MusicSectionControls',musicNearEnd:()=>true},
+  '../../../../../../packages/client-core/src/presentation/library-tabs':{artistReleaseGroups},
+  './MusicErrorView': {MusicErrorView: 'MusicErrorView'},
     './MusicFormatBadges': {MusicFormatBadges: 'MusicFormatBadges'},
   });
   const Screen = kind === 'album' ? PhoneAlbumScreen : PhoneArtistScreen;
@@ -122,11 +127,13 @@ test('phone keeps its single header Back and no tablet floating control', async 
     '../../../kit/browse/presentation': {alpha: () => '', browseType: () => ({})},
     '../../../kit/theme': {useTheme: () => ({platform: 'phone', colors: {ink: '#000', raised: '#111', shadow: '#000', text: '#fff', textSecondary: '#aaa',
       accentStrong: '#09f', textTertiary: '#777', line: '#222'}})},
-    './MusicErrorView': {MusicErrorView: 'MusicErrorView'},
+    './MusicSectionControls':{MusicSectionControls:'MusicSectionControls',musicNearEnd:()=>true},
+  '../../../../../../packages/client-core/src/presentation/library-tabs':{artistReleaseGroups},
+  './MusicErrorView': {MusicErrorView: 'MusicErrorView'},
     './MusicFormatBadges': {MusicFormatBadges: 'MusicFormatBadges'},
   });
   let backs = 0, tree: unknown;
-  const controller = {subscribe: () => () => {}, getSnapshot: () => ({phase: 'ready', songs: [], albums: [], similar: [], favorite: false, error: undefined}),
+  const controller = {subscribe: () => () => {}, getSnapshot: () => ({phase: 'ready', songs: [], albums: [], similar: [], favorite: false, error: undefined,songPage:{phase:'ready',items:[],offset:0,nextCursor:'',canNext:false,canPrevious:false},releases:{phase:'ready',items:[],offset:0,nextCursor:'',canNext:false,canPrevious:false}}),
     load: () => Promise.resolve(), play: async () => {}, toggleFavorite: async () => {}};
   const host = createHookHost(() => {tree = PhoneAlbumScreen({controller, entry: {id: 'a', libraryId: 'music', kind: 'album', title: 'Album'},
     runtime: {artwork: () => undefined, ambient: () => undefined, text: {locale: 'en-US'}, reportError() {}}, actions: {menu() {}}, openEntry() {},

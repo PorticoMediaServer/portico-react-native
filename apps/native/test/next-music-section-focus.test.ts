@@ -143,6 +143,8 @@ test('music paging Next retains its real Focusable host in loading and becomes R
   assert.equal(button.props.onPress,props.retry);button.props.onPress();assert.equal(commands,1);
   current=button;for(const instance of next.chain){instance.update(current.props);current=instance.tree as Element;}assert.equal(bound.registry.child({regionId:'music-list',childId:'music-next-artist-all'}),host);assert.equal(bound.registry.capture()?.childId,'music-next-artist-all');
   const error=ofType(controls.tree,MusicErrorView)[0]!;assert.equal(error.props.testID,'music-error-artist-all');assert.equal(error.props.retryAction,false);
+  controls.update({...props,section:{...section,phase:'error',canNext:false,error:Object.assign(new Error('denied'),{status:403,code:'forbidden'})}});
+  button=ofType(controls.tree,Button).find(node=>node.props.testID==='music-next-artist-all')!;assert.equal(button.props.disabled,true);assert.equal(button.props.focusableWhenDisabled,true);current=button;for(const instance of next.chain){instance.update(current.props);current=instance.tree as Element;}assert.equal(current.props.onPress,undefined);assert.equal(bound.registry.child({regionId:'music-list',childId:'music-next-artist-all'}),host);
  }finally{next?.close();controls.host.unmount();bound.close();}
 });
 

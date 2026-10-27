@@ -551,3 +551,44 @@ test('the real All songs row invokes the borrowed menu once and its captured mem
  nodes.length=0;walk(render());const fresh=nodes.find(n=>n.type==='SquareCard'&&n.props.title==='Original release');fresh.props.onMore();fresh.props.onNavigate();assert.equal(opens,3);assert.equal(navigations,1);
  actions.dispose();f.value.dispose();
 });
+
+async function phoneSurface(value:any,entry:any,tablet=false){
+ const hooks={createElement:(type:any,props:any,...children:any[])=>({type,props:{...props,children}}),useSyncExternalStore:(_off:any,get:any)=>get(),useRef:()=>({current:null})};
+ const react={default:hooks,...hooks};const {artistReleaseGroups}=await import('../../../packages/client-core/src/presentation/library-tabs.ts');
+ const controls=await screenModule(new URL('../src-next/screens/destinations/music/MusicSectionControls.tsx',import.meta.url),{'../../../../../../packages/client-core/src/presentation/errors':{presentError},react,'react-native':{View:'View'},'../../../../../../packages/i18n/src':{defaultI18n:{t:(key:string)=>key}},'../../../kit/controls':{Button:'Button'},'./MusicErrorView':{MusicErrorView:'MusicErrorView'}});
+ const module=await screenModule(new URL('../src-next/screens/destinations/music/PhoneMusicScreens.tsx',import.meta.url),{
+  react,'react-native':{ScrollView:'ScrollView',Text:'Text',View:'View'},'react-native-safe-area-context':{useSafeAreaInsets:()=>({top:0,bottom:0,left:0,right:0})},
+  '../../../../../../packages/i18n/src':{defaultI18n:{t:(key:string)=>key,number:String}},
+  '../../../../../../packages/client-core/src/presentation/kit-model':{cardText:(e:any)=>({title:e.title,caption:[],detail:[]})},
+  '../../../../../../packages/client-core/src/presentation/library-tabs':{artistReleaseGroups},
+  '../../../kit/artwork':{AmbientArt:'AmbientArt',Artwork:'Artwork',ArtistCircle:'ArtistCircle'},'../../../kit/controls':{Button:'Button',Focusable:'Focusable'},
+  '../../../kit/cards':{SquareCard:'SquareCard',CircleCard:'CircleCard'},'../../../kit/Icon':{Icon:'Icon'},'../../../kit/browse/presentation':{browseType:()=>({}),alpha:()=>''},
+  '../../../kit/theme':{useTheme:()=>({platform:tablet?'tablet':'phone',colors:{}})},'./MusicErrorView':{MusicErrorView:'MusicErrorView'},'./MusicFormatBadges':{MusicFormatBadges:'MusicFormatBadges'},
+  './MusicSectionControls':{MusicSectionControls:'MusicSectionControls',musicNearEnd:controls.musicNearEnd},
+ });
+ let menus=0,navigations=0;const render=()=>{
+  const props={controller:value,entry,runtime:{text:{},ambient:()=>undefined,artwork:()=>undefined,reportError:()=>{}},actions:{menu:(e:any)=>{if(value.contains(e))menus++;}},openEntry:()=>{navigations++;},onBack:()=>{}};
+  const tree=entry.kind==='album'?module.PhoneAlbumScreen(props):module.PhoneArtistScreen(props),nodes:any[]=[];
+  function walk(node:any){if(!node)return;if(Array.isArray(node)){node.forEach(walk);return;}if(typeof node!=='object')return;if(typeof node.type==='function'){walk(node.type(node.props));return;}nodes.push(node);walk(node.props?.children);}walk(tree);return nodes;
+ };
+ return {render,counts:()=>({menus,navigations})};
+}
+const flushMusic=async()=>{for(let n=0;n<24;n++)await Promise.resolve();};
+test('phone and tablet album scroll use only the original offered page and preserve real later tracks',async()=>{
+ for(const tablet of [false,true]){
+  const songs=Array.from({length:6},(_,i)=>song(`song-${i}`,i+1,180,`Track ${i}`));const f=await controller(albumEntry,{songs,pageSize:2,maximumLimit:2});await f.value.load();
+  const surface=await phoneSurface(f.value,albumEntry,tablet),scroll=surface.render().find(n=>n.type==='ScrollView'&&!n.props.horizontal&&n.props.onScroll);
+  assert(scroll);scroll.props.onScroll({nativeEvent:{contentOffset:{x:0,y:700},layoutMeasurement:{width:400,height:400},contentSize:{width:400,height:1000}}});await flushMusic();
+  assert.equal(f.value.getSnapshot().songs.length,4);assert.deepEqual(f.browseBodies.map(b=>b.cursor??null),[null,'2']);
+  await f.value.load();const count=f.browseBodies.length;scroll.props.onScroll({nativeEvent:{contentOffset:{x:0,y:700},layoutMeasurement:{width:400,height:400},contentSize:{width:400,height:1000}}});await flushMusic();assert.equal(f.browseBodies.length,count,'old scroll does not adopt the replaced page');f.value.dispose();
+ }
+});
+test('phone/tablet release cards and horizontal tail retain the exact original offered membership',async()=>{
+ for(const tablet of [false,true]){
+  const albums=Array.from({length:5},(_,i)=>({id:`release-${i}`,libraryId:'music',title:`Release ${i}`,role:i%2?'single':'album'}));
+  const f=await controller(artistEntry,{albums,albumPageSize:2});await f.value.load();const surface=await phoneSurface(f.value,artistEntry,tablet),nodes=surface.render(),card=nodes.find(n=>n.type==='SquareCard'&&n.props.title==='Release 0');assert(card);
+  card.props.onMore();card.props.onNavigate();assert.deepEqual(surface.counts(),{menus:1,navigations:1});
+  const scroll=nodes.find(n=>n.type==='ScrollView'&&n.props.horizontal&&n.props.onScroll);assert(scroll);scroll.props.onScroll({nativeEvent:{contentOffset:{x:500,y:0},layoutMeasurement:{width:400,height:200},contentSize:{width:900,height:200}}});await flushMusic();assert.equal(f.value.getSnapshot().albums.length,4);
+  await f.value.load();card.props.onMore();card.props.onNavigate();assert.deepEqual(surface.counts(),{menus:1,navigations:1});f.value.dispose();
+ }
+});
