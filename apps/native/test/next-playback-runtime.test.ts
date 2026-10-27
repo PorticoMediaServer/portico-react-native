@@ -1203,7 +1203,7 @@ test('a delayed version revalidation cannot replace a later playback source', as
     const late=d.runtime.startVersion({entry:state.entry!,target:{itemId:'movie-1'}},
       {lifetime:versionLifetime(),authority:state.authority,options:state.options!,versionId:'v2',expectedFence:state.fence});
     await settle();assert.equal(entered,true);await d.start('movie-current',27);
-    release();await late;await settle();
+    release();await assert.rejects(late,{name:'AbortError',message:'Playback start retired'});await settle();
     assert.equal(d.runtime.getSnapshot().playback.itemId,'movie-current');
     assert.equal(d.requests.some(request=>request.method==='POST' && record(request.body) && request.body.versionId==='v2'),false);
   } finally {release();d.runtime.dispose();}
@@ -1219,7 +1219,7 @@ test('a superseded preflight cannot create or mount a late session for its previ
     const oldStart = d.runtime.start({entry: {id: 'movie-old', kind: 'movie', title: 'movie-old', playback: {itemId: 'movie-old'}}, target: {itemId: 'movie-old'}});
     await settle(); assert.equal(entered, true);
     await d.start('movie-current', 27);
-    release(); await oldStart; await settle();
+    release(); await assert.rejects(oldStart, {name: 'AbortError', message: 'Playback start retired'}); await settle();
     assert.equal(d.runtime.getSnapshot().playback.itemId, 'movie-current');
     assert.equal(d.runtime.getSnapshot().playback.positionSeconds, 27);
     assert.ok(d.engine.commands.every(command => command.binding.itemId !== 'movie-old'));
@@ -2139,7 +2139,7 @@ test('a closed or removed chooser cannot start after its final Options read reso
         {lifetime:{signal:controller.signal,isCurrent:()=>owned},authority:state.authority,options:state.options!,versionId:'v2',expectedFence:state.fence});
       await settle();assert.equal(entered,true);
       if(closing==='abort')controller.abort();else owned=false;
-      release();await late;await settle();
+      release();await assert.rejects(late,{name:'AbortError',message:'Playback start retired'});await settle();
       assert.equal(d.runtime.getSnapshot().session?.id,state.session?.id,closing);
       assert.equal(d.requests.some(request=>request.method==='POST'&&record(request.body)&&request.body.versionId==='v2'),false,closing);
     } finally {release();d.runtime.dispose();}
@@ -2163,7 +2163,7 @@ test('a closed chooser cannot adopt a version session returned after its own sta
         {lifetime:{signal:controller.signal,isCurrent:()=>owned},authority:state.authority,options:state.options!,versionId:'v2',expectedFence:state.fence});
       await settle();assert.equal(entered,true);
       if(closing==='abort')controller.abort();else owned=false;
-      release();await late;await settle();
+      release();await assert.rejects(late,{name:'AbortError',message:'Playback start retired'});await settle();
       assert.notEqual(d.runtime.getSnapshot().session?.versionId,'v2',closing);
       assert.ok(created,'the actual fake server created a session after cancellation');
       assert.ok(d.requests.some(request=>request.method==='DELETE'&&request.path===encodedRoutePath('stop_playback_session',{id:encodeURIComponent(created)})),closing+': retire the real late session');
@@ -2191,7 +2191,7 @@ test('late version cleanup survives ordinary disposal but never uses a replaceme
       if (closing === 'dispose') d.runtime.dispose();
       else if (closing === 'authority') d.authority({epoch:'replacement'}, false);
       else d.family('replacement-family');
-      release(); await late; await settle(); assert.ok(created);
+      release(); await assert.rejects(late, {name: 'AbortError', message: 'Playback start retired'}); await settle(); assert.ok(created);
       const stopped = d.requests.some(request => request.method === 'DELETE' && request.path === encodedRoutePath('stop_playback_session',{id:encodeURIComponent(created)}));
       assert.equal(stopped, closing === 'dispose', closing);
       assert.equal(d.runtime.getSnapshot().session?.versionId === 'v2', false);
@@ -2239,7 +2239,7 @@ test('regular start caller lifetime rejects a retired row during its real option
         lifetime: {signal: controller.signal, isCurrent: () => owned}});
       await settle(); assert.equal(entered, true);
       if (closing === 'abort') controller.abort(); else owned = false;
-      release(); await start; await settle();
+      release(); await assert.rejects(start, {name: 'AbortError', message: 'Playback start retired'}); await settle();
       assert.equal(d.requests.some(request => request.method === 'POST' && request.path === routePath('start_playback_session')), false);
       assert.equal(d.runtime.getSnapshot().session, undefined);
     } finally {release(); d.runtime.dispose();}
@@ -2260,7 +2260,7 @@ test('regular start lifetime abandons the actual late 201 session after row reti
     const start = d.runtime.start({entry: {id: 'movie-2', kind: 'movie', title: 'Actual row', libraryId: 'library'}, target: {itemId: 'movie-2', startSeconds: 17},
       lifetime: {signal: controller.signal, isCurrent: () => owned}});
     await settle(); assert.equal(entered, true); owned = false;
-    release(); await start; await settle();
+    release(); await assert.rejects(start, {name: 'AbortError', message: 'Playback start retired'}); await settle();
     assert.ok(created); assert.equal(d.runtime.getSnapshot().session, undefined);
     assert.ok(d.requests.some(request => request.method === 'DELETE' && request.path === encodedRoutePath('stop_playback_session', {id: encodeURIComponent(created)})));
     assert.equal(d.server.session(created)?.ended, true);
