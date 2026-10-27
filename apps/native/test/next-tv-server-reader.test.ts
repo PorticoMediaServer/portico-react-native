@@ -20,6 +20,7 @@ test('members, secondary profiles and disabled accounts never read owner TV sett
     const lifetime = scope();
     const reader = createTVServerReader({account: value, api: {request: async <T,>() => {reads++; return {} as T;}}}, lifetime);
     await assert.rejects(reader.request('/v1/admin/libraries'));
+    await assert.rejects(reader.peoplePage('members'));
     assert.equal(reads, 0);
     lifetime.dispose();
   }
@@ -60,4 +61,24 @@ test('owner reader allows GET only and rejects a response after authority retire
   await assert.rejects(pending, {name: 'AbortError'});
   await assert.rejects(reader.request('/v1/admin/libraries'));
   assert.equal(reads, 1);
+});
+
+test('typed People pages serialize only their bounded GET query and retain admission', async () => {
+  for (const role of ['owner', 'admin'] as const) {
+    const lifetime = scope();
+    const calls: string[] = [];
+    const reader = createTVServerReader({account: {...account, account: {...account.account, role}}, api: {request: async <T,>(path: string, method?: string) => {assert.equal(method, 'GET'); calls.push(path); return {} as T;}}}, lifetime);
+    for (const section of ['members', 'invitations', 'devices'] as const) await reader.peoplePage(section, 'a&cursor=evil');
+    assert.deepEqual(calls.map(path => {const [base, query] = path.split('?'); return [base, Object.fromEntries(new URLSearchParams(query))];}), [
+      [routePath('get_admin_access_members'), {limit: '50', cursor: 'a&cursor=evil'}],
+      [routePath('get_admin_access_invitations'), {limit: '50', state: 'pending', cursor: 'a&cursor=evil'}],
+      [routePath('get_admin_access_devices'), {limit: '50', cursor: 'a&cursor=evil'}],
+    ]);
+    await assert.rejects(reader.peoplePage('members', 'x'.repeat(4097)));
+    await assert.rejects(reader.peoplePage('bogus' as 'members'));
+    if (role === 'admin') await assert.rejects(reader.request(routePath('get_admin_access_members') + '?cursor=arbitrary'));
+    lifetime.dispose();
+    await assert.rejects(reader.peoplePage('devices'));
+    assert.equal(calls.length, 3);
+  }
 });
