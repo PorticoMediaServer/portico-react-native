@@ -11,14 +11,28 @@ export function useTVPageBack(runtime: NativeShellRuntime, destination: ShellDes
   const key = JSON.stringify(destination), scope = page.scope, registerTop = page.registerTop;
   useLayoutEffect(() => {
     if (!enabled) return;
+    const original = runtime.retirementSignal;
+    if (original?.aborted) return;
+    let alive = true, remove: (() => void) | undefined, removeTop: (() => void) | undefined;
     const owner = createTVPageBack(registry, {current: () => {
+      if (!alive || original?.aborted) return false;
       const now = runtime.getSnapshot();
-      return now.contentVisible !== false && !now.mediaExpanded && !now.homeObscured
-        && JSON.stringify(now.destination) === key && latest.current.current();
+      return alive && !original?.aborted && now.contentVisible !== false && !now.mediaExpanded && !now.homeObscured
+        && JSON.stringify(now.destination) === key && latest.current.current() && alive && !original?.aborted;
     }, start: () => latest.current.start(),
       atTop: () => latest.current.atTop(), scrollTop: () => latest.current.scrollTop()});
-    const remove = runtime.registerTVPageBack?.(owner.back, JSON.parse(key));
-    const removeTop = registerTop ? runtime.registerScrollToTop(JSON.parse(key), owner.top) : undefined;
-    return () => {removeTop?.(); remove?.(); owner.dispose();};
+    const retire = () => {
+      if (!alive) return;
+      alive = false; owner.dispose(); removeTop?.(); remove?.();
+    };
+    const cleanup = () => {original?.removeEventListener('abort', retire); retire();};
+    original?.addEventListener('abort', retire, {once: true});
+    if (original?.aborted) {cleanup(); return;}
+    remove = runtime.registerTVPageBack?.(owner.back, JSON.parse(key));
+    // Registration may synchronously invoke a pending jump and retire this runtime.
+    if (!alive) {remove?.(); return cleanup;}
+    removeTop = registerTop ? runtime.registerScrollToTop(JSON.parse(key), owner.top) : undefined;
+    if (!alive) removeTop?.();
+    return cleanup;
   }, [enabled, key, registry, runtime, scope, registerTop]);
 }
