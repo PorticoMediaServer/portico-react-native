@@ -15,6 +15,7 @@ const state = {
   slot: {active: true, recovering: false, gaveUp: false, cached: false, attempt: 0, loaded() {}, failed() {}},
   timings: [] as {toValue: number; duration: number}[],
   workletTargets: [] as number[],
+  menuKeyEnabled: false,
 };
 Object.assign(globalThis, {__porticoFamilyRenderTest: state});
 const data = (value: string) => `data:text/javascript,${encodeURIComponent(value)}`;
@@ -22,6 +23,7 @@ const rnStub = new URL('./react-native-stub.mjs', import.meta.url).href;
 const native = data(`export * from ${JSON.stringify(rnStub)};
   export const View='View',Text='Text',Image='Image',TextInput='TextInput',Pressable='Pressable',Modal='Modal',ScrollView='ScrollView',FlatList='FlatList',VirtualizedList='VirtualizedList',TVFocusGuideView='TVFocusGuideView',ActivityIndicator='ActivityIndicator';
   export const Platform={OS:'android',isTV:false},PixelRatio={get:()=>1},Alert={alert(){}},BackHandler={addEventListener:()=>({remove(){}})};
+  export const TVEventControl={enableTVMenuKey(){globalThis.__porticoFamilyRenderTest.menuKeyEnabled=true;},disableTVMenuKey(){globalThis.__porticoFamilyRenderTest.menuKeyEnabled=false;}};
   export const useWindowDimensions=()=>({width:globalThis.__porticoFamilyRenderTest.theme.width,height:globalThis.__porticoFamilyRenderTest.theme.isTV?1080:844,scale:1,fontScale:1});
   const flatten=s=>Array.isArray(s)?Object.assign({},...s.map(flatten)):s??{};
   export const StyleSheet={create:s=>s,flatten,absoluteFill:{position:'absolute',inset:0},absoluteFillObject:{position:'absolute',inset:0}};
