@@ -49,6 +49,7 @@ test(`the actual native host retains activity ${activity.initial}->${activity.cu
     '../../../../../packages/client-core/src/route-identity': {routeBase64}, '../../../../../packages/i18n/src': {defaultI18n},
     '../../platform/server-connections': {nativeRouteCrypto: {random: () => new Uint8Array(24).fill(7)}},
     '../../kit/states': {LoadingPaint: 'LoadingPaint', StateView: 'StateView', SkeletonBlock: 'SkeletonBlock'}, '../../kit/theme': {useTheme: () => ({colors: {ink: '#000'}})},
+    './ReadingGuestView': {ReadingGuestView: 'ReadingGuestView'},
     './asset-origin': {readerAssetEntry, readerNavigationAllowed, readerDelivery},
     './startup-diagnostics': startupDiagnostics,
   });
