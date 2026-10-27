@@ -1,7 +1,17 @@
 import * as accountWork from '../src-next/platform/account-work';
 import * as tvCodeOpening from '../src-next/screens/accounts/tv-code-opening';
+import * as tvApprovalCredentials from '../src-next/screens/accounts/tv-approval-credentials';
+import * as tvApprovalFinalization from '../src-next/screens/accounts/tv-approval-finalization';
 import * as setupOutcome from '../src-next/platform/setup-outcome';
 import * as passwordPolicy from '../../../packages/client-core/src/password-strength';
+import * as joinLink from '../../../packages/client-core/src/join-link';
+import * as invitationCode from '../../../packages/client-core/src/short-invitation-code';
+import * as qrScanner from '../src-next/platform/qr-scanner';
+import * as profileManagement from '../../../packages/client-core/src/profile-management';
+import * as identityClient from '../../../packages/client-core/src/identity-client';
+import * as profileAvatars from '../src-next/platform/profile-avatars';
+import * as lifetime from '../src-next/screens/settings-live/lifetime';
+import * as shellModel from '../src-next/shell/model';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -54,6 +64,9 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
   }
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
     './tv-code-opening': tvCodeOpening,
+    './tv-approval-credentials': tvApprovalCredentials, './tv-approval-finalization': tvApprovalFinalization,
+    '../../../../../packages/client-core/src/join-link': joinLink, '../../../../../packages/client-core/src/short-invitation-code': invitationCode,
+    '../../platform/qr-scanner': qrScanner, './PhoneAccountSignIn': {PhoneAccountSignIn: 'PhoneAccountSignIn'},
     ...shared(back), '../../../../../packages/client-core/src': {},
     '../../../../../packages/client-core/src/sign-in': {},
     '../../../../../packages/client-core/src/hosted-security': {MFARequiredError: class extends Error {}},
@@ -88,8 +101,16 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
     await act(() => {tree.props.onUsernameChange('person'); tree.props.onPasswordChange('test password');});
     await act(() => tree.props.onSubmit());
     const picker = nodes(tree.props.beforeActions).find(n => n.type === 'Picker');
-    assert.equal(picker.props.preferredProfileId, profile.id, 'the TV picker names its first profile as the native focus target');
-    await act(() => picker.props.onSelect(profile.id));
+    // The shared profile region owns the first-face entry (next-family-focus-ids runs
+    // the real picker): the caller supplies the explicit TV opening identity and the
+    // server's face order, and never invents a remembered preference before focus.
+    assert.equal(picker.props.focusScope, 'tv.auth.profiles.server', 'the TV picker opens its explicit profile region');
+    assert.equal(picker.props.profiles[0].id, profile.id, 'the fixed entry resolves to the server\'s first offered profile');
+    assert.equal(picker.props.preferredProfileId, undefined, 'no remembered face exists before this operation focuses one');
+    await act(() => {picker.props.onFocusChange(profile.id); host.rerender();});
+    const focused = nodes(tree.props.beforeActions).find(n => n.type === 'Picker');
+    assert.equal(focused.props.preferredProfileId, profile.id, 'the original operation remembers the face it actually focused');
+    await act(() => focused.props.onSelect(profile.id));
     assert.equal(tree.type, 'PIN');
     await act(() => tree.props.onCodeChange('12'));
     const baseline = [...calls];
@@ -113,9 +134,11 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
 test('TV profile-switch hand-off preserves its current family, selection controller and server PIN attempts', async () => {
   const back = backOwner(), attempts: unknown[][] = [];
   let created = 0, disposed = 0, exited = 0;
-  const current = {sessionFamilyId: 'current-family', viewer: {serverId: 'server', profileId: 'current'}};
+  const current = {sessionFamilyId: 'current-family', viewer: {serverId: 'server', accountId: 'account', profileId: 'current'}};
   const {AccountRoute} = await screenModule(new URL('../src-next/screens/accounts/AccountRoutes.tsx', import.meta.url), {
     './TVServerChooser': {TVServerChooser: 'TVServerChooser'}, './TVTrustedCertificates': {TVTrustedCertificates: 'TVTrustedCertificates'}, './PhoneServerChooser': {PhoneServerChooser: 'PhoneServerChooser'},
+    '../../../../../packages/client-core/src/profile-management': profileManagement, '../../../../../packages/client-core/src/identity-client': identityClient,
+    '../../platform/profile-avatars': profileAvatars, '../settings-live/lifetime': lifetime, '../../shell/model': shellModel,
     ...shared(back), '../../platform/account-work': accountWork, '../../platform/accounts': {nativeAccounts: {}}, '../../platform/app-session-storage': {},
     '../../platform/profile-selection': {nativeProfileSelection: (server: string, family: string) => {
       assert.equal(server, 'server'); assert.equal(family, current.sessionFamilyId); created++;
@@ -127,10 +150,27 @@ test('TV profile-switch hand-off preserves its current family, selection control
     '../../platform/server-connections': {nativeNetworkFetch: async () => ({})},
     './PhoneAccountMoveNotice': {PhoneAccountMoveNotice: 'MoveNotice'}, './PhoneMovePassword': {PhoneMovePassword: 'MovePassword'}, './PhoneMoveCode': {PhoneMoveCode: 'MoveCode'}, './PhoneProfileRecovery': {PhoneProfileRecovery: 'PhoneProfileRecovery'},
   });
-  const context = {session: () => current, current: () => true, serverName: 'Verified server', api: {baseUrl: 'https://verified.example'},
-    account: {profiles: [profile]}, authority: () => ({}), navigation: {back: () => {exited++;}}};
+  const authority = {serverId: 'server', accountId: 'account', profileId: 'current', epoch: '1', viewerFence: 'f'.repeat(64)};
+  const route = {kind: 'profiles'};
+  const snapshot = {authority, route, destination: {kind: 'settings'}, revision: 1};
+  const navigationListeners = new Set<() => void>();
+  const context = {session: () => current, current: () => true, serverName: 'Verified server',
+    api: {baseUrl: 'https://verified.example', request: async () => {throw new Error('no_reads_in_fixture');},
+      requestRaw: async () => {throw new Error('no_reads_in_fixture');}, mediaUrl: () => undefined,
+      subscribeRoute: () => () => {}, getRouteSnapshot: () => null, getRouteConnection: () => undefined},
+    account: {authority: 'local', serverId: 'server', canManage: true,
+      capabilities: {manageAccount: true, managePeople: true, manageServer: true, manageSignIn: true},
+      account: {id: 'account', username: 'owner', primaryProfileId: 'profile', role: 'owner', revision: 1, disabled: false, allowedLibraries: []},
+      profiles: [profile], session: {sessionFamilyId: current.sessionFamilyId}},
+    authority: () => authority, subscribeAuthority: () => () => {},
+    navigation: {getSnapshot: () => snapshot, isCurrent: () => true, getIntent: () => 'enter', open: () => true,
+      subscribe: (listener: () => void) => {navigationListeners.add(listener); return () => {navigationListeners.delete(listener);};},
+      back: () => {exited++;}}};
   let tree: any;
-  const host = createHookHost(() => {const route = AccountRoute({route: {kind: 'profiles'}, context}); tree = route.type(route.props);});
+  // ProfileRoute's fragment renders its destination first and sheets/dialogs after it.
+  const screen = (node: any): any => Array.isArray(node) ? screen(node[0])
+    : node?.type === React.Fragment ? screen(node.props.children) : node;
+  const host = createHookHost(() => {const opened = AccountRoute({route, context}); tree = screen(opened.type(opened.props));});
   await act(() => host.mount());
   try {
     await act(() => nodes(tree.props.beforeActions).find(n => n.type === 'Picker').props.onSelect(profile.id));
