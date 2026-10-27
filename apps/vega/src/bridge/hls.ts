@@ -74,6 +74,9 @@ type Placed = {number: number; start: number; end: number; dateMs?: number};
 type Arrival = {dateMs: number; resolve(elementTime: number): void; reject(error: Error): void};
 /** Unknown placement is retained conservatively until the whole track is removed. */
 type RetainedSegment = {buffer: SourceBuffer; generation: number; bytes: number; kind: 'media' | 'init' | 'staging'; sealed?: boolean};
+/** A sealed whole-buffer cohort: no per-segment placement is inferred. */
+type RetainedCohort = {buffer: SourceBuffer; generation: number; entries: readonly RetainedSegment[];
+  dependencies: readonly RetainedSegment[]; ranges: readonly (readonly [number, number])[]; frontier: number};
 
 export class HlsSource {
   private readonly source = new MediaSource();
@@ -88,6 +91,8 @@ export class HlsSource {
   private mediaBusy = false;
   private readonly mediaWaiters: Array<{grant(): void; cancel(): void}> = [];
   private readonly retained = new Set<RetainedSegment>();
+  private readonly cohorts = new Map<SourceBuffer, RetainedCohort>();
+  private cohortRemoving?: RetainedCohort;
 
   private audioOperation?: AudioOperation;
   private audioDirty = false;
@@ -122,6 +127,8 @@ export class HlsSource {
     this.generationController.abort();
     for (const controller of this.pumpControllers.values()) controller.abort();
     for (const track of this.tracks) track.deferred = undefined;
+    // Retire only the plan. Its charges remain until an owned removal proves absence.
+    this.cohorts.clear();
     this.generationController = new AbortController();
     return ++this.generation;
   }
@@ -203,6 +210,71 @@ export class HlsSource {
     const entry: RetainedSegment = {buffer, generation, bytes, kind};
     if (bytes > 0) this.retained.add(entry);
     return entry;
+  }
+
+  /** Fresh native ranges prove a whole cohort's frontier, never an appended segment's interval. */
+  private cohortRanges(buffer: SourceBuffer): [number, number][] {
+    const ranges = buffer.buffered, result: [number, number][] = [];
+    if (!Number.isSafeInteger(ranges.length) || ranges.length < 0 || buffer.updating) throw new SourceError(false, 'buffer clock unavailable');
+    for (let index = 0; index < ranges.length; index++) {
+      const from = ranges.start(index), to = ranges.end(index);
+      if (!Number.isFinite(from) || !Number.isFinite(to) || from < 0 || to <= from || (index && from < result[index - 1]![1])) throw new SourceError(false, 'buffer clock unavailable');
+      result.push([from, to]);
+    }
+    return result;
+  }
+
+  /** Freeze bounded exact charge tokens before waiting for their original frontier. */
+  private async sealCohorts(generation: number): Promise<void> {
+    for (const track of this.tracks) {
+      if (this.cohorts.has(track.buffer)) continue;
+      await this.free(track.buffer, this.generationController.signal);
+      this.assertCurrent(generation);
+      if (this.audioHold) return;
+      const entries = [...this.retained].filter(entry => entry.buffer === track.buffer && entry.kind === 'media');
+      if (!entries.length) continue;
+      let ranges: [number, number][];
+      try { ranges = this.cohortRanges(track.buffer); } catch { continue; }
+      // An unreadable/empty/discontinuous placement supplies no automatic playback proof.
+      // Its charges remain for a later exact selection/seek/source retirement.
+      if (ranges.length !== 1) continue;
+      for (const entry of entries) entry.sealed = true;
+      this.cohorts.set(track.buffer, {buffer: track.buffer, generation, entries,
+        dependencies: [...this.retained].filter(entry => entry.buffer === track.buffer && entry.kind === 'init'),
+        ranges, frontier: ranges[0]![1]});
+    }
+  }
+
+  private cohortOwned(cohort: RetainedCohort): boolean {
+    if (this.closed || this.generation !== cohort.generation || this.cohorts.get(cohort.buffer) !== cohort || this.audioHold || this.audioDirty ||
+      this.target !== undefined || this.arrival || !this.tracks.some(track => track.buffer === cohort.buffer)) return false;
+    const entries = [...this.retained].filter(entry => entry.buffer === cohort.buffer);
+    return entries.every(entry => entry.kind === 'media' ? cohort.entries.includes(entry) : entry.kind === 'init' && cohort.dependencies.includes(entry)) &&
+      cohort.entries.every(entry => this.retained.has(entry)) && cohort.dependencies.every(entry => this.retained.has(entry));
+  }
+
+  /** Only a fully exhausted original cohort may be cleared; no current/arrival media is evicted. */
+  private cohortPlayed(cohort: RetainedCohort): boolean {
+    if (!this.cohortOwned(cohort)) return false;
+    const now = Number(this.player.currentTime);
+    if (!Number.isFinite(now) || now < cohort.frontier) return false;
+    try {
+      const ranges = this.cohortRanges(cohort.buffer);
+      return ranges.length === cohort.ranges.length && ranges.every(([from, to], index) => from === cohort.ranges[index]![0] && to === cohort.ranges[index]![1]);
+    } catch { return false; }
+  }
+
+  private async retirePlayedCohorts(generation: number): Promise<void> {
+    for (const cohort of [...this.cohorts.values()]) {
+      this.assertCurrent(generation);
+      if (!this.cohortPlayed(cohort)) continue;
+      this.cohortRemoving = cohort;
+      try {
+        await this.remove(cohort.buffer, 0, Number.MAX_SAFE_INTEGER, generation, undefined, cohort);
+        this.assertCurrent(generation);
+        if (this.cohorts.get(cohort.buffer) === cohort) this.cohorts.delete(cohort.buffer);
+      } finally { if (this.cohortRemoving === cohort) this.cohortRemoving = undefined; }
+    }
   }
 
   private coversCurrent(track: Track): boolean {
@@ -552,15 +624,16 @@ export class HlsSource {
   }
 
   /** A superseded seek/audio switch cannot remove a successor's buffered data. */
-  private async remove(buffer: SourceBuffer, from: number, to: number, generation: number, operation?: AudioOperation): Promise<void> {
+  private async remove(buffer: SourceBuffer, from: number, to: number, generation: number, operation?: AudioOperation, cohort?: RetainedCohort): Promise<void> {
     this.assertCurrent(generation, operation);
     if (!(to > from)) return;
     await this.free(buffer, operation?.controller.signal);
     this.assertCurrent(generation, operation);
+    if (cohort && !this.cohortPlayed(cohort)) throw new SourceError(false, 'superseded');
     // Capture the original entries before the asynchronous removal; a successor's entries
     // can never be refunded by this operation's late updateend.
     const wholeBuffer = from <= 0 && to === Number.MAX_SAFE_INTEGER;
-    const removed = wholeBuffer ? [...this.retained].filter(entry => entry.buffer === buffer && entry.kind !== 'staging' &&
+    const removed = cohort ? cohort.entries : wholeBuffer ? [...this.retained].filter(entry => entry.buffer === buffer && entry.kind !== 'staging' &&
       (entry.kind !== 'init' || !!operation)) : [];
     // Never add a newer append to a charge captured by this asynchronous removal.
     for (const entry of removed) entry.sealed = true;
@@ -570,12 +643,15 @@ export class HlsSource {
         off();
         try {
           this.assertCurrent(generation, operation);
+          if (cohort && (!this.cohortOwned(cohort) || Number(this.player.currentTime) < cohort.frontier)) throw new SourceError(false, 'superseded');
           if (wholeBuffer) {
             // A successful updateend alone does not establish a whole clear. Read the actual
             // current buffer strictly: unreadable or residual ranges retain all captured charges.
             const ranges = buffer.buffered;
             if (!Number.isSafeInteger(ranges.length) || ranges.length !== 0 || buffer.updating) throw new SourceError(false, 'buffer not fully removed');
             for (const entry of removed) this.retained.delete(entry);
+            const retired = this.cohorts.get(buffer);
+            if (retired && retired.entries.every(entry => !this.retained.has(entry))) this.cohorts.delete(buffer);
           }
           resolve();
         } catch (error) { reject(error instanceof SourceError ? error : new SourceError(false, 'buffer removal unverified')); }
@@ -584,7 +660,10 @@ export class HlsSource {
       const cancel = () => {off(); try {if (operation && buffer.updating) buffer.abort();} catch { /* removal may already be in flight */ } reject(new SourceError(false, operation?.controller.signal.aborted ? 'superseded' : 'closed'));};
       this.pending.add(cancel); operation?.controller.signal.addEventListener('abort', cancel, {once: true});
       buffer.addEventListener('updateend', done); buffer.addEventListener('error', broke); buffer.addEventListener('abort', broke);
-      try { this.audioMutation(generation, operation, () => buffer.remove(from, to)); } catch (error) {off(); reject(error instanceof SourceError ? error : new SourceError(false, 'buffer removal failed'));}
+      try { this.audioMutation(generation, operation, () => {
+        if (cohort && !this.cohortPlayed(cohort)) throw new SourceError(false, 'superseded');
+        buffer.remove(from, to);
+      }); } catch (error) {off(); reject(error instanceof SourceError ? error : new SourceError(false, 'buffer removal failed'));}
     });
   }
 
@@ -626,7 +705,7 @@ export class HlsSource {
     if (this.closed || !this.tracks.length) return this.live ? Promise.reject(new SourceError(false, 'closed')) : this.elementTime(position);
     if (this.live) return this.seekLive(position);
     this.target = position;
-    if (this.tracks.every(track => this.covered(track, position))) return this.elementTime(position);
+    if (!this.cohortRemoving && this.tracks.every(track => this.covered(track, position))) return this.elementTime(position);
     const generation = this.nextGeneration();
     void (async () => {
       try {
@@ -646,7 +725,7 @@ export class HlsSource {
     this.arrival?.reject(new SourceError(false, 'superseded'));
     this.arrival = undefined;
     const held = this.placed.find(entry => entry.dateMs !== undefined && dateMs >= entry.dateMs && dateMs < entry.dateMs + (entry.end - entry.start) * 1000);
-    if (held) return Promise.resolve(held.start + (dateMs - held.dateMs!) / 1000);
+    if (held && !this.cohortRemoving) return Promise.resolve(held.start + (dateMs - held.dateMs!) / 1000);
     const generation = this.nextGeneration();
     return new Promise<number>((resolve, reject) => {
       this.arrival = {dateMs, resolve, reject};
@@ -855,14 +934,22 @@ export class HlsSource {
   private async feed(track: Track, segment: Segment, generation: number, signal = this.generationController.signal): Promise<Placed | 'deferred' | undefined> {
     this.assertCurrent(generation);
     const current = () => generation === this.generation && !this.closed;
+    await this.retirePlayedCohorts(generation);
+    if (this.cohorts.has(track.buffer)) return 'deferred';
     const media = await this.getMedia(segment.url, signal);
     const clock = this.live && track === this.tracks[0];
     const before = this.spans(track.buffer);
     try {
       if (!current()) return undefined;
-      if (this.retainedBytes() + media.data.byteLength > MEDIA_BUDGET && this.coversCurrent(track)) {
-        track.deferred = {number: segment.number, bytes: media.data.byteLength};
-        return 'deferred';
+      if (this.retainedBytes() + media.data.byteLength > MEDIA_BUDGET) {
+        await this.sealCohorts(generation);
+        await this.retirePlayedCohorts(generation);
+        this.assertCurrent(generation);
+        if (this.retainedBytes() + media.data.byteLength > MEDIA_BUDGET) {
+          if (!this.coversCurrent(track)) throw new SourceError(false, 'media working set too large', 0, 'unsupported');
+          track.deferred = {number: segment.number, bytes: media.data.byteLength};
+          return 'deferred';
+        }
       }
       this.charge(track.buffer, generation, media.data.byteLength, 'media');
       track.deferred = undefined;
@@ -920,7 +1007,7 @@ export class HlsSource {
     for (let index = this.placed.indexOf(here) - 1; index >= 0; index--) {
       const entry = this.placed[index];
       if (kept < BEHIND_S) { kept += entry.end - entry.start; continue; }
-      for (const track of this.tracks) await this.remove(track.buffer, entry.start, entry.end, generation);
+      for (const track of this.tracks) if (!this.cohorts.has(track.buffer)) await this.remove(track.buffer, entry.start, entry.end, generation);
       this.assertCurrent(generation);
       this.placed.splice(index, 1);
     }
@@ -945,6 +1032,7 @@ export class HlsSource {
     try {
       while (generation === this.generation && !this.closed) {
         if (this.audioHold) return 'held';
+        await this.retirePlayedCohorts(generation);
         const position = this.target ?? this.position();
         let fed = false, finished = true;
         if (this.live) this.cross();
@@ -968,6 +1056,8 @@ export class HlsSource {
             const last = this.placed[this.placed.length - 1];
             if (!this.arrival && last && last.end - Number(this.player.currentTime) > this.aheadTarget() && Number(this.player.currentTime) >= this.placed[0].start - 0.05) continue;
           } else if (segment.start > position + this.aheadTarget()) continue;
+          // A sealed buffer admits no new media until its exact old cohort is gone.
+          if (this.cohorts.has(track.buffer)) continue;
           if (track.deferred?.number === segment.number && this.retainedBytes() + track.deferred.bytes > MEDIA_BUDGET) {
             if (this.coversCurrent(track)) continue;
             throw new SourceError(false, 'media working set too large', 0, 'unsupported');
@@ -992,7 +1082,7 @@ export class HlsSource {
           if (this.audioHold) return 'held';
           fed = true;
           trace(`hls ${track.kind} segment ${segment.number} (${segment.start.toFixed(2)}+${segment.duration.toFixed(2)}) buffered ${this.ranges(track)} at ${Number(this.player.currentTime).toFixed(2)}`);
-          if (!this.live && position > BEHIND_S * 2) await this.remove(track.buffer, 0, position - BEHIND_S + this.offset, generation);
+          if (!this.live && !this.cohorts.has(track.buffer) && position > BEHIND_S * 2) await this.remove(track.buffer, 0, position - BEHIND_S + this.offset, generation);
         }
         if (this.audioHold) return 'held';
         if (this.live && fed) await this.trim(generation);
@@ -1024,6 +1114,6 @@ export class HlsSource {
     this.arrival?.reject(new SourceError(false, 'closed'));
     this.arrival = undefined;
     for (const request of [...this.requests]) { try { request.abort(); } catch { /* finished */ } }
-    this.retained.clear();
+    this.retained.clear(); this.cohorts.clear();
   }
 }
