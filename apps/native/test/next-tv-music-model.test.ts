@@ -519,7 +519,7 @@ test('All songs admits only live exact offered entries beyond Top songs and reti
 
 test('the real All songs row invokes the borrowed menu once and its captured membership retires',async()=>{
  const songs=Array.from({length:6},(_,i)=>song(`song-${i}`,i+1,180,`Track ${i}`));
- const f=await controller(artistEntry,{songs,pageSize:3,maximumLimit:3});await f.value.load();await f.value.loadAllSongs();await f.value.nextAllSongs(f.value.getSnapshot().allSongs);
+ const f=await controller(artistEntry,{songs,pageSize:3,maximumLimit:3,albums:[{id:'offered-album',libraryId:'music',title:'Original release'}]});await f.value.load();await f.value.loadAllSongs();await f.value.nextAllSongs(f.value.getSnapshot().allSongs);
  let opens=0,commandCurrent:()=>boolean=()=>false;
  const borrowed={subscribe:()=>()=>{},isOpen:()=>false,open:async(_entry:any,current:()=>boolean)=>{opens++;commandCurrent=current;}};
  const {createNativeEntryActions}=await screenModule(new URL('../src-next/screens/destinations/entry-actions.ts',import.meta.url),{
@@ -541,9 +541,13 @@ test('the real All songs row invokes the borrowed menu once and its captured mem
   '../../../tv/layout/TVArtFocus':{TVArtFocus:'TVArtFocus'},'./MusicErrorView':{MusicErrorView:'MusicErrorView'},'./MusicFormatBadges':{MusicFormatBadges:'MusicFormatBadges'},
   './MusicSectionControls':{MusicSectionControls:'MusicSectionControls',musicNearEnd:()=>true},
  });
- const tree=screens.TVArtistScreen({controller:f.value,entry:artistEntry,runtime:{text:{},ambient:()=>undefined,artwork:()=>undefined,reportError:()=>{}},actions,openEntry:()=>{}});
+ let navigations=0;const render=()=>screens.TVArtistScreen({controller:f.value,entry:artistEntry,runtime:{text:{},ambient:()=>undefined,artwork:()=>undefined,reportError:()=>{}},actions,openEntry:()=>{navigations++;}});const tree=render();
  const nodes:any[]=[];function walk(node:any){if(!node)return;if(Array.isArray(node)){node.forEach(walk);return;}if(typeof node!=='object')return;if(typeof node.type==='function'){walk(node.type(node.props));return;}nodes.push(node);walk(node.props?.children);}walk(tree);
  const sixth=nodes.find(n=>n.type==='TrackRow'&&n.props.row.id==='song-5');assert(sixth);sixth.props.onMore();assert.equal(opens,1);assert.equal(commandCurrent(),true);
  const old=f.value.getSnapshot().allSongs.songs[5];actions.menu({...old});assert.equal(opens,1);
- await f.value.loadAllSongs();assert.equal(commandCurrent(),false);sixth.props.onMore();assert.equal(opens,1);actions.dispose();f.value.dispose();
+ await f.value.loadAllSongs();assert.equal(commandCurrent(),false);sixth.props.onMore();assert.equal(opens,1);
+ const card=nodes.find(n=>n.type==='SquareCard'&&n.props.title==='Original release');assert(card);card.props.onMore();assert.equal(opens,2);assert.equal(commandCurrent(),true);
+ await f.value.load();assert.equal(commandCurrent(),false);card.props.onMore();card.props.onNavigate();assert.equal(opens,2,'old equal-ID release cannot adopt successor membership');assert.equal(navigations,0);
+ nodes.length=0;walk(render());const fresh=nodes.find(n=>n.type==='SquareCard'&&n.props.title==='Original release');fresh.props.onMore();fresh.props.onNavigate();assert.equal(opens,3);assert.equal(navigations,1);
+ actions.dispose();f.value.dispose();
 });
