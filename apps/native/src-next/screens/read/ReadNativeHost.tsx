@@ -25,7 +25,7 @@ const cancelled = () => new ReadingError('cancelled');
 /** The live adapter owns the original session and its authority. A guest never owns it. */
 export function ReadNativeHost({context, target, active, preferences, onBack, onOpenSettings, resident = true, binding, onGuestState}: {
   context: NativeShellBootstrapContext; target: Target; active: boolean; preferences: Readonly<{getSnapshot: () => PreferenceSnapshot; subscribe: (listener: () => void) => () => void}>;
-  onBack: () => void; onOpenSettings: () => void; resident?: boolean; binding?: NativePresentationBinding; onGuestState?: (mounted: boolean) => void;
+  onBack: () => void; onOpenSettings: () => void; resident?: boolean; binding?: NativePresentationBinding; onGuestState?: (mounted: boolean, incarnation: object) => void;
 }) {
   const theme = useTheme(), dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   const callbacks = useRef({active, onBack, onOpenSettings}); callbacks.current = {active, onBack, onOpenSettings};

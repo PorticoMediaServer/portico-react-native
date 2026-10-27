@@ -18,7 +18,7 @@ function ReadingResidence({entries, desired, expected, context, preferences, Hos
   preferences: Preferences; Host: typeof ReadNativeHost; openSettings: () => void; alive: () => boolean;
 }) {
   const [slots, setSlots] = useState<readonly string[]>([]), [teardowns, changed] = useState(0);
-  const mounted = useRef(new Set<string>());
+  const mounted = useRef(new Map<string, object>());
   const desiredKey = desired.join('\0');
   useLayoutEffect(() => {
     // An evicted guest's cleanup runs before it reports false. Do not allocate
@@ -30,7 +30,8 @@ function ReadingResidence({entries, desired, expected, context, preferences, Hos
     const active = expected.route === entry.route && entry.binding.activeCurrent();
     const resident = slots.includes(entry.key) && desired.includes(entry.key);
     return <Host key={entry.key} context={context} target={entry.route} binding={entry.binding} active={active} resident={resident} preferences={preferences}
-      onGuestState={present => {if (present) mounted.current.add(entry.key); else {mounted.current.delete(entry.key); changed(value => value + 1);}}}
+      onGuestState={(present, incarnation) => {if (present) mounted.current.set(entry.key, incarnation);
+        else if (mounted.current.get(entry.key) === incarnation) {mounted.current.delete(entry.key); changed(value => value + 1);}}}
       onBack={readRouteBack(context.navigation, expected, entry.route, () => alive() && context.current() && entry.binding.activeCurrent())}
       onOpenSettings={openSettings}/>;
   })}</>;
