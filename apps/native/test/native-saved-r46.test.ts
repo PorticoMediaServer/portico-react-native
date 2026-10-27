@@ -1,7 +1,9 @@
 import {presentError} from '../../../packages/client-core/src/presentation/errors';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as React from 'react';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {createHookHost} from './hook-driver.ts';
 import {createTheme, fontFamilies} from '../src-next/kit/theme.ts';
 import {browseType} from '../src-next/kit/browse/presentation.ts';
 
@@ -10,6 +12,17 @@ const elements = (node: any): Element[] => Array.isArray(node) ? node.flatMap(el
 const flat = (style: any): Record<string, any> => Array.isArray(style) ? style.reduce((out, part) => Object.assign(out, flat(part)), {}) : {...(style ?? {})};
 const text = (node: Element | undefined): string => ([] as any[]).concat(node?.props.children ?? []).join('');
 const theme = createTheme({width: 390, isTV: false});
+const childrenOf = (node: Element): any[] => ([] as any[]).concat(node.props.children ?? []);
+
+/** Mounts one shallow component under the real hook driver. React's own hook
+ * dispatcher runs the screen's effects, so layout effects commit and unmount runs
+ * every cleanup and store release. No reconciler draws the tree. */
+function mount(component: (props: any) => any, props: any) {
+  let tree: any;
+  const host = createHookHost(() => {tree = component(props);});
+  host.mount();
+  return {host, get tree() {return tree;}};
+}
 const drawn = {
   largeTitle: 32,
   largeTitleLine: 36.8,
@@ -25,17 +38,22 @@ const drawn = {
 const t = (id: string, values?: Record<string, any>) => id === 'title.kind' ? ({collection: 'Collection', playlist: 'Playlist'} as Record<string, string>)[values?.kind as string] : id;
 
 async function savedScreen() {
-  const host = hooks(), opened: any[] = [];
+  const opened: any[] = [];
   const entry = {id: 'sev', kind: 'show', title: 'Severance', displayTitle: '', posterUrl: '/sev.jpg'};
-  const snapshot = {phase: 'ready', myList: {projection: {sections: [{entries: [entry]}]}}, favorites: {}, playlists: {}, collections: {}, views: {},
+  const projection = {scope: {serverId: 'server', libraryId: '', libraryKind: 'mixed', view: 'watchlist', entityId: '', viewerFence: 'actual-fence'},
+    revision: {catalog: 1, viewer: 1}, navigation: [], sorts: [], filters: [], query: {sort: 'title', direction: 'asc', category: 'all', q: '', limit: 40, searchMode: 'none'},
+    sections: [{id: 'items', type: 'grid', heading: {key: 'saved.title', fallback: ''}, entries: [entry], totalCount: 1, nextCursor: ''}]};
+  const snapshot = {phase: 'ready', myList: {projection}, myListSquares: {projection: undefined}, favorites: {}, playlists: {}, collections: {}, views: {},
     pins: [{kind: 'collection', id: 'toy', name: 'Toy Story', pinRevision: 4}],
     summary: {myList: {posters: 1, squares: 0}, favorites: {posters: 24, squares: 0}, playlists: 3, collections: 1, savedViews: 2}};
   const downloads = {supported: true, entries: [], usedBytes: 3.4e9};
   const {SavedScreen} = await screenModule(new URL('../src-next/screens/saved/SavedScreen.tsx', import.meta.url), {
-    react: host.react, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
+    react: {...React, default: React}, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 24})},
     '../../../../../packages/i18n/src': {defaultI18n: {t, bytes: () => '3.4 GB', number: (value: number) => String(value)}},
-    '../../kit/cards': {PosterCard: 'PosterCard', SquareCard: 'SquareCard'}, '../../kit/controls': {Focusable: 'Focusable'},
+    '../../kit/cards': {PosterCard: 'PosterCard', SquareCard: 'SquareCard'},
+    '../../kit/cards/primitives': {CardFrame: 'CardFrame', Parts: 'Parts'}, '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/overlays': {Menu: 'Menu'},
+    '../../kit/controls': {Button: 'Button', Chip: 'Chip', Focusable: 'Focusable', Tabs: 'Tabs'},
     '../../kit/states': {StateView: 'StateView'}, '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/browse/presentation': {browseType, alpha: (color: string) => color},
     '../../kit/theme': {useTheme: () => theme},
@@ -47,63 +65,78 @@ async function savedScreen() {
   });
   const actions = {openView: (view: unknown) => opened.push(view), openEntry: (item: unknown) => opened.push(item), menuEntry: () => {}, openDownloads: () => opened.push('downloads'),
     openPin: (pin: unknown) => opened.push(pin), editPins: () => opened.push('edit')};
-  const tree = host.render(() => SavedScreen({destination: {subscribe() {}, getSnapshot: () => snapshot, load: async () => {}}, runtime: {text: {}, artwork: () => undefined, reportError() {}, registerScrollToTop() {}},
+  const screen = mount(SavedScreen, {destination: {subscribe() {}, getSnapshot: () => snapshot, load: async () => {}}, runtime: {text: {}, artwork: () => undefined, reportError() {}, registerScrollToTop() {}},
     device: {subscribe() {}, getSnapshot: () => downloads, open: async () => {}}, actions, onThisPhone: 'next.saved.phone.onThisPhone', downloadsCopy: {downloading: 'next.saved.phone.downloading'},
-    activation: {subscribe() {}, getSnapshot: () => ({visible: true})}}));
-  return {host, tree, entry, opened};
+    activation: {subscribe() {}, getSnapshot: () => ({visible: true})}});
+  return {screen, tree: screen.tree, entry, opened};
 }
 
 test('Saved phone body keeps the drawn large title, shelf and track rhythm', async () => {
-  const {host, tree} = await savedScreen();
-  const scroll = elements(tree).find(node => node.type === 'ScrollView' && node.props.contentContainerStyle?.paddingTop !== undefined)!;
-  assert.equal(scroll.props.contentContainerStyle.paddingTop, 58, 'phone-app9 .lt starts 58 below the top');
-  const title = elements(tree).find(node => node.type === 'Text' && node.props.accessibilityRole === 'header' && text(node) === 'saved.title')!;
-  const titleStyle = flat(title.props.style);
-  assert.equal(titleStyle.fontSize, drawn.largeTitle, '.lt h1 is 32');
-  assert.equal(titleStyle.letterSpacing, -.035 * drawn.largeTitle);
-  assert.equal(titleStyle.lineHeight, drawn.largeTitleLine, '.lt h1 line-height 1.15');
-  const titleBlock = elements(tree).find(node => node.type === 'View' && node.props.children?.some?.((child: Element) => child === title))!;
-  assert.deepEqual({paddingHorizontal: flat(titleBlock.props.style).paddingHorizontal, paddingBottom: flat(titleBlock.props.style).paddingBottom}, {paddingHorizontal: 20, paddingBottom: 12});
+  const {screen, tree} = await savedScreen();
+  const mounted: Array<ReturnType<typeof mount>> = [];
+  try {
+    const scroll = elements(tree).find(node => node.type === 'ScrollView' && node.props.contentContainerStyle?.paddingTop !== undefined)!;
+    assert.equal(scroll.props.contentContainerStyle.paddingTop, 58, 'phone-app9 .lt starts 58 below the top');
+    const title = elements(tree).find(node => node.type === 'Text' && node.props.accessibilityRole === 'header' && text(node) === 'saved.title')!;
+    const titleStyle = flat(title.props.style);
+    assert.equal(titleStyle.fontSize, drawn.largeTitle, '.lt h1 is 32');
+    assert.equal(titleStyle.letterSpacing, -.035 * drawn.largeTitle);
+    assert.equal(titleStyle.lineHeight, drawn.largeTitleLine, '.lt h1 line-height 1.15');
+    const titleBlock = elements(tree).find(node => node.type === 'View' && childrenOf(node).some(child => child === title))!;
+    assert.deepEqual({paddingHorizontal: flat(titleBlock.props.style).paddingHorizontal, paddingBottom: flat(titleBlock.props.style).paddingBottom}, {paddingHorizontal: 20, paddingBottom: 12});
 
-  const sections = elements(tree).filter(node => node.type?.name === 'SavedSection').map(node => flat(host.render(() => node.type(node.props)).props.style));
-  assert.deepEqual(sections.map(style => style.marginTop), [drawn.firstRowMargin, drawn.rowMargin], 'My List follows the title by 2; Downloads is a 28 shelf');
+    const drawnSections = elements(tree).filter(node => node.type?.name === 'SavedSection');
+    const sections = drawnSections.map(node => {const rendered = mount(node.type, node.props); mounted.push(rendered); return flat(rendered.tree.props.style);});
+    assert.deepEqual(sections.map(style => style.marginTop), [drawn.firstRowMargin, drawn.rowMargin], 'My List follows the title by 2; Downloads is a 28 shelf');
 
-  const tracks = elements(tree).filter(node => node.type === 'ScrollView' && node.props.horizontal === true);
-  assert.equal(tracks.length, 1, 'the drawn My List track');
-  assert.deepEqual({paddingHorizontal: tracks[0].props.contentContainerStyle.paddingHorizontal, paddingTop: tracks[0].props.contentContainerStyle.paddingTop,
-    paddingBottom: tracks[0].props.contentContainerStyle.paddingBottom, gap: tracks[0].props.contentContainerStyle.gap},
-    {paddingHorizontal: 20, paddingTop: drawn.trackPadTop, paddingBottom: drawn.trackPadBottom, gap: drawn.trackGap});
-  const card = elements(tree).find(node => node.type?.name === 'SavedMyListCard')!;
-  const rendered = host.render(() => card.type(card.props));
-  assert.equal(elements(rendered).find(node => node.type === 'PosterCard')!.props.width, undefined, 'cards use the canonical 118 phone width, not a local override');
+    const tracks = elements(tree).filter(node => node.type === 'ScrollView' && node.props.horizontal === true);
+    assert.equal(tracks.length, 1, 'the drawn My List track');
+    assert.deepEqual({paddingHorizontal: tracks[0].props.contentContainerStyle.paddingHorizontal, paddingTop: tracks[0].props.contentContainerStyle.paddingTop,
+      paddingBottom: tracks[0].props.contentContainerStyle.paddingBottom, gap: tracks[0].props.contentContainerStyle.gap},
+      {paddingHorizontal: 20, paddingTop: drawn.trackPadTop, paddingBottom: drawn.trackPadBottom, gap: drawn.trackGap});
+    const card = elements(tree).find(node => node.type?.name === 'SavedMyListCard')!;
+    const rendered = mount(card.type, card.props); mounted.push(rendered);
+    assert.equal(elements(rendered.tree).find(node => node.type === 'PosterCard')!.props.width, undefined, 'cards use the canonical 118 phone width, not a local override');
+  } finally {
+    for (const value of mounted) value.host.unmount();
+    screen.host.unmount();
+  }
 });
 
 test('Saved row headings and links match the drawn phone parts', async () => {
-  const {host, tree} = await savedScreen();
-  const heading = elements(tree).find(node => node.type?.name === 'SavedRowHeading' && node.props.testID === 'saved-my-list')!;
-  const view = host.render(() => heading.type(heading.props));
-  const headingStyle = flat(view.props.style);
-  assert.equal(headingStyle.gap, 14, '.row-head gap');
-  assert.equal(headingStyle.marginBottom, drawn.headingMarginBottom, 'phone .row-head margin-bottom 4');
-  assert.equal(headingStyle.marginHorizontal, 20);
-  const headingText = elements(view).find(node => node.type === 'Text' && node.props.accessibilityRole === 'header')!;
-  assert.equal(flat(headingText.props.style).fontSize, 19, 'phone .row-head h2 is 19');
-  const detail = elements(view).find(node => node.type === 'Text' && text(node) === 'next.selection.titles')!;
-  assert.deepEqual({size: flat(detail.props.style).fontSize, family: flat(detail.props.style).fontFamily}, {size: 13, family: fontFamilies[400]}, 'the count is 13 regular');
+  const {screen, tree} = await savedScreen();
+  const mounted: Array<ReturnType<typeof mount>> = [];
+  try {
+    const heading = elements(tree).find(node => node.type?.name === 'SavedRowHeading' && node.props.testID === 'saved-my-list')!;
+    const headingMount = mount(heading.type, heading.props); mounted.push(headingMount);
+    const view = headingMount.tree;
+    const headingStyle = flat(view.props.style);
+    assert.equal(headingStyle.gap, 14, '.row-head gap');
+    assert.equal(headingStyle.marginBottom, drawn.headingMarginBottom, 'phone .row-head margin-bottom 4');
+    assert.equal(headingStyle.marginHorizontal, 20);
+    const headingText = elements(view).find(node => node.type === 'Text' && node.props.accessibilityRole === 'header')!;
+    assert.equal(flat(headingText.props.style).fontSize, 19, 'phone .row-head h2 is 19');
+    const detail = elements(view).find(node => node.type === 'Text' && text(node) === 'next.selection.titles')!;
+    assert.deepEqual({size: flat(detail.props.style).fontSize, family: flat(detail.props.style).fontFamily}, {size: 13, family: fontFamilies[400]}, 'the count is 13 regular');
 
-  const link = elements(tree).find(node => node.props.testID === 'saved-view-favorites')!;
-  const row = host.render(() => link.type(link.props));
-  const rowStyle = flat(elements(row).find(node => node.type === 'Focusable')!.props.style);
-  assert.deepEqual({minHeight: rowStyle.minHeight, paddingVertical: rowStyle.paddingVertical, paddingHorizontal: rowStyle.paddingHorizontal, gap: rowStyle.gap},
-    {minHeight: 48, paddingVertical: 8, paddingHorizontal: 14, gap: 12});
-  const tile = flat(elements(row).find(node => node.type === 'View' && node.props.style?.width === 30)!.props.style);
-  assert.deepEqual({width: tile.width, height: tile.height, borderRadius: tile.borderRadius}, {width: 30, height: 30, borderRadius: 8});
+    const link = elements(tree).find(node => node.props.testID === 'saved-view-favorites')!;
+    const linkMount = mount(link.type, link.props); mounted.push(linkMount);
+    const row = linkMount.tree;
+    const rowStyle = flat(elements(row).find(node => node.type === 'Focusable')!.props.style);
+    assert.deepEqual({minHeight: rowStyle.minHeight, paddingVertical: rowStyle.paddingVertical, paddingHorizontal: rowStyle.paddingHorizontal, gap: rowStyle.gap},
+      {minHeight: 48, paddingVertical: 8, paddingHorizontal: 14, gap: 12});
+    const tile = flat(elements(row).find(node => node.type === 'View' && node.props.style?.width === 30)!.props.style);
+    assert.deepEqual({width: tile.width, height: tile.height, borderRadius: tile.borderRadius}, {width: 30, height: 30, borderRadius: 8});
 
-  const pin = elements(tree).find(node => node.props.testID === 'saved-pin-collection-toy')!;
-  const pinRow = host.render(() => pin.type(pin.props));
-  const caption = elements(pinRow).find(node => node.type === 'Text' && text(node) === 'Collection')!;
-  assert.deepEqual({size: flat(caption.props.style).fontSize, family: flat(caption.props.style).fontFamily, marginTop: flat(caption.props.style).marginTop},
-    {size: drawn.inlineRowCaption, family: fontFamilies[500], marginTop: 2}, 'the drawn Collection caption under a pinned name');
+    const pin = elements(tree).find(node => node.props.testID === 'saved-pin-collection-toy')!;
+    const pinMount = mount(pin.type, pin.props); mounted.push(pinMount);
+    const caption = elements(pinMount.tree).find(node => node.type === 'Text' && text(node) === 'Collection')!;
+    assert.deepEqual({size: flat(caption.props.style).fontSize, family: flat(caption.props.style).fontFamily, marginTop: flat(caption.props.style).marginTop},
+      {size: drawn.inlineRowCaption, family: fontFamilies[500], marginTop: 2}, 'the drawn Collection caption under a pinned name');
+  } finally {
+    for (const value of mounted) value.host.unmount();
+    screen.host.unmount();
+  }
 });
 
 async function downloadCard(entry: Record<string, any>, entries: readonly Record<string, any>[] = [entry]) {

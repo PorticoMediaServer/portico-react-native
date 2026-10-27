@@ -12,9 +12,10 @@ const channel = {id: 'actual-channel', kind: 'channel', title: 'Actual Channel',
   channelId: 'actual-channel', sourceId: 'actual-guide-source', provenance: 'live-source'}};
 const groups = [{id: 'movies', entityKind: 'movie', items: [movie]}, {id: 'people', entityKind: 'person', items: [person]}, {id: 'live-tv', entityKind: 'channel', items: [channel]}];
 
-/** The actual focus module and hook, loaded from their own sources after the
+/** The actual focus module's exports, loaded from their own sources after the
  * standard-home React boundary is registered. The shallow card render below sits
- * under no FocusItem, so the real hook reads that genuine default. */
+ * under no FocusItem, so it reads the genuine default value but never runs the
+ * focus hook's lifetime; this fixture does not claim a mounted focus host. */
 async function focusNamespace(react: any) {
   const [{createTheme}, registry, hostRef] = await Promise.all([
     import('../src-next/kit/theme.ts'), import('../src-next/kit/focus/registry.ts'), import('../src-next/kit/focus/useHostRef.ts')]);

@@ -1,11 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as React from 'react';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {downloadEntryIdentity, downloadGroups, downloadRequestLines, downloadRowText, downloadStorageSegments, downloadTransferProgress, type NativeDownloadsCopy} from '../src-next/screens/downloads/presentation';
 import type {OfflineEntry} from '../src-next/platform/offline-downloads';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {createHookHost} from './hook-driver.ts';
 import {createTheme} from '../src-next/kit/theme';
 import {holdCard} from '../src-next/kit/cards/model';
+
+/** Mounts one shallow component under the real hook driver. React's own hook
+ * dispatcher runs the module's effects, so layout effects commit and unmount runs
+ * every cleanup and store release. No reconciler draws the tree: the test calls
+ * the exported component as a function and inspects its elements, as the other
+ * shallow screen fixtures do. */
+function mount(component: (props: any) => any, props: any) {
+  let tree: any;
+  const host = createHookHost(() => {tree = component(props);});
+  host.mount();
+  return {host, get tree() {return tree;}};
+}
 
 const copy: NativeDownloadsCopy = {emptyBody: 'downloads.emptyBody', storageLimitHelp: 'downloads.storageLimit', freeOnPhone: 'downloads.used', removeFromPhone: 'action.remove',
   stoppedBody: 'downloads.paused', downloading: 'downloads.paused', needsCheckIn: 'downloads.offline.needsCheckIn', goneFromServer: 'downloads.offline.goneFromServer',
@@ -91,20 +105,21 @@ test('Cached artwork consumer rejects late retired identities and does not rerea
 });
 
 test('Downloads rows use the shared hold/menu boundary with their actual native anchor and current playability', async () => {
-  const host = hooks(), theme = createTheme({width: 390, isTV: false});
+  const theme = createTheme({width: 390, isTV: false});
   const current = entry(), calls: unknown[] = [];
-  const device = {getSnapshot: () => ({supported: true, ready: true, entries: [current], settings: {}, usedBytes: 1, freeBytes: 100, otherBytes: 0}), subscribe() {},
+  let opened = 0;
+  const device = {getSnapshot: () => ({supported: true, ready: true, entries: [current], settings: {}, usedBytes: 1, freeBytes: 100, otherBytes: 0}), subscribe() {}, open: async () => {opened++;},
     playabilityReason: () => null};
   const {DownloadsScreen} = await screenModule(new URL('../src-next/screens/downloads/DownloadsScreen.tsx', import.meta.url), {
-    react: {...host.react, useLayoutEffect: () => {}}, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 390})},
+    react: {...React, default: React}, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 390})},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0})}, '../../../../../packages/i18n/src': {defaultI18n},
     '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/controls': {Chip: 'Chip', Focusable: 'Focusable', Switch: 'Switch'},
     '../../kit/cards/primitives': {CardFrame: 'CardFrame'}, '../../kit/overlays': {BottomSheet: 'BottomSheet', Menu: 'Menu'}, '../../kit/states': {StateView: 'StateView'}, '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/browse/presentation': {browseType: () => ({}), alpha: () => ''}, '../../kit/theme': {useTheme: () => theme},
     './presentation': {downloadEntryIdentity, downloadGroups, downloadRowText, downloadStorageSegments, downloadTransferProgress}, './useDownloadArtwork': {useDownloadArtwork: () => ({})},
-    './useReadingFacts': await screenModule(new URL('../src-next/screens/downloads/useReadingFacts.ts', import.meta.url), {react: {...host.react, useLayoutEffect: () => {}}}),
+    './useReadingFacts': await screenModule(new URL('../src-next/screens/downloads/useReadingFacts.ts', import.meta.url), {react: {...React, default: React}}),
     '../saved/SavedForms': await screenModule(new URL('../src-next/screens/saved/SavedForms.tsx', import.meta.url), {
-      react: {...host.react, useLayoutEffect: () => {}}, 'react-native': {Text: 'Text', View: 'View'}, '../../../../../packages/i18n/src': {defaultI18n},
+      react: {...React, default: React}, 'react-native': {Text: 'Text', View: 'View'}, '../../../../../packages/i18n/src': {defaultI18n},
       '../../kit/controls': {Button: 'Button', Switch: 'Switch', TextField: 'TextField'}, '../../kit/overlays': {Banner: 'Banner', BottomSheet: 'BottomSheet', Dialog: 'Dialog'},
       '../../kit/theme': {useTheme: () => theme}}),
   });
@@ -112,15 +127,20 @@ test('Downloads rows use the shared hold/menu boundary with their actual native 
     if (Array.isArray(node)) return node.flatMap(nodes);
     return node && typeof node === 'object' && 'props' in node ? [node, ...nodes(node.props.children)] : [];
   }
-  const tree = host.render(() => DownloadsScreen({device, runtime: {text}, copy, back() {}, openTitle() {}}));
-  const row = nodes(tree).find(node => node.type?.name === 'DownloadRow');
-  const rowTree = host.render(() => row.type({...row.props, menuOpen: true, onMenu: (value: unknown) => calls.push(value), onPlay: () => calls.push('local-play')}));
-  const card = nodes(rowTree).find(node => node.type === 'CardFrame');
-  assert.equal(card.props.moreExpanded, true);
-  const nativeHost = {actual: 'download-card'}; card.props.menuAnchorRef.current = nativeHost;
-  holdCard(card.props, false); assert.equal(calls[0], card.props.menuAnchorRef); assert.equal((calls[0] as any).current, nativeHost);
-  card.props.onNavigate(); assert.equal(calls[1], 'local-play');
-  assert.equal(card.props.onLongPressAction, undefined); assert.equal(card.props.selection, undefined, 'Downloads has no invented selection action');
+  const screen = mount(DownloadsScreen, {device, runtime: {text}, copy, back() {}, openTitle() {}});
+  try {
+    assert.equal(opened, 1, 'the committed screen effect opened the actual device port');
+    const row = nodes(screen.tree).find(node => node.type?.name === 'DownloadRow');
+    const rowScreen = mount(row.type, {...row.props, menuOpen: true, onMenu: (value: unknown) => calls.push(value), onPlay: () => calls.push('local-play')});
+    try {
+      const card = nodes(rowScreen.tree).find(node => node.type === 'CardFrame');
+      assert.equal(card.props.moreExpanded, true);
+      const nativeHost = {actual: 'download-card'}; card.props.menuAnchorRef.current = nativeHost;
+      holdCard(card.props, false); assert.equal(calls[0], card.props.menuAnchorRef); assert.equal((calls[0] as any).current, nativeHost);
+      card.props.onNavigate(); assert.equal(calls[1], 'local-play');
+      assert.equal(card.props.onLongPressAction, undefined); assert.equal(card.props.selection, undefined, 'Downloads has no invented selection action');
+    } finally {rowScreen.host.unmount();}
+  } finally {screen.host.unmount();}
 });
 
 test('a whole-container request reports capturing, ready-of-total and failed members in drawn words', () => {
