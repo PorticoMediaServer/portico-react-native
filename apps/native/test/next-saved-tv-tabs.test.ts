@@ -25,7 +25,8 @@ test('Saved TV tabs retain real route IDs, actual selection and the Rail Saved e
   assert.deepEqual(tabs.map(node => node.props.focusId), ['watchlist', 'favorites', 'playlists', 'collections', 'views', 'history']);
   assert.equal(region.props.edges.left, nativeDestinationFocusIds(authority).rail);
   assert.equal(region.props.edges.down, undefined, 'an absent real body region is never fabricated');
-  assert.deepEqual((requests[0] as unknown[])[1], {regionId: nativeDestinationFocusIds(authority).savedTabs, childId: 'watchlist'});
+  // The entry follows the shown tab, which is the destination's actual selected route.
+  assert.deepEqual((requests[0] as unknown[])[1], {regionId: nativeDestinationFocusIds(authority).savedTabs, childId: 'collections'});
   assert.equal(tabs[3].props.accessibilityState.selected, true);
   tabs[1].props.onFocus(); assert.deepEqual(selections, [{view: 'favorites'}]);
   visible = false; tabs[2].props.onPress(); assert.equal(selections.length, 1, 'a late native event cannot select a hidden retained screen');
