@@ -87,7 +87,10 @@ test('the drawn field, keyboard column and results column are tv.html#f5 geometr
   assert.equal(keyboard.props.rightRegionId, ids.searchResults);
   const keyboardFrame = style(elements(tree).find(node => (Array.isArray(node.props.children) ? node.props.children : [node.props.children]).includes(keyboard))!.props.style);
   assert.deepEqual(keyboardFrame, {position: 'absolute', left: 200, top: 176});
-  const results = elements(tree).find(node => node.type === 'FocusRegion')!;
+  // The voice hint is its own drawn stop (.voice); the results keep the right column (.sres).
+  const voice = elements(tree).find(node => node.type === 'FocusRegion' && node.props.id === `${ids.searchKeyboard}.voice`)!;
+  assert.deepEqual(style(voice.props.style), {position: 'absolute', left: 200, top: 792, width: 500, flexDirection: 'row', alignItems: 'flex-start', gap: 18});
+  const results = elements(tree).find(node => node.type === 'FocusRegion' && node.props.id === ids.searchResults)!;
   assert.deepEqual(style(results.props.style), {position: 'absolute', left: 780, right: 0, top: 64, bottom: 0});
   assert.equal(results.props.entryRegion, ids.searchSection('movies'));
   assert.equal(results.props.edges.left, ids.searchKeyboardRow(0));
@@ -225,7 +228,7 @@ test('Left from a result returns to the last keyboard row, and that key returns 
   state = {text: 'the l', group: 'all', groups, search: {phase: 'ready', data: {capabilities: {groups: [{id: 'movies', available: true}]}}}, recent: []};
   landing = {phase: 'ready', genres, initialHeading: 'next.search.browseByGenre', emptyHeading: 'next.search.browseInstead'}; top = undefined; modelProgress = undefined;
   let tree = host.render(() => TVSearchScreen(screenProps()));
-  const results = () => elements(tree).find(node => node.type === 'FocusRegion')!;
+  const results = () => elements(tree).find(node => node.type === 'FocusRegion' && node.props.id === ids.searchResults)!;
   assert.equal(results().props.edges.left, ids.searchKeyboardRow(0));
   // F-SEARCH-4/27: the keyboard remembers its key, so the results point Left at the row that held it.
   elements(tree).find(node => node.type === 'NativeTVKeyboard')!.props.onRowFocus(`${ids.searchKeyboard}.row.1`);

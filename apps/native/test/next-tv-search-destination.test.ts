@@ -49,7 +49,7 @@ test('the actual TV Search caller binds genuine query, navigation activation and
   assert.equal(keyboard.props.value, state.text); assert.equal(keyboard.props.activation, activation);
   assert.equal(keyboard.props.id, ids.searchKeyboard); assert.equal(keyboard.props.leftRegionId, ids.rail);
   assert.equal(keyboard.props.rightRegionId, ids.searchResults); keyboard.props.onChangeText('actual query a'); assert.deepEqual(calls, ['actual query a']);
-  const resultRegion = elements(tree).find(node => node.type === 'FocusRegion')!;
+  const resultRegion = elements(tree).find(node => node.type === 'FocusRegion' && node.props.id === ids.searchResults)!;
   assert.equal(resultRegion.props.entryRegion, ids.searchSection('movies')); assert.equal(resultRegion.props.edges.left, ids.searchKeyboardRow(0));
   const section = elements(tree).find(node => node.type === 'TVSearchSection')!;
   assert.equal(section.props.group.items[0], entry); assert.equal(section.props.selection, undefined); assert.equal(section.props.regionId, ids.searchSection('movies'));
@@ -73,7 +73,7 @@ test('the actual TV Search caller binds genuine query, navigation activation and
   activation = {visible: false, intent: 'restore', revision: 6};
   assert.equal(prior(), false, 'hidden activation refuses even before React effect cleanup');
   const held = render(() => TVSearchScreen(props));
-  assert.equal(held.props.pointerEvents, 'none'); assert.equal(elements(held).find(node => node.type === 'FocusRegion')!.props.enabled, false);
+  assert.equal(held.props.pointerEvents, 'none'); assert.equal(elements(held).find(node => node.type === 'FocusRegion' && node.props.id === ids.searchResults)!.props.enabled, false);
   assert.equal(elements(held).find(node => node.type === 'NativeTVKeyboard')!.props.activation, activation);
   assert.equal(pageBack, undefined, 'hidden retained page unregisters');
   activation = {visible: true, intent: 'restore', revision: 7};
