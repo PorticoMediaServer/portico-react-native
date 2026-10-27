@@ -124,6 +124,24 @@ test('production Home deletion composes real phone mark/badge through genuine co
       .find(
         host => host.name === 'Pressable' && app.nativeLabel(host) === 'Delete',
       );
+  // The authored phone footer hides its press handler exactly while the gate
+  // blocks deletion, so a gated attempt is only truthful as the native host's
+  // real disabled state; a live host is pressed through that same host.
+  const pressDelete = async () => {
+    const target = button();
+    assert.ok(target, 'actual native Delete footer host');
+    if (typeof target.props.onPress !== 'function') {
+      assert.equal(
+        target.props.disabled,
+        true,
+        'Delete may only lack a press handler while natively disabled',
+      );
+      return false;
+    }
+    target.props.onPress({nativeEvent: {}, stopPropagation() {}});
+    await app.settle();
+    return true;
+  };
   const assertHeader = () => {
     const header = app
       .hosts()
@@ -186,10 +204,10 @@ test('production Home deletion composes real phone mark/badge through genuine co
         assertHeader();
         assert.ok(texts().some(text => text.includes('1.2 kB')));
         assert.equal(button()?.props.accessibilityState.disabled, true);
-        await app.tapLabel('Delete');
+        assert.equal(await pressDelete(), false);
         assert.equal(mutationRequests().length, 0);
         await app.fill('Type the title to confirm', 'incorrect');
-        await app.tapLabel('Delete');
+        assert.equal(await pressDelete(), false);
         assert.equal(mutationRequests().length, 0);
         await app.fill('Type the title to confirm', title);
         assert.equal(!!button()?.props.accessibilityState.disabled, false);
@@ -208,7 +226,7 @@ test('production Home deletion composes real phone mark/badge through genuine co
         assert.ok(toggle);
         toggle.props.onPress();
         await app.settle();
-        await app.tapLabel('Delete');
+        assert.equal(await pressDelete(), true);
         assert.ok(held.mutationWaiting);
         assertHeader();
         assert.equal(mutationRequests().length, 1);
@@ -229,7 +247,7 @@ test('production Home deletion composes real phone mark/badge through genuine co
             )?.props.editable,
           false,
         );
-        await app.tapLabel('Delete');
+        assert.equal(await pressDelete(), false);
         assert.equal(mutationRequests().length, 1);
         held.mutation();
         await app.settle();
@@ -245,7 +263,7 @@ test('production Home deletion composes real phone mark/badge through genuine co
         await open();
         assertHeader();
         assert.equal(button()?.props.accessibilityState.disabled, true);
-        await app.tapLabel('Delete');
+        assert.equal(await pressDelete(), false);
         assert.equal(mutationRequests().length, 1);
         assert.equal(
           app
@@ -265,7 +283,7 @@ test('production Home deletion composes real phone mark/badge through genuine co
         await app.settle();
         assertHeader();
         assert.equal(button()?.props.accessibilityState.disabled, true);
-        await app.tapLabel('Delete');
+        assert.equal(await pressDelete(), false);
         assert.equal(mutationRequests().length, 1);
         await app.tapLabel('Close');
         blockLibrary = false;
