@@ -4,7 +4,11 @@ import {HttpLocalApi, createReadingHost, connectReadingHost} from '../../../pack
 import {parsePreferenceSnapshot} from '../../../packages/client-core/src/preferences';
 import {routeBase64} from '../../../packages/client-core/src/route-identity';
 import {nativeReadingSettingsSection} from '../src-next/screens/settings/reading-preferences';
-import {createReadingSessionOwner} from '../src-next/screens/read/reading-session-owner';
+import {closeReadingResource, createReadingSessionOwner} from '../src-next/screens/read/reading-session-owner';
+import {NativeShellNavigation} from '../src-next/shell/routes';
+import {act, createHookHost} from './hook-driver';
+import {screenModule} from './helpers/screen-harness.mjs';
+import * as React from 'react';
 
 // The native bundle supplies this compile-time flag; exercise its production path.
 const previousDev = Object.getOwnPropertyDescriptor(globalThis, '__DEV__');
@@ -87,4 +91,52 @@ test('removing a retained route closes its original session while the same autho
   await owner.ensure(); retained = false; for (const listener of [...listeners]) listener(); await owner.dispose();
   assert.equal(calls.filter(method => method === 'DELETE').length, 1);
   authority = false;
+});
+
+
+for (const removal of ['route', 'authority'] as const)
+test(`actual live host with its presentation binding fences original close on ${removal} retirement`, async () => {
+  const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'original', viewerFence: 'a'.repeat(64)};
+  const viewer = {authority: 'local', serverId: 'server', accountId: 'account', profileId: 'profile', role: 'member'} as const;
+  let valid = true; const listeners = new Set<() => void>(), calls: string[] = [];
+  const revision = 'a'.repeat(64), navigation = new NativeShellNavigation(authority, () => authority);
+  const route = {kind: 'read', itemId: 'item', sourceId: 'source'} as const;
+  const api = new HttpLocalApi('http://127.0.0.1:39141', 'reader-fixture-token', async (url, init = {}) => {
+    const method = init.method ?? 'GET'; calls.push(method);
+    const data = method === 'POST' ? {sessionId: 'session', itemId: 'item', sourceId: 'source', revision, size: 100, format: 'pdf', metadata: {title: 'Stored title'}}
+      : String(url).endsWith('/versions') ? {versions: [{sourceId: 'source', inventoryAvailable: true, size: 100, format: 'pdf'}]} : {progress: null};
+    return method === 'DELETE' ? new Response(null, {status: 204}) : new Response(JSON.stringify(data), {headers: {'Content-Type': 'application/json', ETag: `"${revision}"`}});
+  });
+  const context = {api, navigation, authority: () => authority, current: () => valid,
+    session: () => ({viewer, sessionFamilyId: 'family'}),
+    subscribeAuthority: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};}};
+  navigation.open(route, authority);
+  const presentation = navigation.presentationStack().at(-1)!;
+  const binding = navigation.bindPresentation(presentation, {current: context.current, subscribe: context.subscribeAuthority}); assert.ok(binding);
+  const {ReadNativeHost} = await screenModule(new URL('../src-next/screens/read/ReadNativeHost.tsx', import.meta.url), {
+    react: {...React, default: React}, 'react-native': {View: 'View', AppState: {addEventListener: () => ({remove() {}})}, useWindowDimensions: () => ({width: 390, height: 844})},
+    'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 47})},
+    '../../../../../packages/client-core/src': {preferenceValue: () => undefined, ReadingError: class extends Error {}},
+    '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},
+    '../downloads/device': {createNativeDownloadsDevice: () => {throw new Error('unexpected offline device');}},
+    '../../../platform/offline-downloads': {offlineDownloads: {}},
+    '../../kit/states': {LoadingPaint: 'LoadingPaint', StateView: 'StateView', SkeletonBlock: 'SkeletonBlock'},
+    '../../kit/controls/Button': {Button: 'Button'}, '../../kit/theme': {useTheme: () => ({colors: {ink: '#000'}})},
+    './NativeReadingGuestHost': {NativeReadingGuestHost: 'NativeReadingGuestHost'},
+    './reading-session-owner': {createReadingSessionOwner, closeReadingResource},
+    './annotation-journal': {NativeAnnotationJournal: class {unbind() {}}, nativeAnnotationIdentity: () => ({}), nativeAnnotationLeaseOf: () => undefined},
+    './annotation-session': {nativeAnnotationBridge: (value: any) => value.session},
+    './annotation-sync': {NativeAnnotationSync: class {dispose() {} flush() {return Promise.resolve();}}},
+    './annotation-authoring': {NATIVE_OFFLINE_ANNOTATION_AUTHORING: false},
+  });
+  let tree: unknown; const source = {getSnapshot: () => preferences, subscribe: () => () => {}};
+  const host = createHookHost(() => {tree = ReadNativeHost({context, target: route, binding, active: true,
+    preferences: source, onBack() {}, onOpenSettings() {}});});
+  await act(async () => {host.mount(); for (let i = 0; i < 4; i++) await new Promise<void>(resolve => setImmediate(resolve));});
+  assert.ok(tree); assert.equal(calls.filter(method => method === 'POST').length, 1);
+  if (removal === 'route') navigation.back(authority);
+  else {valid = false; for (const listener of [...listeners]) listener();}
+  await act(async () => {for (let i = 0; i < 3; i++) await new Promise<void>(resolve => setImmediate(resolve));});
+  assert.equal(calls.filter(method => method === 'DELETE').length, removal === 'route' ? 1 : 0);
+  host.unmount(); binding!.dispose(); navigation.dispose();
 });
