@@ -1063,11 +1063,11 @@ test('the actual pump refuses unprovable sealed media when required coverage dra
     const removeCharge = hls.retained.delete.bind(hls.retained);
     hls.retained.delete = (entry: unknown) => { refunds++; return removeCharge(entry); };
     buffer.remove = () => { removes++; };
-    if (drift === 'range') buffer.spans = [[1, 6]];
+    if (drift === 'range') buffer.spans = [[cohort.ranges[0][0], cohort.frontier - 1]];
     else if (drift === 'unreadable') Object.defineProperty(buffer, 'buffered', {get() {throw new Error('native ranges unavailable');}});
     else hls.charge(buffer, hls.generation, 123, drift);
     const appended = buffer.appended.length;
-    player.advance(6);
+    player.advance(cohort.frontier - player.currentTime);
     hls.startPump(hls.generation);
     await until(() => failures.length > 0);
     assert.equal(failures.length, 1, drift);
