@@ -38,19 +38,19 @@ function fixture(phase = 'idle') {
   const context = {account: {profiles: []}, navigation: {getSnapshot: () => snapshot, subscribe: () => () => {}}, session: () => ({sessionFamilyId: 'f', tokenGeneration: '1', authorizationHorizon: 'h', deviceId: 'd', installationId: 'i'})};
   let tree: any; const host = createHookHost(() => {tree = module.NativeTogetherScreen({controller, media: {}, ports: {context}, runtime: {text: {t: (s: string) => s}, getSnapshot: () => ({profile: {name: 'Name'}}), reportError: assert.fail}, onBack: () => {back++;}});});
   host.mount();
-  return {host, tree: () => tree, back: () => back, ends: () => ends, pending: () => pending, resolveJoin: (value: boolean) => resolveJoin(value), dispose: () => {host.unmount(); controller.dispose(); lifetime.dispose();}};
+  return {host, tree: () => tree, pageBack: () => find(tree.type(tree.props), 'together-page-back').props.onPress(), back: () => back, ends: () => ends, pending: () => pending, resolveJoin: (value: boolean) => resolveJoin(value), dispose: () => {host.unmount(); controller.dispose(); lifetime.dispose();}};
 }
 for (const phase of ['idle', 'left', 'live', 'ended'] as const) test(`handheld Together ${phase} page offers exit without ending the room`, () => {
   const f = fixture(phase);
-  try {assert.equal(typeof f.tree().props.onBack, 'function'); f.tree().props.onBack(); assert.equal(f.back(), 1); assert.equal(f.ends(), 0);}
+  try {f.pageBack(); assert.equal(f.back(), 1); assert.equal(f.ends(), 0);}
   finally {f.dispose();}
 });
 test('lobby form closes before page back', async () => {
   const f = fixture();
   try {
     await act(() => find(f.tree(), 'together-start').props.onPress());
-    f.tree().props.onBack(); assert.equal(f.back(), 0);
-    await act(() => {}); f.tree().props.onBack(); assert.equal(f.back(), 1); assert.equal(f.ends(), 0);
+    f.pageBack(); assert.equal(f.back(), 0);
+    await act(() => {}); f.pageBack(); assert.equal(f.back(), 1); assert.equal(f.ends(), 0);
   } finally {f.dispose();}
 });
 
@@ -63,10 +63,10 @@ test('back closes an in-flight join form and aborts its original operation befor
     const dialog = find(f.tree(), 'together-form');
     await act(() => dialog.props.footer.props.onPress());
     assert.ok(f.pending()); assert.equal(f.pending().isCurrent(), true);
-    await act(() => f.tree().props.onBack());
+    await act(() => f.pageBack());
     assert.equal(f.pending().signal.aborted, true); assert.equal(f.pending().isCurrent(), false); assert.equal(f.back(), 0);
     f.resolveJoin(false); await act(async () => {});
-    f.tree().props.onBack(); assert.equal(f.back(), 1); assert.equal(f.ends(), 0);
+    f.pageBack(); assert.equal(f.back(), 1); assert.equal(f.ends(), 0);
   } finally {f.dispose();}
 });
 
@@ -77,7 +77,7 @@ test('failed join leaves the lobby form escapable without an End command', async
     await act(() => {find(f.tree(), 'together-code').props.onChangeText('ABCDEFGH'); find(f.tree(), 'together-display-name').props.onChangeText('Viewer');});
     await act(() => find(f.tree(), 'together-form').props.footer.props.onPress());
     f.resolveJoin(false); await act(async () => {});
-    await act(() => f.tree().props.onBack()); assert.equal(f.back(), 0);
-    f.tree().props.onBack(); assert.equal(f.back(), 1); assert.equal(f.ends(), 0);
+    await act(() => f.pageBack()); assert.equal(f.back(), 0);
+    f.pageBack(); assert.equal(f.back(), 1); assert.equal(f.ends(), 0);
   } finally {f.dispose();}
 });
