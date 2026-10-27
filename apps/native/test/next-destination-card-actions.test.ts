@@ -2,7 +2,9 @@ import {defaultI18n} from '../../../packages/i18n/src';
 import {presentError} from '../../../packages/client-core/src/presentation/errors';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as React from 'react';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {createHookHost} from './hook-driver.ts';
 import {createTheme} from '../src-next/kit/theme.ts';
 import * as focusRegistry from '../src-next/kit/focus/registry.ts';
 import * as focusHostRef from '../src-next/kit/focus/useHostRef.ts';
@@ -20,8 +22,21 @@ const runtime = {text: defaultI18n, artwork: () => undefined, reportError() {}};
 const theme = createTheme({width: 390, isTV: false});
 const selection = (calls: string[], active = false) => ({active, selected: false, onToggle: () => calls.push('toggle'), onEnter: () => calls.push('enter')});
 
-/** The actual focus module's hook, loaded from its own source. These shallow card
- * trees sit under no FocusItem, so the real hook reads that genuine default. */
+/** Mounts one shallow component under the real hook driver. React's own hook
+ * dispatcher runs the module's effects, so layout effects commit and unmount runs
+ * every cleanup and store release. No reconciler draws the tree: the test calls
+ * the exported component as a function and inspects its elements. */
+function mount(component: (props: any) => any, props: any) {
+  let tree: any;
+  const host = createHookHost(() => {tree = component(props);});
+  host.mount();
+  return {host, get tree() {return tree;}};
+}
+
+/** The actual focus module's exports, loaded from its own source so the card's
+ * useFocusWaiting reads its genuine default value. These shallow card trees sit
+ * under no FocusItem, so this fixture never runs the focus hook's lifetime; a
+ * FocusItem mount is what exercises that, and this test does not claim it. */
 async function focusNamespace(react: any) {
   return screenModule(new URL('../src-next/kit/focus/FocusRegion.tsx', import.meta.url), {react: {...react, createContext: (value: any) => ({value}), forwardRef: (render: any) => render},
     'react-native': {findNodeHandle: () => undefined, TVFocusGuideView: 'TVFocusGuideView', View: 'View'}, '../theme': {useTheme: () => theme},
@@ -93,15 +108,16 @@ test('Search grid passes genuine inactive selection to media, people and artist 
 });
 
 test('Saved preview cards preserve inactive selection and the actual native menu anchor', async () => {
-  const host = hooks(), calls: any[] = [], selected = selection(calls), entry = {id: 'saved-id', kind: 'movie', title: 'Actual saved title'};
+  const calls: any[] = [], selected = selection(calls), entry = {id: 'saved-id', kind: 'movie', title: 'Actual saved title'};
   const projection = {scope: {serverId: 'server', libraryId: '', libraryKind: 'mixed', view: 'watchlist', entityId: '', viewerFence: 'actual-fence'},
     revision: {catalog: 1, viewer: 1}, navigation: [], sorts: [], filters: [], query: {sort: 'title', direction: 'asc', category: 'all', q: '', limit: 40, searchMode: 'none'},
     sections: [{id: 'items', type: 'grid', heading: {key: 'saved.title', fallback: ''}, entries: [entry], totalCount: 1, nextCursor: ''}]};
   const state = {phase: 'ready', myList: {projection}, myListSquares: {projection: undefined}, favorites: {}, playlists: {}, collections: {}, views: {}, pins: [],
     summary: {myList: {posters: 1, squares: 0}, favorites: {posters: 0, squares: 0}, playlists: 0, collections: 0, savedViews: 0}};
   const actions = {menuEntry: (...args: any[]) => calls.push(args), isMenuOpen: (value: any) => value === entry};
+  let registered = 0, retired = 0;
   const {SavedScreen} = await screenModule(new URL('../src-next/screens/saved/SavedScreen.tsx', import.meta.url), {
-    react: {...host.react, useLayoutEffect: () => {}}, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'}, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0})},
+    react: {...React, default: React}, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'}, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0})},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/cards': {PosterCard: 'PosterCard', SquareCard: 'SquareCard'},
     '../../kit/cards/primitives': {CardFrame: 'CardFrame', Parts: 'Parts'}, '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/overlays': {Menu: 'Menu'},
     '../../kit/controls': {Button: 'Button', Chip: 'Chip', Focusable: 'Focusable', Tabs: 'Tabs'}, '../../kit/states': {}, '../../kit/Icon': {}, '../../kit/browse/presentation': {browseType: () => ({}), alpha: () => ''},
@@ -111,13 +127,22 @@ test('Saved preview cards preserve inactive selection and the actual native menu
     '../downloads/playback': {openNativeSavedDownload},
     '../../../../../packages/client-core/src/presentation/errors': {presentError},
   });
-  const tree = host.render(() => SavedScreen({destination: {subscribe() {}, getSnapshot: () => state}, runtime, device: {subscribe() {}, getSnapshot: () => ({entries: []})},
-    actions, activation: {subscribe() {}, getSnapshot: () => ({visible: false, intent: 'restore', revision: 2})}, selection: {item: () => selected, render: () => 'actual-toolbar'}}));
-  assert.equal(tree.props.pointerEvents, 'none'); assert.equal(tree.props.accessibilityElementsHidden, true, 'a retained hidden Saved screen has no active pointer or accessibility targets');
-  const child = elements(tree).find(node => node.type?.name === 'SavedMyListCard')!;
-  const card = host.render(() => child.type(child.props));
-  assert.equal(card.props.selection, selected); assert.equal(card.props.moreExpanded, true);
-  const actualCard = {actual: 'native-saved-card'}; card.props.menuAnchorRef.current = actualCard; card.props.onMore();
-  assert.deepEqual(calls, [[entry, card.props.menuAnchorRef]]); assert.equal(calls[0][1].current, actualCard);
-  selected.active = true; holdCard(card.props, false); assert.equal(calls.at(-1), 'toggle');
+  const screen = mount(SavedScreen, {destination: {subscribe() {}, getSnapshot: () => state, load: async () => {}}, runtime: {...runtime, registerScrollToTop() {}},
+    device: {subscribe() {}, getSnapshot: () => ({entries: []}), open: async () => {}},
+    actions, activation: {subscribe() {}, getSnapshot: () => ({visible: false, intent: 'restore', revision: 2})}, selection: {register: () => {registered++; return () => {retired++;};}, item: () => selected, render: () => 'actual-toolbar'}});
+  try {
+    const tree = screen.tree;
+    assert.equal(registered, 1, 'the committed screen effect registered the actual selection port');
+    assert.equal(tree.props.pointerEvents, 'none'); assert.equal(tree.props.accessibilityElementsHidden, true, 'a retained hidden Saved screen has no active pointer or accessibility targets');
+    const child = elements(tree).find(node => node.type?.name === 'SavedMyListCard')!;
+    const cardScreen = mount(child.type, child.props);
+    try {
+      const card = cardScreen.tree;
+      assert.equal(card.props.selection, selected); assert.equal(card.props.moreExpanded, true);
+      const actualCard = {actual: 'native-saved-card'}; card.props.menuAnchorRef.current = actualCard; card.props.onMore();
+      assert.deepEqual(calls, [[entry, card.props.menuAnchorRef]]); assert.equal(calls[0][1].current, actualCard);
+      selected.active = true; holdCard(card.props, false); assert.equal(calls.at(-1), 'toggle');
+    } finally {cardScreen.host.unmount();}
+  } finally {screen.host.unmount();}
+  assert.equal(retired, 1, 'unmount runs the registered selection cleanup');
 });
