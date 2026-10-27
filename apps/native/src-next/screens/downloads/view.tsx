@@ -90,6 +90,7 @@ function openNativeDownloadTitle(context: NativeShellBootstrapContext, device: N
         error => {if (leaseValid(context, lease)) report(error);});
   }
   if (!['movie', 'episode', 'song', 'audiobook_file', 'extra'].includes(kind)) {report(Object.assign(new Error('invalid_response'), {code: 'invalid_response'})); return;}
+  if (kind === 'song' || kind === 'audiobook_file') {report(Object.assign(new Error('unavailable'), {code: 'unavailable'})); return;}
   // The descriptor uses the cached title's actual identity. The Title owner
   // reads its authorized detail; this does not synthesize a detail response.
   const title: ContentEntry = {id: live.itemId, libraryId: live.libraryId, kind: kind as ContentEntry['kind'], title: live.info?.title || live.title};

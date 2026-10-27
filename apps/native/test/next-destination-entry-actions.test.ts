@@ -14,21 +14,23 @@ async function fixture() {
   const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'home-only'};
   const entry = {id: 'actual', libraryId: 'movies', kind: 'movie', title: 'Actual', playback: {itemId: 'actual', kind: 'movie'}};
   let live = true, member = entry, navigationRevision = 1, visible = true, menuReady = false, activeEntry: unknown;
+  let snapshot = {revision: navigationRevision, route: {kind: 'shell'}};
+  const reads: any[] = [];
   const starts: any[] = [], opened: any[] = [], navigated: any[] = [], errors: unknown[] = [], finish: (() => void)[] = [];
   const port = {subscribe: menus.subscribe, isOpen: (value: unknown) => value === activeEntry,
     open: async (value: unknown, current: () => boolean, anchor: unknown) => {opened.push({value, current, anchor}); activeEntry = value; menus.emit();}};
   const context = {current: () => live, authority: () => authority, session: () => ({viewer: {...authority, authority: 'local'}}),
-    subscribeAuthority: authorityEvents.subscribe, navigation: {subscribe: route.subscribe, getSnapshot: () => ({revision: navigationRevision})},
+    subscribeAuthority: authorityEvents.subscribe, libraries: () => [{id: 'movies', kind: 'book'}], navigation: {subscribe: route.subscribe, getSnapshot: () => snapshot},
     playback: {start: (input: unknown) => {starts.push(input); return new Promise<void>(resolve => {finish.push(resolve);});}}};
   const {createNativeEntryActions} = await screenModule(new URL('../src-next/screens/destinations/entry-actions.ts', import.meta.url), {
-    react: hooks().react, './lifetime': {nativeDestinationLifetime},
+    react: hooks().react, './lifetime': {nativeDestinationLifetime}, '../read/reading-books-open': {openNativeReadingBookEntry: async (_context: unknown, target: unknown) => {reads.push(target); return new Promise<boolean>(() => {});}},
     '../native-screen-services': {nativeScreenServices: () => ({navigate: (value: unknown) => {navigated.push(value);}, reportError: (error: unknown) => {errors.push(error);}})},
     '../watch': {nativeWatchEntryMenu: (actual: unknown) => {assert.equal(actual, context); return menuReady ? port : undefined;}},
   });
   const actions = createNativeEntryActions(context, {current: () => visible, contains: (value: unknown) => value === member, subscribe: membership.subscribe});
-  return {actions, entry, starts, opened, navigated, errors, finish, membership, route, menus,
+  return {actions, entry, starts, reads, opened, navigated, errors, finish, membership, route, menus,
     setMenuReady: () => {menuReady = true;}, replace: () => {member = {...entry}; membership.emit();},
-    navigate: () => {navigationRevision++; route.emit();}, retire: () => {live = false; authorityEvents.emit();},
+    navigate: () => {navigationRevision++; snapshot = {revision: navigationRevision, route: {kind: 'shell'}}; route.emit();}, retire: () => {live = false; authorityEvents.emit();},
     hide: () => {visible = false; route.emit();}, listeners: [route.listeners, membership.listeners, authorityEvents.listeners]};
 }
 
@@ -57,4 +59,31 @@ test('entry menus borrow the registered module at event time and keep the actual
   off(); assert.equal(f.menus.listeners.size, 0);
   f.retire(); f.actions.open(f.entry); assert.equal(f.navigated.length, 0);
   f.finish[0](); f.actions.dispose();
+});
+
+
+test('song primary activation dispatches the offered playback with the original membership fence', async () => {
+  const f = await fixture();
+  Object.assign(f.entry, {kind: 'song'});
+  f.actions.open(f.entry);
+  assert.equal(f.navigated.length, 0);
+  assert.equal(f.starts.length, 1);
+  assert.equal(f.starts[0].target, f.entry.playback);
+  f.replace();
+  assert.equal(f.starts[0].lifetime.isCurrent(), false);
+  f.finish[0](); f.actions.dispose();
+});
+
+
+test('Reading opening captures the offered member and retires on replacement or navigation', async () => {
+  const f = await fixture();
+  Object.assign(f.entry, {kind: 'ebook'});
+  f.actions.open(f.entry);
+  assert.equal(f.reads.length, 1);
+  assert.equal(f.reads[0].libraryId, 'movies');
+  assert.equal(f.reads[0].resident(), true);
+  f.replace();
+  assert.equal(f.reads[0].signal.aborted, true);
+  assert.equal(f.reads[0].resident(), false);
+  f.actions.dispose();
 });

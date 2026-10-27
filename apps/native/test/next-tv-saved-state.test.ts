@@ -55,7 +55,7 @@ async function setup() {
     isOpen: (entry: ContentEntry) => menus.at(-1)?.entry === entry,
     subscribe: (listener: () => void) => {menuListeners.add(listener); return () => {menuListeners.delete(listener);};}};
   const {createNativeEntryActions} = await screenModule(new URL('../src-next/screens/destinations/entry-actions.ts', import.meta.url), {
-    react: {default: {}}, './lifetime': {nativeDestinationLifetime}, '../native-screen-services': {nativeScreenServices: () => common}, '../watch': {nativeWatchEntryMenu: () => menu},
+    react: {default: {}}, './lifetime': {nativeDestinationLifetime}, '../read/reading-books-open': {openNativeReadingBookEntry: async () => false}, '../native-screen-services': {nativeScreenServices: () => common}, '../watch': {nativeWatchEntryMenu: () => menu},
   });
   const {createNativeSavedState} = await screenModule(new URL('../src-next/screens/saved/state.ts', import.meta.url), {
     react: {default: {}}, '../destinations/lifetime': {nativeDestinationLifetime}, '../destinations/entry-actions': {createNativeEntryActions},

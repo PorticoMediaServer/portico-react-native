@@ -60,7 +60,12 @@ const continueOffer = (entry: ContentEntry): NativeContinueWatchingOffer | undef
 };
 /** Albums and artists open on their own drawn page on every platform; every other
  * entry keeps the existing title route exactly. */
+export const nativeEntryRouteSupported = (entry: ContentEntry): boolean =>
+  ['movie', 'show', 'season', 'episode', 'extra', 'album', 'artist', 'book', 'author', 'book_series', 'playlist'].includes(entry.kind)
+  || entry.kind === 'collection' && !!entry.libraryId
+  || entry.kind === 'category' && !!entry.libraryId && entry.navigation?.view === 'releases' && entry.navigation.browse?.pivot === 'albums';
 export const nativeEntryRoute = (entry: ContentEntry): NativeShellRoute => {
+  if (entry.kind === 'collection' && entry.libraryId) return Object.freeze({kind: 'collection', libraryId: entry.libraryId, collectionId: entry.id, title: entry.title});
   if (entry.kind === 'playlist') return Object.freeze({kind: 'saved-destination', destination: {kind: 'playlist', id: entry.id}} as const);
   const browse = entry.navigation?.browse;
   if (entry.kind === 'category' && entry.libraryId && entry.navigation?.view === 'releases' && browse?.pivot === 'albums') {

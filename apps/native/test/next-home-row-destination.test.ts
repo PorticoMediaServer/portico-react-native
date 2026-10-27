@@ -16,6 +16,7 @@ const rowModule = (isTV = false) => screenModule(new URL('../src-next/screens/ho
     './row-controller': {NativeHomeRowController}, '../../platform/server-connections': {}, '../../shell/routes': {titleRoute},
     '../../shell/route-registry': {nativeShellRoutes: new NativeShellRouteRegistry()}, '../../shell/model': {}, '../../kit/theme': {},
     '../read/platform': {hiddenReadingLibraryOnTV},
+    '../read/reading-books-open': {openNativeReadingBookEntry: async () => false},
     './entry-lifetime': {nativeHomeEntryLifetime},
   });
 

@@ -3,7 +3,7 @@ import {deviceOnline} from '../platform/server-connections';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import type {ToastMessage} from '../kit/overlays/types';
 import type {NativeShellRuntime} from '../shell/runtime';
-import {nativeEntryRoute, type NativeShellNavigation} from '../shell/routes';
+import {nativeEntryRoute, nativeEntryRouteSupported, type NativeShellNavigation} from '../shell/routes';
 import {NativeScreenLifetime, type NativeScreenAuthority} from './settings-live/lifetime';
 
 export type NativeScreenServicesOwner = NativeScreenAuthority & Readonly<{
@@ -47,6 +47,7 @@ export class NativeScreenServices {
   };
   navigate = (entry: ContentEntry): void => {
     this.lifetime.assert();
+    if (!nativeEntryRouteSupported(entry)) {this.reportError(Object.assign(new Error('unavailable'), {code: 'unavailable'}), 'detail'); return;}
     this.owner.navigation.open(nativeEntryRoute(entry), this.lifetime.authority);
   };
   reportError = (error: unknown, context: ErrorContext = 'generic'): void => {

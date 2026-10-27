@@ -3,7 +3,7 @@ import type {ContentEntry} from '../../../../../../packages/client-core/src/libr
 import type {SavedRoute} from '../../../../../../packages/client-core/src/saved';
 import type {NativeShellBootstrapContext} from '../../../shell/bootstrap';
 import {nativeShellRoutes, type NativeRouteRenderer} from '../../../shell/route-registry';
-import {nativeEntryRoute, type NativeShellRoute} from '../../../shell/routes';
+import {type NativeShellRoute} from '../../../shell/routes';
 import {createNativeEntryActions} from '../entry-actions';
 import {createNativeSavedSelection} from '../../saved/selection';
 import {createNativeTVSavedDestination} from './model';
@@ -29,7 +29,7 @@ export function createNativeTVSavedRenderer(context: NativeShellBootstrapContext
   });
   const openEntry = (entry: ContentEntry) => {
     if (!current()) return;
-    context.navigation.open(nativeEntryRoute(entry), context.authority());
+    actions.open(entry);
   };
   const openSaved = (view: SavedRoute) => {
     if (!current()) return;

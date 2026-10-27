@@ -23,13 +23,14 @@ import {nativeAccountMenu, nativeMenuRouteAvailable} from './account';
 import {libraryScanReadiness} from './library-scan';
 import {NativeDownloadSheet} from '../screens/downloads/DownloadSheet';
 import {nativeHomeSelectionScope} from './selection-scope';
-import {nativeEntryRoute, nativeRailDestination, type NativeShellRoute} from './routes';
+import {nativeEntryRoute, nativeEntryRouteSupported, nativeRailDestination, type NativeShellRoute} from './routes';
 import {nativeShellRoutes} from './route-registry';
 import {sameAuthority, nativeServerHost} from './model';
 import {createNativeMusicDiscoverNavigation} from './music-discover-navigation';
 import {homePlayTarget} from '../screens/home/model';
 import {planHomeWindows} from './home-windows';
 import {isReadingLibraryKind} from '../screens/read/platform';
+import {openNativeReadingBookEntry} from '../screens/read/reading-books-open';
 import {nativeHomeEntryLifetime} from '../screens/home/entry-lifetime';
 import type {NativeShellBindings, NativeShellBootstrapContext} from './bootstrap';
 import type {NativeShellRuntime} from './runtime';
@@ -76,7 +77,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   const playback = context.playback.selectionPlayback(isCurrent);
   const controller = new HomeSelectionController({api: context.api, events: context.events, home: context.home, context: homeSelectionContext(scope, initial), environment: environment(), isCurrent,
     requestId: feedback.requestId, playback, reportError,
-    routes: {openEntry: entry => open(nativeEntryRoute(entry)), openCollection: collection => open({kind: 'collection', libraryId: collection.collection.libraryId, collectionId: collection.collection.id, title: collection.collection.name}),
+    routes: {openEntry: entry => {if (!nativeEntryRouteSupported(entry)) reportError(failure('unavailable')); else open(nativeEntryRoute(entry));}, openCollection: collection => open({kind: 'collection', libraryId: collection.collection.libraryId, collectionId: collection.collection.id, title: collection.collection.name}),
       openDestination: destination => open({kind: 'saved-destination', destination})}});
   let capturedMenu: {menu: NonNullable<ReturnType<HomeSelectionController['getSnapshot']>['menu']>; anchorRef?: RefObject<View | null>; owner: object} | undefined;
   const windowId = (rowId: string) => `home-row:${rowId}`;
@@ -280,17 +281,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   const listeningPlaylist = Platform.isTV ? createNativeListeningPlaylist(context) : undefined;
   const listeningQueuePolicy = createNativeListeningQueuePolicy(context);
   const listeningSongDetail = createNativeListeningSongDetail(context);
-  return {get account() {return nativeAccountMenu(context.account, open, Platform.isTV, nativeMenuRouteAvailable);}, attach: value => {runtime = value;},
-    getState: () => {const state = controller.getSnapshot(), navigation = context.navigation.getSnapshot(); return {destination: navigation.destination,
-      railDestination: nativeRailDestination(navigation, context.libraries()), contentVisible: navigation.route.kind === 'shell', selectionActive: state.selection.active,
-      homeVisible: currentHome(), homeObscured: !!(state.menu || state.picker || state.editor || state.deletion || state.rating || state.mixedEdit)};},
-    subscribe: listener => {listeners.add(listener); return () => {listeners.delete(listener);};},
-    listeningPlaylist,
-    listeningQueuePolicy,
-    listeningSongDetail,
-    actions: {
-      navigate: entry => {if (currentHome()) open(nativeEntryRoute(entry));},
-      play: (entry, target) => {
+  const playHome: NativeShellBindings['actions']['play'] = (entry, target) => {
         homeActionDiagnostics.action('home-assembly', 'primary-play');
         if (!currentHome() || !homeEntryCapabilities(entry, platform).playable) {homeActionDiagnostics.action('home-assembly', 'primary-play', 'guard-refused'); return;}
         const document = context.home.getSnapshot().document!;
@@ -308,7 +299,43 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
         void context.playback.start({entry, target, lifetime: operation.lifetime})
           .catch(error => {if (operation.lifetime.isCurrent()) reportError(error);})
           .finally(() => {operation.dispose(); operations.delete(signal);});
+  };
+  return {get account() {return nativeAccountMenu(context.account, open, Platform.isTV, nativeMenuRouteAvailable);}, attach: value => {runtime = value;},
+    getState: () => {const state = controller.getSnapshot(), navigation = context.navigation.getSnapshot(); return {destination: navigation.destination,
+      railDestination: nativeRailDestination(navigation, context.libraries()), contentVisible: navigation.route.kind === 'shell', selectionActive: state.selection.active,
+      homeVisible: currentHome(), homeObscured: !!(state.menu || state.picker || state.editor || state.deletion || state.rating || state.mixedEdit)};},
+    subscribe: listener => {listeners.add(listener); return () => {listeners.delete(listener);};},
+    listeningPlaylist,
+    listeningQueuePolicy,
+    listeningSongDetail,
+    actions: {
+      navigate: entry => {
+        if (!currentHome()) return;
+        if (entry.kind === 'song' || entry.kind === 'audiobook_file') {
+          if (entry.playback) playHome(entry, entry.playback); else reportError(failure('unavailable'));
+          return;
+        }
+        if (entry.kind === 'ebook' || entry.kind === 'comic') {
+          const libraryId = entry.libraryId, kind = entry.kind === 'ebook' ? 'book' : 'comic';
+          const navigation = context.navigation.getSnapshot(), document = context.home.getSnapshot().document;
+          const selected = (() => {try {return find(entry);} catch {return undefined;}})();
+          if (!libraryId || !selected || !document || !context.libraries().some(library => library.id === libraryId && library.kind === kind)) {reportError(failure('unavailable')); return;}
+          const signal = new AbortController(); operations.add(signal);
+          const operation = nativeHomeEntryLifetime(() => {
+            if (!currentHome() || context.navigation.getSnapshot() !== navigation || context.home.getSnapshot().document !== document
+              || !context.libraries().some(library => library.id === libraryId && library.kind === kind)) return false;
+            try {const member = find(entry); return member.id === selected.id && member.key === selected.key && member.owner === selected.owner;} catch {return false;}
+          }, [context.navigation.subscribe, context.home.subscribe, controller.subscribe, context.subscribeAuthority], signal.signal);
+          void openNativeReadingBookEntry(context, {libraryId, entry, origin: {route: navigation.route, revision: navigation.revision}, resident: operation.lifetime.isCurrent, signal: operation.lifetime.signal})
+            .then(opened => {if (!opened && operation.lifetime.isCurrent()) reportError(failure('unavailable'));})
+            .catch(error => {if (operation.lifetime.isCurrent()) reportError(error);})
+            .finally(() => {operation.dispose(); operations.delete(signal);});
+          return;
+        }
+        if (!nativeEntryRouteSupported(entry)) {reportError(failure('unavailable')); return;}
+        open(nativeEntryRoute(entry));
       },
+      play: playHome,
       more: menu,
       myList: async (entry, selected) => {
         if (!currentHome()) throw failure('stale_home_context');

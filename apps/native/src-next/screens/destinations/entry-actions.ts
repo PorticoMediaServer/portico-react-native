@@ -4,6 +4,7 @@ import type {ContentEntry} from '../../../../../packages/client-core/src/library
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {nativeScreenServices} from '../native-screen-services';
 import {nativeWatchEntryMenu, type NativeWatchEntryMenu} from '../watch';
+import {openNativeReadingBookEntry} from '../read/reading-books-open';
 import {nativeDestinationLifetime} from './lifetime';
 
 export type NativeEntryMembership = Readonly<{
@@ -60,7 +61,31 @@ export function createNativeEntryActions(context: NativeShellBootstrapContext, m
   }});
   return Object.freeze({
     menuState,
-    open: (entry: ContentEntry) => {if (!current(entry)) return; if (entry.kind === 'radio') play(entry); else common.navigate(entry);},
+    open: (entry: ContentEntry) => {
+      if (!current(entry)) return;
+      if (entry.kind === 'radio' || entry.kind === 'song' || entry.kind === 'audiobook_file') {
+        if (!entry.playback && !entry.radioSeed) common.reportError(Object.assign(new Error('unavailable'), {code: 'unavailable'}), 'detail');
+        else play(entry);
+        return;
+      }
+      if (entry.kind === 'ebook' || entry.kind === 'comic') {
+        const snapshot = context.navigation.getSnapshot(), libraryId = entry.libraryId;
+        const kind = entry.kind === 'ebook' ? 'book' : 'comic';
+        if (!libraryId || !context.libraries().some(library => library.id === libraryId && library.kind === kind)) {
+          common.reportError(Object.assign(new Error('unavailable'), {code: 'unavailable'}), 'detail'); return;
+        }
+        const operation = {entry, revision: snapshot.revision, abort: new AbortController()};
+        const resident = () => !operation.abort.signal.aborted && current(entry) && context.navigation.getSnapshot() === snapshot
+          && context.libraries().some(library => library.id === libraryId && library.kind === kind);
+        pending.add(operation);
+        void openNativeReadingBookEntry(context, {libraryId, entry, origin: {route: snapshot.route, revision: snapshot.revision}, resident, signal: operation.abort.signal})
+          .then(opened => {if (!opened && resident()) common.reportError(Object.assign(new Error('unavailable'), {code: 'unavailable'}), 'detail');})
+          .catch(error => {if (resident()) common.reportError(error, 'detail');}).finally(() => {pending.delete(operation);});
+        return;
+      }
+      if (entry.kind === 'collection' && !entry.libraryId) {common.reportError(Object.assign(new Error('unavailable'), {code: 'unavailable'}), 'detail'); return;}
+      common.navigate(entry);
+    },
     play,
     menu: (entry: ContentEntry, anchorRef?: RefObject<View | null>, select?: () => void) => {
       if (!current(entry)) return;
