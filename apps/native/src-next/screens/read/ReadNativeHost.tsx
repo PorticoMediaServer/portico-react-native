@@ -45,15 +45,19 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
 
   const owner = useMemo(() => {
     const captured = context.session();
-    const current = () => !!captured && context.current() && (!binding || binding.retainedCurrent())
-      && context.session()?.sessionFamilyId === captured.sessionFamilyId && context.current() && (!binding || binding.retainedCurrent());
+    const authorityCurrent = () => {if (!captured || !context.current()) return false;
+      const actual = context.session();
+      return !!actual && actual.sessionFamilyId === captured.sessionFamilyId
+        && (['authority', 'serverId', 'accountId', 'profileId', 'role'] as const).every(key => actual.viewer[key] === captured.viewer[key])
+        && context.current();};
+    const current = () => authorityCurrent() && (!binding || binding.retainedCurrent()) && authorityCurrent();
     return createReadingSessionOwner({current, subscribe: listener => binding ? binding.subscribe(listener) : context.subscribeAuthority(listener), acquire: async (signal, ownerCurrent) => {
       if (!captured || !ownerCurrent()) throw cancelled();
       const downloads = target.downloadId ? createNativeDownloadsDevice(context) : undefined;
       // The original authority, not the retired guest, permits only the bounded
       // close of this captured session. Authority replacement still refuses IO.
       const clientLife = new AbortController();
-      const client = target.downloadId ? undefined : context.api.reading({viewer: captured.viewer, isCurrent: current, signal: clientLife.signal});
+      const client = target.downloadId ? undefined : context.api.reading({viewer: captured.viewer, isCurrent: authorityCurrent, signal: clientLife.signal});
       let original: Session | undefined, released = false;
       const annotationTicket = {};
       const release = () => {if (released) return; released = true;
@@ -93,11 +97,11 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
           readAsset: bridge.readAsset, page: bridge.page, progress: bridge.progress, saveProgress: bridge.saveProgress,
           ...(bridge.openSequential ? {openSequential: bridge.openSequential} : {}), ...(bridge.annotations ? {annotations: bridge.annotations} : {}),
           ...(bridge.mutateAnnotation ? {mutateAnnotation: bridge.mutateAnnotation} : {}),
-          close: async closeSignal => {if (current()) await accepted.close(closeSignal);}};
+          close: async closeSignal => {if (authorityCurrent()) await accepted.close(closeSignal);}};
         if (!ownerCurrent()) throw cancelled();
         return {session, release};
       } catch (error) {
-        if (original && current()) {try {await closeReadingResource({session: original, release});} catch { /* Preserve the original admission failure. */ }}
+        if (original && authorityCurrent()) {try {await closeReadingResource({session: original, release});} catch { /* Preserve the original admission failure. */ }}
         else release();
         throw error;
       }
