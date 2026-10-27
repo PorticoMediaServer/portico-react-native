@@ -55,3 +55,8 @@ test('void refusal, unrelated receipt, and a successor between accepted return a
   const expected=f.navigation.getSnapshot();await act(()=>{});assert.equal(f.navigation.getSnapshot(),expected);if(kind!=='successor')assert.equal(expected,launch);
  }finally{f.dispose();}}
 });
+
+test('TV keeps its existing pending/error outlet and does not consume a touch launch receipt',async()=>{
+ platform.isTV=true;const f=await fixture();try{assert.equal(f.output(),null);assert.equal(f.request().onAccepted,undefined);await act(()=>f.reject(new Error('failure')));assert(nodes(f.output()).some(node=>node.type==='Error'));}
+ finally{f.dispose();platform.isTV=false;}
+});
