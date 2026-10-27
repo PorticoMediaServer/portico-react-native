@@ -174,9 +174,13 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
   };
   rules = async (cursor = '') => parseAdminRulePage(await this.request<unknown>('/v1/admin/dvr/recording-groups?' + new URLSearchParams({limit: '100', cursor})), this.lifetime.authority.serverId);
   private async recordingMutation(draft: Parameters<typeof recordingRulePayload>[0], grants: readonly RecordingGrant[], caller?: NativeRecordingCommandLifetime): Promise<AdminRule> {
+    const callerSignal=caller?.signal,callerCurrent=caller?.isCurrent;
     const current = () => {
-      if (!this.current() || caller?.signal.aborted || caller && !caller.isCurrent()) return false;
-      return !this.disposed && !caller?.signal.aborted && this.current() && !this.disposed;
+      if (this.disposed || callerSignal?.aborted || !this.current() || this.disposed || callerSignal?.aborted) return false;
+      if (callerCurrent && !callerCurrent()) return false;
+      const ownerCurrent=this.current();
+      // The final owner predicate may synchronously retire this original caller.
+      return ownerCurrent && !this.disposed && !callerSignal?.aborted;
     };
     if (!current()) throw screenScopeEnded();
     const original = clonePortableDto(draft);
@@ -189,7 +193,7 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
       const value = await this.api.request<unknown>(path, original.id ? 'PUT' : 'POST', payload, signal);
       if (!current()) throw screenScopeEnded();
       return value;
-    }, caller?.signal);
+    }, callerSignal);
     if (!current()) throw screenScopeEnded();
     const envelope = response as {serverId?: unknown; result?: unknown};
     const saved = parseAdminRulePage({serverId: envelope?.serverId, result: {items: [envelope?.result]}}, this.lifetime.authority.serverId).items[0]!;

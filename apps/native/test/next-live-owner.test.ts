@@ -210,3 +210,19 @@ test('original create/toggle caller retirement during POST/PUT never refreshes o
   }finally{controller.dispose();lifetime.dispose();}
  }
 });
+
+test('last original owner predicate aborting a command caller inside the real lifetime request refuses before API dispatch',async()=>{
+ const caller=new AbortController();let insideRequest=false,armed=false,requests=0;
+ class ObservedLifetime extends NativeScreenLifetime{
+  override request<T>(read:(signal:AbortSignal)=>Promise<T>,signal?:AbortSignal):Promise<T>{insideRequest=true;return super.request(read,signal).finally(()=>{insideRequest=false;});}
+ }
+ const original=authority();const lifetime=new ObservedLifetime({...original,current:()=>{if(armed)caller.abort();return original.current();}});
+ const controller=new NativeLiveOwnerController(lifetime,{request:async<T>()=>{requests++;return {} as T;}},()=> 'original-pre-io');
+ const owner={authority:'local' as const,accountId:'a',profileId:'p'},grants=[{owner,enabled:true,inheritProfiles:false,revision:1}];
+ try{
+  await assert.rejects(controller.createRule({owner,anchor:{sourceId:'s',channelId:'c',generation:'g',programmeId:'programme'},kind:'title',name:'Title',match:'Title',sourceId:'s',enabled:false,
+   options:{prePaddingMs:60000,postPaddingMs:0,keepPolicy:null,newEpisodesOnly:false,priority:0,folderTemplate:''}},grants,
+   {signal:caller.signal,isCurrent:()=>{if(insideRequest)armed=true;return true;}}),{name:'AbortError'});
+  assert.equal(armed,true);assert.equal(caller.signal.aborted,true);assert.equal(requests,0,'no API dispatch, acceptance or shared refresh after nested caller abort');assert.equal(lifetime.current(),true);
+ }finally{controller.dispose();lifetime.dispose();}
+});
