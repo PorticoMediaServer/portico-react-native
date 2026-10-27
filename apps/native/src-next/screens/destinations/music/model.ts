@@ -89,6 +89,8 @@ export class NativeTVMusicController {
   private api: Pick<NativeShellBootstrapContext['api'], 'request'>;
   private entityWitness?: Readonly<{service: LibraryContentService; projection: ContentProjection; signal: AbortSignal}>;
   private similarEntries = new WeakSet<ContentEntry>();
+  private releaseDTOs = new WeakMap<MusicAlbumRow,ContentEntry>();
+  private releaseWitness = new WeakMap<ContentEntry,MusicAlbumRow>();
   private songPager?: MusicSectionPager<ContentEntry>;
   private releasePager?: MusicSectionPager<MusicAlbumRow>;
   private allSongPager?: MusicSectionPager<ContentEntry>;
@@ -117,8 +119,21 @@ export class NativeTVMusicController {
     const state = this.state;
     if(this.similarEntries.has(entry))return this.similarCurrent(state,entry);
     return state.entry === entry || state.songs.includes(entry) || state.allSongs.phase!=='refresh-required' && state.allSongs.songs.includes(entry)
-      || entry.kind === 'album' && state.albums.some(value => value.id === entry.id && value.libraryId === entry.libraryId);
+      || this.releaseCurrent(entry);
   };
+  /** The presenter borrows one DTO from the exact offered release object.
+   * Equal IDs from a replacement section never revive an old card/menu. */
+  releaseEntry = (row: MusicAlbumRow): ContentEntry | undefined => {
+    if(!this.current()||this.state.releases.phase==='refresh-required'||!this.state.albums.includes(row))return undefined;
+    const existing=this.releaseDTOs.get(row);if(existing)return existing;
+    const entry:ContentEntry=Object.freeze({id:row.id,libraryId:row.libraryId,kind:'album',title:row.title,
+      ...(row.artist?{artist:row.artist}:{}),...(row.year?{year:row.year}:{}),...(row.posterUrl?{posterUrl:row.posterUrl}:{})});
+    this.releaseDTOs.set(row,entry);this.releaseWitness.set(entry,row);return entry;
+  };
+  private releaseCurrent(entry:ContentEntry):boolean{
+    const row=this.releaseWitness.get(entry);
+    return !!row&&this.state.releases.phase!=='refresh-required'&&this.state.albums.includes(row);
+  }
   /** A card belongs to the original entity projection, not a later same-ID page. */
   similarCurrent = (snapshot: NativeTVMusicSnapshot, entry: ContentEntry): boolean => {
     const witness=this.entityWitness;

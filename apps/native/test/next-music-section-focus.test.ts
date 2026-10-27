@@ -158,3 +158,20 @@ test('simultaneous music section and Similar errors yield different real StateVi
  }
  assert.equal(new Set(ids).size,4);
 });
+
+test('a real focused row host prevents section eviction until focus transfers to the retained Next control',async()=>{
+ const {MusicSectionPager}=await import('../src-next/screens/destinations/music/paging.ts');let calls=0;
+ const pager=new MusicSectionPager<{id:string}>({current:()=>true,publish:()=>{},read:async cursor=>{calls++;const n=Number(cursor||0);return {items:[{id:String(n)}],nextCursor:n<4?String(n+1):'',offset:n,total:5,revision:'r'};}});
+ await pager.load();await pager.next(pager.getSnapshot());await pager.next(pager.getSnapshot());const original=pager.getSnapshot(),row=original.items[0];
+ const bound=realRegion(),rowHost={requestTVFocus(){}},nextHost={requestTVFocus(){}};
+ const rendered=nativeChain(React.createElement(Focusable,{focusId:'original-song',onFocus:()=>pager.focus(row,original),onBlur:()=>pager.blur(row),onPress:()=>{}}) as Element);
+ const next=nativeChain(React.createElement(Button,{focusId:'music-next-artist-all',onPress:()=>{void pager.next(pager.getSnapshot());}},'Next') as Element);
+ try{
+  rendered.node.props.ref(rowHost);rendered.node.props.onFocus({nativeEvent:{}});
+  assert.equal(bound.registry.child({regionId:'music-list',childId:'original-song'}),rowHost);assert.equal(bound.registry.capture()?.childId,'original-song');
+  await pager.next(original);assert.equal(calls,3);assert.equal(pager.getSnapshot().items[0],row);assert.equal(bound.registry.child({regionId:'music-list',childId:'original-song'}),rowHost);
+  rendered.node.props.onBlur({nativeEvent:{}});next.node.props.ref(nextHost);next.node.props.onFocus({nativeEvent:{}});next.node.props.onPress();for(let i=0;i<10;i++)await Promise.resolve();
+  assert.equal(calls,4);assert.equal(pager.getSnapshot().items.includes(row),false);assert.equal(bound.registry.capture()?.childId,'music-next-artist-all');assert.equal(bound.registry.child({regionId:'music-list',childId:'music-next-artist-all'}),nextHost);
+  await pager.previous(pager.getSnapshot());assert.equal(pager.getSnapshot().offset,0);assert.equal(bound.registry.capture()?.childId,'music-next-artist-all');
+ }finally{rendered.close();next.close();bound.close();pager.dispose();}
+});
