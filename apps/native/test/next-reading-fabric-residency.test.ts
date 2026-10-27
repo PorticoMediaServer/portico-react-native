@@ -19,15 +19,26 @@ after(() => {if (priorDev) Object.defineProperty(globalThis, '__DEV__', priorDev
 /** Real Fabric reconciliation and production route/host/guest/bridge. WebView,
  * server transport and native assets are controlled boundaries, not a device. */
 for (const revokeEvicted of [false, true])
-test(`actual retained Read components cap guest residency and restore original sessions (evicted revoked=${revokeEvicted})`, async () => {
-  const fabric = await fabricHost(), react = {...React, default: React};
+test(`actual retained Read components cap guest residency and restore original sessions (evicted revoked=${revokeEvicted})`, async t => {
+  let finishRange: ((value: Response) => void) | undefined, rangeCancelled: Promise<boolean> | undefined, cleanupRequested = false;
+  let cleanupFabric = async () => {}, cleanupRenderer = () => {}, cleanupNavigation = () => {};
+  const revision = 'a'.repeat(64);
+  const releaseHeld = () => {cleanupRequested = true; const release = finishRange; finishRange = undefined;
+    release?.(new Response(new Uint8Array([7]), {status: 206, headers: {'Content-Type': 'application/pdf', 'Content-Length': '1', 'Content-Range': 'bytes 0-0/100', ETag: `"${revision}"`}}));};
+  const boundedOutcome = async () => {if (!rangeCancelled) return undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {return await Promise.race([rangeCancelled, new Promise<never>((_, reject) => {timer = setTimeout(() => reject(new Error('range cancellation did not settle')), 2000);})]);}
+    finally {if (timer) clearTimeout(timer);}};
+  // Register before setup/await: unmount the original guest, retire its owners,
+  // release the controlled response, then bounded-join the observed outcome.
+  t.after(async () => {try {await cleanupFabric();} finally {try {cleanupRenderer();} finally {try {cleanupNavigation();} finally {releaseHeld(); await boundedOutcome();}}}});
+  const fabric = await fabricHost(), react = {...React, default: React}; cleanupFabric = () => fabric.unmount();
   const calls: {method: string; item?: string; kind?: string}[] = [], originals = new Map<string, any>(), views = new Set<any>(), allViews: any[] = [];
-  let peak = 0, authorityCurrent = true, finishRange: ((value: Response) => void) | undefined;
-  let rangeCancelled: Promise<boolean> | undefined;
+  let peak = 0, authorityCurrent = true;
   const authorityListeners = new Set<() => void>();
   const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'a'.repeat(64)};
   const viewer = {authority: 'local', serverId: 'server', accountId: 'account', profileId: 'profile', role: 'member'} as const;
-  const revision = 'a'.repeat(64), navigation = new NativeShellNavigation(authority, () => authority);
+  const navigation = new NativeShellNavigation(authority, () => authority); cleanupNavigation = () => navigation.dispose();
   const fields = [...(nativeReadingSettingsSection.groups ?? []), ...(nativeReadingSettingsSection.advanced?.groups ?? [])].flatMap(group => group.rows).map(row => ({
     key: row.key!, type: typeof row.control.default === 'boolean' ? 'boolean' : typeof row.control.default === 'number' ? 'integer' : 'string',
     default: row.control.default, scopes: ['profile-server'], group: 'reading', labelKey: `preferences.${row.key}`,
@@ -50,7 +61,7 @@ test(`actual retained Read components cap guest residency and restore original s
       return new Response(JSON.stringify(manifest), {headers: {'Content-Type': 'application/json', ETag: `"${revision}"`}});
     }
     const match = path.match(/\/sessions\/session-(\d+)/), index = Number(match?.[1]); calls.push({method, item: `item-${index}`});
-    if (path.endsWith('/source')) return new Promise<Response>(resolve => {finishRange = resolve;});
+    if (path.endsWith('/source')) return new Promise<Response>(resolve => {finishRange = resolve; if (cleanupRequested) releaseHeld();});
     if (method === 'DELETE') return new Response(null, {status: 204});
     return new Response(JSON.stringify({progress: {sourceId: `source-${index}`, sourceRevision: revision,
       location: {format: 'pdf', pageIndex: index, progression: 0}, revision: 1, observedAt: 1, stale: false}}),
@@ -104,10 +115,10 @@ test(`actual retained Read components cap guest residency and restore original s
   const {createNativeReadRenderer} = await screenModule(new URL('../src-next/screens/read/ReadRoute.tsx', import.meta.url), {
     react, 'react-native': {Platform: {isTV: false}}, './host-component': {nativeReadHost: () => ReadNativeHost}, './read-route-back': {readRouteBack},
   });
-  const renderer = createNativeReadRenderer(context, preferences, () => {});
+  const renderer = createNativeReadRenderer(context, preferences, () => {}); cleanupRenderer = () => renderer.dispose();
   function Root() {React.useSyncExternalStore(navigation.subscribe, navigation.getSnapshot, navigation.getSnapshot); return renderer.renderRetained();}
   const settle = async () => {await fabric.settle(); await fabric.settle();};
-  try {
+  {
     await fabric.render(React.createElement(Root));
     for (let index = 0; index < 20; index++) {
       if (index) {assert.equal(navigation.open({kind: 'search-reading', query: `book ${index}`}, authority), true); await settle();}
@@ -117,8 +128,8 @@ test(`actual retained Read components cap guest residency and restore original s
       assert.ok([...views].some(view => view.guest?.session.manifest.itemId === `item-${index}`), 'actual current guest is ready');
       if (index === 0) {const guest = [...views].find(view => view.active)!.guest;
         rangeCancelled = guest.session.readRange({start: 0, endExclusive: 1}).then(() => false, () => true); await settle(); assert.ok(finishRange);}
-      if (index === 2) {assert.equal(await rangeCancelled, true, 'eviction cancels the old binary transfer');
-        finishRange!(new Response(new Uint8Array([7]), {status: 206, headers: {'Content-Type': 'application/pdf', 'Content-Length': '1', 'Content-Range': 'bytes 0-0/100', ETag: `\"${revision}\"`}})); await settle();}
+      if (index === 2) {assert.equal(await boundedOutcome(), true, 'eviction cancels the old binary transfer');
+        releaseHeld(); await settle();}
     }
     assert.ok(peak <= 2, `at most two committed WebView boundaries, observed ${peak}`);
     assert.equal(calls.filter(call => call.kind === 'versions').length, 20);
@@ -140,5 +151,5 @@ test(`actual retained Read components cap guest residency and restore original s
     assert.equal(calls.filter(call => call.method === 'DELETE').length, revokeEvicted ? 18 : 19, 'each still-current removed original was closed once');
     const before = calls.length; authorityCurrent = false; for (const listener of [...authorityListeners]) listener(); await settle();
     assert.equal(calls.length, before, 'authority retirement causes no new IO');
-  } finally {await fabric.unmount(); renderer.dispose(); navigation.dispose();}
+  }
 });
