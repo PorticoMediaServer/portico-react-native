@@ -7,6 +7,7 @@ import {routePath as hostedPath, routeBody as hostedBody} from '../../../../pack
 import {nativeAccounts} from './accounts';
 import {linkNativeAbortSignals} from './abort-signals';
 import {hostedUrl} from './account-authority';
+import {serializeContinuation} from '../../src/bridge/continuation-queue';
 
 /** An opaque, frozen witness for the private factor challenge this port holds. It
  * carries no challenge token and cannot be forged: only this exact cached object is
@@ -20,17 +21,6 @@ export type NativeFactorWitness = Readonly<{readonly [nativeFactorWitness]: true
  * generic conflict, a transport failure or an email/provider answer never does. */
 export const porticoUsernameUnavailable = (error: unknown): boolean =>
   error instanceof ApiError && error.status === 409 && error.code === 'username_unavailable';
-
-// In-process ordering for this port's per-origin continuation storage operations.
-const continuationWrites = new Map<string, Promise<void>>();
-function serializeContinuation<T>(origin: string, work: () => Promise<T>): Promise<T> {
-  const previous = continuationWrites.get(origin) ?? Promise.resolve();
-  const result = previous.then(work);
-  const settled = result.then(() => {}, () => {});
-  continuationWrites.set(origin, settled);
-  void settled.then(() => {if (continuationWrites.get(origin) === settled) continuationWrites.delete(origin);});
-  return result;
-}
 
 /** Explicit Portico sign-in only. Native continuation storage contains a binding and
  * one-time completion, never a password, provider assertion or session credential. */
@@ -112,8 +102,8 @@ export class NativePorticoSignIn {
     } finally {this.authenticating = false;}
   }
   async password(username: string, password: string, callerCurrent?: () => boolean) {
-    const id = await this.bridge.newRequestId(); this.check();
-    if (callerCurrent && !callerCurrent()) throw new CodedError('cancelled', 'native_portico_changed');
+    this.checkCaller(callerCurrent);
+    const id = await this.bridge.newRequestId(); this.checkCaller(callerCurrent);
     return this.authenticate(signal => this.api().login(username, password, id, signal), callerCurrent);
   }
   /** Issue, or reuse, the witness for the private challenge this port holds. The
