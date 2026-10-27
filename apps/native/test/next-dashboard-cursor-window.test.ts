@@ -203,3 +203,20 @@ for (const when of ['notification', 'response'] as const) test(`currentness refu
   current = true; const successor = window.refresh(); assert.equal(calls, when === 'notification' ? 1 : 2); finish({items: [{id: 'successor'}], metadata: 2}); await successor;
   assert.equal(window.snapshot().items[0]?.id, 'successor'); window.dispose();
 });
+
+test('cancelPending preserves a successor installed by changed and old abort callbacks', async () => {
+  let finishOld!: (value: DashboardCursorPage<{id: string}, number>) => void, finishNew!: (value: DashboardCursorPage<{id: string}, number>) => void;
+  let calls = 0, successor: Promise<void> | undefined, fromAbort: Promise<void> | undefined, cancelling = false;
+  const window = new DashboardCursorWindow<{id: string}, number>((_cursor, signal) => {
+    calls++;
+    if (calls === 1) return new Promise(resolve => {finishOld = resolve; signal.addEventListener('abort', () => {fromAbort = window.next(window.snapshot());}, {once: true});});
+    return new Promise(resolve => {finishNew = resolve;});
+  }, row => row.id, () => true, value => {if (cancelling && !value.pending && !successor) successor = window.next(value);});
+  window.seed('', {items: [{id: 'first'}], nextCursor: 'next', metadata: 1});
+  const old = window.next(window.snapshot()); cancelling = true; window.cancelPending();
+  assert.equal(calls, 2); assert.ok(successor); assert.equal(fromAbort, successor);
+  finishOld({items: [{id: 'retired'}], metadata: 1}); await old;
+  assert.equal(window.snapshot().pending, true); assert.equal(window.snapshot().items.some(row => row.id === 'retired'), false);
+  finishNew({items: [{id: 'successor'}], metadata: 1}); await successor;
+  assert.deepEqual(window.snapshot().items.map(row => row.id), ['first', 'successor']); window.dispose();
+});

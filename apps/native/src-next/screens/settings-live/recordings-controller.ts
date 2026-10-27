@@ -37,17 +37,21 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
   private current = () => !this.disposed && this.lifetime.current();
   private assert() {this.lifetime.assert(); if (this.disposed) throw screenScopeEnded();}
   load(query: NativeRecordingQuery = this.getSnapshot().query, opening?: object): Promise<void> {
+    const predecessor = this.viewerWindow, priorEpoch = this.epoch;
     if (opening && !this.viewerOpeningCurrent(opening)) return Promise.resolve();
     this.assert();
-    if (this.getSnapshot().accessDenied || opening && !this.viewerOpeningCurrent(opening)) return Promise.resolve();
-    const predecessor = this.viewerWindow, priorEpoch = this.epoch; this.viewerWindow = undefined; predecessor?.dispose();
+    if (this.epoch !== priorEpoch || this.viewerWindow !== predecessor || this.getSnapshot().accessDenied || opening && !this.viewerOpeningCurrent(opening) || this.epoch !== priorEpoch || this.viewerWindow !== predecessor) return Promise.resolve();
+    this.viewerWindow = undefined; predecessor?.dispose();
     if (this.epoch !== priorEpoch || this.viewerWindow || opening && !this.viewerOpeningCurrent(opening) || this.epoch !== priorEpoch || this.viewerWindow) return Promise.resolve();
     const original = Object.freeze({...query});
     const epoch = ++this.epoch, previous = this.getSnapshot();
     const same = JSON.stringify(previous.query) === JSON.stringify(original);
+    const pending = {query: original, epoch, opening}; this.pending = pending;
     this.publish({...previous, query: original, page: same ? previous.page : undefined, groups: same ? previous.groups : undefined, viewerWindow: undefined, loading: true, error: undefined});
-    if (epoch !== this.epoch || opening && !this.viewerOpeningCurrent(opening) || epoch !== this.epoch) return Promise.resolve();
-    this.pending = {query: original, epoch, opening};
+    if (this.pending !== pending || epoch !== this.epoch || opening && !this.viewerOpeningCurrent(opening) || this.pending !== pending || epoch !== this.epoch) {
+      if (this.pending === pending) {this.pending = undefined; if (epoch === this.epoch && this.getSnapshot().loading) this.publish({...this.getSnapshot(), loading: false});}
+      return this.worker ?? Promise.resolve();
+    }
     // Moving focus quickly across the five chips replaces pending work, instead of queuing
     // private reads for every intermediate selection. At most one page read is in flight.
     if (!this.worker) this.worker = this.drain().finally(() => {this.worker = undefined;});

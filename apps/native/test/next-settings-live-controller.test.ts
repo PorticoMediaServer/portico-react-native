@@ -552,3 +552,35 @@ test('recording first-page recovery refuses an opening retired inside the lifeti
   await controller.load({view: 'upcoming'}, successor); assert.deepEqual(calls, [undefined, undefined]);
   controller.endViewerOpening(successor); controller.dispose(); lifetime.dispose();
 });
+
+test('recording load reserves its pending query before a loading subscriber queues a successor', async () => {
+  const fixture = recordingService(), lifetime = new NativeScreenLifetime(authority()), controller = new NativeRecordingsController(lifetime, fixture.service);
+  const calls: string[] = []; let finish!: (page: DVRPage) => void, successor: Promise<void> | undefined;
+  fixture.service.list = async view => {calls.push(view); return view === 'upcoming' ? new Promise(resolve => {finish = resolve;}) : {...fixture.page, recordings: [{id: view, revision: 1} as Recording]};};
+  const blocked = controller.load({view: 'upcoming'});
+  const off = controller.subscribe(() => {const state = controller.getSnapshot(); if (state.loading && state.query.view === 'rules' && !successor) successor = controller.load({view: 'history'});});
+  const original = controller.load({view: 'rules'}); assert.ok(successor);
+  finish(fixture.page); await Promise.all([blocked, original, successor!]);
+  assert.deepEqual(calls, ['upcoming', 'history']); assert.equal(controller.getSnapshot().query.view, 'history');
+  assert.equal(controller.getSnapshot().loading, false); assert.equal(controller.getSnapshot().page?.recordings[0]?.id, 'history');
+  off(); controller.dispose(); lifetime.dispose();
+});
+
+test('recording recovery cannot overwrite a successor installed by predecessor abort', async () => {
+  const fixture = recordingService(), lifetime = new NativeScreenLifetime(authority()), controller = new NativeRecordingsController(lifetime, fixture.service);
+  const calls: string[] = []; let finishOld!: (page: DVRPage) => void, successor: Promise<void> | undefined;
+  fixture.service.list = async (view, cursor) => {calls.push(`${view}:${cursor ?? ''}`); return cursor ? new Promise(resolve => {finishOld = resolve;}) : {...fixture.page, nextCursor: view === 'upcoming' ? 'next' : ''};};
+  await controller.load({view: 'upcoming'}); const opening = {}, nextOpening = {}; controller.beginViewerOpening(opening);
+  const OriginalAbort = globalThis.AbortController; let onAbort: (() => void) | undefined;
+  class ObservedAbort extends OriginalAbort {abort(reason?: unknown): void {super.abort(reason); const callback = onAbort; onAbort = undefined; callback?.();}}
+  globalThis.AbortController = ObservedAbort;
+  try {
+    const old = controller.nextViewerPage(controller.getSnapshot().viewerWindow!, opening);
+    onAbort = () => {controller.beginViewerOpening(nextOpening); successor = controller.load({view: 'history'}, nextOpening);};
+    await controller.load({view: 'rules'}, opening); assert.ok(successor); await successor;
+    finishOld({...fixture.page, recordings: [{id: 'late', revision: 1} as Recording]}); await old;
+    assert.deepEqual(calls, ['upcoming:', 'upcoming:next', 'history:']);
+    assert.equal(controller.getSnapshot().query.view, 'history'); assert.equal(controller.getSnapshot().loading, false);
+    controller.endViewerOpening(nextOpening);
+  } finally {globalThis.AbortController = OriginalAbort; controller.dispose(); lifetime.dispose();}
+});
