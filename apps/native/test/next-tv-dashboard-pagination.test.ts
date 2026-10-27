@@ -183,3 +183,56 @@ for (const field of ['serverId', 'profileId'] as const) test(`Dashboard retires 
   await controller.nextSessions(original); assert.deepEqual(calls, [undefined, 'next']);
   controller.dispose(); lifetime.dispose();
 });
+
+test('Dashboard loading notification disposal refuses every old owner read', async () => {
+  const lifetime = new NativeScreenLifetime({authority: () => authority, current: () => true, subscribeAuthority: () => () => {}});
+  const calls: string[] = [];
+  const readers: NativeDashboardReaders = {
+    sessions: {list: async () => {calls.push('sessions'); return page('row', 1);}},
+    console: {measurement: async name => {calls.push(name); return {name, observedAt: 1, freshUntil: 30001, facts: {}};}, alerts: async () => {calls.push('alerts'); return [];}, jobs: async () => {calls.push('jobs'); return {items: [], nextCursor: ''};}, dispose() {}},
+  };
+  const controller = new NativeDashboardController(lifetime, () => 'owner', readers);
+  const off = controller.subscribe(() => {if (controller.getSnapshot().loading) controller.dispose();});
+  await controller.refresh(); assert.deepEqual(calls, []); assert.equal(controller.getSnapshot().admission, 'denied');
+  off(); controller.dispose(); lifetime.dispose();
+});
+
+test('Dashboard loading notification installs an administrator successor before owner dispatch', async () => {
+  const lifetime = new NativeScreenLifetime({authority: () => authority, current: () => true, subscribeAuthority: () => () => {}});
+  let role: 'owner' | 'administrator' = 'owner', successor: Promise<void> | undefined; const calls: string[] = [];
+  const readers: NativeDashboardReaders = {
+    sessions: {list: async () => {calls.push(`sessions:${role}`); return page('admin', 1);}},
+    console: {measurement: async name => {calls.push(name); return {name, observedAt: 1, freshUntil: 30001, facts: {}};}, alerts: async () => {calls.push('alerts'); return [];}, jobs: async () => {calls.push('jobs'); return {items: [], nextCursor: ''};}, dispose() {}},
+  };
+  const controller = new NativeDashboardController(lifetime, () => role, readers);
+  const off = controller.subscribe(() => {if (role === 'owner' && controller.getSnapshot().loading) {role = 'administrator'; successor = controller.refresh();}});
+  const old = controller.refresh(); await old; assert.ok(successor); await successor;
+  assert.deepEqual(calls, ['sessions:administrator']); assert.equal(controller.getSnapshot().admission, 'administrator');
+  assert.equal(controller.getSnapshot().sessions[0]?.id, 'admin0'); assert.deepEqual(controller.getSnapshot().jobs, []);
+  off(); controller.dispose(); lifetime.dispose();
+});
+
+test('Dashboard disposal notification cannot reenter refresh while the lifetime remains live', async () => {
+  const lifetime = new NativeScreenLifetime({authority: () => authority, current: () => true, subscribeAuthority: () => () => {}});
+  const calls: string[] = []; let reentered: Promise<void> | undefined;
+  const readers: NativeDashboardReaders = {
+    sessions: {list: async () => {calls.push('sessions'); return page('row', 1);}},
+    console: {measurement: async name => {calls.push(name); return {name, observedAt: 1, freshUntil: 30001, facts: {}};}, alerts: async () => {calls.push('alerts'); return [];}, jobs: async () => {calls.push('jobs'); return {items: [], nextCursor: ''};}, dispose() {}},
+  };
+  const controller = new NativeDashboardController(lifetime, () => 'owner', readers);
+  controller.subscribe(() => {if (controller.getSnapshot().admission === 'denied') reentered = controller.refresh();});
+  controller.dispose(); assert.ok(reentered); await reentered; assert.equal(lifetime.current(), true); assert.deepEqual(calls, []);
+  lifetime.dispose();
+});
+
+test('Dashboard current owner refresh dispatches each authorized section once', async () => {
+  const lifetime = new NativeScreenLifetime({authority: () => authority, current: () => true, subscribeAuthority: () => () => {}});
+  const calls: string[] = [];
+  const readers: NativeDashboardReaders = {
+    sessions: {list: async () => {calls.push('sessions'); return page('owner', 1);}},
+    console: {measurement: async name => {calls.push(name); return {name, observedAt: 1, freshUntil: 30001, facts: {}};}, alerts: async () => {calls.push('alerts'); return [];}, jobs: async () => {calls.push('jobs'); return {items: [], nextCursor: ''};}, dispose() {}},
+  };
+  const controller = new NativeDashboardController(lifetime, () => 'owner', readers); await controller.refresh();
+  assert.deepEqual(calls, ['sessions', 'health', 'storage', 'alerts', 'jobs']); assert.equal(controller.getSnapshot().loading, false);
+  controller.dispose(); lifetime.dispose();
+});
