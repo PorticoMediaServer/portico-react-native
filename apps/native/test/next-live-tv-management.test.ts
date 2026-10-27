@@ -11,6 +11,7 @@ import * as kitModel from '../../../packages/client-core/src/presentation/kit-mo
 import * as guidePresentation from '../src-next/screens/settings-live/guide-presentation';
 import * as guidePan from '../src-next/screens/settings-live/guide-pan-model';
 import * as rules from '../src-next/screens/settings-live/recording-rule-presentation';
+import * as overlap from '../src-next/screens/settings-live/recording-overlap-window';
 import * as shellModel from '../src-next/shell/model';
 import {tvFocusIds} from '../src-next/shell/tv-focus';
 import {createTheme, nativeType} from '../src-next/kit/theme';
@@ -71,7 +72,7 @@ async function fixture({isTV = true, role = 'owner', primary = 'main', canManage
     '../../kit/theme': {useTheme: () => theme}, '../../shell/tv-focus': {tvFocusIds}, './Screen': {Screen: 'Screen', ScreenText: 'ScreenText', useScreenBack, useScreenEntry: () => noop}, './recording-rule-presentation': rules};
   const recordingModule = await screenModule(new URL('../src-next/screens/settings-live/RecordingsScreen.tsx', import.meta.url), {...common,
     '../../../../../packages/client-core/src/presentation/title-page': {}, '../../../../../packages/client-core/src/media-item': {}, '../../../../../packages/client-core/src/library-content': {}, '../../../../../packages/contracts/src/routes': {},
-    './LiveOwnerRecording': {NewRuleSheet: (props: any) => {editors.push(`new-rule:${props.open}`); return jsx('NewRuleEditor', props);}},
+    './recording-overlap-window': overlap, './LiveOwnerRecording': {NewRuleSheet: (props: any) => {editors.push(`new-rule:${props.open}`); return jsx('NewRuleEditor', props);}},
   });
   const recordingState = {query: {view: 'upcoming'}, loading: false, busy: false, accessDenied: false, page: {recordings: [], rules: [], captureAvailable: true}};
   const recordings: any = {lifetime, subscribe, getSnapshot: () => recordingState, load: async () => {}, loadFacts: async () => {}};
