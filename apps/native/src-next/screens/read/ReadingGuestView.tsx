@@ -1,7 +1,10 @@
 import React from 'react';
 import WebView from 'react-native-webview';
-import type {createReadingHost} from '../../../../../packages/client-core/src';
-import {readerNavigationAllowed} from './asset-origin';
+import {createReadingHost} from '../../../../../packages/client-core/src';
+import {routeBase64} from '../../../../../packages/client-core/src/route-identity';
+import {nativeRouteCrypto} from '../../platform/server-connections';
+import {readingHighlightsSavePort} from '../../platform/reading-highlights-save';
+import {readerDelivery, readerNavigationAllowed} from './asset-origin';
 import {readerStartupDiagnostic, readerStartupProbe} from './startup-diagnostics';
 
 type Reader = ReturnType<typeof createReadingHost>;
@@ -27,4 +30,12 @@ export function ReadingGuestView({url, view, reader, currentReader, backgroundCo
     allowFileAccess={false} allowFileAccessFromFileURLs={false} allowUniversalAccessFromFileURLs={false} mixedContentMode="never"
     javaScriptCanOpenWindowsAutomatically={false} setSupportMultipleWindows={false} onOpenWindow={() => {}}
     onError={onFailure} onContentProcessDidTerminate={onFailure} onRenderProcessGone={onFailure}/>;
+}
+
+/** Build the credential-free bridge for the exact session supplied by its owner.
+ * The owner retains admission, authority, activity and session close. */
+export function createReadingGuestBridge(options: Omit<Parameters<typeof createReadingHost>[0], 'channel' | 'send' | 'saveHighlights'>,
+  view: React.RefObject<WebView | null>, observe: (direction: 'host-to-guest', message: string) => void) {
+  return createReadingHost({...options, channel: routeBase64(nativeRouteCrypto.random(24)), saveHighlights: readingHighlightsSavePort(),
+    send: message => {observe('host-to-guest', message); view.current?.injectJavaScript(readerDelivery(message));}});
 }
