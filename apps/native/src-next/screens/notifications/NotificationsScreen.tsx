@@ -82,18 +82,28 @@ export function NativeNotificationsScreen({context, route, runtime, profileServi
     && context.navigation.getSnapshot().route === lease.route;
   const current = () => !!lease && routeLive() && lease.retirement.getSnapshot() === undefined;
 
+  // The committed lease and the drawn tab are the one load trigger for each feed: a lease
+  // commit loads the view it was committed with, and a tab press loads the new view once it
+  // commits. changeView only draws the tab, so the tab is read once, never twice.
   useEffect(() => {
     if (!lease || retired) return;
     void lease.profile.load('profile', view);
-  }, [lease, retired]);
+  }, [lease, retired, view]);
   useEffect(() => {
     if (!lease || retired || context.account.account.role !== 'owner') return;
     void lease.admin.load('account-admin', view);
-  }, [context, lease, retired]);
+  }, [context, lease, retired, view]);
   useEffect(() => {
     if (!lease || retired) return;
     const refresh = () => {
-      if (!current()) return;
+      // The exact `current()` test, inlined: this subscription may only load while the layout
+      // it was registered for is still the committed one. It never borrows a newer authority.
+      const live = lease.live.value
+        && sameAuthority(lease.authority, context.authority())
+        && context.navigation.getSnapshot().revision === lease.revision
+        && context.navigation.getSnapshot().route === lease.route
+        && lease.retirement.getSnapshot() === undefined;
+      if (!live) return;
       void lease.profile.load('profile', view);
       if (context.account.account.role === 'owner') void lease.admin.load('account-admin', view);
     };
@@ -120,10 +130,7 @@ export function NativeNotificationsScreen({context, route, runtime, profileServi
 
   const changeView = (next: string) => {
     if (!current() || lease.profile.getSnapshot().view !== view) return;
-    const value = next as InboxView;
-    setView(value);
-    void lease.profile.load('profile', value);
-    if (adminRequested) void lease.admin.load('account-admin', value);
+    setView(next as InboxView);
   };
   const reload = () => {
     if (!current() || lease.profile.getSnapshot().view !== view) return;
