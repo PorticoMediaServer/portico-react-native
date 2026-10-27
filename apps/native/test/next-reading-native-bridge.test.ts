@@ -99,7 +99,9 @@ test('guest child cancellation reaches the same native request after metadata an
   await until(() => f.cancelled.size === 2); assert.equal(f.streams.size, 2);
 });
 
-for (const retirement of [{reason: undefined, code: 'reading_unavailable'}, {reason: new ReadingError('source_changed'), code: 'source_changed'}])
+// The canonical host maps deliberate retirement/AbortError to cancellation;
+// typed Reading failures retain their original source/permission classification.
+for (const retirement of [{reason: undefined, code: 'cancelled'}, {reason: new ReadingError('source_changed'), code: 'source_changed'}])
 test(`authority retirement preserves ${retirement.code}, aborts the guest pull and never cleans up as replacement authority`, async t => {
   const f = await fixture(t); f.setMode('stall'); const reader = (await f.guest.session.openSequential!()).getReader();
   const pending = assert.rejects(reader.read(), coded(retirement.code)); await until(() => f.reads === 1);

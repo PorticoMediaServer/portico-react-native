@@ -16,7 +16,7 @@ function fixture(t){
  copyFileSync(new URL('../shared-packages.mjs',import.meta.url),path.join(native,'scripts/shared-packages.mjs'));
  for(const [pkg,names] of Object.entries(parts))for(const part of names){const dest=path.join(server,'packages',pkg,part);mkdirSync(path.dirname(dest),{recursive:true});if(['src','test','scripts','baselines'].includes(part)){mkdirSync(dest);writeFileSync(path.join(dest,'fixture.ts'),'export const value=1;\n');}else writeFileSync(dest,part.endsWith('.json')?'{}\n':'fixture\n');}
  const git=(...args)=>{const r=spawnSync('git',['-C',server,...args],{encoding:'utf8'});assert.equal(r.status,0,r.stderr);return r.stdout.trim();};
- git('init','-q');git('add','.');git('commit','-qm','Record the shared package sync fixture.');
+ git('init','-q');git('config','user.name','Justin Ehler');git('config','user.email','justin@justinehler.com');git('add','.');git('commit','-qm','Record the shared package sync fixture.');
  const run=(mode,env={})=>spawnSync(process.execPath,[path.join(native,'scripts/shared-packages.mjs'),mode],{cwd:root,encoding:'utf8',env:{...process.env,CI:'',PORTICO_SERVER_REPO:server,...env}});
  return {server,native,run,git};
 }

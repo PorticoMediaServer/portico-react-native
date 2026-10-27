@@ -223,12 +223,20 @@ test('row witness binds exact sort, filter, tab, collection and entry identity',
 
 
 test('retiring a page aborts its bounded transport without borrowing a successor opening', async () => {
-  const pending = deferred<Response>(), f = fixture(() => pending.promise), opening = f.open()!;
+  const pending = deferred<Response>();
+  // This vector exercises transport cancellation: Fetch rejects when its original
+  // signal aborts. Other vectors deliberately keep a late response pending.
+  const f = fixture(({signal}) => new Promise<Response>((resolve, reject) => {
+    const abort = () => reject(signal?.reason);
+    signal?.addEventListener('abort', abort, {once: true});
+    if (signal?.aborted) abort();
+    void pending.promise.then(resolve, reject).finally(() => signal?.removeEventListener('abort', abort));
+  })), opening = f.open()!;
   const reading = opening.capabilities();
   assert.equal(f.calls.length, 1); const original = f.calls[0]!.signal!;
   opening.dispose();
   assert.equal(original.aborted, true);
-  await assert.rejects(reading);
+  await assert.rejects(reading, error => error === original.reason, 'the original transport rejects with its own abort reason');
   const successor = f.open()!; assert.ok(successor.isCurrent());
   pending.resolve(json(capability()));
   assert.equal(opening.isCurrent(), false); assert.equal(successor.signal.aborted, false);
