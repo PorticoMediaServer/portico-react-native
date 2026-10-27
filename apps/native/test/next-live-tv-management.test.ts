@@ -22,6 +22,7 @@ import {tvFocusIds} from '../src-next/shell/tv-focus';
 import {createTheme, nativeType} from '../src-next/kit/theme';
 import {stateSentenceParts} from '../src-next/kit/states/sentence-parts';
 import {NativeScreenLifetime} from '../src-next/screens/settings-live/lifetime';
+import {NativeRecordingsController} from '../src-next/screens/settings-live/recordings-controller';
 import {NativeLiveController} from '../src-next/screens/settings-live/live-controller';
 import {nativeServerAdmission} from '../src-next/screens/settings-live/server/tv-server-reader';
 import type {DirectSnapshot} from '../../../packages/client-core/src/profile-management';
@@ -32,7 +33,7 @@ const jsx = (type: any, props: any) => React.createElement(type, props);
 
 // The installed Fabric reconciler runs actual screen branches/effects. Native host
 // widgets and editor outlets are controlled; even a closed editor mount is observed.
-async function fixture({isTV = true, role = 'owner', primary = 'main', canManage = true, disabled = false, failed = false, populated = false, origin = 'https://server.example/'} = {}) {
+async function fixture({isTV = true, role = 'owner', primary = 'main', canManage = true, disabled = false, failed = false, populated = false, realRecordings = false, origin = 'https://server.example/'} = {}) {
   const host = await fabricHost(), listeners = new Set<() => void>(), admin: string[] = [], editors: string[] = [], backs = new Set<() => boolean>();
   const retirement = new AbortController(); let disposed = false, disposedReads = 0;
   let theme = createTheme({isTV, width: isTV ? 1920 : 400}), current = true;
@@ -82,7 +83,13 @@ async function fixture({isTV = true, role = 'owner', primary = 'main', canManage
   });
   const recordingState: any = {query: {view: 'upcoming'}, loading: false, busy: false, accessDenied: false, page: {recordings: [], rules: [], captureAvailable: true}};
   const viewerCalls: any[] = [], viewerLoads: any[] = [];
-  const recordings: any = {lifetime, subscribe: listen, getSnapshot: () => recordingState, load: async (query: unknown) => {viewerLoads.push(query);}, loadFacts: async () => {}, detail: () => new Promise(() => {}), nextViewerPage: async (window: unknown) => {viewerCalls.push(window);}, previousViewerPage: async () => {}, retryViewerPage: async () => {}, viewerFocusToken: () => undefined, focusViewerRow: () => {}, blurViewerRow: () => {}, focusViewerHost: () => {}, pinViewerRow: () => true, unpinViewerRow: () => {}};
+  let fakeOpening: object | undefined;
+  const fakeRecordings: any = {lifetime, beginViewerOpening: (opening: object) => {fakeOpening = opening;}, endViewerOpening: (opening: object) => {if (fakeOpening === opening) fakeOpening = undefined;}, viewerOpeningCurrent: (opening: object) => fakeOpening === opening, subscribe: listen, getSnapshot: () => recordingState, load: async (query: unknown) => {viewerLoads.push(query);}, loadFacts: async () => {}, detail: () => new Promise(() => {}), nextViewerPage: async (window: unknown) => {viewerCalls.push(window);}, previousViewerPage: async () => {}, retryViewerPage: async () => {}, viewerFocusToken: () => undefined, focusViewerRow: () => {}, blurViewerRow: () => {}, focusViewerHost: () => {}, pinViewerRow: () => true, unpinViewerRow: () => {}};
+  const pageCalls: (string | undefined)[] = []; let failNext = false; let finishPage: ((value: any) => void) | undefined;
+  const firstRecording = {id: 'first', revision: 1, state: 'completed', itemId: 'item', libraryId: 'library', start: '2026-10-21T12:00:00Z', end: '2026-10-21T13:00:00Z', programme: {id: 'p', title: 'Programme'}, options: {priority: 0}};
+  const firstPage = {recordings: [firstRecording], rules: [], captureAvailable: true, revision: 1, nextCursor: 'next'};
+  const realService: any = {onAccessChanged: noop, dispose: noop, list: async (_view: unknown, cursor?: string) => {pageCalls.push(cursor); if (cursor && failNext) {failNext = false; throw new Error('offline');} return cursor ? new Promise(resolve => {finishPage = resolve;}) : firstPage;}, summary: async () => ({upcoming: 2, recorded: 0, rules: 0}), storage: async () => ({})};
+  const recordings: any = realRecordings ? new NativeRecordingsController(lifetime, realService) : fakeRecordings;
   const {NativeLiveScreen} = await screenModule(new URL('../src-next/screens/settings-live/LiveScreen.tsx', import.meta.url), {...common,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0, left: 0, right: 0})}, 'react-native-gesture-handler': {GestureDetector: 'GestureDetector'},
     'react-native-reanimated': {default: {View: 'AnimatedView'}, useAnimatedStyle: (fn: () => unknown) => fn()}, '../../../../../packages/client-core/src/channel-guide': channels,
@@ -98,7 +105,7 @@ async function fixture({isTV = true, role = 'owner', primary = 'main', canManage
   let showingRecordings = false;
   const render = () => host.render(showingRecordings ? jsx(recordingModule.NativeRecordingsScreen, {controller: recordings, ports, runtime, owner, onGuide: () => {guideCalls++;}}) : jsx(NativeLiveScreen, {controller, recordings, owner, ports, runtime})); await render();
   const all = () => nodes(host.root), find = (id: string) => all().find(node => node.props?.testID === id);
-  return {host, all, find, admin, editors, backs, pageBack, entries, recordingState, viewerCalls, viewerLoads, context, recordingsController: recordings, runtime, focusRequests, guideCalls: () => guideCalls,
+  return {host, all, find, admin, editors, backs, pageBack, entries, recordingState, viewerCalls, viewerLoads, context, recordingsController: recordings, runtime, focusRequests, guideCalls: () => guideCalls, pageCalls, failNextPage: () => {failNext = true;}, finishPage: (value: unknown) => {assert.ok(finishPage); finishPage(value);}, firstPage,
     notify() {for (const fn of [...listeners]) fn();},
     disposeRuntime() {retirement.abort(); disposed = true;}, disposedReads: () => disposedReads,
     async press(id = 'live-owner-open') {const node = find(id); assert.ok(node, id); assert.ok(!node.props.disabled); node.props.onPress(); await host.settle();},
@@ -115,7 +122,7 @@ async function fixture({isTV = true, role = 'owner', primary = 'main', canManage
     },
     async tv() {theme = createTheme({isTV: true, width: 1920}); await render();},
     async recordings() {showingRecordings = true; await render();},
-    async close() {await host.unmount(); controller.dispose(); owner.dispose(); lifetime.dispose();},
+    async close() {await host.unmount(); if (realRecordings) recordings.dispose(); controller.dispose(); owner.dispose(); lifetime.dispose();},
   };
 }
 
@@ -315,5 +322,39 @@ test('TV Recordings Back returns focused body to tabs, then group to list, then 
     assert.deepEqual(f.viewerLoads.at(-1), {view: 'recorded'});
     f.recordingState.query = {view: 'recorded'}; await f.recordings();
     assert.equal([...f.backs][0]!(), true); assert.equal(f.guideCalls(), 1);
+  } finally {await f.close();}
+});
+
+
+test('Live Guide departure retires only the original Recordings pagination opening', async () => {
+  const f = await fixture({populated: true, realRecordings: true});
+  try {
+    await f.press('live-recordings'); await f.host.settle();
+    const more = f.find('recordings-page-next'); assert.ok(more); const oldMore = more.props.onPress;
+    oldMore(); await f.host.settle(); assert.deepEqual(f.pageCalls, [undefined, 'next']);
+    const pendingRows = f.recordingsController.getSnapshot().viewerWindow.items;
+    assert.equal([...f.backs][0]!(), true); await f.host.settle();
+    assert.ok(f.find('live-recordings')); assert.equal(f.recordingsController.getSnapshot().viewerWindow.pending, false);
+    oldMore(); await f.host.settle(); assert.deepEqual(f.pageCalls, [undefined, 'next']);
+    f.finishPage({...f.firstPage, recordings: [{...f.firstPage.recordings[0], id: 'late'}], nextCursor: ''}); await f.host.settle();
+    assert.deepEqual(f.recordingsController.getSnapshot().viewerWindow.items, pendingRows);
+    await f.press('live-recordings'); await f.host.settle();
+    const fresh = f.find('recordings-page-next'); assert.ok(fresh); fresh.props.onPress(); await f.host.settle();
+    assert.deepEqual(f.pageCalls, [undefined, 'next', undefined, 'next']);
+  } finally {await f.close();}
+});
+
+
+test('Live Guide departure refuses the original Recordings Retry callback before IO', async () => {
+  const f = await fixture({populated: true, realRecordings: true});
+  try {
+    await f.press('live-recordings'); await f.host.settle(); f.failNextPage();
+    const more = f.find('recordings-page-next'); assert.ok(more); more.props.onPress(); await f.host.settle();
+    const error = f.find('recordings-page-error'); assert.ok(error); const oldRetry = error.props.primaryAction.onPress;
+    assert.deepEqual(f.pageCalls, [undefined, 'next']); assert.equal([...f.backs][0]!(), true); await f.host.settle();
+    oldRetry(); await f.host.settle(); assert.deepEqual(f.pageCalls, [undefined, 'next']);
+    await f.press('live-recordings'); await f.host.settle();
+    const fresh = f.find('recordings-page-next'); assert.ok(fresh); fresh.props.onPress(); await f.host.settle();
+    assert.deepEqual(f.pageCalls, [undefined, 'next', undefined, 'next']);
   } finally {await f.close();}
 });

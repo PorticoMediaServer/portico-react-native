@@ -201,5 +201,12 @@ export class DashboardCursorWindow<T, M> {
     this.held = undefined; this.flight = undefined;
     this.publish({...this.value, chunks, items, bookmarks, nextCursor: last.nextCursor ?? '', metadata: last.metadata, pending: false, error: undefined, refreshRequired: false});
   }
+  /** Retire the current viewport read without discarding its resident pages. */
+  cancelPending(): void {
+    const flight = this.flight; if (!flight) return;
+    this.flight = undefined; this.held = undefined;
+    this.publish({...this.value, pending: false, error: flight.expected.error});
+    flight.abort.abort();
+  }
   dispose(): void {if (this.disposed) return; this.disposed = true; this.generation++; const predecessor = this.flight; this.flight = undefined; this.held = undefined; this.owned.clear(); this.issued = new WeakSet(); predecessor?.abort.abort();}
 }
