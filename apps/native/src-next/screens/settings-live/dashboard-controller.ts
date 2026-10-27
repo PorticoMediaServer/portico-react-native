@@ -53,7 +53,7 @@ export class NativeDashboardController extends NativeScreenStore<NativeDashboard
   };
   private sessionWindow(): DashboardCursorWindow<AdminSession, SessionMeta> {
     const role = this.role;
-    const window = new DashboardCursorWindow<AdminSession, SessionMeta>(async (cursor, signal) => {
+    const window: DashboardCursorWindow<AdminSession, SessionMeta> = new DashboardCursorWindow<AdminSession, SessionMeta>(async (cursor, signal) => {
       if (!current()) throw new Error('native_screen_scope_ended');
       const page = await this.readers.sessions.list(cursor || undefined, 10, signal);
       if (!current() || signal.aborted) throw new Error('native_screen_scope_ended');
@@ -63,11 +63,11 @@ export class NativeDashboardController extends NativeScreenStore<NativeDashboard
     }, row => row.id, () => current(), snapshot => {
       if (current()) this.publish({...this.getSnapshot(), sessionWindow: snapshot, sessions: snapshot.items, nextCursor: snapshot.nextCursor, totals: snapshot.metadata?.totals ?? this.getSnapshot().totals});
     });
-    const current = () => this.sessions === window && this.valid(role) && this.sessions === window;
+    const current = (): boolean => this.sessions === window && this.valid(role) && this.sessions === window;
     return window;
   }
   private jobWindow(): DashboardCursorWindow<Job, undefined> {
-    const window = new DashboardCursorWindow<Job, undefined>(async cursor => {
+    const window: DashboardCursorWindow<Job, undefined> = new DashboardCursorWindow<Job, undefined>(async cursor => {
       if (!current()) throw new Error('native_screen_scope_ended');
       const page = await this.readers.console.jobs(cursor);
       if (!current()) throw new Error('native_screen_scope_ended');
@@ -75,7 +75,7 @@ export class NativeDashboardController extends NativeScreenStore<NativeDashboard
     }, row => row.id, () => current(), snapshot => {
       if (current()) this.publish({...this.getSnapshot(), jobWindow: snapshot, jobs: snapshot.items});
     }, (first, second) => first.revision === second.revision);
-    const current = () => this.jobs === window && this.valid('owner') && this.jobs === window;
+    const current = (): boolean => this.jobs === window && this.valid('owner') && this.jobs === window;
     return window;
   }
   private retire = (): void => {
