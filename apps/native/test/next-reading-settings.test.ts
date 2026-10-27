@@ -8,6 +8,8 @@ import {nativeReadingPreferencesAvailable, nativeReadingSettingsPreferences, nat
 import type {ShellAuthority} from '../src-next/shell/model';
 import {NativeShellNavigation} from '../src-next/shell/routes';
 import {openNativeReadingSettings} from '../src-next/screens/settings/reading-entry';
+import {rememberNativeReadingPreferences, readRememberedReadingPreferences, rememberedReadingHistoryPaused} from '../src-next/shell/remembered-reading-settings';
+import {NativeModules} from './react-native-stub.mjs';
 
 const allRows = [...(nativeReadingSettingsSection.groups ?? []), ...(nativeReadingSettingsSection.advanced?.groups ?? [])].flatMap(group => group.rows);
 const fields = allRows.map(row => {
@@ -155,4 +157,35 @@ test('the Reading settings entry preserves the exact publication and library his
     assert.equal(openNativeReadingSettings({...f.owner, navigation}), false);
     assert.equal(navigation.getSnapshot(), before);
   } finally {f.close(); navigation.dispose();}
+});
+
+
+test('remembered Reading settings retain the confirmed snapshot only for the original owner', async () => {
+  const runtime = NativeModules.PorticoRuntime as Record<string, any>;
+  const oldRead = runtime.loadQueueRecord, oldWrite = runtime.saveQueueRecord;
+  let record: string | null = null, current = true, family = 'family';
+  runtime.loadQueueRecord = async (key: string) => {assert.equal(key, 'remembered-reading-settings:v1'); return record;};
+  runtime.saveQueueRecord = async (key: string, value: string) => {assert.equal(key, 'remembered-reading-settings:v1'); record = value;};
+  const viewer = {authority: 'local', serverId: 'server', accountId: 'account', profileId: 'profile'} as const;
+  const owner = {...viewer, sessionFamilyId: 'family'};
+  const context = {session: () => ({viewer, sessionFamilyId: family}), authority: () => viewer, current: () => current} as unknown as Parameters<typeof rememberNativeReadingPreferences>[0];
+  const identity = {owner, current: () => current} as unknown as Parameters<typeof readRememberedReadingPreferences>[0];
+  const actual = snapshot();
+  try {
+    assert.equal(rememberedReadingHistoryPaused(actual), true, 'missing history permission withholds writes');
+    assert.equal(rememberedReadingHistoryPaused({...actual, effective: {...actual.effective, 'privacy.pauseWatchHistory': false}}), false);
+    assert.equal(rememberedReadingHistoryPaused({...actual, effective: {...actual.effective, 'privacy.pauseWatchHistory': 'unknown'}}), true);
+    assert.equal(await readRememberedReadingPreferences(identity, () => true, 'mobile'), undefined);
+    await rememberNativeReadingPreferences(context, actual);
+    assert.deepEqual(JSON.parse(record!).snapshot, actual);
+    assert.deepEqual(await readRememberedReadingPreferences(identity, () => true, 'mobile'), actual);
+    assert.equal(await readRememberedReadingPreferences(identity, () => true, 'tablet'), undefined);
+    const other = {...identity, owner: {...owner, sessionFamilyId: 'other'}};
+    assert.equal(await readRememberedReadingPreferences(other, () => true, 'mobile'), undefined);
+    const damaged = JSON.parse(record!); damaged.snapshot.registry.fields = []; record = JSON.stringify(damaged);
+    assert.equal(await readRememberedReadingPreferences(identity, () => true, 'mobile'), undefined);
+    family = 'other'; current = false;
+    await assert.rejects(rememberNativeReadingPreferences(context, actual));
+    await assert.rejects(readRememberedReadingPreferences(identity, () => true, 'mobile'));
+  } finally {runtime.loadQueueRecord = oldRead; runtime.saveQueueRecord = oldWrite;}
 });
