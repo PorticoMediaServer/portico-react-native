@@ -12,6 +12,7 @@ import * as guidePresentation from '../src-next/screens/settings-live/guide-pres
 import * as guidePan from '../src-next/screens/settings-live/guide-pan-model';
 import * as rules from '../src-next/screens/settings-live/recording-rule-presentation';
 import * as overlap from '../src-next/screens/settings-live/recording-overlap-window';
+import * as entryLifetime from '../src-next/screens/home/entry-lifetime';
 import * as mediaItem from '../../../packages/client-core/src/media-item';
 import * as content from '../../../packages/client-core/src/library-content';
 import * as routes from '../../../packages/contracts/src/routes';
@@ -76,11 +77,11 @@ async function fixture({isTV = true, role = 'owner', primary = 'main', canManage
     '../../kit/theme': {useTheme: () => theme}, '../../shell/tv-focus': {tvFocusIds}, './Screen': {Screen: 'Screen', ScreenText: 'ScreenText', useScreenBack, useScreenEntry: () => noop}, './recording-rule-presentation': rules};
   const recordingModule = await screenModule(new URL('../src-next/screens/settings-live/RecordingsScreen.tsx', import.meta.url), {...common,
     '../../../../../packages/client-core/src/presentation/title-page': titlePage, '../../../../../packages/client-core/src/media-item': mediaItem, '../../../../../packages/client-core/src/library-content': content, '../../../../../packages/contracts/src/routes': routes,
-    './recording-overlap-window': overlap, './LiveOwnerRecording': {NewRuleSheet: (props: any) => {editors.push(`new-rule:${props.open}`); return jsx('NewRuleEditor', props);}},
+    './recording-overlap-window': overlap, '../home/entry-lifetime': entryLifetime, './LiveOwnerRecording': {NewRuleSheet: (props: any) => {editors.push(`new-rule:${props.open}`); return jsx('NewRuleEditor', props);}},
   });
   const recordingState: any = {query: {view: 'upcoming'}, loading: false, busy: false, accessDenied: false, page: {recordings: [], rules: [], captureAvailable: true}};
   const viewerCalls: any[] = [], viewerLoads: any[] = [];
-  const recordings: any = {lifetime, subscribe, getSnapshot: () => recordingState, load: async (query: unknown) => {viewerLoads.push(query);}, loadFacts: async () => {}, detail: () => new Promise(() => {}), nextViewerPage: async (window: unknown) => {viewerCalls.push(window);}, previousViewerPage: async () => {}, retryViewerPage: async () => {}, viewerFocusToken: () => undefined, focusViewerRow: () => {}, blurViewerRow: () => {}, focusViewerHost: () => {}, pinViewerRow: () => true, unpinViewerRow: () => {}};
+  const recordings: any = {lifetime, subscribe: listen, getSnapshot: () => recordingState, load: async (query: unknown) => {viewerLoads.push(query);}, loadFacts: async () => {}, detail: () => new Promise(() => {}), nextViewerPage: async (window: unknown) => {viewerCalls.push(window);}, previousViewerPage: async () => {}, retryViewerPage: async () => {}, viewerFocusToken: () => undefined, focusViewerRow: () => {}, blurViewerRow: () => {}, focusViewerHost: () => {}, pinViewerRow: () => true, unpinViewerRow: () => {}};
   const {NativeLiveScreen} = await screenModule(new URL('../src-next/screens/settings-live/LiveScreen.tsx', import.meta.url), {...common,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0, left: 0, right: 0})}, 'react-native-gesture-handler': {GestureDetector: 'GestureDetector'},
     'react-native-reanimated': {default: {View: 'AnimatedView'}, useAnimatedStyle: (fn: () => unknown) => fn()}, '../../../../../packages/client-core/src/channel-guide': channels,
@@ -97,6 +98,7 @@ async function fixture({isTV = true, role = 'owner', primary = 'main', canManage
   const render = () => host.render(showingRecordings ? jsx(recordingModule.NativeRecordingsScreen, {controller: recordings, ports, runtime, owner, onGuide: noop}) : jsx(NativeLiveScreen, {controller, recordings, owner, ports, runtime})); await render();
   const all = () => nodes(host.root), find = (id: string) => all().find(node => node.props?.testID === id);
   return {host, all, find, admin, editors, backs, pageBack, entries, recordingState, viewerCalls, viewerLoads, context, recordingsController: recordings, runtime,
+    notify() {for (const fn of [...listeners]) fn();},
     disposeRuntime() {retirement.abort(); disposed = true;}, disposedReads: () => disposedReads,
     async press(id = 'live-owner-open') {const node = find(id); assert.ok(node, id); assert.ok(!node.props.disabled); node.props.onPress(); await host.settle();},
     async action(which: string) {const action = find('live-no-sources')?.props[which]; assert.ok(action); action.onPress(); await host.settle();},
@@ -274,5 +276,27 @@ test('same recording detail reopen retires the old opening and follows the fresh
     reads[2].resolve(detail('p2', 'fresh')); await f.host.settle(); const newMore = f.find('recordings-overlap-next'); assert.ok(newMore);
     newMore.props.onPress(); await f.host.settle(); assert.equal(reads[3].cursor, 'p2');
     reads[3].resolve(detail('', 'fresh-later')); await f.host.settle(); assert.equal(f.find('recordings-overlap-next'), undefined);
+  } finally {await f.close();}
+});
+
+
+for (const change of ['route', 'query', 'revision', 'normal-close'] as const) test(`recording playback start retains caller lifetime across ${change}`, async () => {
+  const f = await fixture();
+  try {
+    const row = {id: 'recording', revision: 1, state: 'completed', itemId: 'item', libraryId: 'library', start: '2026-10-21T12:00:00Z', end: '2026-10-21T13:00:00Z', programme: {id: 'p', title: 'Programme'}, options: {priority: 0}};
+    const original = {scope: {}, generation: 1, items: [{kind: 'recording', value: row}], chunks: [{cursor: '', items: []}], bookmarks: [''], nextCursor: '', pending: false, refreshRequired: false};
+    f.recordingState.page = {recordings: [row], rules: [], captureAvailable: true}; f.recordingState.viewerWindow = original;
+    f.context.api.request = async () => ({id: 'item', kind: 'movie', title: 'Programme', libraryId: 'library', available: true, durationMs: 60000, progressMs: 0});
+    let caller: any, finish!: () => void, starts = 0;
+    f.context.playback = {start: (input: any) => {starts++; caller = input.lifetime; return new Promise<void>(resolve => {finish = resolve;});}};
+    await f.recordings(); const list = f.all().find(node => node.type === 'FlatList')!;
+    list.props.renderItem({item: {kind: 'recording', recording: row}, index: 0}).props.onMenu(); await f.host.settle();
+    const menu = f.find('recordings-menu'); menu.props.items.find((item: any) => item.id === 'play').onSelect(); menu.props.onOpenChange(false, 'action'); await f.host.settle();
+    assert.equal(starts, 1); assert.equal(caller.isCurrent(), true);
+    if (change === 'route') await f.replace('route');
+    if (change === 'query') {f.recordingState.query = {view: 'history'}; f.recordingState.viewerWindow = {...original, scope: {}, generation: 2}; f.notify();}
+    if (change === 'revision') {f.recordingState.viewerWindow = {...original, items: [{kind: 'recording', value: {...row, revision: 2}}]}; f.notify();}
+    assert.equal(caller.isCurrent(), change === 'normal-close'); assert.equal(caller.signal.aborted, change !== 'normal-close');
+    finish(); await f.host.settle(); assert.equal(starts, 1);
   } finally {await f.close();}
 });

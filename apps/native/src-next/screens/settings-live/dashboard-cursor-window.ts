@@ -57,27 +57,24 @@ export class DashboardCursorWindow<T, M> {
     predecessor?.abort.abort();
     if (this.disposed || generation !== this.generation || this.flight || !this.current() || generation !== this.generation || this.flight) return this.pendingFlight();
     const publication = {...old, generation, bookmarks: [''], nextCursor: '', pending: false, error: undefined, refreshRequired: false};
-    this.publish(publication);
-    if (this.disposed || generation !== this.generation || this.flight || this.value !== publication) return this.pendingFlight();
-    return this.request(publication, start, false, true, true);
+    this.value = Object.freeze(publication); this.issued.add(this.value);
+    return this.request(this.value, start, false, true, true);
   }
   /** Explicit user recovery starts the same query at its genuine first page. */
   restart(expected: DashboardCursorSnapshot<T, M>): Promise<void> {
     if (this.disposed || !this.current() || this.disposed || this.value !== expected || !expected.refreshRequired || this.flight) return Promise.resolve();
     this.generation++; this.issued = new WeakSet(); this.seen.clear(); this.agedOut = false; this.restartCycle();
-    const generation = this.generation;
-    const publication = {...expected, generation, bookmarks: [''], nextCursor: '', pending: false, error: undefined, refreshRequired: false};
-    this.publish(publication);
-    if (this.disposed || this.generation !== generation || this.flight || this.value !== publication) return this.pendingFlight();
-    return this.request(publication, '', false, true, false);
+    const publication = {...expected, generation: this.generation, bookmarks: [''], nextCursor: '', pending: false, error: undefined, refreshRequired: false};
+    this.value = Object.freeze(publication); this.issued.add(this.value);
+    return this.request(this.value, '', false, true, false);
   }
   next(expected: DashboardCursorSnapshot<T, M>): Promise<void> {
-    if (this.flight && this.flight.expected === expected) return this.flight.promise;
+    const active = this.coalesced(expected); if (active) return active;
     if (expected !== this.value || !expected.nextCursor || expected.refreshRequired) return Promise.resolve();
     return this.request(expected, expected.nextCursor, false, false);
   }
   previous(expected: DashboardCursorSnapshot<T, M>): Promise<void> {
-    if (this.flight && this.flight.expected === expected) return this.flight.promise;
+    const active = this.coalesced(expected); if (active) return active;
     if (expected !== this.value || expected.refreshRequired || !expected.chunks.length) return Promise.resolve();
     const first = expected.chunks[0].cursor, index = expected.bookmarks.indexOf(first);
     if (!first) return Promise.resolve();
@@ -86,6 +83,7 @@ export class DashboardCursorWindow<T, M> {
     return this.request(expected, cursor, true, false);
   }
   retry(expected: DashboardCursorSnapshot<T, M>): Promise<void> {
+    const active = this.coalesced(expected); if (active) return active;
     if (expected !== this.value || expected.error === undefined || expected.refreshRequired) return Promise.resolve();
     const cursor = this.retryCursor, previous = this.retryPrevious;
     return this.request(expected, cursor, previous, this.retryReset, this.retryRehydrate);
@@ -109,6 +107,18 @@ export class DashboardCursorWindow<T, M> {
     const code = error && typeof error === 'object' && 'code' in error ? (error as {code?: unknown}).code : undefined;
     return code === 'invalid_cursor' || code === 'stale_continuation' || code === 'revision_mismatch' || !!cursor && (code === 'invalid_request' || code === 'invalid_console_request');
   }
+  private coalesced(expected: DashboardCursorSnapshot<T, M>): Promise<void> | undefined {
+    const flight = this.flight;
+    if (!flight || !(expected === flight.expected || expected === this.value && expected.pending && expected.generation === flight.generation)) return undefined;
+    if (!this.alive(flight)) {this.retireRefused(flight); return undefined;}
+    return flight.promise;
+  }
+  private retireRefused(flight: Flight<T, M>): void {
+    if (this.flight !== flight || flight.generation !== this.generation) return;
+    this.flight = undefined; this.held = undefined;
+    this.value = Object.freeze({...this.value, pending: false}); this.issued.add(this.value);
+    flight.abort.abort();
+  }
   private pendingFlight(): Promise<void> {const active = this.flight; return active ? active.promise : Promise.resolve();}
   private retryReset = false;
   private retryRehydrate = false;
@@ -121,7 +131,7 @@ export class DashboardCursorWindow<T, M> {
     const flight: Flight<T, M> = {generation: this.generation, expected, cursor, abort, promise, reset};
     this.flight = flight; this.retryCursor = cursor; this.retryPrevious = previous; this.retryReset = reset; this.retryRehydrate = rehydrate;
     this.publish({...expected, pending: true, error: undefined});
-    if (!this.alive(flight)) {settle(); return promise;}
+    if (!this.alive(flight)) {this.retireRefused(flight); settle(); return promise;}
     let requestedCursor = cursor;
     void (async () => {
       try {
@@ -150,7 +160,7 @@ export class DashboardCursorWindow<T, M> {
       } catch (error) {
         if (this.alive(flight)) {const closed = this.closedCursor(error, requestedCursor); if (!this.alive(flight)) return; this.flight = undefined; if (closed) this.publish({...this.value, pending: false, refreshRequired: true}); else this.publish({...this.value, pending: false, error: error ?? new Error('dashboard_page_failed')});}
       }
-    })().finally(settle);
+    })().finally(() => {if (this.flight === flight && !this.alive(flight)) this.retireRefused(flight); settle();});
     return promise;
   }
   private accept(flight: Flight<T, M>, page: DashboardCursorPage<T, M>, previous: boolean, reset: boolean): void {

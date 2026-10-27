@@ -135,7 +135,7 @@ test('an aged-out previous bookmark returns to the real first page', async () =>
 
 test('synchronous duplicate sees the actual pending flight and shares its settlement', async () => {
   let state!: DashboardCursorSnapshot<{id: string}, number>, duplicate: Promise<void> | undefined, finish!: (page: DashboardCursorPage<{id: string}, number>) => void, calls = 0;
-  const window = new DashboardCursorWindow<{id: string}, number>(async () => {calls++; return new Promise(resolve => {finish = resolve;});}, row => row.id, () => true, value => {state = value; if (value.pending && !duplicate) duplicate = window.next(original);});
+  const window = new DashboardCursorWindow<{id: string}, number>(async () => {calls++; return new Promise(resolve => {finish = resolve;});}, row => row.id, () => true, value => {state = value; if (value.pending && !duplicate) duplicate = window.next(value);});
   window.seed('', {items: [{id: 'one'}], nextCursor: 'next', metadata: 1}); const original = state;
   const pending = window.next(original); assert.equal(duplicate, pending); assert.equal(calls, 1);
   let settled = false; void duplicate!.then(() => {settled = true;}); await Promise.resolve(); assert.equal(settled, false);
@@ -183,4 +183,23 @@ test('a reentrant refresh notification prevents the retired continuation from di
   window.seed('', {items: [{id: 'old'}], nextCursor: 'next', metadata: 1});
   const old = window.next(window.snapshot()); await Promise.all([old, successor!]);
   assert.deepEqual(calls, ['']); assert.deepEqual(window.snapshot().items.map(row => row.id), ['fresh']); window.dispose();
+});
+
+
+test('initial refresh notification coalesces on its reserved flight', async () => {
+  let duplicate: Promise<void> | undefined, finish!: (page: DashboardCursorPage<{id: string}, number>) => void, calls = 0;
+  const window = new DashboardCursorWindow<{id: string}, number>(() => {calls++; return new Promise(resolve => {finish = resolve;});}, row => row.id, () => true, value => {if (value.pending && !duplicate) duplicate = window.refresh();});
+  const pending = window.refresh(); assert.equal(duplicate, pending); assert.equal(calls, 1);
+  let settled = false; void duplicate!.then(() => {settled = true;}); await Promise.resolve(); assert.equal(settled, false);
+  finish({items: [{id: 'first'}], metadata: 1}); await pending; assert.equal(settled, true); window.dispose();
+});
+
+for (const when of ['notification', 'response'] as const) test(`currentness refusal at ${when} retires only the original flight`, async () => {
+  let current = true, refused = false, calls = 0, finish!: (page: DashboardCursorPage<{id: string}, number>) => void;
+  const window = new DashboardCursorWindow<{id: string}, number>(() => {calls++; return new Promise(resolve => {finish = resolve;});}, row => row.id, () => current, value => {if (when === 'notification' && value.pending && !refused) {refused = true; current = false;}});
+  const pending = window.refresh();
+  if (when === 'response') {current = false; finish({items: [{id: 'retired'}], metadata: 1});}
+  await pending; assert.equal(calls, when === 'notification' ? 0 : 1); assert.equal(window.snapshot().pending, false); assert.deepEqual(window.snapshot().items, []);
+  current = true; const successor = window.refresh(); assert.equal(calls, when === 'notification' ? 1 : 2); finish({items: [{id: 'successor'}], metadata: 2}); await successor;
+  assert.equal(window.snapshot().items[0]?.id, 'successor'); window.dispose();
 });

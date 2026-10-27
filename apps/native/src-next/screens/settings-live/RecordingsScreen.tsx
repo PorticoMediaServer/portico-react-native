@@ -25,6 +25,7 @@ import type {NativeLiveOwnerController} from './live-owner-controller';
 import {NewRuleSheet} from './LiveOwnerRecording';
 import {keepChoiceList, keepChoiceValue, keepLabel, ruleFacts, ruleKeep, ruleNext, ruleScope, withKeep} from './recording-rule-presentation';
 import {Screen, ScreenText, useScreenBack, useScreenEntry} from './Screen';
+import {nativeHomeEntryLifetime} from '../home/entry-lifetime';
 
 const views: readonly DVRView[] = ['upcoming', 'recorded', 'rules', 'history', 'storage'];
 const viewLabels: Record<DVRView, MessageId> = {upcoming: 'recordings.upcoming', recorded: 'recordings.recorded', rules: 'recordings.rules', history: 'web.dvr.history', storage: 'recordings.storage'};
@@ -63,6 +64,7 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
   const [confirm, setConfirm] = useState<Readonly<{recording: Recording; preview?: DeletePreview; opening: OverlayOpening}>>(), [newRule, setNewRule] = useState(false), [sortOpen, setSortOpen] = useState(false);
   const opener = useRef<View | null>(null), rows = useRef(new Map<string, View>()), cancel = useRef<View>(null);
   const list = useRef<FlatList<Row>>(null), alive = useRef(true), scrollIntent = useRef(false);
+  const playOperations = useRef(new Set<AbortController>());
   const navigation = ports.context.navigation;
   const route = useSyncExternalStore(navigation.subscribe, navigation.getSnapshot);
   // The presented menu or sheet, and the delete ask started from one of them. A
@@ -97,7 +99,7 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
   const enter = useScreenEntry(theme.isTV && !awaitingFirstPage ? {regionId: entryRegion, childId: entryChild} : undefined, controller.lifetime.current);
   // The asks die with the screen in the layout phase, so StrictMode's
   // mount/unmount/mount leaves them live again on the committed mount.
-  useLayoutEffect(() => {alive.current = true; return () => {alive.current = false; if (ask.current) controller.unpinViewerRow(ask.current.opening.pin, ask.current.opening.scope); if (overlay.current) controller.unpinViewerRow(overlay.current.pin, overlay.current.scope); if (confirmation.current) controller.unpinViewerRow(confirmation.current.opening.pin, confirmation.current.opening.scope); if (ruleOpening.current) controller.unpinViewerRow(ruleOpening.current.pin, ruleOpening.current.scope); ask.current = undefined;};}, []);
+  useLayoutEffect(() => {alive.current = true; return () => {alive.current = false; for (const operation of playOperations.current) operation.abort(); if (ask.current) controller.unpinViewerRow(ask.current.opening.pin, ask.current.opening.scope); if (overlay.current) controller.unpinViewerRow(overlay.current.pin, overlay.current.scope); if (confirmation.current) controller.unpinViewerRow(confirmation.current.opening.pin, confirmation.current.opening.scope); if (ruleOpening.current) controller.unpinViewerRow(ruleOpening.current.pin, ruleOpening.current.scope); ask.current = undefined;};}, []);
   useEffect(() => {const previous = controller.getSnapshot().query; void controller.load(previous.group ? {view: 'recorded', sort: previous.sort} : previous); void controller.loadFacts();}, [controller]);
   const select = (view: DVRView) => {if (view === query.view && !query.group) return; retire(); setGroup(undefined); void controller.load({view}); list.current?.scrollToOffset({offset: 0, animated: false});};
   /** The drawn order of the Recorded grid; the groups reader does the ordering. */
@@ -147,16 +149,21 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
     if (!window || !originalScope || window.scope !== opening.scope) return;
     const pin = controller.pinViewerRow(recording.id, window); if (!pin) return;
     const current = () => alive.current && scope.current?.controller === controller && scope.current.key === originalScope.key && askReady(opening) && alive.current && scope.current?.controller === controller && scope.current.key === originalScope.key;
+    const abort = new AbortController(); playOperations.current.add(abort);
+    const parentAbort = () => abort.abort();
+    controller.lifetime.signal.addEventListener('abort', parentAbort, {once: true});
+    if (controller.lifetime.signal.aborted) abort.abort();
+    const operation = nativeHomeEntryLifetime(current, [controller.subscribe, navigation.subscribe, runtime.subscribe], abort.signal);
     try {
-      if (!current()) return;
-      const item = await controller.lifetime.request(signal => ports.context.api.request(encodedRoutePath('get_items_id', {id: recording.itemId}), 'GET', undefined, signal).then(parseMediaItem));
-      if (!current() || !item.available || item.id !== recording.itemId || item.libraryId !== recording.libraryId) return;
+      if (!operation.lifetime.isCurrent()) return;
+      const item = await controller.lifetime.request(signal => ports.context.api.request(encodedRoutePath('get_items_id', {id: recording.itemId}), 'GET', undefined, signal).then(parseMediaItem), operation.lifetime.signal);
+      if (!operation.lifetime.isCurrent() || !item.available || item.id !== recording.itemId || item.libraryId !== recording.libraryId) return;
       const display = validateContentEntry({id: item.id, libraryId: item.libraryId, kind: item.kind, title: item.title, available: item.available, year: item.year, posterUrl: item.posterUrl, backdropUrl: item.backdropUrl, overview: item.overview});
       const target = {itemId: item.id, startSeconds: item.progressSeconds};
       const entry = Object.freeze({...display, duration: item.duration, progressSeconds: item.progressSeconds, playback: target});
-      if (!current()) return;
-      await ports.context.playback.start({entry, target: entry.playback!});
-    } finally {controller.unpinViewerRow(pin, opening.scope);}
+      if (!operation.lifetime.isCurrent()) return;
+      await ports.context.playback.start({entry, target: entry.playback!, lifetime: operation.lifetime});
+    } finally {operation.dispose(); abort.abort(); playOperations.current.delete(abort); controller.lifetime.signal.removeEventListener('abort', parentAbort); controller.unpinViewerRow(pin, opening.scope);}
   };
   const askDelete = async (opening: OverlayOpening) => {
     // Refuse before the read as well as after it: a stale callback in a hidden destination
