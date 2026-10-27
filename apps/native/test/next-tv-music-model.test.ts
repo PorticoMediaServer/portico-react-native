@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {readListeningSimilar} from '../../../packages/client-core/src/library-content.ts';
+import * as musicPaging from '../src-next/screens/destinations/music/paging.ts';
 import {presentError} from '../../../packages/client-core/src/presentation/errors.ts';
 
 const song = (id: string, track: number, duration: number, title: string) => ({id, libraryId: 'music', kind: 'song', title, duration, trackNumber: track, artist: {id: 'artist-1', name: 'Kendrick Lamar'}, album: {id: 'album-1', name: 'DAMN.'}});
@@ -19,7 +20,7 @@ class Builder {
   build() { return {pivot: 'songs', ...this.body}; }
 }
 
-type Fixture = {songs?: readonly any[]; total?: number; similar?: readonly any[]; albums?: readonly any[]; maximumLimit?: number; pageSize?: number; current?: () => boolean; onPage?: (start: number) => void; revision?: (start: number) => string; lowerBound?: boolean; browseError?: () => Error | undefined; similarError?: () => Error | undefined; capabilitiesError?: () => Error | undefined; artistDetails?:any;bySound?:boolean;similarResponse?:unknown;waitSimilar?:Promise<void>;onSimilar?:()=>void;entityMissing?:boolean;entityRevision?:{catalog:number;viewer:number};waitEntity?:Promise<void>;onEntity?:()=>void};
+type Fixture = {songs?: readonly any[]; total?: number; similar?: readonly any[]; albums?: readonly any[]; maximumLimit?: number; pageSize?: number; current?: () => boolean; onPage?: (start: number) => void; revision?: (start: number) => string; lowerBound?: boolean; browseError?: (start:number) => Error | undefined;waitPage?:(start:number)=>Promise<void>|undefined;nextCursor?:(start:number,next:string)=>string;albumPageSize?:number;onAlbumPage?:(start:number)=>void; similarError?: () => Error | undefined; capabilitiesError?: () => Error | undefined; artistDetails?:any;bySound?:boolean;similarResponse?:unknown;waitSimilar?:Promise<void>;onSimilar?:()=>void;entityMissing?:boolean;entityRevision?:{catalog:number;viewer:number};waitEntity?:Promise<void>;onEntity?:()=>void};
 async function controller(entry: any, options: Fixture = {}) {
   const songs = options.songs ?? [], total = options.total ?? songs.length, similar = options.similar ?? [], albums = options.albums ?? [];
   const calls:any[]=[],browseBodies:any[]=[],reads:string[]=[];
@@ -42,17 +43,18 @@ async function controller(entry: any, options: Fixture = {}) {
       return {pivots: [{id: 'songs'}], fields: [{id: 'memberOf'}], sorts: [{id: 'groupOrder'}], queryLimits: {maximumLimit: options.maximumLimit ?? 200}};
     }
     if (String(path).startsWith('browse:')) {
-      const failure = options.browseError?.();
-      if (failure) throw failure;
-      browseBodies.push(JSON.parse(JSON.stringify(body)));
-      const pageSize = options.pageSize ?? songs.length;
       const start = body?.cursor ? Number(body.cursor) : 0;
-      const rows = songs.slice(start, start + pageSize);
+      browseBodies.push(JSON.parse(JSON.stringify(body)));
+      await options.waitPage?.(start);
+      const failure = options.browseError?.(start);
+      if (failure) throw failure;
+      const pageSize = options.pageSize ?? songs.length;
+      const rows = songs.slice(start, start + pageSize).map(row=>({...row}));
       const nextCursor = start + pageSize < total ? String(start + pageSize) : '';
       options.onPage?.(start);
-      return {pivot: 'songs', applied: {query: null, sort: []}, pageInfo: {start, total, revision: options.revision?.(start) ?? 'r', hasMore: nextCursor !== '', nextCursor, ...(options.lowerBound ? {totalIsLowerBound: true} : {})}, entries: rows};
+      return {pivot: 'songs', applied: {query: null, sort: []}, pageInfo: {start, total, revision: options.revision?.(start) ?? 'r', hasMore: nextCursor !== '', nextCursor:options.nextCursor?.(start,nextCursor)??nextCursor, ...(options.lowerBound ? {totalIsLowerBound: true} : {})}, entries: rows};
     }
-    if (String(path).includes('albums')) return {albums, nextCursor: ''};
+    if (String(path).includes('albums')) {const u=new URL(path,'https://server.test'),start=Number(u.searchParams.get('cursor')??0),limit=options.albumPageSize??100;options.onAlbumPage?.(start);return {albums:albums.slice(start,start+limit),nextCursor:start+limit<albums.length?String(start+limit):''};}
     if (String(path).includes('similar')) {
       options.onSimilar?.();await options.waitSimilar;
       const failure = options.similarError?.();
@@ -63,6 +65,7 @@ async function controller(entry: any, options: Fixture = {}) {
     throw new Error(`unexpected ${path}`);
   }};
   const {NativeTVMusicController} = await screenModule(new URL('../src-next/screens/destinations/music/model.ts', import.meta.url), {
+    './paging': musicPaging,
     react: {default: {}},
     '../../../shell/bootstrap': {default: {}},
     '../../../shell/playback': {default: {}},
@@ -123,11 +126,13 @@ test('album songs respect the server page cap and continue with the cursor', asy
   const many = Array.from({length: 150}, (_, index) => song(`song-${index}`, index + 1, 180, `Track ${index + 1}`));
   const {value, browseBodies} = await controller(albumEntry, {songs: many, total: 150, maximumLimit: 100, pageSize: 100});
   await value.load();
+  assert.equal(value.getSnapshot().songs.length,100,'the initial page stays bounded');
+  await value.nextSongs(value.getSnapshot().songPage);
   const state = value.getSnapshot();
   assert.equal(state.phase, 'ready');
   assert.equal(state.songs.length, 150);
   assert.equal(state.songTotal, 150);
-  assert.equal(state.songDurationSeconds, 27000);
+  assert.equal(state.songDurationSeconds, undefined,'a partial page does not invent whole-album duration');
   assert.deepEqual(browseBodies.map(body => body.limit), [100, 100]);
   assert.deepEqual(browseBodies.map(body => body.cursor ?? null), [null, '100']);
   assert.deepEqual(browseBodies[0], {pivot: 'songs', query: {field: 'memberOf', operator: 'equals', value: 'album-1'},
@@ -244,6 +249,8 @@ test('artist All songs follows the artist filter to completion in server order',
   const many = [song('song-a', 1, 180, 'A'), song('song-b', 2, 181, 'B'), song('song-c', 3, 182, 'C')];
   const {value, browseBodies} = await controller(artistEntry, {songs: many, total: 3, pageSize: 2, maximumLimit: 2});
   await value.loadAllSongs();
+  assert.equal(value.getSnapshot().allSongs.songs.length,2);
+  await value.nextAllSongs(value.getSnapshot().allSongs);
   assert.equal(value.getSnapshot().allSongs.phase, 'ready');
   assert.deepEqual(value.getSnapshot().allSongs.songs.map((entry: any) => entry.id), ['song-a', 'song-b', 'song-c']);
   assert.equal(value.getSnapshot().allSongs.total, 3);
@@ -257,8 +264,9 @@ test('artist All songs refuses a short page instead of calling it all', async ()
   const many = [song('song-a', 1, 180, 'A'), song('song-b', 2, 181, 'B')];
   const {value} = await controller(artistEntry, {songs: many, total: 3, pageSize: 2, maximumLimit: 2});
   await value.loadAllSongs();
-  assert.equal(value.getSnapshot().allSongs.phase, 'error');
-  assert.equal((value.getSnapshot().allSongs.error as any).code, 'music_all_songs_unavailable');
+  await value.nextAllSongs(value.getSnapshot().allSongs);
+  assert.equal(value.getSnapshot().allSongs.phase, 'refresh-required');
+  assert.equal((value.getSnapshot().allSongs.error as any).code, 'stale_continuation');
   value.dispose();
 });
 
@@ -452,4 +460,143 @@ test('a non-TV album mounts its own picker outlet once beside the page',async()=
  assert.equal(pickerRenders,1,'exactly one picker per route render');
  renderer.dispose();
  assert.equal(pickerDisposals,1,'route disposal retires the picker');
+});
+
+
+test('album and All songs cross twenty-one small pages with bounded chunks and exact Previous windows',async()=>{
+ for(const entry of [albumEntry,artistEntry]){
+  const songs=Array.from({length:42},(_,i)=>song(`song-${i}`,i+1,180,`Track ${i}`));
+  const f=await controller(entry,{songs,maximumLimit:2,pageSize:2});
+  const all=entry.kind==='artist';if(all)await f.value.loadAllSongs();else await f.value.load();
+  const page=()=>all?f.value.getSnapshot().allSongs:f.value.getSnapshot().songPage;
+  const next=(p:any)=>all?f.value.nextAllSongs(p):f.value.nextSongs(p);
+  const previous=(p:any)=>all?f.value.previousAllSongs(p):f.value.previousSongs(p);
+  assert.equal(f.browseBodies.length,1);const seen=new Set<string>();
+  while(true){const p=page();for(const row of p.items)seen.add(row.id);assert(p.items.length<=6);assert.equal(p.total,42);if(!p.canNext)break;const before=p;const a=next(before),b=next(before);assert.equal(a,b,'duplicate tail commands share the original operation');await a;}
+  assert.equal(seen.size,42);assert.equal(f.browseBodies.length,21);assert.equal(page().offset,36);
+  const last=page();await next(last);assert.equal(f.browseBodies.length,21,'terminal cursor never loops');
+  await previous(page());assert.equal(page().offset,34);assert.deepEqual(page().items.map((s:any)=>s.id),songs.slice(34,40).map(s=>s.id));
+  f.value.dispose();
+ }
+});
+
+test('301 releases stay bounded, preserve role/order and omit invented album counts',async()=>{
+ const albums=Array.from({length:301},(_,i)=>({id:`album-${i}`,libraryId:'music',title:`Release ${i}`,role:i%2?'ep':'album'}));
+ const pages:number[]=[];const f=await controller(artistEntry,{albums,onAlbumPage:start=>pages.push(start)});await f.value.load();
+ assert.deepEqual(pages,[0]);const seen=new Map<string,any>();
+ while(true){const p=f.value.getSnapshot().releases;for(const a of p.items)seen.set(a.id,a);assert(p.items.length<=300);assert.equal(p.total,undefined);if(!p.canNext)break;await f.value.nextReleases(p);}
+ assert.deepEqual([...seen.keys()],albums.map(a=>a.id));assert.deepEqual(pages,[0,100,200,300]);assert.equal(seen.get('album-300').role,'album');
+ await f.value.previousReleases(f.value.getSnapshot().releases);assert.equal(f.value.getSnapshot().releases.offset,0);f.value.dispose();
+});
+
+test('failed continuation keeps rows and retries its captured cursor while replacement and revision changes refuse old work',async()=>{
+ let fail=true;let live=true;
+ const songs=Array.from({length:6},(_,i)=>song(`song-${i}`,i+1,180,`Track ${i}`));
+ const f=await controller(albumEntry,{songs,maximumLimit:2,pageSize:2,current:()=>live,browseError:start=>start===2&&fail?new TypeError('offline'):undefined});
+ await f.value.load();const first=f.value.getSnapshot().songPage;const offered=first.items[0];
+ await f.value.nextSongs(first);const error=f.value.getSnapshot().songPage;
+ assert.equal(error.phase,'error');assert.equal(error.items[0],offered);assert.equal(f.value.contains(offered),true);
+ fail=false;await f.value.retrySongs(error);assert.deepEqual(f.browseBodies.map(b=>b.cursor??null),[null,'2','2']);
+ const replacement=f.value.getSnapshot().songPage;await f.value.nextSongs(first);assert.equal(f.browseBodies.length,3,'retired section command cannot append');
+ live=false;await f.value.nextSongs(replacement);assert.equal(f.browseBodies.length,3);assert.equal(f.value.contains(offered),false);f.value.dispose();
+ const revision=await controller(albumEntry,{songs,maximumLimit:2,pageSize:2,revision:start=>start?'r2':'r1'});await revision.value.load();await revision.value.nextSongs(revision.value.getSnapshot().songPage);assert.equal(revision.value.getSnapshot().songPage.phase,'refresh-required');revision.value.dispose();
+});
+
+test('repeated cursors and retired in-flight section responses cannot append',async()=>{
+ const songs=Array.from({length:6},(_,i)=>song(`song-${i}`,i+1,180,`Track ${i}`));
+ const repeat=await controller(artistEntry,{songs,maximumLimit:2,pageSize:2,nextCursor:(start,next)=>start===2?'2':next});await repeat.value.loadAllSongs();await repeat.value.nextAllSongs(repeat.value.getSnapshot().allSongs);assert.equal(repeat.value.getSnapshot().allSongs.phase,'refresh-required');assert.equal(repeat.browseBodies.length,2);repeat.value.dispose();
+ let release!:()=>void,entered!:()=>void;const held=new Promise<void>(r=>{release=r;}),started=new Promise<void>(r=>{entered=r;});
+ const f=await controller(albumEntry,{songs,maximumLimit:2,pageSize:2,waitPage:start=>{if(start===2){entered();return held;}}});await f.value.load();const next=f.value.nextSongs(f.value.getSnapshot().songPage);await started;await f.value.load();const refreshed=f.value.getSnapshot().songPage;release();await next;assert.equal(f.value.getSnapshot().songPage,refreshed);assert.equal(refreshed.items.length,2);f.value.dispose();
+});
+
+test('All songs admits only live exact offered entries beyond Top songs and retires them before replacement',async()=>{
+ const songs=Array.from({length:6},(_,i)=>song(`song-${i}`,i+1,180,`Track ${i}`));
+ const f=await controller(artistEntry,{songs,maximumLimit:3,pageSize:3});await f.value.load();const top=f.value.getSnapshot().songs[0];
+ await f.value.loadAllSongs();await f.value.nextAllSongs(f.value.getSnapshot().allSongs);const sixth=f.value.getSnapshot().allSongs.songs[5];
+ assert.equal(f.value.contains(sixth),true);assert.equal(f.value.contains({...sixth}),false);assert.equal(f.value.contains(top),true);
+ await f.value.loadAllSongs();assert.equal(f.value.contains(sixth),false);f.value.dispose();assert.equal(f.value.contains(top),false);
+});
+
+test('the real All songs row invokes the borrowed menu once and its captured membership retires',async()=>{
+ const songs=Array.from({length:6},(_,i)=>song(`song-${i}`,i+1,180,`Track ${i}`));
+ const f=await controller(artistEntry,{songs,pageSize:3,maximumLimit:3,albums:[{id:'offered-album',libraryId:'music',title:'Original release'}]});await f.value.load();await f.value.loadAllSongs();await f.value.nextAllSongs(f.value.getSnapshot().allSongs);
+ let opens=0,commandCurrent:()=>boolean=()=>false;
+ const borrowed={subscribe:()=>()=>{},isOpen:()=>false,open:async(_entry:any,current:()=>boolean)=>{opens++;commandCurrent=current;}};
+ const {createNativeEntryActions}=await screenModule(new URL('../src-next/screens/destinations/entry-actions.ts',import.meta.url),{
+  react:{default:{}},'../native-screen-services':{nativeScreenServices:()=>({reportError:()=>{throw Error('unexpected error');}})},
+  '../watch':{nativeWatchEntryMenu:()=>borrowed},'./lifetime':{nativeDestinationLifetime:()=>({current:()=>true})},
+ });
+ const actions=createNativeEntryActions({navigation:{getSnapshot:()=>({revision:1}),subscribe:()=>()=>{}},subscribeAuthority:()=>()=>{}},
+  {current:()=>true,contains:f.value.contains,subscribe:f.value.subscribe});
+ const hooks={createElement:(type:any,props:any,...children:any[])=>({type,props:{...props,children}}),useSyncExternalStore:(_off:any,get:any)=>get(),useMemo:(fn:any)=>fn(),useState:()=>[undefined,()=>{}],useRef:()=>({current:null}),useCallback:(fn:any)=>fn,useId:()=> 'real-test-gradient'};
+ const {artistReleaseGroups}=await import('../../../packages/client-core/src/presentation/library-tabs.ts');
+ const screens=await screenModule(new URL('../src-next/screens/destinations/music/TVMusicScreens.tsx',import.meta.url),{
+  react:{default:hooks,...hooks},'react-native':{ScrollView:'ScrollView',Text:'Text',View:'View'},'react-native-svg':{default:'Svg',Defs:'Defs',LinearGradient:'LinearGradient',Rect:'Rect',Stop:'Stop'},
+  '../../../../../../packages/i18n/src':{defaultI18n:{t:(key:string)=>key,number:String}},
+  '../../../../../../packages/client-core/src/presentation/kit-model':{cardText:(e:any)=>({title:e.title,caption:[],detail:[]})},
+  '../../../../../../packages/client-core/src/presentation/library-tabs':{artistReleaseGroups},
+  '../../../kit/artwork':{AmbientArt:'AmbientArt',Artwork:'Artwork',ArtistCircle:'ArtistCircle'},'../../../kit/controls':{Button:'Button',Chip:'Chip',Focusable:'Focusable'},
+  '../../../kit/cards':{SquareCard:'SquareCard'},'../../../kit/browse':{TrackRow:'TrackRow'},'../../../kit/browse/presentation':{browseType:()=>({})},
+  '../../../kit/focus':{FocusItem:'FocusItem',FocusRegion:'FocusRegion'},'../../../kit/theme':{useTheme:()=>({colors:{}})},
+  '../../../tv/layout/TVArtFocus':{TVArtFocus:'TVArtFocus'},'./MusicErrorView':{MusicErrorView:'MusicErrorView'},'./MusicFormatBadges':{MusicFormatBadges:'MusicFormatBadges'},
+  './MusicSectionControls':{MusicSectionControls:'MusicSectionControls',musicNearEnd:()=>true},
+ });
+ let navigations=0;const render=()=>screens.TVArtistScreen({controller:f.value,entry:artistEntry,runtime:{text:{},ambient:()=>undefined,artwork:()=>undefined,reportError:()=>{}},actions,openEntry:()=>{navigations++;}});const tree=render();
+ const nodes:any[]=[];function walk(node:any){if(!node)return;if(Array.isArray(node)){node.forEach(walk);return;}if(typeof node!=='object')return;if(typeof node.type==='function'){walk(node.type(node.props));return;}nodes.push(node);walk(node.props?.children);}walk(tree);
+ const sixth=nodes.find(n=>n.type==='TrackRow'&&n.props.row.id==='song-5');assert(sixth);sixth.props.onMore();assert.equal(opens,1);assert.equal(commandCurrent(),true);
+ const old=f.value.getSnapshot().allSongs.songs[5];actions.menu({...old});assert.equal(opens,1);
+ await f.value.loadAllSongs();assert.equal(commandCurrent(),false);sixth.props.onMore();assert.equal(opens,1);
+ const card=nodes.find(n=>n.type==='SquareCard'&&n.props.title==='Original release');assert(card);card.props.onMore();assert.equal(opens,2);assert.equal(commandCurrent(),true);
+ await f.value.load();assert.equal(commandCurrent(),false);card.props.onMore();card.props.onNavigate();assert.equal(opens,2,'old equal-ID release cannot adopt successor membership');assert.equal(navigations,0);
+ nodes.length=0;walk(render());const fresh=nodes.find(n=>n.type==='SquareCard'&&n.props.title==='Original release');fresh.props.onMore();fresh.props.onNavigate();assert.equal(opens,3);assert.equal(navigations,1);
+ actions.dispose();f.value.dispose();
+});
+
+async function phoneSurface(value:any,entry:any,tablet=false){
+ const hooks={createElement:(type:any,props:any,...children:any[])=>({type,props:{...props,children}}),useSyncExternalStore:(_off:any,get:any)=>get(),useRef:()=>({current:null})};
+ const react={default:hooks,...hooks};const {artistReleaseGroups}=await import('../../../packages/client-core/src/presentation/library-tabs.ts');
+ const controls=await screenModule(new URL('../src-next/screens/destinations/music/MusicSectionControls.tsx',import.meta.url),{'../../../../../../packages/client-core/src/presentation/errors':{presentError},react,'react-native':{View:'View'},'../../../../../../packages/i18n/src':{defaultI18n:{t:(key:string)=>key}},'../../../kit/controls':{Button:'Button'},'./MusicErrorView':{MusicErrorView:'MusicErrorView'}});
+ const module=await screenModule(new URL('../src-next/screens/destinations/music/PhoneMusicScreens.tsx',import.meta.url),{
+  react,'react-native':{ScrollView:'ScrollView',Text:'Text',View:'View'},'react-native-safe-area-context':{useSafeAreaInsets:()=>({top:0,bottom:0,left:0,right:0})},
+  '../../../../../../packages/i18n/src':{defaultI18n:{t:(key:string)=>key,number:String}},
+  '../../../../../../packages/client-core/src/presentation/kit-model':{cardText:(e:any)=>({title:e.title,caption:[],detail:[]})},
+  '../../../../../../packages/client-core/src/presentation/library-tabs':{artistReleaseGroups},
+  '../../../kit/artwork':{AmbientArt:'AmbientArt',Artwork:'Artwork',ArtistCircle:'ArtistCircle'},'../../../kit/controls':{Button:'Button',Focusable:'Focusable'},
+  '../../../kit/cards':{SquareCard:'SquareCard',CircleCard:'CircleCard'},'../../../kit/Icon':{Icon:'Icon'},'../../../kit/browse/presentation':{browseType:()=>({}),alpha:()=>''},
+  '../../../kit/theme':{useTheme:()=>({platform:tablet?'tablet':'phone',colors:{}})},'./MusicErrorView':{MusicErrorView:'MusicErrorView'},'./MusicFormatBadges':{MusicFormatBadges:'MusicFormatBadges'},
+  './MusicSectionControls':{MusicSectionControls:'MusicSectionControls',musicNearEnd:controls.musicNearEnd},
+ });
+ let menus=0,navigations=0;const render=()=>{
+  const props={controller:value,entry,runtime:{text:{},ambient:()=>undefined,artwork:()=>undefined,reportError:()=>{}},actions:{menu:(e:any)=>{if(value.contains(e))menus++;}},openEntry:()=>{navigations++;},onBack:()=>{}};
+  const tree=entry.kind==='album'?module.PhoneAlbumScreen(props):module.PhoneArtistScreen(props),nodes:any[]=[];
+  function walk(node:any){if(!node)return;if(Array.isArray(node)){node.forEach(walk);return;}if(typeof node!=='object')return;if(typeof node.type==='function'){walk(node.type(node.props));return;}nodes.push(node);walk(node.props?.children);}walk(tree);return nodes;
+ };
+ return {render,counts:()=>({menus,navigations})};
+}
+const flushMusic=async()=>{for(let n=0;n<24;n++)await Promise.resolve();};
+test('phone and tablet album scroll use only the original offered page and preserve real later tracks',async()=>{
+ for(const tablet of [false,true]){
+  const songs=Array.from({length:6},(_,i)=>song(`song-${i}`,i+1,180,`Track ${i}`));const f=await controller(albumEntry,{songs,pageSize:2,maximumLimit:2});await f.value.load();
+  const surface=await phoneSurface(f.value,albumEntry,tablet),scroll=surface.render().find(n=>n.type==='ScrollView'&&!n.props.horizontal&&n.props.onScroll);
+  assert(scroll);scroll.props.onScroll({nativeEvent:{contentOffset:{x:0,y:700},layoutMeasurement:{width:400,height:400},contentSize:{width:400,height:1000}}});await flushMusic();
+  assert.equal(f.value.getSnapshot().songs.length,4);assert.deepEqual(f.browseBodies.map(b=>b.cursor??null),[null,'2']);
+  await f.value.load();const count=f.browseBodies.length;scroll.props.onScroll({nativeEvent:{contentOffset:{x:0,y:700},layoutMeasurement:{width:400,height:400},contentSize:{width:400,height:1000}}});await flushMusic();assert.equal(f.browseBodies.length,count,'old scroll does not adopt the replaced page');f.value.dispose();
+ }
+});
+test('phone/tablet release cards and horizontal tail retain the exact original offered membership',async()=>{
+ for(const tablet of [false,true]){
+  const albums=Array.from({length:5},(_,i)=>({id:`release-${i}`,libraryId:'music',title:`Release ${i}`,role:i%2?'single':'album'}));
+  const f=await controller(artistEntry,{albums,albumPageSize:2});await f.value.load();const surface=await phoneSurface(f.value,artistEntry,tablet),nodes=surface.render(),card=nodes.find(n=>n.type==='SquareCard'&&n.props.title==='Release 0');assert(card);
+  card.props.onMore();card.props.onNavigate();assert.deepEqual(surface.counts(),{menus:1,navigations:1});
+  const scroll=nodes.find(n=>n.type==='ScrollView'&&n.props.horizontal&&n.props.onScroll);assert(scroll);scroll.props.onScroll({nativeEvent:{contentOffset:{x:500,y:0},layoutMeasurement:{width:400,height:200},contentSize:{width:900,height:200}}});await flushMusic();assert.equal(f.value.getSnapshot().albums.length,4);
+  await f.value.load();card.props.onMore();card.props.onNavigate();assert.deepEqual(surface.counts(),{menus:1,navigations:1});f.value.dispose();
+ }
+});
+
+
+test('continuation retains the originally dispatched artist query and endpoint rather than reading mutated route metadata',async()=>{
+ const original={...artistEntry};const songs=Array.from({length:4},(_,i)=>song(`song-${i}`,i+1,180,`Track ${i}`));
+ const f=await controller(original,{songs,pageSize:2,maximumLimit:2});await f.value.loadAllSongs();
+ original.title='another artist';original.libraryId='another library';await f.value.nextAllSongs(f.value.getSnapshot().allSongs);
+ assert.deepEqual(f.browseBodies.map(body=>body.query.value),['Kendrick Lamar','Kendrick Lamar']);assert.equal(f.reads.filter(path=>path==='browse:music').length,2);f.value.dispose();
 });
