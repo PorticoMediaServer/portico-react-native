@@ -33,6 +33,7 @@ import {LastLibraryMemory} from './library-memory';
 import {createNativeShellPlaybackAdapter} from '../platform/playback';
 import {nativePlaybackSettings} from './playback-settings';
 import {rememberNativePlaybackPreferences} from './remembered-playback-settings';
+import {rememberNativeReadingPreferences} from './remembered-reading-settings';
 import {LyricsService} from '../../../../packages/client-core/src/lyrics';
 import {musicAudioEffects} from '../../../../packages/client-core/src/music-preferences';
 import {NativePlayOn} from '../platform/play-on/controller';
@@ -369,6 +370,10 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       if (current()) void rememberNativePlaybackPreferences(context, currentPreferences().effective, installationSettings).catch(() => {});
     };
     cleanups.push(context.subscribePreferences(rememberPlaybackSettings)); rememberPlaybackSettings();
+    const rememberReadingSettings = () => {
+      if (current()) void rememberNativeReadingPreferences(context, currentPreferences()).catch(() => {});
+    };
+    cleanups.push(context.subscribePreferences(rememberReadingSettings)); rememberReadingSettings();
     const resolve = (path: string) => current() ? local.mediaUrl(path) : undefined;
     const skipBackMs = currentPreferences().effective['playback.skipBackMs'];
     if (typeof skipBackMs !== 'number' || !Number.isFinite(skipBackMs) || skipBackMs < 0) throw Object.assign(new Error('invalid_playback_preference'), {code: 'invalid_response'});
