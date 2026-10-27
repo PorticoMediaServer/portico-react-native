@@ -18,7 +18,6 @@ import type {NativeSearchDestination} from '../src-next/screens/search/model';
  */
 
 const fence = 'b'.repeat(64);
-const deferred = () => {let resolve!: () => void; const promise = new Promise<void>(done => {resolve = done;}); return {promise, resolve};};
 const movie = (id: string, title: string) => ({id, libraryId: 'movies', kind: 'movie' as const, title, available: true});
 const detail = (serverId: string, entry: {id: string; title: string}, revision: number, watchlisted: boolean) => ({
   scope: {serverId, libraryId: 'movies', itemId: entry.id, viewerFence: fence},
@@ -88,7 +87,9 @@ test('NM-ID-03: a failed Saved personal result keeps the same operation on Retry
     beforePick!.onEnter();
     const nodes = () => {
       const visit = (items: readonly any[]): any[] => items.flatMap(node => [node, ...visit(node.children ?? [])]);
-      return visit(host.root);
+      // standardHomeApp materialises the product's View/Text/Pressable boundaries in its own
+      // host registry; host.root only carries the rendered raw text.
+      return [...visit(host.root), ...app.hosts()];
     };
     const nodeWithTestID = (testID: string) => nodes().find(node => node.props?.testID === testID);
     const byLabel = (value: string) => nodes().find(node => node.name === 'Pressable' && app.nativeLabel(node) === value);

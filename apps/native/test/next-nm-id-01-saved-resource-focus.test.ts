@@ -94,10 +94,12 @@ test('NM-ID-01: the real Saved page binds Show more and the owner visibility swi
     const region = 'saved.resource.resource:collection-1';
     const nodes = () => {
       const visit = (items: readonly any[]): any[] => items.flatMap(node => [node, ...visit(node.children ?? [])]);
-      return visit(host.root);
+      // standardHomeApp materialises the product's View/Text/Pressable boundaries in its own
+      // host registry; host.root only carries the rendered raw text, whose string lives in props.text.
+      return [...visit(host.root), ...app.hosts()];
     };
     const nodeWithTestID = (testID: string) => nodes().find(node => node.props?.testID === testID);
-    const text = () => nodes().map(node => typeof node.children === 'string' ? node.children : '').join('\n');
+    const text = () => nodes().map(node => typeof node.children === 'string' ? node.children : typeof node.props?.text === 'string' ? node.props.text : '').join('\n');
     const settle = async () => {await host.settle(); await app.settle();};
 
     const page = (overrides: Record<string, unknown> = {}) => React.createElement(SavedResourceScreen, {

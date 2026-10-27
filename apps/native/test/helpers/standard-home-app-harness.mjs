@@ -114,7 +114,11 @@ const nativeURL = data(`import React from ${JSON.stringify(reactURL)};
  const S=globalThis.${globalKey};
  const flat=s=>Array.isArray(s)?Object.assign({},...s.map(flat)):s??{};
  function host(name){return function NativeBoundary({ref,children,...props}){
-   const own=React.useRef(); if(!own.current)own.current={tag:S.nextHost++,contentOffset:{x:0,y:0},requestTVFocus(){S.hosts.get(this.tag)?.props.onFocus?.({nativeEvent:{}});},setDestinations(){},scrollTo(first=0,second=0){const offset=typeof first==='object'?first:{y:first,x:second};this.contentOffset={x:offset.x??0,y:offset.y??0};},measure(cb){cb(0,0,390,220,0,588)},measureInWindow(cb){cb(0,588,390,220)},setNativeProps(){}};
+   const own=React.useRef(); if(!own.current)own.current={tag:S.nextHost++,contentOffset:{x:0,y:0},requestTVFocus(){S.hosts.get(this.tag)?.props.onFocus?.({nativeEvent:{}});},setDestinations(){},scrollTo(first=0,second=0){const offset=typeof first==='object'?first:{y:first,x:second};this.contentOffset={x:offset.x??0,y:offset.y??0};},
+    // The installed FlatList answers scrollToIndex from the caller's own getItemLayout; a list
+    // that supplies none leaves the offset alone and only records the request.
+    scrollToIndex({index=0}={}){const layout=typeof props.getItemLayout==='function'?props.getItemLayout(undefined,index):undefined;if(layout&&Number.isFinite(layout.offset))this.contentOffset={x:0,y:layout.offset};this.scrolledToIndex=index;},
+    measure(cb){cb(0,0,390,220,0,588)},measureInWindow(cb){cb(0,588,390,220)},setNativeProps(){}};
    // The scroll view's live native offset, not a prop the app set: native answers
    // with where the app's own scrollTo actually left the surface. Delivering the
    // resulting scroll event stays the test's controlled input.
