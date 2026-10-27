@@ -1,7 +1,7 @@
 import {NativeModules} from 'react-native';
 import {ApiError, HostedAccountClient, parseAccountReturn, parseNativeAccountContinuation, type AccountReturn, type AccountTransport, type NativeAccountContinuation, type MFAChallenge} from '../../../../packages/client-core/src/index';
 import {nativeNetworkFetch} from './server-connections';
-import {serializeContinuation} from './continuation-queue';
+import {serializeContinuation, observeContinuationBinding, replaceContinuationBinding, continuationBindingCurrent} from './continuation-queue';
 
 /** SEC-01: a provider return for the sign-in this app started, or undefined for any other. */
 export function accountReturnOf(raw:string,expected:string,accountOrigin:string):AccountReturn|undefined {
@@ -35,22 +35,23 @@ export function nativeAccountTransport(origin:string,binding:string,fetcher:type
  };
 }
 export class NativeAccountOwner {
- readonly origin:string;api:HostedAccountClient;private value:NativeAccountContinuation;private writes:Promise<void>=Promise.resolve();
- constructor(origin:string,value:NativeAccountContinuation){this.origin=origin;this.value=value;this.api=new HostedAccountClient(origin,'native',nativeAccountTransport(origin,value.binding),value.binding);}
+ readonly origin:string;api:HostedAccountClient;private value:NativeAccountContinuation;private writes:Promise<void>=Promise.resolve();private witness:ReturnType<typeof observeContinuationBinding>;
+ constructor(origin:string,value:NativeAccountContinuation){this.origin=origin;this.value=value;this.witness=observeContinuationBinding(origin,value.binding);this.api=this.client(value.binding,this.witness);}
+ private client(binding:string,witness:ReturnType<typeof observeContinuationBinding>){const transport=nativeAccountTransport(this.origin,binding);return new HostedAccountClient(this.origin,'native',(...args)=>{if(!continuationBindingCurrent(this.origin,witness))throw new Error('This sign-in attempt was replaced.');return transport(...args);},binding);}
  get continuation(){return this.value;}
  /** Expected binding fences late callbacks from a cancelled or replaced attempt. */
  async update(expected:string,change:{transactionId?:string;completionCode?:string;mfa?:MFAChallenge}):Promise<void>{
-  const original=this.value;
-  const current=()=>{if(this.value.binding!==expected||original.binding!==expected)throw new Error('This sign-in attempt was replaced.');};
+  const original=this.value,witness=this.witness;
+  const current=()=>{if(this.value.binding!==expected||original.binding!==expected||!continuationBindingCurrent(this.origin,witness))throw new Error('This sign-in attempt was replaced.');};
   current();const value:NativeAccountContinuation={version:1,binding:expected,expiresAt:original.expiresAt,...change},bytes=JSON.stringify(value);
   const write=this.writes.then(()=>serializeContinuation(this.origin,async()=>{current();await accountBridge().saveContinuation(this.origin,bytes);current();this.value=value;}));
   this.writes=write.catch(()=>{});return write;
  }
  async reset():Promise<void>{
-  const originalBinding=this.value.binding,current=()=>{if(this.value.binding!==originalBinding)throw new Error('This sign-in attempt was replaced.');};
+  const originalBinding=this.value.binding,witness=this.witness,current=()=>{if(this.value.binding!==originalBinding||!continuationBindingCurrent(this.origin,witness))throw new Error('This sign-in attempt was replaced.');};
   const write=this.writes.then(()=>serializeContinuation(this.origin,async()=>{current();const binding=await accountBridge().newBinding();current();
    const value:NativeAccountContinuation={version:1,binding,expiresAt:new Date(Date.now()+86400000).toISOString()},bytes=JSON.stringify(value);
-   await accountBridge().saveContinuation(this.origin,bytes);current();this.value=value;this.api=new HostedAccountClient(this.origin,'native',nativeAccountTransport(this.origin,value.binding),value.binding);
+   await accountBridge().saveContinuation(this.origin,bytes);current();this.value=value;this.witness=replaceContinuationBinding(this.origin,value.binding);this.api=this.client(value.binding,this.witness);
   }));this.writes=write.catch(()=>{});return write;
  }
 }
