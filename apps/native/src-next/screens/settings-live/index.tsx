@@ -10,6 +10,7 @@ import {NativeTogetherMedia} from './together-media';
 import {createNativeRecordingsController} from './recordings-controller';
 import {NativeLiveScreen} from './LiveScreen';
 import {NativeTogetherScreen} from './TogetherScreen';
+import {nativeTogetherPages} from './together-page';
 import {createNativeServerDashboardRenderer, createNativeSettingsRenderer} from './SettingsRoute';
 import {nativeSettingsRequestId} from './settings-ports';
 import type {NativeSettingsLivePorts, NativeSettingsLiveRenderers} from './ports';
@@ -35,15 +36,16 @@ export function createNativeSettingsLiveRenderers(ports: NativeSettingsLivePorts
   const releaseWatch = publishNativeLiveWatchPort(context, lifetime, {recordings, live, owner, requestId: ports.dvrRequestId});
   const together = new NativeTogetherController(lifetime, ports.together);
   const togetherMedia = new NativeTogetherMedia(lifetime, api);
+  const togetherPages=nativeTogetherPages(context,lifetime);
   const settings = createNativeSettingsRenderer(context);
   const serverDashboard = createNativeServerDashboardRenderer(context);
   let disposed = false, releaseAuthority = () => {};
-  const dispose = () => {if (disposed) return; disposed = true; releaseWatch(); releaseAuthority(); settings.dispose?.(); serverDashboard.dispose?.(); owner.dispose(); live.dispose(); recordings.dispose(); together.dispose(); togetherMedia.dispose(); lifetime.dispose();};
+  const dispose = () => {if (disposed) return; disposed = true; releaseWatch(); releaseAuthority(); settings.dispose?.(); serverDashboard.dispose?.(); owner.dispose(); live.dispose(); recordings.dispose(); togetherPages.dispose();together.dispose(); togetherMedia.dispose(); lifetime.dispose();};
   releaseAuthority = context.subscribeAuthority(() => {if (!lifetime.current()) dispose();});
   return {
     settings,
     live: {render: (route, runtime) => {lifetime.assert(); if (route.kind !== 'shell' || route.destination.kind !== 'live') throw new Error('native_live_route_mismatch'); return <NativeLiveScreen ports={{...ports, requestId: ports.requestId ?? nativeSettingsRequestId}} controller={live} recordings={recordings} owner={owner} runtime={runtime}/>;}},
-    together: {render: (route, runtime) => {lifetime.assert(); if (route.kind !== 'together') throw new Error('native_together_route_mismatch'); return <NativeTogetherScreen ports={ports} controller={together} media={togetherMedia} runtime={runtime}/>;}},
+    together: {render: (route, runtime) => {lifetime.assert(); if (route.kind !== 'together') throw new Error('native_together_route_mismatch'); const page=togetherPages.capture(route);return <NativeTogetherScreen key={page.key} page={page} ports={ports} controller={together} media={togetherMedia} runtime={runtime} onBack={page.back}/>;}},
     serverDashboard,
     dispose,
   };

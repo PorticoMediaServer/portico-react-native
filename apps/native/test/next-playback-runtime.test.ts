@@ -2451,6 +2451,7 @@ const {createNativeTogetherRenderer} = await screenModule(new URL('../src-next/s
   './lifetime': {NativeScreenLifetime}, './together-controller': {NativeTogetherController},
   './together-media': {NativeTogetherMedia}, './together-session': {nativeTogetherSession},
   './TogetherScreen': {NativeTogetherScreen: 'TogetherScreen'},
+  './together-page': await import('../src-next/screens/settings-live/together-page'),
 });
 
 function togetherPlayback(d: ReturnType<typeof fixture>, playing = false) {
