@@ -40,6 +40,13 @@ test('saved-only Settings shows a local notice and closes onto the same original
   assert.equal(find(tree, 'NativeReadingGuestHost')!.props.owner, owner);
   assert.equal(find(tree, 'NativeReadingGuestHost')!.props.active, true);
   assert.equal(closes, 0);
+  await act(() => find(tree, 'NativeReadingGuestHost')!.props.onSettings());
+  const nextNotice = find(tree, 'Dialog')!; assert.ok(nextNotice);
+  await act(() => close());
+  assert.equal(find(tree, 'Dialog'), nextNotice, 'the first notice cannot dismiss its successor');
+  assert.equal(find(tree, 'NativeReadingGuestHost')!.props.active, false);
+  await act(() => nextNotice.props.footer.props.onPress());
+  assert.equal(find(tree, 'Dialog'), undefined); assert.equal(closes, 0);
   root = false; await act(() => oldSettings()); assert.equal(find(tree, 'Dialog'), undefined);
   await act(() => close()); assert.equal(find(tree, 'Dialog'), undefined);
   host.unmount(); assert.equal(closes, 1);
