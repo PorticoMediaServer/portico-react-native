@@ -1,5 +1,6 @@
 import React, {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
-import {View} from 'react-native';
+import {View, useWindowDimensions} from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Dialog} from '../../kit/overlays/surface';
 import {Button} from '../../kit/controls';
@@ -10,6 +11,7 @@ import type {createRememberedReadingOwner} from '../../shell/remembered-reading-
 type Reading = ReturnType<typeof createRememberedReadingOwner>;
 /** This page borrows one exact root-owned publication, never a shell session. */
 export function RememberedReadingScreen({reading, noticeCopy, current: rootCurrent, onBack}: {reading: Reading; noticeCopy: Readonly<{title: string; body: string}>; current: () => boolean; onBack: () => void}) {
+  const dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   const active = useRef<{live: boolean} | undefined>(undefined);
   const [ticket] = useState(() => ({live: true}));
   const [notice, setNotice] = useState<object | undefined>();
@@ -29,7 +31,13 @@ export function RememberedReadingScreen({reading, noticeCopy, current: rootCurre
       description={noticeCopy.body} showClose={false} dismissOnOutsidePress={false} dismissOnBack={false}
       footer={<Button onPress={() => closeNotice(notice)}>{defaultI18n.t('action.close')}</Button>}/> : null}
   </View>;
-  if (snapshot.phase === 'idle' || snapshot.phase === 'opening') return <LoadingPaint ready={false} skeleton={<SkeletonBlock width="100%" style={{flex: 1}}/>}/>;
+  if (snapshot.phase === 'idle' || snapshot.phase === 'opening') return <View style={{flex: 1}}>
+    <LoadingPaint ready={false} skeleton={<SkeletonBlock width="100%" style={{flex: 1}}/>}/>
+    <View pointerEvents="box-none" style={{position: 'absolute', left: 12, top: insets.top + 8, zIndex: 20}}>
+      <Button testID="native-read-host-back" variant="icon" size="compact" icon="i-left" iconOnly accessibilityLabel={defaultI18n.t('action.back')}
+        focusRadius={dimensions.width >= 700 ? 22 : 19} onPress={back} style={{height: dimensions.width >= 700 ? 44 : 38, width: dimensions.width >= 700 ? 44 : 38, paddingHorizontal: 0}}/>
+    </View>
+  </View>;
   return <View style={{flex: 1}}><StateView variant="centered" title={defaultI18n.t('next.states.pageFailed')}
     body={defaultI18n.t('next.states.pageFailedBody')} primaryAction={{id: 'back', label: defaultI18n.t('action.back'), onPress: back}}/></View>;
 }
