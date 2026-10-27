@@ -117,7 +117,7 @@ test('explicit People refresh retires old flights, resets all sections and seen 
   const old = pages.load('devices');
   const oldGeneration = pages.currentGeneration();
   pages.refresh();
-  assert.deepEqual(state.devices.items, []); assert.equal(state.devices.pending, true);
+  assert.equal(state.devices.items.length, 0); assert.equal(state.devices.pending, true);
   await new Promise<void>(resolve => setImmediate(resolve));
   assert.deepEqual(state.devices.items.map(row => row.id), ['d4']); assert.equal(state.devices.cursor, 'x');
   finishOld({items: [device('stale')], limit: 50, nextCursor: ''}); await old;
