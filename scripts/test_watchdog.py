@@ -715,7 +715,7 @@ class Runner:
             "summary": summary,
             "enqueued": len(enqueued),
             "started": len(started_tests),
-            "unfinished": unfinished[:_FAILURE_LIMIT],
+            "unfinished": unfinished,
             "active_test": active,
             "active_seconds": active_age,
             "stray": stray,

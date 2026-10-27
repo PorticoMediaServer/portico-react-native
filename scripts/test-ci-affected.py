@@ -720,6 +720,18 @@ class WatchdogTests(unittest.TestCase):
         self.assertIn("HANG partial.test.mjs (2 tests", output)
         self.assertNotIn("0 tests", output)
 
+    def test_every_unfinished_name_is_kept_beyond_the_failure_preview_limit(self):
+        queued = [f"queued {i}" for i in range(ci.test_watchdog._FAILURE_LIMIT + 5)]
+        self.fixture("inventory.test.mjs",
+                     "import {test} from 'node:test';\n"
+                     "test('blocked', async () => { await new Promise(() => {}); });\n"
+                     + "".join(f"test({name!r}, () => {{}});\n" for name in queued))
+        runner, _ = self.run_files(["inventory.test.mjs"], file_seconds=1.0, exit_grace=0.3)
+        result = runner.results[0]
+        self.assertEqual(result.status, ci.test_watchdog.HANG)
+        self.assertEqual(result.unfinished, ["blocked", *queued])
+        self.assertEqual(result.as_dict()["unfinished"], ["blocked", *queued])
+
     def test_an_interrupted_file_keeps_its_finished_counts_and_its_inventory(self):
         marker = self.root / "interrupt"
         # The blocked test yields, so Node keeps flushing the results that had
