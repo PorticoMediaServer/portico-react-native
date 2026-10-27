@@ -221,7 +221,7 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, focusScopeKey,
   const displayRow = (value: Row): ListeningQueuePaintRow => {
     const facts = value.current ? undefined : queueEdit?.entry(value.entryId);
     return {id: value.entryId, title: value.title, detail: value.detail, seconds: value.seconds, current: value.current,
-      source: artwork?.(value.posterUrl), playable: canPlay && !value.current,
+      source: artwork?.(value.posterUrl) ?? undefined, playable: canPlay && !value.current,
       menu: editable && !!facts && facts.available === true && facts.position !== undefined};
   };
   const display: ListeningQueuePaintData | undefined = tv ? undefined : {
