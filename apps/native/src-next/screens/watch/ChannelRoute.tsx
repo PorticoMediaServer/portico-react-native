@@ -1,28 +1,61 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
+import {Platform, View} from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {defaultI18n} from '../../../../../packages/i18n/src';
+import {sameFence, type ChannelPlaybackFence} from '../../../../../packages/player-core/src';
+import {Button} from '../../kit/controls';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRoute} from '../../shell/routes';
 import type {NativeWatchModuleBindings} from './module';
 
-/** A genuine navigation request, not a Home selection or a second player.
- * The persistent Watch outlet paints only the runtime's accepted channel. */
+/** The launch page owns its original route, not the adopted player's lifetime. */
 export function NativeWatchChannelRoute({context, route, title}: {context: NativeShellBootstrapContext; route: Extract<NativeShellRoute, {kind: 'channel'}>; title: NativeWatchModuleBindings['title']}) {
   const [attempt, setAttempt] = useState(0), [error, setError] = useState<unknown>();
-  useEffect(() => {
-    const revision = context.navigation.getSnapshot().revision, controller = new AbortController();
+  const insets = useSafeAreaInsets();
+  const page = useMemo(() => {
+    const snapshot = context.navigation.getSnapshot(), occurrence = context.navigation.presentationStack().at(-1)?.occurrence;
+    const owner = {mounted: true, retired: false, consumed: false};
     const current = () => {
-      const snapshot = context.navigation.getSnapshot(), value = snapshot.route;
-      return !controller.signal.aborted && context.current() && snapshot.revision === revision && value.kind === 'channel'
-        && value.sourceId === route.sourceId && value.channelId === route.channelId;
+      if (!owner.mounted || owner.retired || owner.consumed) return false;
+      if (!context.current() || context.navigation.getSnapshot() !== snapshot || snapshot.route !== route
+        || !occurrence || context.navigation.presentationStack().at(-1)?.occurrence !== occurrence) {owner.retired = true; return false;}
+      return owner.mounted && !owner.retired && !owner.consumed && context.navigation.getSnapshot() === snapshot;
     };
+    const pop = () => {
+      if (!current() || !occurrence) return;
+      // The navigation owner validates the same original snapshot/occurrence.
+      if (context.navigation.commitNativePop(snapshot, occurrence)) owner.consumed = true;
+    };
+    return {owner, current, pop};
+  }, [context, route]);
+  useEffect(() => {page.owner.mounted = true; return () => {page.owner.mounted = false;};}, [page]);
+  useEffect(() => {
+    const controller = new AbortController();
+    const current = () => !controller.signal.aborted && page.current() && !controller.signal.aborted;
     const changed = () => {if (!current()) controller.abort();};
     const offRoute = context.navigation.subscribe(changed), offAuthority = context.subscribeAuthority(changed);
+    let receipt: ChannelPlaybackFence | undefined;
+    const accepted = (fence: ChannelPlaybackFence) => {
+      if (receipt || !current() || fence.sourceId !== route.sourceId || fence.channelId !== route.channelId) return;
+      if (!sameFence(context.playback.runtime.getSnapshot().fence, fence) || !current()) return;
+      receipt = fence;
+    };
     setError(undefined);
     if (current()) void context.playback.runtime.startChannel({sourceId: route.sourceId, channelId: route.channelId,
       timezone: route.guide?.options.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone, guide: route.guide,
       expectedFence: route.tune?.fence, expectedSourceGeneration: route.tune?.sourceGeneration,
-      lifetime: {signal: controller.signal, isCurrent: current}})
-      .catch(failure => {if (current()) setError(failure);});
+      ...(!Platform.isTV ? {onAccepted: accepted} : {}), lifetime: {signal: controller.signal, isCurrent: current}})
+      .then(() => {
+        // Let the same start finish its original guide/metadata publication,
+        // then consume only its captured admission receipt. A void refusal has
+        // no receipt; a successor before this await resumes is never popped.
+        if (receipt && current() && sameFence(context.playback.runtime.getSnapshot().fence, receipt) && current()) page.pop();
+      }).catch(failure => {if (current()) setError(failure);});
     return () => {controller.abort(); offRoute(); offAuthority();};
-  }, [context, route, attempt]);
-  return error ? title.renderError(error, () => setAttempt(value => value + 1)) : null;
+  }, [context, route, page, attempt]);
+  const failure = error ? title.renderError(error, () => {if (page.current()) setAttempt(value => value + 1);}) : null;
+  return Platform.isTV ? failure : <View style={{flex: 1, paddingTop: insets.top + 12}}>
+    <Button testID="native-channel-back" variant="text" icon="i-left" accessibilityLabel={defaultI18n.t('action.back')} onPress={page.pop}>{defaultI18n.t('action.back')}</Button>
+    {failure}
+  </View>;
 }

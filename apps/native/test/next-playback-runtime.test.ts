@@ -2673,3 +2673,23 @@ test('reentrant channel admission cannot publish an old fence over its replaceme
     assert.deepEqual(d.runtime.getSnapshot().fence, successor);assert.equal(accepted.length, 1);
   } finally {d.runtime.dispose();if (replacement) await replacement.catch(() => {});t.mock.timers.reset();}
 });
+
+test('real channel route consumes only its accepted launch and page cleanup leaves the original channel running',async()=>{
+ const {createHookHost,act}=await import('./hook-driver.ts');
+ const {NativeWatchChannelRoute}=await screenModule(new URL('../src-next/screens/watch/ChannelRoute.tsx',import.meta.url),{
+  react:{...React,default:React},'react-native':{Platform:{isTV:false},View:'View'},'react-native-safe-area-context':{useSafeAreaInsets:()=>({top:0})},
+  '../../../../../packages/i18n/src':{defaultI18n:{t:(key:string)=>key}},'../../../../../packages/player-core/src':await import('../../../packages/player-core/src/index.ts'),'../../kit/controls':{Button:'Button'},
+ });
+ const d=fixture(),authority=d.getAuthority(),navigation=new NativeShellNavigation(authority,()=>d.getAuthority());navigation.top({kind:'live'},authority);const original=navigation.getSnapshot().route;
+ const route={kind:'channel' as const,sourceId:'source-1',channelId:'channel-1'};navigation.open(route,authority);
+ const context={current:()=>true,navigation,subscribeAuthority:d.subscribeAuthority,playback:{runtime:d.runtime}};
+ let tree:any;const host=createHookHost(()=>{tree=NativeWatchChannelRoute({context,route,title:{renderError:assert.fail}});});
+ try{
+  await act(()=>host.mount());await settle(100);await act(()=>{});
+  const accepted=d.runtime.getSnapshot().fence;assert(accepted?.kind==='channel');assert.equal(navigation.getSnapshot().route,original);
+  const deleted=()=>d.requests.filter(request=>request.method==='DELETE').length,before=deleted();
+  host.unmount();await settle();assert.deepEqual(d.runtime.getSnapshot().fence,accepted);assert.equal(deleted(),before,'route cleanup does not DELETE adopted output');
+  await d.runtime.collapse(accepted);assert.deepEqual(d.runtime.getSnapshot().fence,accepted);assert.equal(d.runtime.getSnapshot().dock.local?.expanded,false);assert.equal(navigation.getSnapshot().route,original);
+  d.runtime.open(accepted);await d.runtime.onTransition(d.runtime.dock.collapse(accepted));assert.deepEqual(d.runtime.getSnapshot().fence,accepted);assert.equal(deleted(),before);
+ }finally{host.unmount();navigation.dispose();d.runtime.dispose();}
+});

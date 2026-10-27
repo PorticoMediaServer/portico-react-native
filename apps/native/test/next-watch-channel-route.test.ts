@@ -2,31 +2,56 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
-import {createHookHost} from './hook-driver.ts';
-const {NativeWatchChannelRoute} = await screenModule(new URL('../src-next/screens/watch/ChannelRoute.tsx', import.meta.url), {react: {...React, default: React}});
-
-for (const retirement of ['navigation', 'authority', 'unmount'] as const) test(`the real channel route carries its own pending caller lifetime: ${retirement}`, async () => {
-  let current = true, revision = 1, request: any, release!: () => void;
-  const route = {kind: 'channel', sourceId: 'actual-source', channelId: 'actual-channel'};
-  let active: any = route;
-  const routeListeners = new Set<() => void>(), authorityListeners = new Set<() => void>();
-  const pending = new Promise<void>(resolve => {release = resolve;});
-  const context = {current: () => current, navigation: {getSnapshot: () => ({revision, route: active}), subscribe: (listener: () => void) => {routeListeners.add(listener); return () => routeListeners.delete(listener);}},
-    subscribeAuthority: (listener: () => void) => {authorityListeners.add(listener); return () => authorityListeners.delete(listener);},
-    playback: {runtime: {startChannel: async (value: any) => {request = value; await pending;}}}};
-  let output: any;
-  const mounted = createHookHost(() => {output = NativeWatchChannelRoute({context, route, title: {renderError: assert.fail}});});
-  mounted.mount();
-  try {
-    assert.equal(output, null); assert.equal(request.sourceId, route.sourceId); assert.equal(request.channelId, route.channelId);
-    assert.equal(request.timezone, Intl.DateTimeFormat().resolvedOptions().timeZone);
-    assert.equal(request.lifetime.isCurrent(), true); assert.equal(request.lifetime.signal.aborted, false);
-    // A newly accepted output is not part of this route/member lifetime.
-    mounted.flush(); assert.equal(request.lifetime.isCurrent(), true);
-    if (retirement === 'unmount') mounted.unmount();
-    else if (retirement === 'authority') {current = false; for (const listener of authorityListeners) listener();}
-    else {revision++; active = {kind: 'shell'}; for (const listener of routeListeners) listener();}
-    assert.equal(request.lifetime.isCurrent(), false); assert.equal(request.lifetime.signal.aborted, true);
-  } finally {release(); await pending; mounted.unmount();}
-  assert.equal(routeListeners.size, 0); assert.equal(authorityListeners.size, 0);
+import {act, createHookHost} from './hook-driver.ts';
+import {NativeShellNavigation} from '../src-next/shell/routes.ts';
+const platform={isTV:false};
+const {NativeWatchChannelRoute}=await screenModule(new URL('../src-next/screens/watch/ChannelRoute.tsx',import.meta.url),{
+ react:{...React,default:React},'react-native':{Platform:platform,View:'View'},'react-native-safe-area-context':{useSafeAreaInsets:()=>({top:20})},
+ '../../../../../packages/i18n/src':{defaultI18n:{t:(key:string)=>key}},'../../../../../packages/player-core/src':await import('../../../packages/player-core/src/index.ts'),
+ '../../kit/controls':{Button:'Button'},
+});
+const nodes=(value:any):any[]=>Array.isArray(value)?value.flatMap(nodes):value?.props?[value,...nodes(value.props.children)]:[];
+const authority={serverId:'server',accountId:'account',profileId:'profile',epoch:'family',viewerFence:'viewer'};
+async function fixture(){
+ let live=true,request:any,resolve!:()=>void,reject!:(error:Error)=>void,fence:any,attempts=0;
+ const navigation=new NativeShellNavigation(authority,()=>authority);navigation.top({kind:'live'},authority);const origin=navigation.getSnapshot().route;
+ const route={kind:'channel' as const,sourceId:'actual-source',channelId:'actual-channel'};navigation.open(route,authority);
+ const authorityListeners=new Set<()=>void>();
+ const runtime={getSnapshot:()=>({fence}),startChannel:async(value:any)=>{request=value;attempts++;await new Promise<void>((done,fail)=>{resolve=done;reject=fail;});}};
+ const context={current:()=>live,navigation,subscribeAuthority:(listener:()=>void)=>{authorityListeners.add(listener);return()=>authorityListeners.delete(listener);},playback:{runtime}};
+ let output:any,retry:()=>void=()=>{};const title={renderError:(error:unknown,again:()=>void)=>{retry=again;return React.createElement('Error',{error});}};
+ const host=createHookHost(()=>{output=NativeWatchChannelRoute({context,route,title});});await act(()=>host.mount());
+ const back=()=>nodes(output).find(node=>node.props.testID==='native-channel-back').props.onPress;
+ const admitted={kind:'channel',channelKind:'live-source',sourceId:route.sourceId,channelId:route.channelId,channelGeneration:'source-g',sessionId:'session',generation:1,playback:{scope:{serverId:'server'},run:'original'}};
+ return {navigation,origin,route,host,request:()=>request,back,attempts:()=>attempts,retry:()=>retry,output:()=>output,
+  accept:(value=admitted)=>{fence=value;request.onAccepted?.(value);},resolve:()=>resolve(),reject:(error:Error)=>reject(error),
+  retire:()=>{live=false;for(const listener of authorityListeners)listener();},dispose:()=>{resolve();host.unmount();navigation.dispose();}};
+}
+for(const retirement of ['navigation','authority','unmount'] as const)test(`pending real channel route owns Back and original caller: ${retirement}`,async()=>{
+ const f=await fixture();try{
+  assert.equal(f.request().lifetime.isCurrent(),true);assert.equal(f.request().sourceId,f.route.sourceId);assert(f.back());
+  if(retirement==='unmount')f.host.unmount();else if(retirement==='authority')f.retire();else f.navigation.top({kind:'home'},authority);
+  assert.equal(f.request().lifetime.isCurrent(),false);assert.equal(f.request().lifetime.signal.aborted,true);
+ }finally{f.dispose();}
+});
+test('failed channel launch retains original Back and guarded Retry; old controls never pop or restart a successor',async()=>{
+ const f=await fixture();try{
+  await act(()=>{f.reject(new Error('tune failed'));});assert(nodes(f.output()).some(node=>node.type==='Error'));const back=f.back(),retry=f.retry();
+  await act(()=>retry());assert.equal(f.attempts(),2);f.navigation.top({kind:'settings'},authority);const successor=f.navigation.getSnapshot();
+  await act(()=>{back();retry();});assert.equal(f.navigation.getSnapshot(),successor);assert.equal(f.attempts(),2);
+ }finally{f.dispose();}
+});
+test('only this actual admitted receipt consumes the launch route once after its original start completes',async()=>{
+ const f=await fixture();try{
+  const launch=f.navigation.getSnapshot(),oldBack=f.back();f.accept();assert.equal(f.navigation.getSnapshot(),launch,'receipt capture leaves the same start free to finish guide metadata');
+  await act(()=>f.resolve());assert.equal(f.navigation.getSnapshot().route,f.origin);assert.equal(f.request().lifetime.signal.aborted,true);
+  const restored=f.navigation.getSnapshot();await act(()=>{oldBack();f.accept();});assert.equal(f.navigation.getSnapshot(),restored);assert.equal(f.attempts(),1);
+ }finally{f.dispose();}
+});
+test('void refusal, unrelated receipt, and a successor between accepted return and await continuation never pop',async()=>{
+ for(const kind of ['refusal','other','successor'] as const){const f=await fixture();try{
+  const launch=f.navigation.getSnapshot();if(kind==='other')f.accept({kind:'channel',channelKind:'live-source',sourceId:'other',channelId:'other',channelGeneration:'g',sessionId:'s',generation:1,playback:{scope:{serverId:'server'},run:'other'}});else if(kind==='successor')f.accept();
+  f.resolve();if(kind==='successor')f.navigation.open({...f.route},authority);
+  const expected=f.navigation.getSnapshot();await act(()=>{});assert.equal(f.navigation.getSnapshot(),expected);if(kind!=='successor')assert.equal(expected,launch);
+ }finally{f.dispose();}}
 });
