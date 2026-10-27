@@ -8,7 +8,7 @@ import {defaultI18n} from '../../../packages/i18n/src';
 import {NativeShellNavigation, type NativeShellRoute} from '../src-next/shell/routes';
 import type {ShellAuthority} from '../src-next/shell/model';
 import {readRouteBack} from '../src-next/screens/read/read-route-back';
-import {createReadingSessionOwner} from '../src-next/screens/read/reading-session-owner';
+import {closeReadingResource, createReadingSessionOwner} from '../src-next/screens/read/reading-session-owner';
 
 // BLK-MOB-001: the native host replaces the whole guest with Retry when a Read
 // fails, so these vectors exercise the actual unmodified ReadNativeHost render
@@ -106,7 +106,7 @@ async function harness(fixture: Fixture) {
     '../../kit/theme': {useTheme: () => ({colors: {ink: '#000'}})},
     '../../platform/platformPosture': {usePlatformPosture: () => ({status: 'unavailable'})},
     './NativeReadingGuestHost': {NativeReadingGuestHost: 'NativeReadingGuestHost'},
-    './reading-session-owner': {createReadingSessionOwner},
+    './reading-session-owner': {createReadingSessionOwner, closeReadingResource},
     './ReadingGuestView': {ReadingGuestView: 'ReadingGuestView', createReadingGuestBridge: () => {hostCalls++; return reader;}},
     './asset-origin': {readerAssetEntry, readerNavigationAllowed, readerDelivery},
     './startup-diagnostics': {readerBridgeDiagnostic: () => undefined, readerStartupDiagnostic: () => undefined, readerStartupProbe: ''},

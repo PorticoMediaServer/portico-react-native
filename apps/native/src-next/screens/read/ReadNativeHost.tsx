@@ -12,7 +12,7 @@ import {LoadingPaint, StateView, SkeletonBlock} from '../../kit/states';
 import {Button} from '../../kit/controls/Button';
 import {useTheme} from '../../kit/theme';
 import {NativeReadingGuestHost} from './NativeReadingGuestHost';
-import {createReadingSessionOwner} from './reading-session-owner';
+import {closeReadingResource, createReadingSessionOwner} from './reading-session-owner';
 import {NativeAnnotationJournal, nativeAnnotationIdentity, nativeAnnotationLeaseOf, type NativeAnnotationFormat} from './annotation-journal';
 import {nativeAnnotationBridge} from './annotation-session';
 import {NativeAnnotationSync, type NativeAnnotationLivePort} from './annotation-sync';
@@ -49,12 +49,15 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
     return createReadingSessionOwner({current, subscribe: listener => context.subscribeAuthority(listener), acquire: async (signal, ownerCurrent) => {
       if (!captured || !ownerCurrent()) throw cancelled();
       const downloads = target.downloadId ? createNativeDownloadsDevice(context) : undefined;
-      const client = target.downloadId ? undefined : context.api.reading({viewer: captured.viewer, isCurrent: ownerCurrent, signal});
+      // The original authority, not the retired guest, permits only the bounded
+      // close of this captured session. Authority replacement still refuses IO.
+      const clientLife = new AbortController();
+      const client = target.downloadId ? undefined : context.api.reading({viewer: captured.viewer, isCurrent: current, signal: clientLife.signal});
       let original: Session | undefined, released = false;
       const annotationTicket = {};
       const release = () => {if (released) return; released = true;
         if (annotationOwner.current === annotationTicket) {annotationOwner.current = undefined; livePort.current = undefined; journal.unbind();}
-        client?.dispose(); downloads?.dispose();};
+        clientLife.abort(); client?.dispose(); downloads?.dispose();};
       try {
         if (target.downloadId) {
           if (!downloads) throw new Error('reading_unavailable');
@@ -89,11 +92,12 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
           readAsset: bridge.readAsset, page: bridge.page, progress: bridge.progress, saveProgress: bridge.saveProgress,
           ...(bridge.openSequential ? {openSequential: bridge.openSequential} : {}), ...(bridge.annotations ? {annotations: bridge.annotations} : {}),
           ...(bridge.mutateAnnotation ? {mutateAnnotation: bridge.mutateAnnotation} : {}),
-          close: async closeSignal => {if (context.current()) await accepted.close(closeSignal);}};
+          close: async closeSignal => {if (current()) await accepted.close(closeSignal);}};
         if (!ownerCurrent()) throw cancelled();
         return {session, release};
       } catch (error) {
-        try {if (original && context.current()) await original.close();} finally {release();}
+        if (original && current()) {try {await closeReadingResource({session: original, release});} catch { /* Preserve the original admission failure. */ }}
+        else release();
         throw error;
       }
     }});

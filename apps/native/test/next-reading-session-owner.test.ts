@@ -54,3 +54,28 @@ test('late acquisition after original retirement is closed and never accepted', 
   finish({session: {signal: signal.signal, close: async () => {closed++;}}, release: () => {released++;}});
   await assert.rejects(pending); assert.equal(closed, 1); assert.equal(released, 1); assert.equal(owner.snapshot().phase, 'retired');
 });
+
+for (const reason of ['dispose', 'session-abort'] as const)
+test(`pending initial progress followed by ${reason} closes and releases once`, async () => {
+  const signal = new AbortController(); let finish!: (value: {progress: null}) => void, closes = 0, releases = 0;
+  const session = {manifest: {itemId: 'item', sourceId: 'source', revision: 'a'.repeat(64)}, signal: signal.signal,
+    progress: () => new Promise<{progress: null}>(resolve => {finish = resolve;}), close: async () => {closes++;},
+    headPDF: async () => ({}), readRange: async () => new Uint8Array(), readAsset: async () => new Uint8Array(),
+    page: async () => ({}), saveProgress: async () => ({saved: false, progress: null})};
+  const owner = createReadingSessionOwner({current: () => true, subscribe: () => () => {},
+    acquire: async () => ({session: session as any, release: () => {releases++;}})});
+  const pending = owner.ensure(); await Promise.resolve(); await Promise.resolve();
+  if (reason === 'dispose') await owner.dispose(); else {signal.abort(); await owner.dispose();}
+  finish({progress: null}); await assert.rejects(pending); await Promise.resolve();
+  assert.equal(closes, 1); assert.equal(releases, 1); assert.equal(owner.snapshot().phase, 'retired');
+  assert.equal(owner.snapshot().confirmedProgress, undefined);
+});
+
+test('late refused acquisition releases once even when original close ignores abort', async () => {
+  const signal = new AbortController(); let finish!: (value: any) => void, closes = 0, releases = 0;
+  const owner = createReadingSessionOwner({current: () => true, subscribe: () => () => {}, acquire: () => new Promise(resolve => {finish = resolve;})});
+  const pending = owner.ensure(); await Promise.resolve(); await owner.dispose();
+  finish({session: {signal: signal.signal, close: () => {closes++; return new Promise(() => {});}}, release: () => {releases++;}});
+  await assert.rejects(pending); assert.equal(closes, 1); assert.equal(releases, 1);
+  await owner.dispose(); assert.equal(releases, 1);
+});
