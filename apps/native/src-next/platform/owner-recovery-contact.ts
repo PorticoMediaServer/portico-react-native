@@ -9,7 +9,9 @@ import {nativeOwnerRecoveryFetch, nativeRouteCrypto} from './server-connections'
 type CapturedServer = OwnerRecoveryServer;
 type AccountScope = Readonly<{accountId: string; familyId: string}>;
 type RecoveryPurpose = typeof contactKnownServerForOwnerRecovery;
-const cancelled = () => new RouteError('cancelled', 'Owner recovery contact cancelled.');
+/** Marks this contact's own retirement, so a replaced selection is never reported as a deadline. */
+const RETIRED = Symbol('owner-recovery-contact-retired');
+const cancelled = () => Object.assign(new RouteError('cancelled', 'Owner recovery contact cancelled.'), {[RETIRED]: true});
 
 /** A phone-only contact lifetime, with no admission, route memory or server credential API.
  * The injected purpose is the canonical client-core Root47 producer, not an ordinary connect.
@@ -73,7 +75,10 @@ export class NativeOwnerRecoveryContact {
     catch (error) {
       // Canonical proof/contact deadlines cancel their own signal. While our original
       // context is still live, that is a failed bounded contact, not a user cancellation.
-      if (timedOut || (error as {code?: unknown} | null)?.code === 'cancelled' && this.current())
+      // This contact's own retirement (a silently replaced protected selection) is not a
+      // deadline and keeps its cancellation.
+      const failure = error as {code?: unknown; [RETIRED]?: unknown} | null;
+      if (timedOut || (failure?.code === 'cancelled' && failure[RETIRED] !== true && this.current()))
         throw new RouteError('timeout', 'Owner recovery contact timed out.');
       throw error;
     } finally {

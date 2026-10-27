@@ -306,14 +306,19 @@ test('the historical selected viewer cannot override a canonical family, whose i
 
 test('bootstrap awaits the scoped prerequisite before hosted or local restoration and uses its native version', () => {
   const source = readFileSync(new URL('../src-next/shell/bootstrap.ts', import.meta.url), 'utf8');
-  const start = source.indexOf('const installation = beginNativeInstallation(options.signal)');
+  // A root may already own the installation; bootstrap reuses that generation instead of
+  // beginning a competing one, and still awaits its prepare before any restoration.
+  const start = source.indexOf('const installation = options.installationOwner ?? beginNativeInstallation(options.signal)');
   const prepare = source.indexOf('await installation.prepare()');
   assert.ok(start >= 0 && prepare > start);
+  assert.equal(source.match(/\?\? beginNativeInstallation\(/g)?.length, 1);
   for (const operation of ['await nativeAppSessions.selected()', 'await restoreNativeConnection(']) {
     assert.ok(source.indexOf(operation) > prepare, operation);
   }
   assert.doesNotMatch(source, /await credentials\.synchronize\(\)/);
-  assert.match(source, /alive = false; installation\.dispose\(\)/);
+  // Only the installation this bootstrap began is disposed; a borrowed one belongs to its root.
+  assert.match(source, /const ownsInstallation = !options\.installationOwner;/);
+  assert.match(source, /alive = false; if \(ownsInstallation\) installation\.dispose\(\);/);
   assert.match(source, /appVersion: installed\.appVersion/);
   assert.doesNotMatch(source, /PorticoCapabilities\.facts|package\.json/);
 });

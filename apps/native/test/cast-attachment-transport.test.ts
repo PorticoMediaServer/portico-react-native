@@ -11,7 +11,9 @@ async function transport(){
   send:(json:string,expected:string)=>new Promise<boolean>((resolve,reject)=>{queued.push(()=>{if(expected!==attachmentId){reject(new Error('retired'));return;}messages.push(JSON.parse(json));resolve(true);});}),
   end:(stop:boolean,expected:string)=>{queued.push(()=>{if(expected===attachmentId)ends.push(stop);});},
  };
- const {castTransport}=await screenModule(new URL('../src-next/platform/play-on/cast-transport.ts',import.meta.url),{'react-native':{NativeEventEmitter:Emitter,NativeModules:{PorticoCast:native},Platform:{isTV:false}}});
+ // The transport is not a React module; the harness injects React for the module scope it
+ // compiles, so it gets an inert default and nothing here renders.
+ const {castTransport}=await screenModule(new URL('../src-next/platform/play-on/cast-transport.ts',import.meta.url),{react:{default:{}},'react-native':{NativeEventEmitter:Emitter,NativeModules:{PorticoCast:native},Platform:{isTV:false}}});
  return{castTransport,messages,ends,queued,select:(value:string)=>{attachmentId=value;},holdRead:(value:typeof read)=>{read=value;},emit:(name:string,event:unknown)=>{for(const callback of [...(listeners.get(name)??[])])callback(event);}};
 }
 test('queued old native messages cannot enter a new attachment or a retired JS subscription',async()=>{
