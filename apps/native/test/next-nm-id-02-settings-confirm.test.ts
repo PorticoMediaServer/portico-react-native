@@ -18,7 +18,9 @@ const deferred = () => {let resolve!: () => void; const promise = new Promise<vo
 test('NM-ID-02: the real Settings confirmation keeps its region, busy binding, Back and row opener', async () => {
   let resetFlight: ReturnType<typeof deferred> | undefined;
   const app = await standardHomeApp({accountRole: 'owner', mountUI: false, nativeResponse: async (request: any, fixture: any) => {
-    if (request.path === '/v1/me/recommendations/reset' && request.method === 'POST') {
+    // The real client posts the server's `post_me_recommendations_reset` route
+    // (`/v1/me/recommendations:reset`), not a slash-separated guess.
+    if (request.path === '/v1/me/recommendations:reset' && request.method === 'POST') {
       if (resetFlight) await resetFlight.promise;
       return {status: 200, body: {serverId: fixture.pin.serverId, operationId: request.body.operationId, clearedNotInterested: 0}};
     }
@@ -44,6 +46,10 @@ test('NM-ID-02: the real Settings confirmation keeps its region, busy binding, B
     assert.ok(runtime);
     assert.ok(context);
     const booted = context;
+    // The screen's own commands require the actual Settings destination to be visible,
+    // exactly as the shell opens it; a detached render is not the real caller.
+    const route: import('../src-next/shell/routes').NativeShellRoute = {kind: 'shell', destination: {kind: 'settings'}};
+    assert.equal(booted.navigation.open(route, booted.authority()), true, 'the real navigation opened the Settings destination');
     const priorTV = Platform.isTV;
     (Platform as {isTV: boolean}).isTV = true;
     const lifetime = new NativeScreenLifetime(booted);
@@ -54,12 +60,17 @@ test('NM-ID-02: the real Settings confirmation keeps its region, busy binding, B
     const registry = createFocusRegistry();
     const nodes = () => {
       const visit = (items: readonly any[]): any[] => items.flatMap(node => [node, ...visit(node.children ?? [])]);
-      return visit(host.root);
+      // standardHomeApp materialises the product's View/Text/Pressable boundaries in its own
+      // host registry; host.root only carries the rendered raw text.
+      return [...visit(host.root), ...app.hosts()];
     };
     const nodeWithTestID = (testID: string) => nodes().find(node => node.props?.testID === testID);
     const leafNode = (regionId: string, childId: string) => nodeWithTestID(focusTestID(regionId, childId));
     const press = (node: any) => node.props.onPress({nativeEvent: {}, stopPropagation() {}});
     const settle = async () => {await host.settle(); await app.settle();};
+    // The Dialog moves initial focus on its own enter delay and keeps its surface for the
+    // exit delay; a captured focus/retirement assertion waits for that actual timer.
+    const settleOverlay = async () => {await settle(); await new Promise<void>(done => setTimeout(done, 240)); await settle();};
     try {
       await host.render(React.createElement(ThemeProvider, {width: 1920, children: React.createElement(FocusProvider, {registry, children:
         React.createElement(NativeSettingsScreen, {ports, controller, runtime, devicePreferences})})}));
@@ -71,7 +82,7 @@ test('NM-ID-02: the real Settings confirmation keeps its region, busy binding, B
       assert.ok(opener, 'the real Settings privacy page offers Reset recommendations');
       assert.equal(registry.focus({regionId: rows, childId: 'resetRecommendations'}), true, 'the opener is focused in its actual rows region');
       press(opener);
-      await settle();
+      await settleOverlay();
       assert.ok(registry.child({regionId: 'settings-action-confirm', childId: 'cancel'}), 'the confirmation has its own root and Cancel leaf');
       assert.ok(registry.child({regionId: 'settings-action-confirm', childId: 'confirm'}), 'its destructive action is a distinct leaf');
       assert.equal(registry.capture()?.regionId, 'settings-action-confirm');
@@ -86,15 +97,15 @@ test('NM-ID-02: the real Settings confirmation keeps its region, busy binding, B
       assert.equal(confirm!.props.disabled, true, 'busy makes that binding ineligible');
       assert.equal(leafNode('settings-action-confirm', 'cancel')?.props.disabled, true, 'busy also disables Cancel');
       resetFlight.resolve(); resetFlight = undefined;
-      await settle();
+      await settleOverlay();
       assert.equal(registry.child({regionId: 'settings-action-confirm', childId: 'confirm'}), undefined, 'the accepted reset closes its dialog');
 
       // Back dismisses and restores the exact row opener.
       press(nodeWithTestID('resetRecommendations')!);
-      await settle();
+      await settleOverlay();
       assert.ok(registry.child({regionId: 'settings-action-confirm', childId: 'cancel'}));
       await app.back();
-      await settle();
+      await settleOverlay();
       assert.equal(registry.child({regionId: 'settings-action-confirm', childId: 'cancel'}), undefined, 'Back closes without acting');
       assert.equal(registry.capture()?.regionId, rows);
       assert.equal(registry.capture()?.childId, 'resetRecommendations', 'Back returns to the original row opener');
