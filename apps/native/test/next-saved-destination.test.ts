@@ -30,7 +30,11 @@ test('the Saved hub reads the canonical summary plus bounded poster preview and 
     const loading = hub.load(); assert.equal(hub.load(), loading, 'a concurrent mount shares the same bounded read');
     await loading;
     const snapshot = hub.getSnapshot();
-    assert.equal(snapshot.phase, 'ready'); assert.equal(calls.length, 3);
+    assert.equal(snapshot.phase, 'ready'); assert.equal(calls.length, 4, 'one read per drawn watchlist shape, one summary and one pin order');
+    const shapes = calls.filter(path => path.includes('view=watchlist')).map(path => new URL(path, 'https://test.invalid').searchParams.get('shape'));
+    assert.deepEqual(shapes.sort(), ['posters', 'squares'], 'the poster window and the wide My List squares window are separate canonical reads');
+    assert.equal(calls.filter(path => path.endsWith('/saved/summary')).length, 1, 'the landing summary is read once');
+    assert.equal(calls.filter(path => path.includes('saved-pins')).length, 1, 'the genuine pin order is read once');
     assert.ok(calls.every(path => !path.includes('cursor=')), 'the hub does not scan directories or whole libraries');
     assert.equal(new URL(calls.find(path => path.includes('view=watchlist'))!, 'https://test.invalid').searchParams.get('shape'), 'posters', 'the hub uses a real shape query, never a mixed first-page geometry filter');
     assert.deepEqual(snapshot.pins.map(pin => pin.id), ['second-by-name', 'first-by-name']);
