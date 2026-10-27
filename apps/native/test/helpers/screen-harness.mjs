@@ -16,10 +16,16 @@ export async function screenModule(file, modules) {
   let linked = transformed.code;
   for (const declaration of parsed.program.body.filter(node => node.type === 'ImportDeclaration').reverse()) {
     const source = JSON.stringify(declaration.source.value);
-    const required = `if (!Object.hasOwn(modules, ${source})) throw new Error(${JSON.stringify(`screenModule(${file.pathname}): no namespace for `)} + ${source});`;
+    // A fixture may intentionally provide virtual namespaces with a Proxy whose
+    // unvisited commands throw. Resolve that namespace once, just as the old
+    // destructuring did; an own-property check wrongly rejects such explicit ports.
+    const namespace = `__screenModuleImport${declaration.start}`;
+    const missing = declaration.specifiers.length ? `${namespace} == null`
+      : `!Object.hasOwn(modules, ${source}) || ${namespace} == null`;
+    const required = `const ${namespace} = modules[${source}]; if (${missing}) throw new Error(${JSON.stringify(`screenModule(${file.pathname}): no namespace for `)} + ${source});`;
     const bindings = declaration.specifiers.map(specifier => {
-      const value = specifier.type === 'ImportNamespaceSpecifier' ? `modules[${source}]`
-        : `modules[${source}][${JSON.stringify(specifier.type === 'ImportDefaultSpecifier' ? 'default' : specifier.imported.name ?? specifier.imported.value)}]`;
+      const value = specifier.type === 'ImportNamespaceSpecifier' ? namespace
+        : `${namespace}[${JSON.stringify(specifier.type === 'ImportDefaultSpecifier' ? 'default' : specifier.imported.name ?? specifier.imported.value)}]`;
       return `const ${specifier.local.name} = ${value};`;
     }).join('\n');
     linked = linked.slice(0, declaration.start) + required + bindings + linked.slice(declaration.end);

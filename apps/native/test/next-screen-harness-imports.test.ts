@@ -30,3 +30,27 @@ test('screenModule links actual import declarations, including namespaces and si
     await rm(scratch, {recursive: true});
   }
 });
+
+test('virtual namespaces resolve once and retain their throwing unvisited commands', async () => {
+  const scratch = await mkdtemp(join(tmpdir(), 'portico-screen-virtual-'));
+  try {
+    const file = pathToFileURL(join(scratch, 'fixture.ts'));
+    await writeFile(file, `import {fact, unvisited} from 'virtual';
+      export const answer = fact;
+      export const press = () => unvisited();`);
+    let reads = 0;
+    const virtual = {fact: 'real', unvisited: () => {throw new Error('Unexpected port virtual.unvisited');}};
+    const ports = new Proxy({react: {default: {}}}, {get: (target, key) => {
+      if (key === 'virtual') {reads++; return virtual;}
+      return Reflect.get(target, key);
+    }});
+    assert.equal(Object.hasOwn(ports, 'virtual'), false, 'the namespace is deliberately virtual');
+    const linked = await screenModule(file, ports);
+    assert.equal(linked.answer, 'real');
+    assert.equal(reads, 1, 'one import resolves one namespace');
+    assert.throws(linked.press, /Unexpected port virtual\.unvisited/);
+    await assert.rejects(screenModule(file, {react: {default: {}}}), /no namespace for virtual/);
+  } finally {
+    await rm(scratch, {recursive: true});
+  }
+});
