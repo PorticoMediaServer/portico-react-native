@@ -8,7 +8,7 @@ import * as model from '../src-next/screens/settings-live/recording-owner-model'
 import {defaultI18n} from '../../../packages/i18n/src';
 import {createTheme} from '../src-next/kit/theme';
 
-const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children), ...nodes(node.props.footer), ...nodes(node.props.pickerContext)] : [];
+const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children), ...nodes(node.props.footer), ...nodes(node.props.pickerContext), ...nodes(node.props.action)] : [];
 const deferred = <T,>() => {let resolve!: (value: T) => void; const promise = new Promise<T>(done => {resolve = done;}); return {promise, resolve};};
 const owner = (id: string) => ({owner: {authority: 'local' as const, accountId: 'a', profileId: id}, accountName: 'A', profileName: id});
 
@@ -237,7 +237,7 @@ test('actual permission/default/storage drafts block current and retained More w
 
 test('actual rule-page failure retains its full hundred-row head and Retry uses the same offered cursor',async()=>{
  const f=await pageFixture();try{
-  f.failRule();await act(()=>f.find('live-owner-rules-more').props.onPress());assert.equal(nodes(f.tree()).filter(node=>String(node.props.testID).startsWith('live-owner-rule-r')).length,100);
+  f.failRule();await act(()=>f.find('live-owner-rules-more').props.onPress());assert.equal(nodes(f.tree()).filter(node=>node.type==='Focusable'&&String(node.props.testID).startsWith('live-owner-rule-r')).length,100);
   await act(()=>f.find('live-owner-page-retry').props.onPress());assert(f.find('live-owner-rule-r200'));
   assert.deepEqual(f.calls.filter(call=>call.startsWith('rules:')),['rules:1:','rules:1:r1','rules:1:r1']);
  }finally{f.dispose();}
@@ -273,7 +273,10 @@ test('original actual controller disposal inside runtime getter refuses page and
   let requests=0,reads=0;const lifetime=new NativeScreenLifetime({authority:()=>({serverId:'server',accountId:'a',profileId:'p',epoch:'e',viewerFence:'v'}),current:()=>true,subscribeAuthority:()=>()=>{}});
   const controller=new NativeLiveOwnerController(lifetime,{request:async<T>()=>{requests++;throw Error('retired controller must not dispatch');}},()=> 'operation');
   const runtime={navigation:{getSnapshot:()=>({revision:7})},getSnapshot:()=>{reads++;controller.dispose();return {contentVisible:true};},text:{t:(key:string)=>key},error:()=>({})};
-  let tree:any;const host=createHookHost(()=>{tree=sheet?NewRuleSheet({controller,runtime,open:true,onOpenChange:()=>{},onSaved:()=>{}}):NativeRecordingOwner({controller,runtime,recordings:{storage:async()=>{requests++;throw Error('retired page');}},sources:[]});});
+  // One recordings controller, as the live route supplies it: a fresh identity each render would
+  // be a new admission and not the disposal this test is about.
+  const recordings={storage:async()=>{requests++;throw Error('retired page');}};
+  let tree:any;const host=createHookHost(()=>{tree=sheet?NewRuleSheet({controller,runtime,open:true,onOpenChange:()=>{},onSaved:()=>{}}):NativeRecordingOwner({controller,runtime,recordings,sources:[]});});
   try{await act(()=>host.mount());assert(reads>0);assert.equal(controller.current(),false);assert.equal(lifetime.current(),true);assert.equal(requests,0);assert.equal(tree,null);}
   finally{host.unmount();lifetime.dispose();}
  }
@@ -323,8 +326,11 @@ async function actualControllerGuardFixture(sheet: boolean) {
   const runtime = {navigation: {getSnapshot: () => {navigationReads++; if (refuseReads) throw Error('retired navigation read'); if (disposeOnNavigation) controller.dispose(); return {revision: 7};}},
     getSnapshot: () => {runtimeReads++; if (refuseReads) throw Error('retired runtime read'); return {contentVisible: true};}, text: {t: (key: string) => key}, error: () => ({})};
   let tree: any;
+  // One recordings controller, as the live route supplies it: a fresh identity each render would
+  // re-admit the owner page, which is not what this fixture is proving.
+  const recordings = {storage: async () => ({policy: {}, measurement: {usedBytes: 0, freeBytes: 0, reservedBytes: 0, writeHealthy: true}, forecastHours: 0})};
   const host = createHookHost(() => {tree = sheet ? NewRuleSheet({controller, runtime, policy: offeredPolicy, sources: [], open: true, onOpenChange: () => {closes++;}, onSaved: () => {}})
-    : NativeRecordingOwner({controller, runtime, recordings: {storage: async () => ({policy: {}, measurement: {usedBytes: 0, freeBytes: 0, reservedBytes: 0, writeHealthy: true}, forecastHours: 0})}, sources: []});});
+    : NativeRecordingOwner({controller, runtime, recordings, sources: []});});
   await act(() => host.mount());
   return {host, controller, lifetime, requests, tree: () => tree, find: (id: string) => nodes(tree).find(node => node.props.testID === id),
     counts: () => ({navigationReads, runtimeReads, closes}), disposeOnNavigation: () => {disposeOnNavigation = true;}, refuseReads: () => {refuseReads = true;},

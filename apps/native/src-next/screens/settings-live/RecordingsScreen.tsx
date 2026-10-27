@@ -166,6 +166,10 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
       const entry = Object.freeze({...display, duration: item.duration, progressSeconds: item.progressSeconds, playback: target});
       if (!operation.lifetime.isCurrent()) return;
       await ports.context.playback.start({entry, target: entry.playback!, lifetime: operation.lifetime});
+    } catch (error) {
+      // A route, view or authority change aborts this read and its playback caller; that
+      // cancellation is not a failure of the play the viewer asked for.
+      if (operation.lifetime.isCurrent()) throw error;
     } finally {operation.dispose(); abort.abort(); playOperations.current.delete(abort); controller.lifetime.signal.removeEventListener('abort', parentAbort); controller.unpinViewerRow(pin, opening.scope);}
   };
   const askDelete = async (opening: OverlayOpening) => {
@@ -285,7 +289,7 @@ function RecordingRow({recording, history, runtime, refNode, onOpen, onMenu, onF
 /** One opening of the details sheet. The parent keys the sheet by its row and this
  * opening retires itself as well, so either side alone stops a stale completion. The opening
  * also holds the recording and the currency callback it was drawn for, so its read can only
- * ever use the witnesses of the render that created it. */
+ * ever use the witnesses of the render that committed it. */
 type RecordingOpening = {id: string; revision: number; controller: NativeRecordingsController; parent: OverlayOpening; recording: Recording; isCurrent: () => boolean; live: boolean};
 
 function RecordingDetails({recording, controller, runtime, opener, onClose, onPlay, onRemove, deletionAvailable, isCurrent, parent}: {recording: Recording; controller: NativeRecordingsController; runtime: NativeShellRuntime; parent: OverlayOpening; isCurrent: () => boolean; opener: React.RefObject<View | null>; onClose: () => void; onPlay: () => void; onRemove: () => void; deletionAvailable: boolean}) {
@@ -300,18 +304,25 @@ function RecordingDetails({recording, controller, runtime, opener, onClose, onPl
     ? previous : {id: recording.id, revision: recording.revision, controller, parent, recording, isCurrent, live: true};
   if (previous && previous !== opened) previous.live = false;
   opening.current = opened;
+  // The opening this component committed, written only by the layout pass below. The passive
+  // read copies it once and every settlement retains that copy, so a render React throws away
+  // can never hand its witnesses to a read.
+  const committed = useRef<RecordingOpening | undefined>(undefined);
   // A layout effect retires the opening on unmount as well, before any later callback
   // can land; a passive cleanup would leave it live through a replacement. It is keyed by the
-  // same values that decide the opening, and reads the committed opening itself.
-  useLayoutEffect(() => {const drawn = opening.current; if (!drawn) return; drawn.live = true; return () => {drawn.live = false;};}, [opened.id, opened.revision, opened.controller, opened.parent]);
+  // same values that decide the opening, and it is where the read takes its witnesses from.
+  useLayoutEffect(() => {
+    const drawn = opening.current; if (!drawn) return;
+    committed.current = drawn; drawn.live = true;
+    return () => {drawn.live = false; if (committed.current === drawn) committed.current = undefined;};
+  }, [opened.id, opened.revision, opened.controller, opened.parent]);
   // The read carries the opening it was made for, so A's state, capacity and overlaps
-  // are never drawn under B's title. The recording and the currency callback are the opening's
-  // own witnesses: this effect runs only when the opening or the controller changes, so they
-  // are exactly the values of the render that drew it.
+  // are never drawn under B's title. The recording and the currency callback travel on that
+  // committed opening, so they are exactly the values of the render that committed it.
   const [read, setRead] = useState<Readonly<{for: RecordingOpening; detail?: RecordingDetail; resolver?: ReturnType<NativeRecordingsController['detailOpening']>; error?: unknown}>>();
   const [overlap, setOverlap] = useState<Readonly<{for: RecordingOpening; window: RecordingOverlapWindow; snapshot: OverlapSnapshot}>>();
   useEffect(() => {
-    const drawn = opening.current;
+    const drawn = committed.current;
     if (!drawn) return;
     let active = true, window: RecordingOverlapWindow | undefined;
     const resolver = drawn.controller.detailOpening(drawn.recording, () => active && drawn.live && drawn.isCurrent());

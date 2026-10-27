@@ -82,7 +82,11 @@ async function fixture({isTV = true, role = 'owner', primary = 'main', canManage
     '../../../../../packages/client-core/src/presentation/title-page': titlePage, '../../../../../packages/client-core/src/media-item': mediaItem, '../../../../../packages/client-core/src/library-content': content, '../../../../../packages/contracts/src/routes': routes,
     './recording-overlap-window': overlap, '../home/entry-lifetime': entryLifetime, './LiveOwnerRecording': {NewRuleSheet: (props: any) => {editors.push(`new-rule:${props.open}`); return jsx('NewRuleEditor', props);}},
   });
-  const recordingState: any = {query: {view: 'upcoming'}, loading: false, busy: false, accessDenied: false, page: {recordings: [], rules: [], captureAvailable: true}};
+  let recordingState: any = {query: {view: 'upcoming'}, loading: false, busy: false, accessDenied: false, page: {recordings: [], rules: [], captureAvailable: true}};
+  // A real controller publishes a new frozen snapshot; a drawn row therefore keeps the exact
+  // window it was drawn for. Mutating one snapshot in place would let a stale handler read the
+  // successor window instead, which no real getSnapshot does.
+  const publishRecordingState = (next: any) => {recordingState = next;};
   const viewerCalls: any[] = [], viewerLoads: any[] = [];
   let fakeOpening: object | undefined;
   const fakeRecordings: any = {lifetime, beginViewerOpening: (opening: object) => {fakeOpening = opening;}, endViewerOpening: (opening: object) => {if (fakeOpening === opening) fakeOpening = undefined;}, viewerOpeningCurrent: (opening: object) => fakeOpening === opening, subscribe: listen, getSnapshot: () => recordingState, load: async (query: unknown) => {viewerLoads.push(query);}, loadFacts: async () => {}, detail: () => new Promise(() => {}), nextViewerPage: async (window: unknown) => {viewerCalls.push(window);}, previousViewerPage: async () => {}, retryViewerPage: async () => {}, viewerFocusToken: () => undefined, focusViewerRow: () => {}, blurViewerRow: () => {}, focusViewerHost: () => {}, pinViewerRow: () => true, unpinViewerRow: () => {}};
@@ -90,7 +94,7 @@ async function fixture({isTV = true, role = 'owner', primary = 'main', canManage
   const pageCalls: (string | undefined)[] = []; let failNext = false; let finishPage: ((value: any) => void) | undefined;
   const firstRecording = {id: 'first', revision: 1, state: 'completed', itemId: 'item', libraryId: 'library', start: '2026-10-21T12:00:00Z', end: '2026-10-21T13:00:00Z', programme: {id: 'p', title: 'Programme'}, options: {priority: 0}};
   const firstPage = {recordings: [firstRecording], rules: [], captureAvailable: true, revision: 1, nextCursor: 'next'};
-  const realService: any = {onAccessChanged: noop, dispose: noop, list: async (_view: unknown, cursor?: string) => {pageCalls.push(cursor); if (cursor && failNext) {failNext = false; throw new Error('offline');} return cursor ? new Promise(resolve => {finishPage = resolve;}) : firstPage;}, summary: async () => ({upcoming: 2, recorded: 0, rules: 0}), storage: async () => ({})};
+  const realService: any = {onAccessChanged: noop, dispose: noop, list: async (_view: unknown, cursor?: string) => {pageCalls.push(cursor); if (cursor && failNext) {failNext = false; throw new Error('offline');} return cursor ? new Promise(resolve => {finishPage = resolve;}) : firstPage;}, summary: async () => ({upcoming: 2, recorded: 0, rules: 0}), storage: async () => ({policy: {revision: 1, retentionDays: 0, episodeLimit: 0, floorBytes: 0, capBytes: 0}, measurement: {freeBytes: 0, usedBytes: 0, reservedBytes: 0, writeHealthy: true, measuredAt: '2026-10-26T00:00:00Z'}, pendingDeleteBytes: 0, forecastBytes: 0, forecastHours: 0, forecastDescription: '', captureAvailable: true, warning: ''})};
   const recordings: any = realRecordings ? new NativeRecordingsController(lifetime, realService) : fakeRecordings;
   let activeOpening: object | undefined;
   if (realRecordings) {const begin = recordings.beginViewerOpening; recordings.beginViewerOpening = (opening: object) => {activeOpening = opening; begin(opening);};}
@@ -109,7 +113,7 @@ async function fixture({isTV = true, role = 'owner', primary = 'main', canManage
   let showingRecordings = false;
   const render = () => host.render(showingRecordings ? jsx(recordingModule.NativeRecordingsScreen, {controller: recordings, ports, runtime, owner, onGuide: () => {guideCalls++;}}) : jsx(NativeLiveScreen, {controller, recordings, owner, ports, runtime})); await render();
   const all = () => nodes(host.root), find = (id: string) => all().find(node => node.props?.testID === id);
-  return {host, all, find, admin, editors, backs, pageBack, entries, recordingState, viewerCalls, viewerLoads, context, recordingsController: recordings, runtime, focusRequests, guideCalls: () => guideCalls, opening: () => activeOpening, armCurrent: (after: number, action: () => void) => {let count = 0; currentProbe = () => {if (++count === after) {currentProbe = undefined; action();}};}, pageCalls, failNextPage: () => {failNext = true;}, finishPage: (value: unknown) => {assert.ok(finishPage); finishPage(value);}, firstPage,
+  return {host, all, find, admin, editors, backs, pageBack, entries, get recordingState() {return recordingState;}, publishRecordingState, viewerCalls, viewerLoads, context, recordingsController: recordings, runtime, focusRequests, guideCalls: () => guideCalls, opening: () => activeOpening, armCurrent: (after: number, action: () => void) => {let count = 0; currentProbe = () => {if (++count === after) {currentProbe = undefined; action();}};}, pageCalls, failNextPage: () => {failNext = true;}, finishPage: (value: unknown) => {assert.ok(finishPage); finishPage(value);}, firstPage,
     notify() {for (const fn of [...listeners]) fn();},
     disposeRuntime() {retirement.abort(); disposed = true;}, disposedReads: () => disposedReads,
     async press(id = 'live-owner-open') {const node = find(id); assert.ok(node, id); assert.ok(!node.props.disabled); node.props.onPress(); await host.settle();},
@@ -220,7 +224,7 @@ test('TV Recordings uses its original viewer window for tail events and keeps FX
     assert.ok(f.find('recordings-page-next')); assert.equal(f.editors.some(value => value.startsWith('new-rule:')), false);
     const rendered = list.props.renderItem({item: {kind: 'recording', recording: row}, index: 0});
     const saved = rendered.props.onOpen;
-    f.recordingState.viewerWindow = {...original, scope: {}, generation: 2}; await f.recordings();
+    f.publishRecordingState({...f.recordingState, viewerWindow: {...original, scope: {}, generation: 2}}); await f.recordings();
     saved(); await f.host.settle(); assert.equal(f.find('recordings-details'), undefined, 'a stale row cannot open a successor');
   } finally {await f.close();}
 });

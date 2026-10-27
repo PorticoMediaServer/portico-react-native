@@ -1,4 +1,4 @@
-import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {recordingAllowed, recordingGuideRoute, recordingOwnerKey, recordingOwnerLabel, type RecordingGrant, type RecordingOwner, type RecordingOwnerChoice, type RecordingSeries} from '../../../../../packages/client-core/src/server-admin/recording-policy';
@@ -354,8 +354,9 @@ function PendingBar({count, busy, runtime, onDiscard, onSave}: {count: number; b
 }
 
 /** What the new-rule sheet's own data is read for: the drawn owner keys, the sheet guard and the
- * own state of one render, frozen so a successor render cannot change what a committed read
- * follows. Only the four keys decide when this owner is replaced. */
+ * own state of one render, frozen once a layout pass commits it so neither a successor render nor
+ * a render React throws away can change what a committed read follows. Only the four keys decide
+ * when this owner is replaced. */
 type OwnRead = Readonly<{controller: NativeLiveOwnerController; runtime: NativeShellRuntime; navigation: NativeShellRuntime['navigation']; revision: number | undefined; current: () => boolean; policy: Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]; nextCursor: string}> | undefined; sources: readonly LiveSource[] | undefined}>;
 type OwnKeys = Readonly<Pick<OwnRead, 'controller' | 'runtime' | 'navigation' | 'revision'>>;
 function ownRead(controller: NativeLiveOwnerController, runtime: NativeShellRuntime, navigation: NativeShellRuntime['navigation'], revision: number | undefined, current: () => boolean, policy: OwnRead['policy'], sources: readonly LiveSource[] | undefined): OwnRead {
@@ -365,7 +366,7 @@ function sameOwnOwner(left: OwnKeys | undefined, right: OwnKeys): boolean {
   return !!left && left.controller === right.controller && left.runtime === right.runtime && left.navigation === right.navigation && left.revision === right.revision;
 }
 /** The guide read's drawn witnesses: the sheet guard, the query key, and the day and source the
- * guide is listed for, frozen for the render that asked. */
+ * guide is listed for, frozen by the layout pass that commits the query. */
 type GuideRead = Readonly<{controller: NativeLiveOwnerController; day: string; sourceId: string; query: object; current: () => boolean}>;
 function guideRead(controller: NativeLiveOwnerController, day: string, sourceId: string, query: object, current: () => boolean): GuideRead {
   return Object.freeze({controller, day, sourceId, query, current});
@@ -385,7 +386,7 @@ export function NewRuleSheet({controller, runtime, policy, sources, ownerCursor,
     const opening: SheetAdmission = {facts: sheetFacts, live: true}; sheetRef.current = opening; setSheet(opening);
     return () => {opening.live = false; if (sheetRef.current === opening) {sheetRef.current = undefined; sheetFlight.current?.abort();sheetFlight.current = undefined; ownFlight.current = undefined;}};
   }, [sheetFacts]);
-  const sheetCurrent = () => {
+  const sheetCurrent = useCallback(() => {
     const exact = () => !!sheet && sheet.live && sheetRef.current === sheet && sheet.facts === sheetFacts;
     if (!exact() || !sheetFacts.open || !sheetFacts.visible || sheetFacts.revision === undefined) return false;
     const owned = () => exact() && !controller.lifetime.signal.aborted && controller.current() && !controller.lifetime.signal.aborted && exact();
@@ -393,18 +394,21 @@ export function NewRuleSheet({controller, runtime, policy, sources, ownerCursor,
     if (sheetFacts.navigation?.getSnapshot().revision !== sheetFacts.revision || !owned()) return false;
     if (runtime.getSnapshot().contentVisible !== true || !owned()) return false;
     return true;
-  };
+  }, [controller, runtime, sheet, sheetFacts]);
   const [ownPolicy, setOwnPolicy] = useState<Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]; nextCursor: string}>>(), [ownSources, setOwnSources] = useState<readonly LiveSource[]>();
   const [ownLoading, setOwnLoading] = useState(false), [ownError, setOwnError] = useState(false);
   const ownRevision = revision;
   const ownOwner = useRef<OwnKeys>({controller, runtime, navigation, revision});
   const ownEpoch = useRef(0), ownSeen = useRef(new Set<string>());
-  // The render's own read witness: what this effect follows when it runs, with the sheet guard
-  // and own state of the same render.
-  const ownDraw = useRef<OwnRead | undefined>(undefined);
-  ownDraw.current = ownRead(controller, runtime, navigation, revision, sheetCurrent, ownPolicy, ownSources);
+  // The committed own read witness. A layout pass runs only for a committed render, so the own
+  // state of a render React throws away can never stand in front of this passive effect; the
+  // effect copies the capture once and every settlement below follows that one copy.
+  const ownCapture = useRef<OwnRead | undefined>(undefined);
+  useLayoutEffect(() => {
+    ownCapture.current = ownRead(controller, runtime, navigation, revision, sheetCurrent, ownPolicy, ownSources);
+  }, [controller, runtime, navigation, revision, sheetCurrent, ownPolicy, ownSources]);
   useEffect(() => {
-    const now = ownDraw.current!;
+    const now = ownCapture.current!;
     const changedController = !sameOwnOwner(ownOwner.current, now);
     if (changedController) {ownOwner.current = now; ownEpoch.current++; ownSeen.current = new Set(); setOwnPolicy(undefined); setOwnSources(undefined);}
     if (now.current()) setOwnLoading(false);
@@ -438,10 +442,13 @@ export function NewRuleSheet({controller, runtime, policy, sources, ownerCursor,
   const guideQuery=useMemo(()=>({sheet,controller,day,sourceId,live:true}),[sheet,controller,day,sourceId]);
   const guideQueryRef=useRef<typeof guideQuery | undefined>(undefined);
   useLayoutEffect(()=>{guideQuery.live=true;guideQueryRef.current=guideQuery;return()=>{guideQuery.live=false;if(guideQueryRef.current===guideQuery)guideQueryRef.current=undefined;};},[guideQuery]);
-  const guideCurrent=()=>{const local=()=>guideQueryRef.current===guideQuery&&guideQuery.live;return local()&&sheetCurrent()&&local();};
-  // The render's guide read witness: the same guard, day and source the drawn query lists.
-  const guideDraw = useRef<GuideRead | undefined>(undefined);
-  guideDraw.current = guideRead(controller, day, sourceId, guideQuery, guideCurrent);
+  const guideCurrent=useCallback(()=>{const local=()=>guideQueryRef.current===guideQuery&&guideQuery.live;return local()&&sheetCurrent()&&local();},[guideQuery, sheetCurrent]);
+  // The committed guide read witness: the same guard, day and source the drawn query lists, held
+  // by the layout pass so only a committed render decides what the read follows.
+  const guideCapture = useRef<GuideRead | undefined>(undefined);
+  useLayoutEffect(() => {
+    guideCapture.current = guideRead(controller, day, sourceId, guideQuery, guideCurrent);
+  }, [controller, day, sourceId, guideQuery, guideCurrent]);
   const series=useMemo(()=>seriesPage?.query===guideQuery?seriesPage.items:[],[seriesPage,guideQuery]);
   useEffect(() => {
     if (!sheetCurrent()) return;
@@ -449,7 +456,7 @@ export function NewRuleSheet({controller, runtime, policy, sources, ownerCursor,
     setSeriesPage(undefined); setAnchor(''); setNewOnly(false); setBefore(null); setAfter(null); setPriority('0'); setKeepKey('default'); setError(undefined); setBusy(false);
   }, [sheet]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{
-    const now = guideDraw.current!;
+    const now = guideCapture.current!;
     if(!now.current()||!now.sourceId||!recordingGuideRoute(now.day,now.sourceId))return;
     let active=true;setLoading(true);setError(undefined);
     const current=()=>active&&now.current()&&active;
