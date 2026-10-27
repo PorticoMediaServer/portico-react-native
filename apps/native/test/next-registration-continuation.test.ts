@@ -168,3 +168,14 @@ test('registration and replacement values remain original across coordinator del
   assert.equal(q.requests[1].input.username, 'original'); assert.equal(q.requests[1].input.displayName, 'Name');
   p.source.dispose(); q.source.dispose();
 });
+
+
+test('verification retains the original caller predicate across coordinator admission', async () => {
+  let release!: () => void, started!: () => void, live = true;
+  const waiting = new Promise<void>(resolve => {started = resolve;});
+  const p = await port(() => {started(); return new Promise<void>(resolve => {release = resolve;});});
+  const caller = {isCurrent: () => live};
+  const attempt = p.source.verifyRegistration('123456', p.registration, caller); await waiting;
+  live = false; caller.isCurrent = () => true; release();
+  await assert.rejects(attempt); assert.equal(p.requests.length, 0); p.source.dispose();
+});

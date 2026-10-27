@@ -259,11 +259,12 @@ export class NativePorticoSignIn {
   async verifyRegistration(code: string, original: Registration, caller: Readonly<{isCurrent: () => boolean}>, replacement?: Readonly<{username: string; displayName: string}>) {
     const registration = original;
     if (!registration || this.registration !== registration) throw new Error('native_registration_missing');
+    const callerCurrent = caller.isCurrent.bind(caller);
     const binding = this.continuation?.binding, id = registration.registrationId, enteredCode = code.trim();
     const input = Object.freeze({code: enteredCode, ...(replacement ? {username: replacement.username.trim().toLowerCase(), displayName: replacement.displayName.trim()} : {})});
     const witness = this.bindingWitness;
     const current = () => !this.abort.signal.aborted && this.isCurrent() && !!witness && continuationBindingCurrent(hostedUrl, witness) && this.registration === registration
-      && this.continuation?.binding === binding && caller.isCurrent();
+      && this.continuation?.binding === binding && callerCurrent();
     if (!binding || !current() || (replacement && (!registration.contactVerified || !(Date.parse(registration.expiresAt) > Date.now()))))
       throw new CodedError('cancelled', 'native_registration_changed');
     try {
