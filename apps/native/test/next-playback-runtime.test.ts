@@ -2517,3 +2517,27 @@ test('Together original pending load cannot publish after authority retirement',
     assert.equal(groupPort(), undefined);
   } finally {release();off?.();room.close();d.runtime.dispose();}
 });
+
+
+test('channel admission callback identifies only its original accepted start and is captured before await', async () => {
+  const d = fixture(), admitted: unknown[] = [];
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>(resolve => {entered = resolve;});
+  const held = new Promise<void>(resolve => {release = resolve;});
+  d.intercept(async request => {if (request.path.startsWith(routePath('get_guide_sources') + '?')) {entered();await held;}});
+  const input = {sourceId: 'source-1', channelId: 'channel-1', timezone: 'UTC', lifetime: versionLifetime(), onAccepted: (value: unknown) => {admitted.push(value);}};
+  const opening = d.runtime.startChannel(input);
+  try {
+    await Promise.race([started, new Promise((_, reject) => {const timer = setTimeout(() => reject(new Error('channel directory did not start')), 2000);started.finally(() => clearTimeout(timer));})]);
+    input.onAccepted = () => {throw new Error('later callback must not be adopted');};
+    assert.deepEqual(admitted, []);
+    release();await opening;await settle();
+    assert.equal(admitted.length, 1);
+    assert.deepEqual(admitted[0], d.runtime.getSnapshot().fence);
+    assert.ok(Object.isFrozen(admitted[0]));
+    assert.ok(Object.isFrozen((admitted[0] as {playback: object}).playback));
+    let refused = 0;
+    await d.runtime.startChannel({sourceId: '', channelId: 'channel-1', timezone: 'UTC', lifetime: versionLifetime(), onAccepted: () => {refused++;}});
+    assert.equal(refused, 0, 'a matching old channel is not admission by an early-refused start');
+  } finally {release();await opening;d.runtime.dispose();}
+});
