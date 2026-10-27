@@ -6,6 +6,7 @@ import {createHookHost} from './hook-driver.ts';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import {deletionAllowed} from '../../../packages/client-core/src/administration.ts';
 import {mergeExplanation} from '../../../packages/client-core/src/title-identity.ts';
+import {durationText} from '../../../packages/client-core/src/presentation/kit-model/text.ts';
 import {shellLayout} from '../src-next/shell/model.ts';
 import * as registry from '../src-next/kit/focus/registry.ts';
 import * as hostRefs from '../src-next/kit/focus/useHostRef.ts';
@@ -22,8 +23,11 @@ const {NativeWatchOverlays} = await screenModule(new URL('../src-next/screens/wa
   '../../kit/overlays/SurfacePaintHost': surfacePaintFixture, './FileInfoContent': {NativeFileInfoContent},
   react, 'react-native': {Modal: 'Modal', Platform: {isTV: true}, ScrollView: 'ScrollView', StyleSheet: {absoluteFill: {}}, Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 1920, height: 1080})},
   '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src/administration': {deletionAllowed}, '../../../../../packages/client-core/src/title-identity': {mergeExplanation},
+  '../../../../../packages/client-core/src/presentation/kit-model/text': {durationText},
   '../../shell/model': {shellLayout}, '../../kit/controls': controls, '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/states': {StateView: 'StateView'},
   '../../kit/overlays': {BottomSheet: 'BottomSheet', Dialog: 'Dialog', Menu: 'Menu'}, '../../kit/overlays/Menu': {TouchMenuHeader: 'TouchMenuHeader'},
+  '../../kit/overlays/TVPanelMotion': {TVPanelTransition: 'TVPanelTransition', TVPanelSlide: 'TVPanelSlide', TVPanelScrim: 'TVPanelScrim', useTVPanelPresence: (value: unknown) => ({value, open: value !== undefined, exited() {}}), useTVPanelInteractive: () => true},
+  './DiscTitlesSheet': {NativeDiscTitlesSheet: 'DiscTitlesSheet'},
   './VersionChooser': {NativeVersionChooser: 'VersionChooser'}, '../../kit/overlays/surface': {FocusBoundary: 'FocusBoundary', PanelBackground: 'PanelBackground'}, '../../kit/overlays/OverlayHost': {useOverlayLifecycle() {}}, '../../kit/theme': themed,
 });
 const contexts: {current: unknown}[] = [];
