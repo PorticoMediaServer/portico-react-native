@@ -13,7 +13,8 @@ const previousDev = Object.getOwnPropertyDescriptor(globalThis, '__DEV__');
 Object.defineProperty(globalThis, '__DEV__', {configurable: true, value: false});
 after(() => {if (previousDev) Object.defineProperty(globalThis, '__DEV__', previousDev); else Reflect.deleteProperty(globalThis, '__DEV__');});
 type Node = {type: unknown; props: Record<string, any>};
-function find(value: unknown, type: string): Node | undefined {
+/** `type` is the element type itself: the real guest component is a function, while stubbed kit elements are their tag string. */
+function find(value: unknown, type: unknown): Node | undefined {
   if (Array.isArray(value)) {for (const child of value) {const result = find(child, type); if (result) return result;} return;}
   if (!value || typeof value !== 'object' || !('props' in value)) return;
   const node = value as Node; return node.type === type ? node : find(node.props.children, type);
@@ -85,7 +86,7 @@ test(`remembered ${format} composition: ${mixed ? 'mixed' : 'publication only'},
     assert.equal(guest!.props.owner.snapshot().manifest, session.manifest); assert.equal(paused, true); assert.equal(opens, 1); assert.equal(online, 0);
     guestHost = createHookHost(() => {guestTree = NativeReadingGuestHost(guest!.props);});
     await act(async () => {guestHost!.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
-    const view = find(guestTree, 'ReadingGuestView'); assert.ok(view); const oldView = ReadingGuestView(view!.props); assert.equal(oldView.type, 'WebView');
+    const view = find(guestTree, ReadingGuestView); assert.ok(view); const oldView = ReadingGuestView(view!.props); assert.equal(oldView.type, 'WebView');
     if (ending === 'back') guest!.props.onBack();
     else if (ending === 'entry') {retained = false; for (const listener of [...listeners]) listener();}
     else if (ending === 'expiry') abort.abort();
