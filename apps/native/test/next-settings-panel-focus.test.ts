@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {nativeServerHost} from '../src-next/shell/model';
+import * as i18n from '../../../packages/i18n/src';
 
 const {react} = hooks();
 const {renderNativeSettingsPanel} = await screenModule(new URL('../src-next/screens/settings-live/settings-panels.tsx', import.meta.url), {
@@ -18,6 +20,8 @@ const {renderNativeSettingsPanel} = await screenModule(new URL('../src-next/scre
   '../../../../../packages/client-core/src/server-admin/now-playing': {},
   '../../kit/overlays': {}, '../../kit/shell': {SettingsRow: 'SettingsRow'},
   '../../kit/shell/visual': {}, '../../kit/theme': {useTheme: () => ({isTV: true})},
+  '../../shell/model': {nativeServerHost},
+  '../../../../../packages/i18n/src': i18n,
 });
 
 test('custom Settings navigation rows provide stable distinct focus identities before TV activation', () => {

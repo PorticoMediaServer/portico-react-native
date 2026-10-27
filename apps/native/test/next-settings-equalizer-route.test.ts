@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import {NativeScreenLifetime} from '../src-next/screens/settings-live/lifetime';
+import {createNativeSettingsDownloads} from '../src-next/screens/settings-live/downloads-summary';
 
 async function fixture() {
   const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'fence'};
@@ -21,6 +22,7 @@ async function fixture() {
     './lifetime': {NativeScreenLifetime}, './settings-controller': {}, './device-preference-consumer': {},
     './dashboard-controller': {}, './server/tv-server-reader': {}, './server/TVServerScreen': {}, './SettingsScreen': {}, './DashboardScreen': {}, './settings-ports': {},
     './EqualizerSettingsScreen': {NativeEqualizerSettingsScreen: () => null},
+    './downloads-summary': {createNativeSettingsDownloads},
   });
   const renderer = module.createNativeEqualizerSettingsRenderer(context);
   const rendered = renderer.render({kind: 'settings-equalizer'}, {});
