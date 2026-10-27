@@ -1,3 +1,8 @@
+import {createNativeMusicMixes} from '../src-next/screens/destinations/music/mixes';
+import * as errorPresentation from '../../../packages/client-core/src/presentation/errors';
+import * as homeStart from '../src-next/screens/home/home-start';
+import {createInitialRegionEntry} from '../src-next/kit/focus/initial-entry';
+import {heroSpec} from '../../../packages/design/src/index';
 import {homeActionDiagnostics} from '../src-next/platform/home-action-diagnostics.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -23,7 +28,7 @@ import {NativeScreenServices} from '../src-next/screens/screen-services';
 import {tvHomeRows} from '../src-next/screens/home/tv-presentation';
 import {NativeHomePaging} from '../src-next/shell/home-paging';
 import {nativeHomeSelectionScope} from '../src-next/shell/selection-scope';
-import {NativeShellNavigation, nativeRailDestination, titleRoute} from '../src-next/shell/routes';
+import {NativeShellNavigation, nativeRailDestination, nativeEntryRoute, titleRoute} from '../src-next/shell/routes';
 import {planHomeWindows} from '../src-next/shell/home-windows';
 import * as rowState from '../src-next/kit/layout/row-state';
 
@@ -52,7 +57,19 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     '../focus': {FocusProvider: 'FocusProvider', FocusItem: 'FocusItem', FocusRegion: 'FocusRegion', focusTestID: () => 'native-card', useOptionalFocusRegistry: () => registry},
     '../focus/page-boundary': {useRowPageBoundary() {}}, './row-state': rowState, './FocusAnchor': {useFocusAnchor}, './MotionItem': {MotionItem: 'MotionItem'}, './types': {itemSelection: () => undefined},
   });
+  const recovery = await screenModule(new URL('../src-next/screens/home/useTvHomeRecovery.ts', import.meta.url), {
+    react, 'react-native': native, '../../../../../packages/client-core/src/presentation/errors': errorPresentation, '../../shell/model': shellModel,
+  });
   const {HomeScreen} = await screenModule(source('screens/home/HomeScreen.tsx'), {
+    '../../../../../packages/client-core/src/presentation/errors': errorPresentation,
+    '../../platform/platformPosture': {usePlatformPosture: () => ({status: 'unavailable', folds: []})},
+    // Physical page Back and recovery paint are outside this registration fixture;
+    // recovery ownership/effects above still execute the actual hook.
+    '../destinations/useTVPageBack': {useTVPageBack() {}},
+    '../../kit/focus/initial-entry': {createInitialRegionEntry}, './home-start': homeStart,
+    '../destinations/music/MusicMixesRow': {MusicMixesRow: 'MusicMixesRow'},
+    './TvHomeRecovery': {TvHomeRecovery: 'TvHomeRecovery'}, './useTvHomeRecovery': recovery,
+    '@portico/design': {heroSpec},
     react, 'react-native': native, 'react-native-reanimated': animated, '../../../../../packages/i18n/src': {defaultI18n},
     '../../../../../packages/client-core/src/presentation/home-spotlight': homePresentation, '../../../../../packages/client-core/src/home-selection': homeCapabilities,
     '../../../../../packages/client-core/src/presentation/server-text': serverText, '../../../../../packages/client-core/src/presentation/kit-model': {},
@@ -67,14 +84,23 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     react, 'react-native': {NativeModules: {}}, './screen-services': {NativeScreenServices},
     '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {StateView: 'State'},
   });
+  // Independent listening overlays are outside this Home registration fixture,
+  // as are the already-stubbed route renderers. Any attempted action is a failure.
+  const inactiveOverlay = () => ({open() {throw new Error('unexpected listening action in Home fixture');}, render: () => null, dispose() {}});
   const {createNativeShellBindings} = await screenModule(source('shell/assembly.tsx'), {
+    './listening-playlist': {createNativeListeningPlaylist: inactiveOverlay},
+    './listening-queue-policy': {createNativeListeningQueuePolicy: inactiveOverlay},
+    './listening-song-detail': {createNativeListeningSongDetail: inactiveOverlay},
+    '../screens/home/HomeEmpty': {NativeHomeEmpty: 'NativeHomeEmpty'}, './model': shellModel,
+    './music-discover-navigation': {createNativeMusicDiscoverNavigation: inactiveOverlay},
+    '../screens/destinations/music/mixes': {createNativeMusicMixes},
     react, 'react-native': {...native, Platform: {isTV: tv}, NativeModules: {}, BackHandler: {addEventListener: () => ({remove() {}})}},
     '../../../../packages/i18n/src': {defaultI18n}, '../../../../packages/client-core/src/home-selection/index': homeSelection,
     '../../../../packages/client-core/src/home-selection': homeCapabilities, '../../../../packages/client-core/src/presentation/errors': {presentError: () => ({silent: true})},
     '../../../../packages/client-core/src/library-management': {}, '../../../../packages/client-core/src/presentation/home-spotlight': homePresentation,
     '../platform/home-action-diagnostics': {homeActionDiagnostics}, '../platform/haptics': {}, '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {}, '../kit/shell': {OwnerTag: 'Owner'},
     './HomeSelectionBars': {HomeSelectionBars: 'Bars'}, './HomeSelectionOverlays': {HomeSelectionOverlays: 'Overlays'}, './account': {nativeAccountMenu() {}, nativeMenuRouteAvailable: () => true}, './library-scan': {libraryScanReadiness: () => ({ok: true})}, '../screens/downloads/DownloadSheet': {NativeDownloadSheet: 'NativeDownloadSheet'},
-    './home-windows': {planHomeWindows}, './selection-scope': {nativeHomeSelectionScope}, './routes': {nativeRailDestination, titleRoute},
+    './home-windows': {planHomeWindows}, './selection-scope': {nativeHomeSelectionScope}, './routes': {nativeRailDestination, nativeEntryRoute, titleRoute},
     './route-registry': {nativeShellRoutes: {subscribe: () => () => {}, bind: () => ({render: () => null, renderWatch: () => null, renderRetained: () => null, renderOverlays: () => null, back: () => false, scrollToTop() {}, dispose() {}})}}, '../screens/home/model': homeModel,
     '../screens/read/platform': readPlatform, '../screens/settings-live/NativeTVReceiver': {NativeTVReceiver: 'NativeTVReceiver'},
     '../screens/native-screen-services': screenServices,
@@ -82,7 +108,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
   });
   const navigation = new NativeShellNavigation(authority, () => authority);
   const bindings = createNativeShellBindings({home, current: () => true, authority: () => authority, session: () => ({viewer: {...authority, authority: 'local', role: 'member'}}),
-    account: {account: {role: 'member'}}, api: {}, events: {on: () => () => {}}, navigation, subscribeAuthority: navigation.subscribe, libraries: () => [],
+    account: {account: {role: 'member'}}, api: {request: async () => {throw new Error('unexpected API read in Home registration fixture');}}, events: {on: () => () => {}}, navigation, subscribeAuthority: navigation.subscribe, libraries: () => [],
     playback: {selectionPlayback: () => ({play() {throw new Error('unexpected playback');}, enqueue() {throw new Error('unexpected queue');}, playChannel() {throw new Error('unexpected channel');}}), getSnapshot: () => ({dock: {local: null}})}});
   const listeners = new Set<() => void>();
   let revision = 0, snapshot = {...bindings.getState(), authority, libraries: [], mediaExpanded: false, revision};

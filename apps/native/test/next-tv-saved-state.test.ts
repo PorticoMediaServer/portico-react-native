@@ -1,3 +1,5 @@
+import * as librarySavedIntent from '../src-next/screens/library/saved-view-intent';
+import * as customizeIntent from '../src-next/screens/home/customize-intent';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {HttpLocalApi, type LocalSession} from '../../../packages/client-core/src';
@@ -58,6 +60,8 @@ async function setup() {
     react: {default: {}}, './lifetime': {nativeDestinationLifetime}, '../native-screen-services': {nativeScreenServices: () => common}, '../watch': {nativeWatchEntryMenu: () => menu},
   });
   const {createNativeSavedState} = await screenModule(new URL('../src-next/screens/saved/state.ts', import.meta.url), {
+    '../home/customize-intent': customizeIntent,
+    '../library/saved-view-intent': librarySavedIntent,
     react: {default: {}}, '../destinations/lifetime': {nativeDestinationLifetime}, '../destinations/entry-actions': {createNativeEntryActions},
     '../native-screen-services': {nativeScreenServices: () => common}, './navigation': savedNavigation,
     './view-summary-owner': savedSummaryOwner, './rename-view': savedRename,
