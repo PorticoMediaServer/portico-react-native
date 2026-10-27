@@ -101,7 +101,7 @@ test('series metadata and its original cursor use the bounded native body facade
   globalThis.Response = class extends before.Response { get body() { return null; } };
   const seriesId = 's'.repeat(43), cursor = 'c'.repeat(171) + '.' + 'h'.repeat(43);
   const item = {id: 'comic', sourceId: 'source', libraryId: 'comics', title: 'Offered volume', format: 'cbz', inventoryAvailable: true,
-    series: {id: seriesId, name: 'Offered series', source: 'embedded', number: 1}};
+    series: {id: seriesId, name: 'Offered series', source: 'file-metadata', number: 1}};
   let calls = 0, current = true;
   runtime.networkRequest = async (_id: string, url: string, method: string, headers: Record<string, string>) => {
     calls++;
@@ -120,7 +120,9 @@ test('series metadata and its original cursor use the bounded native body facade
   const client = api.reading({viewer, isCurrent: () => current});
   try {
     const page = await client.series('comics', seriesId, {limit: 30});
-    assert.deepEqual(page.items, [item]);
+    // The official decoder returns null-prototype records; this facade vector
+    // compares every published JSON field rather than the decoder's record prototype.
+    assert.deepEqual(JSON.parse(JSON.stringify(page.items)), [item]);
     assert.equal(page.nextCursor, cursor);
     assert.deepEqual((await client.series('comics', seriesId, {limit: 30, cursor: page.nextCursor})).items, []);
     assert.equal(calls, 2);
