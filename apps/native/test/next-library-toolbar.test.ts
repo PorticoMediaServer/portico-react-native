@@ -26,22 +26,27 @@ async function fixture(width: number, isTV = false) {
   return {calls, start, render: (patch = {}) => host.render(() => LibraryToolbar({...props, ...patch}))};
 }
 
-test('the library row keeps Select in the drawn header and draws its real context', async () => {
-  // Tablet4/5 and the phone place Select in the drawn header (`library-select-header`,
-  // routed by native-library-r46), so this row must never repeat it: not at a tablet
-  // width, not while selecting, and not when the caller supplies no port at all.
+test('the library row never draws its own Select and keeps its drawn controls exact', async () => {
+  // Tablet4/5 draw Select in the library header (`library-select-header`, routed by
+  // native-library-r46), so this row must never repeat it: not at a tablet width, not
+  // while selecting, and not when the caller supplies no port at all. The phone's own
+  // Select entry is not drawn here either; its intended home (compact header or the
+  // library menu) is still an owner decision, so this row asserts only that it never
+  // invents one.
   for (const width of [390, 599, 600, 820, 1180]) {
     const f = await fixture(width), tree = f.render(), nodes = elements(tree);
     assert.equal(nodes.some(node => node.props.testID === 'library-select'), false, 'the row never draws a second Select');
     assert.deepEqual(f.calls, [], 'the row never invokes the header action by itself');
     assert.equal(nodes.find(node => node.type === 'FiltersButton')?.props.open, true, 'actual draft open state reaches the control');
     assert.equal(tree.type, width < 600 ? 'ScrollView' : 'View', width < 600 ? 'the phone keeps the scrolling strip' : 'the drawn tablet row replaces the strip');
-    const controls = nodes.filter(node => ['FiltersButton', 'LibrarySortMenu'].includes(node.type as string)).map(node => node.type);
+    // 'Button' stays in the filter so an unexpected row button fails this order instead
+    // of escaping it; the expected shape is the drawn filters control, then sort.
+    const controls = nodes.filter(node => ['Button', 'FiltersButton', 'LibrarySortMenu'].includes(node.type as string)).map(node => node.type);
     assert.deepEqual(controls, ['FiltersButton', 'LibrarySortMenu']);
     assert.equal(elements(f.render({onSelect: undefined})).some(node => node.props.testID === 'library-select'), false, 'a missing real port never creates a dummy action');
     assert.equal(elements(f.render({selecting: true})).some(node => node.props.testID === 'library-select'), false);
   }
   const tv = await fixture(1920, true), nodes = elements(tv.render());
   assert.equal(nodes.some(node => node.props.testID === 'library-select'), false);
-  assert.deepEqual(nodes.filter(node => ['LibrarySortMenu', 'FiltersButton', 'Chip'].includes(node.type as string)).map(node => node.type), ['LibrarySortMenu', 'FiltersButton', 'Chip']);
+  assert.deepEqual(nodes.filter(node => ['Button', 'LibrarySortMenu', 'FiltersButton', 'Chip'].includes(node.type as string)).map(node => node.type), ['LibrarySortMenu', 'FiltersButton', 'Chip']);
 });
