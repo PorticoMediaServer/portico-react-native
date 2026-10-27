@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Platform, View} from 'react-native';
 import {Gesture} from 'react-native-gesture-handler';
-import Animated, {cancelAnimation, runOnJS, runOnUI, useAnimatedReaction, useAnimatedStyle, useSharedValue, withSpring, withTiming} from 'react-native-reanimated';
+import Animated, {cancelAnimation, runOnJS, runOnUI, useAnimatedReaction, useAnimatedStyle, useSharedValue, withSpring, withTiming, type SharedValue} from 'react-native-reanimated';
 import {type PlaybackFence} from '../../../../../packages/player-core/src/index';
 import {Icon} from '../Icon';
 import {useTheme} from '../theme';
@@ -96,38 +96,57 @@ export function usePlayerMorph({docked, travel, fence, dockMotionHosted = false,
   const gestures = useMemo(() => {
     // RNGH mutates handler identity on attachment. Each physical detector gets
     // its own instance, even while the outgoing dock chrome remains mounted.
-    const pan = (forDock: boolean) => Gesture.Pan().enabled(!!source.fence && source.docked === forDock).activeOffsetY([-10, 10]).failOffsetX([-12, 12])
+    const pan = (forDock: boolean, current?: SharedValue<boolean>, paintCurrent?: () => boolean) => {
+      const releaseFromTarget = (target: boolean, original: PlaybackFence, version: number, gestureRun: number) => {
+        let allowed = false;
+        try {allowed = (!current || current.value) && (!paintCurrent || paintCurrent());} catch { /* Expired UI paint refuses only this gesture. */ }
+        if (allowed) {released(target, original, version, gestureRun); return;}
+        // A queued lift can outlive this exact page/paint target while the same
+        // playback stays expanded. Cancel only its original UI run, never a new
+        // source/gesture and never by writing a business transition.
+        if (!mounted.current || intent.current !== source) return;
+        runOnUI((originalEpoch: number, originalRun: number, goal: number) => {
+          'worklet';
+          if (epoch.value !== originalEpoch || run.value !== originalRun) return;
+          run.value++; dragging.value = false; cancelAnimation(progress);
+          presentationGoal.value = goal;
+          const finish = completionFor(goal);
+          progress.value = spring ? withSpring(goal, {...spring, velocity: velocity.value}, finish) : withTiming(goal, timing, finish);
+        })(version, gestureRun, source.docked ? 1 : 0);
+      };
+      return Gesture.Pan().enabled(!!source.fence && source.docked === forDock).activeOffsetY([-10, 10]).failOffsetX([-12, 12])
       .onBegin(() => {
-        if (epoch.value !== source.epoch || source.docked !== forDock) return;
+        if (current && !current.value || epoch.value !== source.epoch || source.docked !== forDock) return;
         run.value++; started.value = run.value;
         cancelAnimation(progress); origin.value = progress.value; dragging.value = true;
       })
       .onUpdate(event => {
-        if (!dragging.value || epoch.value !== source.epoch || started.value !== run.value) return;
+        if (current && !current.value || !dragging.value || epoch.value !== source.epoch || started.value !== run.value) return;
         const value = origin.value + event.translationY / span.value;
         progress.value = value < 0 ? value * .18 : value > 1 ? 1 + (value - 1) * .18 : value;
         velocity.value = event.velocityY / span.value;
       })
       .onEnd((event, success) => {
         // RNGH calls onEnd(false) BEFORE onFinalize(false) for ACTIVE cancellation.
-        if (!success || !dragging.value || epoch.value !== source.epoch || started.value !== run.value || !source.fence) return;
+        if (!success || current && !current.value || !dragging.value || epoch.value !== source.epoch || started.value !== run.value || !source.fence) return;
         const target = releaseDock(progress.value, event.velocityY);
         presentationGoal.value = target;
         dragging.value = false;
         releaseVelocity.value = velocity.value;
         const finish = completionFor(target);
         progress.value = spring ? withSpring(target, {...spring, velocity: velocity.value}, finish) : withTiming(target, timing, finish);
-        runOnJS(released)(target === 1, source.fence, source.epoch, started.value);
+        runOnJS(releaseFromTarget)(target === 1, source.fence, source.epoch, started.value);
       })
       .onFinalize((_event, success) => {
-        if (!success && dragging.value && epoch.value === source.epoch && started.value === run.value) {
+        if ((!success || current && !current.value) && dragging.value && epoch.value === source.epoch && started.value === run.value) {
           run.value++; dragging.value = false; cancelAnimation(progress);
           presentationGoal.value = source.docked ? 1 : 0;
           const finish = completionFor(source.docked ? 1 : 0);
           progress.value = spring ? withSpring(source.docked ? 1 : 0, {...spring, velocity: velocity.value}, finish) : withTiming(source.docked ? 1 : 0, timing, finish);
         }
       });
-    return {gesture: pan(false), dockGesture: pan(true), chromeGesture: (enabled: boolean) => pan(false).enabled(enabled && !!source.fence && !source.docked)};
+    };
+    return {gesture: pan(false), dockGesture: pan(true), chromeGesture: (enabled: boolean, current?: SharedValue<boolean>, paintCurrent?: () => boolean) => pan(false, current, paintCurrent).enabled(enabled && !!source.fence && !source.docked)};
   }, [progress, origin, dragging, span, velocity, releaseVelocity, spring, timing, released, source, epoch, run, started, completionFor, presentationGoal]);
   return useMemo(() => ({progress, velocity, dragging, releaseVelocity, presentationGoal, request, dockX, dockFade, dockTravelFade, dockMotionHosted, ...gestures}), [progress, velocity, dragging, releaseVelocity, presentationGoal, request, dockX, dockFade, dockTravelFade, dockMotionHosted, gestures]);
 }

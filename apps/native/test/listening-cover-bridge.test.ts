@@ -1,3 +1,4 @@
+import {dockFence} from './helpers/dock-fence.ts';
 /** Authored UNRUN source vectors. Actual bridge hooks, manually supplied context,
  * controlled native measurement callbacks and source-ready notifications only.
  * This is not a reconciler, decoded-image, native geometry or gesture proof. */
@@ -9,7 +10,7 @@ import {validRect} from '../src-next/kit/dock/model.ts';
 import {createHookHost, act} from './hook-driver.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
 
-const fence = {kind: 'local', playId: 'original', sessionId: 'session', itemId: 'item', generation: 1} as const;
+const fence = dockFence();
 const source = {cacheKey: 'original', uri: '/actual-art', headers: {Authorization: 'fixture'}};
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : React.isValidElement<any>(node) ? [node, ...nodes(node.props.children)] : [];
 async function rig() {
@@ -17,10 +18,12 @@ async function rig() {
   const ctx = () => tree.props.value;
   const {ListeningCoverProvider, useListeningCoverSlot} = await screenModule(new URL('../src-next/kit/dock/ListeningCoverBridge.tsx', import.meta.url), {
     react: {...React, default: React, createContext: () => ({Provider: 'Provider'}), useContext: () => ctx()},
-    'react-native': {View: 'View'}, 'react-native-reanimated': {default: {View: 'AnimatedView'}, useAnimatedStyle: (read: () => unknown) => ({read})},
+    'react-native': {View: 'View'},
+    'react-native-gesture-handler': {Gesture: {Pan: () => ({enabled() {return this;}})}, GestureDetector: 'GestureDetector'}, 'react-native-reanimated': {default: {View: 'AnimatedView'}, useSharedValue: (value: any) => React.useRef({value}).current,
+      useAnimatedReaction() {}, cancelAnimation() {}, withTiming: (value: number) => value, withDelay: (_delay: number, value: number) => value, useAnimatedStyle: (read: () => unknown) => ({read})},
     '../../../../../packages/player-core/src': {sameFence}, '../theme': {useTheme: () => ({layers: {player: 30}})},
     '../overlays/OverlayPaintContext': {useOverlayPaintMode: () => ({interactive: true})},
-    '../useMotion': {useMotion: () => ({transforms: true})}, './ListeningCoverPaint': {ListeningCoverPaint: 'ListeningCoverPaint'}, './model': {validRect},
+    '../useMotion': {useMotion: () => ({transforms: true, timing: () => ({duration: 180})})}, './ListeningCoverPaint': {ListeningCoverPaint: 'ListeningCoverPaint'}, './model': {validRect},
   });
   const provider = createHookHost(() => {tree = ListeningCoverProvider({children: null});}); provider.mount();
   const canvas = () => nodes(tree).find(node => node.props.collapsable === false).props.ref;
@@ -70,7 +73,7 @@ test('retired source, native node and canvas callbacks cannot publish successor 
   const full = r.slot('full'), mini = r.slot('mini');
   try {
     const oldSourceReply = full.replies.at(-1)!;
-    await r.publish({...fence, playId: 'successor', generation: 2});
+    await r.publish({...fence, sourceId: 'successor', generation: 2});
     await act(() => {oldSourceReply(110, 220, 300, 300);});
     assert.equal(r.ctx().full, undefined);
     await r.publish(); full.host.rerender();

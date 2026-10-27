@@ -64,6 +64,11 @@ export const dockHandoverFixture = {DockHandover: 'DockHandover', DockPaintRow: 
 export const listeningCoverFixture = {
   ListeningCoverProvider: ({children}) => children,
   ListeningCoverLocalPaint: 'ListeningCoverLocalPaint',
+  ListeningGroup: ({children}) => children,
+  ListeningSeekPaint: 'ListeningSeekPaint', useListeningScrubberPublication: () => false,
   useListeningCoverPublication() {},
+  useListeningPageStyle: () => ({}),
+  useListeningTabBarPaint: () => ({style: {}, measure() {}}),
+  useListeningPaintPermit: () => undefined, useListeningPageActive: () => true, useListeningPageOwner() {}, useListeningPageHeight: () => () => {}, useListeningPagePresent: () => false,
   useListeningCoverSlot: () => ({measure() {}, style: {}}),
 };

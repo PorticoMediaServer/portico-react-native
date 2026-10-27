@@ -1,3 +1,4 @@
+import {dockFence} from './helpers/dock-fence.ts';
 /** Authored UNRUN source vectors. Actual presenter hooks with controlled shared
  * values and manually supplied child hooks; no reconciler, native image, frame
  * scheduling, native file transfer or physical glass acceptance is claimed. */
@@ -10,7 +11,7 @@ import {sameDockFence} from '../src-next/kit/dock/model.ts';
 import {freezeOverlayPaint} from '../src-next/kit/overlays/overlay-paint-model.ts';
 
 const INERT = Object.freeze({visible: true, interactive: false, root: true});
-const fence = (id: string) => ({kind: 'local', playId: id, sessionId: id, itemId: id, generation: 1});
+const fence = dockFence;
 const occupant = (id: string, mode = 'music', remote?: any) => ({mode, playback: {fence: fence(id)}, remote});
 async function rig() {
   let motion = policy(false), tree: any, props: any;
@@ -41,7 +42,7 @@ async function rig() {
   const {DockHandover, DockPaintRow} = await screenModule(new URL('../src-next/kit/dock/DockHandover.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': {View: 'View', Image: 'Image'}, 'react-native-reanimated': animated,
     '../overlays/overlay-paint-model': {freezeOverlayPaint}, '../overlays/OverlayPaintContext': {OverlayPaintProvider: 'PaintMode', OVERLAY_PAINT_INERT: INERT},
-    '../useMotion': {useMotion: () => motion}, './model': {sameDockFence},
+    '../useMotion': {useMotion: () => motion}, './model': {sameDockFence}, './ListeningCoverBridge': {useListeningMiniPaint: () => ({active: false})},
   });
   const allowed = [DockPaintRow, 'View', 'Text', 'Input', 'Image', React.Fragment];
   function row(label: string, width: number, onPress = () => {}) {

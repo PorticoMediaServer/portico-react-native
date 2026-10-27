@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useId, useLayoutEffect, useRef, useState} from 'react';
+import React, {createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {BackHandler, ScrollView, Text, View} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import Animated, {runOnJS, useAnimatedStyle, useSharedValue} from 'react-native-reanimated';
@@ -15,20 +15,25 @@ import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {clockText} from '../../../../../../packages/client-core/src/presentation/kit-model/text';
 import {AmbientArt, Artwork} from '../../../kit/artwork';
 import {Button} from '../../../kit/controls';
+import {GestureCommitScope} from '../../../kit/controls/gesture-commit';
 import {Icon} from '../../../kit/Icon';
 import {useTheme} from '../../../kit/theme';
-import {useListeningCoverSlot} from '../../../kit/dock/ListeningCoverBridge';
+import {ListeningSeekPaint, useListeningScrubberPublication, ListeningGroup, useListeningCoverSlot, useListeningPageOwner, useListeningPageActive, useListeningPageHeight, useListeningPagePresent, useListeningPaintPermit, useListeningPageStyle} from '../../../kit/dock/ListeningCoverBridge';
 import {browseType} from '../../../kit/browse/presentation';
 import {commandAllowed, dockCommand, playbackPosition, seekBounds, seekTo} from '../../../kit/dock/model';
 import type {DockCommand, DockOccupant} from '../../../kit/dock/types';
 import {NowPlayingQueue, nowPlayingQueueEntry, nowPlayingQueueWindow} from './NowPlayingQueue';
-import {ListeningSongActions} from './ListeningSongActions';
+import {ListeningSongActions, ListeningFavoritePaint, listeningSongFavorite} from './ListeningSongActions';
 import {MusicFocusRegion, TVMusicFocus, TVMusicSeek} from './TVMusicFocus';
 import {NativeListeningNotice} from './ListeningNotice';
 import {TVNowPlayingScreen} from './TVNowPlayingScreen';
 import type {NativeListeningQueuePolicy} from '../../../shell/listening-queue-policy';
 import type {NativePlaybackReadLifetime} from '../../../platform/playback/types';
 import type {NativeListeningSong} from '../../../shell/listening-song-detail';
+import {RetainedOverlay} from '../../../kit/overlays/SurfacePaintHost';
+import {usePublishedPlayerMorph} from '../../../kit/dock/PlayerMorphBridge';
+import {useOverlayPaintMode} from '../../../kit/overlays/OverlayPaintContext';
+import {NowPlayingLyrics} from './NowPlayingLyrics';
 import {useTVPanelPresence} from '../../../kit/overlays/TVPanelMotion';
 
 const t = defaultI18n.t;
@@ -47,6 +52,8 @@ const equalizerCopy = (): NativeEqualizerCopy => ({title: t('next.media.eq.title
 export type NowPlayingScreenProps = Readonly<{
   /** TV presentation only; no extra listening session or command lifetime. */
   tvOpen?: boolean;
+  /** A single pure backdrop is hosted beside the persistent player on touch. */
+  backgroundHosted?: boolean;
   onTVExited?: () => void;
   occupant: DockOccupant;
   queue?: QueuePlaybackView;
@@ -83,6 +90,9 @@ export type NowPlayingScreenProps = Readonly<{
 
 const QUEUE_WIDTH = 366;
 const SIDE_BY_SIDE = 700;
+const ListeningChromeGate = createContext(false);
+const listeningPaintTypes = [ListeningSurface, ListeningSwipeArea, ListeningColumn, ListeningPageBackground, ListeningGroup, ListeningSeekPaint, MusicFocusRegion, MusicSignalLine, MusicSignalSheet, ListeningFavoritePaint, View, Text, ScrollView, Artwork, AmbientArt, Button, Icon, React.Fragment];
+const listeningPaintOmissions = [GestureDetector, NowPlayingQueue, NowPlayingLyrics, ListeningSongActions, NativeWatchEqualizer];
 
 export function NowPlayingScreen(props: NowPlayingScreenProps) {
   const theme = useTheme();
@@ -99,10 +109,9 @@ export function TVListeningRoute({value, scope, onPresenceChange}: {value?: NowP
   return presence.value ? <NowPlayingScreen {...presence.value} tvOpen={presence.open} onTVExited={presence.exited}/> : null;
 }
 
-function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInset = 0, bottomInset = 0, onAction, onQueuePlay, queuePolicy, policyLifetime, retry, playOn, queueEdit, song, onClose, signal, notice, reportError = () => {}, testID = 'now-playing', lyrics}: NowPlayingScreenProps) {
+function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInset = 0, bottomInset = 0, backgroundHosted = false, onAction, onQueuePlay, queuePolicy, policyLifetime, retry, playOn, queueEdit, song, onClose, signal, notice, reportError = () => {}, testID = 'now-playing', lyrics}: NowPlayingScreenProps) {
   const theme = useTheme(), {presentation: p, playback} = occupant;
-  const coverSlot = useRef<View>(null);
-  const sharedCover = useListeningCoverSlot(playback.fence, 'full', coverSlot);
+  const paintPermit = useListeningPaintPermit(playback.fence), paintActive = useListeningPageActive(playback.fence);
   // Repeat and shuffle are the queue's own facts, and the answer to a change is the server's
   // queue read that follows, never a locally flipped control. A request keeps the exact queue
   // and revision this screen drew, so a queue that moved on refuses it.
@@ -125,7 +134,7 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
     void queuePolicy.apply(drawnFence, {queueId: drawnQueue.id, expectedRevision: drawnQueue.revision, intent}, lifetime).catch(reportError);
   };
   const focus = useId();
-  const [sheet, setSheet] = useState<'queue' | 'lyrics' | null>(null), [panelTab, setPanelTab] = useState<'queue' | 'lyrics'>('queue'), [panel, setPanel] = useState<'signal' | 'eq' | null>(null), track = useRef(0);
+  const [sheet, setSheet] = useState<'queue' | 'lyrics' | null>(null), [panelTab, setPanelTab] = useState<'queue' | 'lyrics'>('queue'), [panel, setPanel] = useState<'signal' | 'eq' | null>(null);
   // music-plus 6/6b and listening-notices 8: the signal sheet (like the EQ panel) is the top
   // surface while it is open, so Back closes it rather than folding the player, and focus returns
   // to the line that opened it.
@@ -143,6 +152,7 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
   const equalizer = useSyncExternalStore(nativeEqualizer.subscribe, nativeEqualizer.getSnapshot);
   const wide = width >= SIDE_BY_SIDE, side = wide && !!(queue || lyrics), position = playbackPosition(occupant), bounds = seekBounds(occupant);
   const span = bounds ? Math.max(0, bounds.end - bounds.start) : 0;
+  const inputActive = paintActive && !panel && !!bounds && p.capabilities.seek && span > 0;
   const fraction = bounds && span > 0 ? Math.min(1, Math.max(0, (position - bounds.start) / span)) : 0;
   const act = (type: Parameters<typeof dockCommand>[1]) => {if (commandAllowed(occupant, type)) onAction(dockCommand(occupant, type));};
   // The touch bar previews on the UI thread. The gesture binds at BEGIN to the
@@ -150,76 +160,81 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
   // successful lift can only ever invoke those: a successor that arrives mid-drag
   // retires both the paint and the captured pair instead of receiving the seek.
   const travel = useSharedValue(0), paintFraction = useSharedValue(0), dragFraction = useSharedValue<number | null>(null);
-  const boundSeek = useRef<{occupant: DockOccupant; start: number; span: number; onAction: (command: DockCommand) => void} | null>(null);
-  // The UI-thread witness of an actual gesture: only a valid begin arms it, and
-  // update/end refuse to paint or commit once retirement clears it.
-  const dragArmed = useSharedValue(false);
-  const retireSeek = () => {boundSeek.current = null; dragFraction.value = null; dragArmed.value = false;};
-  const discardBound = () => {boundSeek.current = null;};
-  // Retirement follows the semantic source identity, not a fresh equal fence object.
+  type BeginSeek = Readonly<{occupant: DockOccupant; start: number; span: number; onAction: (command: DockCommand) => void}>;
   const fenceKey = JSON.stringify(occupant.playback.fence ?? null);
+  const scopeGeneration = useRef(0);
+  const scopes = useRef<Readonly<{key: string; start?: number; end?: number; enabled: boolean; span: number; generation: number; value: GestureCommitScope<BeginSeek>}> | undefined>(undefined);
+  const prior = scopes.current;
+  if (!prior || prior.key !== fenceKey || prior.start !== bounds?.start || prior.end !== bounds?.end || prior.enabled !== inputActive || prior.span !== span) {
+    scopes.current = {key: fenceKey, start: bounds?.start, end: bounds?.end, enabled: inputActive, span, generation: ++scopeGeneration.current, value: new GestureCommitScope<BeginSeek>()};
+  }
+  const seekScope = scopes.current!.value, drawnScope = scopes.current!.generation;
+  const scopeTicket = useSharedValue(0), activeScope = useSharedValue(0), dragRun = useSharedValue(0), dragTicket = useSharedValue(0), dragArmed = useSharedValue(false);
   useEffect(() => {if (dragFraction.value === null) paintFraction.value = fraction;}, [dragFraction, paintFraction, fraction]);
-  useEffect(() => () => retireSeek(), [dragArmed, dragFraction]);
-  // One retirement point: a replaced source, moved window, disabled bar or unmount
-  // drops the preview, the witness and the begin-time pair together.
-  useEffect(() => {retireSeek();}, [dragArmed, dragFraction, fenceKey, bounds?.start, bounds?.end, p.capabilities.seek, span]);
-  const bindSeek = (valid: boolean) => {
-    if (!valid || !bounds || !(span > 0)) {boundSeek.current = null; return;}
-    boundSeek.current = {occupant, start: bounds.start, span, onAction};
+  useLayoutEffect(() => {
+    if (!inputActive) {scopeTicket.value = 0; activeScope.value = 0; dragArmed.value = false; dragFraction.value = null; return;}
+    const ticket = seekScope.activate(); scopeTicket.value = ticket; activeScope.value = drawnScope;
+    dragArmed.value = false; dragFraction.value = null;
+    return () => {
+      if (!seekScope.retire(ticket)) return;
+      scopeTicket.value = 0; activeScope.value = 0; dragArmed.value = false; dragFraction.value = null;
+    };
+  }, [seekScope, drawnScope, inputActive, activeScope, scopeTicket, dragArmed, dragFraction]);
+  const bindSeek = (valid: boolean, ticket: number, run: number) => {
+    seekScope.bind(ticket, run, valid && bounds && span > 0 ? {occupant, start: bounds.start, span, onAction} : undefined);
   };
-  const commitSeek = (at: number, success: boolean) => {
-    const bound = boundSeek.current;
-    boundSeek.current = null;
-    if (success !== true || !Number.isFinite(at) || !bound) return;
+  const commitSeek = (at: number, success: boolean, ticket: number, run: number) => {
+    const bound = seekScope.claim(ticket, run);
+    if (success !== true || !Number.isFinite(at) || !bound || paintPermit && !paintPermit.current()) return;
     const command = seekTo(bound.occupant, bound.start + Math.min(1, Math.max(0, at)) * bound.span);
     if (command) bound.onAction(command);
   };
-  const scrub = Gesture.Pan().enabled(!!bounds && p.capabilities.seek && span > 0).minDistance(0)
+  const discardBound = (ticket: number, run: number) => {seekScope.discard(ticket, run);};
+  const scrub = Gesture.Pan().enabled(inputActive).minDistance(0)
     .onBegin(event => {
+      if (activeScope.value !== drawnScope) return;
       const valid = travel.value > 0 && Number.isFinite(event.x);
-      runOnJS(bindSeek)(valid);
-      dragArmed.value = valid;
-      if (!valid) return;
+      const ticket = scopeTicket.value, run = ++dragRun.value;
+      dragTicket.value = ticket;
+      runOnJS(bindSeek)(valid, ticket, run);
+      dragArmed.value = valid && ticket > 0;
+      if (!valid || ticket <= 0) return;
       dragFraction.value = Math.min(1, Math.max(0, event.x / travel.value));
     })
     .onUpdate(event => {
-      if (!dragArmed.value || !(travel.value > 0) || !Number.isFinite(event.x)) return;
+      if (activeScope.value !== drawnScope || !dragArmed.value || dragTicket.value !== scopeTicket.value || !(travel.value > 0) || !Number.isFinite(event.x)) return;
       dragFraction.value = Math.min(1, Math.max(0, event.x / travel.value));
     })
     .onEnd((event, success) => {
-      if (!dragArmed.value || success !== true || !(travel.value > 0) || !Number.isFinite(event.x)) return;
+      if (activeScope.value !== drawnScope || !dragArmed.value || dragTicket.value !== scopeTicket.value || success !== true || !(travel.value > 0) || !Number.isFinite(event.x)) return;
       dragArmed.value = false;
-      runOnJS(commitSeek)(Math.min(1, Math.max(0, event.x / travel.value)), true);
+      runOnJS(commitSeek)(Math.min(1, Math.max(0, event.x / travel.value)), true, dragTicket.value, dragRun.value);
     })
-    .onFinalize(() => {dragArmed.value = false; dragFraction.value = null; runOnJS(discardBound)();});
-  const fillPaint = useAnimatedStyle(() => {
-    const at = dragFraction.value ?? paintFraction.value;
-    return {transform: [{translateX: -(1 - at) * travel.value / 2}, {scaleX: at}]};
-  });
+    .onFinalize(() => {if (activeScope.value !== drawnScope) return; dragArmed.value = false; dragFraction.value = null; runOnJS(discardBound)(dragTicket.value, dragRun.value);});
+  const scrubber = useMemo(() => inputActive ? {fence: playback.fence, gesture: scrub, scope: drawnScope, activeScope,
+    ticket: scopeTicket, drag: dragFraction, base: paintFraction, travel} : undefined,
+    [inputActive, playback.fence, scrub, drawnScope, activeScope, scopeTicket, dragFraction, paintFraction, travel]);
+  const hostedScrubber = useListeningScrubberPublication(scrubber);
+  const favoritePaint = song ? listeningSongFavorite(song.token, song.pending) : undefined;
   const facts = p.identity.subtitle.map(part => part.text).filter(Boolean).join(' · ');
   const album = (p.album ?? []).map(part => part.text).filter(Boolean).join(' · ');
   const cover = Math.max(160, Math.min(410, wide ? width - QUEUE_WIDTH - 120 : width - 96));
-  const column = <View testID={`${testID}-column`} style={{flex: 1, minWidth: 0, alignItems: 'center', paddingHorizontal: 28, paddingTop: wide ? 36 : 20}}>
-    {playingFrom ? <Text numberOfLines={1} style={[browseType(theme, 13, 600), {marginBottom: 14, textAlign: 'center', color: theme.colors.textSecondary}]}>{t('next.music.playingFrom', {source: playingFrom})}</Text> : null}
-    {p.artwork ? <View ref={coverSlot} collapsable={false} onLayout={sharedCover.measure} style={{width: cover, height: cover}}><Animated.View style={sharedCover.style}><Artwork source={p.artwork} width={cover} height={cover} style={{borderRadius: 14}}/></Animated.View></View> : null}
+  const column = <ListeningColumn testID={`${testID}-column`} fence={playback.fence} source={p.artwork} playingFrom={playingFrom} cover={cover} wide={wide} height={height}>
+    <ListeningSwipeArea fence={playback.fence}><ListeningGroup fence={playback.fence} index={0} height={height}>
     <Text numberOfLines={2} accessibilityRole="header" style={[browseType(theme, wide ? 34 : 26, 800, -0.03), {marginTop: 26, textAlign: 'center', color: theme.colors.text}]}>{p.identity.title}</Text>
     {facts ? <Text numberOfLines={1} style={[browseType(theme, 15, 500), {marginTop: 8, textAlign: 'center', color: theme.colors.textSecondary}]}>{facts}</Text> : null}
     {album ? <Text numberOfLines={1} style={[browseType(theme, 13, 500), {marginTop: 4, textAlign: 'center', color: theme.colors.textTertiary}]}>{album}</Text> : null}
-    {song ? <ListeningSongActions song={song.token} pending={song.pending} favorite={song.favorite}/> : null}
-    {signal ? <MusicFocusRegion id={`${focus}.signal`} entry="music-signal-line" edges={{down: `${focus}.progress`}} style={{alignSelf: 'center', marginTop: 12}}><MusicSignalLine view={signal} focusRef={signalRef} onPress={() => setPanel('signal')}/></MusicFocusRegion> : null}
+    {favoritePaint ? <ListeningFavoritePaint {...favoritePaint} onPress={() => {if (song?.token) song.favorite(song.token, !favoritePaint.favorite);}}/> : null}
+    {signal ? <MusicFocusRegion id={`${focus}.signal`} entry="music-signal-line" edges={{down: `${focus}.progress`}} style={{alignSelf: 'center', marginTop: 12}}><MusicSignalLine view={signal} focusRef={theme.isTV ? signalRef : undefined} onPress={() => setPanel('signal')}/></MusicFocusRegion> : null}
     {retry?.enabled ? <View style={{marginTop: 16}}><Button testID={`${testID}-retry`} variant="primary" icon="i-retry"
       onPress={() => retry.run(playback.fence)}>{t('next.states.tryAgain')}</Button></View> : null}
+    </ListeningGroup></ListeningSwipeArea>
+    <ListeningGroup fence={playback.fence} index={1} height={height}>
     <View style={{width: '100%', maxWidth: 520, marginTop: 24}}>
       {theme.isTV ? <MusicFocusRegion id={`${focus}.progress`} entry="seek" edges={{up: signal ? `${focus}.signal` : undefined, down: `${focus}.transport`}}>
         <TVMusicSeek occupant={occupant} onAction={onAction} enabled={!panel} testID={`${testID}-scrubber`}/>
-      </MusicFocusRegion> : <GestureDetector gesture={scrub}><View testID={`${testID}-scrubber`} accessibilityRole="adjustable" accessibilityLabel={t('player.queue')}
-        accessibilityValue={{min: 0, max: Math.round(span), now: Math.round(Math.max(0, Math.min(span, position - (bounds?.start ?? 0))))}}
-        onLayout={event => {track.current = event.nativeEvent.layout.width; travel.value = event.nativeEvent.layout.width;}}
-        style={{height: 28, justifyContent: 'center'}}>
-        <View style={{height: 4, borderRadius: 2, backgroundColor: 'rgba(237,245,250,.18)'}}>
-          <Animated.View style={[{position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, borderRadius: 2, backgroundColor: theme.colors.accentStrong}, fillPaint]}/>
-        </View>
-      </View></GestureDetector>}
+      </MusicFocusRegion> : <ListeningSeekPaint fence={playback.fence} fraction={fraction} span={span} seconds={position - (bounds?.start ?? 0)}
+        label={t('player.queue')} testID={`${testID}-scrubber`} fallbackGesture={hostedScrubber ? undefined : scrub}/>}
       <View style={{flexDirection: 'row', justifyContent: 'space-between', marginTop: 2}}>
         <Text style={[browseType(theme, 12.5, 600), {color: theme.colors.textSecondary, fontVariant: ['tabular-nums']}]}>{clockText(Math.max(0, position - (bounds?.start ?? 0)))}</Text>
         <Text style={[browseType(theme, 12.5, 600), {color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{clockText(span || p.durationSeconds)}</Text>
@@ -239,6 +254,8 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
         accessibilityLabel={t(repeat === 'off' ? 'next.dock.repeatOff' : repeat === 'all' ? 'next.dock.repeatAll' : 'next.dock.repeatOne')}
         accessibilityState={{selected: repeat !== 'off'}} onPress={() => changePolicy({action: 'repeat', repeat: repeat === 'off' ? 'all' : repeat === 'all' ? 'one' : 'off'})}/> : null}
     </MusicFocusRegion>
+    </ListeningGroup>
+    <ListeningGroup fence={playback.fence} index={2} height={height}>
     {notice && !theme.isTV ? <View accessibilityLiveRegion="polite" accessibilityRole="alert" testID={`${testID}-notice`} style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: 'rgba(7,16,24,.5)'}}>
       <Icon name="i-pause" size={14} color={theme.colors.accentStrong}/>
       <Text style={[browseType(theme, 13, 600), {color: theme.colors.textSecondary}]}>{t(notice)}</Text>
@@ -257,20 +274,18 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
     {!side && sheet ? <View style={{width: '100%', maxWidth: 560, height: Math.max(280, Math.round(height * .42)), borderRadius: 16, overflow: 'hidden', backgroundColor: 'rgba(237,245,250,.06)'}}>
       {sheet === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={artwork} queueEdit={queueEditPort}/> : null}
     </View> : null}
-  </View>;
-  return <TVMusicFocus id={focus} visible={!panel} entry="toggle" onClose={onClose}><View testID={testID} style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}>
-    {p.ambient ? <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 0, right: 0, height: Math.min(height, 720), overflow: 'hidden'}}>
-      <AmbientArt source={p.ambient} treatment="title" style={{position: 'absolute', inset: 0}}/>
-      <View style={{position: 'absolute', inset: 0, backgroundColor: 'rgba(7,16,24,.5)'}}/>
-    </View> : null}
+    </ListeningGroup>
+  </ListeningColumn>;
+  return <TVMusicFocus id={focus} visible={!panel} entry="toggle" onClose={onClose}><RetainedOverlay permit={panel ? undefined : paintPermit} allowedTypes={listeningPaintTypes} omitTypes={listeningPaintOmissions}><ListeningSurface fence={playback.fence} testID={testID} blocked={!!panel || !!sheet}>
+    {!backgroundHosted && <ListeningPageBackground fence={playback.fence} height={height} ambient={p.ambient}/>}
     <View style={{flex: 1, paddingTop: topInset, paddingBottom: bottomInset}}>
       {panel === 'signal' && signal ? <View style={{position: 'absolute', inset: 0, zIndex: 30}}><MusicSignalSheet view={signal} onClose={closePanel} contextTitle={p.identity.title} returnFocusRef={signalRef}/></View> : null}
       {panel === 'eq' ? <View style={{position: 'absolute', inset: 0, zIndex: 30, backgroundColor: theme.colors.ink}}>
         <NativeWatchEqualizer onBack={closePanel} copy={equalizerCopy()} reportError={reportError} store={nativeEqualizer}/>
       </View> : null}
       {side ? <View style={{flex: 1, flexDirection: 'row'}}>
-        <ScrollView onScroll={sharedCover.measure} scrollEventThrottle={16} contentContainerStyle={{flexGrow: 1, justifyContent: 'center'}} style={{flex: 1, minWidth: 0}} showsVerticalScrollIndicator={false}>{column}</ScrollView>
-        <View style={{width: QUEUE_WIDTH, borderLeftWidth: 1, borderLeftColor: theme.colors.line, backgroundColor: 'rgba(9,19,27,.66)'}}>
+        {column}
+        <ListeningGroup fence={playback.fence} index={2} height={height} style={{width: QUEUE_WIDTH, alignItems: 'stretch'}}><View style={{flex: 1, width: QUEUE_WIDTH, borderLeftWidth: 1, borderLeftColor: theme.colors.line, backgroundColor: 'rgba(9,19,27,.66)'}}>
           <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingTop: 20, paddingBottom: 6}}>
             {queue && lyrics ? <>
               <Button testID={`${testID}-tab-queue`} variant={panelTab === 'queue' ? 'primary' : 'glass'} size="small" icon="i-queue"
@@ -283,9 +298,93 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
             </View>}
           </View>
           {queue && lyrics && panelTab === 'lyrics' && lyrics ? lyrics : queue ? <NowPlayingQueue testID={`${testID}-queue`} view={queue} onPlay={onQueuePlay} artwork={artwork} queueEdit={queueEditPort}/> : lyrics}
-        </View>
-      </View> : <ScrollView onScroll={sharedCover.measure} scrollEventThrottle={16} contentContainerStyle={{flexGrow: 1}} showsVerticalScrollIndicator={false}>{column}</ScrollView>}
+        </View></ListeningGroup>
+      </View> : column}
     </View>
     {theme.isTV && notice && <NativeListeningNotice notice={notice} persistent/>}
-  </View></TVMusicFocus>;
+  </ListeningSurface></RetainedOverlay></TVMusicFocus>;
+}
+
+
+function ListeningColumn({fence, source, playingFrom, cover, wide, height, measureOnly = false, testID, children}: {
+  fence: PlaybackFence; source: DockOccupant['presentation']['artwork']; playingFrom?: string; cover: number; wide: boolean; height: number;
+  measureOnly?: boolean; testID?: string; children?: React.ReactNode;
+}) {
+  const theme = useTheme(), coverSlot = useRef<View>(null);
+  const gesture = useListeningChromeGesture(fence, measureOnly);
+  const present = useListeningPagePresent(fence);
+  const sharedCover = useListeningCoverSlot(fence, 'full', coverSlot, !measureOnly || !present);
+  return <ScrollView onScroll={sharedCover.measure} scrollEventThrottle={16} pointerEvents={measureOnly ? 'none' : 'auto'}
+    contentContainerStyle={{flexGrow: 1, ...(wide ? {justifyContent: 'center' as const} : {})}}
+    style={{flex: 1, minWidth: 0, ...(measureOnly ? {opacity: 0} : {})}} showsVerticalScrollIndicator={false}>
+    <View testID={testID} style={{flex: 1, minWidth: 0, alignItems: 'center', paddingHorizontal: 28, paddingTop: wide ? 36 : 20}}>
+      {playingFrom ? <ListeningGroup fence={fence} index={0} height={height}><Text numberOfLines={1} style={[browseType(theme, 13, 600), {marginBottom: 14, textAlign: 'center', color: theme.colors.textSecondary}]}>{t('next.music.playingFrom', {source: playingFrom})}</Text></ListeningGroup> : null}
+      {source ? <ListeningCoverTarget gesture={gesture} slot={coverSlot} onLayout={sharedCover.measure} size={cover}>
+        {!measureOnly && <Animated.View style={sharedCover.style}><Artwork source={source} width={cover} height={cover} style={{borderRadius: 14}}/></Animated.View>}
+      </ListeningCoverTarget> : null}
+      {children}
+    </View>
+  </ScrollView>;
+}
+export function ListeningPageBackground({fence, height, ambient, fallbackVisible = true}: {fallbackVisible?: boolean; fence: PlaybackFence; height: number; ambient: DockOccupant['presentation']['ambient']}) {
+  const theme = useTheme(), reportHeight = useListeningPageHeight(), style = useListeningPageStyle(fence, height, fallbackVisible);
+  return <Animated.View pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" onLayout={event => reportHeight(event.nativeEvent.layout.height)}
+    style={[{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink, zIndex: theme.layers.player + 1}, style]}>
+    {ambient ? <View style={{position: 'absolute', top: 0, left: 0, right: 0, height: Math.min(height, 720), overflow: 'hidden'}}>
+      <AmbientArt source={ambient} treatment="title" style={{position: 'absolute', inset: 0}}/>
+      <View style={{position: 'absolute', inset: 0, backgroundColor: 'rgba(7,16,24,.5)'}}/>
+    </View> : null}
+  </Animated.View>;
+}
+/** Paint only from the admitted mini descriptor. No full screen, queue/lyrics,
+ * song read, guarded callback, controller or output is created by this preview. */
+export function ListeningPagePreview({occupant, queue, sidePane = false, width, height, topInset, bottomInset}: {
+  occupant: DockOccupant; queue?: QueuePlaybackView; sidePane?: boolean; width: number; height: number; topInset: number; bottomInset: number;
+}) {
+  const present = useListeningPagePresent(occupant.playback.fence);
+  const wide = width >= SIDE_BY_SIDE, side = wide && sidePane;
+  const window = queue ? nowPlayingQueueWindow(queue) : undefined;
+  const current = queue?.queue?.currentEntryId ? nowPlayingQueueEntry(window, queue.queue.currentEntryId) : undefined;
+  const segment = current?.available === true ? window?.segments.find(value => value.id === current.segmentId && value.label)?.label : undefined;
+  const cover = Math.max(160, Math.min(410, wide ? width - QUEUE_WIDTH - 120 : width - 96));
+  return <View pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{position: 'absolute', inset: 0, opacity: present ? 0 : 1}}>
+    <View style={{flex: 1, paddingTop: topInset, paddingBottom: bottomInset, flexDirection: side ? 'row' : 'column'}}>
+      <ListeningColumn fence={occupant.playback.fence} source={occupant.presentation.artwork} playingFrom={segment} cover={cover} wide={wide} height={height} measureOnly/>
+      {side && <View style={{width: QUEUE_WIDTH}}/>}
+    </View>
+  </View>;
+}
+
+
+/** Only static audited UI outlives its publisher. This root owns no reader,
+ * command, playback lease, queue or song controller. */
+function ListeningSurface({fence, testID, children, blocked = false}: {fence: PlaybackFence; testID?: string; children: React.ReactNode; blocked?: boolean}) {
+  const mode = useOverlayPaintMode(), theme = useTheme(), active = useListeningPageActive(fence);
+  useListeningPageOwner(fence);
+  if (!mode.visible || !active) return null;
+  return <ListeningChromeGate.Provider value={blocked}><View testID={testID} pointerEvents={mode.interactive ? 'box-none' : 'none'} accessible={false}
+    accessibilityElementsHidden={!mode.interactive} importantForAccessibility={mode.interactive ? 'auto' : 'no-hide-descendants'}
+    style={{position: 'absolute', inset: 0, zIndex: theme.layers.player}}>{children}</View></ListeningChromeGate.Provider>;
+}
+
+
+/** The cover is the physical swipe target, leaving queue/lyrics scrolling and
+ * the scrubber to their original recognisers. Every target has its own handler. */
+function ListeningCoverTarget({gesture, slot, onLayout, size, children}: {gesture?: ReturnType<NonNullable<ReturnType<typeof usePublishedPlayerMorph>>['chromeGesture']>; slot: React.RefObject<View | null>; onLayout: () => void; size: number; children: React.ReactNode}) {
+  const view = <View ref={slot} collapsable={false} onLayout={onLayout} style={{width: size, height: size}}>{children}</View>;
+  return gesture ? <GestureDetector gesture={gesture}>{view}</GestureDetector> : view;
+}
+
+
+function useListeningChromeGesture(fence: PlaybackFence, disabled: boolean) {
+  const blocked = useContext(ListeningChromeGate), mode = useOverlayPaintMode();
+  const controller = usePublishedPlayerMorph(fence), current = useSharedValue(false), permit = useListeningPaintPermit(fence);
+  const allowed = !disabled && !blocked && mode.interactive;
+  useLayoutEffect(() => {current.value = allowed; return () => {current.value = false;};}, [current, allowed]);
+  return useMemo(() => controller?.chromeGesture(allowed, current, permit?.current), [controller, allowed, current, permit]);
+}
+function ListeningSwipeArea({fence, children}: {fence: PlaybackFence; children: React.ReactNode}) {
+  const gesture = useListeningChromeGesture(fence, false);
+  const view = <View style={{width: '100%', alignItems: 'center'}}>{children}</View>;
+  return gesture ? <GestureDetector gesture={gesture}>{view}</GestureDetector> : view;
 }
