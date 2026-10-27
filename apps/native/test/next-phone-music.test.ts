@@ -17,6 +17,7 @@ const stubs = {
   '../../../kit/browse/presentation': {alpha: () => '', browseType: () => ({})},
   '../../../kit/theme': {useTheme: () => ({})},
   './MusicErrorView': {MusicErrorView: 'MusicErrorView'},
+  './MusicFormatBadges': {MusicFormatBadges: 'MusicFormatBadges'},
 };
 
 test('the phone album and artist pages keep the drawn frame values', async () => {
@@ -48,7 +49,7 @@ function* elementNodes(value: unknown): Generator<Element> {
 const typed = (tree: unknown, type: string) => [...elementNodes(tree)].filter(node => node.type === type);
 const backButtons = (tree: unknown) => typed(tree, 'Button').filter(node => node.props?.accessibilityLabel === 'Back');
 
-async function tabletMusic(kind: 'album' | 'artist', phase: 'idle' | 'ready' | 'error') {
+async function tabletMusic(kind: 'album' | 'artist', phase: 'loading' | 'ready' | 'error') {
   let backs = 0;
   const loads: string[] = [];
   const snapshot = {phase, songs: kind === 'artist' && phase === 'ready' ? [{id: 's1', title: 'Song'}] : [],
@@ -85,7 +86,7 @@ async function tabletMusic(kind: 'album' | 'artist', phase: 'idle' | 'ready' | '
 }
 
 for (const kind of ['album', 'artist'] as const) {
-  for (const phase of ['idle', 'error', 'ready'] as const)
+  for (const phase of ['loading', 'error', 'ready'] as const)
   test(`tablet ${kind} keeps one route Back while ${phase} and only ${phase === 'error' ? 'fails' : 'does not fail'} into the recovery view`, async () => {
     const view = await tabletMusic(kind, phase);
     const backs = backButtons(view.tree);
@@ -131,10 +132,18 @@ test('phone keeps its single header Back and no tablet floating control', async 
     runtime: {artwork: () => undefined, ambient: () => undefined, text: {locale: 'en-US'}, reportError() {}}, actions: {menu() {}}, openEntry() {},
     onBack: () => {backs++;}});});
   host.mount();
-  assert.equal(backButtons(tree).length, 1, 'the phone header owns the only Back');
+  // PhoneHeader is a real child component, so the shallow element walk cannot
+  // see its Button leaf; mount that actual child with the same supported hooks.
+  const header = [...elementNodes(tree)].find(node => typeof node.type === 'function' && (node.type as Function).name === 'PhoneHeader');
+  assert.ok(header, 'the phone body returns the real PhoneHeader');
+  let headerTree: unknown;
+  const headerHost = createHookHost(() => {headerTree = (header!.type as Function)(header!.props);});
+  headerHost.mount();
+  assert.equal(backButtons(headerTree).length, 1, 'the phone header owns the only Back');
   assert.equal(typed(tree, 'Button').some(node => String(node.props.testID ?? '').startsWith('native-tablet-')), false);
-  backButtons(tree)[0].props.onPress();
+  backButtons(headerTree)[0].props.onPress();
   assert.equal(backs, 1);
+  headerHost.unmount();
   host.unmount();
   view.host.unmount();
 });
