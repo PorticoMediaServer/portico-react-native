@@ -127,9 +127,9 @@ export class NativeHomeCustomizeController {
     const rows = this.pickedOrder.map(id => byId.get(id)!);
     this.pickedOrder = undefined; this.publish({rows: Object.freeze(rows), pickedId: undefined, pickupOrder: undefined}); return true;
   };
-  /** Keep the original revision and warning. The presenter returns focus to
-   * the draft; Reload remains available instead of stranding a disabled Save. */
-  keepEditing = (): void => {if (this.editable()) this.publish({showConflict: true});};
+  /** Dismiss the conflict notice and return to the draft. `conflict` stays set,
+   * so Save remains blocked and only Reload can accept the server revision. */
+  keepEditing = (): void => {if (this.editable()) this.publish({showConflict: false});};
   bindSavedViews = (views: readonly PersonalResource[]): void => {
     if (!this.current() || this.state.phase !== 'ready') return;
     const byId = new Map(views.map(view => [`view:${view.id}`, view]));

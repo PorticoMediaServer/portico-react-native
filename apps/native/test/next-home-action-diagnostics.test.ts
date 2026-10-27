@@ -49,25 +49,29 @@ test('passive receipts classify canonical routes and correlate only local numeri
     'https://private-user:private-password@private-host/v1/items/private-item/playback-options?token=private-token',
   );
   f.logger.response(ticket, 200);
-  assert.deepEqual(f.read(), [
-    {
-      v: 1,
-      sequence: 1,
-      origin: 'native-http',
-      operation: 'dispatch',
-      request: 1,
-      route: 'get_playback_options',
-    },
-    {
-      v: 1,
-      sequence: 2,
-      origin: 'native-http',
-      operation: 'response',
-      request: 1,
-      route: 'get_playback_options',
-      status: 200,
-    },
-  ]);
+  const [dispatch, response] = f.read();
+  assert.deepEqual(dispatch, {
+    v: 1,
+    sequence: 1,
+    origin: 'native-http',
+    operation: 'dispatch',
+    request: 1,
+    route: 'get_playback_options',
+  });
+  const {elapsedMs, ...classified} = response;
+  assert.deepEqual(classified, {
+    v: 1,
+    sequence: 2,
+    origin: 'native-http',
+    operation: 'response',
+    request: 1,
+    route: 'get_playback_options',
+    status: 200,
+  });
+  assert.ok(
+    Number.isSafeInteger(elapsedMs) && elapsedMs >= 0 && elapsedMs <= 60_000,
+    'elapsed timing is a bounded local number',
+  );
   assert.equal(f.lines.join('').includes('private-'), false);
   assert.equal(
     f.logger.request('POST', 'https://private/v1/direct/sign-in'),
