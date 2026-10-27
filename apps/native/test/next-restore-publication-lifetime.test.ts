@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {defaultI18n} from '../../../packages/i18n/src';
+import {downloadEntryIdentity} from '../src-next/screens/downloads/presentation';
+import {createTheme} from '../src-next/kit/theme';
 import {act, createHookHost} from './hook-driver';
 import {screenModule} from './helpers/screen-harness.mjs';
 
@@ -12,7 +14,7 @@ function modules(state: {
 }) {
   return {
     react: {...React, default: React},
-    'react-native': {View: 'View'},
+    'react-native': {Platform: {OS: 'ios'}, View: 'View', Text: 'Text'},
     '../platform/invitation-links': {nativeInvitationLinks: {getSnapshot: () => undefined, subscribe: () => () => {}, acquire: () => () => {}}},
     '../platform/installation': {beginNativeInstallation: (signal?: AbortSignal) => {
       let disposed = false;
@@ -20,7 +22,16 @@ function modules(state: {
     }},
     './remembered-downloads-opening': {createRememberedDownloadsOpening: async () => undefined},
     '../screens/downloads/RememberedDownloadsScreen': {RememberedDownloadsScreen: 'RememberedDownloadsScreen', RememberedDownloadsShortcut: 'RememberedDownloadsShortcut'},
-    '../kit/states': {HomeSkeleton: 'HomeSkeleton', StateView: 'StateView'},
+    '../screens/downloads/presentation': {downloadEntryIdentity},
+    '../kit/states': {HomeSkeleton: 'HomeSkeleton', StateView: 'StateView', StateLayout: 'StateLayout'},
+    '../kit/artwork': {CoverFan: 'CoverFan'},
+    '../kit/controls': {Focusable: 'Focusable'},
+    '../kit/Icon': {Icon: 'Icon'},
+    '../kit/theme': {useTheme: () => createTheme({isTV: false, width: 390})},
+    '../platform/server-connections': {deviceOnline: () => true, onNetworkChange: () => () => {}},
+    '../platform/home-action-diagnostics': {homeActionDiagnostics: {error() {}, lifetime() {}}},
+    '../platform/secure-records': {acknowledgeSecureRecordsRecovered() {}, isSecureRecordsLost: () => false, secureRecordsRecoveredNotice: () => undefined},
+    './SecureRecordsRecovery': {SecureRecordsRecovery: 'SecureRecordsRecovery'},
     '../../../../packages/client-core/src/presentation/errors': {presentError: () => ({title: 'failed', body: 'failed'})},
     './assembly': {createNativeShellBindings: () => ({})},
     './bootstrap': {restoreNativeShellRuntime: () => {
