@@ -5,11 +5,15 @@ import {screenModule} from './helpers/screen-harness.mjs';
 import {NativeLibraryDestination} from '../src-next/screens/library/model.ts';
 import {NativeLibraryDirectory} from '../src-next/screens/library/directory.ts';
 import {nativeDestinationLifetime} from '../src-next/screens/destinations/lifetime.ts';
-import {hiddenReadingLibraryOnTV} from '../src-next/screens/read/platform.ts';
+import * as readPlatform from '../src-next/screens/read/platform.ts';
 import {nativeDestinationActivation} from '../src-next/shell/routes';
 import * as selection from '../../../packages/client-core/src/selection-model';
 import * as catalogueQuerySelection from '../../../packages/client-core/src/catalogue-query-selection';
 import * as browseWholeSelection from '../../../packages/client-core/src/browse-whole-selection';
+import * as libraryTabs from '../../../packages/client-core/src/presentation/library-tabs';
+import * as libraryOpening from '../src-next/screens/library/opening';
+import * as librarySavedViewIntent from '../src-next/screens/library/saved-view-intent';
+import {sameAuthority} from '../src-next/shell/model';
 
 test('the Library descriptor requires the actual authorized ID and never supplies a fake selection port', async () => {
   const platform = {isTV: false};
@@ -22,8 +26,11 @@ test('the Library descriptor requires the actual authorized ID and never supplie
   });
   const {createNativeLibraryRenderer, createNativeLibraryPlaySelection: exportedPlay} = await screenModule(new URL('../src-next/screens/library/index.tsx', import.meta.url), {
     react: {default: React}, 'react-native': {Platform: platform}, './LibraryScreen': {LibraryScreen: 'LibraryScreen'}, './model': {NativeLibraryDestination}, './directory': {NativeLibraryDirectory},
-    '../read/platform': {hiddenReadingLibraryOnTV, isReadingLibraryKind: (kind: string) => kind === 'book' || kind === 'comic'},
+    '../../shell/model': {sameAuthority},
+    '../read/platform': readPlatform,
     '../read/ReadingLibrary': {NativeReadingLibraryScreen: 'NativeReadingLibraryScreen'},
+    '../../../../../packages/client-core/src/presentation/library-tabs': libraryTabs,
+    './opening': libraryOpening, './saved-view-intent': librarySavedViewIntent,
     '../destinations/lifetime': {nativeDestinationLifetime},
     './play-selection': {createNativeLibraryPlaySelection},
     // The TV Library module owns only the F-LIB-52 Save view surface; the page
@@ -40,6 +47,7 @@ test('the Library descriptor requires the actual authorized ID and never supplie
   const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'session-epoch', viewerFence: 'home-only-fence'};
   let libraries = [{id: 'real-id', name: 'Movies', kind: 'movie'}], current = true;
   const context = {api: {request: async () => {throw new Error('rendering a descriptor must not start a producer');}}, session: () => ({viewer}), authority: () => authority,
+    navigation: {getSnapshot: () => ({route: {kind: 'home' as const}, revision: 0}), retainedRoutes: () => []},
     current: () => current, libraries: () => libraries};
   const activation = {subscribe: () => () => {}, getSnapshot: () => ({visible: true, intent: 'enter', revision: 1})};
   const renderer = createNativeLibraryRenderer(context, {activation: () => activation, labels: {}, actions: {}});

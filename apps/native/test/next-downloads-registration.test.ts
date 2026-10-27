@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {nativeDestinationLifetime} from '../src-next/screens/destinations/lifetime';
 import {createNativeOfflineEntryPlayback} from '../src-next/screens/downloads/playback.ts';
+import * as readEligibility from '../src-next/screens/read/eligibility';
+import * as readPlatform from '../src-next/screens/read/platform';
+import {claimNativeDownloadsDevice} from '../src-next/shell/downloads-device-custody';
+import {sameAuthority} from '../src-next/shell/model';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 test('the ordinary Downloads route registers its own real-data renderer and exact eleven copy bindings', async () => {
@@ -11,7 +15,8 @@ test('the ordinary Downloads route registers its own real-data renderer and exac
   const view = await screenModule(new URL('../src-next/screens/downloads/view.tsx', import.meta.url), {
     react: host.react, './DownloadsScreen': {DownloadsScreen: 'Downloads'},
     './device': {createNativeDownloadsDevice: () => ({device, service: undefined, dispose: () => {retired++;}})},
-    '../../shell/routes': {nativeEntryRoute: (entry: unknown) => ({kind: 'title', entry})},
+    '../../shell/model': {sameAuthority}, '../../shell/routes': {nativeEntryRoute: (entry: unknown) => ({kind: 'title', entry})},
+    '../read/eligibility': readEligibility, '../read/platform': readPlatform,
   });
   const {nativeDownloadsCopy} = view;
   await screenModule(new URL('../src-next/screens/downloads/register.tsx', import.meta.url), {
@@ -27,7 +32,7 @@ test('the ordinary Downloads route registers its own real-data renderer and exac
   let backs = 0;
   const renderer = factory({current: () => true, authority: () => ({}), navigation: {back: () => {backs++;}}});
   const route = renderer.render({kind: 'downloads'}, {});
-  const screen = route.props.children;
+  const screen = route.props.children[0];
   assert.equal(screen.props.device, device);
   screen.props.back(); assert.equal(backs, 1);
   const tree = host.render(() => route.type(route.props));
@@ -50,6 +55,7 @@ test('Downloads storage authority retires old actions, requests and disconnects 
     '../../../../../packages/client-core/src/downloads-service': {DownloadsService: class {start() {starts++;} stop() {stops++;} followDevice(id: string) {followed.push(id);} dispose() {disposed++;}}},
     '../destinations/lifetime': {nativeDestinationLifetime},
     './playback': {createNativeOfflineEntryPlayback},
+    '../../shell/downloads-device-custody': {claimNativeDownloadsDevice},
     '../../platform/offline-downloads': {offlineDownloads: device, createNativeOfflineDownloadsAdapter: (_: undefined, actual: unknown) => actual},
   });
   const viewer = {serverId: 'server', accountId: 'account', profileId: 'first', authority: 'local'};
@@ -94,6 +100,7 @@ test('Saved and Downloads leases expose the same installed offline command witho
     react: host.react,
     '../../../../../packages/client-core/src/downloads-service': {DownloadsService: class {start() {} stop() {} followDevice() {} dispose() {}}},
     '../destinations/lifetime': {nativeDestinationLifetime}, './playback': {createNativeOfflineEntryPlayback},
+    '../../shell/downloads-device-custody': {claimNativeDownloadsDevice},
     '../../platform/offline-downloads': {offlineDownloads: source, createNativeOfflineDownloadsAdapter: (_: undefined, actual: unknown) => actual},
   });
   const viewer = {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile'};
