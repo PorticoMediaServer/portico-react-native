@@ -8,11 +8,15 @@ import {nativeDestinationLifetime} from '../src-next/screens/destinations/lifeti
 import {hiddenReadingLibraryOnTV} from '../src-next/screens/read/platform.ts';
 import {nativeDestinationActivation} from '../src-next/shell/routes';
 import * as selection from '../../../packages/client-core/src/selection-model';
+import * as catalogueQuerySelection from '../../../packages/client-core/src/catalogue-query-selection';
+import * as browseWholeSelection from '../../../packages/client-core/src/browse-whole-selection';
 
 test('the Library descriptor requires the actual authorized ID and never supplies a fake selection port', async () => {
   const platform = {isTV: false};
   const {createNativeLibraryPlaySelection} = await screenModule(new URL('../src-next/screens/library/play-selection.ts', import.meta.url), {
     react: {default: React}, '../../../../../packages/client-core/src/selection-model': selection,
+    '../../../../../packages/client-core/src/catalogue-query-selection': catalogueQuerySelection,
+    '../../../../../packages/client-core/src/browse-whole-selection': browseWholeSelection,
     '../../shell/routes': {nativeDestinationActivation}, '../destinations/lifetime': {nativeDestinationLifetime},
     '../native-screen-services': {nativeScreenServices: () => {throw new Error('a renderer must not construct an uninjected selection binding');}},
   });

@@ -24,8 +24,9 @@ async function fixture(isTV: boolean, width = isTV ? 1920 : 390) {
   const runtime = {text: {t: defaultI18n.t}, getSnapshot: () => ({authority: {serverId: 'server', epoch: 'epoch'}}), reportError: (error: unknown) => {throw error;}};
   const {LibraryFilters} = await screenModule(new URL('../src-next/screens/library/LibraryFilters.tsx', import.meta.url), {
     react: host.react, 'react-native': {Text: 'Text', View: 'View'},
+    'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 47, bottom: 34, left: 0, right: 0})},
     '../../../../../packages/client-core/src/presentation/kit-model': {browseToolbarModel}, '../../../../../packages/i18n/src': {defaultI18n},
-    '../../kit/browse': {FilterBuilder: 'FilterBuilder'}, '../../kit/controls': {Button: 'Button'}, '../../kit/focus': {useFocusRegistry: () => ({focus: (address: unknown) => calls.push(['focus', address])})},
+    '../../kit/browse': {FilterBuilder: 'FilterBuilder'}, '../../kit/controls': {Button: 'Button'}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/focus': {useFocusRegistry: () => ({focus: (address: unknown) => calls.push(['focus', address])})},
     '../../kit/overlays': {BottomSheet: 'BottomSheet', SidePanel: 'SidePanel'}, '../../kit/states': {StateView: 'StateView'},
     '../../kit/browse/presentation': {browseType: () => ({})}, '../../kit/theme': {useTheme: () => theme}, './filter-controls': {libraryFilterChange, libraryFilterField},
     './model': {nativeLibraryCanSave},

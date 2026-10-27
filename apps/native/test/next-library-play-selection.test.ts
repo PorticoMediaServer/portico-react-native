@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import {HttpLocalApi} from '../../../packages/client-core/src';
 import * as selection from '../../../packages/client-core/src/selection-model';
+import * as catalogueQuerySelection from '../../../packages/client-core/src/catalogue-query-selection';
+import * as browseWholeSelection from '../../../packages/client-core/src/browse-whole-selection';
 import type {BrowseCapabilities, BrowseRequestBody} from '../../../packages/client-core/src/browse';
 import type {QueueHeader} from '../../../packages/client-core/src/playback-v1/types';
 import {NativeShellNavigation, nativeDestinationActivation} from '../src-next/shell/routes';
@@ -59,6 +61,8 @@ async function fixture() {
   const source = new NativeLibraryDestination({api, scope: {serverId: 'server', viewerId: JSON.stringify(['local', 'account', 'profile'])}, library, current: () => active});
   const {createNativeLibraryPlaySelection} = await screenModule(new URL('../src-next/screens/library/play-selection.ts', import.meta.url), {
     react: {default: React}, '../../../../../packages/client-core/src/selection-model': selection,
+    '../../../../../packages/client-core/src/catalogue-query-selection': catalogueQuerySelection,
+    '../../../../../packages/client-core/src/browse-whole-selection': browseWholeSelection,
     '../../shell/routes': {nativeDestinationActivation}, '../destinations/lifetime': {nativeDestinationLifetime},
     '../native-screen-services': {nativeScreenServices: () => ({requestId: async () => 'request-id'})},
   });
