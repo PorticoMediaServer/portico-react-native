@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {screenModule} from './helpers/screen-harness.mjs';
 import * as artwork from '../../../packages/client-core/src/artwork/index.ts';
+import * as artworkArrival from '../src-next/platform/artwork-arrival.ts';
 
 test('copied image scheduler gates mounting, remembers decodes and cancels offscreen work', async () => {
   (globalThis as {__DEV__?: boolean}).__DEV__ = false;
   const effects: (() => (() => void) | void)[] = [];
   const react = {createContext: (value: unknown) => ({value}), useContext: (context: {value: unknown}) => context.value, useState: (value: unknown) => [value, () => {}], useEffect: (effect: () => (() => void) | void) => {effects.push(effect);}};
-  const pipeline = await screenModule(new URL('../src-next/platform/ArtworkPipeline.ts', import.meta.url), {react: {...react, default: react}, '../../../../packages/client-core/src/artwork/index': artwork});
+  const pipeline = await screenModule(new URL('../src-next/platform/ArtworkPipeline.ts', import.meta.url), {react: {...react, default: react}, '../../../../packages/client-core/src/artwork/index': artwork, './artwork-arrival': artworkArrival});
   assert.equal(pipeline.sizedUri('https://server.test/art', 200, 2 / 3, 2), 'https://server.test/art?w=800&size=thumbnail');
   assert.equal(pipeline.sizedUri('https://server.test/art?size=avatar', 200, 1, 2), 'https://server.test/art?size=avatar');
   pipeline.beginArtworkScreen('next-image-proof');

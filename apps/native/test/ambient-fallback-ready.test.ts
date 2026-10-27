@@ -5,11 +5,11 @@ import assert from 'node:assert/strict';
 import * as React from 'react';
 import {createHookHost, act} from './hook-driver.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
+import {createTheme} from '../src-next/kit/theme.ts';
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : React.isValidElement<any>(node) ? [node, ...nodes(node.props.children)] : [];
 async function rig() {
   let props: any, tree: any, fallback = 0, decoded = 0;
-  const theme = {isTV: true, platform: 'tv', layoutMode: 'tv', colors: {ink: '#071018', accentDeep: '#123456', generatedGreen: '#234567'},
-    spec: {hero: {ambient: {alpha: {tv: .5}}, backdrop: {widthFraction: {tv: .7}}, mask: {leftOpaqueAt: .2, bottomOpaqueAt: .8}}}};
+  const theme = createTheme({isTV: true, width: 1920});
   const {AmbientArt} = await screenModule(new URL('../src-next/kit/artwork/Surfaces.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': {View: 'View', StyleSheet: {absoluteFillObject: {}, create: (value: any) => value},
       Animated: {View: 'AnimatedView', Value: class {constructor(public value: number) {} stopAnimation() {} setValue(next: number) {this.value = next;}},

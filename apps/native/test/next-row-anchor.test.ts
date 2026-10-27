@@ -5,6 +5,7 @@ import {pathToFileURL} from 'node:url';
 import {readFile} from 'node:fs/promises';
 import {compileFunction} from 'node:vm';
 import {createRequire} from 'node:module';
+import {reducedMotion} from '@portico/design';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {createTheme} from '../src-next/kit/theme';
 import * as rowState from '../src-next/kit/layout/row-state';
@@ -39,6 +40,7 @@ async function rig({count = 3, tv = true, reduced = false, initialWidth = 1920}:
   const registry = registryModule.createFocusRegistry(), contexts: any[] = [], targets = new Map<string, any>();
   registry.attachRegion('rail', {nativeTag: 700, requestTVFocus() {requests.push('rail');}} as any);
   let tree: any, guide: any, offset = 0, renders = 0, nextTag = 1, closed = false;
+  let motionPolicy: {reduce: boolean; value: any} | undefined;
   const useSharedValue = (initial: any) => {
     const cell = React.useRef<any>(null);
     if (!cell.current) {
@@ -57,6 +59,7 @@ async function rig({count = 3, tv = true, reduced = false, initialWidth = 1920}:
   const width = () => measuredWidth;
   let measuredWidth = initialWidth;
   const animated = {default: {ScrollView: 'ScrollView'}, useSharedValue,
+    useAnimatedStyle: (fn: () => unknown) => fn(),
     useAnimatedRef: () => React.useRef({nativeTag: 900}), useAnimatedScrollHandler: (fn: any) => fn,
     useAnimatedReaction(read: any, callback: any) {
       const ref = React.useRef<any>({previous: null}); ref.current.read = read; ref.current.callback = callback;
@@ -78,7 +81,17 @@ async function rig({count = 3, tv = true, reduced = false, initialWidth = 1920}:
     '../theme': {useTheme: () => theme}, './registry': registryModule, './useHostRef': hostRefModule,
   });
   contexts[0].current = registry;
-  const motion = () => ({transforms: !theme.reduceMotion, timing: (name: string, curve: string) => ({duration: theme.motion[name as keyof typeof theme.motion], curve})});
+  const motion = () => {
+    // The real useMotion memoizes one policy per reduction state, and under
+    // reduced motion it publishes the 160 ms linear envelope for opacity only.
+    const reduce = theme.reduceMotion;
+    if (motionPolicy?.reduce !== reduce) motionPolicy = {reduce, value: {
+      reduce, transforms: !reduce,
+      timing: (name: keyof typeof theme.motion = 'standard', curve = 'out') =>
+        ({duration: reduce ? reducedMotion.durationMs : theme.motion[name], curve: reduce ? 'linear' : curve}),
+    }};
+    return motionPolicy.value;
+  };
   const anchorModule = await anchorCode(source('FocusAnchor.ts'), {react,
     'react-native': {useTVEventHandler(callback: any) {React.useEffect(() => {listeners.add(callback); return () => {listeners.delete(callback);};}, [callback]);}},
     'react-native-reanimated': animated, '../theme': {useTheme: () => theme}, '../useMotion': {useMotion: motion}, './model': layoutModel,
@@ -198,10 +211,22 @@ test('actual row cancels/retargets from the sampled scroll offset; repeats use s
 
 test('reduced motion settles the fixed slot immediately, including a preference change mid-scroll', async () => {
   const row = await rig({reduced: true});
-  try {await row.focus('item-2'); await row.finish(); assert.equal(row.offset, 856); assert.equal(row.animations.length, 0);}
+  try {
+    await row.focus('item-2'); await row.finish();
+    // FX-082 / RV-MOB-023: the slot jumps; only its surface takes the 160 ms fade.
+    assert.equal(row.offset, 856);
+    assert.deepEqual(row.animations.map(animation => animation.config),
+      [{duration: reducedMotion.durationMs, curve: 'linear'}], 'reduced motion fades the surface rather than animating the slot');
+  }
   finally {row.close();}
   const changing = await rig();
-  try {await changing.focus('item-1'); await changing.sample(100); await changing.reduce(); assert.equal(changing.offset, 428); assert.equal(changing.animations.at(-1)?.cancelled, true);}
+  try {
+    await changing.focus('item-1'); await changing.sample(100); await changing.reduce();
+    assert.equal(changing.offset, 428);
+    const envelope = changing.animations.at(-1)!;
+    assert.equal(changing.animations.at(-2)?.cancelled, true, 'the mid-scroll transform is cancelled');
+    assert.deepEqual(envelope.config, {duration: reducedMotion.durationMs, curve: 'linear'});
+  }
   finally {changing.close();}
 });
 
