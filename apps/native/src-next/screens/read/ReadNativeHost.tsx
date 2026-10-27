@@ -1,11 +1,8 @@
-import {readingHighlightsSavePort} from '../../platform/reading-highlights-save';
 import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {AppState, NativeModules, View, useWindowDimensions} from 'react-native';
 import WebView from 'react-native-webview';
 import {createReadingHost, preferenceValue, ReadingError, type ReadingSession, type PreferenceSnapshot} from '../../../../../packages/client-core/src';
-import {routeBase64} from '../../../../../packages/client-core/src/route-identity';
 import {defaultI18n} from '../../../../../packages/i18n/src';
-import {nativeRouteCrypto} from '../../platform/server-connections';
 import {createNativeDownloadsDevice} from '../downloads/device';
 import {offlineDownloads} from '../../../platform/offline-downloads';
 import type {ReadingHostSession} from '../../../../../packages/client-core/src/reading-host';
@@ -16,9 +13,9 @@ import {Button} from '../../kit/controls/Button';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {useTheme} from '../../kit/theme';
 import {usePlatformPosture} from '../../platform/platformPosture';
-import {readerAssetEntry, readerDelivery} from './asset-origin';
+import {readerAssetEntry} from './asset-origin';
 import {readerBridgeDiagnostic} from './startup-diagnostics';
-import {ReadingGuestView} from './ReadingGuestView';
+import {createReadingGuestBridge, ReadingGuestView} from './ReadingGuestView';
 import {NativeAnnotationJournal, nativeAnnotationIdentity, nativeAnnotationLeaseOf, type NativeAnnotationFormat} from './annotation-journal';
 import {nativeAnnotationBridge} from './annotation-session';
 import {NativeAnnotationSync, type NativeAnnotationLivePort} from './annotation-sync';
@@ -148,7 +145,6 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
       const bundle: unknown = await NativeModules.PorticoReaderAssets?.bundle();
       const url = bundle && typeof bundle === 'object' && 'url' in bundle ? bundle.url : undefined;
       if (!readerAssetEntry(url) || !current()) throw new Error('reader_assets_unavailable');
-      const highlightsSave = {saveHighlights: readingHighlightsSavePort()};
       const issued = session.manifest.format;
       const format: NativeAnnotationFormat | undefined = issued === 'epub' || issued === 'pdf' || issued === 'cbz' ? issued : undefined;
       const bridge = !target.downloadId && format ? nativeAnnotationBridge({session, journal, identity: nativeAnnotationIdentity(captured.viewer),
@@ -159,12 +155,12 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
           if (!NATIVE_OFFLINE_ANNOTATION_AUTHORING) return;
           quietRetry.current = setTimeout(() => {quietRetry.current = undefined; if (current()) void annotations.flush(livePort.current);}, 15_000);
         }}) : session;
-      ownedHost = createReadingHost({...highlightsSave, session: bridge, channel: routeBase64(nativeRouteCrypto.random(24)), preferences: preferences.getSnapshot, ...(creaseRef.current ? {crease: {left: creaseRef.current.left, right: creaseRef.current.right}} : {}),
+      ownedHost = createReadingGuestBridge({session: bridge, preferences: preferences.getSnapshot, ...(creaseRef.current ? {crease: {left: creaseRef.current.left, right: creaseRef.current.right}} : {}),
         // Core fences ordinary packets. Its credentialless retirement packet
         // must still reach the captured guest after this authority has ended.
         initialProgress, initialContentsTarget: target.contentsTarget,
         onUnavailable: () => {if (current()) setState({failed: true}); void dispose().catch(() => {});},
-        current, send: message => {observeBridge('host-to-guest', message); view.current?.injectJavaScript(readerDelivery(message));},
+        current,
         // Root54: the guest's own Search all books is only a request to the app that
         // owns navigation. It is admitted for this exact live reader and the authority
         // the shell still allows; the literal words travel unchanged into the explicit
@@ -179,7 +175,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
           const destination: NativeShellRoute = {kind: 'search-reading', query};
           return context.navigation.allows(destination) && context.navigation.open(destination, context.authority());
         },
-        onBack: () => {if (current() && callbacks.current.active) callbacks.current.onBack();}, onSettings: () => {if (current() && callbacks.current.active) callbacks.current.onOpenSettings();}});
+        onBack: () => {if (current() && callbacks.current.active) callbacks.current.onBack();}, onSettings: () => {if (current() && callbacks.current.active) callbacks.current.onOpenSettings();}}, view, observeBridge);
       // The guest may handshake before the post-render activity effect runs.
       host.current = ownedHost; ownedHost.setActive(callbacks.current.active);
       setState({url, reader: ownedHost, close: dispose});

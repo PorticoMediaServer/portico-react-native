@@ -66,7 +66,11 @@ async function harness(fixture: Fixture) {
   // component, it only traverses the elements ReadNativeHost returns.
   const {ReadingGuestView} = await screenModule(new URL('../src-next/screens/read/ReadingGuestView.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native-webview': {default: 'WebView'},
-    './asset-origin': {readerNavigationAllowed},
+    '../../../../../packages/client-core/src': {createReadingHost: () => reader},
+    '../../../../../packages/client-core/src/route-identity': {routeBase64: () => 'route'},
+    '../../platform/server-connections': {nativeRouteCrypto: {random: () => new Uint8Array(24)}},
+    '../../platform/reading-highlights-save': {readingHighlightsSavePort: () => ({})},
+    './asset-origin': {readerNavigationAllowed, readerDelivery},
     './startup-diagnostics': {readerStartupDiagnostic: () => undefined, readerStartupProbe: ''},
   });
   const {ReadNativeHost} = await screenModule(new URL('../src-next/screens/read/ReadNativeHost.tsx', import.meta.url), {
@@ -92,7 +96,7 @@ async function harness(fixture: Fixture) {
     '../../kit/controls/Button': {Button: 'Button'},
     '../../kit/theme': {useTheme: () => ({colors: {ink: '#000'}})},
     '../../platform/platformPosture': {usePlatformPosture: () => ({status: 'unavailable'})},
-    './ReadingGuestView': {ReadingGuestView: 'ReadingGuestView'},
+    './ReadingGuestView': {ReadingGuestView: 'ReadingGuestView', createReadingGuestBridge: () => {hostCalls++; return reader;}},
     './asset-origin': {readerAssetEntry, readerNavigationAllowed, readerDelivery},
     './startup-diagnostics': {readerBridgeDiagnostic: () => undefined, readerStartupDiagnostic: () => undefined, readerStartupProbe: ''},
     './annotation-journal': {NativeAnnotationJournal: class {bind() {} unbind() {} dispose() {}}, nativeAnnotationIdentity: () => ({}), nativeAnnotationLeaseOf: () => ({})},
@@ -263,7 +267,11 @@ test('an old native Back callback cannot borrow the guard from a reopened retain
 test('the extracted guest view rejects stale and foreign messages and forwards each native failure', async () => {
   const {ReadingGuestView} = await screenModule(new URL('../src-next/screens/read/ReadingGuestView.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native-webview': {default: 'WebView'},
-    './asset-origin': {readerNavigationAllowed},
+    '../../../../../packages/client-core/src': {createReadingHost: () => {}},
+    '../../../../../packages/client-core/src/route-identity': {routeBase64: () => 'route'},
+    '../../platform/server-connections': {nativeRouteCrypto: {random: () => new Uint8Array(24)}},
+    '../../platform/reading-highlights-save': {readingHighlightsSavePort: () => ({})},
+    './asset-origin': {readerNavigationAllowed, readerDelivery},
     './startup-diagnostics': {readerStartupDiagnostic: () => undefined, readerStartupProbe: ''},
   });
   const received: string[] = [], observed: string[] = [];
