@@ -6,6 +6,9 @@ import {React, fabricHost} from './helpers/fabric-host.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import * as geometry from '../src-next/kit/overlays/geometry.ts';
 import * as overlayStack from '../src-next/kit/overlays/overlay-stack.ts';
+// The real registry is pure: it only calls the host's own focus command, so the
+// lifecycle proof below keeps the actual request instead of a local imitation.
+import {requestNativeFocus} from '../src-next/kit/focus/registry.ts';
 
 async function fixture(t: any, omitBusiness = false) {
   const react = {...React, default: React};
@@ -15,7 +18,7 @@ async function fixture(t: any, omitBusiness = false) {
     react, './OverlayPaintContext': context, './geometry': geometry, './overlay-stack': overlayStack,
     'react-native': {BackHandler: {addEventListener: () => ({remove() {}})}, StyleSheet: {create: (value: any) => value}},
     '../../platform/overlay-keys': {registerOverlayKeys: () => () => {}}, '../../platform/tv-menu': {captureTVMenuKey: () => () => {}},
-    '../focus': {useOptionalFocusRegistry: () => undefined}, '../theme': {},
+    '../focus': {requestNativeFocus, useOptionalFocusRegistry: () => undefined}, '../theme': {},
   });
   const host = await screenModule(new URL('../src-next/kit/overlays/SurfacePaintHost.tsx', import.meta.url), {
     react, './OverlayPaintContext': context, './overlay-paint-model': model,
