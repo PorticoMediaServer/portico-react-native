@@ -38,6 +38,15 @@ test('a directory connect is fenced to its attempt: Choose another and a success
   })};
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
     './tv-code-opening': tvCodeOpening,
+    // AccountEntry loads the TV approval commands at module evaluation; these phone
+    // directory tests never draw a TV approval.
+    './tv-approval-credentials': {createTVApprovalCredentialOpening: () => ({})},
+    './tv-approval-finalization': {createTVApprovalFinalization: () => ({})},
+    // Evaluation-only bindings for invitation parsing; these tests never open one.
+    '../../../../../packages/client-core/src/join-link': {parseJoinLink: () => undefined},
+    '../../../../../packages/client-core/src/short-invitation-code': {formatShortInvitationCode: () => '', parseShortInvitationCode: () => undefined},
+    '../../platform/qr-scanner': {qrScannerAvailable: () => false, scanQRCode: async () => undefined},
+    './PhoneAccountSignIn': {PhoneAccountSignIn: 'PhoneAccountSignIn'},
     react: {...React, default: React},
     'react-native': {AppState: {currentState: 'active', addEventListener: (_: string, listener: (state: string) => void) => {appState = listener; return {remove() {}};}}, BackHandler: {addEventListener: () => ({remove() {}})}, Platform: {isTV: false}, Dimensions: {get: () => ({width: 390, height: 844})},
       NativeModules: {}, View: 'View', Text: 'Text', ScrollView: 'ScrollView', Linking: {openURL: async () => {}}},

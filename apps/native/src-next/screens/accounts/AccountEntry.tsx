@@ -186,7 +186,6 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const providerNameSeed = useRef<string | undefined>(undefined);
   registerOpeningRef.current = registerOpening; providerOpeningRef.current = providerOpening;
   busyRef.current = busy; stageRef.current = stage; onBackRef.current = onBack; authPrepareFailedRef.current = authPrepareFailed;
-  nameDraft.current = name;
   const tvOpening = useRef<TVCodeOpening | undefined>(undefined);
   const retireTVOpening = useCallback((cancel = false, expected = tvOpening.current, publish = true) => {
     if (!expected) return;
@@ -257,6 +256,10 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   }, [stage]);
   // One provider completion opening per drawn transaction, carrying the source it was
   // drawn with and its own lifetime; retired synchronously with its stage.
+  // The drawn name draft's committed witness. Publishing it in the layout turn means an
+  // abandoned render cannot replace the draft the opening reads, and the opening copies it
+  // once at its own effect run below.
+  useLayoutEffect(() => {nameDraft.current = name;}, [name]);
   useLayoutEffect(() => {
     if (stage !== 'provider' || !transaction) {setProviderOpening(undefined); return;}
     const source = account.current;
@@ -268,11 +271,13 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     // eligible opening, whether or not a name is suggested. Only an empty draft takes the
     // suggested name, and only an actual seed advances the revision that retires an older
     // Submit; a cleared draft on a later refresh is never seeded over. The draft is read
-    // through its own witness, so an edit never reopens this provider owner.
+    // once, from the witness this commit published, so an edit never reopens this provider
+    // owner and a later render cannot lend it a newer draft.
+    const draft = nameDraft.current;
     if (!Platform.isTV && transaction.needsUsername && providerNameSeed.current !== transaction.transactionId) {
       providerNameSeed.current = transaction.transactionId;
       const suggested = transaction.suggestedName;
-      if (suggested && !nameDraft.current) {
+      if (suggested && !draft) {
         registerDraftRev.current++;
         setName(suggested);
       }
@@ -331,7 +336,9 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     }).catch(() => {if (current() && !abort.signal.aborted) setNearbyStatus('failed');});
     return () => {ticket.active = false; abort.abort(); for (const probe of probes) probe.dispose();};
   }, [stage, nearbyRefresh]);
-  const run = async (work: () => Promise<void>) => {
+  // The runner's identity carries the exact busy, stage and recovery it drew with; effects that
+  // drive it read the port of the commit that drew them rather than a newer render's runner.
+  const run = useCallback(async (work: () => Promise<void>) => {
     if (busy || acting.current || adoptingTV.current || tvOpening.current?.pending() || !lifetime.current) return; acting.current = true; setBusy(true); setError(undefined);
     const startedOperation = operation.current, startedInvitationEpoch = invitationEpoch.current;
     try {await work();} catch (failure) {if (lifetime.current && invitationEpoch.current === startedInvitationEpoch) {
@@ -343,7 +350,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       if (failure instanceof MFARequiredError) {factorKind.current = 'portico'; setCode(''); setRecovery(false); setStage('factor');}
       else {if (stage === 'profile-pin' || (Platform.isTV && stage === 'factor' && !recovery)) setCode(''); setError(failure);}
     }} finally {if (invitationEpoch.current === startedInvitationEpoch) {acting.current = false; if (lifetime.current) setBusy(adoptingTV.current || tvOpening.current?.pending() === true);}}
-  };
+  }, [busy, recovery, retireSetupReview, stage]);
   const reset = useCallback(() => {retireTVOpening(true); retireAccountWorkspace(); retireInvitationEntry(); retireInvitationSwitch(); invitationIntent.current = undefined; retireInvitation(); ownerResetIntent.current = undefined; endedTarget.current = undefined; retireOwnerRecoveryContact(); retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; preparedAuthSource.current = undefined; setAuthPrepareFailed(false); setRootAuthGeneration(value => value + 1); operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
     setPassword(''); setSetupReview(undefined); setSetupApprovalURL(undefined); setSetupPasswordConfirm(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setTarget(undefined); setError(undefined); retryDelay.current = 20; setRetryIn(20); setStage(initialStage);},
   [initialStage, retireAccountWorkspace, retireInvitation, retireInvitationEntry, retireInvitationSwitch, retireOwnerRecoveryContact, retireOwnerReset, retireRecovery, retireSetupReview, stopMemberMove, stopRetry, retireTVOpening]);
@@ -888,22 +895,33 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     setSetupHostedOpening(Object.freeze({source, owner, life, url: setupApprovalURL}));
     return () => {owner.live = false; life.abort();};
   }, [stage, server?.id, setupApprovalURL, setupOpeningSource]);
-  const setupOpeningCurrent = (opening: typeof setupHostedOpening) => !!opening && opening.owner.live && !opening.life.signal.aborted
-    && lifetime.current && stageRef.current === 'setup-hosted' && operation.current === opening.source;
-  const finishSetupOpening = async (opening: typeof setupHostedOpening) => {
+  const setupOpeningCurrent = useCallback((opening: typeof setupHostedOpening) => !!opening && opening.owner.live && !opening.life.signal.aborted
+    && lifetime.current && stageRef.current === 'setup-hosted' && operation.current === opening.source, []);
+  const finishSetupOpening = useCallback(async (opening: typeof setupHostedOpening) => {
     if (!opening || !setupOpeningCurrent(opening)) return;
     const current = () => setupOpeningCurrent(opening);
     try {
       const result = await opening.source.finishHostedSetup({signal: opening.life.signal, isCurrent: current});
       if (result && current()) consume(result);
     } catch (error) {if (current()) throw error;}
-  };
+  }, [consume, setupOpeningCurrent]);
   // The automatic resume keeps the original trigger set (this stage, app activity, the drawn
-  // opening) and drives the completion through this commit's own ports: the same run() and its
-  // captured busy/stage/recovery guards, the same completion and currency check the Continue
-  // button draws with. The ports are re-witnessed each render and grant nothing new.
-  setupResume.current = setupHostedOpening ? {opening: setupHostedOpening, run, finish: finishSetupOpening, current: setupOpeningCurrent} : undefined;
-  useEffect(() => {if (stage === 'setup-hosted') resumeSetupHosted(setupHostedOpening, setupResume.current, appActive);}, [stage, appActive, setupHostedOpening]);
+  // opening) and drives the completion through the ports published by the commit that drew it:
+  // the same run() and its captured busy/stage/recovery guards, the same completion and currency
+  // check the Continue button draws with. The ports are published in the layout turn, never
+  // during render, so an abandoned render cannot replace them; the cleanup clears only the port
+  // it published, so it can never clear a successor's. The effect below copies the committed
+  // port once at its own run and the async completion reads only that copy.
+  useLayoutEffect(() => {
+    const ports: SetupResumePorts | undefined = setupHostedOpening
+      ? {opening: setupHostedOpening, run, finish: finishSetupOpening, current: setupOpeningCurrent} : undefined;
+    setupResume.current = ports;
+    return () => {if (setupResume.current === ports) setupResume.current = undefined;};
+  }, [setupHostedOpening, run, finishSetupOpening, setupOpeningCurrent]);
+  useEffect(() => {
+    const ports = setupResume.current;
+    if (stage === 'setup-hosted') resumeSetupHosted(setupHostedOpening, ports, appActive);
+  }, [stage, appActive, setupHostedOpening]);
   const layout = (title: string, body?: string, before?: React.ReactNode, primary?: ReturnType<typeof action>, more?: React.ReactNode) => <StateLayout testID="accounts-entry" title={title} body={body} beforeActions={<>{before}{status}</>} primaryAction={primary} secondaryAction={backAction}>{more}</StateLayout>;
   if (Platform.isTV && stage === 'tv-required-setup' && requiredSetup) return <TVRequiredSetupHandoff serverName={requiredSetup.serverName}
     requirement={requiredSetup.requirement} url={new URL('/settings/profile', requiredSetup.serverOrigin).href} busy={busy}
