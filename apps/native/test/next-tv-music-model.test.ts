@@ -235,7 +235,7 @@ test('album membership stops sending when the destination retires', async () => 
   let live = true;
   const {value, browseBodies} = await controller(albumEntry, {songs: many, total: 4, pageSize: 2, maximumLimit: 2, current: () => live,
     onPage: start => {if (start === 0) live = false;}});
-  await assert.rejects(value.albumMembership(), (error: any) => error.name === 'AbortError');
+  await assert.rejects(value.albumMembership(), (error: any) => error.code === 'native_music_retired');
   assert.equal(browseBodies.length, 1);
   value.dispose();
 });
@@ -360,7 +360,8 @@ test('the renderer keeps one page per exact route object and navigation revision
   albumMembership=async()=>[];
   dispose(){this.disposed=true;}
  }
- const picker={render:()=>null,dispose:()=>{},openAlbum:()=>{}};
+ let pickerRenders=0, pickerDisposals=0;
+ const picker={render:(runtime:any)=>{pickerRenders++;return {type:'PickerOutlet',props:{runtime}};},dispose:()=>{pickerDisposals++;},openAlbum:()=>{}};
  await screenModule(new URL('../src-next/screens/destinations/music/register.tsx',import.meta.url),{
   react:{default:React},'react-native':{Platform:{isTV:false}},
   '../../../shell/route-registry':{nativeShellRoutes:{registerRoute:(_kind:string,value:any)=>{factory=value;}}},
@@ -381,27 +382,74 @@ test('the renderer keeps one page per exact route object and navigation revision
   navigation:{getSnapshot:()=>navigation,open:()=>{},back:()=>{navBacks++;}}};
  const renderer=factory(context);
  const first=renderer.render(routeA,{});
- assert.equal(first.type,'PhoneArtistScreen');
+ assert.equal(first.type,React.Fragment,'a non-TV page and its route-owned picker share one fragment');
+ const firstPage=first.props.children[0], firstPicker=first.props.children[1];
+ assert.equal(firstPage.type,'PhoneArtistScreen');
+ assert.equal(firstPicker.type,'PickerOutlet','the same page picker is mounted for a non-TV route');
+ assert.equal(pickerRenders,1);
  assert.equal(made.length,1);
- assert.equal(first.props.controller,made[0]);
+ assert.equal(firstPage.props.controller,made[0]);
  assert.deepEqual(made[0].options.similarScope,{serverId:'server',authority:'local',accountId:'account',profileId:'profile',controllerId:'v1',controllerEpoch:'v1',commandLaneId:'v1'});
  assert.equal(made[0].options.lifetime.current(),true);
- assert.equal(renderer.render(routeA,{}).props.controller,made[0],'the same route object and revision reuse the one page');
+ const reused=renderer.render(routeA,{});
+ assert.equal(reused.props.children[0].props.controller,made[0],'the same route object and revision reuse the one page');
+ assert.equal(pickerRenders,2,'one page still has exactly one picker outlet per render');
  navigation.revision=2;
  const second=renderer.render(routeA,{});
  assert.equal(made.length,2);
- assert.equal(second.props.controller,made[1]);
- first.props.onBack();
+ assert.equal(second.props.children[0].props.controller,made[1]);
+ firstPage.props.onBack();
  assert.equal(navBacks,0,'the retired revision cannot navigate');
- second.props.onBack();
+ second.props.children[0].props.onBack();
  assert.equal(navBacks,1);
  assert.equal(renderer.render(routeB,{}),null,'a different route object is not this page');
  navigation.route=routeB;
  const third=renderer.render(routeB,{});
  assert.equal(made.length,3,'a replaced route object opens a live page, never the dead one');
- assert.equal(third.props.controller,made[2]);
+ assert.equal(third.props.children[0].props.controller,made[2]);
  current=false;
  assert.equal(renderer.render(routeB,{}),null);
  renderer.dispose();
  assert.ok(made[2].disposed);
+ assert.ok(pickerDisposals>=2,'each retired page disposes its own picker');
+});
+
+test('a non-TV album mounts its own picker outlet once beside the page',async()=>{
+ let factory!:(context:any)=>any; let made:any[]=[], pickerRenders=0, pickerDisposals=0;
+ class FakeController {
+  options:any;loads=0;disposed=false;
+  constructor(options:any){this.options=options;made.push(this);}
+  getSnapshot=()=>({phase:'ready',songs:[],albums:[],similar:[],favorite:false,allSongs:{phase:'idle',songs:[]}});
+  subscribe=()=>()=>{};contains=()=>true;similarCurrent=()=>true;
+  load(){this.loads++;return Promise.resolve();}
+  albumMembership=async()=>[{id:'song-1'}];
+  dispose(){this.disposed=true;}
+ }
+ const picker={render:(runtime:any)=>{pickerRenders++;return {type:'PickerOutlet',props:{runtime}};},dispose:()=>{pickerDisposals++;},openAlbum:()=>{}};
+ await screenModule(new URL('../src-next/screens/destinations/music/register.tsx',import.meta.url),{
+  react:{default:React},'react-native':{Platform:{isTV:false}},
+  '../../../shell/route-registry':{nativeShellRoutes:{registerRoute:(_kind:string,value:any)=>{factory=value;}}},
+  '../lifetime':{nativeDestinationLifetime:()=>({scope:{serverId:'server',viewerId:'viewer'},current:()=>true})},
+  '../entry-actions':{createNativeEntryActions:()=>({menu:()=>{},dispose:()=>{},isMenuOpen:()=>false})},
+  './model':{NativeTVMusicController:FakeController},
+  './TVMusicScreens':{TVAlbumScreen:'TVAlbumScreen',TVArtistScreen:'TVArtistScreen'},
+  './PhoneMusicScreens':{PhoneAlbumScreen:'PhoneAlbumScreen',PhoneArtistScreen:'PhoneArtistScreen'},
+  './MusicPlaylistPicker':{createMusicPlaylistPicker:()=>picker},
+  '../../watch/download-request':{nativeDownloadRequest:()=>undefined},
+  '../../downloads/request':{askNativeDownload:()=>{}},
+ });
+ const viewer={serverId:'server',authority:'local',accountId:'account',profileId:'profile'};
+ const route={kind:'music',entry:{...albumEntry,id:'album-1',kind:'album'}};
+ const navigation:any={route,revision:1};
+ const context={api:{request:async()=>{throw new Error('rendering must not read')}},session:()=>({viewer}),
+  authority:()=>({serverId:'server',accountId:'account',profileId:'profile'}),current:()=>true,
+  navigation:{getSnapshot:()=>navigation,open:()=>{},back:()=>{}}};
+ const renderer=factory(context);
+ const tree=renderer.render(route,{});
+ assert.equal(tree.type,React.Fragment);
+ assert.equal(tree.props.children[0].type,'PhoneAlbumScreen');
+ assert.equal(tree.props.children[1].type,'PickerOutlet','the album page picker is the only outlet');
+ assert.equal(pickerRenders,1,'exactly one picker per route render');
+ renderer.dispose();
+ assert.equal(pickerDisposals,1,'route disposal retires the picker');
 });
