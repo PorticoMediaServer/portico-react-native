@@ -164,34 +164,48 @@ export class NativeShellNavigation {
     try {if(!this.presentations.includes(original)||!owns()||!this.allows(original.route,original.destination)
       ||!owns()||!this.presentations.includes(original))return undefined;}catch{return undefined;}
     let retired=false,checking=false,previousActive=this.presentations.at(-1)?.occurrence===original.occurrence;
-    const listeners=new Set<()=>void>();let offNavigation=()=>{},offAuthority=()=>{};
+    const registration={},listeners=new Set<()=>void>();let ownedRegistration:object|undefined=registration;
+    let offNavigation=()=>{},offAuthority=()=>{};
+    const registered=()=>!retired&&ownedRegistration===registration;
+    const emit=()=>{for(const listener of [...listeners]){try{listener();}catch{/* A sink never grants resource ownership. */}}};
+    const retire=()=>{
+      if(!registered())return;
+      retired=true;ownedRegistration=undefined;
+      offNavigation();offAuthority();
+      const sinks=[...listeners];listeners.clear();
+      for(const listener of sinks){try{listener();}catch{/* Finish once-only original-lease retirement. */}}
+    };
     const retainedCurrent=()=>{
-      if(retired||checking)return false;
+      if(!registered()||checking)return false;
       checking=true;
       try {
-        const retained=()=>this.presentations.some(value=>value.occurrence===original.occurrence&&value.route===original.route);
-        if(!owns()||!retained()||!this.allows(original.route,original.destination)||!owns()||!retained()){
-          retired=true;offNavigation();offAuthority();return false;
+        const retained=()=>registered()&&this.presentations.some(value=>value.occurrence===original.occurrence&&value.route===original.route);
+        // Each external predicate may reenter, dispose this binding or replace
+        // authority/history. Recheck the original registration after each one.
+        if(!this.isCurrent()||!registered()||!sameAuthority(expectedAuthority,this.snapshot.authority)
+          ||!authority.current()||!registered()||!retained()
+          ||!this.allows(original.route,original.destination)||!registered()
+          ||!this.isCurrent()||!registered()||!authority.current()||!registered()||!retained()){
+          retire();return false;
         }
-        return true;
-      }catch{retired=true;offNavigation();offAuthority();return false;}
+        return registered();
+      }catch{retire();return false;}
       finally{checking=false;}
     };
-    const activeCurrent=()=>retainedCurrent()&&this.presentations.at(-1)?.occurrence===original.occurrence
+    const activeCurrent=()=>retainedCurrent()&&registered()&&this.presentations.at(-1)?.occurrence===original.occurrence
       &&this.presentations.at(-1)?.route===original.route;
     const notify=()=>{
-      const active=activeCurrent();
-      // Resource retirement and original active/retained transitions both wake
-      // subscribers, including bootstrap disposal without a history write.
-      if(retired||active!==previousActive){previousActive=active;for(const listener of [...listeners]){try{listener();}catch{/* One sink cannot retain a retired resource. */}}if(retired)listeners.clear();}
+      const active=activeCurrent();if(!registered())return;
+      if(active!==previousActive){previousActive=active;emit();}
     };
     offNavigation=this.subscribe(notify);offAuthority=authority.subscribe(notify);
     if(!retainedCurrent()){offNavigation();offAuthority();return undefined;}
     return Object.freeze({original,retainedCurrent,activeCurrent,
-      subscribe:(listener:()=>void)=>{if(retired)return()=>{};listeners.add(listener);return()=>{listeners.delete(listener);};},
-      dispose:()=>{if(retired){listeners.clear();return;}retired=true;offNavigation();offAuthority();for(const listener of [...listeners]){try{listener();}catch{/* Continue original-lease cleanup. */}}listeners.clear();},
+      subscribe:(listener:()=>void)=>{if(!registered())return()=>{};listeners.add(listener);return()=>{listeners.delete(listener);};},
+      dispose:retire,
     });
   };
+
   getIntent = (): NativeDestinationIntent => this.intent;
   isCurrent = (): boolean => this.current(this.snapshot.authority);
   allows = (route: NativeShellRoute, origin: ShellDestination = route.kind === 'shell' ? route.destination : this.snapshot.destination): boolean =>

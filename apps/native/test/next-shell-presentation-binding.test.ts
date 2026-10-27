@@ -35,3 +35,20 @@ test('retained/active notifications never make old revision commands fresh or by
  assert.equal(nav.commitNativePop(snapshot,original.occurrence),false,'resource restoration never grants an obsolete command');
  allowed=false;assert.equal(binding.retainedCurrent(),false);allowed=true;assert.equal(binding.retainedCurrent(),false);nav.dispose();f.navigation.dispose();
 });
+
+
+test('a predicate that disposes the binding cannot return a current resource or active proof',()=>{
+ for(const predicate of ['authority','admission'] as const){
+  let dispose:()=>void=()=>{},armed=false,notices=0;
+  const authorityListeners=new Set<()=>void>();
+  const nav=new NativeShellNavigation(authority,()=>authority,()=>{if(armed&&predicate==='admission')dispose();return true;});
+  const binding=nav.bindPresentation(top(nav),{current:()=>{if(armed&&predicate==='authority')dispose();return true;},subscribe:listener=>{authorityListeners.add(listener);return()=>{authorityListeners.delete(listener);};}})!;
+  dispose=binding.dispose;binding.subscribe(()=>{notices++;assert.equal(binding.retainedCurrent(),false);});armed=true;
+  assert.equal(binding.retainedCurrent(),false);assert.equal(binding.activeCurrent(),false);assert.equal(notices,1);assert.equal(authorityListeners.size,0);binding.dispose();assert.equal(notices,1);nav.dispose();
+ }
+});
+test('a getter-discovered retirement notifies every original subscriber exactly once without recursive fanout',()=>{
+ let live=true;const f=fixture();const binding=f.navigation.bindPresentation(top(f.navigation),{...f.owner,current:()=>live})!;
+ let first=0,second=0;binding.subscribe(()=>{first++;assert.equal(binding.activeCurrent(),false);binding.dispose();});binding.subscribe(()=>{second++;});
+ live=false;assert.equal(binding.retainedCurrent(),false);assert.equal(first,1);assert.equal(second,1);assert.equal(f.listeners.size,0);assert.equal(binding.retainedCurrent(),false);assert.equal(first,1);f.navigation.dispose();
+});
