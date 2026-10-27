@@ -129,6 +129,7 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
         throw partial;
       }
     }
+    if (saved.id !== rule.id || recordingOwnerKey(saved.owner as RecordingOwner) !== recordingOwnerKey(rule.owner) || saved.sourceId !== rule.sourceId || saved.kind !== rule.kind || saved.match !== rule.match || saved.name !== rule.name.trim() || saved.enabled !== enabled || saved.revision <= rule.revision || (rule.options.prePaddingMs !== null && saved.options.prePaddingMs !== rule.options.prePaddingMs) || (rule.options.postPaddingMs !== null && saved.options.postPaddingMs !== rule.options.postPaddingMs) || (rule.options.keepPolicy !== null && JSON.stringify(saved.options.keepPolicy) !== JSON.stringify(rule.options.keepPolicy)) || saved.options.newEpisodesOnly !== rule.options.newEpisodesOnly || saved.options.priority !== rule.options.priority || saved.options.folderTemplate !== rule.options.folderTemplate) throw new Error('invalid_response');
     await this.load(true);
     return saved;
   }, () => undefined);
@@ -177,6 +178,7 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
     const response = await this.request<unknown>(`/v1/admin/dvr/recording-groups/${encodeURIComponent(rule.id)}`, 'PUT', payload);
     const envelope = response as {serverId?: unknown; result?: unknown};
     const saved = parseAdminRulePage({serverId: envelope?.serverId, result: {items: [envelope?.result]}}, this.lifetime.authority.serverId).items[0]!;
+    if (saved.id !== rule.id || recordingOwnerKey(saved.owner as RecordingOwner) !== recordingOwnerKey(rule.owner) || saved.sourceId !== rule.sourceId || saved.kind !== rule.kind || saved.match !== rule.match || saved.name !== rule.name.trim() || saved.enabled !== enabled || saved.revision <= rule.revision || (rule.options.prePaddingMs !== null && saved.options.prePaddingMs !== rule.options.prePaddingMs) || (rule.options.postPaddingMs !== null && saved.options.postPaddingMs !== rule.options.postPaddingMs) || (rule.options.keepPolicy !== null && JSON.stringify(saved.options.keepPolicy) !== JSON.stringify(rule.options.keepPolicy)) || saved.options.newEpisodesOnly !== rule.options.newEpisodesOnly || saved.options.priority !== rule.options.priority || saved.options.folderTemplate !== rule.options.folderTemplate) throw new Error('invalid_response');
     await this.load(true);
     return saved;
   };
@@ -189,7 +191,7 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
     if (!route) throw new Error('invalid_guide_date');
     const query = new URLSearchParams({kind: route.kind, start: route.start, end: route.end, timezone: route.timezone, search: route.search, sourceId: route.sourceId, limit: '30'});
     const guide = parseChannelGuide(await this.request<unknown>(`/v1/guide?${query.toString()}`), this.lifetime.authority.serverId, route);
-    return recordingSeries(guide);
+    return recordingSeries(guide, true);
   };
   createRule = async (draft: Parameters<typeof recordingRulePayload>[0], grants: readonly RecordingGrant[]) => {
     const payload = recordingRulePayload(draft, grants, this.operationId());

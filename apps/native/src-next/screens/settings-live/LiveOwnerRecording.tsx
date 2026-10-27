@@ -1,4 +1,4 @@
-import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
+import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {recordingAllowed, recordingGuideRoute, recordingOwnerKey, recordingOwnerLabel, type RecordingGrant, type RecordingOwner, type RecordingOwnerChoice, type RecordingSeries} from '../../../../../packages/client-core/src/server-admin/recording-policy';
@@ -23,20 +23,42 @@ const keepModes: readonly DVRDefaults['keepPolicy']['mode'][] = ['keep-all', 'ke
 /** Recording › tuners, who may record, standing rules, defaults and space. */
 export function NativeRecordingOwner({controller, recordings, runtime, sources}: {controller: NativeLiveOwnerController; recordings: NativeRecordingsController; runtime: NativeShellRuntime; sources: readonly LiveSource[]}) {
   const theme = useTheme(), t = runtime.text.t;
+  const routeRevision = controller.lifetime.current() ? runtime.navigation?.getSnapshot().revision : undefined;
+  const visible = controller.lifetime.current() && runtime.getSnapshot().contentVisible === true && controller.lifetime.current();
+  const facts = useMemo(() => ({controller, recordings, runtime, navigation: runtime.navigation, routeRevision, visible}), [controller, recordings, runtime, runtime.navigation, routeRevision, visible]);
+  type Admission = {facts: typeof facts; live: boolean};
+  const admissionRef = useRef<Admission | undefined>(undefined), [admission, setAdmission] = useState<Admission>();
+  useLayoutEffect(() => {
+    const opening: Admission = {facts, live: true}; admissionRef.current = opening; setAdmission(opening);
+    return () => {opening.live = false; if (admissionRef.current === opening) admissionRef.current = undefined;};
+  }, [facts]);
+  const active = () => {
+    const opening = admission;
+    const exact = () => !!opening && opening.live && admissionRef.current === opening && opening.facts === facts;
+    if (!exact() || !facts.visible || facts.routeRevision === undefined) return false;
+    if (!controller.lifetime.current() || !exact()) return false;
+    if (facts.navigation?.getSnapshot().revision !== facts.routeRevision || !exact()) return false;
+    if (runtime.getSnapshot().contentVisible !== true || !exact()) return false;
+    return true;
+  };
+  const [dataAdmission, setDataAdmission] = useState<Admission>();
   const [tuners, setTuners] = useState<TunerView>(), [policy, setPolicy] = useState<Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>>();
   const [rules, setRules] = useState<readonly AdminRule[]>(), [settings, setSettings] = useState<DVRDocument>(), [storage, setStorage] = useState<RecordingStorage>();
   const [ownerCursor, setOwnerCursor] = useState(''), [ruleCursor, setRuleCursor] = useState(''), [pageBusy, setPageBusy] = useState(false), [pageError, setPageError] = useState<'owners' | 'rules'>();
+  const operationRef = useRef<object | undefined>(undefined);
   const pageFlight = useRef<object | undefined>(undefined), ownerSeen = useRef(new Set<string>()), ruleSeen = useRef(new Set<string>()), pageEpoch = useRef(0);
   const [error, setError] = useState<unknown>(), [busy, setBusy] = useState(''), [ruleMenu, setRuleMenu] = useState<AdminRule>(), [newRule, setNewRule] = useState(false);
+  const newRuleRef = useRef<object | undefined>(undefined), [newRuleOpening, setNewRuleOpening] = useState<object>();
+  const currentSheet = () => !!newRuleOpening && newRuleRef.current === newRuleOpening && active() && newRuleRef.current === newRuleOpening;
   // One rule-removal confirmation, exactly the rule it was drawn for; the flight keeps that same
   // opening so a delayed close or a second press cannot reach a successor.
   type RuleRemoveOpening = Readonly<{token: number; rule: AdminRule; controller: NativeLiveOwnerController; revision: number}>;
   const [ruleRemoveOpening, setRuleRemoveOpening] = useState<RuleRemoveOpening>();
   const ruleRemoveRef = useRef<RuleRemoveOpening | undefined>(undefined), ruleRemoveFlight = useRef<RuleRemoveOpening | undefined>(undefined), ruleRemoveToken = useRef(0), mounted = useRef(true);
-  const ruleOwner = useRef(controller);
+  const ruleOwner = useRef(controller), ruleScopeRef = useRef<object | undefined>(undefined);
   useLayoutEffect(() => {mounted.current = true; return () => {mounted.current = false; ruleRemoveRef.current = undefined; ruleRemoveFlight.current = undefined;};}, []);
   const openRuleRemove = (rule: AdminRule) => {
-    if (ruleRemoveFlight.current) return;
+    if (!active() || ruleRemoveFlight.current || !publishedRules.current?.includes(rule)) return;
     const revision = runtime.navigation?.getSnapshot().revision;
     if (revision === undefined) return;
     const next: RuleRemoveOpening = {token: ++ruleRemoveToken.current, rule, controller, revision};
@@ -45,38 +67,41 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
     ruleRemoveRef.current = next; setRuleRemoveOpening(next);
   };
   const closeRuleRemove = (target: RuleRemoveOpening) => {if (ruleRemoveRef.current !== target) return; ruleRemoveRef.current = undefined; setRuleRemoveOpening(current => current === target ? undefined : current);};
-  if (ruleOwner.current !== controller) {ruleOwner.current = controller; ruleRemoveRef.current = undefined; ruleRemoveFlight.current = undefined;}
-  const ruleRevision = runtime.navigation?.getSnapshot().revision;
-  if (ruleRemoveRef.current && (ruleRemoveRef.current.revision !== ruleRevision || ruleRemoveRef.current.controller !== controller)) {ruleRemoveRef.current = undefined; ruleRemoveFlight.current = undefined;}
+  useLayoutEffect(() => {const token = {}; ruleScopeRef.current = token; ruleOwner.current = controller; ruleRemoveRef.current = undefined; ruleRemoveFlight.current = undefined; return () => {if (ruleScopeRef.current === token) {ruleScopeRef.current = undefined; ruleRemoveRef.current = undefined; ruleRemoveFlight.current = undefined; operationRef.current = undefined; newRuleRef.current = undefined;}};}, [facts]);
+  const ruleRevision = routeRevision;
+
   const shownRuleRemove = ruleRemoveOpening && ruleRemoveRef.current === ruleRemoveOpening && ruleRemoveOpening.controller === controller && ruleRemoveOpening.revision === ruleRevision ? ruleRemoveOpening : undefined;
   const [permissionDraft, setPermissionDraft] = useState<Readonly<Record<string, Readonly<{enabled: boolean; inheritProfiles: boolean}>>>>({});
   const [defaultsDraft, setDefaultsDraft] = useState<DVRDefaults>(), [storageDraft, setStorageDraft] = useState<StoragePolicy>();
+  const publishedRules = useRef<readonly AdminRule[] | undefined>(undefined);
+  useLayoutEffect(() => {publishedRules.current = rules; return () => {if (publishedRules.current === rules) publishedRules.current = undefined;};}, [rules, facts]);
   const ruleOpeners = useRef(new Map<string, View>()), ruleMenuOpener = useRef<View | null>(null), confirmCancel = useRef<View>(null);
-  const reload = async (reset = false) => {
+  const reload = async (_reset = false) => {
+    if (!active()) return;
     const epoch = ++pageEpoch.current; setPageError(undefined);
     setError(undefined);
     try {
+      if (!active() || pageEpoch.current !== epoch) return;
       const [nextTuners, nextPolicy, nextRules, nextSettings, nextStorage] = await Promise.all([controller.tuners(), controller.policy(), controller.rules(), controller.dvrSettings(), recordings.storage()]);
-      if (!controller.lifetime.current() || pageEpoch.current !== epoch) return;
-      setTuners(nextTuners);
-      setPolicy(current => {if (reset || !current) return nextPolicy; const first = new Set(nextPolicy.owners.map(row => recordingOwnerKey(row.owner))); return {...nextPolicy, owners: [...nextPolicy.owners, ...current.owners.filter(row => !first.has(recordingOwnerKey(row.owner)))]};});
-      setRules(current => {if (reset || !current) return nextRules.items; const first = new Set(nextRules.items.map(row => row.id)); return [...nextRules.items, ...current.filter(row => !first.has(row.id))];});
-      if (reset || !policy) {ownerSeen.current = new Set(); setOwnerCursor(nextPolicy.nextCursor);}
-      if (reset || !rules) {ruleSeen.current = new Set(); setRuleCursor(nextRules.nextCursor);}
+      if (!active() || pageEpoch.current !== epoch) return;
+      setDataAdmission(admission); setTuners(nextTuners); setPolicy(nextPolicy); setRules(nextRules.items);
+      ownerSeen.current = new Set(); ruleSeen.current = new Set();
+      setOwnerCursor(nextPolicy.nextCursor); setRuleCursor(nextRules.nextCursor);
       setSettings(nextSettings); setStorage(nextStorage);
       setDefaultsDraft(current => current ?? nextSettings.settings); setStorageDraft(current => current ?? nextStorage.policy);
-    } catch (failure) {if (controller.lifetime.current() && pageEpoch.current === epoch) setError(failure);}
+    } catch (failure) {if (active() && pageEpoch.current === epoch) {setDataAdmission(admission); setError(failure);}}
   };
-  useEffect(() => {pageFlight.current = undefined; setPageBusy(false); setPolicy(undefined); setRules(undefined); setOwnerCursor(''); setRuleCursor(''); void reload(true); return () => {pageEpoch.current++; pageFlight.current = undefined;};}, [controller, recordings]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {if (!active()) return; pageFlight.current = undefined; setPageBusy(false); setBusy(''); setError(undefined); setPolicy(undefined); setRules(undefined); setTuners(undefined); setSettings(undefined); setStorage(undefined); setPermissionDraft({}); setDefaultsDraft(undefined); setStorageDraft(undefined); setRuleMenu(undefined); setNewRule(false); setNewRuleOpening(undefined); setOwnerCursor(''); setRuleCursor(''); void reload(true); return () => {pageEpoch.current++; pageFlight.current = undefined;};}, [admission]); // eslint-disable-line react-hooks/exhaustive-deps
   const pendingEdits = !!(Object.keys(permissionDraft).length || (settings && defaultsDraft && JSON.stringify(defaultsDraft) !== JSON.stringify(settings.settings)) || (storage && storageDraft && JSON.stringify(storageDraft) !== JSON.stringify(storage.policy)));
   const loadMore = async (kind: 'owners' | 'rules') => {
     const cursor = kind === 'owners' ? ownerCursor : ruleCursor;
     const seen = kind === 'owners' ? ownerSeen.current : ruleSeen.current;
-    if (!cursor || seen.has(cursor) || pageFlight.current || busy || pendingEdits || ruleMenu || shownRuleRemove || (kind === 'rules' && newRule) || ruleRevision === undefined || runtime.navigation?.getSnapshot().revision !== ruleRevision || runtime.getSnapshot().contentVisible !== true || ruleOwner.current !== controller) return;
-    const epoch = pageEpoch.current, revision = runtime.navigation?.getSnapshot().revision;
-    const current = () => mounted.current && ruleOwner.current === controller && controller.lifetime.current() && runtime.getSnapshot().contentVisible === true && pageEpoch.current === epoch && runtime.navigation?.getSnapshot().revision === revision;
+    if (!active() || !cursor || seen.has(cursor) || pageFlight.current || busy || pendingEdits || ruleMenu || shownRuleRemove || (kind === 'rules' && newRule) || ruleRevision === undefined || ruleOwner.current !== controller) return;
+    const epoch = pageEpoch.current, revision = ruleRevision;
+    const current = () => pageFlight.current === flight && active() && pageFlight.current === flight && pageEpoch.current === epoch && runtime.navigation?.getSnapshot().revision === revision && active() && pageFlight.current === flight;
     const flight = {}; pageFlight.current = flight; setPageBusy(true); setPageError(undefined);
     try {
+      if (!current()) return;
       if (kind === 'owners') {
         const page = await controller.policy(cursor); if (!current()) return;
         if (!policy || JSON.stringify(policy.grants) !== JSON.stringify(page.grants)) throw new Error('invalid_response');
@@ -89,31 +114,42 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
         seen.add(cursor); setRules(nextRules); setRuleCursor(page.nextCursor);
       }
     } catch {if (current()) setPageError(kind);}
-    finally {if (pageFlight.current === flight) {pageFlight.current = undefined; if (mounted.current) setPageBusy(false);}}
+    finally {if (pageFlight.current === flight) {pageFlight.current = undefined; if (active()) setPageBusy(false);}}
   };
-  const write = async (key: string, work: () => Promise<unknown>, current: () => boolean = () => true) => {
-    if (busy || pageFlight.current) return;
-    const live = () => controller.lifetime.current() && current();
+  const write = async (key: string, work: (isCurrent: () => boolean) => Promise<unknown>, current: () => boolean = () => true) => {
+    if (!active() || busy || pageFlight.current || operationRef.current) return;
+    const flight = {}; operationRef.current = flight;
+    const live = () => operationRef.current === flight && active() && current() && active() && operationRef.current === flight;
+    if (!live()) {if (operationRef.current === flight) operationRef.current = undefined; return;}
     setBusy(key); setError(undefined);
-    try {await work(); if (live()) await reload();}
+    try {if (!live()) return; await work(live); if (live()) await reload();}
     catch (failure) {if (live()) setError(failure);}
-    finally {if (live()) setBusy('');}
+    finally {if (operationRef.current === flight) {const stillHere = active() && operationRef.current === flight; if (operationRef.current === flight) operationRef.current = undefined; if (stillHere) setBusy('');}}
   };
   const saveAll = async () => {
-    if (busy || pageFlight.current || !policy) return;
+    if (!active() || busy || pageFlight.current || operationRef.current || !policy) return;
+    const flight = {}; operationRef.current = flight;
+    const current = () => operationRef.current === flight && active() && operationRef.current === flight;
+    if (!current()) {if (operationRef.current === flight) operationRef.current = undefined; return;}
     setBusy('save'); setError(undefined);
     try {
       for (const [key, change] of Object.entries(permissionDraft)) {
         const choice = policy.owners.find(value => recordingOwnerKey(value.owner) === key), grant = policy.grants.find(value => recordingOwnerKey(value.owner) === key);
+        if (!current()) return;
         if (choice) await controller.setPermission(choice.owner, change.enabled, change.inheritProfiles, grant?.revision ?? 0);
+        if (!current()) return;
       }
+      if (!current()) return;
       if (settings && defaultsDraft && JSON.stringify(defaultsDraft) !== JSON.stringify(settings.settings)) await controller.saveDvrSettings(settings.revision, defaultsDraft);
+      if (!current()) return;
       if (storage && storageDraft && JSON.stringify(storageDraft) !== JSON.stringify(storage.policy)) await recordings.saveStorage(storageDraft);
+      if (!current()) return;
       setPermissionDraft({}); setDefaultsDraft(undefined); setStorageDraft(undefined);
       await reload();
-    } catch (failure) {if (controller.lifetime.current()) setError(failure);}
-    finally {if (controller.lifetime.current()) setBusy('');}
+    } catch (failure) {if (current()) setError(failure);}
+    finally {if (current()) {operationRef.current = undefined; setBusy('');} else if (operationRef.current === flight) operationRef.current = undefined;}
   };
+  if (!admission || !admission.live || admission.facts !== facts || dataAdmission !== admission) return null;
   if (error !== undefined && !tuners && !policy) return <View style={{paddingHorizontal: 20, paddingTop: 20}}><StateView testID="live-owner-recording-error" {...runtime.error(error, () => void reload())}/></View>;
   return <View style={{paddingHorizontal: 20, paddingTop: 18, gap: 26}}>
     {error !== undefined && <StateView testID="live-owner-recording-error" {...runtime.error(error, () => void reload())}/>}
@@ -122,33 +158,33 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
       {tuners && !tuners.sources.length && <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{t('web.dvrSettings.noTuners')}</Text>}
       {!tuners && error === undefined && <Text style={[shellType(13), {color: theme.colors.textTertiary}]}>{t('web.librarySettings.loading')}</Text>}
     </Section>
-    {policy && <Permissions policy={policy} draft={permissionDraft} runtime={runtime} onChange={(owner, change) => !pageFlight.current && setPermissionDraft(current => ({...current, [recordingOwnerKey(owner)]: change}))}/>}
-    {pageError && <Button disabled={pageBusy} onPress={() => void loadMore(pageError)}>{t('next.states.tryAgain')}</Button>}
-    {!!ownerCursor && <Button disabled={pageBusy || !!busy || pendingEdits} onPress={() => void loadMore('owners')}>{t('next.settings.loadMore')}</Button>}
-    <Section title={t('web.recordingRules.title')} description={t('web.recordingRules.lede')} action={policy && <Button testID="live-owner-new-rule" icon="i-plus" size="small" disabled={pageBusy} onPress={() => setNewRule(true)}>{t('web.recordingRules.newRule')}</Button>}>
+    {policy && <Permissions policy={policy} draft={permissionDraft} runtime={runtime} onChange={(owner, change) => active() && !pageFlight.current && setPermissionDraft(current => ({...current, [recordingOwnerKey(owner)]: change}))}/>}
+    {pageError && <Button testID="live-owner-page-retry" focusId="live-owner-page-retry" disabled={pageBusy} onPress={() => void loadMore(pageError)}>{t('next.states.tryAgain')}</Button>}
+    {!!ownerCursor && <Button testID="live-owner-owners-more" focusId="live-owner-owners-more" disabled={pageBusy || !!busy || pendingEdits} onPress={() => void loadMore('owners')}>{t('next.settings.loadMore')}</Button>}
+    <Section title={t('web.recordingRules.title')} description={t('web.recordingRules.lede')} action={policy && <Button testID="live-owner-new-rule" icon="i-plus" size="small" disabled={pageBusy} onPress={() => {if (active()) {const opening = {}; newRuleRef.current = opening; setNewRuleOpening(opening); setNewRule(true);}}}>{t('web.recordingRules.newRule')}</Button>}>
       {rules?.map(rule => <Focusable key={rule.id} ref={node => {if (node) ruleOpeners.current.set(rule.id, node); else ruleOpeners.current.delete(rule.id);}} testID={`live-owner-rule-${rule.id}`} focusKind="row"
-        onPress={() => {if (pageFlight.current) return; ruleMenuOpener.current = ruleOpeners.current.get(rule.id) ?? null; setRuleMenu(rule);}} style={{flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.colors.raised, borderRadius: 14, padding: 14}}>
+        onPress={() => {if (!active() || pageFlight.current) return; ruleMenuOpener.current = ruleOpeners.current.get(rule.id) ?? null; setRuleMenu(rule);}} style={{flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.colors.raised, borderRadius: 14, padding: 14}}>
         <View style={{flex: 1, gap: 4}}>
           <Text style={[shellType(15, 700), {color: theme.colors.text}]} numberOfLines={1}>{rule.name || rule.match}</Text>
           <Text style={[shellType(12.5), {color: theme.colors.textSecondary}]} numberOfLines={2}>{[needsRuleOwner(rule) ? t('web.recordingRules.chooseOwner') : t(rule.kind === 'title' ? 'web.recordingRules.titleMatch' : 'web.recordingRules.seriesKind'), rule.options.newEpisodesOnly ? t('web.recordingRules.newOnly') : '', rule.owner.authority ? ownerName(policy?.owners, rule.owner as RecordingOwner) ?? '' : ''].filter(Boolean).join(' · ')}</Text>
         </View>
         <Text style={[shellType(12.5, 700), {color: rule.enabled ? theme.colors.healthy : theme.colors.textTertiary}]}>{rule.enabled ? t('recordings.on') : t('web.recordingRules.pausedRule')}</Text>
       </Focusable>)}
-      {!!ruleCursor && <Button disabled={pageBusy || !!busy || pendingEdits || newRule} onPress={() => void loadMore('rules')}>{t('next.settings.loadMore')}</Button>}
+      {!!ruleCursor && <Button testID="live-owner-rules-more" focusId="live-owner-rules-more" disabled={pageBusy || !!busy || pendingEdits || newRule} onPress={() => void loadMore('rules')}>{t('next.settings.loadMore')}</Button>}
       {rules && !rules.length && <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{t('web.recordingRules.noRules')} {t('web.recordingRules.noRulesHelp')}</Text>}
     </Section>
-    {settings && defaultsDraft && <Defaults document={settings} draft={defaultsDraft} runtime={runtime} onChange={value => {if (!pageFlight.current) setDefaultsDraft(value);}}/>}
-    {storage && storageDraft && <Storage storage={storage} draft={storageDraft} runtime={runtime} onChange={value => {if (!pageFlight.current) setStorageDraft(value);}}/>}
+    {settings && defaultsDraft && <Defaults document={settings} draft={defaultsDraft} runtime={runtime} onChange={value => {if (active() && !pageFlight.current) setDefaultsDraft(value);}}/>}
+    {storage && storageDraft && <Storage storage={storage} draft={storageDraft} runtime={runtime} onChange={value => {if (active() && !pageFlight.current) setStorageDraft(value);}}/>}
     {settings && storage && <PendingBar count={Object.keys(permissionDraft).length + (JSON.stringify(defaultsDraft) !== JSON.stringify(settings.settings) ? 1 : 0) + (JSON.stringify(storageDraft) !== JSON.stringify(storage.policy) ? 1 : 0)}
       busy={busy === 'save' || pageBusy} onDiscard={() => {setPermissionDraft({}); setDefaultsDraft(settings.settings); setStorageDraft(storage.policy);}}
       onSave={() => void saveAll()} runtime={runtime}/>}
-    <Menu open={ruleMenu !== undefined} onOpenChange={value => {if (!value) setRuleMenu(undefined);}} title={ruleMenu?.name} anchorRef={ruleMenuOpener} presentation="sheet" testID="live-owner-rule-menu" items={ruleMenu ? [
-      ...(policy && !needsRuleOwner(ruleMenu) ? [{id: 'toggle', icon: ruleMenu.enabled ? 'i-pause' as const : 'i-play' as const, label: t(ruleMenu.enabled ? 'web.recordingRules.pauseRule' : 'web.recordingRules.resumeRule'), onSelect: () => void write(`rule:${ruleMenu.id}`, async () => {const saved = await controller.saveRuleEnabled(ruleMenu, policy.grants, !ruleMenu.enabled); if (controller.lifetime.current()) setRules(current => current?.map(row => row.id === saved.id ? saved : row));})}] : []),
+    <Menu open={ruleMenu !== undefined} onOpenChange={value => {if (!value && active()) setRuleMenu(current => current === ruleMenu ? undefined : current);}} title={ruleMenu?.name} anchorRef={ruleMenuOpener} presentation="sheet" testID="live-owner-rule-menu" items={ruleMenu ? [
+      ...(policy && !needsRuleOwner(ruleMenu) ? [{id: 'toggle', icon: ruleMenu.enabled ? 'i-pause' as const : 'i-play' as const, label: t(ruleMenu.enabled ? 'web.recordingRules.pauseRule' : 'web.recordingRules.resumeRule'), onSelect: () => void write(`rule:${ruleMenu.id}`, async isCurrent => {await controller.saveRuleEnabled(ruleMenu, policy.grants, !ruleMenu.enabled); if (!isCurrent()) return;}, () => publishedRules.current === rules && !!rules?.includes(ruleMenu))}] : []),
       {id: 'separator', separator: true as const},
       {id: 'remove', icon: 'i-trash' as const, label: t('web.recordingRules.remove'), destructive: true, onSelect: () => openRuleRemove(ruleMenu)},
     ] : []}/>
-    {policy && <NewRuleSheet controller={controller} runtime={runtime} policy={policy} sources={sources} ownerCursor={ownerCursor} ownerLoading={pageBusy} ownerError={pageError === 'owners'} onMoreOwners={() => void loadMore('owners')} open={newRule} onOpenChange={setNewRule}
-      onSaved={() => {setNewRule(false); void reload();}}/>}
+    {policy && <NewRuleSheet controller={controller} runtime={runtime} policy={policy} sources={sources} ownerCursor={ownerCursor} ownerLoading={pageBusy} ownerError={pageError === 'owners'} onMoreOwners={() => void loadMore('owners')} open={newRule} onOpenChange={value => {if (currentSheet() && !value) {newRuleRef.current = undefined; setNewRule(false); setNewRuleOpening(undefined);}}}
+      onSaved={() => {if (currentSheet()) {newRuleRef.current = undefined; setNewRule(false); setNewRuleOpening(undefined); void reload();}}}/>}
     <Dialog open={shownRuleRemove !== undefined} onOpenChange={value => {if (!value && !ruleRemoveFlight.current && shownRuleRemove) closeRuleRemove(shownRuleRemove);}} title={t('web.recordingRules.removeTitle', {name: shownRuleRemove?.rule.name ?? ''})} description={t('web.recordingRules.removeBody')} testID="live-owner-rule-remove" initialFocusRef={confirmCancel}
       footer={<View style={{flexDirection: 'row', gap: 10}}><Button ref={confirmCancel} variant="glass" disabled={!!busy} onPress={() => {if (shownRuleRemove) closeRuleRemove(shownRuleRemove);}}>{t('action.cancel')}</Button><Button variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} disabled={!!busy} loading={busy.startsWith('rule')} onPress={() => {
         const opening = shownRuleRemove;
@@ -158,7 +194,7 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
         // Visibility and the controller are re-read at the press.
         if (runtime.getSnapshot().contentVisible !== true || !opening.controller.lifetime.current()) return;
         ruleRemoveFlight.current = opening;
-        void write(`rule:${opening.rule.id}`, async () => {await opening.controller.deleteRule(opening.rule); if (opening.controller.lifetime.current() && ruleRemoveRef.current === opening) setRules(current => current?.filter(row => row.id !== opening.rule.id));},
+        void write(`rule:${opening.rule.id}`, async isCurrent => {await opening.controller.deleteRule(opening.rule); if (!isCurrent()) return;},
           () => mounted.current && ruleRemoveFlight.current === opening && ruleRemoveRef.current === opening
             && opening.controller === controller && runtime.navigation?.getSnapshot().revision === opening.revision).then(
           () => {if (mounted.current && opening.controller.lifetime.current() && ruleRemoveRef.current === opening) closeRuleRemove(opening);},
@@ -292,29 +328,48 @@ function PendingBar({count, busy, runtime, onDiscard, onSave}: {count: number; b
 /** Frame 17a: a new rule from a series the guide really lists, for a permitted profile. */
 export function NewRuleSheet({controller, runtime, policy, sources, ownerCursor, ownerLoading, ownerError, onMoreOwners, open, onOpenChange, onSaved}: {controller: NativeLiveOwnerController; runtime: NativeShellRuntime; policy?: Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>; sources?: readonly LiveSource[]; ownerCursor?: string; ownerLoading?: boolean; ownerError?: boolean; onMoreOwners?: () => void; open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void}) {
   const theme = useTheme(), t = runtime.text.t;
+  const revision = controller.lifetime.current() ? runtime.navigation?.getSnapshot().revision : undefined;
+  const visible = controller.lifetime.current() && runtime.getSnapshot().contentVisible === true && controller.lifetime.current();
+  const sheetFacts = useMemo(() => ({controller, runtime, navigation: runtime.navigation, revision, visible, open}), [controller, runtime, runtime.navigation, revision, visible, open]);
+  type SheetAdmission = {facts: typeof sheetFacts; live: boolean};
+  const sheetFlight = useRef<object | undefined>(undefined), ownFlight = useRef<object | undefined>(undefined);
+  const sheetRef = useRef<SheetAdmission | undefined>(undefined), [sheet, setSheet] = useState<SheetAdmission>();
+  useLayoutEffect(() => {
+    const opening: SheetAdmission = {facts: sheetFacts, live: true}; sheetRef.current = opening; setSheet(opening);
+    return () => {opening.live = false; if (sheetRef.current === opening) {sheetRef.current = undefined; sheetFlight.current = undefined; ownFlight.current = undefined;}};
+  }, [sheetFacts]);
+  const sheetCurrent = () => {
+    const exact = () => !!sheet && sheet.live && sheetRef.current === sheet && sheet.facts === sheetFacts;
+    if (!exact() || !sheetFacts.open || !sheetFacts.visible || sheetFacts.revision === undefined) return false;
+    if (!controller.lifetime.current() || !exact()) return false;
+    if (sheetFacts.navigation?.getSnapshot().revision !== sheetFacts.revision || !exact()) return false;
+    if (runtime.getSnapshot().contentVisible !== true || !exact()) return false;
+    return true;
+  };
   const [ownPolicy, setOwnPolicy] = useState<Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]; nextCursor: string}>>(), [ownSources, setOwnSources] = useState<readonly LiveSource[]>();
   const [ownLoading, setOwnLoading] = useState(false), [ownError, setOwnError] = useState(false);
-  const ownOpenRef = useRef(open); ownOpenRef.current = open;
-  const ownRevision = runtime.navigation?.getSnapshot().revision;
-  const ownController = useRef(controller);
-  const ownEpoch = useRef(0), ownFlight = useRef<object | undefined>(undefined), ownSeen = useRef(new Set<string>());
+  const ownRevision = revision;
+  const ownOwner = useRef({controller, runtime, navigation: runtime.navigation, revision});
+  const ownEpoch = useRef(0), ownSeen = useRef(new Set<string>());
   useEffect(() => {
-    const changedController = ownController.current !== controller;
-    if (changedController) {ownController.current = controller; ownEpoch.current++; ownSeen.current = new Set(); setOwnPolicy(undefined); setOwnSources(undefined);}
-    if (open) setOwnLoading(false);
-    if (!open || policy && sources || (!changedController && ownPolicy && ownSources)) return;
+    const oldOwner = ownOwner.current;
+    const changedController = oldOwner.controller !== controller || oldOwner.runtime !== runtime || oldOwner.navigation !== runtime.navigation || oldOwner.revision !== revision;
+    if (changedController) {ownOwner.current = {controller, runtime, navigation: runtime.navigation, revision}; ownEpoch.current++; ownSeen.current = new Set(); setOwnPolicy(undefined); setOwnSources(undefined);}
+    if (sheetCurrent()) setOwnLoading(false);
+    if (!sheetCurrent() || policy && sources || (!changedController && ownPolicy && ownSources)) return;
     let active = true; const epoch = ++ownEpoch.current; setOwnError(false);
-    void Promise.all([controller.policy(), controller.load(true).then(() => controller.getSnapshot().list?.sources ?? [])]).then(([nextPolicy, nextSources]) => {if (active && ownEpoch.current === epoch && controller.lifetime.current()) {setOwnPolicy(nextPolicy); setOwnSources(nextSources);}}, () => {});
-    return () => {active = false; ownEpoch.current++; ownFlight.current = undefined;};
-  }, [open, policy, sources, controller]);
-  const effectivePolicy = policy ?? (ownController.current === controller ? ownPolicy : undefined), effectiveSources = sources ?? (ownController.current === controller ? ownSources : undefined) ?? [];
+    void Promise.all([controller.policy(), controller.load(true).then(() => controller.getSnapshot().list?.sources ?? [])]).then(([nextPolicy, nextSources]) => {if (active && ownEpoch.current === epoch && sheetCurrent()) {setOwnPolicy(nextPolicy); setOwnSources(nextSources);}}, () => {});
+    return () => {active = false; if (ownEpoch.current === epoch) {ownEpoch.current++; ownFlight.current = undefined;}};
+  }, [sheet, policy, sources, controller]);
+  const effectivePolicy = policy ?? (ownOwner.current.controller === controller && ownOwner.current.runtime === runtime && ownOwner.current.navigation === runtime.navigation && ownOwner.current.revision === revision ? ownPolicy : undefined), effectiveSources = sources ?? (ownOwner.current.controller === controller && ownOwner.current.runtime === runtime && ownOwner.current.navigation === runtime.navigation && ownOwner.current.revision === revision ? ownSources : undefined) ?? [];
   const loadOwnOwners = async () => {
     const cursor = ownPolicy?.nextCursor;
-    if (!open || !ownOpenRef.current || policy || !ownPolicy || !cursor || ownFlight.current || ownSeen.current.has(cursor) || ownRevision === undefined || runtime.navigation?.getSnapshot().revision !== ownRevision || runtime.getSnapshot().contentVisible !== true) return;
-    const epoch = ownEpoch.current, revision = runtime.navigation?.getSnapshot().revision;
-    const current = () => ownOpenRef.current && ownEpoch.current === epoch && controller.lifetime.current() && runtime.getSnapshot().contentVisible === true && runtime.navigation?.getSnapshot().revision === revision;
+    if (!sheetCurrent() || policy || !ownPolicy || !cursor || ownFlight.current || ownSeen.current.has(cursor) || ownRevision === undefined) return;
+    const epoch = ownEpoch.current, revision = ownRevision;
+    const current = () => ownFlight.current === flight && ownEpoch.current === epoch && sheetCurrent() && ownFlight.current === flight && runtime.navigation?.getSnapshot().revision === revision && sheetCurrent() && ownFlight.current === flight;
     const flight = {}; ownFlight.current = flight; setOwnLoading(true); setOwnError(false);
     try {
+      if (!current()) return;
       const page = await controller.policy(cursor); if (!current()) return;
       if (JSON.stringify(ownPolicy.grants) !== JSON.stringify(page.grants)) throw new Error('invalid_response');
       const owners = appendRecordingPage(ownPolicy.owners, page.owners, cursor, page.nextCursor, ownSeen.current, row => recordingOwnerKey(row.owner));
@@ -329,38 +384,45 @@ export function NewRuleSheet({controller, runtime, policy, sources, ownerCursor,
   const [loading, setLoading] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const cancel = useRef<View>(null);
   useEffect(() => {
-    if (!open) return;
+    if (!sheetCurrent()) return;
     setName(''); setOwner(allowed[0] ? recordingOwnerKey(allowed[0].owner) : ''); setSourceId(effectiveSources[0]?.id ?? ''); setDay(new Date().toISOString().slice(0, 10));
     setSeries([]); setAnchor(''); setNewOnly(false); setBefore(null); setAfter(null); setPriority('0'); setKeepKey('default'); setError(undefined); setBusy(false);
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sheet]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!open || !sourceId || !recordingGuideRoute(day, sourceId)) {setSeries([]); return;}
+    if (!sheetCurrent() || !sourceId || !recordingGuideRoute(day, sourceId)) {setSeries([]); return;}
     let active = true;
     setLoading(true); setError(undefined);
-    void controller.guideSeries(day, sourceId).then(value => {if (active) {setSeries(value); setAnchor('');}}, failure => {if (active) setError(failure);}).finally(() => {if (active) setLoading(false);});
+    void controller.guideSeries(day, sourceId).then(value => {if (active && sheetCurrent()) {setSeries(value); setAnchor('');}}, failure => {if (active && sheetCurrent()) setError(failure);}).finally(() => {if (active && sheetCurrent()) setLoading(false);});
     return () => {active = false;};
-  }, [open, day, sourceId, controller]);
-  if (!effectivePolicy) return null;
+  }, [sheet, day, sourceId, controller]);
+  const draftFacts = useMemo(() => ({sheet, effectivePolicy, name, owner, sourceId, day, series, anchor, newOnly, before, after, priority, keepKey}), [sheet, effectivePolicy, name, owner, sourceId, day, series, anchor, newOnly, before, after, priority, keepKey]);
+  const draftRef = useRef<typeof draftFacts | undefined>(undefined);
+  useLayoutEffect(() => {draftRef.current = draftFacts; return () => {if (draftRef.current === draftFacts) draftRef.current = undefined;};}, [draftFacts]);
+  if (!sheet || !sheet.live || sheet.facts !== sheetFacts || !effectivePolicy) return null;
   const chosen = series.find(value => value.key === anchor), chosenOwner = allowed.find(value => recordingOwnerKey(value.owner) === owner);
   const kept: KeepPolicy | null = keepKey === 'default' ? null : keepKey === 'keep-all' ? {mode: 'keep-all', keepCount: 0, keepDays: 0, keepUntilWatched: false} : keepKey === 'keep-count' ? {mode: 'keep-count', keepCount: 10, keepDays: 0, keepUntilWatched: false} : {mode: 'keep-days', keepCount: 0, keepDays: 30, keepUntilWatched: false};
   const ready = !!chosenOwner && name.trim().length > 0 && !!chosen && recordingGuideRoute(day, sourceId) !== null;
   const save = async () => {
-    if (!ready || !chosen || !chosenOwner || ownerLoading || ownLoading) return;
+    if (!sheetCurrent() || draftRef.current !== draftFacts || !ready || !chosen || !chosenOwner || ownerLoading || ownLoading || sheetFlight.current) return;
+    const flight = {}; sheetFlight.current = flight;
+    const current = () => sheetFlight.current === flight && draftRef.current === draftFacts && sheetCurrent() && draftRef.current === draftFacts && sheetFlight.current === flight;
+    if (!current()) {if (sheetFlight.current === flight) sheetFlight.current = undefined; return;}
     setBusy(true); setError(undefined);
     try {
+      if (!current()) return;
       await controller.createRule({owner: chosenOwner.owner, anchor: chosen.anchor, kind: chosen.seriesId ? 'series' : 'title', name: name.trim(), match: chosen.seriesId || chosen.title, sourceId: chosen.anchor.sourceId, enabled: chosen.recordAvailable,
         options: {prePaddingMs: before, postPaddingMs: after, keepPolicy: kept, newEpisodesOnly: newOnly, priority: Math.round(Number(priority) || 0), folderTemplate: ''}}, effectivePolicy!.grants);
-      onSaved();
-    } catch (failure) {setError(failure);}
-    finally {setBusy(false);}
+      if (current()) onSaved();
+    } catch (failure) {if (current()) setError(failure);}
+    finally {if (sheetFlight.current === flight) {sheetFlight.current = undefined; if (sheetCurrent()) setBusy(false);}}
   };
   const paddingOptions = [{value: 'default', label: t('web.recordingRules.default')}, ...[0, 60, 120, 300, 600, 900].map(value => ({value: String(value), label: value ? t('recordings.minutes', {count: value / 60}) : t('recordings.none')}))];
-  return <Dialog open={open} onOpenChange={value => onOpenChange(value)} title={t('web.recordingRules.newTitle')} initialFocusRef={cancel} testID="live-owner-new-rule-sheet"
-    footer={<View style={{flexDirection: 'row', gap: 10}}><Button ref={cancel} variant="glass" disabled={busy} onPress={() => onOpenChange(false)}>{t('action.cancel')}</Button><Button variant="primary" loading={busy} disabled={!ready || ownerLoading || ownLoading} onPress={() => void save()}>{t('action.save')}</Button></View>}>
+  return <Dialog open={open} onOpenChange={value => {if (sheetCurrent()) onOpenChange(value);}} title={t('web.recordingRules.newTitle')} initialFocusRef={cancel} testID="live-owner-new-rule-sheet"
+    footer={<View style={{flexDirection: 'row', gap: 10}}><Button ref={cancel} variant="glass" disabled={busy} onPress={() => {if (sheetCurrent()) onOpenChange(false);}}>{t('action.cancel')}</Button><Button variant="primary" loading={busy} disabled={!ready || ownerLoading || ownLoading} onPress={() => void save()}>{t('action.save')}</Button></View>}>
     <View style={{gap: 12}}>
       {error !== undefined && <StateView testID="live-owner-new-rule-error" {...runtime.error(error, () => setError(undefined))}/>}
       <TextField testID="live-owner-new-rule-name" label={t('web.recordingRules.ruleName')} value={name} maxLength={160} onChangeText={setName}/>
-      <Select testID="live-owner-new-rule-owner" label={t('web.recordingRules.recordFor')} pickerContext={(policy ? ownerCursor : ownPolicy?.nextCursor) ? <Button disabled={ownerLoading || ownLoading || busy} onPress={policy ? onMoreOwners : () => void loadOwnOwners()}>{t((policy ? ownerError : ownError) ? 'next.states.tryAgain' : 'next.settings.loadMore')}</Button> : undefined} value={owner} options={[{value: '', label: t('web.recordingRules.chooseProfile')}, ...allowed.map(value => ({value: recordingOwnerKey(value.owner), label: recordingOwnerLabel(value)}))]} onValueChange={setOwner}/>
+      <Select testID="live-owner-new-rule-owner" label={t('web.recordingRules.recordFor')} pickerContext={(policy ? ownerCursor : ownPolicy?.nextCursor) ? <Button testID="live-owner-picker-more" focusId="live-owner-picker-more" disabled={ownerLoading || ownLoading || busy} onPress={policy ? onMoreOwners : () => void loadOwnOwners()}>{t((policy ? ownerError : ownError) ? 'next.states.tryAgain' : 'next.settings.loadMore')}</Button> : undefined} value={owner} options={[{value: '', label: t('web.recordingRules.chooseProfile')}, ...allowed.map(value => ({value: recordingOwnerKey(value.owner), label: recordingOwnerLabel(value)}))]} onValueChange={setOwner}/>
       {!allowed.length && <Text style={[shellType(13), {color: theme.colors.amber}]}>{t('web.recordingRules.allowFirst')}</Text>}
       <Select testID="live-owner-new-rule-source" label={t('live.guideSource')} value={sourceId} options={effectiveSources.map(value => ({value: value.id, label: value.name}))} onValueChange={value => {setSourceId(value); setAnchor('');}}/>
       <TextField testID="live-owner-new-rule-day" label={t('web.recordingRules.guideDate')} value={day} maxLength={10} autoCapitalize="none" onChangeText={value => {setDay(value); setAnchor('');}}/>

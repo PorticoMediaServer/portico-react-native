@@ -154,3 +154,22 @@ test('new-rule padding choice preserves minute wire units and null inheritance',
   assert.equal(rulePaddingFromChoice('default'), null);
   assert.equal(rulePaddingChoice(null), 'default');
 });
+
+test('rule toggle adopts only its exact advanced receipt', async () => {
+  const owner = {authority: 'local' as const, accountId: 'a', profileId: 'p'};
+  const row = {id: 'r', revision: 3, owner, status: 'disabled', kind: 'title', name: 'Title', match: 'Title', sourceId: 's', enabled: false, options: {prePaddingMs: 60000, postPaddingMs: 0, keepPolicy: null, newEpisodesOnly: false, priority: 0, folderTemplate: ''}};
+  const rule = parseAdminRules({serverId: 'server', result: {items: [row]}}, 'server')[0]!;
+  const grants = [{owner, enabled: true, inheritProfiles: false, revision: 1}];
+  let receipt = {...row, revision: 4, enabled: true};
+  const calls: string[] = [];
+  const api = {request: async <T,>(path: string) => {
+    calls.push(path);
+    if (path === '/v1/admin/live-sources') return {serverId: 'server', sources: [source], refresh: []} as T;
+    return {serverId: 'server', result: receipt} as T;
+  }};
+  const controller = new NativeLiveOwnerController(new NativeScreenLifetime(authority()), api, () => 'op1');
+  assert.equal((await controller.saveRuleEnabled(rule, grants, true)).revision, 4);
+  for (const bad of [{...receipt, id: 'other'}, {...receipt, owner: {...owner, profileId: 'other'}}, {...receipt, revision: 3}, {...receipt, enabled: false}, {...receipt, match: 'other'}, {...receipt, options: {...receipt.options, prePaddingMs: 0}}]) {
+    receipt = bad; await assert.rejects(controller.saveRuleEnabled(rule, grants, true), /invalid_response/);
+  }
+});
