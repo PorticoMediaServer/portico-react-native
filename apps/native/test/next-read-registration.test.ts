@@ -133,3 +133,26 @@ test('a third guest waits for the exact evicted incarnation teardown', async () 
   assert.ok(rows().filter((row: any) => row.props.resident).length <= 2);
   residence.unmount(); renderer.dispose(); f.close();
 });
+
+test('repeated openings of the same route object retain distinct presentation owners', async () => {
+  const f = authorityContext();
+  const {createNativeReadRenderer} = await screenModule(new URL('../src-next/screens/read/ReadRoute.tsx', import.meta.url), {
+    react: {...React, default: React}, 'react-native': {Platform: {isTV: false}}, './host-component': {nativeReadHost: () => 'TrustedReadHost'},
+    './read-route-back': {readRouteBack: (await import('../src-next/screens/read/read-route-back')).readRouteBack},
+  });
+  const renderer = createNativeReadRenderer(f.context, {getSnapshot: () => f.snapshot, subscribe: () => () => {}}, () => {});
+  const route: NativeShellRoute = {kind: 'read', itemId: 'same-item', sourceId: 'same-source'};
+  f.context.navigation.open(route, f.context.authority()); renderer.render(route); let element = renderer.renderRetained(), tree: any;
+  const residence = createHookHost(() => {tree = element.type(element.props);}); await act(() => residence.mount());
+  const rows = () => {const values = tree.props.children; return (Array.isArray(values) ? values : [values]).filter((value: any) => value?.type === 'TrustedReadHost');};
+  const originalKey = rows()[0].key;
+  f.context.navigation.open({kind: 'search-reading', query: 'same'}, f.context.authority()); renderer.renderRetained();
+  f.context.navigation.open(route, f.context.authority()); renderer.render(route); element = renderer.renderRetained(); await act(() => residence.rerender());
+  assert.equal(rows().length, 2); assert.equal(rows()[0].props.target, route); assert.equal(rows()[1].props.target, route);
+  assert.equal(rows()[0].key, originalKey); assert.notEqual(rows()[1].key, originalKey);
+  assert.equal(rows().filter((row: any) => row.props.active).length, 1); assert.equal(rows()[1].props.active, true);
+  f.context.navigation.back(f.context.authority()); f.context.navigation.back(f.context.authority());
+  element = renderer.renderRetained(); await act(() => residence.rerender());
+  assert.equal(rows().length, 1); assert.equal(rows()[0].key, originalKey); assert.equal(rows()[0].props.active, true);
+  residence.unmount(); renderer.dispose(); f.close();
+});
