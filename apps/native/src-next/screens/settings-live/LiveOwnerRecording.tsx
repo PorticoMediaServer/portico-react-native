@@ -36,10 +36,11 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
     const opening = admission;
     const exact = () => !!opening && opening.live && admissionRef.current === opening && opening.facts === facts;
     if (!exact() || !facts.visible || facts.routeRevision === undefined) return false;
-    if (!controller.current() || !exact()) return false;
-    if (facts.navigation?.getSnapshot().revision !== facts.routeRevision || !exact()) return false;
-    if (runtime.getSnapshot().contentVisible !== true || !exact()) return false;
-    return controller.current() && !controller.lifetime.signal.aborted && exact();
+    const owned = () => exact() && !controller.lifetime.signal.aborted && controller.current() && !controller.lifetime.signal.aborted && exact();
+    if (!owned()) return false;
+    if (facts.navigation?.getSnapshot().revision !== facts.routeRevision || !owned()) return false;
+    if (runtime.getSnapshot().contentVisible !== true || !owned()) return false;
+    return true;
   };
   const [dataAdmission, setDataAdmission] = useState<Admission>();
   const [tuners, setTuners] = useState<TunerView>(), [policy, setPolicy] = useState<Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>>();
@@ -55,7 +56,7 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
   const currentSheet = () => !!newRuleOpening && newRuleRef.current === newRuleOpening && active() && newRuleRef.current === newRuleOpening;
   // One rule-removal confirmation, exactly the rule it was drawn for; the flight keeps that same
   // opening so a delayed close or a second press cannot reach a successor.
-  type RuleRemoveOpening = Readonly<{token: number; rule: AdminRule; controller: NativeLiveOwnerController; revision: number}>;
+  type RuleRemoveOpening = Readonly<{token: number; rule: AdminRule; controller: NativeLiveOwnerController; revision: number; admission: Admission}>;
   const [ruleRemoveOpening, setRuleRemoveOpening] = useState<RuleRemoveOpening>();
   const ruleRemoveRef = useRef<RuleRemoveOpening | undefined>(undefined), ruleRemoveFlight = useRef<RuleRemoveOpening | undefined>(undefined), ruleRemoveToken = useRef(0), mounted = useRef(true);
   const ruleOwner = useRef(controller), ruleScopeRef = useRef<object | undefined>(undefined);
@@ -63,8 +64,8 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
   const openRuleRemove = (rule: AdminRule) => {
     if (!active() || ruleRemoveFlight.current || !publishedRules.current?.includes(rule)) return;
     const revision = runtime.navigation?.getSnapshot().revision;
-    if (revision === undefined) return;
-    const next: RuleRemoveOpening = {token: ++ruleRemoveToken.current, rule, controller, revision};
+    if (revision === undefined || !active() || !admission || ruleRemoveFlight.current || !publishedRules.current?.includes(rule)) return;
+    const next: RuleRemoveOpening = {token: ++ruleRemoveToken.current, rule, controller, revision, admission};
     // A fresh confirmation starts with no stale busy display from an orphaned write.
     if (!ruleRemoveFlight.current) setBusy('');
     ruleRemoveRef.current = next; setRuleRemoveOpening(next);
@@ -208,15 +209,21 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
     <Dialog open={shownRuleRemove !== undefined} onOpenChange={value => {if (!value && !ruleRemoveFlight.current && shownRuleRemove) closeRuleRemove(shownRuleRemove);}} title={t('web.recordingRules.removeTitle', {name: shownRuleRemove?.rule.name ?? ''})} description={t('web.recordingRules.removeBody')} testID="live-owner-rule-remove" initialFocusRef={confirmCancel}
       footer={<View style={{flexDirection: 'row', gap: 10}}><Button ref={confirmCancel} variant="glass" disabled={!!busy} onPress={() => {if (shownRuleRemove) closeRuleRemove(shownRuleRemove);}}>{t('action.cancel')}</Button><Button variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} disabled={!!busy} loading={busy.startsWith('rule')} onPress={() => {
         const opening = shownRuleRemove;
-        if (!mounted.current || !opening || ruleRemoveFlight.current || ruleRemoveRef.current !== opening) return;
-        // Visibility, the route revision and the controller are re-read at the press.
-        if (runtime.navigation?.getSnapshot().revision !== opening.revision) return;
-        // Visibility and the controller are re-read at the press.
-        if (runtime.getSnapshot().contentVisible !== true || !opening.controller.current()) return;
+        if (!opening || ruleRemoveFlight.current) return;
+        const current = () => {
+          const exact = () => mounted.current && ruleRemoveRef.current === opening && opening.controller === controller
+            && opening.admission === admission && opening.admission.live && admissionRef.current === opening.admission;
+          const owned = () => exact() && !opening.controller.lifetime.signal.aborted && opening.controller.current()
+            && !opening.controller.lifetime.signal.aborted && exact();
+          if (!owned()) return false;
+          if (runtime.navigation?.getSnapshot().revision !== opening.revision || !owned()) return false;
+          if (runtime.getSnapshot().contentVisible !== true || !owned()) return false;
+          return true;
+        };
+        if (!current()) return;
         ruleRemoveFlight.current = opening;
         void write(`rule:${opening.rule.id}`, async isCurrent => {await opening.controller.deleteRule(opening.rule); if (!isCurrent()) return;},
-          () => mounted.current && ruleRemoveFlight.current === opening && ruleRemoveRef.current === opening
-            && opening.controller === controller && runtime.navigation?.getSnapshot().revision === opening.revision).then(
+          () => ruleRemoveFlight.current === opening && current() && ruleRemoveFlight.current === opening).then(
           () => {if (mounted.current && opening.controller.current() && ruleRemoveRef.current === opening) closeRuleRemove(opening);},
           () => {}
         ).finally(() => {if (ruleRemoveFlight.current === opening) ruleRemoveFlight.current = undefined;});
@@ -361,10 +368,11 @@ export function NewRuleSheet({controller, runtime, policy, sources, ownerCursor,
   const sheetCurrent = () => {
     const exact = () => !!sheet && sheet.live && sheetRef.current === sheet && sheet.facts === sheetFacts;
     if (!exact() || !sheetFacts.open || !sheetFacts.visible || sheetFacts.revision === undefined) return false;
-    if (!controller.current() || !exact()) return false;
-    if (sheetFacts.navigation?.getSnapshot().revision !== sheetFacts.revision || !exact()) return false;
-    if (runtime.getSnapshot().contentVisible !== true || !exact()) return false;
-    return controller.current() && !controller.lifetime.signal.aborted && exact();
+    const owned = () => exact() && !controller.lifetime.signal.aborted && controller.current() && !controller.lifetime.signal.aborted && exact();
+    if (!owned()) return false;
+    if (sheetFacts.navigation?.getSnapshot().revision !== sheetFacts.revision || !owned()) return false;
+    if (runtime.getSnapshot().contentVisible !== true || !owned()) return false;
+    return true;
   };
   const [ownPolicy, setOwnPolicy] = useState<Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]; nextCursor: string}>>(), [ownSources, setOwnSources] = useState<readonly LiveSource[]>();
   const [ownLoading, setOwnLoading] = useState(false), [ownError, setOwnError] = useState(false);

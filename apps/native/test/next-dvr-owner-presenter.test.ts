@@ -305,3 +305,58 @@ test('real owner Select retains its chosen row and original opener through a gen
   const selectedRow=appended.props.renderItem({item:target,index:appended.props.data.findIndex((option:any)=>option.value===target.value)});assert.equal(selectedRow.props.accessibilityState.checked,true);
  }finally{innerHost.unmount();outerHost.unmount();f.host.unmount();}
 });
+
+async function actualControllerGuardFixture(sheet: boolean) {
+  const {NativeRecordingOwner, NewRuleSheet} = await loadPresenter();
+  const {NativeLiveOwnerController} = await import('../src-next/screens/settings-live/live-owner-controller');
+  const {NativeScreenLifetime} = await import('../src-next/screens/settings-live/lifetime');
+  const lifetime = new NativeScreenLifetime({authority: () => ({serverId: 'server', accountId: 'a', profileId: 'p1', epoch: 'e', viewerFence: 'v'}), current: () => true, subscribeAuthority: () => () => {}});
+  const requests: Array<{path: string; method?: string}> = [];
+  const controller = new NativeLiveOwnerController(lifetime, {request: async <T,>(path: string, method?: string) => {requests.push({path, method}); return {} as T;}}, () => 'original-remove');
+  const choice = owner('p1'), offeredPolicy = {owners: [choice], grants: [{owner: choice.owner, enabled: true, inheritProfiles: false, revision: 1}], nextCursor: ''};
+  // Only read data is supplied here. The controller's real current/dispose,
+  // borrowed lifetime and DELETE command remain in use.
+  Object.assign(controller, {tuners: async () => ({sources: [], upcomingWindowHours: 0}), policy: async () => offeredPolicy,
+    rules: async () => ({items: [ruleRow(1)], nextCursor: ''}), dvrSettings: async () => ({revision: 1, settings: {}, enumerations: {}}),
+    load: async () => {}, getSnapshot: () => ({list: {sources: []}}), guideSeries: async () => []});
+  let disposeOnNavigation = false, refuseReads = false, navigationReads = 0, runtimeReads = 0, closes = 0;
+  const runtime = {navigation: {getSnapshot: () => {navigationReads++; if (refuseReads) throw Error('retired navigation read'); if (disposeOnNavigation) controller.dispose(); return {revision: 7};}},
+    getSnapshot: () => {runtimeReads++; if (refuseReads) throw Error('retired runtime read'); return {contentVisible: true};}, text: {t: (key: string) => key}, error: () => ({})};
+  let tree: any;
+  const host = createHookHost(() => {tree = sheet ? NewRuleSheet({controller, runtime, policy: offeredPolicy, sources: [], open: true, onOpenChange: () => {closes++;}, onSaved: () => {}})
+    : NativeRecordingOwner({controller, runtime, recordings: {storage: async () => ({policy: {}, measurement: {usedBytes: 0, freeBytes: 0, reservedBytes: 0, writeHealthy: true}, forecastHours: 0})}, sources: []});});
+  await act(() => host.mount());
+  return {host, controller, lifetime, requests, tree: () => tree, find: (id: string) => nodes(tree).find(node => node.props.testID === id),
+    counts: () => ({navigationReads, runtimeReads, closes}), disposeOnNavigation: () => {disposeOnNavigation = true;}, refuseReads: () => {refuseReads = true;},
+    dispose: () => {host.unmount(); controller.dispose(); lifetime.dispose();}};
+}
+
+for (const sheet of [false, true]) test(`actual ${sheet ? 'sheet' : 'page'} navigation getter disposal refuses before the next runtime read`, async () => {
+  const f = await actualControllerGuardFixture(sheet);
+  try {
+    const callback = sheet ? () => f.find('live-owner-new-rule-sheet').props.onOpenChange(false) : f.find('live-owner-new-rule').props.onPress;
+    const before = f.counts(); f.disposeOnNavigation();
+    await act(callback);
+    assert(f.counts().navigationReads > before.navigationReads);
+    assert.equal(f.counts().runtimeReads, before.runtimeReads);
+    assert.equal(f.counts().closes, 0); assert.equal(f.requests.length, 0);
+    assert.equal(f.controller.current(), false); assert.equal(f.lifetime.current(), true);
+    if (!sheet) assert.equal(nodes(f.tree()).find(node => node.props.onSaved)?.props.open, false);
+  } finally {f.dispose();}
+});
+
+for (const retired of [true, false]) test(`actual removal confirmation ${retired ? 'refuses guarded reads after original disposal' : 'dispatches for its live original controller'}`, async () => {
+  const f = await actualControllerGuardFixture(false);
+  try {
+    await act(() => f.find('live-owner-rule-r1').props.onPress());
+    await act(() => f.find('live-owner-rule-menu').props.items.find((item: any) => item.id === 'remove').onSelect());
+    const dialog = f.find('live-owner-rule-remove'); assert.equal(dialog.props.open, true);
+    const press = nodes(dialog.props.footer).filter(node => node.type === 'Button').at(-1).props.onPress;
+    const before = f.counts();
+    if (retired) {f.controller.dispose(); f.refuseReads();}
+    await act(press);
+    assert.equal(f.lifetime.current(), true);
+    if (retired) {assert.deepEqual(f.counts(), before); assert.equal(f.requests.length, 0);}
+    else {assert.equal(f.requests.length, 1); assert.equal(f.requests[0].method, 'DELETE'); assert.match(f.requests[0].path, /r1\?expectedRevision=1&operationId=original-remove$/);}
+  } finally {f.dispose();}
+});
