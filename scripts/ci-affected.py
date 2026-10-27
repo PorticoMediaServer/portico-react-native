@@ -331,11 +331,11 @@ def shard_files(files, index, total):
             if shard_of(file.relative_to(ROOT).as_posix(), total) == index]
 
 
-def report_directory(index, total):
+def report_directory(index, total, label="native-tests"):
     """Persistent report directory (check-jobs.py provides CI_TEST_REPORT_DIR)."""
     base = os.environ.get("CI_TEST_REPORT_DIR") or os.environ.get("PORTICO_TEST_EVENTS_DIR")
     if base:
-        directory = Path(base) / f"native-tests-shard{index}-of{total}"
+        directory = Path(base) / f"{label}-shard{index}-of{total}"
         directory.mkdir(parents=True, exist_ok=True)
         return directory, False
     return Path(tempfile.mkdtemp(prefix="portico-test-events-")), True
@@ -417,13 +417,74 @@ def js_checks(native):
         shutil.rmtree(directory, ignore_errors=True)
 
 
+CHECKPOINT_DIR = "apps/native/test"
+
+
+def checkpoint_selection():
+    """Exactly the retired and mounted Native test files the checkpoint runs.
+
+    The checkpoint used to hand both sets to one whole-glob node invocation. The
+    same two sets are selected here explicitly — the test directory itself only,
+    retired files (not `next-*`) and mounted files (`next-*`) — so the per-file
+    supervisor can run them without adding or dropping a file.
+    """
+    names = [name for name in git("ls-files", "--", CHECKPOINT_DIR)
+             if Path(name).parent.as_posix() == CHECKPOINT_DIR
+             and name.endswith(".test.ts")]
+    retired = sorted(name for name in names if not Path(name).name.startswith("next-"))
+    mounted = sorted(name for name in names if Path(name).name.startswith("next-"))
+    if not retired or not mounted:
+        raise RuntimeError(
+            "checkpoint selection is incomplete: "
+            f"{len(retired)} retired and {len(mounted)} mounted test files")
+    for name in retired + mounted:
+        if not (ROOT / name).is_file():
+            raise RuntimeError("missing selected checkpoint test: " + name)
+    missing = [name for name in MANDATORY_TESTS[True] if name not in mounted]
+    if missing:
+        raise RuntimeError("missing mandatory security test: " + ", ".join(missing))
+    return retired, mounted
+
+
+def checkpoint_checks():
+    """Run the retired and mounted checkpoint files under the same supervisor.
+
+    One process per file, with the per-test limit, the per-file watchdog and the
+    exit grace: a hung or leaked checkpoint file is named instead of hiding every
+    later file behind one suite-wide timeout. The selection itself is unchanged.
+    """
+    retired, mounted = checkpoint_selection()
+    selected = retired + mounted
+    print(f"CHECKPOINT {len(retired)} retired + {len(mounted)} mounted test files", flush=True)
+    for name in retired:
+        print(f"  retired {name}", flush=True)
+    for name in mounted:
+        print(f"  mounted {name}", flush=True)
+    directory, ephemeral = report_directory(0, 1, "native-checkpoint")
+    runner = test_watchdog.Runner(
+        directory, file_seconds=TEST_FILE_SECONDS, test_timeout_ms=TEST_TIMEOUT_MS,
+        exit_grace=TEST_EXIT_GRACE,
+        context={"suite": "native-checkpoint", "retired": len(retired),
+                 "mounted": len(mounted), "selected": len(selected)})
+    entries = [("apps/native", ROOT / "apps/native",
+                str(Path(name).relative_to("apps/native"))) for name in selected]
+    runner.run(entries, lambda group, cwd, file: js_command(group, file))
+    if runner.exit_code:
+        raise SystemExit(runner.exit_code)
+    print(f"CHECKPOINT PASS: {len(selected)} files, {runner.elapsed:.1f}s", flush=True)
+    if ephemeral and all(result.ok for result in runner.results):
+        shutil.rmtree(directory, ignore_errors=True)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("kind", choices=["go", "js", "native-js"])
+    parser.add_argument("kind", choices=["go", "js", "native-js", "checkpoint"])
     parser.add_argument("--module", default="server")
     parser.add_argument("--group", choices=["affected", "auth", "media", "hosted"], default="affected")
     options = parser.parse_args()
     if options.kind == "go":
         go_checks(options.module, options.group)
+    elif options.kind == "checkpoint":
+        checkpoint_checks()
     else:
         js_checks(options.kind == "native-js")

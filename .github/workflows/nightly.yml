@@ -8,7 +8,10 @@ permissions:
 jobs:
   javascript:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # The checkpoint runs every retired and mounted test file one process at a
+    # time, so a hang is named instead of holding the job; the bound is the whole
+    # checkpoint's backstop, not a per-file deadline.
+    timeout-minutes: 180
     concurrency:
       group: native-javascript-${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: false
@@ -49,9 +52,15 @@ jobs:
           exit "$status"
         working-directory: portico-react-native/apps/native
       - if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
-        name: Test the mounted application
-        run: node --experimental-strip-types --import ./test/register.mjs --test test/next-*.test.ts
-        working-directory: portico-react-native/apps/native
+        name: Test the mounted and retired applications under the per-file supervisor
+        env:
+          CI_TEST_REPORT_DIR: ${{ runner.temp }}/checkpoint-report
+        run: |
+          status=0
+          python3 scripts/ci-affected.py checkpoint > "$RUNNER_TEMP/checkpoint.log" 2>&1 || status=$?
+          tail -n 60 "$RUNNER_TEMP/checkpoint.log"
+          exit "$status"
+        working-directory: portico-react-native
       # src is retained for compatibility, but App.tsx mounts src-next. Its
       # historical checks stay available at a checkpoint and remain mandatory
       # for release callers; they are not the source gate for the current app.
@@ -67,10 +76,16 @@ jobs:
         if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
         run: npm run lint:strings
         working-directory: portico-react-native/apps/native
-      - name: Retired application unit tests
-        if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
-        run: node --experimental-strip-types --import ./test/register.mjs --test $(find test -maxdepth 1 -name '*.test.ts' ! -name 'next-*' -print)
-        working-directory: portico-react-native/apps/native
+      - name: Retain full diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nightly-checkpoint-${{ strategy.job-index || '0' }}
+          path: |
+            ${{ runner.temp }}/checkpoint.log
+            ${{ runner.temp }}/checkpoint-report/**
+          if-no-files-found: ignore
+          retention-days: 7
 
   # The Vega app's own checks. Its package build needs Amazon's Vega SDK, which these runners do
   # not have; type checks, tests and strings need only its npm packages.
