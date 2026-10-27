@@ -76,7 +76,7 @@ async function fixture({isTV = true, role = 'owner', primary = 'main', canManage
   });
   const recordingState: any = {query: {view: 'upcoming'}, loading: false, busy: false, accessDenied: false, page: {recordings: [], rules: [], captureAvailable: true}};
   const viewerCalls: any[] = [];
-  const recordings: any = {lifetime, subscribe, getSnapshot: () => recordingState, load: async () => {}, loadFacts: async () => {}, nextViewerPage: async (window: unknown) => {viewerCalls.push(window);}, previousViewerPage: async () => {}, retryViewerPage: async () => {}, focusViewerRow: () => {}, blurViewerRow: () => {}, focusViewerHost: () => {}, pinViewerRow: () => true, unpinViewerRow: () => {}};
+  const recordings: any = {lifetime, subscribe, getSnapshot: () => recordingState, load: async () => {}, loadFacts: async () => {}, nextViewerPage: async (window: unknown) => {viewerCalls.push(window);}, previousViewerPage: async () => {}, retryViewerPage: async () => {}, viewerFocusToken: () => undefined, focusViewerRow: () => {}, blurViewerRow: () => {}, focusViewerHost: () => {}, pinViewerRow: () => true, unpinViewerRow: () => {}};
   const {NativeLiveScreen} = await screenModule(new URL('../src-next/screens/settings-live/LiveScreen.tsx', import.meta.url), {...common,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0, left: 0, right: 0})}, 'react-native-gesture-handler': {GestureDetector: 'GestureDetector'},
     'react-native-reanimated': {default: {View: 'AnimatedView'}, useAnimatedStyle: (fn: () => unknown) => fn()}, '../../../../../packages/client-core/src/channel-guide': channels,

@@ -78,8 +78,9 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
   nextViewerPage = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): Promise<void> => this.viewerWindow?.next(expected) ?? Promise.resolve();
   previousViewerPage = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): Promise<void> => this.viewerWindow?.previous(expected) ?? Promise.resolve();
   retryViewerPage = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): Promise<void> => this.viewerWindow?.retry(expected) ?? Promise.resolve();
-  focusViewerRow = (id: string, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): void => {if (this.viewerWindow?.snapshot() === expected) this.viewerWindow.focus(id, expected.generation);};
-  blurViewerRow = (id: string, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): void => {if (this.viewerWindow?.snapshot().scope === expected.scope) this.viewerWindow.blur(id, expected.generation);};
+  viewerFocusToken = (id: string): object | undefined => this.viewerWindow?.focusToken(id);
+  focusViewerRow = (id: string, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): object | undefined => this.viewerWindow?.snapshot() === expected ? this.viewerWindow.focus(id) : undefined;
+  blurViewerRow = (id: string, token: object, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): void => {if (this.viewerWindow?.snapshot().scope === expected.scope) this.viewerWindow.blur(id, token);};
   focusViewerHost = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): void => {if (this.viewerWindow?.snapshot() === expected) this.viewerWindow.focus(undefined);};
   pinViewerRow = (id: string, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): object | undefined => {if (this.viewerWindow?.snapshot() !== expected) return undefined; return this.viewerWindow.pin(id);};
   unpinViewerRow = (token: object, scope: object): void => {if (this.viewerWindow?.snapshot().scope === scope) this.viewerWindow.unpin(token);};

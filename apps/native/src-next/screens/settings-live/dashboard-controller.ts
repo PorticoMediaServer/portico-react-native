@@ -86,7 +86,8 @@ export class NativeDashboardController extends NativeScreenStore<NativeDashboard
     if (this.disposed) return Promise.resolve();
     const role = this.admission(); this.changeRole(role);
     if (role === 'denied') return Promise.resolve();
-    const generation = ++this.generation; this.sessionFence = undefined; this.sessionRevision = undefined;
+    const generation = ++this.generation;
+    if (!this.sessions.refreshing()) {this.sessionFence = undefined; this.sessionRevision = undefined;}
     this.publish({...this.getSnapshot(), loading: true, error: undefined});
     const sessions = this.sessions.refresh();
     const owner = role === 'owner' ? Promise.all([this.readers.console.measurement('health'), this.readers.console.measurement('storage'), this.readers.console.alerts()]) : undefined;
@@ -102,10 +103,12 @@ export class NativeDashboardController extends NativeScreenStore<NativeDashboard
   nextJobs = (expected: DashboardCursorSnapshot<Job, undefined>) => this.jobs?.next(expected) ?? Promise.resolve();
   previousJobs = (expected: DashboardCursorSnapshot<Job, undefined>) => this.jobs?.previous(expected) ?? Promise.resolve();
   retryJobs = (expected: DashboardCursorSnapshot<Job, undefined>) => this.jobs?.retry(expected) ?? Promise.resolve();
-  focusSession = (id: string, expected: DashboardCursorSnapshot<AdminSession, SessionMeta>): void => {const now = this.sessions.snapshot(); if (this.valid(this.role) && now === expected && now.items.some(row => row.id === id)) this.sessions.focus(id, expected.generation);};
-  blurSession = (id: string, expected: DashboardCursorSnapshot<AdminSession, SessionMeta>): void => {const now = this.sessions.snapshot(); if (now.scope === expected.scope) this.sessions.blur(id, expected.generation);};
-  focusJob = (id: string, expected: DashboardCursorSnapshot<Job, undefined>): void => {const now = this.jobs?.snapshot(); if (this.valid('owner') && now && now === expected && now.items.some(row => row.id === id)) this.jobs?.focus(id, expected.generation);};
-  blurJob = (id: string, expected: DashboardCursorSnapshot<Job, undefined>): void => {const now = this.jobs?.snapshot(); if (now && now.scope === expected.scope) this.jobs?.blur(id, expected.generation);};
+  sessionFocusToken = (id: string): object | undefined => this.sessions.focusToken(id);
+  jobFocusToken = (id: string): object | undefined => this.jobs?.focusToken(id);
+  focusSession = (id: string, expected: DashboardCursorSnapshot<AdminSession, SessionMeta>): object | undefined => {const now = this.sessions.snapshot(); return this.valid(this.role) && now === expected && now.items.some(row => row.id === id) ? this.sessions.focus(id) : undefined;};
+  blurSession = (id: string, token: object, expected: DashboardCursorSnapshot<AdminSession, SessionMeta>): void => {if (this.sessions.snapshot().scope === expected.scope) this.sessions.blur(id, token);};
+  focusJob = (id: string, expected: DashboardCursorSnapshot<Job, undefined>): object | undefined => {const now = this.jobs?.snapshot(); return this.valid('owner') && now && now === expected && now.items.some(row => row.id === id) ? this.jobs?.focus(id) : undefined;};
+  blurJob = (id: string, token: object, expected: DashboardCursorSnapshot<Job, undefined>): void => {if (this.jobs?.snapshot().scope === expected.scope) this.jobs.blur(id, token);};
   focusSessionHost = (expected: DashboardCursorSnapshot<AdminSession, SessionMeta>): void => {const now = this.sessions.snapshot(); if (now === expected && this.valid(this.role)) this.sessions.focus(undefined);};
   focusJobHost = (expected: DashboardCursorSnapshot<Job, undefined>): void => {const now = this.jobs?.snapshot(); if (now && now === expected && this.valid('owner')) this.jobs?.focus(undefined);};
   dispose(): void {if (this.disposed) return; this.retire(); this.disposed = true; this.lifetime.signal.removeEventListener('abort', this.retire); this.readers.console.dispose(); this.clearListeners();}

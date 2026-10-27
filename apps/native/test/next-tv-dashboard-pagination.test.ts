@@ -105,3 +105,21 @@ test('owner job continuation is fenced when admission becomes administrator', as
   assert.deepEqual(controller.getSnapshot().jobs, []); assert.equal(jobReads, 2);
   controller.dispose(); lifetime.dispose();
 });
+
+test('coalesced refresh cannot reset the session revision fence between visible pages', async () => {
+  const lifetime = new NativeScreenLifetime({authority: () => authority, current: () => true, subscribeAuthority: () => () => {}});
+  let refreshing = false, finish!: (value: ReturnType<typeof page>) => void;
+  const readers: NativeDashboardReaders = {
+    sessions: {list: async cursor => {
+      if (!refreshing) return cursor ? page('old2', 1) : page('old1', 1, 'next');
+      return cursor ? new Promise(resolve => {finish = resolve;}) : {...page('fresh1', 1, 'next'), revision: 'rev-2'};
+    }},
+    console: {measurement: async name => ({name, observedAt: 1, freshUntil: 30001, facts: {}}), alerts: async () => [], jobs: async () => ({items: [], nextCursor: ''}), dispose() {}},
+  };
+  const controller = new NativeDashboardController(lifetime, () => 'administrator', readers);
+  await controller.refresh(); await controller.nextSessions(controller.getSnapshot().sessionWindow!);
+  refreshing = true; const first = controller.refresh(); await new Promise<void>(resolve => setImmediate(resolve));
+  const duplicate = controller.refresh(); finish({...page('wrong', 1), revision: 'rev-3'}); await Promise.all([first, duplicate]);
+  assert.equal(controller.getSnapshot().sessionWindow?.refreshRequired, true); assert.deepEqual(controller.getSnapshot().sessions.map(row => row.id), ['old10', 'old20']);
+  controller.dispose(); lifetime.dispose();
+});
