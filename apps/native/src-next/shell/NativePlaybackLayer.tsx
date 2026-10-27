@@ -203,14 +203,17 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
   const coverSubscribe = useCallback((listener: () => void) => {
     const original = runtime.retirementSignal;
     if (original?.aborted) return () => {};
+    // A same-fence source retirement need not publish a navigation revision or
+    // replace this memoised UI binding. Observe its original playback owner too.
+    const unsubscribePlayback = adapter.subscribe(listener);
     const unsubscribe = navigation?.subscribe(listener);
     let ended = false;
-    const off = () => {if (ended) return; ended = true; unsubscribe?.();};
+    const off = () => {if (ended) return; ended = true; try {unsubscribe?.();} finally {unsubscribePlayback();}};
     const retire = () => {off(); listener();};
     original?.addEventListener('abort', retire, {once: true});
     if (original?.aborted) retire();
     return () => {original?.removeEventListener('abort', retire); off();};
-  }, [navigation, runtime.retirementSignal]);
+  }, [adapter, navigation, runtime.retirementSignal]);
   const audioArtwork = useMemo(() => audioFence && sameAuthority(snapshot.authority, authority) ? runtime.artwork(snapshot.entry?.posterUrl) : undefined,
     [audioFence, snapshot.authority, authority, runtime, snapshot.entry?.posterUrl]);
   const coverPublication = useMemo(() => audioFence ? {fence: audioFence, source: audioArtwork,

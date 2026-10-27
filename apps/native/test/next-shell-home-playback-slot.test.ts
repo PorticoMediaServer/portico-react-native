@@ -20,7 +20,8 @@ test('actual playback layer converts measured window slot to its own origin and 
   const h = hooks(), dock = new PlaybackDock(fence.playback.scope);
   dock.start({kind: 'video', fence, queue: null, positionSeconds: 540, playing: true, expanded: false});
   let current = {authority, fence, dock: dock.getSnapshot(), playback: {duration: 5700}, subject: {}, capabilities: {}};
-  const adapter = {getSnapshot: () => current, subscribe: () => () => {}, Surface: 'ActualSurface', dock};
+  const playbackListeners = new Set<() => void>();let publication: any;
+  const adapter = {getSnapshot: () => current, subscribe: (listener: () => void) => {playbackListeners.add(listener);return () => {playbackListeners.delete(listener);};}, Surface: 'ActualSurface', dock};
   const morph = {dragging: {value: false}, dockX: {value: 0}, dockFade: {value: 1}};
   const {NativePlaybackLayer} = await screenModule(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), {
     './listening-presentation': {captureListeningOpening, expandedListeningOccupant, localListeningOccupant},
@@ -29,7 +30,7 @@ test('actual playback layer converts measured window slot to its own origin and 
     '../kit/dock/DockHandover': {DockVideoExitProvider: 'DockVideoExitProvider', DockVideoExitCanvas: 'DockVideoExitCanvas'},
     '../kit/dock/InitialPicturePresentation': {InitialPicturePresentation: 'InitialPicturePresentation'},
     '../kit/dock/initial-picture-model': {initialPictureKey: () => 'initial-picture'},
-    '../kit/dock/ListeningCoverBridge': listeningCoverFixture,
+    '../kit/dock/ListeningCoverBridge': {...listeningCoverFixture, useListeningCoverPublication: (value: unknown) => {publication = value;}},
     '../kit/dock/PlayerMorphBridge': {PlayerMorphProvider: 'PlayerMorphProvider', useInitialPlayerPagePaint: () => undefined, usePlayerMorphPublication() {}},
     react: h.react, 'react-native': {BackHandler: {}, Image: 'Image', Platform: {OS: 'android'}, View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
     'react-native-gesture-handler': {GestureDetector: 'GestureDetector'}, '../../../../packages/player-core/src': {sameFence},
@@ -41,7 +42,8 @@ test('actual playback layer converts measured window slot to its own origin and 
     './model': {sameAuthority}, './playback': {}, './video-snapshot': {NativeVideoSnapshotCapture: class {async clear() {} async prepare() {}}},
     './watch-slot-layout': watchSlotLayout, './TVStartFailure': {TVStartFailure: 'TVStartFailure'}, './TouchStartFailure': {TouchStartFailure: 'TouchStartFailure'},
   });
-  const runtime = {text: {}, reportError() {}, artwork: () => undefined, ambient: () => undefined};
+  const retirement = new AbortController();
+  const runtime = {retirementSignal: retirement.signal, text: {}, reportError() {}, artwork: () => undefined, ambient: () => undefined};
   const render = () => h.render(() => NativePlaybackLayer({adapter, runtime, authority}));
   const callbacks: ((x: number, y: number) => void)[] = [];
   let tree = render();
@@ -71,4 +73,17 @@ test('actual playback layer converts measured window slot to its own origin and 
   onSlot({...slot, x: 100}); tree.props.ref.current = null;
   callbacks.shift()!(0, -45);
   assert.equal(frame().x, 20, 'detached host rejects the measurement');
+
+  // Authored UNRUN UI watcher source case; the hook fixture does not prove a
+  // native subscriber, host identity or actual player retirement sequence.
+  dock.start({kind: 'music', fence, queue: null, positionSeconds: 30, playing: true, expanded: false});
+  current = {...current, dock: dock.getSnapshot()};render();
+  let notices = 0;const off = publication.subscribe(() => {notices++;});
+  assert.equal(playbackListeners.size, 1);
+  for (const listener of [...playbackListeners]) listener();
+  assert.equal(notices, 1, 'same-fence playback facts notify the original UI paint without navigation');
+  retirement.abort();assert.equal(playbackListeners.size, 0, 'original abort removes the playback watcher synchronously');
+  adapter.getSnapshot = () => {throw new Error('retired accessor must not be read');};
+  assert.equal(publication.current(), false);off();
+  assert.equal(playbackListeners.size, 0);
 });

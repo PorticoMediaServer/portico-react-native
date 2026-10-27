@@ -68,6 +68,7 @@ export const listeningCoverFixture = {
   ListeningSeekPaint: 'ListeningSeekPaint', useListeningScrubberPublication: () => false,
   useListeningCoverPublication() {},
   useListeningPageStyle: () => ({}),
+  useListeningTabBarPaint: () => ({style: {}, measure() {}}),
   useListeningPaintPermit: () => undefined, useListeningPageActive: () => true, useListeningPageOwner() {}, useListeningPageHeight: () => () => {}, useListeningPagePresent: () => false,
   useListeningCoverSlot: () => ({measure() {}, style: {}}),
 };
