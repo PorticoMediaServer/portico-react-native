@@ -48,7 +48,7 @@ const routeKey = (route: Readonly<{revision: number; route: {kind: string}; dest
 /** One opening of a row's menu or sheet, created by the handler that opens it. Callbacks
  * capture this object and compare it by identity, so a late close from an earlier opening
  * can never mutate the current one. `retired` says that opening may no longer act. */
-type OverlayOpening = {kind: 'menu' | 'details'; recording: Recording; query: string; route: string; retired: boolean};
+type OverlayOpening = {kind: 'menu' | 'details'; recording: Recording; query: string; route: string; scope: object; retired: boolean};
 
 /** The delete ask started from one opening, holding that exact opening. */
 type DeleteAsk = Readonly<{opening: OverlayOpening; controller: NativeRecordingsController; recording: Recording}>;
@@ -59,7 +59,7 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]), tabs = ids.surface('recordings.views'), body = ids.surface('recordings.page');
   const registry = useFocusRegistry(), bodyFocused = useRef(false);
   const [group, setGroup] = useState<Group>(), [menu, setMenu] = useState<OverlayOpening>(), [detail, setDetail] = useState<OverlayOpening>(), [rule, setRule] = useState<RecordingRule>();
-  const [confirm, setConfirm] = useState<Readonly<{recording: Recording; preview?: DeletePreview}>>(), [newRule, setNewRule] = useState(false), [sortOpen, setSortOpen] = useState(false);
+  const [confirm, setConfirm] = useState<Readonly<{recording: Recording; preview?: DeletePreview; opening: OverlayOpening}>>(), [newRule, setNewRule] = useState(false), [sortOpen, setSortOpen] = useState(false);
   const opener = useRef<View | null>(null), rows = useRef(new Map<string, View>()), cancel = useRef<View>(null);
   const list = useRef<FlatList<Row>>(null), alive = useRef(true);
   const navigation = ports.context.navigation;
@@ -73,8 +73,12 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
   const previousScope = scope.current;
   if (previousScope && (previousScope.controller !== controller || previousScope.key !== scopeKey)) ask.current = undefined;
   scope.current = {controller, key: scopeKey};
-  const retire = () => {ask.current = undefined;};
-  const recordings = state.page?.recordings ?? [], groups = state.groups?.groups ?? [], rules = state.page?.rules ?? [];
+  const confirmation = useRef<typeof confirm>(undefined); confirmation.current = confirm;
+  const retire = () => {if (ask.current) controller.unpinViewerRow(ask.current.recording.id, ask.current.opening.scope); ask.current = undefined;};
+  const closeConfirm = () => {if (confirm) controller.unpinViewerRow(confirm.recording.id, confirm.opening.scope); setConfirm(current => current === confirm ? undefined : current);};
+  const recordings = state.viewerWindow ? state.viewerWindow.items.flatMap(row => row.kind === 'recording' ? [row.value] : []) : state.page?.recordings ?? [];
+  const groups = state.viewerWindow ? state.viewerWindow.items.flatMap(row => row.kind === 'group' ? [row.value] : []) : state.groups?.groups ?? [];
+  const rules = state.viewerWindow ? state.viewerWindow.items.flatMap(row => row.kind === 'rule' ? [row.value] : []) : state.page?.rules ?? [];
   const first = query.view === 'recorded' && !query.group ? groups[0]?.key : query.view === 'rules' ? rules[0]?.id : (recordings.find(value => value.state === 'conflicted') ? `${recordings.find(value => value.state === 'conflicted')!.id}.resolve` : recordings[0]?.id);
   const emptyGuide = !state.loading && !state.accessDenied && state.error === undefined
     && (query.view === 'upcoming' && !recordings.length && state.page?.captureAvailable === true
@@ -84,7 +88,7 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
   const enter = useScreenEntry(theme.isTV && !awaitingFirstPage ? {regionId: entryRegion, childId: entryChild} : undefined, controller.lifetime.current);
   // The asks die with the screen in the layout phase, so StrictMode's
   // mount/unmount/mount leaves them live again on the committed mount.
-  useLayoutEffect(() => {alive.current = true; return () => {alive.current = false; ask.current = undefined;};}, []);
+  useLayoutEffect(() => {alive.current = true; return () => {alive.current = false; if (ask.current) controller.unpinViewerRow(ask.current.recording.id, ask.current.opening.scope); if (overlay.current) controller.unpinViewerRow(overlay.current.recording.id, overlay.current.scope); if (confirmation.current) controller.unpinViewerRow(confirmation.current.recording.id, confirmation.current.opening.scope); ask.current = undefined;};}, []);
   useEffect(() => {const previous = controller.getSnapshot().query; void controller.load(previous.group ? {view: 'recorded', sort: previous.sort} : previous); void controller.loadFacts();}, [controller]);
   const select = (view: DVRView) => {if (view === query.view && !query.group) return; retire(); setGroup(undefined); void controller.load({view}); list.current?.scrollToOffset({offset: 0, animated: false});};
   /** The drawn order of the Recorded grid; the groups reader does the ordering. */
@@ -99,9 +103,13 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
   }, [menu, detail, rule, confirm, registry, tabs, query.group, query.view, controller, onGuide]);
   useScreenBack(runtime, back, theme.isTV);
   const open = (recording: Recording, kind: 'menu' | 'details') => {
-    const opening: OverlayOpening = {kind, recording, query: queryKey(controller.getSnapshot().query), route: routeKey(navigation.getSnapshot()), retired: false};
-    if (overlay.current) overlay.current.retired = true;
-    retire(); opener.current = rows.current.get(recording.id) ?? null; overlay.current = opening;
+    const window = controller.getSnapshot().viewerWindow;
+    if (!window || !window.items.some(row => row.kind === 'recording' && sameRecording(row.value, recording))) return;
+    retire();
+    if (overlay.current) {overlay.current.retired = true; controller.unpinViewerRow(overlay.current.recording.id, overlay.current.scope);}
+    if (!controller.pinViewerRow(recording.id, window)) return;
+    const opening: OverlayOpening = {kind, recording, query: queryKey(controller.getSnapshot().query), route: routeKey(navigation.getSnapshot()), scope: window.scope, retired: false};
+    opener.current = rows.current.get(recording.id) ?? null; overlay.current = opening;
     if (kind === 'menu') setMenu(opening); else setDetail(opening);
   };
   /** A close acts only for the opening it was drawn for. The menu's own close after a
@@ -109,7 +117,8 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
   const close = (opening: OverlayOpening, reason: 'user' | 'action') => {
     if (overlay.current !== opening) return;
     overlay.current = undefined;
-    if (reason === 'user') {opening.retired = true; if (ask.current?.opening === opening) ask.current = undefined;}
+    if (reason === 'user') {opening.retired = true; if (ask.current?.opening === opening) ask.current = undefined; controller.unpinViewerRow(opening.recording.id, opening.scope);}
+    else if (ask.current?.opening !== opening) controller.unpinViewerRow(opening.recording.id, opening.scope);
     if (opening.kind === 'menu') setMenu(current => current === opening ? undefined : current);
     else setDetail(current => current === opening ? undefined : current);
   };
@@ -118,7 +127,8 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
     if (opening.retired || !controller.lifetime.current() || !navigation.isCurrent()) return false;
     if (runtime.getSnapshot().contentVisible !== true) return false;
     if (routeKey(navigation.getSnapshot()) !== opening.route) return false;
-    return queryKey(controller.getSnapshot().query) === opening.query;
+    const snapshot = controller.getSnapshot();
+    return queryKey(snapshot.query) === opening.query && snapshot.viewerWindow?.scope === opening.scope && snapshot.viewerWindow.items.some(row => row.kind === 'recording' && sameRecording(row.value, opening.recording));
   };
   const run = (work: () => Promise<unknown>) => {void work().catch(error => {if (alive.current && controller.lifetime.current()) runtime.reportError(error);});};
   const play = async (recording: Recording) => {
@@ -138,12 +148,14 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
     if (!alive.current || overlay.current !== opening || !askReady(opening)) return;
     const recording = opening.recording, current: DeleteAsk = {opening, controller, recording};
     ask.current = current;
-    const preview = activeRecording(recording) ? undefined : await controller.deletePreview(recording);
-    if (ask.current !== current || !askReady(opening)) return;
-    if (controller.getSnapshot().page?.recordings?.some(value => sameRecording(value, recording)) !== true) return;
+    let preview: DeletePreview | undefined;
+    try {preview = activeRecording(recording) ? undefined : await controller.deletePreview(recording);}
+    catch (error) {if (ask.current === current) {ask.current = undefined; if (overlay.current !== opening) controller.unpinViewerRow(recording.id, opening.scope);} throw error;}
+    if (ask.current !== current || !askReady(opening)) {if (ask.current === current) {ask.current = undefined; if (overlay.current !== opening) controller.unpinViewerRow(recording.id, opening.scope);} return;}
+    if (!controller.getSnapshot().viewerWindow?.items.some(row => row.kind === 'recording' && sameRecording(row.value, recording))) return;
     ask.current = undefined;
     if (overlay.current === opening) {overlay.current = undefined; if (opening.kind === 'menu') setMenu(current => current === opening ? undefined : current); else setDetail(current => current === opening ? undefined : current);}
-    setConfirm({recording, preview});
+    setConfirm({recording, preview, opening});
   };
   const rowData: Row[] = [];
   if (query.view === 'upcoming') {
@@ -177,19 +189,25 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
         : query.view === 'recorded' && !query.group ? <View style={{flex: 1}}>{theme.isTV && state.summary && <View style={{flexDirection: 'row', alignItems: 'center', gap: 32, marginBottom: 24}}>
           <Text style={[shellType(24, 600, 'normal'), {color: theme.colors.textSecondary, flex: 1}]}>{t('next.live.recordedHead', {shows: state.summary.groups, recordings: state.summary.recorded, unwatched: state.summary.unwatched})}</Text>
           <Chip focusId="recordings-sort" testID="recordings-sort" onPress={() => setSortOpen(true)}>{`${t('next.browse.sort')} · ${t(sortLabels[sort])}`}</Chip>
-        </View>}<FlatList key={`groups:${theme.isTV ? 4 : theme.width >= 700 ? 3 : 2}`} data={groups} numColumns={theme.isTV ? 4 : theme.width >= 700 ? 3 : 2} keyExtractor={value => value.key} columnWrapperStyle={{gap: theme.isTV ? 28 : 16}} contentContainerStyle={{gap: theme.isTV ? 36 : 24, paddingBottom: 90}} renderItem={({item}) => <RecordingCard value={item} runtime={runtime} onOpen={() => {setGroup(item); retire(); void controller.load({view: 'recorded', group: item.key, sort});}}/>}/>{theme.isTV && <ListFade/>}</View>
-        : query.view === 'rules' ? <FlatList key="rules" data={rules} keyExtractor={value => value.id} contentContainerStyle={{gap: theme.isTV ? 14 : 12, paddingBottom: 90}} ListHeaderComponent={<View style={{flexDirection: 'row', alignItems: 'center', gap: 20, marginBottom: theme.isTV ? 6 : 4}}><Text style={[shellType(theme.isTV ? 22 : 14), {color: theme.colors.textTertiary, flex: 1}]}>{t('recordings.rulesLedeLead')} <Text style={{color: theme.colors.text, fontWeight: '700'}}>{t('recordings.rulesLedeAction')}</Text> {t('recordings.rulesLedeTail')}</Text></View>} renderItem={({item}) => <RuleRow rule={item} runtime={runtime} refNode={node => {if (node) rows.current.set(item.id, node); else rows.current.delete(item.id);}} onOpen={() => {opener.current = rows.current.get(item.id) ?? null; setRule(item);}}/>}/>
-        : <View style={{flex: 1}}><FlatList key={`rows:${query.view}:${query.group ?? ''}`} ref={list} data={rowData} keyExtractor={value => value.kind === 'heading' ? value.id : value.recording.id} contentContainerStyle={{paddingBottom: 90}} renderItem={({item}) => item.kind === 'heading' ? <Text accessibilityRole="header" style={[shellType(theme.isTV ? 32 : 22, 700, 'normal', -.02), {color: theme.colors.text, marginTop: 16, marginBottom: 14}]}>{item.title}</Text> : <RecordingRow recording={item.recording} history={query.view === 'history'} runtime={runtime} refNode={node => {if (node) rows.current.set(item.recording.id, node); else rows.current.delete(item.recording.id);}} onOpen={() => open(item.recording, 'details')} onMenu={() => open(item.recording, 'menu')}/>}/>{theme.isTV && query.view === 'history' && <ListFade/>}</View>}
+        </View>}<FlatList onEndReached={() => {if (state.viewerWindow) void controller.nextViewerPage(state.viewerWindow);}} onEndReachedThreshold={0.3} key={`groups:${theme.isTV ? 4 : theme.width >= 700 ? 3 : 2}`} data={groups} numColumns={theme.isTV ? 4 : theme.width >= 700 ? 3 : 2} keyExtractor={value => value.key} columnWrapperStyle={{gap: theme.isTV ? 28 : 16}} contentContainerStyle={{gap: theme.isTV ? 36 : 24, paddingBottom: 90}} renderItem={({item}) => <RecordingCard value={item} runtime={runtime} onFocus={() => {if (state.viewerWindow) controller.focusViewerRow(item.key, state.viewerWindow);}} onBlur={() => {if (state.viewerWindow) controller.blurViewerRow(item.key, state.viewerWindow);}} onOpen={() => {setGroup(item); retire(); void controller.load({view: 'recorded', group: item.key, sort});}}/>}/>{theme.isTV && <ListFade/>}</View>
+        : query.view === 'rules' ? <FlatList onEndReached={() => {if (state.viewerWindow) void controller.nextViewerPage(state.viewerWindow);}} onEndReachedThreshold={0.3} key="rules" data={rules} keyExtractor={value => value.id} contentContainerStyle={{gap: theme.isTV ? 14 : 12, paddingBottom: 90}} ListHeaderComponent={<View style={{flexDirection: 'row', alignItems: 'center', gap: 20, marginBottom: theme.isTV ? 6 : 4}}><Text style={[shellType(theme.isTV ? 22 : 14), {color: theme.colors.textTertiary, flex: 1}]}>{t('recordings.rulesLedeLead')} <Text style={{color: theme.colors.text, fontWeight: '700'}}>{t('recordings.rulesLedeAction')}</Text> {t('recordings.rulesLedeTail')}</Text></View>} renderItem={({item}) => <RuleRow rule={item} runtime={runtime} onFocus={() => {if (state.viewerWindow) controller.focusViewerRow(item.id, state.viewerWindow);}} onBlur={() => {if (state.viewerWindow) controller.blurViewerRow(item.id, state.viewerWindow);}} refNode={node => {if (node) rows.current.set(item.id, node); else rows.current.delete(item.id);}} onOpen={() => {opener.current = rows.current.get(item.id) ?? null; setRule(item);}}/>}/>
+        : <View style={{flex: 1}}><FlatList onEndReached={() => {if (state.viewerWindow) void controller.nextViewerPage(state.viewerWindow);}} onEndReachedThreshold={0.3} key={`rows:${query.view}:${query.group ?? ''}`} ref={list} data={rowData} keyExtractor={value => value.kind === 'heading' ? value.id : value.recording.id} contentContainerStyle={{paddingBottom: 90}} renderItem={({item}) => item.kind === 'heading' ? <Text accessibilityRole="header" style={[shellType(theme.isTV ? 32 : 22, 700, 'normal', -.02), {color: theme.colors.text, marginTop: 16, marginBottom: 14}]}>{item.title}</Text> : <RecordingRow recording={item.recording} onFocus={() => {if (state.viewerWindow) controller.focusViewerRow(item.recording.id, state.viewerWindow);}} onBlur={() => {if (state.viewerWindow) controller.blurViewerRow(item.recording.id, state.viewerWindow);}} history={query.view === 'history'} runtime={runtime} refNode={node => {if (node) rows.current.set(item.recording.id, node); else rows.current.delete(item.recording.id);}} onOpen={() => open(item.recording, 'details')} onMenu={() => open(item.recording, 'menu')}/>}/>{theme.isTV && query.view === 'history' && <ListFade/>}</View>}
+      {state.viewerWindow && <>
+        {state.viewerWindow.error !== undefined && <StateView {...runtime.error(state.viewerWindow.error, () => {if (state.viewerWindow) void controller.retryViewerPage(state.viewerWindow);})} testID="recordings-page-error"/>}
+        {state.viewerWindow.refreshRequired && <StateView {...runtime.error({code: 'stale_continuation'}, () => {void controller.load();})} testID="recordings-page-refresh"/>}
+        {state.viewerWindow.chunks[0]?.cursor && <Button focusId="recordings-page-previous" testID="recordings-page-previous" onPress={() => {if (state.viewerWindow) void controller.previousViewerPage(state.viewerWindow);}}>{t('web.pager.previous')}</Button>}
+        {(state.viewerWindow.nextCursor || state.viewerWindow.pending) && <Focusable key="recordings-page-next" focusId="recordings-page-next" testID="recordings-page-next" disabled={state.viewerWindow.pending} focusableWhenDisabled onFocus={() => {if (state.viewerWindow) controller.focusViewerHost(state.viewerWindow);}} onPress={() => {if (state.viewerWindow) void (state.viewerWindow.refreshRequired ? controller.load() : state.viewerWindow.error !== undefined ? controller.retryViewerPage(state.viewerWindow) : controller.nextViewerPage(state.viewerWindow));}}><ScreenText>{t(state.viewerWindow.error !== undefined || state.viewerWindow.refreshRequired ? 'next.states.tryAgain' : 'next.settings.loadMore')}</ScreenText></Focusable>}
+      </>}
     </FocusRegion>
     <Menu key={menu ? `${menu.recording.id}:${menu.recording.revision}` : 'recordings-menu'} open={menu !== undefined} onOpenChange={(value, reason) => {if (!value && menu) close(menu, reason === 'action' ? 'action' : 'user');}} title={menu?.recording.programme.title} returnFocusRef={opener} testID="recordings-menu" items={menu ? [
-      ...(playableRecording(menu.recording) ? [{id: 'play', icon: 'i-play' as const, label: t('action.play'), disabled: state.busy, onSelect: () => {if (overlay.current === menu) run(() => play(menu.recording));}}] : []),
-      ...(!activeRecording(menu.recording) && playableRecording(menu.recording) ? [{id: 'keep', icon: 'i-bookmark' as const, label: t(menu.recording.keep ? 'web.dvr.stopKeeping' : 'web.dvr.keep'), disabled: state.busy, onSelect: () => {if (overlay.current === menu) run(() => controller.keep(menu.recording));}}] : []),
+      ...(playableRecording(menu.recording) ? [{id: 'play', icon: 'i-play' as const, label: t('action.play'), disabled: state.busy, onSelect: () => {if (overlay.current === menu && askReady(menu)) run(() => play(menu.recording));}}] : []),
+      ...(!activeRecording(menu.recording) && playableRecording(menu.recording) ? [{id: 'keep', icon: 'i-bookmark' as const, label: t(menu.recording.keep ? 'web.dvr.stopKeeping' : 'web.dvr.keep'), disabled: state.busy, onSelect: () => {if (overlay.current === menu && askReady(menu)) run(() => controller.keep(menu.recording));}}] : []),
       ...(activeRecording(menu.recording) ? [{id: 'cancel', label: t('recordings.cancelAction'), disabled: state.busy, onSelect: () => run(() => askDelete(menu))}] : state.page?.deletionAvailable ? [{id: 'separator', separator: true as const}, {id: 'delete', icon: 'i-trash' as const, label: t('web.dvr.deleteRecording'), destructive: true, disabled: state.busy, onSelect: () => run(() => askDelete(menu))}] : []),
     ] : []}/>
     <Menu testID="recordings-sort" presentation="sideSheet" open={sortOpen} onOpenChange={value => {if (!value) setSortOpen(false);}} title={t('next.browse.sort')}
       items={(['recent', 'title', 'oldest'] as const).map(value => ({id: value, label: t(sortLabels[value]), selected: value === sort, onSelect: () => selectSort(value)}))}/>
-    {detail && <RecordingDetails key={`${detail.recording.id}:${detail.recording.revision}:${detail.query}`} recording={detail.recording} controller={controller} runtime={runtime} onClose={() => close(detail, 'user')} opener={opener} onPlay={() => {if (overlay.current === detail) run(() => play(detail.recording));}} onRemove={() => run(() => askDelete(detail))} deletionAvailable={state.page?.deletionAvailable === true}/>}
-    <Dialog key={confirm ? `${confirm.recording.id}:${confirm.recording.revision}` : 'recordings-confirm'} open={confirm !== undefined} onOpenChange={value => {if (!value && !controller.getSnapshot().busy) setConfirm(current => current === confirm ? undefined : current);}} title={confirm ? t(confirm.preview ? 'web.dvr.deleteTitle' : 'web.dvr.cancelTitle', {title: confirm.recording.programme.title}) : ''} description={confirm ? confirm.preview ? t(confirm.preview.activeReaders ? 'web.dvr.deleteBodyInUse' : confirm.preview.keep ? 'web.dvr.deleteBodyKept' : 'web.dvr.deleteBody', {size: defaultI18n.bytes(confirm.preview.bytes)}) : t('web.dvr.cancelBody') : undefined} width={theme.isTV ? 980 : undefined} initialFocusRef={cancel} returnFocusRef={opener} testID="recordings-confirm" footer={<View style={{flexDirection: 'row', justifyContent: 'flex-end', gap: 16}}><Button testID="recordings-confirm-cancel" ref={cancel} variant="glass" disabled={state.busy} onPress={() => setConfirm(current => current === confirm ? undefined : current)}>{t('web.dvr.keepIt')}</Button><Button testID="recordings-confirm-delete" variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} disabled={state.busy} loading={state.busy} onPress={() => {if (!confirm) return; const opening = confirm; run(async () => {const result = opening.preview ? await controller.remove(opening.recording, opening.preview) : await controller.cancel(opening.recording); if (result && alive.current && controller.lifetime.current()) setConfirm(current => current === opening ? undefined : current);});}}>{t(confirm?.preview ? 'web.dvr.deleteRecording' : 'recordings.cancelAction')}</Button></View>}>{state.error !== undefined ? <StateView testID="recordings-confirm-error" {...runtime.error(state.error, () => setConfirm(current => current === confirm ? undefined : current))}/> : <View/>}</Dialog>
+    {detail && <RecordingDetails key={`${detail.recording.id}:${detail.recording.revision}:${detail.query}`} recording={detail.recording} controller={controller} runtime={runtime} onClose={() => close(detail, 'user')} opener={opener} onPlay={() => {if (overlay.current === detail && askReady(detail)) run(() => play(detail.recording));}} onRemove={() => run(() => askDelete(detail))} deletionAvailable={state.page?.deletionAvailable === true}/>}
+    <Dialog key={confirm ? `${confirm.recording.id}:${confirm.recording.revision}` : 'recordings-confirm'} open={confirm !== undefined} onOpenChange={value => {if (!value && !controller.getSnapshot().busy) closeConfirm();}} title={confirm ? t(confirm.preview ? 'web.dvr.deleteTitle' : 'web.dvr.cancelTitle', {title: confirm.recording.programme.title}) : ''} description={confirm ? confirm.preview ? t(confirm.preview.activeReaders ? 'web.dvr.deleteBodyInUse' : confirm.preview.keep ? 'web.dvr.deleteBodyKept' : 'web.dvr.deleteBody', {size: defaultI18n.bytes(confirm.preview.bytes)}) : t('web.dvr.cancelBody') : undefined} width={theme.isTV ? 980 : undefined} initialFocusRef={cancel} returnFocusRef={opener} testID="recordings-confirm" footer={<View style={{flexDirection: 'row', justifyContent: 'flex-end', gap: 16}}><Button testID="recordings-confirm-cancel" ref={cancel} variant="glass" disabled={state.busy} onPress={closeConfirm}>{t('web.dvr.keepIt')}</Button><Button testID="recordings-confirm-delete" variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} disabled={state.busy} loading={state.busy} onPress={() => {if (!confirm) return; const opening = confirm; run(async () => {const result = opening.preview ? await controller.remove(opening.recording, opening.preview) : await controller.cancel(opening.recording); if (result && alive.current && controller.lifetime.current()) {controller.unpinViewerRow(opening.recording.id, opening.opening.scope); setConfirm(current => current === opening ? undefined : current);}});}}>{t(confirm?.preview ? 'web.dvr.deleteRecording' : 'recordings.cancelAction')}</Button></View>}>{state.error !== undefined ? <StateView testID="recordings-confirm-error" {...runtime.error(state.error, closeConfirm)}/> : <View/>}</Dialog>
     {rule && <RuleEditor key={`${rule.id}:${rule.revision}`} rule={rule} controller={controller} runtime={runtime} opener={opener} onClose={() => setRule(current => current === rule ? undefined : current)}/>}
     {/* TV viewers keep programme/series recording and rule editing; the administrative
         new-rule sheet is not a TV surface and never mounts here. */}
@@ -221,19 +239,19 @@ function ProgrammeArt({title, seed, image, runtime, width}: {title: string; seed
   const source = image && runtime?.artwork(image), hue = titleTintHue(seed);
   return <View style={{width, aspectRatio: 16 / 9, backgroundColor: `hsl(${hue}, 32%, 22%)`, borderRadius: 12, overflow: 'hidden'}}><GeneratedArt glyph={(Array.from(title.trim())[0] ?? '').toLocaleUpperCase(defaultI18n.locale)} palette={{first: `hsl(${hue}, 40%, 32%)`, second: `hsl(${hue}, 30%, 12%)`}}/>{source && <Artwork source={source}/>}</View>;
 }
-function RecordingCard({value, runtime, onOpen}: {value: Group; runtime: NativeShellRuntime; onOpen: () => void}) {
+function RecordingCard({value, runtime, onOpen, onFocus, onBlur}: {value: Group; runtime: NativeShellRuntime; onOpen: () => void; onFocus: () => void; onBlur: () => void}) {
   const theme = useTheme(), t = defaultI18n.t, recording = value.recording;
-  return <View style={{width: theme.isTV ? 385 : (theme.width - 56) / 2, gap: 12}}><Focusable focusId={value.key} testID={`recordings-group-${value.key}`} focusKind="card" onPress={onOpen} style={{aspectRatio: 16 / 9, borderRadius: 14, overflow: 'hidden'}}><ProgrammeArt title={value.title} seed={recording.occurrence.channelId} image={recording.programme.image} runtime={runtime} width={theme.isTV ? 385 : (theme.width - 56) / 2}/><View style={{position: 'absolute', left: 16, right: 12, bottom: 16, gap: 8}}><ScreenText secondary>{recording.channel?.name}</ScreenText><Text numberOfLines={1} style={[shellType(theme.isTV ? 28 : 17, 700), {color: theme.colors.text}]}>{value.title}</Text></View>{value.kept > 0 && <View style={{position: 'absolute', left: 16, top: 12}}><ScreenText secondary>{t('recordings.kept')}</ScreenText></View>}{value.exceptions > 0 && <View style={{position: 'absolute', left: 16, top: value.kept > 0 ? 44 : 12}}><ScreenText secondary>{t('web.dvr.state.incomplete')}</ScreenText></View>}{recording.watched === false && value.recordings === 1 && <View style={{position: 'absolute', right: 16, top: 16, width: 14, height: 14, borderRadius: 7, backgroundColor: theme.colors.accentStrong}}/>}</Focusable><SpacedFacts text={t(value.unwatched ? 'recordings.showCountUnwatched' : 'recordings.showCount', {count: value.recordings, unwatched: value.unwatched})}/></View>;
+  return <View style={{width: theme.isTV ? 385 : (theme.width - 56) / 2, gap: 12}}><Focusable onFocus={onFocus} onBlur={onBlur} focusId={value.key} testID={`recordings-group-${value.key}`} focusKind="card" onPress={onOpen} style={{aspectRatio: 16 / 9, borderRadius: 14, overflow: 'hidden'}}><ProgrammeArt title={value.title} seed={recording.occurrence.channelId} image={recording.programme.image} runtime={runtime} width={theme.isTV ? 385 : (theme.width - 56) / 2}/><View style={{position: 'absolute', left: 16, right: 12, bottom: 16, gap: 8}}><ScreenText secondary>{recording.channel?.name}</ScreenText><Text numberOfLines={1} style={[shellType(theme.isTV ? 28 : 17, 700), {color: theme.colors.text}]}>{value.title}</Text></View>{value.kept > 0 && <View style={{position: 'absolute', left: 16, top: 12}}><ScreenText secondary>{t('recordings.kept')}</ScreenText></View>}{value.exceptions > 0 && <View style={{position: 'absolute', left: 16, top: value.kept > 0 ? 44 : 12}}><ScreenText secondary>{t('web.dvr.state.incomplete')}</ScreenText></View>}{recording.watched === false && value.recordings === 1 && <View style={{position: 'absolute', right: 16, top: 16, width: 14, height: 14, borderRadius: 7, backgroundColor: theme.colors.accentStrong}}/>}</Focusable><SpacedFacts text={t(value.unwatched ? 'recordings.showCountUnwatched' : 'recordings.showCount', {count: value.recordings, unwatched: value.unwatched})}/></View>;
 }
-function RecordingRow({recording, history, runtime, refNode, onOpen, onMenu}: {recording: Recording; history: boolean; runtime: NativeShellRuntime; refNode: (node: View | null) => void; onOpen: () => void; onMenu: () => void}) {
+function RecordingRow({recording, history, runtime, refNode, onOpen, onMenu, onFocus, onBlur}: {recording: Recording; history: boolean; runtime: NativeShellRuntime; refNode: (node: View | null) => void; onOpen: () => void; onMenu: () => void; onFocus: () => void; onBlur: () => void}) {
   const theme = useTheme(), t = defaultI18n.t, conflict = recording.state === 'conflicted', reason = reasonLabels[recording.reason];
   const range = programmeTimeRange(Date.parse(recording.programme.start), Date.parse(recording.programme.end), runtime.text);
-  return <Focusable ref={conflict ? undefined : refNode} focusable={!conflict} focusId={recording.id} testID={`recordings-row-${recording.id}`} focusKind="row" onPress={onOpen} onLongPressAction={onMenu} style={{height: theme.isTV ? history ? 112 : 124 : 100, paddingHorizontal: theme.isTV ? 24 : 8, marginBottom: 6, borderRadius: 18, flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 28 : 12, backgroundColor: conflict ? theme.colors.raised : undefined}}>
+  return <Focusable onFocus={conflict ? undefined : onFocus} onBlur={conflict ? undefined : onBlur} ref={conflict ? undefined : refNode} focusable={!conflict} focusId={recording.id} testID={`recordings-row-${recording.id}`} focusKind="row" onPress={onOpen} onLongPressAction={onMenu} style={{height: theme.isTV ? history ? 112 : 124 : 100, paddingHorizontal: theme.isTV ? 24 : 8, marginBottom: 6, borderRadius: 18, flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 28 : 12, backgroundColor: conflict ? theme.colors.raised : undefined}}>
     {theme.width >= 700 && <View style={{width: theme.isTV ? 190 : 110, gap: 6}}><ScreenText>{history ? defaultI18n.formatDate(recording.programme.start, {month: 'short', day: 'numeric'}) : defaultI18n.time(recording.programme.start)}</ScreenText><ScreenText secondary>{range?.text}</ScreenText></View>}
     <ProgrammeArt title={recording.programme.title} seed={recording.occurrence.channelId} image={recording.programme.image} runtime={runtime} width={theme.isTV ? 192 : 110}/>
     <View style={{flex: 1, gap: 8}}><Text numberOfLines={1} style={[shellType(theme.isTV ? 26 : 17, 700, 'normal', -.01), {color: theme.colors.text}]}>{recording.programme.title}</Text><ScreenText secondary>{recording.channel?.name}</ScreenText>{history && reason && <ScreenText secondary>{t(reason)}</ScreenText>}</View>
     {(history || recording.state !== 'scheduled') && <View style={{paddingHorizontal: 16, paddingVertical: 6, borderRadius: 10, backgroundColor: theme.colors.raisedHigh}}><ScreenText secondary>{t(stateLabels[recording.state])}</ScreenText></View>}
-    {conflict && <Button ref={refNode} focusId={`${recording.id}.resolve`} onPress={onOpen} onLongPressAction={onMenu}>{t('web.dvr.seeConflict')}</Button>}
+    {conflict && <Button onFocus={onFocus} onBlur={onBlur} ref={refNode} focusId={`${recording.id}.resolve`} onPress={onOpen} onLongPressAction={onMenu}>{t('web.dvr.seeConflict')}</Button>}
   </Focusable>;
 }
 
@@ -280,11 +298,11 @@ function RecordingDetails({recording, controller, runtime, opener, onClose, onPl
   </Dialog>;
 }
 
-function RuleRow({rule, runtime, refNode, onOpen}: {rule: RecordingRule; runtime: NativeShellRuntime; refNode: (node: View | null) => void; onOpen: () => void}) {
+function RuleRow({rule, runtime, refNode, onOpen, onFocus, onBlur}: {rule: RecordingRule; runtime: NativeShellRuntime; refNode: (node: View | null) => void; onOpen: () => void; onFocus: () => void; onBlur: () => void}) {
   const theme = useTheme(), t = runtime.text.t, tv = theme.isTV, paused = !rule.config.enabled, facts = ruleFacts(rule.summary);
   const scope = ruleScope(rule, rule.summary?.channel.name, runtime.text), next = ruleNext(rule.summary, defaultI18n, Date.now());
   const factsRow = [t(rule.config.episodes === 'new' ? 'recordings.newEpisodes' : 'recordings.allEpisodes'), scope, keepLabel(runtime.text, ruleKeep(rule.config.options))];
-  return <Focusable ref={refNode} focusId={rule.id} testID={`recordings-rule-${rule.id}`} focusKind="row" onPress={onOpen}
+  return <Focusable onFocus={onFocus} onBlur={onBlur} ref={refNode} focusId={rule.id} testID={`recordings-rule-${rule.id}`} focusKind="row" onPress={onOpen}
     style={{height: tv ? 140 : 110, paddingVertical: tv ? 8 : 12, paddingHorizontal: tv ? 24 : 12, borderRadius: tv ? 20 : 16, flexDirection: 'row', alignItems: 'center', gap: tv ? 30 : 12, backgroundColor: theme.colors.raised}}>
     <View style={paused ? {opacity: .55} : undefined}><ProgrammeArt title={rule.config.name} seed={rule.config.sourceId} width={tv ? 192 : 110}/></View>
     <View style={{flex: 1, minWidth: 0}}>

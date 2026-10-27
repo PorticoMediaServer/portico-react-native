@@ -437,3 +437,35 @@ test('Together refuses a late join acknowledgement after the selected viewer cha
   assert.equal(controller.getSnapshot().phase, 'idle');
   controller.dispose(); lifetime.dispose();
 });
+
+test('viewer DVR continuation retains producer order, metadata and query on later pages', async () => {
+  const fixture = recordingService(), lifetime = new NativeScreenLifetime(authority()), controller = new NativeRecordingsController(lifetime, fixture.service);
+  const calls: (string | undefined)[] = [];
+  fixture.service.list = async (_view, cursor) => {
+    calls.push(cursor); const start = cursor === 'p2' ? 50 : cursor === 'p3' ? 100 : 0;
+    return {...fixture.page, recordings: Array.from({length: start === 100 ? 1 : 50}, (_, i) => ({id: `r${start + i}`, revision: 1}) as Recording), nextCursor: start === 0 ? 'p2' : start === 50 ? 'p3' : ''};
+  };
+  await controller.load({view: 'upcoming'}); await controller.loadFacts();
+  await controller.nextViewerPage(controller.getSnapshot().viewerWindow!); await controller.nextViewerPage(controller.getSnapshot().viewerWindow!);
+  const state = controller.getSnapshot();
+  assert.deepEqual(state.viewerWindow?.items.map(row => row.kind === 'recording' ? row.value.id : ''), Array.from({length: 101}, (_, i) => `r${i}`));
+  assert.equal(state.page?.recordings.length, 50); assert.equal(state.summary?.upcoming, 51);
+  await controller.nextViewerPage(state.viewerWindow!); assert.deepEqual(calls, [undefined, 'p2', 'p3']);
+  controller.dispose(); lifetime.dispose();
+});
+
+test('viewer DVR continuation coalesces and refuses the late page after a view change', async () => {
+  const fixture = recordingService(), lifetime = new NativeScreenLifetime(authority()), controller = new NativeRecordingsController(lifetime, fixture.service);
+  let finish!: (page: DVRPage) => void; const calls: string[] = [];
+  fixture.service.list = async (view, cursor) => {
+    calls.push(`${view}:${cursor ?? ''}`);
+    if (cursor) return new Promise(resolve => {finish = resolve;});
+    return {...fixture.page, nextCursor: view === 'upcoming' ? 'p2' : ''};
+  };
+  await controller.load({view: 'upcoming'}); const original = controller.getSnapshot().viewerWindow!;
+  const pending = controller.nextViewerPage(original), duplicate = controller.nextViewerPage(original);
+  await controller.load({view: 'history'}); finish({...fixture.page, recordings: [{id: 'late', revision: 1} as Recording]}); await Promise.all([pending, duplicate]);
+  assert.equal(controller.getSnapshot().query.view, 'history'); assert.equal(controller.getSnapshot().viewerWindow?.items.some(row => row.kind === 'recording' && row.value.id === 'late'), false);
+  assert.deepEqual(calls, ['upcoming:', 'upcoming:p2', 'history:']);
+  controller.dispose(); lifetime.dispose();
+});

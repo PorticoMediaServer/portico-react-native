@@ -80,6 +80,9 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
   retryViewerPage = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): Promise<void> => this.viewerWindow?.retry(expected) ?? Promise.resolve();
   focusViewerRow = (id: string, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): void => {if (this.viewerWindow?.snapshot() === expected) this.viewerWindow.focus(id, expected.generation);};
   blurViewerRow = (id: string, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): void => {if (this.viewerWindow?.snapshot().scope === expected.scope) this.viewerWindow.blur(id, expected.generation);};
+  focusViewerHost = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): void => {if (this.viewerWindow?.snapshot() === expected) this.viewerWindow.focus(undefined);};
+  pinViewerRow = (id: string, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): boolean => {if (this.viewerWindow?.snapshot() !== expected) return false; this.viewerWindow.pin(id); return true;};
+  unpinViewerRow = (id: string, scope: object): void => {if (this.viewerWindow?.snapshot().scope === scope) this.viewerWindow.unpin(id);};
   loadFacts(): Promise<void> {
     this.assert();
     if (this.getSnapshot().accessDenied) return Promise.resolve();
