@@ -18,11 +18,10 @@ on:
 permissions:
   contents: read
 concurrency:
-  # A newer CI run supersedes the previous run for this repository, including
-  # scheduled, dispatched and reusable calls. The dispatch controller also checks
-  # other workflows before starting a run, so it never competes with a release.
+  # Finish the active run so its full test inventory produces results. GitHub
+  # coalesces later requests into one pending run for this repository.
   group: ci-${{ github.repository }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 env:
   CI_FULL_TREE: '1'
 jobs:
@@ -183,3 +182,21 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+
+  # Keep the existing branch-protection context, backed by every real shard.
+  javascript:
+    if: ${{ always() && !inputs.apple_reading_commit }}
+    needs: [javascript-checks, javascript-tests]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require mounted checks and every test shard
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PYCODE'
+          import json, os
+          results = {name: row['result'] for name, row in json.loads(os.environ['RESULTS']).items()}
+          print(results)
+          raise SystemExit(any(result != 'success' for result in results.values()))
+          PYCODE
