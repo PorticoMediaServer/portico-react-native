@@ -36,11 +36,12 @@ function Chooser({snapshot, busy, error, owner, onBack, onSelect, onSignOut, onR
     {id: 'local', title: t('accounts.servers.local'), rows: snapshot?.servers.filter(row => row.id !== selected?.id && row.signIn === 'local') ?? []},
   ];
   const preferred = groups.flatMap(group => group.rows)[0]?.id;
-  const entryRevision = useTVBusyEntryRevision(busy);
-  useDestinationEntryFocus({visible: !busy, intent: 'enter', revision: entryRevision},
+  // One entry per real mount of the chooser: no busy ticket, and no per-control preferred focus, so
+  // a busy completion cannot ask for the first target again over where the viewer already is.
+  useDestinationEntryFocus({visible: true, intent: 'enter', revision: 0},
     preferred ? {regionId: 'accounts.chooser.rows', childId: `server:${preferred}`} : {regionId: 'accounts.chooser.actions', childId: 'refresh'});
   const row = (value: PhoneServerRow, connected = false) => <View key={value.id} style={{gap: 6, padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.lineSoft}}>
-    <Focusable focusId={`server:${value.id}`} disabled={busy || connected} accessibilityRole="button" hasTVPreferredFocus={!connected && value.id === preferred} accessibilityLabel={value.name} accessibilityState={{selected: connected}}
+    <Focusable focusId={`server:${value.id}`} disabled={busy || connected} focusableWhenDisabled={busy && !connected} accessibilityRole="button" accessibilityLabel={value.name} accessibilityState={{selected: connected}}
       onPress={() => onSelect(value)} focusRadius={12} style={{minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 16}}>
       <Icon name="i-server" size={28} color={theme.colors.accentStrong}/>
       <View style={{flex: 1, gap: 6}}>
@@ -50,18 +51,18 @@ function Chooser({snapshot, busy, error, owner, onBack, onSelect, onSignOut, onR
       {connected && owner && <Text style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{t('accounts.settings.owner')}</Text>}
       {!connected && <Icon name="i-right" size={26} color={theme.colors.textTertiary}/>}
     </Focusable>
-    <Button focusId={`signout:${value.id}`} variant="text" size="small" disabled={busy} onPress={() => onSignOut(value)} style={{alignSelf: 'flex-start'}}>{t('accounts.signOut.server', {server: value.name})}</Button>
+    <Button focusId={`signout:${value.id}`} variant="text" size="small" disabled={busy} focusableWhenDisabled onPress={() => onSignOut(value)} style={{alignSelf: 'flex-start'}}>{t('accounts.signOut.server', {server: value.name})}</Button>
   </View>;
   return <View testID="tv-server-chooser" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ScrollView contentContainerStyle={{padding: 48, gap: 24}}>
-      {onBack && <Button variant="text" size="small" disabled={busy} onPress={onBack} style={{alignSelf: 'flex-start'}}>{t('action.back')}</Button>}
+      {onBack && <Button variant="text" size="small" disabled={busy} focusableWhenDisabled onPress={onBack} style={{alignSelf: 'flex-start'}}>{t('action.back')}</Button>}
       <View style={{gap: 12}}>
         <Text accessibilityRole="header" style={[nativeType({size: 44, lineHeight: 52, weight: 700, tracking: 0}, theme.textScale), {color: theme.colors.text}]}>{t('web.servers.switchServer')}</Text>
         <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('web.chooser.lede')}</Text>
         {error}
         {!snapshot && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('status.loading')}</Text>}
       </View>
-      <FocusRegion id="accounts.chooser.rows" entry={preferred ? `server:${preferred}` : undefined} enabled={!busy} style={{gap: 24}}>
+      <FocusRegion id="accounts.chooser.rows" entry={preferred ? `server:${preferred}` : undefined} style={{gap: 24}}>
       {selected && <View style={{gap: 12}}>
         <Text accessibilityRole="header" style={[theme.type.bodyStrong, {color: theme.colors.textSecondary}]}>{t('servers.connectedTo')}</Text>
         <View style={{backgroundColor: theme.colors.raised, borderRadius: 16}}>{row(selected, true)}</View>
@@ -72,9 +73,9 @@ function Chooser({snapshot, busy, error, owner, onBack, onSelect, onSignOut, onR
       </View>)}
       </FocusRegion>
       {certificates}
-      <FocusRegion id="accounts.chooser.actions" entry="refresh" enabled={!busy} style={{flexDirection: 'row', flexWrap: 'wrap', gap: 16}}>
-        <Button focusId="refresh" variant="glass" hasTVPreferredFocus={!preferred} icon="i-refresh" disabled={busy} onPress={onRefresh}>{t('accounts.servers.refresh')}</Button>
-        <Button focusId="add" variant="glass" disabled={busy} onPress={onAdd}>{t('accounts.signIn.local')}</Button>
+      <FocusRegion id="accounts.chooser.actions" entry="refresh" style={{flexDirection: 'row', flexWrap: 'wrap', gap: 16}}>
+        <Button focusId="refresh" variant="glass" icon="i-refresh" disabled={busy} focusableWhenDisabled onPress={onRefresh}>{t('accounts.servers.refresh')}</Button>
+        <Button focusId="add" variant="glass" disabled={busy} focusableWhenDisabled onPress={onAdd}>{t('accounts.signIn.local')}</Button>
       </FocusRegion>
       {footer}
     </ScrollView>
