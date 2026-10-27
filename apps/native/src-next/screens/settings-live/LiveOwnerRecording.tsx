@@ -25,7 +25,8 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
   const theme = useTheme(), t = runtime.text.t;
   const routeRevision = controller.current() ? runtime.navigation?.getSnapshot().revision : undefined;
   const visible = controller.current() && runtime.getSnapshot().contentVisible === true && controller.current();
-  const facts = useMemo(() => ({controller, recordings, runtime, navigation: runtime.navigation, routeRevision, visible}), [controller, recordings, runtime, runtime.navigation, routeRevision, visible]);
+  const navigation = runtime.navigation;
+  const facts = useMemo(() => ({controller, recordings, runtime, navigation, routeRevision, visible}), [controller, recordings, runtime, navigation, routeRevision, visible]);
   type Admission = {facts: typeof facts; live: boolean};
   const admissionRef = useRef<Admission | undefined>(undefined), [admission, setAdmission] = useState<Admission>();
   useLayoutEffect(() => {
@@ -357,7 +358,8 @@ export function NewRuleSheet({controller, runtime, policy, sources, ownerCursor,
   const theme = useTheme(), t = runtime.text.t;
   const revision = controller.current() ? runtime.navigation?.getSnapshot().revision : undefined;
   const visible = controller.current() && runtime.getSnapshot().contentVisible === true && controller.current();
-  const sheetFacts = useMemo(() => ({controller, runtime, navigation: runtime.navigation, revision, visible, open}), [controller, runtime, runtime.navigation, revision, visible, open]);
+  const navigation = runtime.navigation;
+  const sheetFacts = useMemo(() => ({controller, runtime, navigation, revision, visible, open}), [controller, runtime, navigation, revision, visible, open]);
   type SheetAdmission = {facts: typeof sheetFacts; live: boolean};
   const sheetFlight = useRef<AbortController | undefined>(undefined), ownFlight = useRef<object | undefined>(undefined);
   const sheetRef = useRef<SheetAdmission | undefined>(undefined), [sheet, setSheet] = useState<SheetAdmission>();
