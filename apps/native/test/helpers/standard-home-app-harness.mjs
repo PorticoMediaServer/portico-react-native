@@ -121,9 +121,9 @@ const nativeURL = data(`import React from ${JSON.stringify(reactURL)};
     // cell, and scrollToOffset moves the real scroll view along the list's own axis:
     // x when horizontal, y otherwise.
     scrollToIndex({index=0,viewOffset=0,viewPosition=0}={}){const latest=S.hosts.get(this.tag)?.props??{},data=latest.data,count=typeof latest.getItemCount==='function'?latest.getItemCount(data):data?.length??0;if(!(index>=0&&index<count))throw Error('scrollToIndex out of range: requested index '+index+' is out of 0 to '+(count-1));const layout=typeof latest.getItemLayout==='function'?latest.getItemLayout(data,index):undefined;if(!layout||!Number.isFinite(layout.offset)){if(typeof latest.onScrollToIndexFailed==='function')return latest.onScrollToIndexFailed({index,averageItemLength:0,highestMeasuredFrameIndex:0});throw Error('scrollToIndex requires getItemLayout or onScrollToIndexFailed in this fixture');}
-     // The caller-declared style height is the list's drawn viewport; this boundary lays
+     // The caller-declared style extent on the scroll axis is the drawn viewport; this boundary lays
      // out no measured cells, so viewPosition uses that value and viewOffset is exact.
-     const style=flat(typeof latest.style==='function'?latest.style({pressed:false}):latest.style),viewport=Number.isFinite(style.height)?style.height:0;
+     const style=flat(typeof latest.style==='function'?latest.style({pressed:false}):latest.style),extent=latest.horizontal?style.width:style.height,viewport=Number.isFinite(extent)?extent:0;
      const offset=Math.max(0,layout.offset-viewPosition*(viewport-layout.length))-viewOffset;
      this.contentOffset={...this.contentOffset,[latest.horizontal?'x':'y']:offset};this.scrolledToIndex=index;},
     measure(cb){cb(0,0,390,220,0,588)},measureInWindow(cb){cb(0,588,390,220)},setNativeProps(){}};

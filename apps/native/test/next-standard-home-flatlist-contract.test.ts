@@ -23,6 +23,7 @@ test('the standard-home FlatList boundary answers scrollToIndex from the committ
       testID: 'harness-flatlist-contract',
       data,
       horizontal,
+      style: {width: 40, height: 60},
       keyExtractor: (value: string) => value,
       getItemLayout: (_data: unknown, index: number) => ({length: 10, offset: base + index * 10, index}),
       renderItem: ({item}: {item: string}) => React.createElement(View, {testID: `harness-flatlist-row-${item}`}),
@@ -62,6 +63,8 @@ test('the standard-home FlatList boundary answers scrollToIndex from the committ
       {x: 70, y: 230},
       'the horizontal list moves its own axis from the same committed layout',
     );
+    list().host.scrollToIndex({index: 2, viewPosition: 1, viewOffset: 3});
+    assert.deepEqual({...list().host.contentOffset}, {x: 37, y: 230}, 'horizontal view positioning uses the drawn width and exact caller offset');
   } finally {
     try {
       await host.unmount();
