@@ -7,7 +7,7 @@ import {routeOrigin} from '../../../../../packages/client-core/src/route-identit
 import type {NativeInvitationEntry} from '../../platform/portico-invitation';
 import type {PublicInvitation} from '../../../../../packages/client-core/src/direct-account';
 import type {ManagedProfile} from '../../../../../packages/client-core/src/profile-management';
-import {MFARequiredError, type IdentityOptions, type IdentityTransaction} from '../../../../../packages/client-core/src/hosted-security';
+import {MFARequiredError, type IdentityOptions, type IdentityTransaction, type Registration} from '../../../../../packages/client-core/src/hosted-security';
 import type {SetupCodeSnapshot} from '../../../../../packages/client-core/src/setup-code';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -80,6 +80,8 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   // stage, so a retained Submit or a late refusal cannot mark a successor form.
   const [usernameUnavailable, setUsernameUnavailable] = useState(false);
   const [registerOpening, setRegisterOpening] = useState<Readonly<{source: NativePorticoSignIn; owner: {live: boolean}}>>();
+  const [verifyOpening, setVerifyOpening] = useState<Readonly<{source: NativePorticoSignIn; registration: Registration}>>();
+  const verifyOpeningRef = useRef(verifyOpening); verifyOpeningRef.current = verifyOpening;
   // The provider completion's opening: the exact transaction this form was drawn for.
   const [providerOpening, setProviderOpening] = useState<Readonly<{transaction: IdentityTransaction; source: NativePorticoSignIn; owner: {live: boolean}; life: AbortController}>>();
   const [providerUsernameUnavailable, setProviderUsernameUnavailable] = useState(false);
@@ -1333,7 +1335,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
         try {
           const value = await source.register(submitted.username, theme.isTV ? submitted.name : submitted.name.trim() || submitted.username.trim(), password, submitted.email);
           if (!live(source)) return;
-          setPassword(''); setMasked(value.maskedAddress); setStage('verify');
+          setVerifyOpening(Object.freeze({source, registration: value})); setPassword(''); setMasked(value.maskedAddress); setStage('verify');
         } catch (refusal) {
           if (!live(source)) return;
           // The drawn username-field state is only the confirmed public-handle collision;
@@ -1343,7 +1345,30 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
         }
       }, theme.isTV ? (!username || !name || !password || !email) : (!username || !password || !email)));
   }
-  if (stage === 'verify') return layout(t('auth.checkEmail'), t('auth.codeSentTo', {address: masked}), fields(codeField(t('auth.verificationCode'), code, setCode)), action('verify', t('action.continue'), async () => {await account.current!.verifyRegistration(code); await directory();}, !code));
+  if (stage === 'verify') {
+    const opening = verifyOpening, revision = registerDraftRev.current;
+    const live = () => !!opening && lifetime.current && stageRef.current === 'verify' && verifyOpeningRef.current === opening
+      && account.current === opening.source && registerDraftRev.current === revision;
+    const verified = opening?.registration.contactVerified === true;
+    const edit = (apply: (next: string) => void) => (next: string) => {registerDraftRev.current++; apply(next);};
+    return layout(verified ? t('auth.chooseUsername') : t('auth.checkEmail'), verified ? undefined : t('auth.codeSentTo', {address: masked}),
+      verified ? fields(field(t('auth.username'), username, next => {setUsernameUnavailable(false); edit(setUsername)(next);}, false, undefined,
+        usernameUnavailable ? t('web.signIn.error.accountTaken') : undefined, t('auth.usernameHelp')),
+        field(`${t('auth.yourName')} · ${t('field.optional')}`, name, edit(setName), false, undefined, undefined, undefined, t('services.signup.sameUsername')))
+        : fields(codeField(t('auth.verificationCode'), code, edit(setCode))),
+      action('verify', t('action.continue'), async () => {
+        if (!opening || !live()) return;
+        try {
+          await opening.source.verifyRegistration(verified ? '' : code, opening.registration, {isCurrent: live}, verified ? {username, displayName: name} : undefined);
+          if (live()) await directory();
+        } catch (refusal) {
+          if (!live()) return;
+          const fresh = porticoUsernameUnavailable(refusal) ? opening.source.registrationAfterCollision(opening.registration) : undefined;
+          if (fresh) {setVerifyOpening(Object.freeze({source: opening.source, registration: fresh})); setUsernameUnavailable(true); return;}
+          throw refusal;
+        }
+      }, verified ? username.trim().length < 3 : !code));
+  }
   if (stage === 'provider') {
     // The transaction this form was drawn for and the draft it shows; both must still
     // be live before any completion or proof refresh and again after the answer.

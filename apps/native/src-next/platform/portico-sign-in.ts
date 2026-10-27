@@ -32,6 +32,7 @@ export class NativePorticoSignIn {
   private continuation?: NativeAccountContinuation;
   private transaction?: IdentityTransaction;
   private registration?: Registration;
+  private registrationCollision?: Readonly<{original: Registration; verified: Registration}>;
   /** The original provider attempt's own binding identity: its mode at start (native
    * Apple versus a browser return) and the completion code that attempt was bound
    * with. Never inferred later from a provider name or capability. */
@@ -226,12 +227,36 @@ export class NativePorticoSignIn {
     this.transaction = await this.api().verifyContact(this.transaction.transactionId, challengeId, code, this.abort.signal); this.check();
   }
   async register(username: string, displayName: string, password: string, contactAddress: string) {
+    this.registrationCollision = undefined;
     this.registration = await this.api().register({username, displayName, password, contactAddress, requestId: await this.bridge.newRequestId()}, this.abort.signal);
     this.check(); return this.registration;
   }
-  verifyRegistration(code: string) {
-    if (!this.registration) throw new Error('native_registration_missing');
-    return this.authenticate(signal => this.api().verifyRegistration(this.registration!.registrationId, {code}, signal));
+  async verifyRegistration(code: string, original: Registration, caller: Readonly<{isCurrent: () => boolean}>, replacement?: Readonly<{username: string; displayName: string}>) {
+    const registration = original;
+    if (!registration || this.registration !== registration) throw new Error('native_registration_missing');
+    const binding = this.continuation?.binding;
+    const current = () => !this.abort.signal.aborted && this.isCurrent() && this.registration === registration
+      && this.continuation?.binding === binding && caller.isCurrent();
+    if (!binding || !current() || (replacement && (!registration.contactVerified || !(Date.parse(registration.expiresAt) > Date.now()))))
+      throw new CodedError('cancelled', 'native_registration_changed');
+    try {
+      return await this.authenticate(signal => this.api().verifyRegistration(registration.registrationId,
+        {code: code.trim(), ...(replacement ? {username: replacement.username.trim().toLowerCase(), displayName: replacement.displayName.trim()} : {})}, signal), current);
+    } catch (error) {
+      if (porticoUsernameUnavailable(error) && current()) {
+        const fresh = await this.api().registration(registration.registrationId, this.abort.signal);
+        if (!current()) throw new CodedError('cancelled', 'native_registration_changed');
+        if (!fresh || fresh.registrationId !== registration.registrationId || fresh.revision !== registration.revision || fresh.expiresAt !== registration.expiresAt
+          || fresh.maskedAddress !== registration.maskedAddress || fresh.status === 'completed' || !fresh.contactVerified || !(Date.parse(fresh.expiresAt) > Date.now()))
+          throw new CodedError('account_changed', 'native_registration_changed');
+        this.registration = fresh; this.registrationCollision = {original: registration, verified: fresh};
+      }
+      throw error;
+    }
   }
-  dispose() {if (this.abort.signal.aborted) return; this.abort.abort(); this.bridge?.cancel(); this.off(); this.providerAttempt = undefined; this.providerRefresh = undefined; this.factorWitness = undefined; if (this.authenticating) nativeAccounts.cancel();}
+  registrationAfterCollision(original: Registration) {
+    const collision = this.registrationCollision;
+    return collision?.original === original && collision.verified === this.registration ? collision.verified : undefined;
+  }
+  dispose() {if (this.abort.signal.aborted) return; this.abort.abort(); this.bridge?.cancel(); this.off(); this.providerAttempt = undefined; this.providerRefresh = undefined; this.registrationCollision = undefined; this.factorWitness = undefined; if (this.authenticating) nativeAccounts.cancel();}
 }
