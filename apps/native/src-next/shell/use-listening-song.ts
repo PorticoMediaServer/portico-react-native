@@ -13,6 +13,7 @@ export type NativeListeningSongState = Readonly<{
 
 type Opening = Readonly<{
   port: NativeListeningSongDetail;
+  contentKey: string;
   fence: PlaybackFence;
   lifetime: NativePlaybackReadLifetime;
   /** The original opening's own route/fence proof, captured when this opening committed. */
@@ -28,11 +29,6 @@ export function useListeningSong(detail: NativeListeningSongDetail | undefined, 
   const openingRef = useRef<Opening | undefined>(undefined), pendingRef = useRef<Opening | undefined>(undefined), ticket = useRef(0);
   const tokens = useRef(new WeakMap<object, Opening>()), mounted = useRef(true), currentRef = useRef(current);
   currentRef.current = current;
-  // The effect is keyed by this fence's content (`fenceKey`) so progress ticks never reopen
-  // it. The ref pins the exact fence object of each render, so the opening it commits is the
-  // one from the render the content key named, not a later render's object.
-  const fenceRef = useRef(fence);
-  fenceRef.current = fence;
   const fenceKey = fence ? JSON.stringify(fence) : '';
   // Bounded eligibility for exactly this fence and lifetime. It changes when the accepted window
   // arrives or retires, not on progress ticks, and opens or closes the reading with it.
@@ -42,27 +38,27 @@ export function useListeningSong(detail: NativeListeningSongDetail | undefined, 
     return () => {mounted.current = false; ticket.current += 1; openingRef.current = undefined; pendingRef.current = undefined;};
   }, []);
   useLayoutEffect(() => {
+    // A progress tick hands us a new fence object with the same content. That is the same
+    // opening, so it must not retire or reopen this read: the committed opening is keyed by the
+    // fence content plus the exact port and lifetime that opened it.
+    const committed = openingRef.current;
+    if (canRead && detail && fence && lifetime && committed && committed.contentKey === fenceKey
+      && committed.port === detail && committed.lifetime === lifetime) return;
     // Retire the previous opening before publishing anything for this one; its state and its
     // pending ticket leave in the same layout pass, so an older token is never drawn under it.
     const at = ++ticket.current;
     openingRef.current = undefined; pendingRef.current = undefined;
     if (mounted.current) setState(() => ({pending: false}));
-    const pinned = fenceRef.current;
-    if (!canRead || !detail || !pinned || !lifetime) return;
+    if (!canRead || !detail || !fence || !lifetime) return;
     const owner = currentRef.current;
-    const opening: Opening = Object.freeze({port: detail, fence: pinned, lifetime, live: () => lifetime.isCurrent() && owner()});
+    const opening: Opening = Object.freeze({port: detail, contentKey: fenceKey, fence, lifetime, live: () => lifetime.isCurrent() && owner()});
     openingRef.current = opening;
-    void detail.read(pinned, lifetime).then(song => {
+    void detail.read(fence, lifetime).then(song => {
       if (!mounted.current || openingRef.current !== opening || ticket.current !== at || !opening.live()) return;
       if (song) tokens.current.set(song, opening);
       setState({opening, ...(song ? {song} : {}), pending: false});
     }).catch(() => {});
-    // Retiring is layout work: no state setter runs on unmount, only the refs leave.
-    return () => {
-      if (openingRef.current === opening) openingRef.current = undefined;
-      if (pendingRef.current === opening) pendingRef.current = undefined;
-    };
-  }, [detail, fenceKey, lifetime, canRead]);
+  }, [detail, fence, fenceKey, lifetime, canRead]);
   const favorite = useCallback((song: NativeListeningSong, value: boolean) => {
     const opening = tokens.current.get(song);
     // The token itself names the opening that issued it: a retained press can never borrow
