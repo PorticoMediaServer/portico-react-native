@@ -1,4 +1,4 @@
-import {parseRecordingGrants, parseRecordingOwners, type RecordingGrant, type RecordingOwner, type RecordingOwnerChoice} from '../../../../../packages/client-core/src/server-admin/recording-policy';
+import {parseRecordingGrants, parseRecordingOwners, recordingOwnerKey, type RecordingGrant, type RecordingOwner, type RecordingOwnerChoice} from '../../../../../packages/client-core/src/server-admin/recording-policy';
 
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
 const text = (v: unknown, max = 4096): v is string => typeof v === 'string' && v.length <= max;
@@ -25,8 +25,8 @@ export type DVRDefaults = Readonly<{
   tunerPreference: string; liveTunerConflict: string;
 }>;
 export type DVRDocument = Readonly<{revision: number; settings: DVRDefaults; enumerations: Readonly<Record<string, readonly string[]>>}>;
-const keep = (v: unknown): KeepPolicy => {
-  if (!object(v) || !oneOf(v.mode, ['keep-all', 'keep-count', 'keep-days'] as const) || !count(v.keepCount, 1000) || !count(v.keepDays, 3650) || !flag(v.keepUntilWatched)) invalid();
+const keep = (v: unknown, maxCount = 1000): KeepPolicy => {
+  if (!object(v) || !oneOf(v.mode, ['keep-all', 'keep-count', 'keep-days'] as const) || !count(v.keepCount, maxCount) || !count(v.keepDays, 3650) || !flag(v.keepUntilWatched)) invalid();
   return Object.freeze({mode: v.mode, keepCount: v.keepCount, keepDays: v.keepDays, keepUntilWatched: v.keepUntilWatched});
 };
 const dvrDefaults = (v: unknown): DVRDefaults => {
@@ -67,28 +67,50 @@ export function parseTunerView(v: unknown, serverId: string): TunerView {
 
 /** A standing series rule as the administration document names it. */
 export type AdminRuleOptions = Readonly<{prePaddingMs: number | null; postPaddingMs: number | null; keepPolicy: KeepPolicy | null; newEpisodesOnly: boolean; priority: number; folderTemplate: string}>;
+type RuleOwner = RecordingOwner | Readonly<{authority: ''; accountId: ''; profileId: ''}>;
 export type AdminRule = Readonly<{
-  id: string; revision: number; owner: RecordingOwner; anchor?: Readonly<{sourceId: string; channelId: string; generation: string; programmeId: string}>;
+  id: string; revision: number; owner: RuleOwner; anchor?: Readonly<{sourceId: string; channelId: string; generation: string; programmeId: string}>;
   status: string; kind: string; name: string; match: string; sourceId: string; enabled: boolean; options: AdminRuleOptions;
 }>;
-export function parseAdminRules(v: unknown, serverId: string): readonly AdminRule[] {
+export function parseAdminRulePage(v: unknown, serverId: string): Readonly<{items: readonly AdminRule[]; nextCursor: string}> {
   const value = body(v, serverId);
-  if (!Array.isArray(value.items)) invalid();
-  return Object.freeze(value.items.map(raw => {
-    if (!object(raw) || !text(raw.id, 64) || !count(raw.revision) || !object(raw.owner) || !oneOf(raw.owner.authority, ['local', 'hosted'] as const) || !text(raw.owner.accountId, 64) || !text(raw.owner.profileId, 64)) invalid();
-    if (!text(raw.status ?? '', 64) || !oneOf(raw.kind, ['series', 'keyword'] as const) || !text(raw.name, 512) || !text(raw.match, 512) || !text(raw.sourceId, 512) || !flag(raw.enabled) || !object(raw.options) || !signed(raw.options.priority, -1000, 1000) || !flag(raw.options.newEpisodesOnly) || !text(raw.options.folderTemplate ?? '', 512)) invalid();
-    const pre = raw.options.prePaddingMs === null ? null : count(raw.options.prePaddingMs, 21600) ? raw.options.prePaddingMs : invalid();
-    const post = raw.options.postPaddingMs === null ? null : count(raw.options.postPaddingMs, 21600) ? raw.options.postPaddingMs : invalid();
+  if (!Array.isArray(value.items) || value.items.length > 100 || !text(value.nextCursor ?? '', 4096)) invalid();
+  const items = Object.freeze(value.items.map(raw => {
+    if (!object(raw) || !text(raw.id, 64) || !count(raw.revision) || !object(raw.owner) || !((oneOf(raw.owner.authority, ['local', 'hosted'] as const) && !!raw.owner.accountId && !!raw.owner.profileId) || (raw.status === 'needs-owner-and-guide-selection' && raw.owner.authority === '' && raw.owner.accountId === '' && raw.owner.profileId === '')) || !text(raw.owner.accountId, 64) || !text(raw.owner.profileId, 64)) invalid();
+    if (!text(raw.status ?? '', 64) || !oneOf(raw.kind, ['series', 'title'] as const) || !text(raw.name, 512) || !text(raw.match, 512) || !text(raw.sourceId, 512) || !flag(raw.enabled) || !object(raw.options) || !signed(raw.options.priority, -1000, 1000) || !flag(raw.options.newEpisodesOnly) || !text(raw.options.folderTemplate ?? '', 512)) invalid();
+    const pre = raw.options.prePaddingMs === null ? null : count(raw.options.prePaddingMs, 21600000) ? raw.options.prePaddingMs : invalid();
+    const post = raw.options.postPaddingMs === null ? null : count(raw.options.postPaddingMs, 21600000) ? raw.options.postPaddingMs : invalid();
     return Object.freeze({
-      id: raw.id, revision: raw.revision, owner: Object.freeze({authority: raw.owner.authority as RecordingOwner['authority'], accountId: raw.owner.accountId, profileId: raw.owner.profileId}),
+      id: raw.id, revision: raw.revision, owner: Object.freeze({authority: raw.owner.authority, accountId: raw.owner.accountId, profileId: raw.owner.profileId}) as RuleOwner,
       ...(object(raw.anchor) && text(raw.anchor.programmeId, 512) ? {anchor: Object.freeze({sourceId: text(raw.anchor.sourceId, 512) ? raw.anchor.sourceId : '', channelId: text(raw.anchor.channelId, 64) ? raw.anchor.channelId : '', generation: text(raw.anchor.generation, 128) ? raw.anchor.generation : '', programmeId: raw.anchor.programmeId})} : {}),
       status: raw.status ?? '', kind: raw.kind, name: raw.name, match: raw.match, sourceId: raw.sourceId, enabled: raw.enabled,
-      options: Object.freeze({prePaddingMs: pre, postPaddingMs: post, keepPolicy: raw.options.keepPolicy ? keep(raw.options.keepPolicy) : null, newEpisodesOnly: raw.options.newEpisodesOnly, priority: raw.options.priority, folderTemplate: raw.options.folderTemplate ?? ''}),
+      options: Object.freeze({prePaddingMs: pre, postPaddingMs: post, keepPolicy: raw.options.keepPolicy ? keep(raw.options.keepPolicy, 100000) : null, newEpisodesOnly: raw.options.newEpisodesOnly, priority: raw.options.priority, folderTemplate: raw.options.folderTemplate ?? ''}),
     });
   }));
+  const ids = new Set<string>();
+  const unique = items.filter(row => {if (ids.has(row.id)) return false; ids.add(row.id); return true;});
+  return Object.freeze({items: Object.freeze(unique), nextCursor: value.nextCursor ?? ''});
+}
+export function parseAdminRules(v: unknown, serverId: string): readonly AdminRule[] { return parseAdminRulePage(v, serverId).items; }
+
+export type RecordingPolicy = Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]; nextCursor: string}>;
+export function parseRecordingPolicy(owners: unknown, grants: unknown, serverId: string): RecordingPolicy {
+  const page = parseRecordingOwners(result(owners, serverId));
+  if (page.items.length > 200 || page.nextCursor.length > 4096) invalid();
+  const ids = new Set<string>();
+  const uniqueOwners = page.items.filter(row => {const key = recordingOwnerKey(row.owner); if (ids.has(key)) return false; ids.add(key); return true;});
+  return Object.freeze({owners: Object.freeze(uniqueOwners), nextCursor: page.nextCursor, grants: Object.freeze(parseRecordingGrants(result(grants, serverId)))});
 }
 
-export type RecordingPolicy = Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>;
-export function parseRecordingPolicy(owners: unknown, grants: unknown, serverId: string): RecordingPolicy {
-  return Object.freeze({owners: Object.freeze(parseRecordingOwners(result(owners, serverId)).items), grants: Object.freeze(parseRecordingGrants(result(grants, serverId)))});
+export const needsRuleOwner = (rule: AdminRule): boolean => rule.status === 'needs-owner-and-guide-selection' || !rule.owner.accountId || !rule.owner.profileId || !['series', 'title'].includes(rule.kind);
+
+/** Validate a continuation before publishing it. A failed read leaves the cursor reusable. */
+export function appendRecordingPage<T>(current: readonly T[], incoming: readonly T[], cursor: string, nextCursor: string, seen: ReadonlySet<string>, key: (row: T) => string): readonly T[] {
+  if (!cursor || seen.has(cursor) || (nextCursor && (nextCursor === cursor || seen.has(nextCursor))) || current.length + incoming.length > 10000) invalid();
+  const keys = new Set(current.map(key));
+  const additions = incoming.filter(row => {const id = key(row); if (keys.has(id)) return false; keys.add(id); return true;});
+  return Object.freeze([...current, ...additions]);
 }
+
+export const rulePaddingFromChoice = (value: string): number | null => value === 'default' ? null : Number(value) * 1000;
+export const rulePaddingChoice = (value: number | null): string => value === null ? 'default' : String(value / 1000);
