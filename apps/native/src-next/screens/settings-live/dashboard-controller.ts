@@ -100,8 +100,9 @@ export class NativeDashboardController extends NativeScreenStore<NativeDashboard
       const replacement = this.sessions, replacementJobs = this.jobs;
       const own = () => !this.disposed && this.generation === generation && this.role === role && this.sessions === replacement && this.jobs === replacementJobs;
       const current = () => own() && (role === 'denied' ? this.admission() === role : this.valid(role)) && own();
-      oldSessions.dispose(); if (!current()) return Promise.resolve();
-      oldJobs?.dispose(); if (!current()) return Promise.resolve();
+      oldSessions.dispose();
+      oldJobs?.dispose();
+      if (!current()) return Promise.resolve();
       this.publish({admission: role, loading: false, sessions: [], alerts: [], jobs: []});
       if (!current()) return Promise.resolve();
     }

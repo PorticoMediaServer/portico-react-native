@@ -236,3 +236,31 @@ test('Dashboard current owner refresh dispatches each authorized section once', 
   assert.deepEqual(calls, ['sessions', 'health', 'storage', 'alerts', 'jobs']); assert.equal(controller.getSnapshot().loading, false);
   controller.dispose(); lifetime.dispose();
 });
+
+test('Dashboard role-change abort fanout retires both old windows without aborting the successor', async () => {
+  const lifetime = new NativeScreenLifetime({authority: () => authority, current: () => true, subscribeAuthority: () => () => {}});
+  let role: 'owner' | 'administrator' = 'owner', successor: Promise<void> | undefined;
+  let finishSession!: (value: ReturnType<typeof page>) => void, finishJob!: (value: {items: never[]; nextCursor: string}) => void;
+  const readers: NativeDashboardReaders = {
+    sessions: {list: async (cursor, _limit, signal) => {
+      if (!cursor) return page('current', 1, 'next');
+      return new Promise(resolve => {finishSession = resolve; signal?.addEventListener('abort', () => {role = 'owner'; successor = controller.refresh();}, {once: true});});
+    }},
+    console: {measurement: async name => ({name, observedAt: 1, freshUntil: 30001, facts: {}}), alerts: async () => [], jobs: async cursor => cursor ? new Promise(resolve => {finishJob = resolve;}) : {items: [{id: 'job', revision: 1}] as never[], nextCursor: 'next'}, dispose() {}},
+  };
+  const controller = new NativeDashboardController(lifetime, () => role, readers); await controller.refresh();
+  const OriginalAbort = globalThis.AbortController, created: AbortController[] = [];
+  class ObservedAbort extends OriginalAbort {constructor() {super(); created.push(this);}}
+  globalThis.AbortController = ObservedAbort;
+  try {
+    const oldSession = controller.nextSessions(controller.getSnapshot().sessionWindow!);
+    const oldJob = controller.nextJobs(controller.getSnapshot().jobWindow!);
+    assert.equal(created.length, 2); const [sessionAbort, jobAbort] = created;
+    role = 'administrator'; await controller.refresh(); assert.ok(successor); await successor;
+    assert.equal(sessionAbort.signal.aborted, true); assert.equal(jobAbort.signal.aborted, true);
+    assert.ok(created.length >= 4); assert.equal(created[2].signal.aborted, false); assert.equal(created[3].signal.aborted, false);
+    finishSession(page('old', 1)); finishJob({items: [{id: 'old-job', revision: 1}] as never[], nextCursor: ''}); await Promise.all([oldSession, oldJob]);
+    assert.equal(controller.getSnapshot().admission, 'owner'); assert.equal(controller.getSnapshot().sessions[0]?.id, 'current0');
+    assert.equal(controller.getSnapshot().jobs[0]?.id, 'job');
+  } finally {globalThis.AbortController = OriginalAbort; controller.dispose(); lifetime.dispose();}
+});
