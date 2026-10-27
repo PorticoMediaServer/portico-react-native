@@ -239,6 +239,22 @@ export function useListeningPageHeight(): (height: number) => void {
   return useContext(Context)?.reportPageHeight ?? (() => {});
 }
 
+/** motion2.5 moves the actual phone bar below its own measured footprint. The
+ * same page alpha supplies reduction; no second clock or window guess is used. */
+export function useListeningTabBarPaint() {
+  const context = useContext(Context), motion = useMotion(), height = useSharedValue(0);
+  const active = !!context?.binding && context.active;
+  const progress = context?.binding?.controller.progress, dragging = context?.binding?.controller.dragging, page = context?.pageAlpha;
+  const measure = useCallback((value: number) => {height.value = Number.isFinite(value) && value > 0 ? value : 0;}, [height]);
+  const style = useAnimatedStyle(() => {
+    if (!active) return {opacity: 1, transform: [{translateY: 0}]};
+    if (motion.reduce && !dragging?.value) return {opacity: 1 - (page?.value ?? 0), transform: [{translateY: 0}]};
+    const open = Math.max(0, Math.min(1, 1 - (progress?.value ?? 1)));
+    return {opacity: 1, transform: [{translateY: height.value * Math.min(1, open * 1.2)}]};
+  }, [active, progress, dragging, page, height, motion.reduce]);
+  return {style, measure};
+}
+
 
 export function useListeningMiniPaint(fence: PlaybackFence | undefined) {
   const context = useContext(Context), binding = context?.binding;

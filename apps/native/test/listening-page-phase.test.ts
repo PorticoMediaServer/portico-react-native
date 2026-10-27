@@ -30,7 +30,7 @@ async function rig() {
   const scope = {}, opening = {};
   const binding = {fence, scope, opening, controller, current: () => current,
     subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};}};
-  const {ListeningCoverProvider, useListeningPageStyle, ListeningSeekPaint} = await screenModule(new URL('../src-next/kit/dock/ListeningCoverBridge.tsx', import.meta.url), {
+  const {ListeningCoverProvider, useListeningPageStyle, useListeningTabBarPaint, ListeningSeekPaint} = await screenModule(new URL('../src-next/kit/dock/ListeningCoverBridge.tsx', import.meta.url), {
     react: {...React, default: React, createContext: () => {const value = {Provider: 'Provider'};contexts.push(value);return value;},
       useContext: (context: any) => context === contexts[0] ? tree.props.value : context === contexts[1] ? tree.props.children.props.value : tree.props.children.props.children.props.value},
     'react-native': {View: 'View'},
@@ -49,6 +49,7 @@ async function rig() {
   const step = () => {for (const reaction of reactions) {const now = reaction.read();reaction.apply(now, reaction.previous);reaction.previous = now;}};
   await act(() => tree.props.value.publish(binding)); tree.props.value.reportPageHeight(690);step();
   let pageStyle: any; const page = createHookHost(() => {pageStyle = useListeningPageStyle(fence as any, 690);}); page.mount();
+  let tab: any; const tabHost = createHookHost(() => {tab = useListeningTabBarPaint();});tabHost.mount();
   return {controller, context: () => tree.props.value, step,
     async publishScrubber(value: any) {let off: any;await act(() => {off = tree.props.children.props.value(value);});return async () => {await act(() => off());};},
     mountSeek() {
@@ -58,10 +59,30 @@ async function rig() {
     },
     inert() {interactive = false;},
     async publishSame() {await act(() => tree.props.value.publish({...binding, opening: {}}));step();},
-    async reduce() {reduce = true; provider.rerender();await act(() => {});step();page.rerender();},
-    async retire() {current = false;await act(() => {for (const listener of [...listeners]) listener();});step();page.rerender();},
-    pageStyle: () => pageStyle.read(), close() {page.unmount();provider.unmount();}};
+    async reduce() {reduce = true; provider.rerender();await act(() => {});step();page.rerender();tabHost.rerender();},
+    async retire() {current = false;await act(() => {for (const listener of [...listeners]) listener();});step();page.rerender();tabHost.rerender();},
+    tabStyle: () => tab.style.read(), measureTab: (height: number) => tab.measure(height),
+    pageStyle: () => pageStyle.read(), close() {tabHost.unmount();page.unmount();provider.unmount();}};
 }
+
+test('phone tabs use their actual footprint and shared page reduction, with no independent transition clock', async () => {
+  const r = await rig();
+  try {
+    r.measureTab(84);r.controller.progress.value = .5;r.step();
+    assert.equal(r.tabStyle().transform[0].translateY, 84 * .6);
+    r.controller.progress.value = 0;r.step();
+    assert.equal(r.tabStyle().transform[0].translateY, 84);
+    r.measureTab(62);
+    assert.equal(r.tabStyle().transform[0].translateY, 62, 'live layout changes use the actual bar, not the drawn portrait height');
+    r.controller.progress.value = .832;r.controller.presentationGoal.value = 0;r.step();await r.reduce();
+    assert.ok(Math.abs(r.tabStyle().opacity - .58) < .0001);
+    assert.equal(r.tabStyle().transform[0].translateY, 0);
+    r.controller.dragging.value = true;r.controller.progress.value = 0;r.step();
+    assert.equal(r.tabStyle().transform[0].translateY, 62, 'reduction preserves direct finger tracking');
+    await r.retire();
+    assert.deepEqual(r.tabStyle(), {opacity: 1, transform: [{translateY: 0}]});
+  } finally {r.close();}
+});
 
 test('first mini drag starts one260/320/380 group clock and the admitted body handoff does not restart it', async () => {
   const r = await rig();

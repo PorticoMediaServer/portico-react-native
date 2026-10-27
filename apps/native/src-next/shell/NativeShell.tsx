@@ -5,7 +5,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {OverlaysProvider} from '../kit/overlays';
 import {PlayerMorphProvider, useInitialPlayerPagePaint} from '../kit/dock/PlayerMorphBridge';
 import {DockClearanceProvider} from '../kit/dock/DockClearance';
-import {ListeningCoverProvider} from '../kit/dock/ListeningCoverBridge';
+import {ListeningCoverProvider, useListeningTabBarPaint} from '../kit/dock/ListeningCoverBridge';
 import {SurfacePaintHost} from '../kit/overlays/SurfacePaintHost';
 import {AccountMenu} from '../kit/shell';
 import {useTheme} from '../kit/theme';
@@ -34,6 +34,7 @@ export function NativeShell({runtime}: {runtime: NativeShellRuntime}) {
 
 function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapshot: NativeShellSnapshot}) {
   const initialPlayer = useInitialPlayerPagePaint();
+  const listeningTabBar = useListeningTabBarPaint();
   const initialTitle = initialPlayer?.title;
   const theme = useTheme(), motion = useMotion(), dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   const chromeHidden = useSyncExternalStore(subscribeNativeScreenChrome, nativeScreenChromeHidden);
@@ -248,7 +249,11 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
           onNavigate={next => {if (snapshot.contentVisible !== false && sameDestination(next, destination)) runtime.scrollToTop(destination); else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
           onProfile={() => setAccountOpen(true)}/>}
         {destination.kind === 'home' && layout.kind === 'phone' && <PhoneHomeHeader profile={snapshot.profile} unread={snapshot.unreadNotifications} avatarRef={avatarRef} onProfile={() => navigate({kind: 'settings'})} viewerRole={snapshot.account.viewerRole} serverAction={snapshot.account.serverAction} castControl={runtime.castControl} scrolled={homeScrolled}/>}
-        {layout.tabs && <PhoneTabBar landscape={landscapePhone} destination={destination} hasLiveTV={snapshot.hasLiveTV} onSelect={tab => {void selectTab(tab).catch(runtime.reportError);}}/>}
+        {layout.tabs && <Animated.View pointerEvents={snapshot.mediaExpanded ? 'none' : 'box-none'} accessibilityElementsHidden={snapshot.mediaExpanded}
+          importantForAccessibility={snapshot.mediaExpanded ? 'no-hide-descendants' : 'auto'} onLayout={event => listeningTabBar.measure(event.nativeEvent.layout.height)}
+          style={[{position: 'absolute', left: 0, right: 0, bottom: 0, height: barHeight, zIndex: theme.layers.sticky}, listeningTabBar.style]}>
+          <PhoneTabBar landscape={landscapePhone} destination={destination} hasLiveTV={snapshot.hasLiveTV} onSelect={tab => {void selectTab(tab).catch(runtime.reportError);}}/>
+        </Animated.View>}
       </>)}
     {theme.isTV ? <TVProfileMenu snapshot={snapshot} open={accountOpen} onOpenChange={setAccountOpen} returnFocusRef={avatarRef}/>
       : <AccountMenu {...snapshot.account} profile={snapshot.profile} open={accountOpen} onOpenChange={setAccountOpen} anchorRef={avatarRef} returnFocusRef={avatarRef}/>}
