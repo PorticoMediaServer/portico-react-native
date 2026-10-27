@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {screenModule} from './helpers/screen-harness.mjs';
+import * as continuationQueue from '../src/bridge/continuation-queue';
 import {ApiError} from '../../../packages/client-core/src/index';
 import {CodedError} from '../../../packages/client-core/src/server-messages';
 import {MFARequiredError, parseNativeAccountContinuation} from '../../../packages/client-core/src/hosted-security';
@@ -17,7 +18,7 @@ async function port() {
     react: {default: {}}, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}},
     '../../../../packages/client-core/src/hosted-security': {MFARequiredError}, '../../../../packages/client-core/src/server-messages': {CodedError},
     '../../../../packages/client-core/src': {ApiError}, '../../../../packages/contracts/src/hosted/routes': {},
-    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://example.test'},
+    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://example.test'}, '../../src/bridge/continuation-queue': continuationQueue,
   });
   const source = new NativePorticoSignIn(); await source.prepare();
   const registration = await source.register('taken', 'Name', 'password', 'a@example.test');
@@ -72,7 +73,7 @@ test('retired invitation caller cannot open a provider browser after a late star
     react: {default: {}}, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}},
     '../../../../packages/client-core/src/hosted-security': {MFARequiredError}, '../../../../packages/client-core/src/server-messages': {CodedError},
     '../../../../packages/client-core/src': {ApiError}, '../../../../packages/contracts/src/hosted/routes': {},
-    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://example.test'},
+    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://example.test'}, '../../src/bridge/continuation-queue': continuationQueue,
   });
   const source = new NativePorticoSignIn(); await source.prepare();
   const attempt = source.provider('google', () => live); await waiting; live = false;
@@ -91,7 +92,7 @@ test('continuation storage serializes an old in-flight save, skips a retired wai
     react: {default: {}}, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}},
     '../../../../packages/client-core/src/hosted-security': {MFARequiredError, parseNativeAccountContinuation}, '../../../../packages/client-core/src/server-messages': {CodedError},
     '../../../../packages/client-core/src': {ApiError}, '../../../../packages/contracts/src/hosted/routes': {},
-    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://example.test'},
+    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://example.test'}, '../../src/bridge/continuation-queue': continuationQueue,
   });
   let oldLive = true, skippedLive = true;
   const old = new NativePorticoSignIn(() => oldLive), skipped = new NativePorticoSignIn(() => skippedLive), successor = new NativePorticoSignIn();
@@ -104,4 +105,40 @@ test('continuation storage serializes an old in-flight save, skips a retired wai
   const rejected = failing.prepare(), accepted = after.prepare(); await assert.rejects(rejected, /write failed/); await accepted;
   assert.equal(JSON.parse(record!).binding, 'a'.repeat(42) + '1');
   old.dispose(); skipped.dispose(); successor.dispose(); failing.dispose(); after.dispose();
+});
+
+test('legacy reset and update share ordering with a current native prepare', async () => {
+  let record: string | null = null, release!: () => void, announce!: () => void, hold = false, writes = 0, bindingCount = 0;
+  let started = new Promise<void>(resolve => {announce = resolve;});
+  const bridge = {loadContinuation: async () => record, newBinding: async () => String(++bindingCount).padStart(43, 'a'),
+    saveContinuation: async (_origin: string, bytes: string) => {writes++; if (hold) {hold = false; announce(); await new Promise<void>(resolve => {release = resolve;});} record = bytes;}, cancel() {}};
+  class HostedAccountClient {constructor(..._args: unknown[]) {}}
+  const legacy = await screenModule(new URL('../src/bridge/native-account.ts', import.meta.url), {
+    react: {default: {}}, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}},
+    '../../../../packages/client-core/src/index': {ApiError, HostedAccountClient, parseNativeAccountContinuation},
+    './server-connections': {nativeNetworkFetch: async () => {}}, './continuation-queue': continuationQueue,
+  });
+  const nativeAccounts = {onCancel: () => () => {}, accountClient: () => ({options: async () => ({providers: []})})};
+  const next = await screenModule(new URL('../src-next/platform/portico-sign-in.ts', import.meta.url), {
+    react: {default: {}}, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}},
+    '../../../../packages/client-core/src/hosted-security': {MFARequiredError, parseNativeAccountContinuation}, '../../../../packages/client-core/src/server-messages': {CodedError},
+    '../../../../packages/client-core/src': {ApiError}, '../../../../packages/contracts/src/hosted/routes': {},
+    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://mixed.example'}, '../../src/bridge/continuation-queue': continuationQueue,
+  });
+  const owner = await legacy.nativeAccount('https://mixed.example'), oldBinding = owner.continuation.binding;
+  hold = true; const reset = owner.reset(); await started;
+  const staleUpdate = owner.update(oldBinding, {transactionId: 'old'}), successor = new next.NativePorticoSignIn(), preparing = successor.prepare();
+  assert.equal(writes, 2); release(); await reset; await assert.rejects(staleUpdate, /replaced/); await preparing;
+  assert.equal(writes, 3); assert.equal(JSON.parse(record!).binding, owner.continuation.binding); assert.notEqual(owner.continuation.binding, oldBinding);
+  const binding = owner.continuation.binding;
+  started = new Promise<void>(resolve => {announce = resolve;}); hold = true;
+  const firstUpdate = owner.update(binding, {transactionId: 'first'}); await started;
+  const secondUpdate = owner.update(binding, {transactionId: 'second'}); release();
+  await firstUpdate; await secondUpdate;
+  assert.equal(owner.continuation.transactionId, 'second'); assert.equal(JSON.parse(record!).transactionId, 'second');
+  started = new Promise<void>(resolve => {announce = resolve;}); hold = true;
+  const beforeReset = owner.update(binding, {transactionId: 'before-reset'}); await started;
+  const queuedReset = owner.reset(); release(); await beforeReset; await queuedReset;
+  assert.notEqual(owner.continuation.binding, binding); assert.equal(JSON.parse(record!).binding, owner.continuation.binding);
+  successor.dispose();
 });

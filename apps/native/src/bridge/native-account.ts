@@ -1,6 +1,7 @@
 import {NativeModules} from 'react-native';
 import {ApiError, HostedAccountClient, parseAccountReturn, parseNativeAccountContinuation, type AccountReturn, type AccountTransport, type NativeAccountContinuation, type MFAChallenge} from '../../../../packages/client-core/src/index';
 import {nativeNetworkFetch} from './server-connections';
+import {serializeContinuation} from './continuation-queue';
 
 /** SEC-01: a provider return for the sign-in this app started, or undefined for any other. */
 export function accountReturnOf(raw:string,expected:string,accountOrigin:string):AccountReturn|undefined {
@@ -39,22 +40,25 @@ export class NativeAccountOwner {
  get continuation(){return this.value;}
  /** Expected binding fences late callbacks from a cancelled or replaced attempt. */
  async update(expected:string,change:{transactionId?:string;completionCode?:string;mfa?:MFAChallenge}):Promise<void>{
-  const write=this.writes.then(async()=>{if(this.value.binding!==expected)throw new Error('This sign-in attempt was replaced.');
-   const value:NativeAccountContinuation={version:1,binding:expected,expiresAt:this.value.expiresAt,...change};
-   await accountBridge().saveContinuation(this.origin,JSON.stringify(value));this.value=value;
-  });this.writes=write.catch(()=>{});return write;
+  const original=this.value;
+  const current=()=>{if(this.value.binding!==expected||original.binding!==expected)throw new Error('This sign-in attempt was replaced.');};
+  current();const value:NativeAccountContinuation={version:1,binding:expected,expiresAt:original.expiresAt,...change},bytes=JSON.stringify(value);
+  const write=this.writes.then(()=>serializeContinuation(this.origin,async()=>{current();await accountBridge().saveContinuation(this.origin,bytes);current();this.value=value;}));
+  this.writes=write.catch(()=>{});return write;
  }
  async reset():Promise<void>{
-  const write=this.writes.then(async()=>{const value:NativeAccountContinuation={version:1,binding:await accountBridge().newBinding(),expiresAt:new Date(Date.now()+86400000).toISOString()};
-   await accountBridge().saveContinuation(this.origin,JSON.stringify(value));this.value=value;this.api=new HostedAccountClient(this.origin,'native',nativeAccountTransport(this.origin,value.binding),value.binding);
-  });this.writes=write.catch(()=>{});return write;
+  const originalBinding=this.value.binding,current=()=>{if(this.value.binding!==originalBinding)throw new Error('This sign-in attempt was replaced.');};
+  const write=this.writes.then(()=>serializeContinuation(this.origin,async()=>{current();const binding=await accountBridge().newBinding();current();
+   const value:NativeAccountContinuation={version:1,binding,expiresAt:new Date(Date.now()+86400000).toISOString()},bytes=JSON.stringify(value);
+   await accountBridge().saveContinuation(this.origin,bytes);current();this.value=value;this.api=new HostedAccountClient(this.origin,'native',nativeAccountTransport(this.origin,value.binding),value.binding);
+  }));this.writes=write.catch(()=>{});return write;
  }
 }
 const owners=new Map<string,Promise<NativeAccountOwner>>();
 export function nativeAccount(origin:string):Promise<NativeAccountOwner>{
  let pending=owners.get(origin);if(pending)return pending;
- pending=(async()=>{const bridge=accountBridge();let value=parseNativeAccountContinuation(await bridge.loadContinuation(origin));
-  if(!value){value={version:1,binding:await bridge.newBinding(),expiresAt:new Date(Date.now()+86400000).toISOString()};await bridge.saveContinuation(origin,JSON.stringify(value));}
+ pending=serializeContinuation(origin,async()=>{const bridge=accountBridge();let value=parseNativeAccountContinuation(await bridge.loadContinuation(origin));
+  if(!value){value={version:1,binding:await bridge.newBinding(),expiresAt:new Date(Date.now()+86400000).toISOString()};const bytes=JSON.stringify(value);await bridge.saveContinuation(origin,bytes);}
   return new NativeAccountOwner(origin,value);
- })();owners.set(origin,pending);void pending.catch(()=>{if(owners.get(origin)===pending)owners.delete(origin);});return pending;
+ });owners.set(origin,pending);void pending.catch(()=>{if(owners.get(origin)===pending)owners.delete(origin);});return pending;
 }
