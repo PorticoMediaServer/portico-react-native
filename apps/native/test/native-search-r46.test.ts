@@ -157,7 +157,7 @@ test('typed no matches keeps state 17a four backdrop tiles, filtering missing ar
 test('phone Search draws the frame 8 results: counted type chips, the 178px top result and per-type row shapes', async () => {
   // The answer reports every requested group, including the ones that matched nothing.
   const groups = [group('movies', [movie]), group('shows', [show]), group('episodes', [episode]), group('songs', [song]), group('books', [book]),
-    group('people', []), group('artists', []), group('albums', []), group('live-tv', [])];
+    group('people', []), group('artists', []), group('albums', []), group('reading', []), group('live-tv', [])];
   const snapshot = {text: 'game', group: 'all', search: {generation: 2, scope: {}, query: {q: 'game'}, phase: 'ready', groups,
     data: {scope: {}, revision: {catalog: 1, viewer: 1}, heading: {key: '', fallback: ''}, query: {q: 'game', sort: 'relevance', direction: 'desc', group: '', groups: [], libraryIds: [], limit: 12, searchMode: 'normalized_prefix', recorded: false},
       groups, capabilities, empty: undefined}, pagination: {cursor: null, canPrevious: false}, error: null},
