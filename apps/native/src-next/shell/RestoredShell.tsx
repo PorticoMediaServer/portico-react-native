@@ -249,8 +249,11 @@ function RecoveryDownloads({source}: {source: RememberedDownloadsOpening}) {
   const snapshot = useSyncExternalStore(subscribe, read);
   if (!snapshot) return null;
   const entries = snapshot.entries.filter(entry => {try {
-    return entry.state === 'ready' && ['movie', 'episode', 'song', 'audiobook_file'].includes(entry.kind ?? entry.info?.kind ?? '')
-      && source.device.playabilityReason(entry) === null;
+    if (!source.current() || entry.state !== 'ready' || source.device.playabilityReason(entry) !== null) return false;
+    const kind = entry.kind ?? entry.info?.kind ?? '';
+    const admitted = ['movie', 'episode', 'song', 'audiobook_file'].includes(kind) ? !!source.player?.current()
+      : ['ebook', 'comic'].includes(kind) ? source.canRead?.(entry) === true : false;
+    return admitted && source.current() && source.device.playabilityReason(entry) === null;
   } catch {return false;}});
   if (!entries.length) return null;
   const covers = entries.slice(0, 3).flatMap(entry => entry.artworkUrl
