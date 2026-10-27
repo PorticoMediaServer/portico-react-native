@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {ApiError} from '../../../packages/client-core/src/index';
 import {CodedError} from '../../../packages/client-core/src/server-messages';
-import {MFARequiredError} from '../../../packages/client-core/src/hosted-security';
+import {MFARequiredError, parseNativeAccountContinuation} from '../../../packages/client-core/src/hosted-security';
 
 async function port() {
   const original = {kind: 'registration', registrationId: 'original', status: 'contact_pending', revision: '1', maskedAddress: 'a***@example.test', expiresAt: new Date(Date.now() + 60000).toISOString(), contactVerified: false};
@@ -78,4 +78,30 @@ test('retired invitation caller cannot open a provider browser after a late star
   const attempt = source.provider('google', () => live); await waiting; live = false;
   release({transactionId: 'original', authorizationUrl: 'https://example.test/authorize'});
   await assert.rejects(attempt, {code: 'cancelled'}); assert.equal(opened, 0); source.dispose();
+});
+
+
+test('continuation storage serializes an old in-flight save, skips a retired waiter and releases a failed save', async () => {
+  let record: string | null = null, release!: () => void, announce!: () => void, writes = 0, reads = 0, bindings = 0, held = true, fail = false;
+  const started = new Promise<void>(resolve => {announce = resolve;});
+  const bridge = {loadContinuation: async () => {reads++; return record;}, newBinding: async () => String(++bindings).padStart(43, 'a'),
+    saveContinuation: async (_origin: string, bytes: string) => {writes++; if (held) {held = false; announce(); await new Promise<void>(resolve => {release = resolve;});} if (fail) {fail = false; throw new Error('write failed');} record = bytes;}, cancel() {}};
+  const nativeAccounts = {onCancel: () => () => {}, accountClient: () => ({options: async () => ({providers: []})})};
+  const {NativePorticoSignIn} = await screenModule(new URL('../src-next/platform/portico-sign-in.ts', import.meta.url), {
+    react: {default: {}}, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}},
+    '../../../../packages/client-core/src/hosted-security': {MFARequiredError, parseNativeAccountContinuation}, '../../../../packages/client-core/src/server-messages': {CodedError},
+    '../../../../packages/client-core/src': {ApiError}, '../../../../packages/contracts/src/hosted/routes': {},
+    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://example.test'},
+  });
+  let oldLive = true, skippedLive = true;
+  const old = new NativePorticoSignIn(() => oldLive), skipped = new NativePorticoSignIn(() => skippedLive), successor = new NativePorticoSignIn();
+  const first = old.prepare(); await started;
+  const second = skipped.prepare(), third = successor.prepare(); oldLive = false; skippedLive = false;
+  assert.equal(reads, 1); assert.equal(writes, 1); release();
+  await assert.rejects(first); await assert.rejects(second); await third;
+  assert.equal(reads, 2); assert.equal(writes, 2); assert.equal(JSON.parse(record!).binding, 'a'.repeat(42) + '1');
+  const failing = new NativePorticoSignIn(), after = new NativePorticoSignIn(); fail = true;
+  const rejected = failing.prepare(), accepted = after.prepare(); await assert.rejects(rejected, /write failed/); await accepted;
+  assert.equal(JSON.parse(record!).binding, 'a'.repeat(42) + '1');
+  old.dispose(); skipped.dispose(); successor.dispose(); failing.dispose(); after.dispose();
 });
