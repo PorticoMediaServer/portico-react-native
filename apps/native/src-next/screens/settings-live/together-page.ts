@@ -48,7 +48,7 @@ export function nativeTogetherPages(context: NativeShellBootstrapContext, lifeti
         back: () => {if (current() && occurrence) context.navigation.commitNativePop(snapshot, occurrence);}});
       if (!ownsCapture()) {retire(); return;}
       registration = Object.freeze({snapshot, principal: identity, page, retire}); original = registration;
-      const installed = () => alive && generation === ticket && original === registration && !retired;
+      const installed = () => alive && original === registration && !retired;
       offNavigation = context.navigation.subscribe(() => {current();});
       if (!installed()) {const off = offNavigation; offNavigation = () => {}; off(); retire(); return;}
       offAuthority = context.subscribeAuthority(() => {current();});
