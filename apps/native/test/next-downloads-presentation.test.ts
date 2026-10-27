@@ -96,12 +96,17 @@ test('Downloads rows use the shared hold/menu boundary with their actual native 
   const device = {getSnapshot: () => ({supported: true, ready: true, entries: [current], settings: {}, usedBytes: 1, freeBytes: 100, otherBytes: 0}), subscribe() {},
     playabilityReason: () => null};
   const {DownloadsScreen} = await screenModule(new URL('../src-next/screens/downloads/DownloadsScreen.tsx', import.meta.url), {
-    react: host.react, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 390})},
+    react: {...host.react, useLayoutEffect: () => {}}, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 390})},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0})}, '../../../../../packages/i18n/src': {defaultI18n},
     '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/controls': {Chip: 'Chip', Focusable: 'Focusable', Switch: 'Switch'},
     '../../kit/cards/primitives': {CardFrame: 'CardFrame'}, '../../kit/overlays': {BottomSheet: 'BottomSheet', Menu: 'Menu'}, '../../kit/states': {StateView: 'StateView'}, '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/browse/presentation': {browseType: () => ({}), alpha: () => ''}, '../../kit/theme': {useTheme: () => theme},
     './presentation': {downloadEntryIdentity, downloadGroups, downloadRowText, downloadStorageSegments, downloadTransferProgress}, './useDownloadArtwork': {useDownloadArtwork: () => ({})},
+    './useReadingFacts': await screenModule(new URL('../src-next/screens/downloads/useReadingFacts.ts', import.meta.url), {react: {...host.react, useLayoutEffect: () => {}}}),
+    '../saved/SavedForms': await screenModule(new URL('../src-next/screens/saved/SavedForms.tsx', import.meta.url), {
+      react: {...host.react, useLayoutEffect: () => {}}, 'react-native': {Text: 'Text', View: 'View'}, '../../../../../packages/i18n/src': {defaultI18n},
+      '../../kit/controls': {Button: 'Button', Switch: 'Switch', TextField: 'TextField'}, '../../kit/overlays': {Banner: 'Banner', BottomSheet: 'BottomSheet', Dialog: 'Dialog'},
+      '../../kit/theme': {useTheme: () => theme}}),
   });
   function nodes(node: any): any[] {
     if (Array.isArray(node)) return node.flatMap(nodes);

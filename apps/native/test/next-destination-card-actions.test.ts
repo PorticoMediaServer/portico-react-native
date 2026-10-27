@@ -4,6 +4,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import {createTheme} from '../src-next/kit/theme.ts';
+import * as focusRegistry from '../src-next/kit/focus/registry.ts';
+import * as focusHostRef from '../src-next/kit/focus/useHostRef.ts';
 import {holdCard, type CardActions} from '../src-next/kit/cards/model.ts';
 import {nativeSearchGenreTiles} from '../src-next/screens/search/genre-tiles.ts';
 import {channelTint} from '../../../packages/client-core/src/presentation/kit-model/channels.ts';
@@ -18,6 +20,14 @@ const runtime = {text: defaultI18n, artwork: () => undefined, reportError() {}};
 const theme = createTheme({width: 390, isTV: false});
 const selection = (calls: string[], active = false) => ({active, selected: false, onToggle: () => calls.push('toggle'), onEnter: () => calls.push('enter')});
 
+/** The actual focus module's hook, loaded from its own source. These shallow card
+ * trees sit under no FocusItem, so the real hook reads that genuine default. */
+async function focusNamespace(react: any) {
+  return screenModule(new URL('../src-next/kit/focus/FocusRegion.tsx', import.meta.url), {react: {...react, createContext: (value: any) => ({value}), forwardRef: (render: any) => render},
+    'react-native': {findNodeHandle: () => undefined, TVFocusGuideView: 'TVFocusGuideView', View: 'View'}, '../theme': {useTheme: () => theme},
+    './registry': focusRegistry, './useHostRef': focusHostRef});
+}
+
 async function searchFixture(group = 'all') {
   const host = hooks(), calls: any[] = [], selected = selection(calls);
   const entry = {id: 'real-result', kind: 'movie', libraryId: 'movies', title: 'Actual title'};
@@ -27,6 +37,7 @@ async function searchFixture(group = 'all') {
     isMenuOpen: (item: any, kind: string) => item === entry && kind === 'movies'};
   const {SearchGridCard} = await screenModule(new URL('../src-next/screens/search/SearchGridCard.tsx', import.meta.url), {
     react: host.react, 'react-native': {View: 'View'}, '../../kit/cards': {PosterCard: 'PosterCard', SquareCard: 'SquareCard', CircleCard: 'CircleCard', EpisodeTile: 'EpisodeTile'},
+    '../../kit/focus': await focusNamespace(host.react),
     '../home/model': {homeCardText: () => ({caption: []})}, './model': {nativeSearchEntryKey: (kind: string, item: any) => JSON.stringify([kind, item.kind, item.id])},
   });
   const {SearchScreen} = await screenModule(new URL('../src-next/screens/search/SearchScreen.tsx', import.meta.url), {
@@ -83,12 +94,17 @@ test('Search grid passes genuine inactive selection to media, people and artist 
 
 test('Saved preview cards preserve inactive selection and the actual native menu anchor', async () => {
   const host = hooks(), calls: any[] = [], selected = selection(calls), entry = {id: 'saved-id', kind: 'movie', title: 'Actual saved title'};
-  const projection = {sections: [{entries: [entry]}]}, state = {myList: {projection}, favorites: {}, playlists: {}, collections: {}, views: {}, pins: []};
+  const projection = {scope: {serverId: 'server', libraryId: '', libraryKind: 'mixed', view: 'watchlist', entityId: '', viewerFence: 'actual-fence'},
+    revision: {catalog: 1, viewer: 1}, navigation: [], sorts: [], filters: [], query: {sort: 'title', direction: 'asc', category: 'all', q: '', limit: 40, searchMode: 'none'},
+    sections: [{id: 'items', type: 'grid', heading: {key: 'saved.title', fallback: ''}, entries: [entry], totalCount: 1, nextCursor: ''}]};
+  const state = {phase: 'ready', myList: {projection}, myListSquares: {projection: undefined}, favorites: {}, playlists: {}, collections: {}, views: {}, pins: [],
+    summary: {myList: {posters: 1, squares: 0}, favorites: {posters: 0, squares: 0}, playlists: 0, collections: 0, savedViews: 0}};
   const actions = {menuEntry: (...args: any[]) => calls.push(args), isMenuOpen: (value: any) => value === entry};
   const {SavedScreen} = await screenModule(new URL('../src-next/screens/saved/SavedScreen.tsx', import.meta.url), {
-    react: host.react, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'}, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0})},
-    '../../../../../packages/i18n/src': {defaultI18n: {t: (id: string) => id}}, '../../kit/cards': {PosterCard: 'PosterCard', SquareCard: 'SquareCard'},
-    '../../kit/controls': {Focusable: 'Focusable'}, '../../kit/states': {}, '../../kit/Icon': {}, '../../kit/browse/presentation': {browseType: () => ({}), alpha: () => ''},
+    react: {...host.react, useLayoutEffect: () => {}}, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'}, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0})},
+    '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/cards': {PosterCard: 'PosterCard', SquareCard: 'SquareCard'},
+    '../../kit/cards/primitives': {CardFrame: 'CardFrame', Parts: 'Parts'}, '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/overlays': {Menu: 'Menu'},
+    '../../kit/controls': {Button: 'Button', Chip: 'Chip', Focusable: 'Focusable', Tabs: 'Tabs'}, '../../kit/states': {}, '../../kit/Icon': {}, '../../kit/browse/presentation': {browseType: () => ({}), alpha: () => ''},
     '../../kit/theme': {useTheme: () => theme}, '../../platform/offline-downloads': {groupOfflineEntries: () => []}, '../home/model': {homeCardText: () => ({caption: []})},
     './model': {savedProjectionCount: () => undefined, savedDirectoryCount: () => undefined},
     './SavedDownloadCard': {SavedDownloadCard: 'SavedDownloadCard'},
