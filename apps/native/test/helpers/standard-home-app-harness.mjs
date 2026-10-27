@@ -114,8 +114,11 @@ const nativeURL = data(`import React from ${JSON.stringify(reactURL)};
  const S=globalThis.${globalKey};
  const flat=s=>Array.isArray(s)?Object.assign({},...s.map(flat)):s??{};
  function host(name){return function NativeBoundary({ref,children,...props}){
-   const own=React.useRef(); if(!own.current)own.current={tag:S.nextHost++,requestTVFocus(){S.hosts.get(this.tag)?.props.onFocus?.({nativeEvent:{}});},setDestinations(){},scrollTo(){},measure(cb){cb(0,0,390,220,0,588)},measureInWindow(cb){cb(0,588,390,220)},setNativeProps(){}};
-   const value=own.current; React.useLayoutEffect(()=>{S.hosts.set(value.tag,{name,props,children,host:value});});
+   const own=React.useRef(); if(!own.current)own.current={tag:S.nextHost++,contentOffset:{x:0,y:0},requestTVFocus(){S.hosts.get(this.tag)?.props.onFocus?.({nativeEvent:{}});},setDestinations(){},scrollTo(first=0,second=0){const offset=typeof first==='object'?first:{y:first,x:second};this.contentOffset={x:offset.x??0,y:offset.y??0};},measure(cb){cb(0,0,390,220,0,588)},measureInWindow(cb){cb(0,588,390,220)},setNativeProps(){}};
+   // The scroll view's live native offset, not a prop the app set: native answers
+   // with where the app's own scrollTo actually left the surface. Delivering the
+   // resulting scroll event stays the test's controlled input.
+   const value=own.current; React.useLayoutEffect(()=>{if(name==='ScrollView'&&!('contentOffset' in props))Object.defineProperty(props,'contentOffset',{configurable:true,get:()=>value.contentOffset});S.hosts.set(value.tag,{name,props,children,host:value});});
    React.useLayoutEffect(()=>{const release=typeof ref==='function'?ref(value):undefined;if(ref&&typeof ref!=='function')ref.current=value;return()=>{if(typeof release==='function')release();else if(typeof ref==='function')ref(null);else if(ref)ref.current=null;S.hosts.delete(value.tag);};},[ref,value]);
    const delivered=React.useRef(false);React.useLayoutEffect(()=>{if(delivered.current||!props.onLayout)return;delivered.current=true;const style=flat(typeof props.style==='function'?props.style({pressed:false}):props.style);props.onLayout({nativeEvent:{layout:{x:0,y:588,width:typeof style.width==='number'?style.width:390,height:typeof style.height==='number'?style.height:220}}});},[props.onLayout,props.style]);
    return React.createElement(React.Fragment,null,typeof children==='function'?children({pressed:false}):children);
@@ -126,7 +129,8 @@ const nativeURL = data(`import React from ${JSON.stringify(reactURL)};
  export const TVEventControl={enableTVMenuKey:()=>{S.tvMenuEnabled=true;},disableTVMenuKey:()=>{S.tvMenuEnabled=false;}};
  export const NativeModules=S.modules,NativeEventEmitter=class{addListener(name,fn){const set=S.events.get(name)??new Set();S.events.set(name,set);set.add(fn);return{remove:()=>set.delete(fn)}}};
  export const DeviceEventEmitter=new NativeEventEmitter(),AppState={currentState:'active',addEventListener:(_,fn)=>{S.appState.add(fn);return{remove:()=>S.appState.delete(fn)}}};
- export const BackHandler={addEventListener:(_,listener)=>{S.back.add(listener);return{remove:()=>S.back.delete(listener)}}},AccessibilityInfo={isReduceMotionEnabled:async()=>true,addEventListener:()=>({remove(){}}),announceForAccessibility(){}};
+ // This boundary has no attached screen reader, so the query answers as React Native does when the OS reports none; announcements and change subscriptions stay inert fixture controls.
+ export const BackHandler={addEventListener:(_,listener)=>{S.back.add(listener);return{remove:()=>S.back.delete(listener)}}},AccessibilityInfo={isScreenReaderEnabled:async()=>false,isReduceMotionEnabled:async()=>true,addEventListener:()=>({remove(){}}),announceForAccessibility(){}};
  // Forward fixture-supplied responder events to the actual product callbacks;
  // this boundary does not simulate native gesture negotiation or movement.
  export const PanResponder={create:config=>({panHandlers:Object.fromEntries(Object.entries(config).filter(([key])=>key.startsWith('onPanResponder')||key.includes('ShouldSetPanResponder')).map(([key,callback])=>[key.replace('ShouldSetPanResponder','ShouldSetResponder').replace('onPanResponder','onResponder'),callback]))})};
@@ -141,7 +145,7 @@ const nativeURL = data(`import React from ${JSON.stringify(reactURL)};
 const animatedURL = data(`import React from ${JSON.stringify(
   reactURL,
 )};import {View,ScrollView} from ${JSON.stringify(nativeURL)};
- export const useSharedValue=value=>React.useRef({value}).current,useAnimatedStyle=fn=>fn(),useAnimatedRef=()=>React.useRef(null),useAnimatedScrollHandler=fn=>fn,useDerivedValue=fn=>({value:fn()}),cancelAnimation=()=>{},scrollTo=()=>{},runOnJS=fn=>fn,runOnUI=fn=>fn;
+ export const useSharedValue=value=>React.useRef({value}).current,useAnimatedStyle=fn=>fn(),useAnimatedRef=()=>React.useRef(null),useAnimatedScrollHandler=fn=>fn,useDerivedValue=fn=>({value:fn()}),cancelAnimation=()=>{},scrollTo=(ref,x=0,y=0)=>{ref?.current?.scrollTo?.({x,y});},runOnJS=fn=>fn,runOnUI=fn=>fn;
  export const useAnimatedReaction=(prepare,reaction)=>{const prior=React.useRef(null);React.useEffect(()=>{const next=prepare();reaction(next,prior.current);prior.current=next;});};
  export const withDecay=()=>{throw Error('Unexpected Guide decay in Home fixture')};
  export const withTiming=(value,config,done)=>{if(done)setImmediate(()=>done(true));return value},withSpring=withTiming,withDelay=(_,value)=>value;
@@ -944,11 +948,16 @@ export async function standardHomeApp({
       await settle();
     },
     async unmount() {
-      exports.stopSurface(77);
-      await settle();
-      for (const timer of state.frames.values()) clearImmediate(timer);
-      state.frames.clear();
-      setInstallationIdentity(undefined);
+      // A recorded render failure is the test's result, so this app's own frames
+      // and install identity are always released before that same error is rethrown.
+      try {
+        exports.stopSurface(77);
+        await settle();
+      } finally {
+        for (const timer of state.frames.values()) clearImmediate(timer);
+        state.frames.clear();
+        setInstallationIdentity(undefined);
+      }
     },
     disposeLoader: () => {
       loader.deregister();
