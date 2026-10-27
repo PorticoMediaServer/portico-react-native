@@ -36,7 +36,7 @@ const belongs = (frame: Frame | undefined, value: Publication | undefined, kind:
 export function ListeningCoverProvider({children}: {children: React.ReactNode}) {
   const theme = useTheme(), motion = useMotion(), canvas = useRef<View>(null);
   const pageHeight = useSharedValue(0), pageAlpha = useSharedValue(0), first = useSharedValue(0), second = useSharedValue(0), third = useSharedValue(0);
-  const startedScene = useSharedValue(0);
+  const startedScene = useSharedValue(0), enteredScene = useSharedValue(0);
   const reportPageHeight = useCallback((height: number) => {pageHeight.value = Number.isFinite(height) && height > 0 ? height : 0;}, [pageHeight]);
   const groups = useMemo(() => [first, second, third] as const, [first, second, third]);
   const [revision, setRevision] = useState(0);
@@ -94,7 +94,8 @@ export function ListeningCoverProvider({children}: {children: React.ReactNode}) 
     const entering = now.goal === 0 || now.drag && now.p < .9999;
     const wasEntering = previous && (previous.goal === 0 || previous.drag && previous.p < .9999);
     if (entering && (fresh || !wasEntering)) {
-      const interrupted = !fresh && (first.value > 0 || second.value > 0 || third.value > 0);
+      const interrupted = enteredScene.value === now.ticket;
+      enteredScene.value = now.ticket;
       first.value = withDelay(now.reduced || interrupted ? 0 : 260, withTiming(1, standard));
       second.value = withDelay(now.reduced ? 0 : interrupted ? 60 : 320, withTiming(1, standard));
       third.value = withDelay(now.reduced ? 0 : interrupted ? 120 : 380, withTiming(1, standard));
@@ -110,7 +111,7 @@ export function ListeningCoverProvider({children}: {children: React.ReactNode}) 
     } else {
       cancelAnimation(pageAlpha); pageAlpha.value = Math.max(0, Math.min(1, (1 - now.p) * 2.5));
     }
-  }, [active, ticket, progress, dragging, goal, reduced, standard, quick, pageAlpha, first, second, third, startedScene]);
+  }, [active, ticket, progress, dragging, goal, reduced, standard, quick, pageAlpha, first, second, third, startedScene, enteredScene]);
   useEffect(() => () => {cancelAnimation(pageAlpha); cancelAnimation(first); cancelAnimation(second); cancelAnimation(third);}, [pageAlpha, first, second, third]);
   const fullFrame = belongs(full, binding, 'full', revision) ? full.bounds : undefined, miniFrame = belongs(mini, binding, 'mini', revision) ? mini.bounds : undefined;
   const decodeFrame = fullFrame ?? miniFrame;

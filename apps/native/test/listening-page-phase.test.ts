@@ -148,6 +148,11 @@ test('reversing an outgoing page retargets its actual partial paint with only th
     assert.deepEqual(r.context().groups.map((value: any) => value.running.from), [.45, .45, .45]);
     assert.deepEqual(r.context().groups.map((value: any) => value.running.delay), [0, 60, 120]);
     assert.ok(outgoing.every((handle: any) => handle.stopped));
+    for (const value of r.context().groups) value.running.tick(0);
+    r.controller.presentationGoal.value = 1;r.step();
+    r.controller.presentationGoal.value = 0;r.step();
+    assert.deepEqual(r.context().groups.map((value: any) => value.running.delay), [0, 60, 120],
+      'reversal before a delayed group becomes visible must not replay the initial260ms wait');
   } finally {r.close();}
 });
 
