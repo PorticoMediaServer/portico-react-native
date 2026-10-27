@@ -1,9 +1,10 @@
 import React, {useEffect, useMemo, useSyncExternalStore} from 'react';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {nativeShellRoutes, type NativeRouteRenderer} from '../../shell/route-registry';
-import {titleRoute, type NativeShellRoute} from '../../shell/routes';
+import {type NativeShellRoute} from '../../shell/routes';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {sameAuthority} from '../../shell/model';
+import {createNativeEntryActions} from '../destinations/entry-actions';
 import {NativeCollectionController} from './controller';
 import {NativeCollectionScreen} from './CollectionScreen';
 
@@ -29,6 +30,11 @@ function CollectionHost({route, context, runtime}: {route: CollectionRoute; cont
     libraryId: route.libraryId, collectionId: route.collectionId, title: route.title, current: context.current,
   }), [context, route.libraryId, route.collectionId, route.title, viewer.accountId, viewer.authority, viewer.profileId, viewer.serverId]);
   useEffect(() => {void controller.open().catch(runtime.reportError); return () => controller.dispose();}, [controller, runtime]);
+  const actions = useMemo(() => createNativeEntryActions(context, {
+    current: () => context.navigation.getSnapshot().route === route,
+    contains: entry => controller.getSnapshot().entries.includes(entry), subscribe: controller.subscribe,
+  }), [context, controller, route]);
+  useEffect(() => () => actions.dispose(), [actions]);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const current = () => context.current() && sameAuthority(context.navigation.getSnapshot().authority, authority);
   const play = (shuffle: boolean) => {
@@ -41,7 +47,7 @@ function CollectionHost({route, context, runtime}: {route: CollectionRoute; cont
   };
   return <NativeCollectionScreen state={state} runtime={runtime} onPlay={() => play(false)} onShuffle={() => play(true)}
     onSort={(sort, direction) => {void controller.sort(sort, direction).catch(runtime.reportError);}}
-    onOpen={entry => {if (current()) context.navigation.open(titleRoute(entry), authority);}}
+    onOpen={actions.open}
     onBack={() => {if (current()) context.navigation.back(authority);}}
     onRetry={() => {void controller.retry().catch(runtime.reportError);}}
     onMore={() => {void controller.more().catch(runtime.reportError);}}/>;

@@ -30,7 +30,7 @@ export {homeBrowseLabel};
  * their actual playback targets retain their independent server identities. */
 type HomeSeeAllProps = {
   controller: NativeHomeRowController; runtime: NativeShellRuntime; active: boolean;
-  onBack: () => void; onPlay: (shuffle: boolean) => void; onOpen: (entry: ContentEntry) => void; onPlayEntry: (entry: ContentEntry, current: () => boolean) => void;
+  onBack: () => void; onPlay: (shuffle: boolean) => void; onOpen: (entry: ContentEntry, current: () => boolean) => void; onPlayEntry: (entry: ContentEntry, current: () => boolean) => void;
   onMenu?: (entry: ContentEntry, anchor: RefObject<View | null>) => void; onFilters: () => void; onReshuffle: () => void;
   kindLabel: (id: string) => string; selection?: LayoutSelection;
 };
@@ -118,14 +118,14 @@ function HomeSeeAllReady({controller, runtime, active, onBack, onPlay, onOpen, o
           }}
           renderItem={(item, cell) => <FocusItem focusId={item.membershipId}>{list
             ? <HomeListRow entry={item.entry} runtime={runtime} width={window.width - 32} onFocus={cell.onFocus} onBlur={cell.onBlur}
-                onOpen={() => {if (controller.isCurrentItem(item, cell.index)) onOpen(item.entry);}}
+                onOpen={() => {if (controller.isCurrentItem(item, cell.index)) onOpen(item.entry, () => visible.current && controller.isCurrentItem(item, cell.index));}}
                 onPlay={item.entry.playback ? () => {
                   const current = () => visible.current && controller.isCurrentItem(item, cell.index);
                   if (current()) onPlayEntry(item.entry, current);
                 } : undefined}
                 onMenu={onMenu ? anchor => {if (controller.isCurrentItem(item, cell.index)) onMenu(item.entry, anchor);} : undefined}/>
             : <HomeRowCard entry={item.entry} runtime={runtime} width={width} onFocus={cell.onFocus} onBlur={cell.onBlur}
-                onOpen={() => {if (controller.isCurrentItem(item, cell.index)) onOpen(item.entry);}}
+                onOpen={() => {if (controller.isCurrentItem(item, cell.index)) onOpen(item.entry, () => visible.current && controller.isCurrentItem(item, cell.index));}}
                 onPlay={() => {
                   const current = () => visible.current && controller.isCurrentItem(item, cell.index);
                   if (current()) onPlayEntry(item.entry, current);

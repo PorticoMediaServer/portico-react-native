@@ -53,6 +53,7 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
     './selection-scope': {nativeHomeSelectionScope}, './routes': {nativeRailDestination, titleRoute}, './route-registry': {nativeShellRoutes: {subscribe: () => () => {}, bind: () => ({render: () => {renderOrder.push('active'); return 'active';}, renderWatch: () => null, renderRetained: () => {renderOrder.push('retained'); return ['retained'];}, renderOverlays: () => ['overlay'], back: () => routeConsumes, scrollToTop() {}, dispose() {}})}}, '../screens/home/model': {homePlayTarget},
     '../screens/read/platform': readPlatform, '../screens/settings-live/NativeTVReceiver': {NativeTVReceiver: 'NativeTVReceiver'},
     '../screens/native-screen-services': screenServices,
+    '../screens/read/reading-books-open': {openNativeReadingBookEntry: async () => false},
     '../screens/home/entry-lifetime': {nativeHomeEntryLifetime},
   });
   const navigation = new NativeShellNavigation(authority, () => authority);

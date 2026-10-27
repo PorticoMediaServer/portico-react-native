@@ -11,11 +11,12 @@ import {NativeHomeRowController} from './row-controller';
 import {nativeRouteCrypto} from '../../platform/server-connections';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRuntime} from '../../shell/runtime';
-import {nativeEntryRoute, type NativeShellRoute} from '../../shell/routes';
+import {nativeEntryRoute, nativeEntryRouteSupported, type NativeShellRoute} from '../../shell/routes';
 import {nativeShellRoutes, type NativeRouteRenderer} from '../../shell/route-registry';
 import {shellLayout} from '../../shell/model';
 import {useTheme} from '../../kit/theme';
 import {hiddenReadingLibraryOnTV} from '../read/platform';
+import {openNativeReadingBookEntry} from '../read/reading-books-open';
 import {nativeHomeEntryLifetime} from './entry-lifetime';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 
@@ -103,7 +104,30 @@ export function createNativeHomeRows(context: NativeShellBootstrapContext, repor
     render: (runtime: NativeShellRuntime) => [...rows.values()].map(source => <RetainedHomeRow key={source.key} source={source} runtime={runtime} active={current(source)}
       onBack={() => {if (current(source)) context.navigation.back(context.authority());}}
       onPlay={shuffle => play(source, shuffle)}
-      onOpen={entry => {if (current(source)) context.navigation.open(nativeEntryRoute(entry), context.authority());}}
+      onOpen={(entry, entryCurrent) => {
+        if (!current(source) || !entryCurrent()) return;
+        const snapshot = context.navigation.getSnapshot();
+        const operation = nativeHomeEntryLifetime(() => current(source) && context.navigation.getSnapshot() === snapshot && entryCurrent(),
+          [context.navigation.subscribe, context.subscribeAuthority, source.controller.subscribe, source.controller.collection.subscribe], source.abort.signal);
+        const fail = () => {if (operation.lifetime.isCurrent()) reportError(Object.assign(new Error('unavailable'), {code: 'unavailable'}));};
+        if (entry.kind === 'song' || entry.kind === 'audiobook_file') {
+          if (!entry.playback) {fail(); operation.dispose(); return;}
+          void context.playback.start({entry, target: entry.playback, lifetime: operation.lifetime})
+            .catch(error => {if (operation.lifetime.isCurrent()) reportError(error);}).finally(operation.dispose);
+          return;
+        }
+        if (entry.kind === 'ebook' || entry.kind === 'comic') {
+          const libraryId = entry.libraryId, kind = entry.kind === 'ebook' ? 'book' : 'comic';
+          const resident = () => operation.lifetime.isCurrent() && context.libraries().some(library => library.id === libraryId && library.kind === kind);
+          if (!libraryId || !resident()) {fail(); operation.dispose(); return;}
+          void openNativeReadingBookEntry(context, {libraryId, entry, origin: {route: snapshot.route, revision: snapshot.revision}, resident, signal: operation.lifetime.signal})
+            .then(opened => {if (!opened) fail();}).catch(error => {if (resident()) reportError(error);}).finally(operation.dispose);
+          return;
+        }
+        if (!nativeEntryRouteSupported(entry)) fail();
+        else context.navigation.open(nativeEntryRoute(entry), context.authority());
+        operation.dispose();
+      }}
       onPlayEntry={(entry, entryCurrent) => {
         if (!current(source) || !entryCurrent() || !entry.playback) return;
         const captured = context.navigation.getSnapshot();
