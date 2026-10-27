@@ -766,7 +766,7 @@
   "apps/native/assets/OFL-Manrope.txt": "58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b",
   "apps/native/licences/assets.json": "c342339c3d04dcc847df15902fe6e4fc3c8c9c69dab0380191dc9df67cf9a006",
   "apps/native/licences/js-vega.txt": "e43acc411edd36195c0699a1dc9b5731526da255b37846833b28f6f146e6ce70",
-  "apps/vega/package-lock.json": "10fde6be24275d25b0fce8bc9fe0c8c7e19612f7ce7816050795ba3c4e0e877b",
+  "apps/vega/package-lock.json": "656e91a93c17c92d3f3fb3b52f518536f24c0b60150cfc3e37996ecdae718f88",
   "LICENSE": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
   "packages/design/LICENSE-LUCIDE": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57"
  }
