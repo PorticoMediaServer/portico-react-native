@@ -240,7 +240,8 @@ test('Dashboard current owner refresh dispatches each authorized section once', 
 test('Dashboard role-change abort fanout retires both old windows without aborting the successor', async () => {
   const lifetime = new NativeScreenLifetime({authority: () => authority, current: () => true, subscribeAuthority: () => () => {}});
   let role: 'owner' | 'administrator' = 'owner', successor: Promise<void> | undefined;
-  let finishSession!: (value: ReturnType<typeof page>) => void, finishJob!: (value: {items: never[]; nextCursor: string}) => void;
+  let finishSession: ((value: ReturnType<typeof page>) => void) | undefined, finishJob: ((value: {items: never[]; nextCursor: string}) => void) | undefined;
+  const pending: Promise<unknown>[] = [];
   const readers: NativeDashboardReaders = {
     sessions: {list: async (cursor, _limit, signal) => {
       if (!cursor) return page('current', 1, 'next');
@@ -253,14 +254,20 @@ test('Dashboard role-change abort fanout retires both old windows without aborti
   class ObservedAbort extends OriginalAbort {constructor() {super(); created.push(this);}}
   globalThis.AbortController = ObservedAbort;
   try {
-    const oldSession = controller.nextSessions(controller.getSnapshot().sessionWindow!);
-    const oldJob = controller.nextJobs(controller.getSnapshot().jobWindow!);
+    const oldSession = controller.nextSessions(controller.getSnapshot().sessionWindow!); pending.push(oldSession);
+    const oldJob = controller.nextJobs(controller.getSnapshot().jobWindow!); pending.push(oldJob);
     assert.equal(created.length, 2); const [sessionAbort, jobAbort] = created;
     role = 'administrator'; await controller.refresh(); assert.ok(successor); await successor;
     assert.equal(sessionAbort.signal.aborted, true); assert.equal(jobAbort.signal.aborted, true);
     assert.ok(created.length >= 4); assert.equal(created[2].signal.aborted, false); assert.equal(created[3].signal.aborted, false);
-    finishSession(page('old', 1)); finishJob({items: [{id: 'old-job', revision: 1}] as never[], nextCursor: ''}); await Promise.all([oldSession, oldJob]);
+    assert.ok(finishSession); assert.ok(finishJob); finishSession(page('old', 1)); finishJob({items: [{id: 'old-job', revision: 1}] as never[], nextCursor: ''}); await Promise.all([oldSession, oldJob]);
     assert.equal(controller.getSnapshot().admission, 'owner'); assert.equal(controller.getSnapshot().sessions[0]?.id, 'current0');
     assert.equal(controller.getSnapshot().jobs[0]?.id, 'job');
-  } finally {globalThis.AbortController = OriginalAbort; controller.dispose(); lifetime.dispose();}
+  } finally {
+    globalThis.AbortController = OriginalAbort; controller.dispose(); lifetime.dispose();
+    finishSession?.(page('old', 1)); finishJob?.({items: [], nextCursor: ''});
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {await Promise.race([Promise.allSettled(pending), new Promise<never>((_, reject) => {timer = setTimeout(() => reject(new Error('held dashboard readers did not settle')), 1000);})]);}
+    finally {if (timer) clearTimeout(timer);}
+  }
 });
