@@ -179,3 +179,24 @@ test('verification retains the original caller predicate across coordinator admi
   live = false; caller.isCurrent = () => true; release();
   await assert.rejects(attempt); assert.equal(p.requests.length, 0); p.source.dispose();
 });
+
+test('native restart without its original registration ID does not read or complete a latest registration', async () => {
+  let saved: string | null = null, reads = 0, verifies = 0;
+  const original = {kind: 'registration', registrationId: 'original', status: 'contact_pending', revision: '1', maskedAddress: 'a***@example.test', expiresAt: new Date(Date.now() + 60000).toISOString(), contactVerified: false};
+  const bridge = {loadContinuation: async () => saved, newBinding: async () => 'z'.repeat(43), saveContinuation: async (_origin: string, value: string) => {saved = value;}, newRequestId: async () => 'request', cancel() {}};
+  const api = {options: async () => ({providers: []}), register: async () => original,
+    registration: async () => {reads++; return {...original, registrationId: 'successor', contactVerified: true};},
+    verifyRegistration: async () => {verifies++; return {};}};
+  const nativeAccounts = {onCancel: () => () => {}, accountClient: () => api};
+  const {NativePorticoSignIn} = await screenModule(new URL('../src-next/platform/portico-sign-in.ts', import.meta.url), {
+    react: {default: {}}, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}},
+    '../../../../packages/client-core/src/hosted-security': {MFARequiredError, parseNativeAccountContinuation}, '../../../../packages/client-core/src/server-messages': {CodedError},
+    '../../../../packages/client-core/src': {ApiError}, '../../../../packages/contracts/src/hosted/routes': {},
+    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://restart.example'}, '../../src/bridge/continuation-queue': continuationQueue,
+  });
+  const first = new NativePorticoSignIn(); await first.prepare();
+  const retained = await first.register('taken', 'Name', 'password', 'a@example.test'); first.dispose();
+  const restarted = new NativePorticoSignIn(); await restarted.prepare();
+  await assert.rejects(restarted.verifyRegistration('', retained, {isCurrent: () => true}, {username: 'replacement', displayName: 'Name'}));
+  assert.equal(reads, 0); assert.equal(verifies, 0); restarted.dispose();
+});
