@@ -27,12 +27,13 @@ async function fixture(width: number, isTV = false) {
 }
 
 test('the library row never draws its own Select and keeps its drawn controls exact', async () => {
-  // Tablet4/5 draw Select in the library header (`library-select-header`, routed by
-  // native-library-r46), so this row must never repeat it: not at a tablet width, not
-  // while selecting, and not when the caller supplies no port at all. The phone's own
-  // Select entry is not drawn here either; its intended home (compact header or the
-  // library menu) is still an owner decision, so this row asserts only that it never
-  // invents one.
+  // Select belongs to the drawn LibraryScreen header on tablet4/5: the medium header
+  // below 1024 and the expanded header from 1024 carry `library-select-header`
+  // (LibraryScreen.tsx:365,373,375), so this row must never repeat it — not at a
+  // tablet width, not while selecting, and not when the caller supplies no port. On
+  // the phone the compact header draws no Select either; the intended entry there is
+  // the card/list menu forwarding selection.start through
+  // `actions.menu(entry, anchor, onSelect)`, so this row still invents none.
   for (const width of [390, 599, 600, 820, 1180]) {
     const f = await fixture(width), tree = f.render(), nodes = elements(tree);
     assert.equal(nodes.some(node => node.props.testID === 'library-select'), false, 'the row never draws a second Select');

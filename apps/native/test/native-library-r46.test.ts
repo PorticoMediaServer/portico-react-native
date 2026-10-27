@@ -71,10 +71,13 @@ async function libraryScreen(width: number, isTV = false) {
 }
 
 test('a library page renders with no selection port and routes the supplied tablet Select action', async () => {
-  for (const width of [390, 1180]) {
+  // The drawn Select entry belongs to the actual library header: medium below 1024 and
+  // expanded from 1024 (LibraryScreen.tsx:251,373,375), whatever the theme calls the
+  // platform. The phone compact header draws none, so 390 keeps the no-port shape.
+  for (const width of [390, 600, 820, 1023, 1180]) {
     const {module, host} = await libraryScreen(width);
     let starts = 0;
-    const selection = width >= 1024 ? {start: () => {starts++;}} : undefined;
+    const selection = width >= 600 ? {start: () => {starts++;}} : undefined;
     const library = {id: 'movies', name: 'Movies', kind: 'movie'};
     const state = {phase: 'loading', library, tab: {id: 'movies'}, predicates: []};
     const props = {destination: {getSnapshot: () => state, subscribe: () => () => {}},
@@ -85,12 +88,17 @@ test('a library page renders with no selection port and routes the supplied tabl
     const tree = host.render(() => module.LibraryScreen(props));
     assert.ok(elements(tree).some(node => node.props.testID === 'native-library-movies'));
     if (selection) {
-      const header = elements(tree).find(node => node.type === module.LibraryExpandedHeader);
-      const button = header?.props.selection;
+      const header = elements(tree).find(node => node.type === (width >= 1024 ? module.LibraryExpandedHeader : module.LibraryMediumHeader));
+      assert.ok(header, `${width} draws the ${width >= 1024 ? 'expanded' : 'medium'} library header`);
+      const button = header.props.selection;
       assert.equal(button?.props.testID, 'library-select-header');
       assert.equal(button.props.onPress, selection.start);
       button.props.onPress();
       assert.equal(starts, 1);
+    } else {
+      const compact = elements(tree).find(node => node.type === module.LibraryCompactHeader);
+      assert.ok(compact, '390 draws the phone compact header');
+      assert.equal(compact.props.selection, undefined, 'the compact header carries no Select element');
     }
   }
 });
