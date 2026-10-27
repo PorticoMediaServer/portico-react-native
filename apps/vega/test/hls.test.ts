@@ -1081,3 +1081,35 @@ test('the actual pump refuses unprovable sealed media when required coverage dra
     source.close();
   }
 });
+
+
+test('the actual pump waits through a valid cohort final milliseconds before retiring at its exact frontier', async () => {
+  for (const paused of [true, false]) {
+    for (const remaining of [0.01, 0.049]) {
+      resetServer(); resetWorld(); film(3, 80_000_000);
+      const {source, player, failures} = start(base + 'index.m3u8');
+      await source.open(0); await stopTestPump(source as any); source.settled();
+      const hls = source as any, buffer = player.source.buffers[0];
+      discardConsumedPadding(buffer);
+      await hls.sealCohorts(hls.generation);
+      const cohort = hls.cohorts.get(buffer), original = [...cohort.entries], appended = buffer.appended.length;
+      let waited = 0;
+      const waiting = hls.waitForCohort.bind(hls);
+      hls.waitForCohort = (...args: any[]) => {const result = waiting(...args); waited++; return result;};
+      const removed = observeRetainedCohortRemovals(hls, player, buffer);
+      player.paused = paused; player.currentTime = cohort.frontier - remaining;
+      hls.startPump(hls.generation);
+      await until(() => waited >= 2 || failures.length > 0);
+      assert.deepEqual(failures, []);
+      assert.equal(removed(), 0); assert.equal(buffer.appended.length, appended);
+      assert.ok(original.every((entry: any) => hls.retained.has(entry)));
+      assert.equal(hls.cohorts.get(buffer), cohort);
+      player.advance(remaining);
+      await until(() => buffer.appended.length > appended || failures.length > 0, 15000);
+      assert.deepEqual(failures, []);
+      assert.equal(removed(), 1); assert.ok(original.every((entry: any) => !hls.retained.has(entry)));
+      assert.ok(buffer.spans.some(([from, to]: number[]) => from <= cohort.frontier && to > cohort.frontier));
+      source.close();
+    }
+  }
+});
