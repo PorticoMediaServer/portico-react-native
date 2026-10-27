@@ -209,6 +209,7 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
             </View>
           </View>
         </View>
+        {snapshot.phase === 'error' ? <MusicErrorView error={snapshot.error} onRetry={() => {void controller.load();}} style={{marginHorizontal: 32, marginTop: 24}}/> : null}
         <View style={{flexDirection: 'row', gap: 40, paddingHorizontal: 32, marginTop: 34}}>
           <View style={{flex: 1, minWidth: 0}}>
             <View style={{flexDirection: 'row', alignItems: 'center', height: 30, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.line}}>
@@ -228,6 +229,9 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
         </View>
         <SimilarAlbums snapshot={snapshot} controller={controller} runtime={runtime} actions={actions} openEntry={openEntry}/>
       </ScrollView>
+      <View pointerEvents="box-none" style={{position: 'absolute', top: insets.top + 8, left: 16, zIndex: 15}}>
+        <Button testID="native-tablet-album-back" variant="icon" icon="i-left" iconOnly accessibilityLabel={t('action.back')} onPress={onBack} style={{height: 44, width: 44}}/>
+      </View>
     </View>;
   }
   return <View testID="native-phone-album" style={{flex: 1, backgroundColor: theme.colors.ink}}>
@@ -299,6 +303,7 @@ export function PhoneArtistScreen({controller, entry, runtime, actions, openEntr
             <Button ref={more} variant="glass" iconOnly icon="i-more" style={round} accessibilityLabel={t('card.more', {title: entry.title})} onPress={() => actions.menu(entry, more)}/>
           </View>
         </View>
+        {snapshot.phase === 'error' ? <MusicErrorView error={snapshot.error} onRetry={() => {void controller.load();}} style={{marginHorizontal: 32, marginTop: 24}}/> : null}
         {snapshot.songs.length ? <View style={{marginTop: 32, paddingHorizontal: 32}}>
           <Text style={[browseType(theme, 19, 700), {color: theme.colors.text, marginBottom: 8}]}>{t('music.topSongs')}</Text>
           <View style={{flexDirection: 'row', alignItems: 'center', height: 30, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.line}}>
@@ -323,6 +328,9 @@ export function PhoneArtistScreen({controller, entry, runtime, actions, openEntr
         </View> : null}
         <SimilarArtists snapshot={snapshot} controller={controller} runtime={runtime} actions={actions} openEntry={openEntry} inset={32} gap={14}/>
       </ScrollView>
+      <View pointerEvents="box-none" style={{position: 'absolute', top: insets.top + 8, left: 16, zIndex: 15}}>
+        <Button testID="native-tablet-artist-back" variant="icon" icon="i-left" iconOnly accessibilityLabel={t('action.back')} onPress={onBack} style={{height: 44, width: 44}}/>
+      </View>
     </View>;
   }
   return <View testID="native-phone-artist" style={{flex: 1, backgroundColor: theme.colors.ink}}>
