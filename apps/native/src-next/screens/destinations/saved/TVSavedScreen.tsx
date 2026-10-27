@@ -390,9 +390,9 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
         style={{paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingTop: 38, minHeight: 520}}>{body}</FocusRegion>
       </View>}
     </View></ScrollView>
-    <Menu open={sortOpen} onOpenChange={setSortOpen} anchorRef={sortAnchor} title={t('saved.sort')} placement="bottom-start" items={sorts.map(value => ({id: value.id, label: t(value.label), selected: value.id === sort,
+    <Menu testID={`${ids.savedGrid}.sort-menu`} open={sortOpen} onOpenChange={setSortOpen} anchorRef={sortAnchor} title={t('saved.sort')} placement="bottom-start" items={sorts.map(value => ({id: value.id, label: t(value.label), selected: value.id === sort,
       onSelect: () => {setSort(value.id); run(controller.select(tab, {sort: value.id, filter, period}));}}))}/>
-    <Menu open={filterOpen} onOpenChange={setFilterOpen} anchorRef={filterAnchor} title={t('filter.title')} placement="bottom-start" items={publishedFilters.length
+    <Menu testID={`${ids.savedGrid}.filter-menu`} open={filterOpen} onOpenChange={setFilterOpen} anchorRef={filterAnchor} title={t('filter.title')} placement="bottom-start" items={publishedFilters.length
       ? publishedFilters.map(option => ({id: option.id, label: option.label, trailing: defaultI18n.number(option.count), selected: option.id === filter,
         onSelect: () => {setFilter(option.id as SavedListFilter); run(controller.select(tab, {sort, filter: option.id as SavedListFilter, period}));}}))
       : filters.map(value => ({id: value.id, label: t(value.label), selected: value.id === filter,

@@ -14,7 +14,7 @@ import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeCollectionSort, NativeCollectionState} from './controller';
 
 export type NativeCollectionScreenProps = Readonly<{
-  state: NativeCollectionState;
+  focusScope: string; state: NativeCollectionState;
   runtime: NativeShellRuntime;
   onPlay: () => void;
   onShuffle: () => void;
@@ -84,7 +84,7 @@ export function NativeCollectionScreen(props: NativeCollectionScreenProps) {
         </View>)}
       </View>
     </ScrollView>
-    <Menu open={sortOpen} onOpenChange={setSortOpen} title={defaultI18n.t('web.filters.sortBy')} items={sortItems}/>
+    <Menu testID={`${props.focusScope}.sort-menu`} open={sortOpen} onOpenChange={setSortOpen} title={defaultI18n.t('web.filters.sortBy')} items={sortItems}/>
   </View>;
   return content;
 }

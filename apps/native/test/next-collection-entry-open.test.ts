@@ -4,7 +4,7 @@ import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {createHookHost} from './hook-driver.ts';
 import {NativeShellNavigation} from '../src-next/shell/routes.ts';
-import {sameAuthority} from '../src-next/shell/model.ts';
+import {authorityKey, sameAuthority} from '../src-next/shell/model.ts';
 import {nativeDestinationLifetime} from '../src-next/screens/destinations/lifetime.ts';
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'fence'};
 
@@ -21,7 +21,7 @@ test('actual collection presenter sends its current member through the fenced pr
     '../watch': {nativeWatchEntryMenu: () => undefined},
   });
   const {createNativeCollectionRenderer} = await screenModule(new URL('../src-next/screens/collections/register.tsx', import.meta.url), {
-    react: {...React, default: React}, '../../shell/route-registry': {nativeShellRoutes: {registerRoute() {}}}, '../../shell/model': {sameAuthority},
+    react: {...React, default: React}, '../../shell/route-registry': {nativeShellRoutes: {registerRoute() {}}}, '../../shell/model': {authorityKey, sameAuthority},
     '../destinations/entry-actions': {createNativeEntryActions}, './controller': {NativeCollectionController: Controller}, './CollectionScreen': {NativeCollectionScreen: 'CollectionScreen'},
   });
   const navigation = new NativeShellNavigation(authority, () => authority);
