@@ -86,7 +86,9 @@ async function presenterFixture(t: any) {
     nativeResponse: async (request: any, fixture: any) => {
       const envelope = (data: unknown) => ({scope: {serverId: fixture.pin.serverId, viewerFence}, data});
       if (request.path === '/v1/admin/console/settings' && request.method === 'GET') return {status: 200, body: envelope(runtimeDocument(1, {...runtimeValues}))};
-      if (request.path === '/v1/admin/console/settings' && request.method === 'POST') {
+      // The server contract saves the owner settings document as a revision-guarded
+      // PATCH (change_console_settings); ConsoleClient sends that same method.
+      if (request.path === '/v1/admin/console/settings' && request.method === 'PATCH') {
         if (failure.consoleConflict) return {status: 409, body: {error: {code: 'console_conflict', message: 'The document changed.', currentRevision: 2}}};
         if (failure.consoleWrite) throw new Error('synthetic transport failure');
         return {status: 200, body: envelope(runtimeDocument(2, request.body.values))};
@@ -181,15 +183,15 @@ test('a rejected General save shows the real FormSet saveError, keeps the draft 
   await f.settle();
   assert.match(f.text(), /Something went wrong\. Try again\./, 'the rejected write projects the shared inline error state');
   assert.equal(f.byTestId('server-general-name').props.value, 'Rejected name', 'the unsaved draft is retained');
-  assert.equal(f.writes('/v1/admin/console/settings', 'POST').length, 1, 'no success and no repeated write');
-  const original = f.writes('/v1/admin/console/settings', 'POST')[0].body.idempotencyKey;
+  assert.equal(f.writes('/v1/admin/console/settings', 'PATCH').length, 1, 'no success and no repeated write');
+  const original = f.writes('/v1/admin/console/settings', 'PATCH')[0].body.idempotencyKey;
   assert.equal(typeof original, 'string');
   f.failure.consoleWrite = false;
   const retry = f.pressable('Try again');
   assert.ok(retry, 'the visible error offers the shared retry action');
   press(f.app, retry);
   await f.settle();
-  const retried = f.writes('/v1/admin/console/settings', 'POST');
+  const retried = f.writes('/v1/admin/console/settings', 'PATCH');
   assert.equal(retried.length, 2);
   assert.equal(retried[1].body.idempotencyKey, original, 'the retry re-sends the same original operation identity');
   assert.equal(f.byTestId('server-general-name').props.value, 'Rejected name');
@@ -210,7 +212,7 @@ test('a conflict retains the General draft and reports the changed document inst
   assert.ok(f.pressable('Refresh'), 'the changed document offers its own refresh action');
   assert.equal(f.pressable('Try again'), undefined);
   assert.ok(f.pressable('Save'), 'a failed save leaves the page dirty');
-  assert.ok(f.app.receipts.filter((receipt: any) => receipt.path === '/v1/admin/console/settings' && receipt.method === 'POST').every((receipt: any) => receipt.status === 409));
+  assert.ok(f.app.receipts.filter((receipt: any) => receipt.path === '/v1/admin/console/settings' && receipt.method === 'PATCH').every((receipt: any) => receipt.status === 409));
 });
 
 test('a local General validation problem stays separate from saveError and blocks Save', async t => {
@@ -224,7 +226,7 @@ test('a local General validation problem stays separate from saveError and block
   assert.equal(save.props.disabled, true, 'the local problem disables the page Save');
   assert.equal(save.props.onPress, undefined);
   assert.equal(f.pressable('Try again'), undefined, 'no persistence error state is invented for a local problem');
-  assert.equal(f.writes('/v1/admin/console/settings', 'POST').length, 0);
+  assert.equal(f.writes('/v1/admin/console/settings', 'PATCH').length, 0);
 });
 
 test('a partial multi-form failure keeps the unsaved General form and still reports it', async t => {
@@ -240,11 +242,11 @@ test('a partial multi-form failure keeps the unsaved General form and still repo
   assert.match(f.text(), /Something went wrong\. Try again\./, 'the failed maintenance form keeps the page error visible');
   assert.equal(f.byTestId('server-general-name').props.value, 'Stored name', 'the first form kept the accepted value');
   assert.ok(f.pressable('Save'), 'the unsaved maintenance form keeps the page dirty');
-  const runtimeWrites = f.writes('/v1/admin/console/settings', 'POST');
+  const runtimeWrites = f.writes('/v1/admin/console/settings', 'PATCH');
   const maintenanceWrites = f.writes('/v1/admin/maintenance/settings', 'PUT');
   assert.equal(runtimeWrites.length, 1, 'the runtime form saved first');
   assert.equal(maintenanceWrites.length, 1, 'the maintenance form was attempted and failed');
-  assert.ok(f.app.receipts.some((receipt: any) => receipt.path === '/v1/admin/console/settings' && receipt.method === 'POST' && receipt.status === 200));
+  assert.ok(f.app.receipts.some((receipt: any) => receipt.path === '/v1/admin/console/settings' && receipt.method === 'PATCH' && receipt.status === 200));
 });
 
 test('a really unmounted General page refuses its captured retry', async t => {
