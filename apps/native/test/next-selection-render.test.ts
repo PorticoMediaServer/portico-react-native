@@ -1300,3 +1300,132 @@ test('drawn list-field prompts use singular catalogue copy and retain real valid
     }
   } finally {state.theme = previous;}
 });
+
+// The actual People panel, state presenter and native controls are materialised
+// through the same element/hook harness used by the other TV focus regressions.
+test('TV People retains its focused continuation host and renders the real scoped retry action', async () => {
+  const {TVPeoplePanel} = await import('../src-next/screens/settings-live/server/TVPeoplePanel.tsx');
+  const {NativeScreenLifetime} = await import('../src-next/screens/settings-live/lifetime.ts');
+  const {NativeScreenServices} = await import('../src-next/screens/screen-services.ts');
+  const {act} = await import('./hook-driver.ts');
+  const authority = {serverId: 'server', accountId: 'account', profileId: 'primary', epoch: 'one', viewerFence: 'fence'};
+  const owner = {authority: () => authority, current: () => true, subscribeAuthority: () => () => {}, navigation: {open() {}}};
+  const lifetime = new NativeScreenLifetime(owner), feedback = new NativeScreenServices(owner as any, async () => 'id');
+  const account = {canManage: true, account: {role: 'admin', primaryProfileId: 'primary', disabled: false}};
+  const device = (id: string) => ({id, accountId: 'account', profileId: 'primary', username: 'a', name: id, platform: 'tv', app: '', appVersion: '', lastNetwork: '', liveState: 'idle', firstSeenAt: '2026-01-01T00:00:00Z', lastSeenAt: '2026-01-01T00:00:00Z', revision: 1});
+  let rejectPage!: (error: Error) => void, resolvePage!: (page: unknown) => void;
+  const requests: string[] = [];
+  const ports = {context: {account, api: {request: async (path: string) => {
+    requests.push(path);
+    if (path.includes('/members')) return {items: [], limit: 50, nextCursor: ''};
+    if (path.includes('/invitations')) return {items: [], limit: 50, nextCursor: '', totalCount: 0, matchedCount: 0};
+    if (!path.includes('cursor=')) return {items: [device('first')], limit: 50, nextCursor: 'offered'};
+    return new Promise((resolve, reject) => {resolvePage = resolve; rejectPage = reject;});
+  }}}};
+  const runtime = {text: {t: (id: string) => id, locale: 'en-US'}, error: feedback.error};
+  const panel = mount(TVPeoplePanel, {ports, runtime, lifetime});
+  const focus = () => ofType(panel.tree, Focusable).find(element => element.props.testID === 'tv-people-devices-more')!;
+  try {
+    await act(() => {});
+    const before = focus(); assert.ok(before); assert.equal(before.props.disabled, false);
+    let nativeId: string | undefined;
+    withNativeControl(before, host => {nativeId = host.props.testID; host.props.onFocus({nativeEvent: {}}); host.props.onPress();});
+    await act(() => {});
+    const pending = focus(); assert.ok(pending); assert.equal(pending.key, before.key); assert.equal(pending.props.disabled, true); assert.equal(pending.props.focusableWhenDisabled, true);
+    withNativeControl(pending, host => {assert.equal(host.props.testID, nativeId); assert.notEqual(host.props.focusable, false); assert.equal(host.props.onPress, undefined);});
+    await act(() => rejectPage(new Error('offline')));
+    const failed = focus(); assert.ok(failed); assert.equal(failed.key, before.key); assert.equal(failed.props.disabled, false);
+    assert.ok(ofType(panel.tree, Focusable).find(element => element.props.focusId === 'tv-people:device:first'));
+    const error = ofType(panel.tree, StateView).find(element => element.props.testID === 'tv-people-devices-error')!;
+    assert.ok(error.props.primaryAction); const errorView = mount(StateView, error.props);
+    try {
+      const action = elements(errorView.tree).find(element => element.props.action?.id === 'retry')!;
+      assert.ok(action); withNativeControl(action, host => {assert.ok(host.props.testID?.includes('tv-people-devices-error')); host.props.onPress();});
+      await act(() => {}); assert.equal(focus().props.disabled, true);
+      await act(() => resolvePage({items: [device('last')], limit: 50, nextCursor: ''}));
+      assert.ok(ofType(panel.tree, Focusable).find(element => element.props.focusId === 'tv-people:device:first'));
+      assert.ok(ofType(panel.tree, Focusable).find(element => element.props.focusId === 'tv-people:device:last'));
+      assert.deepEqual(requests.filter(path => path.includes('/devices')).map(path => new URLSearchParams(path.split('?')[1]).get('cursor')), [null, 'offered', 'offered']);
+      // A saved callback from the prior page cannot start a successor request.
+      before.props.onPress(); assert.equal(requests.filter(path => path.includes('/devices')).length, 3);
+    } finally {errorView.host.unmount();}
+  } finally {panel.host.unmount(); feedback.dispose(); lifetime.dispose();}
+});
+
+for (const role of ['administrator', 'owner'] as const) test(`TV Dashboard ${role} presenter binds continuation and retry to the captured section`, async () => {
+  const {screenModule} = await import('./helpers/screen-harness.mjs');
+  const {act} = await import('./hook-driver.ts');
+  const {NativeDashboardController} = await import('../src-next/screens/settings-live/dashboard-controller.ts');
+  const {NativeScreenLifetime} = await import('../src-next/screens/settings-live/lifetime.ts');
+  const {NativeScreenServices} = await import('../src-next/screens/screen-services.ts');
+  const {defaultI18n} = await import('../../../packages/i18n/src/index.ts');
+  const dashboard = await screenModule(new URL('../src-next/screens/settings-live/DashboardScreen.tsx', import.meta.url), {
+    react: {...React, default: React}, 'react-native': await import('react-native'),
+    '../../../../../packages/i18n/src': {defaultI18n},
+    '../../../../../packages/client-core/src/server-admin/dashboard': await import('../../../packages/client-core/src/server-admin/dashboard.ts'),
+    '../../../../../packages/client-core/src/presentation/content': await import('../../../packages/client-core/src/presentation/content.ts'),
+    '../../../../../packages/client-core/src/server-admin/console-catalogue': await import('../../../packages/client-core/src/server-admin/console-catalogue.ts'),
+    '../../../../../packages/client-core/src/server-admin/now-playing': await import('../../../packages/client-core/src/server-admin/now-playing.ts'),
+    '../../../../../packages/client-core/src/presentation/kit-model': await import('../../../packages/client-core/src/presentation/kit-model/index.ts'),
+    '../../kit/controls': {Button, Focusable}, '../../kit/focus': await import('../src-next/kit/focus/index.ts'),
+    '../../kit/shell': await import('../src-next/kit/shell/index.ts'), '../../kit/states': {StateView},
+    '../../kit/shell/visual': await import('../src-next/kit/shell/visual.ts'), '../../kit/theme': {useTheme: () => state.theme},
+    '../../kit/artwork': {Artwork: 'Artwork'}, './server/TVServerPageMenu': {TVServerPageMenu: 'TVServerPageMenu'},
+    './server/TVDiskUsage': {TVDiskUsage: 'TVDiskUsage'}, '../../shell/tv-focus': await import('../src-next/shell/tv-focus.ts'),
+    './Screen': {...await import('../src-next/screens/settings-live/Screen.tsx'), useScreenEntry: () => () => {}},
+    './dashboard-presentation': await import('../src-next/screens/settings-live/dashboard-presentation.ts'),
+    './owner-dashboard/use-owner-dashboard': {NativeOwnerDashboardPhone: 'NativeOwnerDashboardPhone'},
+  });
+  const authority = {serverId: 'server', accountId: 'account', profileId: 'primary', epoch: 'one', viewerFence: 'fence'};
+  const owner = {authority: () => authority, current: () => true, subscribeAuthority: () => () => {}, navigation: {open() {}}};
+  const lifetime = new NativeScreenLifetime(owner), feedback = new NativeScreenServices(owner as any, async () => 'id');
+  const totals = {streams: 11, paused: 0, converting: 0, bandwidthKbps: 0, people: 11, atHome: 11, away: 0};
+  const session = (id: string) => ({id, user: 'person', profile: 'profile', device: 'device', title: id, kind: 'vod', state: 'playing', positionMs: 0, decision: {}, location: 'local'});
+  let reject!: (error: Error) => void, complete!: (value: any) => void;
+  const calls: (string | undefined)[] = [], jobCalls: (string | undefined)[] = [];
+  const controller = new NativeDashboardController(lifetime, () => role, {
+    sessions: {list: async cursor => {calls.push(cursor); return cursor ? new Promise((resolve, fail) => {complete = resolve; reject = fail;}) : {items: [session('first'), ...Array.from({length: 9}, (_, i) => session(`first${i + 1}`))] as never[], nextCursor: 'next', totals, revision: 'rev-1', scope: {serverId: 'server', viewerFence: 'fence'}};}},
+    console: {measurement: async name => ({name, observedAt: 1, freshUntil: 30001, facts: {}}), alerts: async () => [], jobs: async cursor => {jobCalls.push(cursor); return {items: [{id: cursor ? 'later' : 'first', kind: 'scan', revision: 1}] as never[], nextCursor: cursor ? '' : 'job-next'};}, dispose() {}},
+  });
+  const runtime = {text: {t: defaultI18n.t, locale: 'en-US'}, error: feedback.error, artwork: () => undefined};
+  let sessionEvent: (() => void) | undefined;
+  const ports = {serverName: () => 'Server', context: {events: {on: (name: string, listener: () => void) => {if (name === 'admin.sessions') sessionEvent = listener; return () => {sessionEvent = undefined;};}}, navigation: {open() {}, back() {}}}};
+  const panel = mount(dashboard.NativeDashboardScreen, {controller, ports, runtime, deniedFallback: null});
+  try {
+    await act(() => {});
+    const row = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-session-first')!;
+    assert.ok(row);
+    if (role === 'owner') {
+      const jobMore = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-jobs-more')!; assert.ok(jobMore);
+      withNativeControl(jobMore, host => host.props.onPress()); await act(() => {});
+      assert.ok(ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-job-later'));
+      assert.deepEqual(jobCalls, [undefined, 'job-next']);
+    } else assert.deepEqual(jobCalls, []);
+    const initialMore = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-sessions-more')!;
+    withNativeControl(initialMore, host => host.props.onPress()); await act(() => {});
+    withNativeControl(row, host => host.props.onFocus({nativeEvent: {}}));
+    assert.ok(controller.sessionFocusToken('first'), 'the original drawn handler can lease its resident row while pending');
+    let more = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-sessions-more')!;
+    assert.ok(more); assert.equal(more.props.disabled, true); assert.equal(more.props.focusableWhenDisabled, true);
+    withNativeControl(more, host => {assert.equal(host.props.onPress, undefined); assert.notEqual(host.props.focusable, false);});
+    await act(() => reject(new Error('offline')));
+    assert.ok(ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-session-first'));
+    const error = ofType(panel.tree, StateView).find(element => element.props.testID === 'dashboard-sessions-page-error')!;
+    const errorView = mount(StateView, error.props);
+    try {
+      const retry = elements(errorView.tree).find(element => element.props.action?.id === 'retry')!;
+      withNativeControl(retry, host => {assert.ok(host.props.testID?.includes('dashboard-sessions-page-error')); host.props.onPress();});
+      await act(() => {}); more = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-sessions-more')!;
+      assert.equal(more.props.disabled, true);
+      await act(() => complete({items: [session('last')], nextCursor: undefined, totals, revision: 'rev-1', scope: {serverId: 'server', viewerFence: 'fence'}}));
+      assert.ok(ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-session-last'));
+      assert.equal(controller.getSnapshot().sessions.length, 11);
+      assert.ok(sessionEvent); sessionEvent!(); await act(() => {});
+      assert.ok(controller.sessionFocusToken('first')); assert.equal(controller.getSnapshot().sessionWindow?.pending, true);
+      await act(() => complete({items: [session('last')], nextCursor: undefined, totals, revision: 'rev-1', scope: {serverId: 'server', viewerFence: 'fence'}}));
+      assert.ok(ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-session-last'));
+      withNativeControl(row, host => host.props.onBlur({nativeEvent: {}})); assert.equal(controller.sessionFocusToken('first'), undefined);
+      assert.deepEqual(calls, [undefined, 'next', 'next', undefined, 'next']);
+    } finally {errorView.host.unmount();}
+  } finally {panel.host.unmount(); controller.dispose(); feedback.dispose(); lifetime.dispose();}
+});
