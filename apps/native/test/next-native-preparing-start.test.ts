@@ -12,7 +12,11 @@ const real = (extra = {}) => ({id: 'original_session', revision: '1', kind: 'vod
   lease: {expiresAt: '2099-01-01T00:00:00Z', reportEveryMs: 10_000}, retryAfterMs: 500,
   presentation: {generation: 1, mode: 'stream', engine: 'native', url: '/media/original.m3u8', startPositionMs: 0,
     quality: {mode: 'original'}, subtitles: [], decision: {video: {action: 'copy', reasons: []}, audio: {action: 'copy', reasons: []}}}, ...extra});
-const offered = (extra = {}) => parseStartPreparation(real(extra)).session!;
+const offered = (extra = {}) => {
+  const session = parseStartPreparation(real(extra)).session;
+  assert.ok(session && 'retryAfterMs' in session, 'the fixture is a real-resource 202');
+  return session;
+};
 const settle = async () => {for (let i = 0; i < 12; i++) await Promise.resolve();};
 function fixture() {
   let principal = true, continuation = true, stopped = 0;
