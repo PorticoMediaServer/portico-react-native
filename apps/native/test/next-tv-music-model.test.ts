@@ -660,3 +660,33 @@ test('controller focus and blur callbacks from a retired song section cannot pin
  f.value.focusSong(first,original);oldBlur();const count=f.browseBodies.length;await f.value.nextSongs(original);assert.equal(f.browseBodies.length,count);
  f.value.blurSong(first,original);await f.value.nextSongs(original);assert.equal(f.browseBodies.length,count+1);f.value.dispose();
 });
+
+
+test('the exact album entity count remains in the actual header throughout next, retry and previous loading and settlement',async()=>{
+ const screens=await tvMusicScreens();
+ for(const lowerBound of [true,false]){
+  let hold=false,fail=true,entered:()=>void=()=>{},release:()=>void=()=>{};
+  const entry={...albumEntry,count:37},songs=Array.from({length:10},(_,i)=>song(`song-${i}`,i+1,180,`Track ${i}`));
+  const f=await controller(entry,{songs,pageSize:1,maximumLimit:1,lowerBound,
+   waitPage:()=>hold?new Promise<void>(r=>{release=r;entered();}):undefined,
+   browseError:start=>start===1&&fail?new TypeError('offline'):undefined});await f.value.load();
+  const observed:(number|undefined)[]=[];const off=f.value.subscribe(()=>observed.push(f.value.getSnapshot().songTotal));
+  const assertHeader=()=>{
+   assert.equal(f.value.getSnapshot().songTotal,37);
+   const nodes=renderedMusicNodes(screens.TVAlbumScreen({controller:f.value,entry,runtime:{text:{},ambient:()=>undefined,artwork:()=>undefined,reportError:()=>{}},actions:{menu(){},isMenuOpen:()=>false},openEntry:()=>{}}));
+   assert(nodes.filter(n=>n.type==='Text').flatMap(n=>n.props.children).flat(Infinity).filter(value=>typeof value==='string').join(' ').includes('title.songCount:{"count":37}'));
+  };
+  const exercise=async(command:()=>Promise<void>,settled='ready')=>{
+   hold=true;const started=new Promise<void>(r=>{entered=r;});const task=command();await started;
+   assert.equal(f.value.getSnapshot().songPage.phase,'loading');assertHeader();release();await task;hold=false;
+   assert.equal(f.value.getSnapshot().songPage.phase,settled);assertHeader();
+  };
+  await exercise(()=>f.value.nextSongs(f.value.getSnapshot().songPage),'error');fail=false;
+  await exercise(()=>f.value.retrySongs(f.value.getSnapshot().songPage));
+  await exercise(()=>f.value.nextSongs(f.value.getSnapshot().songPage));
+  await exercise(()=>f.value.nextSongs(f.value.getSnapshot().songPage));
+  assert.equal(f.value.getSnapshot().songPage.canPrevious,true);
+  await exercise(()=>f.value.previousSongs(f.value.getSnapshot().songPage));
+  assert(observed.length>=10);assert(observed.every(count=>count===37));off();f.value.dispose();
+ }
+});
