@@ -86,7 +86,6 @@ export class NativeAudiobookController {
     const abort = () => controller.abort();
     lease.signal.addEventListener('abort', abort, {once: true});
     this.controller = controller;
-    this.publish({phase: 'loading', error: undefined});
     try {
       if (!this.live(lease) || controller.signal.aborted) return;
       await this.service.select({view: this.options.kind, libraryId: this.options.libraryId, entityId: this.options.id}, {context: lease});

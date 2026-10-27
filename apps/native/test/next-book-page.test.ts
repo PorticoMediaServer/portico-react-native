@@ -517,23 +517,21 @@ test('a currentness-retired queued read does not strand a valid successor', asyn
   value.dispose();
 });
 
-test('a loading publication may replace the renderer opening without adopting or aborting its successor', async () => {
+test('a scoped loading publication restores the cached book when its opening is retired before dispatch', async () => {
   const routeA = {kind: 'book', entry: entity}, routeB = {kind: 'book', entry: {...entity, id: 'book-2'}};
   let snapshot: any = {route: routeA, revision: 1}, renderer: any, successor: any, reentered = false;
-  const callbacks = new Set<() => void>();
-  FakeLibraryContentService.page = {phase: 'ready', error: null, sections: [{id: 'chapters', entries: chapters}],
-    projection: {entity, listening, sections: [{id: 'chapters', entries: chapters}]}};
+  const callbacks = new Set<() => void>(), instances: any[] = [], requests: string[] = [];
   const lifetime = {scope: {serverId: 'server', viewerId: 'viewer'}, current: () => true};
   const {NativeAudiobookController} = await screenModule(new URL('../src-next/screens/destinations/audiobooks/model.ts', import.meta.url), {
     react: {default: {}}, '../lifetime': {nativeDestinationLifetime: () => lifetime},
-    '../../../../../../packages/client-core/src/library-content': {LibraryContentService: FakeLibraryContentService},
+    '../../../../../../packages/client-core/src/library-content': {LibraryContentService},
     '../../../../../../packages/client-core/src/container-state': {getContainerState: async () => ({revision: 4, watched: false})},
   });
   class ObservedController extends NativeAudiobookController {
     constructor(options: any) {
-      super(options);
+      super(options); instances.push({id: options.id, controller: this});
       this.subscribe(() => {
-        if (!reentered && this.getSnapshot().phase === 'loading') {
+        if (options.id === 'book-1' && !reentered && this.getSnapshot().phase === 'loading') {
           reentered = true; snapshot = {route: routeB, revision: 2}; callbacks.forEach(fn => fn());
           successor = renderer.render(routeB, {});
         }
@@ -547,13 +545,30 @@ test('a loading publication may replace the renderer opening without adopting or
     '../entry-actions': {createNativeEntryActions: () => ({menu() {}, dispose() {}})},
     './BookScreen': {BookScreen: 'book'}, './AuthorSeriesScreen': {AuthorSeriesScreen: 'author'},
   });
-  const context = {api: {}, authority: () => ({}), playback: {start: async () => {}},
+  const api = {request: async (path: string) => {
+    const url = new URL(path, 'https://server.test'), id = url.searchParams.get('entityId')!; requests.push(id);
+    return {scope: {serverId: 'server', libraryId: 'books', libraryKind: 'book', view: 'book', entityId: id, viewerFence: 'fence'},
+      revision: {catalog: 1, viewer: 1}, query: {sort: '', direction: '', category: '', q: '', limit: 40, searchMode: 'none'},
+      entity: {id, libraryId: 'books', kind: 'book', title: id}, sections: [{id: 'files', type: 'list', heading: {key: 'files'}, entries: [], totalCount: 0, nextCursor: ''}]};
+  }};
+  const context = {api, authority: () => ({}), playback: {start: async () => {}},
     subscribeAuthority: (fn: () => void) => {callbacks.add(fn); return () => callbacks.delete(fn);},
     navigation: {getSnapshot: () => snapshot, isCurrent: () => true, subscribe: (fn: () => void) => {callbacks.add(fn); return () => callbacks.delete(fn);}}};
   renderer = module.createNativeBookRenderer(context);
   assert.equal(renderer.render(routeA, {}), null);
   assert.ok(successor?.props.controller);
+  assert.equal(requests.filter(id => id === 'book-1').length, 0, 'retired A never dispatches');
+  const cachedA = instances.find(value => value.id === 'book-1').controller;
+  assert.equal(cachedA.getSnapshot().phase, 'idle');
   assert.equal(renderer.render(routeB, {}).props.controller, successor.props.controller);
+  snapshot = {route: routeA, revision: 3}; callbacks.forEach(fn => fn());
+  const revisited = renderer.render(routeA, {});
+  assert.ok(revisited);
+  assert.equal(instances.filter(value => value.id === 'book-1').length, 1, 'the original cached controller is reused');
+  assert.equal(cachedA.getSnapshot().phase, 'loading', 'a live opening publishes shared loading');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(requests.filter(id => id === 'book-1').length, 1);
+  assert.equal(cachedA.getSnapshot().phase, 'ready');
   renderer.dispose();
 });
 
