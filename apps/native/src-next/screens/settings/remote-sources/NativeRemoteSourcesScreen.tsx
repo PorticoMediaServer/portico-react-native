@@ -51,13 +51,13 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
   const mounted = useRef<{live: boolean}>(committedMount);
   const rootRevision = useRef(0);
   const mode = opening?.mode;
-  const show = (next: Mode) => {
+  const show = useCallback((next: Mode) => {
     const previous = openingRef.current;
     if (previous) previous.owner.live = false;
     const created: Opening = {id: ++attempt.current, mode: next, owner: {live: true}, mounted: mounted.current};
     rootRevision.current++;
     openingRef.current = created; setOpening(created); setError(undefined);
-  };
+  }, []);
   // A root Add/Manage press must still belong to the root render that offered it: the same
   // mount, the same list snapshot, no later subpage, and (Manage) the same source generation.
   const showRoot = (next: Mode, root: RemoteState, mount: {live: boolean}, revision: number, source?: RemoteSource) => {
@@ -67,12 +67,12 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
     if (source && !root.sources.some(row => row.id === source.id && row.generation === source.generation)) return;
     show(next);
   };
-  const closeFrom = (from: Opening) => {
+  const closeFrom = useCallback((from: Opening) => {
     if (!from.owner.live || !from.mounted.live || openingRef.current !== from) return;
     from.owner.live = false; openingRef.current = undefined; attempt.current++; rootRevision.current++;
     setOpening(undefined); setError(undefined);
-  };
-  const navigate = (from: Opening, next: Mode) => {
+  }, []);
+  const navigate = useCallback((from: Opening, next: Mode) => {
     if (!from.owner.live || !from.mounted.live || openingRef.current !== from) return;
     const fromSource = 'source' in from.mode ? from.mode.source : undefined;
     const nextSource = 'source' in next ? next.source : undefined;
@@ -83,7 +83,7 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
       if (rows.some(row => row.id === fromSource.id) && !rows.some(row => row.id === fromSource.id && row.generation === fromSource.generation)) return;
     }
     show(next);
-  };
+  }, [controller, show]);
   // An accepted create or edit may advance the source generation; its own form guard
   // already proved the opening, so only the exact id is required here.
   const saved = (from: Opening, source: RemoteSource) => {
@@ -92,7 +92,7 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
     if (fromSource && fromSource.id !== source.id) return;
     show({kind: 'reading', source});
   };
-  const back = () => {
+  const back = useCallback(() => {
     const current = openingRef.current;
     if (!current || !current.owner.live || !current.mounted.live) return;
     if (current.mode.kind === 'folders') {
@@ -101,7 +101,7 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
     } else if (current.mode.kind === 'assignment') {
       navigate(current, {kind: 'detail', source: current.mode.source});
     } else closeFrom(current);
-  };
+  }, [closeFrom, navigate]);
   useLayoutEffect(() => {
     const token = {live: true};
     mounted.current = token;
@@ -121,7 +121,7 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
   useEffect(() => {
     onBackHandlerChange?.(subpage ? () => {if (!openingRef.current) return false; back(); return true;} : undefined);
     return () => onBackHandlerChange?.(undefined);
-  }, [subpage, onBackHandlerChange]);
+  }, [subpage, onBackHandlerChange, back]);
   const captured = attempt.current;
   const isCurrent = useCallback(() => controller.getSnapshot().allowed && attempt.current === captured, [controller, captured]);
   if (!snapshot.allowed) {

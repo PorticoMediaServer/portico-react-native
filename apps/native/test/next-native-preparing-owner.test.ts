@@ -6,7 +6,7 @@ import {captureNativePreparingOwner} from '../src-next/platform/playback/prepari
 
 const sessionBody = () => ({id: 'original_session', revision: '1', kind: 'vod', role: 'local', state: 'paused', itemId: 'movie',
   lease: {expiresAt: '2099-01-01T00:00:00Z', reportEveryMs: 10_000},
-  presentation: {generation: 1, mode: 'stream', engine: 'native', url: '/media/original.m3u8', startPositionMs: 0,
+  presentation: {generation: 1, mode: 'stream', engine: 'native', url: '/v1/media/grant-original_session/1/master.m3u8', startPositionMs: 0,
     quality: {mode: 'original'}, subtitles: [], decision: {video: {action: 'copy', reasons: []}, audio: {action: 'copy', reasons: []}}}});
 const offered = () => parseStartPreparation({...sessionBody(), retryAfterMs: 500}).session!;
 

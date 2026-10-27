@@ -71,7 +71,7 @@ async function rig(reduced = false) {
     react, 'react-native': {View: 'View'}, 'react-native-reanimated': animated,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 0})}, '../theme': {useTheme: () => theme},
     '../../../../../packages/player-core/src/index': {sameFence}, './MediaBar': {MediaBar}, './NowPlayingCard': {NowPlayingCard: 'NowPlayingCard'},
-    './DockNotice': {DockNotice: 'DockNotice'}, './model': model, './visual': {alpha: () => '#000', dockStyles: {}}, './DockClearance': {useDockClearanceReport() {}}, './useDockPresence': {useDockPresence},
+    './DockNotice': {DockNotice: 'DockNotice'}, './model': model, './visual': {alpha: () => '#000', dockStyles: {}}, './DockClearance': {useDockClearanceReport() {}}, '../useMotion': {useMotion: () => motion}, './useDockPresence': {useDockPresence},
   });
   const dock = new PlaybackDock(scope);
   let props: DockHostProps = {dock, snapshot: dock.getSnapshot(), presentation: {local: presentation}, onAction() {}, onVideoSlot: (rect, proof) => {deliveries.push(rect); if (proof) proofs.push(proof);}};

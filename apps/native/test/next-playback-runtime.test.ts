@@ -2662,8 +2662,12 @@ async function assertRefusedChannelOpening(opening: ObservedChannelOpening) {
   }
 }
 type ChannelObserverBaseline = Readonly<Pick<Engine, 'subscriptions' | 'listener'>>;
-function assertInitialChannelObserver(baseline: ChannelObserverBaseline) {
-  assert.equal(baseline.subscriptions, 1, 'runtime construction owns one idle transport fact observer before channel start');
+function assertUnconnectedChannelObserver(baseline: ChannelObserverBaseline) {
+  assert.equal(baseline.subscriptions, 0, 'fixture construction has not connected the runtime');
+  assert.equal(baseline.listener, undefined);
+}
+function assertConnectedChannelObserver(baseline: ChannelObserverBaseline) {
+  assert.equal(baseline.subscriptions, 1, 'the original startChannel synchronously calls connect(), which starts the coordinator fact observer');
   assert.equal(typeof baseline.listener, 'function');
 }
 function assertColdChannelPending(d: ReturnType<typeof fixture>, baseline: ChannelObserverBaseline, response: FakeResponse | undefined, opening: ObservedChannelOpening, callbacks: readonly unknown[]) {
@@ -2682,7 +2686,7 @@ function assertColdChannelPending(d: ReturnType<typeof fixture>, baseline: Chann
   assert.equal(actual.fence, undefined); assert.equal(actual.lease, '');
   assert.equal(d.engine.commands.length, 0);
   assert.equal(d.engine.subscriptions, baseline.subscriptions, 'cold control admission adds no transport observer');
-  assert.equal(d.engine.listener, baseline.listener, 'the original constructor observer remains unchanged');
+  assert.equal(d.engine.listener, baseline.listener, 'the original connected observer remains unchanged');
   assert.equal(d.runtime.coordinator.getBinding(), undefined); assert.equal(d.runtime.coordinator.getInstanceId(), undefined);
   const diagnostics = d.runtime.coordinator.diagnostics();
   assert.equal(diagnostics.acquiring, false); assert.equal(diagnostics.leaseAcquired, false);
@@ -2715,14 +2719,16 @@ function assertOriginalChannelJoin(d: ReturnType<typeof fixture>, id: string) {
 test('cold channel stays pending until its original positive poll and ordered join, then notifies once', async t => {
   t.mock.timers.enable({apis: ['setTimeout']});
   const d = fixture();
-  const observerBaseline = Object.freeze({subscriptions: d.engine.subscriptions, listener: d.engine.listener});
+  const preStartObserver = Object.freeze({subscriptions: d.engine.subscriptions, listener: d.engine.listener});
   const accepted: unknown[] = [], abort = new AbortController(), wire = coldChannel(d);
   let opening!: ObservedChannelOpening;
   try {
-    assertInitialChannelObserver(observerBaseline);
+    assertUnconnectedChannelObserver(preStartObserver);
     opening = observedChannelOpening(d.runtime.startChannel({sourceId: 'source-1', channelId: 'channel-1', timezone: 'UTC', lifetime: {signal: abort.signal, isCurrent: () => true}, onAccepted: fence => {accepted.push(fence);}}));
+    const connectedObserver = Object.freeze({subscriptions: d.engine.subscriptions, listener: d.engine.listener});
+    assertConnectedChannelObserver(connectedObserver);
     await drainChannelUntil(() => d.runtime.playback.getSnapshot().linear?.media.state === 'preparing', 'actual cold control projection');
-    const id = assertColdChannelPending(d, observerBaseline, wire(), opening, accepted);
+    const id = assertColdChannelPending(d, connectedObserver, wire(), opening, accepted);
     t.mock.timers.tick(1000); await joinChannelOpening(opening); await settle();
     const own = assertOriginalChannelJoin(d, id); assert.deepEqual(accepted, [own]);
     t.mock.timers.tick(2000); await settle(80); assert.deepEqual(accepted, [own]);
@@ -2735,15 +2741,17 @@ test('cold channel stays pending until its original positive poll and ordered jo
 for (const retirement of ['caller', 'authority', 'source'] as const) test(`cold channel cannot notify after original ${retirement} retirement`, async t => {
   t.mock.timers.enable({apis: ['setTimeout']});
   const d = fixture();
-  const observerBaseline = Object.freeze({subscriptions: d.engine.subscriptions, listener: d.engine.listener});
+  const preStartObserver = Object.freeze({subscriptions: d.engine.subscriptions, listener: d.engine.listener});
   const accepted: unknown[] = [], abort = new AbortController(), wire = coldChannel(d);
   let live = true, replacement: ObservedChannelOpening | undefined;
   let opening!: ObservedChannelOpening;
   try {
-    assertInitialChannelObserver(observerBaseline);
+    assertUnconnectedChannelObserver(preStartObserver);
     opening = observedChannelOpening(d.runtime.startChannel({sourceId: 'source-1', channelId: 'channel-1', timezone: 'UTC', lifetime: {signal: abort.signal, isCurrent: () => live}, onAccepted: fence => {accepted.push(fence);}}));
+    const connectedObserver = Object.freeze({subscriptions: d.engine.subscriptions, listener: d.engine.listener});
+    assertConnectedChannelObserver(connectedObserver);
     await drainChannelUntil(() => d.runtime.playback.getSnapshot().linear?.media.state === 'preparing', 'original cold control before retirement');
-    const id = assertColdChannelPending(d, observerBaseline, wire(), opening, accepted);
+    const id = assertColdChannelPending(d, connectedObserver, wire(), opening, accepted);
     if (retirement === 'caller') {live = false; abort.abort();}
     else if (retirement === 'authority') d.changeAuthority();
     else {replacement = observedChannelOpening(d.start('movie-successor')); await joinChannelOpening(replacement);}
@@ -2751,8 +2759,8 @@ for (const retirement of ['caller', 'authority', 'source'] as const) test(`cold 
     t.mock.timers.tick(1000); await drainChannelUntil(() => opening.outcome.status !== 'pending', 'retired original channel start');
     await assertRefusedChannelOpening(opening); assert.deepEqual(accepted, []);
     if (retirement === 'caller') {
-      assert.equal(d.engine.subscriptions, observerBaseline.subscriptions, 'caller retirement alone does not dispose the shared runtime');
-      assert.equal(d.engine.listener, observerBaseline.listener);
+      assert.equal(d.engine.subscriptions, connectedObserver.subscriptions, 'caller retirement alone does not dispose the shared runtime');
+      assert.equal(d.engine.listener, connectedObserver.listener);
     }
     assert.notEqual(d.runtime.playback.getSnapshot().session?.id, id); assert.notEqual(d.runtime.getSnapshot().fence?.sessionId, id);
     assert.equal(d.engine.commands.some(command => command.binding?.sessionId === id), false, 'the refused original never attaches to the native engine');
@@ -2770,17 +2778,19 @@ for (const retirement of ['caller', 'authority', 'source'] as const) test(`cold 
 test('reentrant channel admission cannot publish an old fence over its replacement', async t => {
   t.mock.timers.enable({apis: ['setTimeout']});
   const d = fixture();
-  const observerBaseline = Object.freeze({subscriptions: d.engine.subscriptions, listener: d.engine.listener});
+  const preStartObserver = Object.freeze({subscriptions: d.engine.subscriptions, listener: d.engine.listener});
   const accepted: unknown[] = [], abort = new AbortController(), wire = coldChannel(d);
   let replacement: ObservedChannelOpening | undefined;
   let opening!: ObservedChannelOpening;
   try {
-    assertInitialChannelObserver(observerBaseline);
+    assertUnconnectedChannelObserver(preStartObserver);
     opening = observedChannelOpening(d.runtime.startChannel({sourceId: 'source-1', channelId: 'channel-1', timezone: 'UTC', lifetime: {signal: abort.signal, isCurrent: () => true}, onAccepted: fence => {
       accepted.push(fence); replacement = observedChannelOpening(d.start('movie-new-owner'));
     }}));
+    const connectedObserver = Object.freeze({subscriptions: d.engine.subscriptions, listener: d.engine.listener});
+    assertConnectedChannelObserver(connectedObserver);
     await drainChannelUntil(() => d.runtime.playback.getSnapshot().linear?.media.state === 'preparing', 'cold control before reentrant admission');
-    assertColdChannelPending(d, observerBaseline, wire(), opening, accepted);
+    assertColdChannelPending(d, connectedObserver, wire(), opening, accepted);
     t.mock.timers.tick(1000); await drainChannelUntil(() => accepted.length === 1 && replacement !== undefined, 'original positive admission');
     await joinChannelOpening(opening); assert(replacement); await joinChannelOpening(replacement);
     const successor = d.runtime.getSnapshot().fence; assert.ok(successor?.kind === 'queue');
@@ -2801,11 +2811,12 @@ for (const cold of [false, true]) test(`real ${cold ? 'cold-ordered-join' : 'war
     '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}}, '../../../../../packages/player-core/src': await import('../../../packages/player-core/src/index.ts'), '../../kit/controls': {Button: 'Button'},
   });
   const d = fixture();
-  const observerBaseline = Object.freeze({subscriptions: d.engine.subscriptions, listener: d.engine.listener});
+  const preStartObserver = Object.freeze({subscriptions: d.engine.subscriptions, listener: d.engine.listener});
   const wire = cold ? coldChannel(d) : undefined, authority = d.getAuthority();
   const navigation = new NativeShellNavigation(authority, () => d.getAuthority()); navigation.top({kind: 'live'}, authority); const original = navigation.getSnapshot().route;
   const route = {kind: 'channel' as const, sourceId: 'source-1', channelId: 'channel-1'}; navigation.open(route, authority);
   let startReturned = false, opening: ObservedChannelOpening | undefined; const admissionOrder: string[] = [];
+  let connectedObserver: ChannelObserverBaseline | undefined;
   const context = {current: () => true, navigation, subscribeAuthority: d.subscribeAuthority, playback: {runtime: {getSnapshot: d.runtime.getSnapshot,
     startChannel: async (input: Parameters<typeof d.runtime.startChannel>[0]) => {
       const forwarded: typeof input = {...input, onAccepted: fence => {
@@ -2813,17 +2824,19 @@ for (const cold of [false, true]) test(`real ${cold ? 'cold-ordered-join' : 'war
         assert.equal(navigation.getSnapshot().route, route, 'positive admission cannot interrupt unfinished original start metadata');
       }};
       opening = observedChannelOpening(d.runtime.startChannel(forwarded));
+      connectedObserver = Object.freeze({subscriptions: d.engine.subscriptions, listener: d.engine.listener});
+      assertConnectedChannelObserver(connectedObserver);
       await opening.promise; startReturned = true;
     },
   }}};
   let tree: any; const host = createHookHost(() => {tree = NativeWatchChannelRoute({context, route, title: {renderError: assert.fail}});});
   let pops = 0; const off = navigation.subscribe(() => {if (navigation.getSnapshot().route === original) pops++;});
   try {
-    assertInitialChannelObserver(observerBaseline);
-    const launch = navigation.getSnapshot(); await act(() => host.mount()); assert(opening);
+    assertUnconnectedChannelObserver(preStartObserver);
+    const launch = navigation.getSnapshot(); await act(() => host.mount()); assert(opening); assert(connectedObserver);
     if (cold) {
       await drainChannelUntil(() => d.runtime.playback.getSnapshot().linear?.media.state === 'preparing', 'route original cold projection');
-      assertColdChannelPending(d, observerBaseline, wire!(), opening, admissionOrder);
+      assertColdChannelPending(d, connectedObserver, wire!(), opening, admissionOrder);
       assert.equal(startReturned, false); assert.equal(navigation.getSnapshot(), launch); assert.equal(pops, 0);
       t.mock.timers.tick(1000);
     }
