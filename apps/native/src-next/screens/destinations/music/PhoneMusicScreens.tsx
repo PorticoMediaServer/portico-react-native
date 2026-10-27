@@ -13,6 +13,8 @@ import {useTheme} from '../../../kit/theme';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeEntryActions} from '../entry-actions';
 import type {NativeTVMusicController, NativeTVMusicSnapshot, MusicAlbumRow} from './model';
+import {MusicSectionControls,musicNearEnd} from './MusicSectionControls';
+import {artistReleaseGroups} from '../../../../../../packages/client-core/src/presentation/library-tabs';
 import {MusicErrorView} from './MusicErrorView';
 import {MusicFormatBadges} from './MusicFormatBadges';
 
@@ -110,14 +112,15 @@ function SongLine({song, index, runtime, controller, actions, playingId}: {
   </Focusable>;
 }
 
-function SongLines({songs, runtime, controller, actions, playingId}: {songs: readonly ContentEntry[]; runtime: NativeShellRuntime; controller: NativeTVMusicController; actions: Actions; playingId?: string}) {
-  return <View>{songs.map((song, index) => <SongLine key={song.id} song={song} index={index} runtime={runtime} controller={controller} actions={actions} playingId={playingId}/>)}</View>;
+function SongLines({songs, runtime, controller, actions, playingId, offset=0, onFocusRow, onBlurRow, onTail}: {songs: readonly ContentEntry[]; runtime: NativeShellRuntime; controller: NativeTVMusicController; actions: Actions; playingId?: string; offset?: number; onFocusRow?: (entry:ContentEntry)=>void; onBlurRow?: (entry:ContentEntry)=>void; onTail?:()=>void}) {
+  return <View>{songs.map((song, index) => <View key={song.id} onFocus={()=>{onFocusRow?.(song);if(index>=songs.length-3)onTail?.();}} onBlur={()=>onBlurRow?.(song)}><SongLine song={song} index={offset+index} runtime={runtime} controller={controller} actions={actions} playingId={playingId}/></View>)}</View>;
 }
 
-function AlbumCard({album,runtime,actions,openEntry,original,current}: {album:MusicAlbumRow;runtime:NativeShellRuntime;actions:Actions;openEntry:(entry:ContentEntry)=>void;original?:ContentEntry;current?:()=>boolean}) {
-  const entry: ContentEntry = original??{id: album.id, libraryId: album.libraryId, kind: 'album', title: album.title, ...(album.artist ? {artist: album.artist} : {}), ...(album.year ? {year: album.year} : {})};
-  return <SquareCard width={phoneMusicGeometry.albumCard} title={album.title} caption={Object.freeze([{id: 'caption', text: album.year === undefined ? '' : defaultI18n.number(album.year, {useGrouping: false}), role: 'value' as const}])}
-    artwork={runtime.artwork(album.posterUrl)} onNavigate={()=>{if(current?.()!==false)openEntry(entry);}} onMore={()=>{if(current?.()!==false)actions.menu(entry);}}/>;
+function AlbumCard({album,runtime,actions,openEntry,original,current,controller,onFocus,onBlur}: {controller?:NativeTVMusicController;onFocus?:()=>void;onBlur?:()=>void;album:MusicAlbumRow;runtime:NativeShellRuntime;actions:Actions;openEntry:(entry:ContentEntry)=>void;original?:ContentEntry;current?:()=>boolean}) {
+  const entry=original??controller?.releaseEntry(album);
+  const offered=()=>!!entry&&(current?current():!!controller?.contains(entry));
+  return <SquareCard onFocus={onFocus} onBlur={onBlur} width={phoneMusicGeometry.albumCard} title={album.title} caption={Object.freeze([{id: 'caption', text: album.year === undefined ? '' : defaultI18n.number(album.year, {useGrouping: false}), role: 'value' as const}])}
+    artwork={runtime.artwork(album.posterUrl)} onNavigate={()=>{if(entry&&offered())openEntry(entry);}} onMore={()=>{if(entry&&offered())actions.menu(entry);}}/>;
 }
 
 /** music-plus16c: the existing album recommendation row, with the server's reason. */
@@ -130,7 +133,7 @@ function SimilarAlbums({snapshot,controller,runtime,actions,openEntry}:{snapshot
   return <View style={{marginTop:30,paddingHorizontal:theme.platform==='phone'?20:32}}>
     <Text style={[browseType(theme,19,700),{color:theme.colors.text,marginBottom:10}]}>{t('next.controls.moreLikeThis')}</Text>
     {cards.length?<Text style={[browseType(theme,13,500),{color:theme.colors.textSecondary,marginBottom:10}]}>{t(snapshot.similarBySound?'music.moreLikeThisBySound':'music.moreLikeThisHint')}</Text>:null}
-    {snapshot.similarError?<MusicErrorView error={snapshot.similarError} onRetry={()=>{void controller.load();}}/>:null}
+    {snapshot.similarError?<MusicErrorView testID={`music-similar-${snapshot.entry?.id??'page'}-error`} error={snapshot.similarError} onRetry={()=>{void controller.load();}}/>:null}
     {cards.length?<ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap:14}}>
       {cards.map(value=>{const id=value.id,libraryId=value.libraryId!;return <AlbumCard key={id} album={{id,libraryId,title:value.title,year:value.year,posterUrl:value.posterUrl}} original={value}
         current={()=>controller.similarCurrent(snapshot,value)} runtime={runtime} actions={actions} openEntry={openEntry}/>;})}
@@ -150,7 +153,7 @@ function SimilarArtists({snapshot,controller,runtime,actions,openEntry,inset,gap
       <Text accessibilityRole="header" style={[browseType(theme,19,700),{color:theme.colors.text}]}>{t('music.similarArtists')}</Text>
       {cards.length?<Text numberOfLines={1} style={[browseType(theme,13,500),{color:theme.colors.textSecondary,flexShrink:1}]}>{t(snapshot.similarBySound?'music.moreLikeThisBySound':'music.moreLikeThisHint')}</Text>:null}
     </View>
-    {snapshot.similarError?<MusicErrorView error={snapshot.similarError} onRetry={()=>{void controller.load();}} style={{marginHorizontal:inset}}/>:null}
+    {snapshot.similarError?<MusicErrorView testID={`music-similar-${snapshot.entry?.id??'page'}-error`} error={snapshot.similarError} onRetry={()=>{void controller.load();}} style={{marginHorizontal:inset}}/>:null}
     {cards.length?<ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap,paddingHorizontal:inset}}>
       {cards.map(value=>{
         // The exact offered entry is the only thing this card may open or menu.
@@ -187,7 +190,7 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
     const round = {height: phoneMusicGeometry.actionHeight, width: phoneMusicGeometry.actionHeight, borderRadius: phoneMusicGeometry.actionRadius};
     return <View testID="native-tablet-album" style={{flex: 1, backgroundColor: theme.colors.ink}}>
       <Wash runtime={runtime} path={entry.posterUrl ?? entry.backdropUrl}/>
-      <ScrollView contentContainerStyle={{paddingTop: 56, paddingBottom: 100}} showsVerticalScrollIndicator={false}>
+      <ScrollView onScroll={event=>{if(musicNearEnd(event.nativeEvent))void controller.nextSongs(snapshot.songPage);}} scrollEventThrottle={100} contentContainerStyle={{paddingTop: 56, paddingBottom: 100}} showsVerticalScrollIndicator={false}>
         <View style={{flexDirection: 'row', alignItems: 'flex-end', gap: 40, paddingHorizontal: 32}}>
           <View style={{width: 300, height: 300, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.colors.raised, shadowColor: theme.colors.shadow, shadowOffset: {width: 0, height: 30}, shadowOpacity: .9, shadowRadius: 30}}>
             {art ? <Artwork source={art} width={300} height={300} priority/> : null}
@@ -209,7 +212,7 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
             </View>
           </View>
         </View>
-        {snapshot.phase === 'error' ? <MusicErrorView error={snapshot.error} onRetry={() => {void controller.load();}} style={{marginHorizontal: 32, marginTop: 24}}/> : null}
+        {snapshot.phase === 'error' ? <MusicErrorView testID={`music-page-${entry.id}-error`} error={snapshot.error} onRetry={() => {void controller.load();}} style={{marginHorizontal: 32, marginTop: 24}}/> : null}
         <View style={{flexDirection: 'row', gap: 40, paddingHorizontal: 32, marginTop: 34}}>
           <View style={{flex: 1, minWidth: 0}}>
             <View style={{flexDirection: 'row', alignItems: 'center', height: 30, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.line}}>
@@ -219,7 +222,8 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
               <Text style={[browseType(theme, 11, 700), {width: 70, textAlign: 'right', color: theme.colors.textTertiary}]}>{t('next.browse.duration')}</Text>
               <View style={{width: 44}}/>
             </View>
-            {snapshot.songs.map((song, index) => <TabletSongLine key={song.id} song={song} index={index} runtime={runtime} controller={controller} actions={actions} playingId={playback?.playback.itemId}/>)}
+            {snapshot.songs.map((song,index)=><View key={song.id} onFocus={()=>{controller.focusSong(song,snapshot.songPage);if(index>=snapshot.songs.length-3)void controller.nextSongs(snapshot.songPage);}} onBlur={()=>controller.blurSong(song)}><TabletSongLine song={song} index={snapshot.songPage.offset+index} runtime={runtime} controller={controller} actions={actions} playingId={playback?.playback.itemId}/></View>)}
+            <MusicSectionControls id="album-songs" section={snapshot.songPage} next={()=>{void controller.nextSongs(snapshot.songPage);}} previous={()=>{void controller.previousSongs(snapshot.songPage);}} retry={()=>{void controller.retrySongs(snapshot.songPage);}} refresh={()=>{void controller.refreshSongs(snapshot.songPage);}}/>
           </View>
           {details.length ? <View style={{width: 250}}>
             <Text style={[browseType(theme, 19, 700), {color: theme.colors.text, marginBottom: 8}]}>{t('title.details')}</Text>
@@ -236,7 +240,7 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
   }
   return <View testID="native-phone-album" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <Wash runtime={runtime} path={entry.posterUrl ?? entry.backdropUrl}/>
-    <ScrollView contentContainerStyle={{paddingTop: Math.max(phoneMusicGeometry.albumTop, insets.top + 56), paddingBottom: 40}} showsVerticalScrollIndicator={false}>
+    <ScrollView onScroll={event=>{if(musicNearEnd(event.nativeEvent))void controller.nextSongs(snapshot.songPage);}} scrollEventThrottle={100} contentContainerStyle={{paddingTop: Math.max(phoneMusicGeometry.albumTop, insets.top + 56), paddingBottom: 40}} showsVerticalScrollIndicator={false}>
       <View style={{alignItems: 'center', paddingHorizontal: 20}}>
         <View style={{width: phoneMusicGeometry.albumCover, height: phoneMusicGeometry.albumCover, borderRadius: phoneMusicGeometry.albumCoverRadius, overflow: 'hidden', backgroundColor: theme.colors.raised,
           shadowColor: theme.colors.shadow, shadowOffset: {width: 0, height: 30}, shadowOpacity: .9, shadowRadius: 30}}>
@@ -248,8 +252,9 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
         <MusicFormatBadges badges={snapshot.albumDetails?.badges} size="phone"/>
       </View>
       <View style={{paddingHorizontal: 20, marginTop: 18}}><MusicActions controller={controller} entry={entry} runtime={runtime} actions={actions} moreRef={more} roundMore={false} download={download}/></View>
-      {snapshot.phase === 'error' ? <MusicErrorView error={snapshot.error} onRetry={() => {void controller.load();}} style={{margin: 20}}/> : null}
-      {snapshot.songs.length ? <View style={{marginTop: 16}}><SongLines songs={snapshot.songs} runtime={runtime} controller={controller} actions={actions} playingId={playback?.playback.itemId}/></View> : null}
+      {snapshot.phase === 'error' ? <MusicErrorView testID={`music-page-${entry.id}-error`} error={snapshot.error} onRetry={() => {void controller.load();}} style={{margin: 20}}/> : null}
+      {snapshot.songs.length ? <View style={{marginTop: 16}}><SongLines songs={snapshot.songs} runtime={runtime} controller={controller} actions={actions} playingId={playback?.playback.itemId} offset={snapshot.songPage.offset} onFocusRow={entry=>controller.focusSong(entry,snapshot.songPage)} onBlurRow={controller.blurSong} onTail={()=>{void controller.nextSongs(snapshot.songPage);}}/></View> : null}
+      <View style={{paddingHorizontal:20}}><MusicSectionControls id="album-songs" section={snapshot.songPage} next={()=>{void controller.nextSongs(snapshot.songPage);}} previous={()=>{void controller.previousSongs(snapshot.songPage);}} retry={()=>{void controller.retrySongs(snapshot.songPage);}} refresh={()=>{void controller.refreshSongs(snapshot.songPage);}}/></View>
       <SimilarAlbums snapshot={snapshot} controller={controller} runtime={runtime} actions={actions} openEntry={openEntry}/>
     </ScrollView>
     <PhoneHeader title={title} onBack={onBack} onMore={() => actions.menu(entry, more)} moreRef={more}/>
@@ -279,9 +284,10 @@ export function PhoneArtistScreen({controller, entry, runtime, actions, openEntr
 }) {
   const theme = useTheme(), insets = useSafeAreaInsets(), snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot), playback = usePlayback(runtime);
   const more = useRef<NativeView>(null);
+  const releases=artistReleaseGroups(snapshot.albums);
   const covers = snapshot.albums.flatMap(album => {const source = runtime.artwork(album.posterUrl); return source ? [source] : [];});
   const facts = [
-    snapshot.albums.length ? t('title.albumCount', {count: snapshot.albums.length}) : undefined,
+    (snapshot.artistDetails??entry).albumCount!==undefined?t('title.albumCount',{count:(snapshot.artistDetails??entry).albumCount!}):undefined,
     snapshot.songTotal ? t('title.songCount', {count: snapshot.songTotal}) : undefined,
     entry.genres?.[0],
   ].filter((value): value is string => !!value);
@@ -303,7 +309,7 @@ export function PhoneArtistScreen({controller, entry, runtime, actions, openEntr
             <Button ref={more} variant="glass" iconOnly icon="i-more" style={round} accessibilityLabel={t('card.more', {title: entry.title})} onPress={() => actions.menu(entry, more)}/>
           </View>
         </View>
-        {snapshot.phase === 'error' ? <MusicErrorView error={snapshot.error} onRetry={() => {void controller.load();}} style={{marginHorizontal: 32, marginTop: 24}}/> : null}
+        {snapshot.phase === 'error' ? <MusicErrorView testID={`music-page-${entry.id}-error`} error={snapshot.error} onRetry={() => {void controller.load();}} style={{marginHorizontal: 32, marginTop: 24}}/> : null}
         {snapshot.songs.length ? <View style={{marginTop: 32, paddingHorizontal: 32}}>
           <Text style={[browseType(theme, 19, 700), {color: theme.colors.text, marginBottom: 8}]}>{t('music.topSongs')}</Text>
           <View style={{flexDirection: 'row', alignItems: 'center', height: 30, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.line}}>
@@ -315,12 +321,13 @@ export function PhoneArtistScreen({controller, entry, runtime, actions, openEntr
           </View>
           {snapshot.songs.map((song, index) => <TabletSongLine key={song.id} song={song} index={index} runtime={runtime} controller={controller} actions={actions} playingId={playback?.playback.itemId}/>)}
         </View> : null}
-        {snapshot.albums.length ? <View style={{marginTop: 28, paddingHorizontal: 32}}>
-          <Text style={[browseType(theme, 19, 700), {color: theme.colors.text, marginBottom: 10}]}>{t('music.albums')}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 14}}>
-            {snapshot.albums.map(album => <AlbumCard key={album.id} album={album} runtime={runtime} actions={actions} openEntry={openEntry}/>)}
+        {releases.map(group=><View key={group.id} style={{marginTop:28,paddingHorizontal:32}}>
+          <Text style={[browseType(theme,19,700),{color:theme.colors.text,marginBottom:10}]}>{t(group.label)}</Text>
+          <ScrollView horizontal onScroll={event=>{if(musicNearEnd(event.nativeEvent,true))void controller.nextReleases(snapshot.releases);}} scrollEventThrottle={100} showsHorizontalScrollIndicator={false} contentContainerStyle={{gap:14}}>
+            {group.entries.map(album=><AlbumCard key={album.id} album={album} controller={controller} runtime={runtime} actions={actions} openEntry={openEntry} onFocus={()=>controller.focusRelease(album,snapshot.releases)} onBlur={()=>controller.blurRelease(album)}/>)}
           </ScrollView>
-        </View> : null}
+        </View>)}
+        <View style={{paddingHorizontal:32}}><MusicSectionControls id="artist-releases" section={snapshot.releases} next={()=>{void controller.nextReleases(snapshot.releases);}} previous={()=>{void controller.previousReleases(snapshot.releases);}} retry={()=>{void controller.retryReleases(snapshot.releases);}} refresh={()=>{void controller.refreshReleases(snapshot.releases);}}/></View>
         {details.length ? <View style={{paddingHorizontal: 32, marginTop: 28, width: 340}}>
           <Text style={[browseType(theme, 19, 700), {color: theme.colors.text, marginBottom: 8}]}>{t('title.details')}</Text>
           {details.map(([label, value]) => <View key={label} style={{flexDirection: 'row', gap: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.line}}>
@@ -342,17 +349,18 @@ export function PhoneArtistScreen({controller, entry, runtime, actions, openEntr
         {facts.length ? <Facts facts={facts} strongFirst={false}/> : null}
       </View>
       <View style={{paddingHorizontal: 20, marginTop: 18}}><MusicActions controller={controller} entry={entry} runtime={runtime} actions={actions} moreRef={more} roundMore/></View>
-      {snapshot.phase === 'error' ? <MusicErrorView error={snapshot.error} onRetry={() => {void controller.load();}} style={{margin: 20}}/> : null}
+      {snapshot.phase === 'error' ? <MusicErrorView testID={`music-page-${entry.id}-error`} error={snapshot.error} onRetry={() => {void controller.load();}} style={{margin: 20}}/> : null}
       {snapshot.songs.length ? <View style={{marginTop: 18}}>
         <Text style={[browseType(theme, phoneMusicGeometry.sectionLabel, 700), {color: theme.colors.textTertiary, marginHorizontal: 20, marginBottom: 8}]}>{t('music.topSongs')}</Text>
         <SongLines songs={snapshot.songs} runtime={runtime} controller={controller} actions={actions} playingId={playback?.playback.itemId}/>
       </View> : null}
-      {snapshot.albums.length ? <View style={{marginTop: 14}}>
-        <Text style={[browseType(theme, 19, 700), {color: theme.colors.text, marginHorizontal: 20, marginBottom: 10}]}>{t('music.albums')}</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 12, paddingHorizontal: 20}}>
-          {snapshot.albums.map(album => <AlbumCard key={album.id} album={album} runtime={runtime} actions={actions} openEntry={openEntry}/>)}
+      {releases.map(group=><View key={group.id} style={{marginTop:14}}>
+        <Text style={[browseType(theme,19,700),{color:theme.colors.text,marginHorizontal:20,marginBottom:10}]}>{t(group.label)}</Text>
+        <ScrollView horizontal onScroll={event=>{if(musicNearEnd(event.nativeEvent,true))void controller.nextReleases(snapshot.releases);}} scrollEventThrottle={100} showsHorizontalScrollIndicator={false} contentContainerStyle={{gap:12,paddingHorizontal:20}}>
+          {group.entries.map(album=><AlbumCard key={album.id} album={album} controller={controller} runtime={runtime} actions={actions} openEntry={openEntry} onFocus={()=>controller.focusRelease(album,snapshot.releases)} onBlur={()=>controller.blurRelease(album)}/>)}
         </ScrollView>
-      </View> : null}
+      </View>)}
+      <View style={{paddingHorizontal:20}}><MusicSectionControls id="artist-releases" section={snapshot.releases} next={()=>{void controller.nextReleases(snapshot.releases);}} previous={()=>{void controller.previousReleases(snapshot.releases);}} retry={()=>{void controller.retryReleases(snapshot.releases);}} refresh={()=>{void controller.refreshReleases(snapshot.releases);}}/></View>
       <SimilarArtists snapshot={snapshot} controller={controller} runtime={runtime} actions={actions} openEntry={openEntry} inset={20} gap={12}/>
     </ScrollView>
     <PhoneHeader title={entry.title} onBack={onBack} onMore={() => actions.menu(entry, more)} moreRef={more}/>
