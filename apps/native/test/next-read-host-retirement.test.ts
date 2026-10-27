@@ -70,3 +70,21 @@ test(`original ReadingClient close uses only the original authority (retired=${a
   await owner.dispose();
   assert.equal(calls.filter(method => method === 'DELETE').length, authorityRetired ? 0 : 1);
 });
+
+test('removing a retained route closes its original session while the same authority remains current', async () => {
+  let authority = true, retained = true; const calls: string[] = [], listeners = new Set<() => void>(), clientLife = new AbortController();
+  const revision = 'a'.repeat(64), api = new HttpLocalApi('http://127.0.0.1:39141', 'reader-fixture-token', async (_url, init = {}) => {
+    const method = init.method ?? 'GET'; calls.push(method);
+    const data = method === 'POST' ? {sessionId: 'session', itemId: 'item', sourceId: 'source', revision, size: 100, format: 'pdf', metadata: {title: 'Stored title'}} : {progress: null};
+    return method === 'DELETE' ? new Response(null, {status: 204}) : new Response(JSON.stringify(data), {headers: {'Content-Type': 'application/json', ETag: `"${revision}"`}});
+  });
+  const client = api.reading({viewer: {authority: 'local', serverId: 'server', accountId: 'account', profileId: 'profile', role: 'member'}, isCurrent: () => authority, signal: clientLife.signal});
+  const owner = createReadingSessionOwner({current: () => authority && retained, subscribe: listener => {listeners.add(listener); return () => {listeners.delete(listener);};},
+    acquire: async () => {const original = await client.open({itemId: 'item', sourceId: 'source'});
+      return {session: {manifest: original.manifest, signal: original.signal, headPDF: original.headPDF, readRange: original.readRange,
+        readAsset: original.readAsset, page: original.page, progress: original.progress, saveProgress: original.saveProgress,
+        close: async closeSignal => {if (authority) await original.close(closeSignal);}}, release: () => {clientLife.abort(); client.dispose();}};}});
+  await owner.ensure(); retained = false; for (const listener of [...listeners]) listener(); await owner.dispose();
+  assert.equal(calls.filter(method => method === 'DELETE').length, 1);
+  authority = false;
+});
