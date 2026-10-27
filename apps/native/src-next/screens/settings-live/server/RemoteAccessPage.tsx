@@ -96,6 +96,7 @@ function RemoteAccessPage({group, ports, runtime, compactHeader}: {group: Storag
           <Button variant="glass" disabled={state.saving} onPress={() => set.discard()}>{t('action.discard')}</Button>
           <Button loading={state.saving} disabled={Boolean(state.problem)} onPress={() => {void set.save();}}>{t('action.save')}</Button>
         </View> : null}
+        {state.saveError !== undefined && <StateView variant="inline" {...runtime.error(state.saveError, () => {void set.save();})}/>}
         {state.problem ? <Text accessibilityRole="alert" style={[shellType(13, 600), {color: theme.colors.record, marginTop: 8}]}>{t(state.problem as Parameters<typeof t>[0])}</Text> : null}
       </> : <StateView title={t('status.loading')}/>}
     </ScrollView>
