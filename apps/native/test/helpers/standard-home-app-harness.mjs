@@ -135,6 +135,7 @@ const nativeURL = data(`import React from ${JSON.stringify(reactURL)};
  export const TVEventHandler={addListener:()=>({remove(){}})},registerCallableModule=()=>{},AppRegistry={registerComponent:(name,factory)=>S.registrations.set(name,factory)},StatusBar=host('StatusBar'),UIManager={hasViewManagerConfig:()=>true},findNodeHandle=node=>node?.tag??null,requireNativeComponent=name=>host(name),useTVEventHandler=()=>{},I18nManager={isRTL:false};
  export const Alert={alert(){}},Keyboard={dismiss(){},addListener:()=>({remove(){}})},Linking={openURL:async()=>{},canOpenURL:async()=>true,addEventListener:()=>({remove(){}}),getInitialURL:async()=>null},useColorScheme=()=> 'dark';
  class Value{constructor(value){this.value=value}setValue(value){this.value=value}stopAnimation(){}};
+ export const Easing={bezier:()=>x=>x,linear:x=>x};
  export const Animated={View:host('AnimatedView'),Value,timing:(value,config)=>({start:done=>{value.value=config.toValue;done?.({finished:true})}}),parallel:()=>({start(){}})};
 `);
 const animatedURL = data(`import React from ${JSON.stringify(

@@ -54,7 +54,7 @@ async function rig(reduced = false) {
   };
   const react = {...React, default: React};
   const {useDockPresence} = await screenModule(new URL('../src-next/kit/dock/useDockPresence.ts', import.meta.url), {
-    react, 'react-native-reanimated': animated, '../../../../../packages/player-core/src/index': {sameFence}, '../useMotion': {useMotion: () => motion},
+    react, 'react-native-reanimated': animated, '../../../../../packages/player-core/src/index': {sameFence}, '../useMotion': {useMotion: () => motion}, './model': model,
   });
   const {MediaBar} = await screenModule(new URL('../src-next/kit/dock/MediaBar.tsx', import.meta.url), {
     react, 'react-native': {View: 'View', Text: 'Text', ActivityIndicator: 'ActivityIndicator'},

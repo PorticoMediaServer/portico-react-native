@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {heroSpec} from '../../../packages/design/src';
 import {HomeService} from '../../../packages/client-core/src/home-service';
 import * as homePresentation from '../../../packages/client-core/src/presentation/home-spotlight';
 import * as homeCapabilities from '../../../packages/client-core/src/home-selection';
@@ -41,7 +42,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Continue car
     selection: () => selection, playback: {}, artwork() {}, ambient() {}};
   const {HomeScreen} = await screenModule(new URL('../src-next/screens/home/HomeScreen.tsx', import.meta.url), {
     react, 'react-native': {View: 'View', Text: 'Text', RefreshControl: 'RefreshControl', AppState: {currentState: 'active'}, useWindowDimensions: () => ({width: tv ? 1920 : 390, height: tv ? 1080 : 844})},
-    'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (fn: unknown) => fn, useAnimatedScrollHandler: (fn: unknown) => fn},
+    'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (fn: unknown) => fn, useAnimatedScrollHandler: (fn: unknown) => fn}, '@portico/design': {heroSpec},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src/presentation/home-spotlight': homePresentation,
     '../../../../../packages/client-core/src/home-selection': homeCapabilities, '../../../../../packages/client-core/src/presentation/server-text': serverText,
     '../../../../../packages/client-core/src/presentation/kit-model': {}, '../../platform/ArtworkPipeline': {ArtworkPlacementContext: {Provider: 'ArtworkPlacement'}},
