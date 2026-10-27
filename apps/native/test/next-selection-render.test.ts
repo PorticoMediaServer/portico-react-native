@@ -14,7 +14,7 @@ import type {BulkEditorProps, DeleteMediaDialogProps, SelectionBarProps} from '.
 // element/hook harness cannot establish native layout or physical D-pad focus.
 const keyboardListeners = new Map<string, (event?: any) => void>();
 Object.assign(globalThis, {__porticoSelectionKeyboard: keyboardListeners});
-const state = {viewport: {width: 1920, height: 1080, scale: 1, fontScale: 1}, theme: createTheme({isTV: true, width: 1920}), fontFamilies, nativeType};
+const state = {viewport: {width: 1920, height: 1080, scale: 1, fontScale: 1}, theme: createTheme({isTV: true, width: 1920}), fontFamilies, nativeType, menuKeyEnabled: false};
 const stateKey = '__porticoSelectionRenderTest';
 Object.assign(globalThis, {[stateKey]: state});
 const moduleURL = (source: string) => `data:text/javascript,${encodeURIComponent(source)}`;
@@ -24,19 +24,19 @@ const native = moduleURL(`export * from ${JSON.stringify(nativeStub)};
   export const View='View',Text='Text',Pressable='Pressable',Modal='Modal',ScrollView='ScrollView',FlatList='FlatList',TVFocusGuideView='TVFocusGuideView',ActivityIndicator='ActivityIndicator';
   export const Image='Image', ImageBackground='ImageBackground', PixelRatio={get:()=>1,getFontScale:()=>1,roundToNearestPixel:n=>n};
   export const Animated={View:'NativeAnimatedView',createAnimatedComponent:c=>c,Value:class{constructor(value){this.value=value}}};
+  export const Easing={bezier:()=>v=>v,linear:v=>v,out:v=>v,in:v=>v,inOut:v=>v};
   export const TextInput=Object.assign(()=>null,{State:{currentlyFocusedInput:()=>globalThis.__porticoSelectionFocusedInput}});
   export const Keyboard={addListener:(name,callback)=>{const m=globalThis.__porticoSelectionKeyboard;m.set(name,callback);return {remove(){m.delete(name);}};}};
   export const BackHandler={addEventListener:()=>({remove(){}})};
+  export const TVEventControl={enableTVMenuKey(){globalThis.__porticoSelectionRenderTest.menuKeyEnabled=true;},disableTVMenuKey(){globalThis.__porticoSelectionRenderTest.menuKeyEnabled=false;}};
   export const useWindowDimensions=()=>globalThis.__porticoSelectionRenderTest.viewport;
   const flatten=s=>Array.isArray(s)?Object.assign({},...s.map(flatten)):s??{};
   export const StyleSheet={create:s=>s,flatten,absoluteFill:{position:'absolute',inset:0}};`);
 const theme = moduleURL(`const s=globalThis.${stateKey}; export const activeTextScale=()=>s.theme.textScale; export const useTheme=()=>s.theme; export const fontFamilies=s.fontFamilies; export const nativeType=s.nativeType;`);
 const reanimated = moduleURL(`import {useRef} from ${JSON.stringify(import.meta.resolve('react'))};
-  export const useSharedValue=value=>useRef({value}).current;
-  export const useAnimatedStyle=fn=>fn(); export const cancelAnimation=()=>{};
-  export const withTiming=value=>value,withSpring=value=>value,runOnJS=fn=>fn;
+  export const useSharedValue=value=>useRef({value}).current,useAnimatedStyle=fn=>fn(),cancelAnimation=()=>{},withTiming=value=>value,withSpring=value=>value,withDelay=(_,value)=>value,runOnJS=fn=>fn,runOnUI=fn=>fn,useAnimatedRef=()=>useRef(null),useAnimatedScrollHandler=()=>{},useAnimatedReaction=()=>{},scrollTo=()=>{};
   export const Easing={bezier:()=>v=>v,linear:v=>v},ReduceMotion={Never:'never'};
-  export default {View:'AnimatedView',createAnimatedComponent:c=>c};`);
+  export default {View:'AnimatedView',ScrollView:'AnimatedScrollView',createAnimatedComponent:c=>c};`);
 const gesture = moduleURL(`const pan=()=>new Proxy({}, {get:()=>()=>pan()}); export const Gesture={Pan:pan}; export const GestureDetector='GestureDetector';`);
 const svg = moduleURL(`export default 'Svg'; export const Defs='Defs',LinearGradient='LinearGradient',RadialGradient='RadialGradient',Rect='Rect',Stop='Stop',Path='Path',Circle='Circle',Ellipse='Ellipse',Line='Line',Polyline='Polyline',Polygon='Polygon',G='G',ClipPath='ClipPath',Mask='Mask',Use='Use',Text='SvgText';`);
 registerHooks({
@@ -79,8 +79,9 @@ const {StateLayout} = await import('../src-next/kit/states/StateLayout.tsx');
 const {StateView} = await import('../src-next/kit/states/StateView.tsx');
 const {SelectionSurface, SelectionText} = await import('../src-next/kit/selection/surface.tsx');
 const {BottomSheet} = await import('../src-next/kit/overlays/BottomSheet.tsx');
+const {TVDesignCanvas} = await import('../src-next/kit/overlays/TVDesignCanvas.tsx');
 const {Dialog, FocusBoundary, SurfaceHeader, SidePanel} = await import('../src-next/kit/overlays/surface.tsx');
-const {OverlaysProvider} = await import('../src-next/kit/overlays/OverlayHost.tsx');
+const {OverlaysProvider, OverlayPortal} = await import('../src-next/kit/overlays/OverlayHost.tsx');
 const {Menu, MenuRow} = await import('../src-next/kit/overlays/Menu.tsx');
 const {Button} = await import('../src-next/kit/controls/Button.tsx');
 const {Focusable} = await import('../src-next/kit/controls/Focusable.tsx');
@@ -272,9 +273,9 @@ test('compact selection headers opt into phone frame spacing while preserving ex
   } finally {state.theme = previous;}
 });
 
-test('TV More presents only supplied owner commands and preserves denial explanations and callbacks', () => {
+test('TV More keeps owner commands out of a television selection while non-owner commands keep their callbacks', () => {
   const calls: unknown[] = [];
-  const props: SelectionBarProps = {count: 4, selectAllLabel: 'Select all', onSelectAll() {}, onCancel() {}, actions: [{id: 'more'}, {id: 'edit'}, {id: 'refresh'}, {id: 'delete', disabled: true, reason: 'One library required'}, {id: 'download'}], onAction: action => calls.push(action), menu: 'more', onMenuChange() {}};
+  const props: SelectionBarProps = {count: 4, selectAllLabel: 'Select all', onSelectAll() {}, onCancel() {}, actions: [{id: 'more'}, {id: 'collection'}, {id: 'edit'}, {id: 'refresh'}, {id: 'delete', disabled: true, reason: 'One library required'}, {id: 'download'}], onAction: action => calls.push(action), menu: 'more', onMenuChange() {}};
   const bar = mount(SelectionBar, props);
   try {
     const menus = elements(bar.tree).find(element => element.props.menu === 'more' && element.type !== SelectionBar)!;
@@ -283,9 +284,10 @@ test('TV More presents only supplied owner commands and preserves denial explana
       const element = menu.tree as Element; assert.equal(element.type, Menu); assert.equal(element.props.presentation, 'sideSheet');
       assert.equal(element.props.returnFocusRef, ofType(bar.tree, Button).find(button => button.props.accessibilityLabel === 'More')!.props.ref);
       const items = element.props.items.filter((entry: any) => entry.onSelect);
-      assert.deepEqual(items.map((entry: any) => entry.id), ['edit', 'refresh', 'delete']);
-      assert.equal(items[2].disabled, true); assert.equal(items[2].description, 'One library required');
-      items[0].onSelect(); items[1].onSelect(); assert.deepEqual(calls, ['edit', 'refresh']);
+      // select 24 draws no owner area, so Edit, Refresh and Delete never reach a TV menu even
+      // when the catalogue offers them; download joins them in the TV-only admission.
+      assert.deepEqual(items.map((entry: any) => entry.id), ['collection']);
+      items[0].onSelect(); assert.deepEqual(calls, ['collection']);
       menu.update({...menus.props, actions: []}); assert.deepEqual((menu.tree as Element).props.items, []);
     } finally {menu.host.unmount();}
   } finally {bar.host.unmount();}
@@ -914,12 +916,15 @@ test('SidePanel can omit its standard close action while retaining supplied cont
   const panel = mount(SidePanel, props);
   try {
     const heading = () => ofType(panel.tree, SurfaceHeader)[0]!;
+    // The drawn panel paints inside its ancestor paint provider, so the portal that
+    // carries the measured rect and outside-press handler is its own element.
+    const portal = () => elements(panel.tree).find(element => element.type === OverlayPortal)!;
     assert.equal((heading().props.action as Element).type, Button);
     panel.update({...props, showClose: false});
     assert.equal(heading().props.action, undefined);
-    assert.equal((panel.tree as Element).props.rect.width, 860);
-    assert.equal((panel.tree as Element).props.rect.y, 0);
-    assert.equal((panel.tree as Element).props.onOutsidePress, undefined);
+    assert.equal(portal().props.rect.width, 860);
+    assert.equal(portal().props.rect.y, 0);
+    assert.equal(portal().props.onOutsidePress, undefined);
     assert.equal(ofType(panel.tree, FocusBoundary)[0]!.props.modal, true);
     for (const node of [context, children, footer]) assert.ok(elements(panel.tree).includes(node));
     const host = () => elements(panel.tree).find(element => element.props.testID === props.testID)!;
@@ -950,31 +955,42 @@ test('an authored TV side-panel canvas scales inside its physical portal without
     initialFocusRef: {current: {requestTVFocus() {focused.push('initial');}}}, returnFocusRef: {current: {requestTVFocus() {focused.push('return');}}},
     onOpenChange: (...args: unknown[]) => calls.push(args)};
   const panel = mount(SidePanel, props);
+  const portalRect = () => (elements(panel.tree).find(element => element.type === OverlayPortal)!.props.rect);
   const outer = () => elements(panel.tree).find(node => node.props.testID === props.testID)!;
-  const canvas = () => elements(panel.tree).find(node => flattenStyle(node.props.style).transformOrigin === 'top left')!;
+  // The authored 860 × 1080 canvas is the only absolutely placed View carrying both dimensions.
+  const authored = () => elements(panel.tree).find(node => {
+    const style = flattenStyle(node.props.style);
+    return style.position === 'absolute' && style.width === 860 && style.height === 1080;
+  });
   try {
     const physicalWidth = 860 * (720 / 1080);
-    assert.deepEqual((panel.tree as Element).props.rect, {x: 10 + 1280 - physicalWidth, y: 30, width: physicalWidth, height: 720});
-    assert.equal(flattenStyle(outer().props.style).width, physicalWidth);
-    assert.deepEqual(flattenStyle(outer().props.style).transform, [{translateX: physicalWidth}], 'opening begins outside the physical portal');
-    assert.deepEqual(flattenStyle(canvas().props.style).transform, [{scale: 2 / 3}]);
-    assert.equal(flattenStyle(canvas().props.style).width, 860); assert.equal(flattenStyle(canvas().props.style).height, 1080);
-    assert.equal(flattenStyle(canvas().props.style).paddingTop, 60); assert.equal(flattenStyle(canvas().props.style).paddingLeft, 60);
-    assert.equal(ofType(canvas(), FocusBoundary)[0].props.modal, true);
-    assert.ok(elements(canvas()).includes(child)); assert.ok(elements(canvas()).includes(footer));
+    const expected = {x: 10 + 1280 - physicalWidth, y: 30, width: physicalWidth, height: 720};
+    // The source multiplies the authored canvas through its real frame scale, so the
+    // same geometry arrives by a different float order; compare at drawn precision.
+    const drawn = (value: number) => Number(value.toFixed(9));
+    const rect = portalRect();
+    assert.deepEqual({...rect, x: drawn(rect.x)}, {...expected, x: drawn(expected.x)});
+    // The portal carries the physical frame; the panel itself stays on the authored canvas
+    // and is scaled once by its real TVDesignCanvas owner.
+    assert.equal(ofType(panel.tree, TVDesignCanvas).length, 1);
+    assert.equal(flattenStyle(outer().props.style).width, 860);
+    assert.deepEqual(flattenStyle(outer().props.style).transform, [{translateX: 860}], 'opening begins outside the authored canvas');
+    assert.equal(authored()!.type, 'View');
+    assert.equal(flattenStyle(authored()!.props.style).paddingTop, 60); assert.equal(flattenStyle(authored()!.props.style).paddingLeft, 60);
+    assert.equal(ofType(authored(), FocusBoundary)[0].props.modal, true);
+    assert.ok(elements(authored()).includes(child)); assert.ok(elements(authored()).includes(footer));
     assert.equal(ofType(panel.tree, SurfaceHeader)[0].props.action, undefined);
     t.mock.timers.tick(320); panel.host.rerender();
     assert.deepEqual(focused, ['initial']); assert.deepEqual(flattenStyle(outer().props.style).transform, [{translateX: 0}]);
     outer().props.onAccessibilityEscape(); assert.deepEqual(calls, [[false, 'escape']]);
     context._currentValue = {...context._currentValue, frame: {x: 0, y: 0, width: 1920, height: 1080}};
     panel.host.rerender();
-    assert.equal((panel.tree as Element).props.rect.width, 860); assert.deepEqual(flattenStyle(canvas().props.style).transform, [{scale: 1}]);
+    assert.equal(portalRect().width, 860); assert.equal(portalRect().height, 1080);
     panel.update({...props, logicalCanvas: undefined});
-    assert.equal(canvas(), undefined, 'ordinary panels retain the existing unscaled composition');
+    assert.equal(authored(), undefined, 'ordinary panels retain the existing unscaled composition');
     assert.equal(flattenStyle(outer().props.style).paddingTop, 60);
     panel.update({...props, open: false}); panel.host.rerender();
-    assert.deepEqual(flattenStyle(outer().props.style).transform, [{translateX: 860}], 'closing translates the outer panel while the inner scale remains separate');
-    assert.deepEqual(flattenStyle(canvas().props.style).transform, [{scale: 1}]);
+    assert.deepEqual(flattenStyle(outer().props.style).transform, [{translateX: 860}], 'closing translates the panel while its canvas owner keeps the separate scale');
   } finally {
     panel.host.unmount(); provider.host.unmount(); context._currentValue = previousContext; state.theme = previousTheme; state.viewport = previousViewport;
   }
@@ -1031,7 +1047,7 @@ test('a BottomSheet composition can opt into its backdrop alpha without changing
         const outside = elements(sheet.tree).find(element => element.props.onResponderRelease)!;
         assert.equal(outside.props.accessible, false);
         outside.props.onResponderRelease();
-        (sheet.tree as Element).props.onRequestClose();
+        ofType(sheet.tree, 'Modal')[0]!.props.onRequestClose();
         assert.deepEqual(calls, [[false, 'outside'], [false, 'back']]);
         sheet.update(props);
         assert.equal(flattenStyle(scrim().props.style).backgroundColor, `${color}a3`);
@@ -1399,7 +1415,8 @@ for (const role of ['administrator', 'owner'] as const) test(`TV Dashboard ${rol
       const jobMore = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-jobs-more')!; assert.ok(jobMore);
       withNativeControl(jobMore, host => host.props.onPress()); await act(() => {});
       assert.ok(ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-job-later'));
-      assert.deepEqual(jobCalls, [undefined, 'job-next']);
+      // ConsoleClient.jobs takes the first-page cursor as '' (its own default), not undefined.
+      assert.deepEqual(jobCalls, ['', 'job-next']);
     } else assert.deepEqual(jobCalls, []);
     const initialMore = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-sessions-more')!;
     withNativeControl(initialMore, host => host.props.onPress()); await act(() => {});

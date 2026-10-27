@@ -15,7 +15,7 @@ import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 // Exercise the actual family, controls and overlay composition. Only native
 // hosts, animation/gesture drivers and the theme context are replaced. This
 // element/hook harness cannot establish native layout or physical D-pad focus.
-const state = {theme: createTheme({isTV: true, width: 1920}), fontFamilies, nativeType};
+const state = {theme: createTheme({isTV: true, width: 1920}), fontFamilies, nativeType, menuKeyEnabled: false};
 const stateKey = '__porticoFamilyFocusIDsTest';
 Object.assign(globalThis, {[stateKey]: state});
 const moduleURL = (source: string) => `data:text/javascript,${encodeURIComponent(source)}`;
@@ -24,17 +24,17 @@ const native = moduleURL(`export * from ${JSON.stringify(nativeStub)};
   export const Platform={OS:'android',isTV:true};
   export const View='View',Text='Text',TextInput='TextInput',Pressable='Pressable',Modal='Modal',ScrollView='ScrollView',FlatList='FlatList',TVFocusGuideView='TVFocusGuideView',ActivityIndicator='ActivityIndicator';
   export const Image='Image',PixelRatio={get:()=>1},Animated={View:'AnimatedView'};
+  export const Easing={bezier:()=>v=>v,linear:v=>v,out:v=>v,in:v=>v,inOut:v=>v};
   export const BackHandler={addEventListener:()=>({remove(){}})};
+  export const TVEventControl={enableTVMenuKey(){globalThis.__porticoFamilyFocusIDsTest.menuKeyEnabled=true;},disableTVMenuKey(){globalThis.__porticoFamilyFocusIDsTest.menuKeyEnabled=false;}};
   export const useWindowDimensions=()=>({width:1920,height:1080,scale:1,fontScale:1});
   const flatten=s=>Array.isArray(s)?Object.assign({},...s.map(flatten)):s??{};
   export const StyleSheet={create:s=>s,flatten,absoluteFill:{position:'absolute',inset:0}};`);
 const theme = moduleURL(`const s=globalThis.${stateKey}; export const activeTextScale=()=>s.theme.textScale; export const useTheme=()=>s.theme; export const fontFamilies=s.fontFamilies; export const nativeType=s.nativeType;`);
 const reanimated = moduleURL(`import {useRef} from ${JSON.stringify(import.meta.resolve('react'))};
-  export const useSharedValue=value=>useRef({value}).current;
-  export const useAnimatedStyle=fn=>fn(); export const cancelAnimation=()=>{};
-  export const withTiming=value=>value,withSpring=value=>value,runOnJS=fn=>fn;
+  export const useSharedValue=value=>useRef({value}).current,useAnimatedStyle=fn=>fn(),cancelAnimation=()=>{},withTiming=value=>value,withSpring=value=>value,withDelay=(_,value)=>value,runOnJS=fn=>fn,runOnUI=fn=>fn,useAnimatedRef=()=>useRef(null),useAnimatedScrollHandler=()=>{},useAnimatedReaction=()=>{},scrollTo=()=>{};
   export const Easing={bezier:()=>v=>v,linear:v=>v},ReduceMotion={Never:'never'};
-  export default {View:'AnimatedView',createAnimatedComponent:c=>c};`);
+  export default {View:'AnimatedView',ScrollView:'AnimatedScrollView',createAnimatedComponent:c=>c};`);
 const gesture = moduleURL(`const pan=()=>new Proxy({}, {get:()=>()=>pan()}); export const Gesture={Pan:pan}; export const GestureDetector='GestureDetector';`);
 const svg = moduleURL(`export default 'Svg'; export const Defs='Defs',LinearGradient='LinearGradient',RadialGradient='RadialGradient',Rect='Rect',Stop='Stop',Path='Path',Circle='Circle',Ellipse='Ellipse',Line='Line',Polyline='Polyline',Polygon='Polygon',G='G',ClipPath='ClipPath',Mask='Mask',Use='Use',Text='SvgText';`);
 registerHooks({
