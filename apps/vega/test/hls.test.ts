@@ -578,6 +578,7 @@ test('retiring a hold while its old feed is aborting resumes one fresh pump', as
   };
   const generation = hls.generation;
   hls.startPump(generation);
+  await until(() => started);
   assert.equal(started, true);
   hls.audioHold = {};
   hls.pumpControllers.get(generation).abort();
@@ -849,4 +850,200 @@ test('seek during cohort clear keeps the old updateend from owning the arrival g
   const media = [...hls.retained].filter((entry: any) => entry.kind === 'media');
   assert.ok(media.length > 0 && media.every((entry: any) => entry.generation === hls.generation), 'arrival media keeps its own charge');
   assert.deepEqual(failures, []);
+});
+
+test('other-buffer retirement cannot unfreeze a video cohort during changing-size admission', async () => {
+  repeatedTwoTrackRoutes(8, 3);
+  for (let n = 1; n < 8; n++) server.routes.set(base + `v-${n}.m4s`, segment({pts: 1 + n * 6, duration: 6, bytes: 36_000_000}));
+  const {source, player, failures} = start(base + 'index.m3u8');
+  await source.open(0); player.currentTime = source.elementTime(0); source.settled();
+  const hls = source as any, video = player.source.buffers[0], audio = player.source.buffers[1];
+  for (const buffer of [video, audio]) discardConsumedPadding(buffer);
+  const removals = [video, audio].map(buffer => observeRetainedCohortRemovals(hls, player, buffer));
+  const get = hls.getMedia.bind(hls);
+  let release!: () => void, downloaded = false;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let first = true;
+  hls.getMedia = async (url: string, signal?: AbortSignal) => {
+    const lease = await get(url, signal);
+    if (first && url === base + 'v-1.m4s') { first = false; downloaded = true; await held; }
+    return lease;
+  };
+  await until(() => audio.spans.length > 0);
+  player.advance(1); // video36 is now inside measured ahead, audio36 is still current.
+  await until(() => downloaded, 15000);
+  player.advance(2); // audio reaches4 while video80 remains current until7.
+  release();
+  await until(() => hls.cohorts.has(video) && audio.spans.some(([from, to]: number[]) => from <= 4 && to > 4) || failures.length > 0, 15000);
+  assert.deepEqual(failures, []);
+  assert.equal(video.appended.filter((value: any) => !value.init).length, 1, 'the downloaded candidate is discarded while its own buffer remains sealed');
+  assert.equal(hls.cohorts.get(video).entries.filter((entry: any) => entry.kind === 'media').length, 1);
+  for (let step = 0; step < 14; step++) {
+    player.advance(3);
+    await until(() => [video, audio].every(buffer => buffer.spans.some(([from, to]: number[]) => from <= player.currentTime && to > player.currentTime)) || failures.length > 0, 15000);
+    assert.deepEqual(failures, []);
+    assert.ok(hls.retainedBytes() <= 128 * 1024 * 1024);
+  }
+  assert.ok(removals.every(count => count() >= 2));
+  assert.ok(video.appended.filter((value: any) => !value.init).length >= 4);
+  assert.ok(video.appended.reduce((bytes: number, value: any) => bytes + (value.bytes ?? 0), 0) > 128 * 1024 * 1024);
+});
+
+async function cohortGetterFixture() {
+  film(1);
+  const run = start(base + 'index.m3u8');
+  await run.source.open(0); await stopTestPump(run.source as any); run.source.settled();
+  run.player.currentTime = 7;
+  return {...run, hls: run.source as any, buffer: run.player.source.buffers[0]};
+}
+
+test('native range getters cannot install a stale cohort after seek, close or replacement', async () => {
+  for (const action of ['seek', 'close', 'replacement'] as const) {
+    resetServer(); resetWorld();
+    const {source, player, hls, buffer} = await cohortGetterFixture();
+    const ranges = buffer.buffered;
+    let armed = true, successor: unknown;
+    Object.defineProperty(buffer, 'buffered', {configurable: true, get() {
+      if (armed) {
+        armed = false;
+        if (action === 'seek') { player.currentTime = source.seek(0); source.settled(); }
+        if (action === 'close') source.close();
+        if (action === 'replacement') { hls.nextGeneration(); successor = hls.charge(buffer, hls.generation, 123, 'media'); }
+      }
+      return ranges;
+    }});
+    await hls.sealCohorts(hls.generation).catch(() => {});
+    assert.equal(hls.cohorts.has(buffer), false, action);
+    if (successor) assert.ok(hls.retained.has(successor));
+    source.close();
+  }
+});
+
+test('dispatch reproves original ownership after every native frontier getter', async () => {
+  for (const port of ['currentTime', 'buffered', 'start', 'end', 'updating'] as const) {
+    for (const action of ['seek', 'close', 'replacement', 'same-buffer-track'] as const) {
+      resetServer(); resetWorld();
+      const {source, player, hls, buffer} = await cohortGetterFixture();
+      await hls.sealCohorts(hls.generation);
+      const ranges = buffer.buffered, clock = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(player), 'currentTime')!;
+      let armed = true, removes = 0, refunds = 0, successor: unknown;
+      const removeCharge = hls.retained.delete.bind(hls.retained);
+      hls.retained.delete = (entry: unknown) => { refunds++; return removeCharge(entry); };
+      const retire = () => {
+        if (!armed) return;
+        armed = false;
+        if (action === 'seek') { player.currentTime = source.seek(0); source.settled(); }
+        if (action === 'close') source.close();
+        if (action === 'replacement') { hls.nextGeneration(); successor = hls.charge(buffer, hls.generation, 123, 'media'); }
+        if (action === 'same-buffer-track') hls.tracks = hls.tracks.map((track: any) => ({...track}));
+      };
+      buffer.remove = () => { removes++; };
+      if (port === 'currentTime') Object.defineProperty(player, 'currentTime', {configurable: true, get() {retire(); return 7;}, set(value) {clock.set!.call(player, value);}});
+      else if (port === 'updating') Object.defineProperty(buffer, 'updating', {configurable: true, get() {retire(); return false;}});
+      else Object.defineProperty(buffer, 'buffered', {configurable: true, get() {
+        if (port === 'buffered') retire();
+        return {length: ranges.length, start(index: number) {if (port === 'start') retire(); return ranges.start(index);}, end(index: number) {if (port === 'end') retire(); return ranges.end(index);}};
+      }});
+      await hls.retirePlayedCohorts(hls.generation).catch(() => {});
+      assert.equal(removes, 0, `${port}/${action}`); assert.equal(refunds, 0, `${port}/${action}`);
+      if (successor) assert.ok(hls.retained.has(successor));
+      source.close();
+    }
+  }
+});
+
+test('completion getters and nonfinite clocks cannot refund stale cohort tokens', async () => {
+  for (const outcome of ['clock-replacement', 'empty-getter-replacement', 'empty-getter-close', 'nan', 'infinity', 'negative-infinity'] as const) {
+    resetServer(); resetWorld();
+    const {source, player, hls, buffer} = await cohortGetterFixture();
+    await hls.sealCohorts(hls.generation);
+    const original = [...hls.retained], before = hls.retainedBytes();
+    buffer.remove = () => { buffer.updating = true; };
+    const removal = hls.retirePlayedCohorts(hls.generation) as Promise<void>;
+    const rejected = assert.rejects(removal);
+    await Promise.resolve(); await Promise.resolve();
+    let successor: unknown, refunds = 0;
+    const removeCharge = hls.retained.delete.bind(hls.retained);
+    hls.retained.delete = (entry: unknown) => { refunds++; return removeCharge(entry); };
+    const replace = () => { hls.nextGeneration(); successor = hls.charge(buffer, hls.generation, 123, 'media'); };
+    if (outcome === 'clock-replacement') Object.defineProperty(player, 'currentTime', {configurable: true, get() {replace(); return 7;}});
+    if (outcome === 'nan' || outcome === 'infinity' || outcome === 'negative-infinity') Object.defineProperty(player, 'currentTime', {configurable: true, get() {return outcome === 'nan' ? NaN : outcome === 'infinity' ? Infinity : -Infinity;}});
+    buffer.updating = false; buffer.spans = [];
+    let armed = true;
+    Object.defineProperty(buffer, 'buffered', {configurable: true, get() {
+      if (armed) {
+        armed = false;
+        if (outcome === 'empty-getter-replacement') replace();
+        if (outcome === 'empty-getter-close') source.close();
+      }
+      return {length: 0};
+    }});
+    buffer.emit('updateend'); await rejected;
+    assert.equal(refunds, 0, outcome);
+    if (successor) assert.ok(hls.retained.has(successor), outcome);
+    if (outcome !== 'empty-getter-close') { assert.ok(original.every(entry => hls.retained.has(entry))); assert.equal(hls.retainedBytes(), before + (successor ? 123 : 0)); }
+    source.close();
+  }
+});
+
+test('sealing refuses charge coalescing and dependency changes during native reads', async () => {
+  for (const action of ['coalesced-media', 'init', 'staging', 'same-buffer-track'] as const) {
+    resetServer(); resetWorld();
+    const {source, hls, buffer} = await cohortGetterFixture();
+    const ranges = buffer.buffered;
+    let armed = true, changed: any;
+    Object.defineProperty(buffer, 'buffered', {configurable: true, get() {
+      if (armed) {
+        armed = false;
+        if (action === 'same-buffer-track') hls.tracks = hls.tracks.map((track: any) => ({...track}));
+        else changed = hls.charge(buffer, hls.generation, 123, action === 'coalesced-media' ? 'media' : action);
+      }
+      return ranges;
+    }});
+    await hls.sealCohorts(hls.generation);
+    assert.equal(hls.cohorts.has(buffer), false, action);
+    if (changed) assert.ok(hls.retained.has(changed));
+    source.close();
+  }
+});
+
+test('the last empty-result getter cannot lend completion a successor or changed dependency set', async () => {
+  for (const port of ['currentTime', 'buffered', 'length', 'updating'] as const) {
+    for (const action of ['seek', 'close', 'replacement', 'same-buffer-track', 'init', 'staging'] as const) {
+      resetServer(); resetWorld();
+      const {source, player, hls, buffer} = await cohortGetterFixture();
+      await hls.sealCohorts(hls.generation);
+      const original = [...hls.retained];
+      buffer.remove = () => { buffer.updating = true; };
+      const removal = hls.retirePlayedCohorts(hls.generation) as Promise<void>;
+      const rejected = assert.rejects(removal);
+      await Promise.resolve(); await Promise.resolve();
+      assert.equal(buffer.updating, true);
+      buffer.updating = false; buffer.spans = [];
+      let armed = true, refunds = 0, successor: unknown;
+      const removeCharge = hls.retained.delete.bind(hls.retained);
+      hls.retained.delete = (entry: unknown) => { refunds++; return removeCharge(entry); };
+      const retire = () => {
+        if (!armed) return;
+        armed = false;
+        if (action === 'seek') { player.currentTime = source.seek(0); source.settled(); }
+        if (action === 'close') source.close();
+        if (action === 'replacement') { hls.nextGeneration(); successor = hls.charge(buffer, hls.generation, 123, 'media'); }
+        if (action === 'same-buffer-track') hls.tracks = hls.tracks.map((track: any) => ({...track}));
+        if (action === 'init' || action === 'staging') successor = hls.charge(buffer, hls.generation, 123, action);
+      };
+      const clock = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(player), 'currentTime')!;
+      if (port === 'currentTime') Object.defineProperty(player, 'currentTime', {configurable: true, get() {retire(); return 7;}, set(value) {clock.set!.call(player, value);}});
+      if (port === 'updating') Object.defineProperty(buffer, 'updating', {configurable: true, get() {retire(); return false;}});
+      Object.defineProperty(buffer, 'buffered', {configurable: true, get() {
+        if (port === 'buffered') retire();
+        return {get length() {if (port === 'length') retire(); return 0;}};
+      }});
+      buffer.emit('updateend'); await rejected;
+      assert.equal(refunds, 0, `${port}/${action}`);
+      if (successor) assert.ok(hls.retained.has(successor));
+      if (action !== 'close') assert.ok(original.every(entry => hls.retained.has(entry)));
+      source.close();
+    }
+  }
 });
