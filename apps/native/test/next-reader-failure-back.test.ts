@@ -8,6 +8,7 @@ import {defaultI18n} from '../../../packages/i18n/src';
 import {NativeShellNavigation, type NativeShellRoute} from '../src-next/shell/routes';
 import type {ShellAuthority} from '../src-next/shell/model';
 import {readRouteBack} from '../src-next/screens/read/read-route-back';
+import {createReadingSessionOwner} from '../src-next/screens/read/reading-session-owner';
 
 // BLK-MOB-001: the native host replaces the whole guest with Retry when a Read
 // fails, so these vectors exercise the actual unmodified ReadNativeHost render
@@ -45,8 +46,8 @@ async function harness(fixture: Fixture) {
   let hostCalls = 0, current = true, versionCalls = 0;
   const disposals: string[] = [], listeners = new Set<() => void>();
   const reader = {dispose: () => disposals.push('host'), confirm() {}, setActive() {}, setCrease() {}, setCreaseRef() {}};
-  const session = {manifest: {format: 'pdf', revision: 'r'.repeat(64)},
-    progress: async () => {if (fixture.at === 'progress') throw new Error('progress_rejected'); return null;},
+  const session = {manifest: {format: 'pdf', revision: 'r'.repeat(64)}, signal: new AbortController().signal,
+    progress: async () => {if (fixture.at === 'progress') throw new Error('progress_rejected'); return {progress: null};},
     close: async () => {disposals.push('session');}};
   const client = {
     versions: () => {versionCalls++; return fixture.at === 'pending' ? new Promise(() => {}) : fixture.at === 'versions' ? Promise.reject(new Error('versions_rejected')) : Promise.resolve({versions: [{sourceId: 'source', inventoryAvailable: true}]});},
@@ -73,6 +74,14 @@ async function harness(fixture: Fixture) {
     './asset-origin': {readerNavigationAllowed, readerDelivery},
     './startup-diagnostics': {readerStartupDiagnostic: () => undefined, readerStartupProbe: ''},
   });
+  const {NativeReadingGuestHost} = await screenModule(new URL('../src-next/screens/read/NativeReadingGuestHost.tsx', import.meta.url), {
+    react: {...React, default: React}, 'react-native': {View: 'View', NativeModules: {PorticoReaderAssets: {bundle: async () => fixture.at === 'assets' ? {} : {url: appleReaderEntry}}}, useWindowDimensions: () => ({width, height: 844})},
+    'react-native-webview': {default: 'WebView'}, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 47})},
+    '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/states': {LoadingPaint: 'LoadingPaint', StateView: 'StateView', SkeletonBlock: 'SkeletonBlock'},
+    '../../kit/controls/Button': {Button: 'Button'}, '../../kit/theme': {useTheme: () => ({colors: {ink: '#000'}})},
+    '../../platform/platformPosture': {usePlatformPosture: () => ({status: 'unavailable'})}, './asset-origin': {readerAssetEntry},
+    './ReadingGuestView': {ReadingGuestView: 'ReadingGuestView', createReadingGuestBridge: () => {hostCalls++; return reader;}},
+  });
   const {ReadNativeHost} = await screenModule(new URL('../src-next/screens/read/ReadNativeHost.tsx', import.meta.url), {
     react: {...React, default: React},
     'react-native': {
@@ -96,6 +105,8 @@ async function harness(fixture: Fixture) {
     '../../kit/controls/Button': {Button: 'Button'},
     '../../kit/theme': {useTheme: () => ({colors: {ink: '#000'}})},
     '../../platform/platformPosture': {usePlatformPosture: () => ({status: 'unavailable'})},
+    './NativeReadingGuestHost': {NativeReadingGuestHost: 'NativeReadingGuestHost'},
+    './reading-session-owner': {createReadingSessionOwner},
     './ReadingGuestView': {ReadingGuestView: 'ReadingGuestView', createReadingGuestBridge: () => {hostCalls++; return reader;}},
     './asset-origin': {readerAssetEntry, readerNavigationAllowed, readerDelivery},
     './startup-diagnostics': {readerBridgeDiagnostic: () => undefined, readerStartupDiagnostic: () => undefined, readerStartupProbe: ''},
@@ -104,7 +115,7 @@ async function harness(fixture: Fixture) {
     './annotation-sync': {NativeAnnotationSync: class {flush() {return Promise.resolve();} subscribe() {return () => {};} getSnapshot() {return {};} dispose() {}}},
     './annotation-authoring': {NATIVE_OFFLINE_ANNOTATION_AUTHORING: false},
   });
-  return {ReadNativeHost, ReadingGuestView, context, reader, get hostCalls() {return hostCalls;}, get versionCalls() {return versionCalls;}, setCurrent(value: boolean) {current = value; for (const listener of [...listeners]) listener();}, disposals};
+  return {ReadNativeHost, NativeReadingGuestHost, ReadingGuestView, context, reader, get hostCalls() {return hostCalls;}, get versionCalls() {return versionCalls;}, setCurrent(value: boolean) {current = value; for (const listener of [...listeners]) listener();}, disposals};
 }
 
 function mount(component: (props: any) => unknown, props: any) {
@@ -154,16 +165,20 @@ test(`a ${at} failure keeps Retry and the native Back reachable`, async () => {
   let backs = 0;
   const view = mount(fixture.ReadNativeHost, propsFor(fixture.context, {onBack: () => {backs++;}}));
   await act(async () => {view.host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
-  const state = byType(view.tree, 'StateView');
+  let display = view;
+  if (at === 'assets') {const child = byType(view.tree, 'NativeReadingGuestHost'); assert.ok(child);
+    display = mount(fixture.NativeReadingGuestHost, child!.props); await act(async () => {display.host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});}
+  const state = byType(display.tree, 'StateView');
   assert.ok(state, `the ${at} rejection keeps the existing StateView`);
   assert.equal(state!.props.primaryAction.id, 'retry', 'Retry stays the existing primary action');
   assert.equal(state!.props.primaryAction.label, defaultI18n.t('next.states.tryAgain'));
-  assert.equal(state!.props.primaryAction.disabled, false, 'an active failure can Retry');
-  const back = byTestID(view.tree, 'native-read-host-back');
+  assert.equal(state!.props.primaryAction.disabled, at === 'progress', 'only a pre-session failure can open another session');
+  const back = byTestID(display.tree, 'native-read-host-back');
   assert.ok(back, `the ${at} failure keeps a native Back outside the guest`);
   back!.props.onPress();
   assert.equal(backs, 1, 'the live failure Back calls the supplied callback once');
   assert.equal(byType(view.tree, 'WebView'), undefined, `no guest is retained after a ${at} failure`);
+  if (display !== view) display.host.unmount();
   view.host.unmount();
 });
 
@@ -188,21 +203,24 @@ test('a healthy guest renders no duplicate native Back and a WebView failure pro
   let backs = 0;
   const view = mount(fixture.ReadNativeHost, propsFor(fixture.context, {onBack: () => {backs++;}}));
   await act(async () => {view.host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
-  const boundary = byType(view.tree, 'ReadingGuestView');
+  const child = byType(view.tree, 'NativeReadingGuestHost'); assert.ok(child);
+  const display = mount(fixture.NativeReadingGuestHost, child!.props);
+  await act(async () => {display.host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
+  const boundary = byType(display.tree, 'ReadingGuestView');
   const guest = boundary && fixture.ReadingGuestView(boundary.props) as any;
   assert.ok(guest, 'the opened reader hands the document to the guest');
   assert.equal(fixture.hostCalls > 0, true, 'the healthy path creates the reading host');
-  assert.equal(byTestID(view.tree, 'native-read-host-back'), undefined, 'the healthy guest already owns the only Back');
+  assert.equal(byTestID(display.tree, 'native-read-host-back'), undefined, 'the healthy guest already owns the only Back');
   guest!.props.onError();
   await settle();
-  assert.ok(byType(view.tree, 'StateView'), 'WebView onError projects the existing failure state');
-  assert.equal(byType(view.tree, 'StateView')!.props.primaryAction.id, 'retry');
-  const back = byTestID(view.tree, 'native-read-host-back');
+  assert.ok(byType(display.tree, 'StateView'), 'WebView onError projects the existing failure state');
+  assert.equal(byType(display.tree, 'StateView')!.props.primaryAction.id, 'retry');
+  const back = byTestID(display.tree, 'native-read-host-back');
   assert.ok(back, 'the projected failure gets the native Back');
   back!.props.onPress();
   assert.equal(backs, 1);
   assert.equal(fixture.hostCalls, 1, 'a failure does not silently open a second reader host');
-  view.host.unmount();
+  display.host.unmount(); view.host.unmount();
 });
 
 for (const method of ['onContentProcessDidTerminate', 'onRenderProcessGone'] as const)
@@ -211,20 +229,23 @@ test(`a ${method} projection keeps Retry and the native Back reachable with no d
   let backs = 0;
   const view = mount(fixture.ReadNativeHost, propsFor(fixture.context, {onBack: () => {backs++;}}));
   await act(async () => {view.host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
-  const boundary = byType(view.tree, 'ReadingGuestView');
+  const child = byType(view.tree, 'NativeReadingGuestHost'); assert.ok(child);
+  const display = mount(fixture.NativeReadingGuestHost, child!.props);
+  await act(async () => {display.host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
+  const boundary = byType(display.tree, 'ReadingGuestView');
   const guest = boundary && fixture.ReadingGuestView(boundary.props) as any;
   assert.ok(guest, 'the healthy guest is present before termination');
-  assert.equal(byTestID(view.tree, 'native-read-host-back'), undefined, 'no native Back while the guest is healthy');
+  assert.equal(byTestID(display.tree, 'native-read-host-back'), undefined, 'no native Back while the guest is healthy');
   guest!.props[method]();
   await settle();
-  assert.ok(byType(view.tree, 'StateView'), `${method} projects the failure state`);
-  assert.equal(byType(view.tree, 'StateView')!.props.primaryAction.id, 'retry', 'Retry remains reachable');
-  const back = byTestID(view.tree, 'native-read-host-back');
+  assert.ok(byType(display.tree, 'StateView'), `${method} projects the failure state`);
+  assert.equal(byType(display.tree, 'StateView')!.props.primaryAction.id, 'retry', 'Retry remains reachable');
+  const back = byTestID(display.tree, 'native-read-host-back');
   assert.ok(back, `${method} gets the native Back`);
   back!.props.onPress();
   assert.equal(backs, 1, 'the projected Back presses the supplied callback once');
   assert.equal(fixture.hostCalls, 1, 'termination does not open a second reader host');
-  view.host.unmount();
+  display.host.unmount(); view.host.unmount();
 });
 
 test('tablet width uses the authored 44px Back control', async () => {
@@ -287,4 +308,20 @@ test('the extracted guest view rejects stale and foreign messages and forwards e
   assert.deepEqual(received, ['current']); assert.deepEqual(observed, ['current']);
   view.props.onError(); view.props.onContentProcessDidTerminate(); view.props.onRenderProcessGone();
   assert.equal(failures, 3);
+});
+
+test('evicting and remounting a guest retains the original live session', async () => {
+  const fixture = await harness({at: 'none'});
+  const live = mount(fixture.ReadNativeHost, propsFor(fixture.context));
+  await act(async () => {live.host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
+  const child = byType(live.tree, 'NativeReadingGuestHost'); assert.ok(child);
+  const first = mount(fixture.NativeReadingGuestHost, child!.props);
+  await act(async () => {first.host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
+  first.host.unmount();
+  assert.equal(fixture.disposals.filter(value => value === 'session').length, 0);
+  const second = mount(fixture.NativeReadingGuestHost, child!.props);
+  await act(async () => {second.host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
+  assert.equal(fixture.versionCalls, 1, 'guest remount does not admit a new session');
+  second.host.unmount(); live.host.unmount(); await settle();
+  assert.equal(fixture.disposals.filter(value => value === 'session').length, 1);
 });
