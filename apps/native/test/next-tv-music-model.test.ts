@@ -235,7 +235,7 @@ test('album membership stops sending when the destination retires', async () => 
   let live = true;
   const {value, browseBodies} = await controller(albumEntry, {songs: many, total: 4, pageSize: 2, maximumLimit: 2, current: () => live,
     onPage: start => {if (start === 0) live = false;}});
-  await assert.rejects(value.albumMembership(), (error: any) => error.name === 'AbortError');
+  await assert.rejects(value.albumMembership(), (error: any) => error.code === 'native_music_retired');
   assert.equal(browseBodies.length, 1);
   value.dispose();
 });
