@@ -26,6 +26,8 @@ async function fixture() {
   let nested = false, language = 'CA';
   const react: any = {...host.react};
   for (const name of Object.keys(host.react).filter(name => name.startsWith('use'))) react[name] = (...args: any[]) => {const active: any = nested ? bodyHost.react : host.react; return active[name](...args);};
+  // The body's layout effects own reconciliation, not this word-for-word render.
+  react.useLayoutEffect = () => {}; react.useInsertionEffect = () => {};
   react.default = react;
   const theme = createTheme({width: 800, isTV: false});
   const safeMode = await screenModule(new URL('../src-next/screens/settings-live/NativeSafeModeRow.tsx', import.meta.url), {
@@ -39,6 +41,10 @@ async function fixture() {
     './NativeFrameRateRow': {NativeFrameRateRow: 'NativeFrameRateRow', nativeFrameRateFocusId: 'settings-device-match-frame-rate'},
     '../../platform/playback/passthrough-formats': {passthroughFormats},
     './NativePassthroughRow': {NativePassthroughRow: 'NativePassthroughRow', nativePassthroughFocusId: 'settings-device-audio-passthrough'},
+    './NativeApplePassthroughRow': {NativeApplePassthroughRow: 'NativeApplePassthroughRow'},
+    './NativeCapabilityRows': {NativeCapabilityRows: 'NativeCapabilityRows'},
+    './DashboardScreen': {NativeDashboardScreen: 'NativeDashboardScreen'},
+    './server/RemoteAccessPage': {NativeRemoteAccessPage: 'NativeRemoteAccessPage'},
     './NativeLossNoticesRow': {NativeLossNoticesRow: 'NativeLossNoticesRow', nativeLossNoticesFocusId: 'settings-device-loss-notices'},
     react,
     'react-native': {AppState,NativeModules,Dimensions: {get: () => ({width: 800, height: 1024})}, Platform: {OS: 'ios', isTV: false, isPad: true}, ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
@@ -91,7 +97,7 @@ async function fixture() {
     documents: ['profile-server', 'profile-device-class'].map(scope => ({scope, revision: 1, activeRevision: 1, digest: 'd'.repeat(64), values: {}})), effective: {'region.locale': 'en-US'}, effectiveSource: {'region.locale': 'default'}, clampedFields: []});
   const shellSnapshot = {profile: {id: 'profile', name: 'Example', initial: 'E', color: 'blue' as const}, account: {actions: [] as readonly unknown[]}};
   const runtime = {text: {get t() {const prefix = language; return (key: string) => `${prefix}/${key}`;}}, reportError: (error: unknown) => {throw error;}, subscribe: () => () => {}, getSnapshot: () => shellSnapshot};
-  const props = {runtime, ports: {context: {account: {account: {role: 'member'}, canManage: false}, serverName: 'Example', authority: () => ({serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'fence'})}, settingsContext: () => ({owner: false, platform: 'phone', capabilities: {localAccount: true}}), serverName: () => 'Example', renderSettingsPanel: () => null},
+  const props = {runtime, ports: {context: {account: {account: {role: 'member'}, canManage: false}, serverName: 'Example', authority: () => ({serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'fence'}), navigation: {subscribe: () => () => {}, getSnapshot: () => ({revision: 0})}}, settingsContext: () => ({owner: false, platform: 'phone', capabilities: {localAccount: true}}), serverName: () => 'Example', renderSettingsPanel: () => null},
     controller: {subscribe: () => () => {}, getSnapshot: () => ({preferences, busy: false, saved: 0}), lifetime: {authority: {}, current: () => true}},
     devicePreferences: {subscribe: () => () => {}, read: () => undefined}};
   return {setLanguage: (next: string) => {language = next;},
