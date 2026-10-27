@@ -331,7 +331,9 @@ function ProfileActionRow({label, description, onPress, testID}: {label: string;
 }
 
 type ProfileLimitsOwner = {
-  readonly profile: ManagedProfile;
+  /** Private witness: the opening names only the id and revision it was drawn for. The sheet's
+   * copy and its own save guard keep reading the original profile prop. */
+  readonly profile: Readonly<Pick<ManagedProfile, 'id' | 'revision'>>;
   readonly lease: ProfileLease;
   controller?: AbortController;
   loadedRevision?: number;
@@ -344,19 +346,21 @@ function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {pr
   const ownerRef = useRef<ProfileLimitsOwner | undefined>(undefined);
   const [restrictions, setRestrictions] = useState<ProfileRestrictions>(), [systems, setSystems] = useState<readonly RatingSystem[]>();
   const [draft, setDraft] = useState<ProfileRestrictions>(), [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false);
-  const current = (candidate: ProfileLimitsOwner) => candidate === ownerRef.current && !candidate.retired && candidate.profile.id === profile.id
-    && candidate.profile.revision === profile.revision && candidate.lease.current();
+  const profileId = profile.id, profileRevision = profile.revision;
+  const current = (candidate: ProfileLimitsOwner) => candidate === ownerRef.current && !candidate.retired && candidate.profile.id === profileId
+    && candidate.profile.revision === profileRevision && candidate.lease.current();
 
   useLayoutEffect(() => {
-    const next: ProfileLimitsOwner = {profile, lease, retired: false};
+    const next: ProfileLimitsOwner = {profile: {id: profileId, revision: profileRevision}, lease, retired: false};
     const controller = new AbortController();
     next.controller = controller;
     ownerRef.current = next;
     setOwner(next);
     setRestrictions(undefined); setSystems(undefined); setDraft(undefined); setError(undefined); setBusy(false);
-    const live = () => current(next);
+    const live = () => next === ownerRef.current && !next.retired && next.profile.id === profileId
+      && next.profile.revision === profileRevision && next.lease.current();
     const identity = identityFor(controller);
-    Promise.all([identity.restrictions(profile.id, controller.signal), identity.ratingSystems(controller.signal)]).then(([currentRestrictions, list]) => {
+    Promise.all([identity.restrictions(profileId, controller.signal), identity.ratingSystems(controller.signal)]).then(([currentRestrictions, list]) => {
       if (!live() || currentRestrictions.profileId !== next.profile.id) return;
       next.loadedRevision = currentRestrictions.revision;
       setRestrictions(currentRestrictions); setSystems(list); setDraft(currentRestrictions);
@@ -367,7 +371,7 @@ function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {pr
       if (ownerRef.current === next) ownerRef.current = undefined;
       setOwner(value => value === next ? undefined : value);
     };
-  }, [identityFor, lease, profile.id, profile.revision]);
+  }, [identityFor, lease, profileId, profileRevision]);
 
   const system = systems?.find(value => value.id === draft?.ratingSystem);
   const ratingOptions = [{value: '', label: t('limits.noLimit')}, ...(system?.values.map(value => ({value: value.code, label: value.label})) ?? [])];
