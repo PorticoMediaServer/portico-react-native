@@ -696,3 +696,19 @@ test('Resolve must refuse the real DVRClient PATCH when its opening closes durin
   assert.equal(patches, 0, 'retired detail opening must not dispatch the original PATCH');
   controller.dispose(); client.dispose(); lifetime.dispose();
 });
+
+for (const retirement of ['controller-dispose', 'lifetime-abort'] as const) test(`Resolve refuses dispatch when its last predicate triggers ${retirement} and returns true`, async () => {
+  const owner = authority(), lifetime = new NativeScreenLifetime(owner), fixture = recordingService();
+  const recording = {id: 'recording', revision: 7, state: 'conflicted', options: {beforeSeconds: 0, afterSeconds: 0, priority: 1, retentionDays: 0, episodeLimit: 0}} as Recording;
+  fixture.service.detail = async () => ({recording, capacity: {known: true, effective: 1}, overlaps: [], nextOverlap: ''});
+  let writes = 0; fixture.service.update = async value => {writes++; return value;};
+  const controller = new NativeRecordingsController(lifetime, fixture.service); let busyChecks = 0, retireOnNextCurrent = false;
+  owner.current = () => {
+    if (retireOnNextCurrent) {retireOnNextCurrent = false; if (retirement === 'controller-dispose') controller.dispose(); else lifetime.dispose();}
+    return true;
+  };
+  const opening = controller.detailOpening(recording, () => {if (controller.getSnapshot().busy && ++busyChecks === 2) retireOnNextCurrent = true; return true;});
+  const seed = await opening.read(); assert.equal(opening.canResolve(seed), true);
+  await assert.rejects(opening.resolve(seed)); assert.equal(writes, 0);
+  assert.equal(opening.canResolve(seed), false); opening.dispose(); controller.dispose(); lifetime.dispose();
+});
