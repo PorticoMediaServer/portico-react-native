@@ -1352,7 +1352,7 @@ test('TV People retains its focused continuation host and renders the real scope
   } finally {panel.host.unmount(); feedback.dispose(); lifetime.dispose();}
 });
 
-test('TV Dashboard presenter binds real continuation and retry to the captured section', async () => {
+for (const role of ['administrator', 'owner'] as const) test(`TV Dashboard ${role} presenter binds continuation and retry to the captured section`, async () => {
   const {screenModule} = await import('./helpers/screen-harness.mjs');
   const {act} = await import('./hook-driver.ts');
   const {NativeDashboardController} = await import('../src-next/screens/settings-live/dashboard-controller.ts');
@@ -1382,10 +1382,10 @@ test('TV Dashboard presenter binds real continuation and retry to the captured s
   const totals = {streams: 11, paused: 0, converting: 0, bandwidthKbps: 0, people: 11, atHome: 11, away: 0};
   const session = (id: string) => ({id, user: 'person', profile: 'profile', device: 'device', title: id, kind: 'vod', state: 'playing', positionMs: 0, decision: {}, location: 'local'});
   let reject!: (error: Error) => void, complete!: (value: any) => void;
-  const calls: (string | undefined)[] = [];
-  const controller = new NativeDashboardController(lifetime, () => 'administrator', {
+  const calls: (string | undefined)[] = [], jobCalls: (string | undefined)[] = [];
+  const controller = new NativeDashboardController(lifetime, () => role, {
     sessions: {list: async cursor => {calls.push(cursor); return cursor ? new Promise((resolve, fail) => {complete = resolve; reject = fail;}) : {items: [session('first')] as never[], nextCursor: 'next', totals, revision: 'rev-1', scope: {serverId: 'server', viewerFence: 'fence'}};}},
-    console: {measurement: async name => ({name, observedAt: 1, freshUntil: 30001, facts: {}}), alerts: async () => [], jobs: async () => {throw new Error('administrator dispatched owner jobs');}, dispose() {}},
+    console: {measurement: async name => ({name, observedAt: 1, freshUntil: 30001, facts: {}}), alerts: async () => [], jobs: async cursor => {jobCalls.push(cursor); return {items: [{id: cursor ? 'later' : 'first', kind: 'scan', revision: 1}] as never[], nextCursor: cursor ? '' : 'job-next'};}, dispose() {}},
   });
   const runtime = {text: {t: defaultI18n.t, locale: 'en-US'}, error: feedback.error, artwork: () => undefined};
   const ports = {serverName: () => 'Server', context: {events: {on: () => () => {}}, navigation: {open() {}, back() {}}}};
@@ -1394,6 +1394,12 @@ test('TV Dashboard presenter binds real continuation and retry to the captured s
     await act(() => {});
     const row = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-session-first')!;
     assert.ok(row);
+    if (role === 'owner') {
+      const jobMore = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-jobs-more')!; assert.ok(jobMore);
+      withNativeControl(jobMore, host => host.props.onPress()); await act(() => {});
+      assert.ok(ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-job-later'));
+      assert.deepEqual(jobCalls, [undefined, 'job-next']);
+    } else assert.deepEqual(jobCalls, []);
     const initialMore = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-sessions-more')!;
     withNativeControl(initialMore, host => host.props.onPress()); await act(() => {});
     withNativeControl(row, host => host.props.onFocus({nativeEvent: {}}));
