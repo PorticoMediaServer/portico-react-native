@@ -25,3 +25,15 @@ test('closing a detail opening refuses a late overlap response', async () => {
   finish(detail(20, 1, '')); await pending;
   assert.equal(state.items.length, 20); assert.equal(state.items.some(row => row.id === 'overlap20'), false);
 });
+
+test('overlap failure retries the offered cursor and revision replacement requires refresh', async () => {
+  let state!: OverlapSnapshot, fail = true; const calls: string[] = [];
+  const controller = {detail: async (_id: string, cursor: string) => {
+    calls.push(cursor); if (fail) {fail = false; throw new Error('offline');}
+    return {...detail(20, 1, ''), recording: {...recording, revision: 8}};
+  }} as unknown as NativeRecordingsController;
+  const window = new RecordingOverlapWindow(recording, detail(0, 20, 'p2'), controller, () => true, value => {state = value;});
+  window.seed(detail(0, 20, 'p2')); await window.next(state);
+  assert.equal(state.items.length, 20); assert.ok(state.error); await window.retry(state);
+  assert.equal(state.items.length, 20); assert.equal(state.refreshRequired, true); assert.deepEqual(calls, ['p2', 'p2']); window.dispose();
+});

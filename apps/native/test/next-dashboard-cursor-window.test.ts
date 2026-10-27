@@ -102,3 +102,13 @@ test('an old action lease cannot release a successor lease for the same row', as
   window.unpin(old); assert.equal(window.snapshot().pending, true);
   window.unpin(successor); assert.deepEqual(window.snapshot().items.map(row => row.id), ['a', 'b', 'c']); window.dispose();
 });
+
+test('refresh re-reads only the visible bounded cursor window and preserves its focused row', async () => {
+  const calls: string[] = []; let revision = 'old';
+  const window = new DashboardCursorWindow(async cursor => {calls.push(cursor); return {items: [{id: cursor || 'first', revision}], nextCursor: cursor === '' ? 'a' : cursor === 'a' ? 'b' : '', metadata: revision};}, row => row.id, () => true, () => {});
+  await window.refresh(); await window.next(window.snapshot()); window.focus('a', window.snapshot().generation);
+  revision = 'new'; await window.refresh();
+  assert.deepEqual(calls, ['', 'a', '', 'a']);
+  assert.deepEqual(window.snapshot().items.map(row => `${row.id}:${row.revision}`), ['first:new', 'a:new']);
+  assert.equal(window.snapshot().nextCursor, 'b'); assert.equal(window.snapshot().pending, false); window.dispose();
+});

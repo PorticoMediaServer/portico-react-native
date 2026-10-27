@@ -16,7 +16,7 @@ export class DashboardCursorWindow<T, M> {
   private focused?: string;
   private owned = new Map<object, string>();
   private focusGeneration?: number;
-  private held?: {flight: Flight<T, M>; page: DashboardCursorPage<T, M>; previous: boolean; reset: boolean};
+  private held?: {flight: Flight<T, M>; commit: () => void};
   private seen = new Set<string>();
   private checkpoint?: string;
   private power = 1;
@@ -37,17 +37,17 @@ export class DashboardCursorWindow<T, M> {
   private publish(value: DashboardCursorSnapshot<T, M>): void {this.value = Object.freeze(value); this.changed(this.value);}
   private alive(flight: Flight<T, M>): boolean {return !this.disposed && this.current() && this.flight === flight && flight.generation === this.generation && !flight.abort.signal.aborted;}
   /** Called by the actual focus binding, not by a guessed row index. */
-  focus(id?: string, generation = this.generation): void {this.focused = id; this.focusGeneration = id === undefined ? undefined : generation; if (this.held && this.alive(this.held.flight)) this.accept(this.held.flight, this.held.page, this.held.previous, this.held.reset);}
+  focus(id?: string, generation = this.generation): void {this.focused = id; this.focusGeneration = id === undefined ? undefined : generation; if (this.held && this.alive(this.held.flight)) this.held.commit();}
   blur(id: string, generation: number): void {if (this.focused === id && this.focusGeneration === generation) this.focus(undefined);}
   pin(id: string): object {const token = {}; this.owned.set(token, id); return token;}
-  unpin(token: object): void {if (!this.owned.delete(token)) return; if (this.held && this.alive(this.held.flight)) this.accept(this.held.flight, this.held.page, this.held.previous, this.held.reset);}
+  unpin(token: object): void {if (!this.owned.delete(token)) return; if (this.held && this.alive(this.held.flight)) this.held.commit();}
   refresh(): Promise<void> {
     if (this.disposed || !this.current()) return Promise.resolve();
     if (this.flight?.reset && this.alive(this.flight)) return this.flight.promise;
     this.flight?.abort.abort(); this.flight = undefined; this.held = undefined; this.seen.clear(); this.restartCycle(); this.generation++;
-    const old = this.value;
+    const old = this.value, start = old.chunks[0]?.cursor ?? '';
     this.publish({...old, generation: this.generation, bookmarks: [''], nextCursor: '', pending: false, error: undefined, refreshRequired: false});
-    return this.request(this.value, '', false, true);
+    return this.request(this.value, start, false, true);
   }
   next(expected: DashboardCursorSnapshot<T, M>): Promise<void> {
     if (this.flight && this.flight.expected === expected) return this.flight.promise;
@@ -92,6 +92,17 @@ export class DashboardCursorWindow<T, M> {
     this.publish({...expected, pending: true, error: undefined});
     flight.promise = (async () => {
       try {
+        if (reset && expected.chunks.length) {
+          const pages: {cursor: string; page: DashboardCursorPage<T, M>}[] = [], used = new Set<string>();
+          let next = cursor;
+          for (let i = 0; i < Math.min(3, expected.chunks.length); i++) {
+            if (!this.alive(flight) || used.has(next)) {if (this.alive(flight)) {this.flight = undefined; this.publish({...this.value, pending: false, refreshRequired: true});} return;}
+            used.add(next); const page = await this.read(next, abort.signal); if (!this.alive(flight)) return;
+            pages.push({cursor: next, page}); if (!page.nextCursor) break; next = page.nextCursor;
+          }
+          if (pages.at(-1)?.page.nextCursor && used.has(pages.at(-1)!.page.nextCursor!)) {this.flight = undefined; this.publish({...this.value, pending: false, refreshRequired: true}); return;}
+          this.acceptRefresh(flight, pages); return;
+        }
         const page = await this.read(cursor, abort.signal);
         if (!this.alive(flight)) return;
         const expectedSuccessor = previous ? this.value.chunks[0]?.cursor : undefined;
@@ -111,10 +122,10 @@ export class DashboardCursorWindow<T, M> {
     if (!this.alive(flight)) return;
     const old = this.value, candidate = {cursor: flight.cursor, items: page.items};
     const pinned = new Set(this.owned.values()); if (this.focused) pinned.add(this.focused);
-    if (reset && old.items.some(row => pinned.has(this.key(row)) && !page.items.some(next => this.key(next) === this.key(row)))) {this.held = {flight, page, previous, reset}; return;}
+    if (reset && old.items.some(row => pinned.has(this.key(row)) && !page.items.some(next => this.key(next) === this.key(row)))) {this.held = {flight, commit: () => this.accept(flight, page, previous, reset)}; return;}
     const chunks = reset ? [candidate] : previous ? [candidate, ...old.chunks.filter(chunk => chunk.cursor !== flight.cursor)] : [...old.chunks.filter(chunk => chunk.cursor !== flight.cursor), candidate];
     const evicted = chunks.length > 3 ? previous ? chunks[chunks.length - 1] : chunks[0] : undefined;
-    if (evicted && evicted.items.some(row => pinned.has(this.key(row)))) {this.held = {flight, page, previous, reset}; return;}
+    if (evicted && evicted.items.some(row => pinned.has(this.key(row)))) {this.held = {flight, commit: () => this.accept(flight, page, previous, reset)}; return;}
     if (evicted) previous ? chunks.pop() : chunks.shift();
     let bookmarks = [...old.bookmarks];
     if (!previous && flight.cursor && !bookmarks.includes(flight.cursor)) bookmarks.push(flight.cursor);
@@ -125,6 +136,21 @@ export class DashboardCursorWindow<T, M> {
     for (const chunk of chunks) for (const row of chunk.items) if (!ids.has(this.key(row))) {ids.add(this.key(row)); items.push(row);}
     this.held = undefined; this.flight = undefined;
     this.publish({...old, chunks, items, bookmarks, nextCursor: previous ? evicted?.cursor ?? old.nextCursor : page.nextCursor ?? '', metadata: page.metadata, pending: false, error: undefined});
+  }
+  private acceptRefresh(flight: Flight<T, M>, pages: readonly {cursor: string; page: DashboardCursorPage<T, M>}[]): void {
+    if (!this.alive(flight) || !pages.length) return;
+    const chunks = pages.map(({cursor, page}) => ({cursor, items: page.items})), ids = new Map<string, T>(), items: T[] = [];
+    for (const chunk of chunks) for (const row of chunk.items) {
+      const key = this.key(row), prior = ids.get(key);
+      if (prior !== undefined && this.sameRow && !this.sameRow(prior, row)) {this.flight = undefined; this.publish({...this.value, pending: false, refreshRequired: true}); return;}
+      if (prior === undefined) {ids.set(key, row); items.push(row);}
+    }
+    const pinned = new Set(this.owned.values()); if (this.focused) pinned.add(this.focused);
+    if (this.value.items.some(row => pinned.has(this.key(row)) && !ids.has(this.key(row)))) {this.held = {flight, commit: () => this.acceptRefresh(flight, pages)}; return;}
+    const last = pages[pages.length - 1].page, bookmarks = ['', ...pages.map(page => page.cursor).filter(Boolean)];
+    this.seen = new Set(bookmarks.filter(Boolean)); this.restartCycle(last.nextCursor);
+    this.held = undefined; this.flight = undefined;
+    this.publish({...this.value, chunks, items, bookmarks, nextCursor: last.nextCursor ?? '', metadata: last.metadata, pending: false, error: undefined});
   }
   dispose(): void {if (this.disposed) return; this.disposed = true; this.generation++; this.flight?.abort.abort(); this.flight = undefined; this.held = undefined; this.owned.clear();}
 }
