@@ -17,7 +17,7 @@ import type {ChannelApi, GuideChannel} from '../../../packages/client-core/src/c
 import type {GuideProgram} from '../../../packages/client-core/src/guide/types';
 import type {GuideSourceSummary} from '../../../packages/client-core/src/guide/directory';
 import {nativeGuideCellWindow, nativeGuideElapsedWidth, nativeGuidePanRange, nativeGuidePanTarget} from '../src-next/screens/settings-live/guide-pan-model';
-import type {DVRPage, Recording, RecordingStorage} from '../../../packages/client-core/src/dvr';
+import type {DVRPage, Recording, RecordingDetail, RecordingStorage} from '../../../packages/client-core/src/dvr';
 import type {GroupSessionSnapshot} from '../../../packages/client-core/src/group-session';
 import type {GroupMember} from '../../../packages/client-core/src/social-playback';
 import type {PreferenceSnapshot} from '../../../packages/client-core/src/preferences';
@@ -583,4 +583,47 @@ test('recording recovery cannot overwrite a successor installed by predecessor a
     assert.equal(controller.getSnapshot().query.view, 'history'); assert.equal(controller.getSnapshot().loading, false);
     controller.endViewerOpening(nextOpening);
   } finally {globalThis.AbortController = OriginalAbort; controller.dispose(); lifetime.dispose();}
+});
+
+
+test('Resolve uses only the complete seed for its original detail opening', async () => {
+  const owner = authority(), lifetime = new NativeScreenLifetime(owner), fixture = recordingService();
+  const recording = {id: 'recording', revision: 7, state: 'conflicted', options: {beforeSeconds: 30, afterSeconds: 60, priority: 2, retentionDays: 14, episodeLimit: 3}} as Recording;
+  let firstNext = '', peerPriority = 5, current = true; const writes: {recording: Recording; options: unknown}[] = [];
+  const detail = (nextOverlap: string, priority: number): RecordingDetail => ({recording, capacity: {known: true, effective: 1}, overlaps: [{id: 'peer', title: 'Peer', start: '', end: '', priority, state: 'conflicted'}], nextOverlap});
+  fixture.service.detail = async (_id, cursor) => cursor ? detail('', 99) : detail(firstNext, peerPriority);
+  fixture.service.update = async (value, options) => {writes.push({recording: value, options}); return value;};
+  const controller = new NativeRecordingsController(lifetime, fixture.service);
+  const complete = controller.detailOpening(recording, () => current), seed = await complete.read();
+  assert.equal(complete.canResolve(seed), true); await complete.resolve(seed);
+  assert.equal(writes.length, 1); assert.equal(writes[0].recording.id, 'recording'); assert.equal(writes[0].recording.revision, 7);
+  assert.deepEqual(writes[0].options, {...recording.options, priority: 6});
+  await complete.resolve({...seed}); assert.equal(writes.length, 1);
+  const other = controller.detailOpening(recording, () => current), otherSeed = await other.read();
+  await other.resolve(seed); await complete.resolve(seed); assert.equal(writes.length, 1); assert.equal(other.canResolve(otherSeed), true);
+  firstNext = 'next'; const incomplete = controller.detailOpening(recording, () => current), initial = await incomplete.read();
+  const tail = await controller.detail(recording.id, 'next');
+  assert.equal(incomplete.canResolve(initial), false); await incomplete.resolve(initial); await incomplete.resolve(tail);
+  await incomplete.resolve({...tail, overlaps: []}); assert.equal(writes.length, 1);
+  peerPriority = 1000; firstNext = ''; const maximum = controller.detailOpening(recording, () => current), maxSeed = await maximum.read();
+  assert.equal(maximum.canResolve(maxSeed), false); await maximum.resolve(maxSeed); assert.equal(writes.length, 1);
+  current = false; await complete.resolve(seed); await other.resolve(otherSeed); assert.equal(writes.length, 1);
+  current = true; other.dispose(); await other.resolve(otherSeed); assert.equal(writes.length, 1);
+  owner.replace({profileId: 'successor'}); await complete.resolve(seed); assert.equal(writes.length, 1);
+  complete.dispose(); incomplete.dispose(); maximum.dispose(); controller.dispose(); lifetime.dispose();
+});
+
+test('Resolve rechecks its original detail opening around busy notification and receipt', async () => {
+  const lifetime = new NativeScreenLifetime(authority()), fixture = recordingService();
+  const recording = {id: 'recording', revision: 7, state: 'conflicted', options: {beforeSeconds: 0, afterSeconds: 0, priority: 1, retentionDays: 0, episodeLimit: 0}} as Recording;
+  fixture.service.detail = async () => ({recording, capacity: {known: true, effective: 1}, overlaps: [], nextOverlap: ''});
+  let writes = 0, finish!: (value: Recording) => void, current = true;
+  fixture.service.update = async () => {writes++; return new Promise(resolve => {finish = resolve;});};
+  const controller = new NativeRecordingsController(lifetime, fixture.service);
+  const first = controller.detailOpening(recording, () => current), seed = await first.read();
+  const off = controller.subscribe(() => {if (controller.getSnapshot().busy) current = false;});
+  await assert.rejects(first.resolve(seed)); assert.equal(writes, 0); off(); first.dispose();
+  current = true; const second = controller.detailOpening(recording, () => current), secondSeed = await second.read();
+  const pending = second.resolve(secondSeed); assert.equal(writes, 1); current = false; finish(recording);
+  await assert.rejects(pending); second.dispose(); controller.dispose(); lifetime.dispose();
 });

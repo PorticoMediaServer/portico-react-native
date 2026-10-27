@@ -2,7 +2,7 @@ import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import {FlatList, ScrollView, Text, View} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
-import {activeRecording, mutableRecording, playableRecording, type DeletePreview, type DVRView, type Recording, type RecordingDetail, type RecordingGroups, type RecordingRule, type RecordingStorage, type RuleConfig} from '../../../../../packages/client-core/src/dvr';
+import {activeRecording, playableRecording, type DeletePreview, type DVRView, type Recording, type RecordingDetail, type RecordingGroups, type RecordingRule, type RecordingStorage, type RuleConfig} from '../../../../../packages/client-core/src/dvr';
 import {titleTintHue} from '../../../../../packages/client-core/src/presentation/title-page';
 import {programmeTimeRange} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {parseMediaItem} from '../../../../../packages/client-core/src/media-item';
@@ -301,26 +301,31 @@ function RecordingDetails({recording, controller, runtime, opener, onClose, onPl
   useLayoutEffect(() => {opened.live = true; return () => {opened.live = false;};}, [opened]);
   // The read carries the opening it was made for, so A's state, capacity and overlaps
   // are never drawn under B's title.
-  const [read, setRead] = useState<Readonly<{for: RecordingOpening; detail?: RecordingDetail; error?: unknown}>>();
+  const [read, setRead] = useState<Readonly<{for: RecordingOpening; detail?: RecordingDetail; resolver?: ReturnType<NativeRecordingsController['detailOpening']>; error?: unknown}>>();
   const [overlap, setOverlap] = useState<Readonly<{for: RecordingOpening; window: RecordingOverlapWindow; snapshot: OverlapSnapshot}>>();
   useEffect(() => {
     let active = true, window: RecordingOverlapWindow | undefined;
-    if (isCurrent()) void controller.detail(recording.id).then(value => {
+    const resolver = controller.detailOpening(recording, () => active && opened.live && isCurrent());
+    if (isCurrent()) void resolver.read().then(value => {
       if (!active || !opened.live || !isCurrent()) return;
       try {
         window = new RecordingOverlapWindow(recording, value, controller, () => active && opened.live && isCurrent(), snapshot => {
           if (active && opened.live && window && isCurrent()) setOverlap({for: opened, window, snapshot});
         });
-        setRead({for: opened, detail: value}); window.seed(value);
+        setRead({for: opened, detail: value, resolver}); window.seed(value);
       } catch (error) {if (active && opened.live && isCurrent()) setRead({for: opened, error});}
     }, value => {
       if (active && opened.live && isCurrent()) setRead({for: opened, error: value});
     });
-    return () => {active = false; window?.dispose();};
+    return () => {active = false; resolver.dispose(); window?.dispose();};
   }, [opened, controller, recording.id]);
   const current = read?.for === opened ? read : undefined;
   const detail = current?.detail, error = current?.error;
   const overlapCurrent = overlap?.for === opened ? overlap : undefined;
+  const runResolve = (resolver: NonNullable<typeof current>['resolver'], value: RecordingDetail) => {
+    if (!resolver) return;
+    void resolver.resolve(value).then(result => {if (result && opened.live && isCurrent()) onClose();}, error => {if (opened.live && isCurrent()) runtime.reportError(error);});
+  };
   return <Dialog open onOpenChange={value => {if (!value && !controller.getSnapshot().busy) onClose();}} title={conflict ? t('web.dvr.conflictTitle', {title: recording.programme.title}) : recording.programme.title} placement={theme.isTV || theme.width >= 700 ? 'side' : undefined} width={theme.isTV ? 640 : undefined} initialFocusRef={primary} returnFocusRef={opener} testID="recordings-details">
     <View style={{gap: 24}}>{error !== undefined && <StateView testID="recordings-details-error" {...runtime.error(error, onClose)}/>}{!detail && error === undefined && <StateView title={t('recordings.loading')}/>}
       {detail && <><ScreenText secondary>{t(stateLabels[detail.recording.state])}</ScreenText><ScreenText secondary>{t('guide.range', {start: defaultI18n.time(detail.recording.start), end: defaultI18n.time(detail.recording.end)})}</ScreenText>{reasonLabels[detail.recording.reason] && <ScreenText secondary>{t(reasonLabels[detail.recording.reason])}</ScreenText>}
@@ -329,7 +334,7 @@ function RecordingDetails({recording, controller, runtime, opener, onClose, onPl
           {overlapCurrent.snapshot.refreshRequired && <StateView {...runtime.error({code: 'stale_continuation'}, onClose)} testID="recordings-overlap-refresh"/>}
           {overlapCurrent.snapshot.chunks[0]?.cursor && <Button focusId="recordings-overlap-previous" testID="recordings-overlap-previous" onPress={() => {void overlapCurrent.window.previous(overlapCurrent.snapshot);}}>{t('web.pager.previous')}</Button>}
           {(overlapCurrent.snapshot.nextCursor || overlapCurrent.snapshot.pending) && <Focusable key="recordings-overlap-next" focusId="recordings-overlap-next" testID="recordings-overlap-next" disabled={overlapCurrent.snapshot.pending} focusableWhenDisabled onPress={() => {if (!opened.live || !isCurrent()) return; void (overlapCurrent.snapshot.error !== undefined ? overlapCurrent.window.retry(overlapCurrent.snapshot) : overlapCurrent.window.next(overlapCurrent.snapshot));}}><ScreenText>{t(overlapCurrent.snapshot.error !== undefined ? 'next.states.tryAgain' : 'next.settings.loadMore')}</ScreenText></Focusable>}
-        </>}<Button testID="recordings-conflict-record" ref={primary} disabled={state.busy || !!detail.nextOverlap || !mutableRecording(detail.recording) || detail.recording.options.priority >= 1000} loading={state.busy} onPress={() => {if (!opened.live || !isCurrent() || detail.nextOverlap) return; void controller.resolve(detail).then(result => {if (result && opened.live && isCurrent()) onClose();});}} icon="i-rec">{t('recordings.recordThis')}</Button><Button testID="recordings-conflict-skip" variant="glass" disabled={state.busy} onPress={() => {if (!opened.live || !isCurrent()) return; void controller.cancel(detail.recording).then(result => {if (result && opened.live && isCurrent()) onClose();});}}>{t('recordings.skipThis')}</Button></>}
+        </>}<Button testID="recordings-conflict-record" ref={primary} disabled={state.busy || !current?.resolver?.canResolve(detail)} loading={state.busy} onPress={() => {if (!opened.live || !isCurrent() || !current?.resolver?.canResolve(detail)) return; runResolve(current.resolver, detail);}} icon="i-rec">{t('recordings.recordThis')}</Button><Button testID="recordings-conflict-skip" variant="glass" disabled={state.busy} onPress={() => {if (!opened.live || !isCurrent()) return; void controller.cancel(detail.recording).then(result => {if (result && opened.live && isCurrent()) onClose();});}}>{t('recordings.skipThis')}</Button></>}
         {!conflict && <>{playableRecording(detail.recording) && <Button testID="recordings-details-play" ref={primary} onPress={onPlay} icon="i-play">{t('action.play')}</Button>}{activeRecording(detail.recording) && <Button testID="recordings-details-cancel" ref={!playableRecording(detail.recording) ? primary : undefined} variant="glass" disabled={state.busy} onPress={onRemove}>{t('recordings.cancelAction')}</Button>}{deletionAvailable && !activeRecording(detail.recording) && <Button testID="recordings-details-delete" variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} disabled={state.busy} onPress={onRemove}>{t('web.dvr.deleteRecording')}</Button>}</>}
       </>}
     </View>
