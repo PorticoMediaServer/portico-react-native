@@ -323,10 +323,10 @@ function SavedSelectionBars({store, artwork}: {store: Store; artwork: (path?: st
     <View style={theme.isTV ? {position: 'absolute', left: 200, right: 96, top: 58} : undefined}><SelectionBar {...props}/></View>
     {!theme.isTV && <View style={{position: 'absolute', left: 0, right: 0, bottom: 0}}><SelectionPhoneActionBar {...props} bottomInset={Math.max(34, insets.bottom)}/></View>}
   </View>
-    {personal && <Dialog open title={defaultI18n.t('next.selection.selectedItems', {items: selectedItemsLabel(state.summary)})}
+    {personal && <Dialog testID="saved-personal-results" open title={defaultI18n.t('next.selection.selectedItems', {items: selectedItemsLabel(state.summary)})}
       onOpenChange={open => {if (!open && !personal.busy) store.clear();}}
-      footer={<><Button disabled={personal.busy} onPress={store.clear}>{defaultI18n.t('next.selection.done')}</Button>
-        {personal.results.some(result => result.status === 'failed') && <Button disabled={personal.busy} onPress={() => {void store.retryPersonal();}}>{defaultI18n.t('next.selection.retry')}</Button>}</>}>
+      footer={<><Button focusId="done" disabled={personal.busy} onPress={store.clear}>{defaultI18n.t('next.selection.done')}</Button>
+        {personal.results.some(result => result.status === 'failed') && <Button focusId="retry" disabled={personal.busy} onPress={() => {void store.retryPersonal();}}>{defaultI18n.t('next.selection.retry')}</Button>}</>}>
       {personal.results.map(result => <View key={result.key} style={{gap: 4, marginBottom: 12}}>
         <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{result.title}</Text>
         <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{result.status === 'saved' ? defaultI18n.t('next.selection.saved') : presentError({code: 'unavailable'}, 'detail', {operation: 'action'}).body}</Text>
