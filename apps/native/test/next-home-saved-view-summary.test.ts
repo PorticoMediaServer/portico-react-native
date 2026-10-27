@@ -10,6 +10,7 @@ import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import {serverTextLabel} from '../../../packages/client-core/src/presentation/server-text';
 import type {HomeLayoutView} from '../../../packages/client-core/src/home';
 import {NativeHomeCustomizeController} from '../src-next/screens/home/customize-controller';
+import {alpha} from '../src-next/kit/browse/presentation';
 import {createTheme, nativeType} from '../src-next/kit/theme';
 
 const pivot = {id: 'movies', labelKey: 'library.tab.movies', entityKinds: ['movie'], defaultSort: [{field: 'title', direction: 'asc'}], supportedViews: ['grid'], browsable: true} as const;
@@ -75,9 +76,10 @@ for (const isTV of [false, true]) test(`actual ${isTV ? 'TV' : 'phone'} Home cho
   const theme = createTheme({width: isTV ? 1920 : 390, isTV});
   const h = hooks();
   const {HomeSavedViewChoices, HomeCustomize} = await screenModule(new URL('../src-next/screens/home/HomeCustomize.tsx', import.meta.url), {
-    react: h.react,
+    react: {...h.react, useLayoutEffect: h.react.useEffect},
     'react-native': {ScrollView: 'Scroll', Text: 'Text', View: 'View'}, '../../../../../packages/i18n/src': {defaultI18n},
     '../../../../../packages/client-core/src/presentation/server-text': {serverTextLabel}, '../../kit/controls': {Focusable: 'Row', Button: 'Button', Switch: 'Switch'}, '../../kit/focus': {useFocusRegistry: () => ({})}, '../../kit/Icon': {Icon: 'Icon'},
+    '../../kit/browse/presentation': {alpha},
     '../../kit/overlays': {BottomSheet: 'Sheet', SidePanel: 'Panel', Dialog: 'Dialog'}, '../../kit/overlays/OverlayHost': {}, '../../kit/theme': {nativeType, useTheme: () => theme}, './customize-controller': {},
   });
   const resources = [view('drawn'), view('withheld')], selected: PersonalResource[] = [];
