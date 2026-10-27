@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {readListeningSimilar} from '../../../packages/client-core/src/library-content.ts';
+import * as readingBooksOpen from '../src-next/screens/read/reading-books-open.ts';
 import * as musicPaging from '../src-next/screens/destinations/music/paging.ts';
 import {presentError} from '../../../packages/client-core/src/presentation/errors.ts';
 
@@ -524,6 +525,7 @@ test('the real All songs row invokes the borrowed menu once and its captured mem
  const borrowed={subscribe:()=>()=>{},isOpen:()=>false,open:async(_entry:any,current:()=>boolean)=>{opens++;commandCurrent=current;}};
  const {createNativeEntryActions}=await screenModule(new URL('../src-next/screens/destinations/entry-actions.ts',import.meta.url),{
   react:{default:{}},'../native-screen-services':{nativeScreenServices:()=>({reportError:()=>{throw Error('unexpected error');}})},
+  '../read/reading-books-open':readingBooksOpen,
   '../watch':{nativeWatchEntryMenu:()=>borrowed},'./lifetime':{nativeDestinationLifetime:()=>({current:()=>true})},
  });
  const actions=createNativeEntryActions({navigation:{getSnapshot:()=>({revision:1}),subscribe:()=>()=>{}},subscribeAuthority:()=>()=>{}},
@@ -627,6 +629,7 @@ test('the retained real album TrackRow cannot borrow a More action after that se
  let opens=0,current:()=>boolean=()=>false;const borrowed={subscribe:()=>()=>{},isOpen:()=>false,open:async(_entry:any,proof:()=>boolean)=>{opens++;current=proof;}};
  const {createNativeEntryActions}=await screenModule(new URL('../src-next/screens/destinations/entry-actions.ts',import.meta.url),{
   react:{default:{}},'../native-screen-services':{nativeScreenServices:()=>({reportError:()=>{throw Error('unexpected error');}})},
+  '../read/reading-books-open':readingBooksOpen,
   '../watch':{nativeWatchEntryMenu:()=>borrowed},'./lifetime':{nativeDestinationLifetime:()=>({current:()=>true})},
  });
  const actions=createNativeEntryActions({navigation:{getSnapshot:()=>({revision:1}),subscribe:()=>()=>{}},subscribeAuthority:()=>()=>{}},{current:()=>true,contains:f.value.contains,subscribe:f.value.subscribe});
