@@ -28,12 +28,22 @@ export function NativeReadingGuestHost({owner, active, preferences, onBack, onSe
   const creaseRef = useRef(crease); creaseRef.current = crease;
   const disposeGuest = useRef<(() => void) | undefined>(undefined);
   const callbacks = useRef({active, onBack, onSettings, onSearchAll}); callbacks.current = {active, onBack, onSettings, onSearchAll};
+  /** One pure presence boolean: the bridge port and the guest effect's key read the same value. */
+  const hasSearchAll = !!onSearchAll;
   const [state, setState] = useState<Readonly<{url?: string; reader?: Reader; failed?: boolean}>>({});
   const [attempt, setAttempt] = useState(0);
   const mounted = useRef(false);
   const latest = useRef({owner, state, attempt, active, activeCurrent}); latest.current = {owner, state, attempt, active, activeCurrent};
-  const retryTicket = useMemo(() => ({spent: false}), [owner, state, attempt]);
+  const retryTicket = useMemo(() => ({owner, state, attempt, spent: false}), [owner, state, attempt]);
   useLayoutEffect(() => {mounted.current = true; return () => {mounted.current = false;};}, []);
+  /** Owner-intent port: the committed observer for this layout turn. It is published in the
+   * layout phase before the guest setup below, and its cleanup clears only its own port. */
+  const guestObserver = useRef<{report?: (mounted: boolean, incarnation: object) => void} | undefined>(undefined);
+  useLayoutEffect(() => {
+    const port = {report: onGuestState};
+    guestObserver.current = port;
+    return () => {if (guestObserver.current === port) guestObserver.current = undefined;};
+  }, [onGuestState]);
   const retryOriginal = () => {
     const same = () => mounted.current && !retryTicket.spent && latest.current.owner === owner && latest.current.state === state
       && latest.current.attempt === attempt && latest.current.active && latest.current.activeCurrent === activeCurrent
@@ -48,7 +58,7 @@ export function NativeReadingGuestHost({owner, active, preferences, onBack, onSe
       return owner.current() && alive && !!ticket?.current();};
     const dispose = () => {if (!alive) return; alive = false; offPreferences(); owned?.dispose();
       if (reader.current === owned) reader.current = undefined; ticket?.release();};
-    const report = onGuestState, incarnation = {}; report?.(true, incarnation);
+    const report = guestObserver.current?.report, incarnation = {}; report?.(true, incarnation);
     disposeGuest.current = dispose; setState({});
     void (async () => {
       ticket = owner.attach(); ticket.onRetire(dispose); if (!current()) throw new Error('reading_retired');
@@ -60,7 +70,7 @@ export function NativeReadingGuestHost({owner, active, preferences, onBack, onSe
         ...(creaseRef.current ? {crease: {left: creaseRef.current.left, right: creaseRef.current.right}} : {}),
         onBack: () => {if (current() && callbacks.current.active) callbacks.current.onBack();},
         onSettings: () => {if (current() && callbacks.current.active) callbacks.current.onSettings();},
-        ...(onSearchAll ? {onSearchAll: (query, signal, isLive) => current() && callbacks.current.active && !!callbacks.current.onSearchAll
+        ...(hasSearchAll ? {onSearchAll: (query, signal, isLive) => current() && callbacks.current.active && !!callbacks.current.onSearchAll
           ? callbacks.current.onSearchAll(query, signal, isLive) : false} : {}),
         onUnavailable: () => {if (current()) setState({failed: true}); dispose();},
       }, view, () => {});
@@ -71,7 +81,7 @@ export function NativeReadingGuestHost({owner, active, preferences, onBack, onSe
       setState({url, reader: owned});
     })().catch(() => {if (current()) setState({failed: true}); dispose();});
     return () => {if (disposeGuest.current === dispose) disposeGuest.current = undefined; dispose(); report?.(false, incarnation);};
-  }, [owner, preferences, attempt, !!onSearchAll, contentsTarget]);
+  }, [owner, preferences, attempt, hasSearchAll, contentsTarget]);
   useLayoutEffect(() => {reader.current?.setActive(active);}, [active, state.reader]);
   useLayoutEffect(() => {reader.current?.setCrease(crease ? {left: crease.left, right: crease.right} : undefined);}, [crease, state.reader]);
   const failure = () => {if (!state.reader || reader.current !== state.reader) return; setState({failed: true}); disposeGuest.current?.();};

@@ -22,9 +22,12 @@ function ReadingResidence({entries, desired, expected, context, preferences, Hos
   const desiredKey = desired.join('\0');
   useLayoutEffect(() => {
     // An evicted guest's cleanup runs before it reports false. Do not allocate
-    // its successor while even one superseded guest is still mounted.
-    if (slots.some(key => !desired.includes(key) && mounted.current.has(key))) return;
-    if (slots.length !== desired.length || slots.some((key, index) => key !== desired[index])) setSlots([...desired]);
+    // its successor while even one superseded guest is still mounted. The ordered keys come
+    // from the same `desiredKey` the deps already track: occurrences are minted as
+    // `navigation-<n>:<m>`, nonempty and NUL-free, so the join/split round-trips exactly.
+    const keys = desiredKey ? desiredKey.split('\0') : [];
+    if (slots.some(key => !keys.includes(key) && mounted.current.has(key))) return;
+    if (slots.length !== keys.length || slots.some((key, index) => key !== keys[index])) setSlots([...keys]);
   }, [desiredKey, slots, teardowns]);
   return <>{entries.map(entry => {
     const active = expected.route === entry.route && entry.binding.activeCurrent();

@@ -120,7 +120,7 @@ const nativeURL = data(`import React from ${JSON.stringify(reactURL)};
    const delivered=React.useRef(false);React.useLayoutEffect(()=>{if(delivered.current||!props.onLayout)return;delivered.current=true;const style=flat(typeof props.style==='function'?props.style({pressed:false}):props.style);props.onLayout({nativeEvent:{layout:{x:0,y:588,width:typeof style.width==='number'?style.width:390,height:typeof style.height==='number'?style.height:220}}});},[props.onLayout,props.style]);
    return React.createElement(React.Fragment,null,typeof children==='function'?children({pressed:false}):children);
  };}
- export const SafeAreaView=host('SafeAreaView'),View=host('View'),Text=host('Text'),Pressable=host('Pressable'),Image=host('Image'),TextInput=host('TextInput'),ScrollView=host('ScrollView'),RefreshControl=host('RefreshControl'),TVFocusGuideView=host('TVFocusGuideView'),ActivityIndicator=host('ActivityIndicator'),Modal=host('Modal'),Switch=host('Switch'),FlatList=host('FlatList'),VirtualizedList=host('VirtualizedList');
+ export const SafeAreaView=host('SafeAreaView'),View=host('View'),Text=host('Text'),Pressable=host('Pressable'),Image=host('Image'),TextInput=host('TextInput'),ScrollView=host('ScrollView'),KeyboardAvoidingView=host('KeyboardAvoidingView'),RefreshControl=host('RefreshControl'),TVFocusGuideView=host('TVFocusGuideView'),ActivityIndicator=host('ActivityIndicator'),Modal=host('Modal'),Switch=host('Switch'),FlatList=host('FlatList'),VirtualizedList=host('VirtualizedList');
  export const Share={share(){throw Error('Unexpected native Share operation in Home fixture')}};
  export const Platform={OS:'android',isTV:false,isPad:false,Version:36,constants:{Manufacturer:'test'}};
  export const TVEventControl={enableTVMenuKey:()=>{S.tvMenuEnabled=true;},disableTVMenuKey:()=>{S.tvMenuEnabled=false;}};
@@ -133,7 +133,7 @@ const nativeURL = data(`import React from ${JSON.stringify(reactURL)};
  export const StyleSheet={create:s=>s,flatten:flat,absoluteFill:{position:'absolute',inset:0},absoluteFillObject:{position:'absolute',inset:0},hairlineWidth:1};
  export const Dimensions={get:()=>({width:390,height:844,scale:1,fontScale:1}),addEventListener:()=>({remove(){}})},PixelRatio={get:()=>1,getFontScale:()=>1},useWindowDimensions=()=>({width:390,height:844,scale:1,fontScale:1});
  export const TVEventHandler={addListener:()=>({remove(){}})},registerCallableModule=()=>{},AppRegistry={registerComponent:(name,factory)=>S.registrations.set(name,factory)},StatusBar=host('StatusBar'),UIManager={hasViewManagerConfig:()=>true},findNodeHandle=node=>node?.tag??null,requireNativeComponent=name=>host(name),useTVEventHandler=()=>{},I18nManager={isRTL:false};
- export const Alert={alert(){}},Keyboard={dismiss(){},addListener:()=>({remove(){}})},Linking={openURL:async()=>{},canOpenURL:async()=>true,addEventListener:()=>({remove(){}}),getInitialURL:async()=>null},useColorScheme=()=> 'dark';
+ export const Alert={alert(){}},Keyboard={dismiss(){},isVisible:()=>false,addListener:()=>({remove(){}})},Linking={openURL:async()=>{},canOpenURL:async()=>true,addEventListener:()=>({remove(){}}),getInitialURL:async()=>null},useColorScheme=()=> 'dark';
  class Value{constructor(value){this.value=value}setValue(value){this.value=value}stopAnimation(){}};
  export const Easing={bezier:()=>x=>x,linear:x=>x};
  export const Animated={View:host('AnimatedView'),Value,timing:(value,config)=>({start:done=>{value.value=config.toValue;done?.({finished:true})}}),parallel:()=>({start(){}})};
