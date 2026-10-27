@@ -1,3 +1,8 @@
+import {presentError} from '../../../packages/client-core/src/presentation/errors';
+import {routeOrigin} from '../../../packages/client-core/src/route-identity';
+import {NativeLocalInvitation} from '../src-next/platform/local-invitation';
+import * as joinLink from '../../../packages/client-core/src/join-link';
+import * as invitationCode from '../../../packages/client-core/src/short-invitation-code';
 import * as tvCodeOpening from '../src-next/screens/accounts/tv-code-opening';
 import * as setupOutcome from '../src-next/platform/setup-outcome';
 import * as passwordPolicy from '../../../packages/client-core/src/password-strength';
@@ -11,7 +16,6 @@ import {screenModule} from './helpers/screen-harness.mjs';
 import * as directoryChooser from '../src-next/screens/accounts/directory-chooser';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
-const button = (tree: any, label: string) => nodes(tree).find(node => node.type === 'Button' && node.props.children === label);
 
 test('phone Portico sign-in offers account help and returns to its form', async () => {
   const forgotten: unknown[][] = [];
@@ -24,6 +28,11 @@ test('phone Portico sign-in offers account help and returns to its form', async 
   const account = {synchronize: async () => {}, getSnapshot: () => ({session: undefined})};
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
     './tv-code-opening': tvCodeOpening,
+    '../../../../../packages/client-core/src/join-link': joinLink,
+    '../../../../../packages/client-core/src/short-invitation-code': invitationCode,
+    '../../platform/qr-scanner': {qrScannerAvailable: () => false, scanQRCode: async () => undefined},
+    './PhoneAccountSignIn': {PhoneAccountSignIn: 'PhoneAccountSignIn'},
+    './tv-approval-finalization': {}, './tv-approval-credentials': {},
     react: {...React, default: React},
     'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, BackHandler: {addEventListener: () => ({remove() {}})}, Linking: {openURL: async () => {}}, Platform: {isTV: false},
       NativeModules: {PorticoAccountAuth: {canOpenBrowser: false, canSignInApple: false, bundleId: 'com.example', newRequestId: async () => 'request'}},
@@ -31,7 +40,7 @@ test('phone Portico sign-in offers account help and returns to its form', async 
     '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src': {HttpHostedApi: class {}},
     '../../../../../packages/client-core/src/sign-in': {}, '../../../../../packages/client-core/src/route-identity': {routeOrigin: (value: string) => value},
     '../../../../../packages/client-core/src/hosted-security': {MFARequiredError: class extends Error {}},
-    '../../../../../packages/client-core/src/presentation/errors': {presentError: () => ({body: 'failed'})},
+    '../../../../../packages/client-core/src/presentation/errors': {presentError},
     '../../kit/theme': {useTheme: () => createTheme({isTV: false, width: 390})},
     '../../../../../packages/client-core/src/password-strength': passwordPolicy,
     '../../platform/setup-outcome': setupOutcome,
@@ -51,10 +60,8 @@ test('phone Portico sign-in offers account help and returns to its form', async 
   const host = createHookHost(() => {tree = AccountEntry({onComplete: () => {}});});
   await act(() => host.mount());
   try {
-    assert.equal(tree.type, 'PhoneFrontDoor');
-    await act(() => tree.props.onPortico());
-    assert.equal(tree.props.title, defaultI18n.t('accounts.signIn.portico'));
-    await act(() => button(tree, defaultI18n.t('auth.forgotPassword'))!.props.onPress());
+    assert.equal(tree.type, 'PhoneAccountSignIn'); assert.equal(tree.props.passwordEnabled, true); assert.equal(tree.props.recovery, true);
+    await act(() => tree.props.onForgot());
     assert.equal(tree.props.title, defaultI18n.t('auth.forgotPasswordTitle'));
     const fields = nodes(tree.props.beforeActions).filter(node => node.type === 'Field');
     await act(() => {fields[0].props.onChangeText('nana_r'); fields[1].props.onChangeText('nana@example.com');});
@@ -63,8 +70,8 @@ test('phone Portico sign-in offers account help and returns to its form', async 
     assert.equal(tree.props.title, defaultI18n.t('auth.checkEmail'));
     assert.equal(tree.props.body, defaultI18n.t('auth.resetLinkSent'));
     await act(() => tree.props.primaryAction.onPress());
-    assert.equal(tree.props.title, defaultI18n.t('accounts.signIn.portico'));
-    await act(() => button(tree, defaultI18n.t('accounts.signIn.local'))!.props.onPress());
+    assert.equal(tree.type, 'PhoneAccountSignIn'); assert.equal(tree.props.recovery, true);
+    await act(() => tree.props.onLocal());
     assert.equal(tree.props.title, defaultI18n.t('accounts.signIn.local'));
   } finally {host.unmount();}
 });
