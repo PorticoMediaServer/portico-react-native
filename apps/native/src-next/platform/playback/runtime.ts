@@ -514,6 +514,9 @@ export class NativePlaybackRuntime {
   /** Route/Guide playback uses the same installed channel owner. The source's
    * generation/provenance is re-read; only the real channel POST grants tuning. */
   startChannel = async (input: NativePlaybackChannelStart): Promise<void> => {
+    const accepted = input.onAccepted;
+    // These are this invocation's values even if its caller later reuses a DTO.
+    input = Object.freeze({...input, lifetime: Object.freeze({...input.lifetime})});
     if (!wireId(input.sourceId) || !wireId(input.channelId) || !input.timezone || input.lifetime.signal.aborted || !input.lifetime.isCurrent() || !this.currentAuthority()) return;
     const expected = input.expectedFence && playbackFence(input.expectedFence);
     if (expected && !sameFence(this.snapshot.fence, expected)) return;
@@ -548,16 +551,29 @@ export class NativePlaybackRuntime {
         await this.queue.cancel();if (!current()) return;
       }
       this.rememberCurrent(); this.channel = undefined; this.expanded = true;
-      await this.openChannel({kind: source.provenance, sourceId: source.id, channelId: input.channelId, generation: source.generation}, epoch, scoped.signal, current, 'playing');
+      await this.openChannel({kind: source.provenance, sourceId: source.id, channelId: input.channelId, generation: source.generation}, epoch, scoped.signal, current, 'playing', accepted);
       if (current()) {this.channelGuide = origin ? Object.freeze({row: origin.row, options: Object.freeze({...origin.options})}) : undefined;this.changed();}
     } catch (error) {
       if (current()) {if (dispatching) {this.playback.leave(); this.changed();} throw error;}
     } finally {scoped.close();}
   };
 
-  private async openChannel(reference: ChannelReference, epoch: number, signal: AbortSignal, beforeAdoption: () => boolean, state: 'playing' | 'paused'): Promise<void> {
-    let adopted = false, opening = false;
+  private async openChannel(reference: ChannelReference, epoch: number, signal: AbortSignal, beforeAdoption: () => boolean, state: 'playing' | 'paused', onAccepted?: (fence: ChannelPlaybackFence) => void): Promise<void> {
+    let adopted = false, opening = false, notified = false;
     const valid = () => epoch === this.startEpoch && this.currentAuthority() && (adopted || !signal.aborted && beforeAdoption());
+    const notifyAccepted = () => {
+      if (!onAccepted || notified || !adopted || !valid() || !beforeAdoption()) return;
+      const fence = this.fence(), session = this.playback.getSnapshot().session;
+      if (fence?.kind !== 'channel' || fence.channelKind !== reference.kind || fence.channelId !== reference.channelId
+        || fence.sourceId !== reference.sourceId || fence.channelGeneration !== reference.generation
+        || session?.id !== fence.sessionId || session.generation !== fence.generation) return;
+      // Predicates may synchronously retire or replace an owner. Check the same
+      // actual fence again, then latch before invoking the captured callback.
+      if (!valid() || !beforeAdoption() || !sameFence(this.fence(), fence)) return;
+      notified = true;
+      onAccepted(fence);
+      if (!valid() || !beforeAdoption() || !sameFence(this.fence(), fence)) return;
+    };
     const scoped = this.selectionScope(signal, valid);
     let control: V1ChannelControl | undefined;
     let rejectStart: ((error: Error) => void) | undefined;
@@ -588,6 +604,7 @@ export class NativePlaybackRuntime {
               if (!adopted && this.playback.getSnapshot().session?.id === value.playbackId) {
                 adopted = true; scoped.close(); signal.removeEventListener('abort', abort); rejectStart = undefined; resolveStart();
               }
+              notifyAccepted();
             },
             error: (message, terminal) => { if (valid()) sink.error(message, terminal); if (!adopted) { rejectStart?.(new Error('channel_playback_failed')); rejectStart = undefined; } },
           }, options);
