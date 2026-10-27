@@ -179,7 +179,7 @@ export class NativeTVMusicController {
       },
       publish: section => {
         if(all){const projection=Object.freeze({...section,songs:section.items});this.allSongSections.set(projection,section);this.publish({allSongs:projection});}
-        else this.publish({songPage:section,songs:section.items,songTotal:section.total});
+        else this.publish({songPage:section,songs:section.items,songTotal:section.totalIsLowerBound?undefined:section.total});
       },
     });
     return pager;
@@ -192,7 +192,7 @@ export class NativeTVMusicController {
   retryReleases = (expected: MusicSection<MusicAlbumRow>) => this.releasePager?.retry(expected) ?? Promise.resolve();
   nextAllSongs = (expected: MusicSection<ContentEntry>) => (this.allSongSections.has(expected)?this.allSongPager?.next(this.allSongSections.get(expected)!):undefined) ?? Promise.resolve();
   previousAllSongs = (expected: MusicSection<ContentEntry>) => (this.allSongSections.has(expected)?this.allSongPager?.previous(this.allSongSections.get(expected)!):undefined) ?? Promise.resolve();
-  retryAllSongs = (expected: MusicSection<ContentEntry>) => (this.allSongSections.has(expected)?this.allSongPager?.retry(this.allSongSections.get(expected)!):undefined) ?? Promise.resolve();
+  retryAllSongs = (expected: MusicSection<ContentEntry>) => expected===this.state.allSongs&&!this.allSongPager?this.loadAllSongs():(this.allSongSections.has(expected)?this.allSongPager?.retry(this.allSongSections.get(expected)!):undefined)??Promise.resolve();
   refreshSongs = (expected: MusicSection<ContentEntry>) => expected===this.state.songPage?this.load():Promise.resolve();
   refreshReleases = (expected: MusicSection<MusicAlbumRow>) => expected===this.state.releases?this.load():Promise.resolve();
   refreshAllSongs = (expected: MusicSection<ContentEntry>) => expected===this.state.allSongs?this.loadAllSongs():Promise.resolve();
