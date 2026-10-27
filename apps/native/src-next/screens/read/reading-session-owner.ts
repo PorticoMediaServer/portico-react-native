@@ -9,6 +9,18 @@ type Source = Readonly<{current: () => boolean; subscribe: (listener: () => void
   acquire: (signal: AbortSignal, current: () => boolean) => Promise<Accepted>}>;
 const retired = () => Object.assign(new Error('reading_retired'), {name: 'AbortError', code: 'cancelled'});
 
+const cleanups = new WeakMap<Accepted, Promise<void>>();
+export const closeReadingResource = (owned: Accepted): Promise<void> => {
+  const existing = cleanups.get(owned); if (existing) return existing;
+  const task = Promise.resolve().then(async () => {
+    const deadline = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined;
+    const limit = new Promise<void>(resolve => {timer = setTimeout(() => {deadline.abort(); resolve();}, 2000);});
+    const closing = Promise.resolve().then(() => owned.session.close(deadline.signal));
+    try {await Promise.race([closing, limit]);} finally {if (timer) clearTimeout(timer); owned.release();}
+  });
+  cleanups.set(owned, task); return task;
+};
+
 /** One original occurrence owns one session. Guest tickets never acquire or close it. */
 export function createReadingSessionOwner(source: Source) {
   let ended = false, accepted: Accepted | undefined, opening: Promise<Snapshot> | undefined, close: Promise<void> | undefined;
@@ -27,8 +39,7 @@ export function createReadingSessionOwner(source: Source) {
     tickets.clear(); life.abort(); off();
     const owned = accepted; accepted = undefined;
     update({phase: 'retired'}); listeners.clear();
-    close = (async () => {const deadline = new AbortController(), timer = setTimeout(() => deadline.abort(), 2000);
-      try {await owned?.session.close(deadline.signal);} finally {clearTimeout(timer); owned?.release();}})();
+    close = owned ? closeReadingResource(owned) : Promise.resolve();
     return close;
   };
   const changed = () => {if (!current()) void dispose().catch(() => {});};
@@ -42,11 +53,11 @@ export function createReadingSessionOwner(source: Source) {
     if (state.phase === 'failed') return Promise.reject(state.error);
     opening = Promise.resolve().then(async () => {
       assert();
-      let acquired: Accepted | undefined;
+      let acquired: Accepted | undefined, transferred = false;
       try {
         acquired = await source.acquire(life.signal, current); assert();
         if (acquired.session.signal.aborted) throw retired();
-        accepted = acquired;
+        accepted = acquired; transferred = true;
         const owned = acquired;
         const onAbort = () => {void dispose().catch(() => {});};
         owned.session.signal.addEventListener('abort', onAbort, {once: true});
@@ -55,7 +66,7 @@ export function createReadingSessionOwner(source: Source) {
         update({phase: 'ready', session: owned.session, manifest: owned.session.manifest, confirmedProgress: progress});
         return state;
       } catch (error) {
-        if (acquired && acquired !== accepted) {try {await acquired.session.close();} finally {acquired.release();}}
+        if (acquired && !transferred) {try {await closeReadingResource(acquired);} catch { /* Preserve the original acquisition error. */ }}
         if (!ended) update({phase: 'failed', ...(accepted ? {session: accepted.session, manifest: accepted.session.manifest} : {}), error});
         throw error;
       }
