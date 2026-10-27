@@ -77,6 +77,15 @@ export type NativeRouteSnapshot = Readonly<{authority: ShellAuthority; route: Na
 /** One actual opening in this authority's history, including root/current. The
  * occurrence is presentation identity, never a route admission or command. */
 export type NativeRoutePresentation = Readonly<{occurrence: string; route: NativeShellRoute; destination: ShellDestination}>;
+/** Resource lifetime for one already-admitted occurrence. It is not command
+ * authority: commands still capture their own original snapshot/revision. */
+export type NativePresentationBinding = Readonly<{
+  original: NativeRoutePresentation;
+  retainedCurrent: () => boolean;
+  activeCurrent: () => boolean;
+  subscribe: (listener: () => void) => () => void;
+  dispose: () => void;
+}>;
 export type NativeDestinationIntent = 'enter' | 'restore' | 'top';
 export type NativeDestinationActivation = Readonly<{visible: boolean; intent: NativeDestinationIntent; revision: number}>;
 export type NativeDestinationActivationPort = Readonly<{subscribe: (listener: () => void) => () => void; getSnapshot: () => NativeDestinationActivation}>;
@@ -143,6 +152,45 @@ export class NativeShellNavigation {
    * by-item dedupe, renderer or tab-local history is manufactured here. */
   presentationStack = (): readonly NativeRoutePresentation[] => {
     try {return this.isCurrent() ? this.presentations : noPresentations;} catch {return noPresentations;}
+  };
+  /** Bind only an exact owner-issued record that is still admitted. A later
+   * occurrence, equal descriptor or restored authority cannot revive the lease.
+   * The supplied authority subscription is the original bootstrap's live port. */
+  bindPresentation = (original: NativeRoutePresentation, authority: Readonly<{
+    current: () => boolean; subscribe: (listener: () => void) => () => void;
+  }>): NativePresentationBinding | undefined => {
+    const expectedAuthority=this.snapshot.authority;
+    const owns=()=>this.isCurrent()&&sameAuthority(expectedAuthority,this.snapshot.authority)&&authority.current();
+    try {if(!this.presentations.includes(original)||!owns()||!this.allows(original.route,original.destination)
+      ||!owns()||!this.presentations.includes(original))return undefined;}catch{return undefined;}
+    let retired=false,checking=false,previousActive=this.presentations.at(-1)?.occurrence===original.occurrence;
+    const listeners=new Set<()=>void>();let offNavigation=()=>{},offAuthority=()=>{};
+    const retainedCurrent=()=>{
+      if(retired||checking)return false;
+      checking=true;
+      try {
+        const retained=()=>this.presentations.some(value=>value.occurrence===original.occurrence&&value.route===original.route);
+        if(!owns()||!retained()||!this.allows(original.route,original.destination)||!owns()||!retained()){
+          retired=true;offNavigation();offAuthority();return false;
+        }
+        return true;
+      }catch{retired=true;offNavigation();offAuthority();return false;}
+      finally{checking=false;}
+    };
+    const activeCurrent=()=>retainedCurrent()&&this.presentations.at(-1)?.occurrence===original.occurrence
+      &&this.presentations.at(-1)?.route===original.route;
+    const notify=()=>{
+      const active=activeCurrent();
+      // Resource retirement and original active/retained transitions both wake
+      // subscribers, including bootstrap disposal without a history write.
+      if(retired||active!==previousActive){previousActive=active;for(const listener of [...listeners]){try{listener();}catch{/* One sink cannot retain a retired resource. */}}if(retired)listeners.clear();}
+    };
+    offNavigation=this.subscribe(notify);offAuthority=authority.subscribe(notify);
+    if(!retainedCurrent()){offNavigation();offAuthority();return undefined;}
+    return Object.freeze({original,retainedCurrent,activeCurrent,
+      subscribe:(listener:()=>void)=>{if(retired)return()=>{};listeners.add(listener);return()=>{listeners.delete(listener);};},
+      dispose:()=>{if(retired){listeners.clear();return;}retired=true;offNavigation();offAuthority();for(const listener of [...listeners]){try{listener();}catch{/* Continue original-lease cleanup. */}}listeners.clear();},
+    });
   };
   getIntent = (): NativeDestinationIntent => this.intent;
   isCurrent = (): boolean => this.current(this.snapshot.authority);
