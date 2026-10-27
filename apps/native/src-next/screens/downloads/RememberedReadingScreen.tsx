@@ -29,7 +29,7 @@ export function RememberedReadingScreen({reading, noticeCopy, current: rootCurre
     <NativeReadingGuestHost owner={reading.owner} active={!notice} preferences={reading.preferences} onBack={back} onSettings={openNotice}/>
     {notice ? <Dialog open onOpenChange={open => {if (!open) closeNotice(notice);}} title={noticeCopy.title}
       description={noticeCopy.body} showClose={false} dismissOnOutsidePress={false} dismissOnBack={false}
-      footer={<Button onPress={() => closeNotice(notice)}>{defaultI18n.t('action.close')}</Button>}/> : null}
+      footer={<Button onPress={() => closeNotice(notice)}>{defaultI18n.t('action.close')}</Button>}>{null}</Dialog> : null}
   </View>;
   if (snapshot.phase === 'idle' || snapshot.phase === 'opening') return <View style={{flex: 1}}>
     <LoadingPaint ready={false} skeleton={<SkeletonBlock width="100%" style={{flex: 1}}/>}/>
