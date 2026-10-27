@@ -38,6 +38,15 @@ test('the phone sign-in picker offers the account recovery, keeps its own operat
   }
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
     './tv-code-opening': tvCodeOpening,
+    // AccountEntry loads the TV approval commands at module evaluation; these phone
+    // profile tests never draw a TV approval.
+    './tv-approval-credentials': {createTVApprovalCredentialOpening: () => ({})},
+    './tv-approval-finalization': {createTVApprovalFinalization: () => ({})},
+    // Evaluation-only bindings for invitation parsing; these tests never open one.
+    '../../../../../packages/client-core/src/join-link': {parseJoinLink: () => undefined},
+    '../../../../../packages/client-core/src/short-invitation-code': {formatShortInvitationCode: () => '', parseShortInvitationCode: () => undefined},
+    '../../platform/qr-scanner': {qrScannerAvailable: () => false, scanQRCode: async () => undefined},
+    './PhoneAccountSignIn': {PhoneAccountSignIn: 'PhoneAccountSignIn'},
     react: {...React, default: React},
     'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, BackHandler: back.api, Platform: {isTV: false}, Dimensions: {get: () => ({width: 390, height: 844})}, NativeModules: {}, View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
     'react-native-qrcode-svg': {default: 'QR'},
@@ -153,6 +162,15 @@ test('a wrong profile PIN uses the profile error context and clears the boxes', 
   }
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
     './tv-code-opening': tvCodeOpening,
+    // AccountEntry loads the TV approval commands at module evaluation; these phone
+    // profile tests never draw a TV approval.
+    './tv-approval-credentials': {createTVApprovalCredentialOpening: () => ({})},
+    './tv-approval-finalization': {createTVApprovalFinalization: () => ({})},
+    // Evaluation-only bindings for invitation parsing; these tests never open one.
+    '../../../../../packages/client-core/src/join-link': {parseJoinLink: () => undefined},
+    '../../../../../packages/client-core/src/short-invitation-code': {formatShortInvitationCode: () => '', parseShortInvitationCode: () => undefined},
+    '../../platform/qr-scanner': {qrScannerAvailable: () => false, scanQRCode: async () => undefined},
+    './PhoneAccountSignIn': {PhoneAccountSignIn: 'PhoneAccountSignIn'},
     react: {...React, default: React},
     'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, BackHandler: back.api, Platform: {isTV: false}, Dimensions: {get: () => ({width: 390, height: 844})}, NativeModules: {}, View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
     'react-native-qrcode-svg': {default: 'QR'},

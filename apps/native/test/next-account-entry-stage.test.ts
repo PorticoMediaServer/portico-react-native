@@ -18,19 +18,34 @@ import * as directoryChooser from '../src-next/screens/accounts/directory-choose
 import type {NativeAccountEntryStage} from '../src-next/screens/accounts/AccountEntry';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
+const deferred = <T,>() => {let resolve!: (value: T) => void, reject!: (reason: unknown) => void; const promise = new Promise<T>((accept, refuse) => {resolve = accept; reject = refuse;}); return {promise, resolve, reject};};
+type FixtureOptions = Readonly<{providers?: boolean; setupRequired?: boolean; providerTransaction?: any}>;
 
-async function fixture(initialStage: 'welcome' | 'address' = 'welcome') {
+async function fixture(initialStage: 'welcome' | 'address' = 'welcome', options: FixtureOptions = {}) {
   const events: string[] = [], stages: NativeAccountEntryStage[] = [], back = new Set<() => boolean>();
-  let tree: any, phase = 'render', complete = 0, observed = true;
+  let tree: any, phase = 'render', complete = 0, observed = true, providerCalls = 0;
+  const finishes: ReturnType<typeof deferred<any>>[] = [];
   const credentials = {synchronize: async () => {}, getSnapshot: () => ({session: undefined})};
-  class Portico {async prepare() {return {password: true, registration: false, recovery: false, providers: []};} dispose() {}}
+  const available = {password: true, registration: false, recovery: false, providers: options.providers
+    ? [{id: 'google', enabled: true, native: false, nativeClientIds: []}] : []};
+  class Portico {
+    async prepare() {return available;}
+    async provider() {providerCalls++; return options.providerTransaction;}
+    dispose() {}
+  }
   class SignIn {
     static parseInvitationEntry = NativeLocalInvitation.parseEntry;
     constructor() {events.push('create-command');}
-    async inspect() {events.push('inspect'); return {id: 'public-server', name: 'Public fixture', signIn: 'local'};}
+    async inspect() {events.push('inspect'); return options.setupRequired
+      ? {id: 'public-server', name: 'Public fixture', signIn: 'portico', setupRequired: true, hostedConfigured: true}
+      : {id: 'public-server', name: 'Public fixture', signIn: 'local'};}
     needsIdentityCode() {return false;}
     async inspectLocalIdentity() {return {};}
     async confirmLocal() {events.push('confirm-identity');}
+    serverOrigin() {return 'https://public.example';}
+    async prepareSetup() {return {id: 'public-server', name: 'Public fixture', signIn: 'portico', hostedConfigured: true};}
+    async prepareHostedSetup() {return 'https://hosted.example/approve';}
+    finishHostedSetup() {const held = deferred<any>(); finishes.push(held); return held.promise;}
     serverDescriptor() {return {id: 'public-server', name: 'Public fixture', signIn: 'local'};}
     dispose() {events.push('dispose-command');}
   }
@@ -44,7 +59,7 @@ async function fixture(initialStage: 'welcome' | 'address' = 'welcome') {
     react: {...React, default: React,
       useLayoutEffect: (create: () => void | (() => void), deps: readonly unknown[]) => React.useLayoutEffect(() => {phase = 'layout'; try {return create();} finally {phase = 'render';}}, deps),
       useEffect: (create: () => void | (() => void), deps: readonly unknown[]) => React.useEffect(() => {phase = 'passive'; try {return create();} finally {phase = 'render';}}, deps)},
-    'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, BackHandler: {addEventListener: (_: string, handler: () => boolean) => {back.add(handler); return {remove: () => back.delete(handler)};}}, Platform: {isTV: false}, NativeModules: {PorticoAccountAuth: {canOpenBrowser: false}}, View: 'View', Text: 'Text'},
+    'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, BackHandler: {addEventListener: (_: string, handler: () => boolean) => {back.add(handler); return {remove: () => back.delete(handler)};}}, Platform: {isTV: false}, NativeModules: {PorticoAccountAuth: {canOpenBrowser: options.providers === true}}, Linking: {openURL: async () => {}}, View: 'View', Text: 'Text'},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src': {},
     '../../../../../packages/client-core/src/sign-in': {}, '../../../../../packages/client-core/src/route-identity': {routeOrigin},
     '../../../../../packages/client-core/src/hosted-security': {MFARequiredError: class extends Error {}},
@@ -65,7 +80,8 @@ async function fixture(initialStage: 'welcome' | 'address' = 'welcome') {
   };
   const host = createHookHost(() => {tree = AccountEntry({initialStage, onComplete: () => {complete++;}, onStageChange: observed ? onStageChange : undefined});});
   await act(() => host.mount());
-  return {host, stages, events, back, tree: () => tree, complete: () => complete, omitObserver: () => {observed = false; host.rerender();}};
+  return {host, stages, events, back, tree: () => tree, complete: () => complete, providerCalls: () => providerCalls, finishes,
+    omitObserver: () => {observed = false; host.rerender();}};
 }
 
 test('AccountEntry reports initial/current stages in layout before discovery, preserving real commands and reporting Back without reopening policy', async () => {
@@ -96,4 +112,47 @@ test('an entry starting at address reports address only, never a synthetic welco
   const f = await fixture('address');
   try {assert.deepEqual(f.stages, ['address']); assert.ok(f.events.indexOf('stage:address') < f.events.indexOf('discovery'));}
   finally {f.host.unmount();}
+});
+
+const providerFields = (tree: any) => nodes(tree.props.beforeActions).filter((node: any) => node.type === 'Field');
+const fieldByLabel = (tree: any, label: string) => providerFields(tree).find((node: any) => String(node.props.label).startsWith(label))!;
+
+test('actual AccountEntry seeds the committed provider name once and a newer draft render cannot re-seed it', async () => {
+  const f = await fixture('welcome', {providers: true, providerTransaction: {transactionId: 'provider-original', provider: 'google',
+    status: 'pending', needsUsername: true, suggestedName: 'Suggested Name', mfaRequired: false, contactVerified: false}});
+  try {
+    assert.equal(f.tree().type, 'PhoneAccountSignIn');
+    await act(() => f.tree().props.onProvider('google'));
+    assert.equal(f.providerCalls(), 1);
+    assert.equal(f.stages.at(-1), 'provider');
+    const name = defaultI18n.t('auth.yourName');
+    assert.equal(fieldByLabel(f.tree(), name).props.value, 'Suggested Name', 'the draft this commit published takes the suggestion');
+    // A newer draft render must leave the opening's once-per-transaction seed alone, even cleared.
+    await act(() => fieldByLabel(f.tree(), name).props.onChangeText(''));
+    assert.equal(fieldByLabel(f.tree(), name).props.value, '');
+    f.host.rerender();
+    assert.equal(fieldByLabel(f.tree(), name).props.value, '', 'a later render never borrows its newer draft back into the original opening');
+    assert.equal(f.providerCalls(), 1);
+  } finally {f.host.unmount();}
+});
+
+test('actual AccountEntry resumes the drawn setup opening once through its own guarded runner and catch stage', async () => {
+  const f = await fixture('address', {setupRequired: true});
+  try {
+    await act(() => providerFields(f.tree())[0]!.props.onChangeText('https://public.example'));
+    await act(() => f.tree().props.primaryAction.onPress());
+    assert.equal(f.stages.at(-1), 'setup-confirm');
+    await act(() => f.tree().props.primaryAction.onPress());
+    assert.equal(f.stages.at(-1), 'setup-choice');
+    await act(() => f.tree().props.primaryAction.onPress());
+    assert.equal(f.stages.at(-1), 'setup-hosted');
+    assert.equal(f.finishes.length, 1, 'the drawn opening resumes exactly once through the commit that drew it');
+    // A newer commit (its runner now captures busy) must not run the original completion again.
+    f.host.rerender();
+    assert.equal(f.finishes.length, 1);
+    await act(() => f.finishes[0]!.reject(new Error('setup refused')));
+    assert.equal(f.stages.at(-1), 'setup-hosted', 'the original run reports at the stage it captured');
+    assert.ok(nodes(f.tree().props.beforeActions).some((node: any) => node.props.accessibilityRole === 'alert'), 'the original catch publishes its refusal');
+    assert.equal(f.finishes.length, 1);
+  } finally {f.host.unmount();}
 });

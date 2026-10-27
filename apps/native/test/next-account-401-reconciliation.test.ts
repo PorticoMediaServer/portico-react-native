@@ -236,6 +236,9 @@ async function serverCommand(f: F, kind: string, produce?: (hosted: any) => Prom
     './app-session-storage': {nativeAppSessions: {read: async () => selection}, subscribeNativeAppSessions: () => () => {}},
     './member-account-move': {NativeMemberAccountMove: class {captureHosted: () => Promise<any>; constructor(ports: any) {this.captureHosted = ports.captureHosted;} dispose() {}}},
     './hosted-sign-in-unavailable': {hostedSignInUnavailable: () => undefined},
+    // The command class publishes these local-invitation helpers at construction; these
+    // closure tests never open a local invitation.
+    './local-invitation': {NativeLocalInvitation: {parseEntry: () => undefined, parseShortEntry: () => undefined, formatCode: () => ''}},
   };
   const {NativeServerSignIn} = await screenModule(new URL('../src-next/platform/server-sign-in.ts', import.meta.url), new Proxy(modules, {get: (all, key: string) => all[key] ?? {}}));
   const command = new NativeServerSignIn({accountCredentials: () => f.owner, onCancel: () => () => {}, admission: async () => ({})});
