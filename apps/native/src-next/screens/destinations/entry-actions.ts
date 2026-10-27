@@ -64,7 +64,7 @@ export function createNativeEntryActions(context: NativeShellBootstrapContext, m
     open: (entry: ContentEntry) => {
       if (!current(entry)) return;
       if (entry.kind === 'radio' || entry.kind === 'song' || entry.kind === 'audiobook_file') {
-        if (!entry.playback && !entry.radioSeed) common.reportError(Object.assign(new Error('unavailable'), {code: 'unavailable'}), 'detail');
+        if (entry.kind === 'radio' ? !entry.radioSeed : !entry.playback) common.reportError(Object.assign(new Error('unavailable'), {code: 'unavailable'}), 'detail');
         else play(entry);
         return;
       }

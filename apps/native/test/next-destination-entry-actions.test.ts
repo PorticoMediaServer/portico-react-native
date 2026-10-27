@@ -16,11 +16,12 @@ async function fixture() {
   let live = true, member = entry, navigationRevision = 1, visible = true, menuReady = false, activeEntry: unknown;
   let snapshot = {revision: navigationRevision, route: {kind: 'shell'}};
   const reads: any[] = [];
+  let libraries = [{id: 'movies', kind: 'book'}];
   const starts: any[] = [], opened: any[] = [], navigated: any[] = [], errors: unknown[] = [], finish: (() => void)[] = [];
   const port = {subscribe: menus.subscribe, isOpen: (value: unknown) => value === activeEntry,
     open: async (value: unknown, current: () => boolean, anchor: unknown) => {opened.push({value, current, anchor}); activeEntry = value; menus.emit();}};
   const context = {current: () => live, authority: () => authority, session: () => ({viewer: {...authority, authority: 'local'}}),
-    subscribeAuthority: authorityEvents.subscribe, libraries: () => [{id: 'movies', kind: 'book'}], navigation: {subscribe: route.subscribe, getSnapshot: () => snapshot},
+    subscribeAuthority: authorityEvents.subscribe, libraries: () => libraries, navigation: {subscribe: route.subscribe, getSnapshot: () => snapshot},
     playback: {start: (input: unknown) => {starts.push(input); return new Promise<void>(resolve => {finish.push(resolve);});}}};
   const {createNativeEntryActions} = await screenModule(new URL('../src-next/screens/destinations/entry-actions.ts', import.meta.url), {
     react: hooks().react, './lifetime': {nativeDestinationLifetime}, '../read/reading-books-open': {openNativeReadingBookEntry: async (_context: unknown, target: unknown) => {reads.push(target); return new Promise<boolean>(() => {});}},
@@ -29,7 +30,7 @@ async function fixture() {
   });
   const actions = createNativeEntryActions(context, {current: () => visible, contains: (value: unknown) => value === member, subscribe: membership.subscribe});
   return {actions, entry, starts, reads, opened, navigated, errors, finish, membership, route, menus,
-    setMenuReady: () => {menuReady = true;}, replace: () => {member = {...entry}; membership.emit();},
+    setMenuReady: () => {menuReady = true;}, setLibraries: (next: typeof libraries) => {libraries = next; membership.emit();}, replace: () => {member = {...entry}; membership.emit();},
     navigate: () => {navigationRevision++; snapshot = {revision: navigationRevision, route: {kind: 'shell'}}; route.emit();}, retire: () => {live = false; authorityEvents.emit();},
     hide: () => {visible = false; route.emit();}, listeners: [route.listeners, membership.listeners, authorityEvents.listeners]};
 }
@@ -86,4 +87,26 @@ test('Reading opening captures the offered member and retires on replacement or 
   assert.equal(f.reads[0].signal.aborted, true);
   assert.equal(f.reads[0].resident(), false);
   f.actions.dispose();
+});
+
+
+test('Reading is refused when its exact authorized library is absent or wrong kind', async () => {
+  const f = await fixture(); Object.assign(f.entry, {kind: 'comic'});
+  f.actions.open(f.entry); assert.equal(f.reads.length, 0); assert.equal(f.errors.length, 1);
+  f.setLibraries([{id: 'movies', kind: 'comic'}]); f.actions.open(f.entry);
+  assert.equal(f.reads.length, 1); assert.equal(f.reads[0].resident(), true);
+  f.setLibraries([]); assert.equal(f.reads[0].resident(), false); f.actions.dispose();
+});
+
+test('navigation replacement aborts Reading and Back cannot revive it', async () => {
+  const f = await fixture(); Object.assign(f.entry, {kind: 'ebook'});
+  f.actions.open(f.entry); const first = f.reads[0];
+  f.navigate(); assert.equal(first.signal.aborted, true); assert.equal(first.resident(), false);
+  f.navigate(); assert.equal(first.resident(), false); f.actions.dispose();
+});
+
+test('audiobook file primary activation uses its offered playback', async () => {
+  const f = await fixture(); Object.assign(f.entry, {kind: 'audiobook_file'});
+  f.actions.open(f.entry); assert.equal(f.starts.length, 1); assert.equal(f.starts[0].target, f.entry.playback);
+  f.finish[0](); f.actions.dispose();
 });

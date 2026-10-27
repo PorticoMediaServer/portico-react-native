@@ -33,3 +33,15 @@ test('a late versions response cannot navigate after the origin is replaced', as
   assert.equal(await opening, false); assert.equal(navigation.getSnapshot().route.kind, 'notifications');
   navigation.dispose();
 });
+
+test('failed and unavailable versions never open a Reading successor', async () => {
+  for (const failure of [false, true]) {
+    const navigation = new NativeShellNavigation(authority, () => authority), origin = navigation.getSnapshot();
+    const context: any = {current: () => true, session: () => ({sessionFamilyId: 'family', viewer: {}}), authority: () => authority, navigation,
+      api: {reading: () => ({versions: async () => {if (failure) throw new Error('offline'); return {versions: []};}, dispose() {}})}};
+    const call = openNativeReadingBookEntry(context, {libraryId: 'library', entry: {id: 'item', libraryId: 'library', kind: 'ebook', title: 'Actual'},
+      origin: {route: origin.route, revision: origin.revision}, resident: () => true});
+    if (failure) await assert.rejects(call); else assert.equal(await call, false);
+    assert.equal(navigation.getSnapshot(), origin); navigation.dispose();
+  }
+});
