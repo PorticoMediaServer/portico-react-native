@@ -295,3 +295,15 @@ test('the approved partial copy uses normal singular and plural forms', () => {
   assert.equal(defaultI18n.t('next.selection.playlistAlbumPartial', {count: 1}), 'The album wasn’t fully added. 1 song was added.');
   assert.equal(defaultI18n.t('next.selection.playlistAlbumPartial', {count: 3}), 'The album wasn’t fully added. 3 songs were added.');
 });
+
+test('the real playlist surface closes after listing without writing anything', async () => {
+  reset();
+  const value = await port();
+  await value.load();
+  assert.equal(value.getSnapshot().phase, 'ready');
+  assert.ok(value.getSnapshot().playlists.length > 0, 'the real port listed the offered playlists');
+  assert.equal(FakeSavedService.mutations.length, 0, 'listing alone performs no mutation');
+  value.dispose();
+  assert.equal(FakeSavedService.mutations.length, 0, 'closing without choosing writes nothing');
+  assert.deepEqual(FakeSavedService.instances.flatMap((writer: any) => writer.committed), [], 'no playlist write was committed');
+});

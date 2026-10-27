@@ -134,16 +134,21 @@ test('phone keeps its single header Back and no tablet floating control', async 
   host.mount();
   // PhoneHeader is a real child component, so the shallow element walk cannot
   // see its Button leaf; mount that actual child with the same supported hooks.
-  const header = [...elementNodes(tree)].find(node => typeof node.type === 'function' && (node.type as Function).name === 'PhoneHeader');
-  assert.ok(header, 'the phone body returns the real PhoneHeader');
-  let headerTree: unknown;
-  const headerHost = createHookHost(() => {headerTree = (header!.type as Function)(header!.props);});
-  headerHost.mount();
-  assert.equal(backButtons(headerTree).length, 1, 'the phone header owns the only Back');
-  assert.equal(typed(tree, 'Button').some(node => String(node.props.testID ?? '').startsWith('native-tablet-')), false);
-  backButtons(headerTree)[0].props.onPress();
-  assert.equal(backs, 1);
-  headerHost.unmount();
-  host.unmount();
-  view.host.unmount();
+  let headerHost: ReturnType<typeof createHookHost> | undefined;
+  try {
+    const header = [...elementNodes(tree)].find(node => typeof node.type === 'function' && (node.type as Function).name === 'PhoneHeader');
+    assert.ok(header, 'the phone body returns the real PhoneHeader');
+    let headerTree: unknown;
+    headerHost = createHookHost(() => {headerTree = (header!.type as Function)(header!.props);});
+    headerHost.mount();
+    assert.equal(backButtons(headerTree).length, 1, 'the phone header owns the only Back');
+    assert.equal(typed(tree, 'Button').some(node => String(node.props.testID ?? '').startsWith('native-tablet-')), false);
+    backButtons(headerTree)[0].props.onPress();
+    assert.equal(backs, 1);
+  } finally {
+    // Release both hosts even when an assertion above fails.
+    headerHost?.unmount();
+    host.unmount();
+    view.host.unmount();
+  }
 });
