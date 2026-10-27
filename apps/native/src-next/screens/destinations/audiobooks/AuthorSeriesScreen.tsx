@@ -10,15 +10,16 @@ import {alpha, browseType} from '../../../kit/browse/presentation';
 import {useTheme} from '../../../kit/theme';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeEntryActions} from '../entry-actions';
-import type {NativeAudiobookController} from './model';
+import type {AudiobookScreenController} from './model';
+import {AudiobookErrorState} from './BookScreen';
 
 const t = defaultI18n.t;
 type Actions = Pick<NativeEntryActions, 'menu'>;
 const seconds = (value: number | undefined) => value === undefined ? undefined : defaultI18n.duration(value);
 
-function BookRow({entry, runtime, tv, position, focusId, onOpen, onPlay, onMore}: {
+function BookRow({entry, runtime, tv, position, focusId, onOpen, onPlay, onMore, onFocus}: {
   entry: ContentEntry; runtime: NativeShellRuntime; tv: boolean; position?: string; focusId: string;
-  onOpen: () => void; onPlay: () => void; onMore: () => void;
+  onOpen: () => void; onPlay: () => void; onMore: () => void; onFocus: () => void;
 }) {
   const theme = useTheme(), art = runtime.artwork(entry.posterUrl), progress = entry.bookProgress;
   const left = progress?.remainingMs === undefined ? undefined : seconds(progress.remainingMs / 1000);
@@ -37,7 +38,7 @@ function BookRow({entry, runtime, tv, position, focusId, onOpen, onPlay, onMore}
   // TV 44/45: OK plays the book, hold OK opens its menu; the rows carry no button.
   // The phone keeps its own row button and opens the book page.
   return <Focusable focusId={focusId} accessibilityRole="button" accessibilityLabel={entry.title} focusKind="row" focusRadius={tv ? 18 : 10}
-    onPress={tv ? onPlay : onOpen} onLongPressAction={tv ? onMore : undefined}
+    onFocus={onFocus} onPress={tv ? onPlay : onOpen} onLongPressAction={tv ? onMore : undefined}
     style={tv ? {height: 168, paddingHorizontal: 20, borderRadius: 18, flexDirection: 'row', alignItems: 'center', gap: 32}
       : {height: 76, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 0, borderTopWidth: 1, borderTopColor: alpha(theme.colors.line, .7)}}>
     <View style={{width: tv ? 128 : 50, height: tv ? 128 : 50, borderRadius: tv ? 10 : 8, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
@@ -62,11 +63,12 @@ function BookRow({entry, runtime, tv, position, focusId, onOpen, onPlay, onMore}
 
 /** Frames 41b/41c, 44 and 45: the canonical author and series book rows. */
 export function AuthorSeriesScreen({controller, entry, runtime, actions, openEntry, onBack}: {
-  controller: NativeAudiobookController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions;
+  controller: AudiobookScreenController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions;
   openEntry: (entry: ContentEntry) => void; onBack?: () => void;
 }) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot), theme = useTheme(), insets = useSafeAreaInsets();
   const entity = snapshot.entity ?? entry, tv = theme.isTV;
+  const failed = snapshot.phase === 'error' || snapshot.phase === 'refresh-required';
   const books = snapshot.sections.find(section => section.id === 'books')?.entries ?? [];
   // collections 41c/45: the series page's author opens the author destination.
   // The entry exists only when the projection named a real author identity.
@@ -88,6 +90,7 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
   // A file-local chapter index is not a book-wide chapter number, so the drawn
   // label names the book, exactly as frame 44 draws "Resume The Martian".
   const resumeLabel = resume ? t('next.browse.resume', {title: resume.title}) : t('entry.play');
+  const tail = () => {void controller.next('books');};
   const open = (book: ContentEntry) => openEntry(book);
   const start = () => {if (resume) void controller.resumeBook(resume).catch(error => runtime.reportError(error)); else if (books[0]) open(books[0]);};
   // A row plays the book it names when this profile already has a place in it;
@@ -96,7 +99,7 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
   const playBook = (book: ContentEntry) => book.bookProgress?.itemId
     ? void controller.resumeBook(book).catch(error => runtime.reportError(error)) : open(book);
   const regionId = `audiobook-${entry.id}`, resumeFocusId = `${regionId}.resume`, startFocusId = `${regionId}.start`,
-    moreFocusId = `${regionId}.more`, bookFocus = `${regionId}.book`;
+    moreFocusId = `${regionId}.more`, bookFocus = `${regionId}.book`, retryFocusId = `${regionId}.retry`;
   // collections 44/45 draw the first rows at 560; a longer shelf keeps its rows
   // reachable by growing the canvas instead of clipping them at the frame's height.
   const canvasHeight = Math.max(1120, 560 + books.length * 168 + Math.max(0, books.length - 1) * 10 + 64);
@@ -135,12 +138,15 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
         {facts.map((fact, index) => <Text key={fact} style={[browseType(theme, tv ? 24 : 13, index === 0 ? 700 : 400), {color: index === 0 ? theme.colors.text : theme.colors.textSecondary}]}>{fact}</Text>)}
       </View>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: tv ? 18 : 10, marginTop: tv ? 26 : 18, alignSelf: tv ? 'flex-start' : 'stretch'}}>
-        <Button focusId={resumeFocusId} icon="i-play" onPress={start} accessibilityLabel={resumeLabel} hasTVPreferredFocus={tv} style={{flex: tv ? undefined : 1, minWidth: tv ? 320 : undefined}}>{resumeLabel}</Button>
+        <Button focusId={resumeFocusId} icon="i-play" disabled={failed || !books.length} onPress={start} accessibilityLabel={resumeLabel} hasTVPreferredFocus={tv} style={{flex: tv ? undefined : 1, minWidth: tv ? 320 : undefined}}>{resumeLabel}</Button>
         {series && books[0] ? <Button focusId={startFocusId} variant="glass" icon="i-restart" iconOnly={!tv} onPress={() => open(books[0]!)} accessibilityLabel={t(tv ? 'action.startSeriesOver' : 'action.startOver')}>{tv ? t('action.startSeriesOver') : undefined}</Button> : null}
         {tv ? <Button focusId={moreFocusId} variant="glass" iconOnly icon="i-more" accessibilityLabel={t('card.more', {title})} onPress={() => actions.menu(entity)}/> : null}
       </View>
     </View>
     <View style={tv ? {position: 'absolute', left: 700, top: 560, width: 1040} : {width: '100%', marginTop: 22}}>
+      {failed ? <AudiobookErrorState refresh={snapshot.phase === 'refresh-required'} error={snapshot.error} actionId={retryFocusId} preferred={tv} retry={() => {void controller.load();}}/> : null}
+      {snapshot.continuation?.phase === 'loading' ? <Text accessibilityLiveRegion="polite" style={[browseType(theme, tv ? 22 : 14, 400), {color: theme.colors.textSecondary}]}>{t('status.loading')}</Text> : null}
+      {snapshot.continuation && snapshot.continuation.phase !== 'loading' ? <AudiobookErrorState refresh={snapshot.continuation.phase === 'refresh-required'} error={snapshot.continuation.error} actionId={`${regionId}.continuation`} retry={() => {void controller.recover();}}/> : null}
       {/* collections 44/45 draw the rows without a section heading; 41b/41c
           keep the heading above the list on the phone. */}
       {!tv ? <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 10, marginBottom: 6}}>
@@ -151,7 +157,7 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
           server-sent series position is labelled; nothing is numbered by index. */}
       {books.map((book, index) => <View key={book.id} style={{marginTop: tv && index ? 10 : 0}}>
         <BookRow entry={book} runtime={runtime} tv={tv} focusId={`${bookFocus}-${book.id}`}
-          position={series ? book.series?.[0]?.position : undefined} onOpen={() => open(book)} onPlay={() => playBook(book)} onMore={() => actions.menu(book)}/></View>)}
+          onFocus={() => {if (index >= books.length - 3) tail();}} position={series ? book.series?.[0]?.position : undefined} onOpen={() => open(book)} onPlay={() => playBook(book)} onMore={() => actions.menu(book)}/></View>)}
       {!tv && !series && (narrators.length || entity.duration !== undefined) ? <View style={{marginTop: 20}}>
         <Text style={[browseType(theme, 20, 700), {color: theme.colors.text, marginBottom: 4}]}>{t('title.details')}</Text>
         {narrators.length ? <View style={{paddingVertical: 10, borderTopWidth: 1, borderTopColor: alpha(theme.colors.line, .7)}}>
@@ -175,8 +181,8 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
       style={{position: 'absolute', top: insets.top + 6, left: 10, zIndex: 10, height: 44, width: 44}}/> : null}
     {!tv ? <Button variant="icon" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title})} onPress={() => actions.menu(entity)}
       style={{position: 'absolute', top: insets.top + 6, right: 10, zIndex: 10, height: 44, width: 44}}/> : null}
-    <ScrollView contentContainerStyle={tv ? {paddingBottom: 64} : {paddingTop: Math.max(104, insets.top + 56), paddingBottom: 48}}>
-      {tv ? <FocusRegion id={regionId} entry={resumeFocusId} orientation="free" style={{width: 1920, height: canvasHeight}}>{body}</FocusRegion>
+    <ScrollView onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent; if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 240) tail();}} scrollEventThrottle={200} contentContainerStyle={tv ? {paddingBottom: 64} : {paddingTop: Math.max(104, insets.top + 56), paddingBottom: 48}}>
+      {tv ? <FocusRegion id={regionId} entry={failed ? retryFocusId : resumeFocusId} orientation="free" style={{width: 1920, height: canvasHeight}}>{body}</FocusRegion>
         : <View style={{alignItems: 'center', paddingHorizontal: 20}}>{body}</View>}
     </ScrollView>
   </View>;

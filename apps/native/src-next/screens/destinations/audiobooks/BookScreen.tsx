@@ -16,7 +16,7 @@ import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeEntryActions} from '../entry-actions';
 import {askNativeDownload} from '../../downloads/request';
 import {nativeDownloadRequest} from '../../watch/download-request';
-import type {NativeAudiobookController} from './model';
+import type {AudiobookScreenController} from './model';
 
 const t = defaultI18n.t;
 type Actions = Pick<NativeEntryActions, 'menu'>;
@@ -24,10 +24,10 @@ type Actions = Pick<NativeEntryActions, 'menu'>;
 const duration = (seconds: number | undefined) => seconds === undefined ? undefined : defaultI18n.duration(seconds);
 const chapterDuration = (entry: ContentEntry) => duration(entry.duration);
 
-function ErrorState({error, retry}: {error: unknown; retry: () => void}) {
-  const presented = presentError(error, 'detail', {operation: 'load'});
+export function AudiobookErrorState({error, retry, actionId, preferred, refresh}: {error: unknown; retry: () => void; actionId?: string; preferred?: boolean; refresh?: boolean}) {
+  const presented = presentError(refresh ? {code: 'refresh_required'} : error, 'detail', {operation: 'load'});
   return <StateView variant="inline" title={presented.title} body={presented.body}
-    {...(presented.action === 'try-again' || presented.action === 'refresh' ? {primaryAction: {id: 'retry', label: presented.actionLabel ?? t('action.tryAgain'), onPress: retry}} : {})}/>;
+    {...(presented.action === 'try-again' || presented.action === 'refresh' ? {primaryAction: {id: 'retry', testID: actionId, hasTVPreferredFocus: preferred, label: presented.actionLabel ?? t('action.tryAgain'), onPress: retry}} : {})}/>;
 }
 
 function Cover({runtime, path, size}: {runtime: NativeShellRuntime; path: string | undefined; size: number}) {
@@ -46,9 +46,9 @@ function Cover({runtime, path, size}: {runtime: NativeShellRuntime; path: string
   </View>;
 }
 
-function ChapterRows({controller, entries, currentId, fraction, runtime, tv, focusPrefix}: {
-  controller: NativeAudiobookController; entries: readonly ContentEntry[]; currentId: string | undefined; fraction: number | undefined;
-  runtime: NativeShellRuntime; tv: boolean; focusPrefix: string;
+function ChapterRows({controller, entries, currentId, fraction, runtime, tv, focusPrefix, onTail}: {
+  controller: AudiobookScreenController; entries: readonly ContentEntry[]; currentId: string | undefined; fraction: number | undefined;
+  runtime: NativeShellRuntime; tv: boolean; focusPrefix: string; onTail: () => void;
 }) {
   const theme = useTheme();
   return <View style={{marginTop: tv ? 14 : 12}}>
@@ -64,6 +64,7 @@ function ChapterRows({controller, entries, currentId, fraction, runtime, tv, foc
       const finished = entry.watched === true && !playing;
       return <Focusable key={entry.id} focusId={`${focusPrefix}-${entry.id}`} accessibilityRole="button"
         accessibilityLabel={finished ? `${entry.title}, ${t('title.finished')}` : entry.title} focusKind="row" focusRadius={tv ? 14 : 10}
+        onFocus={() => {if (index >= entries.length - 3) onTail();}}
         onPress={() => {void controller.playChapter(entry).catch(error => runtime.reportError(error));}}
         style={tv ? {height: playing ? 84 : 68, paddingHorizontal: 22, borderRadius: 14, flexDirection: 'row', alignItems: 'center', gap: 22,
           backgroundColor: playing ? alpha(theme.colors.text, .06) : undefined}
@@ -87,7 +88,7 @@ function ChapterRows({controller, entries, currentId, fraction, runtime, tv, foc
  * resume and container finished mark; author/series links are text until their
  * pages exist, and nothing is invented for a missing fact. */
 export function BookScreen({controller, entry, runtime, actions, openEntry, onBack}: {
-  controller: NativeAudiobookController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions;
+  controller: AudiobookScreenController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions;
   /** Opens an author or series destination the book's own projection names. */
   openEntry?: (entry: ContentEntry) => void; onBack?: () => void;
 }) {
@@ -136,6 +137,7 @@ export function BookScreen({controller, entry, runtime, actions, openEntry, onBa
   const resumeLabel = canResume && rowNumber !== undefined && rows === chapters ? t('title.resumeChapterNumber', {number: rowNumber}) : t(canResume ? 'entry.resume' : 'entry.play');
   const onPlay = () => {void (canResume ? controller.resume() : controller.startOver()).catch(error => runtime.reportError(error));};
   const retry = () => {void controller.load();};
+  const tail = () => {if (rowsSection) void controller.next(rowsSection.id);};
   // phone-player 41: Download sits beside Finished; mobile web has none, and the TV
   // page draws Resume, Start over and More only (collections 43).
   const download = nativeDownloadRequest(entity);
@@ -188,7 +190,7 @@ export function BookScreen({controller, entry, runtime, actions, openEntry, onBa
       </View>
     </View>
     <View style={tv ? {position: 'absolute', left: 700, top: 548, width: 1040} : {width: '100%', marginTop: 22}}>
-      {snapshot.phase === 'error' ? <ErrorState error={snapshot.error} retry={retry}/> : null}
+      {snapshot.phase === 'error' ? <AudiobookErrorState error={snapshot.error} retry={retry}/> : null}
       {/* collections 41a/42a: the phone page shows the description and a
           Read more link; collections 43 keeps the description in Details. */}
       {!tv && entity.overview ? <View style={{marginBottom: 14}}>
@@ -200,12 +202,14 @@ export function BookScreen({controller, entry, runtime, actions, openEntry, onBa
           {({focused}) => <Text style={[browseType(theme, 13.5, 600), {color: theme.colors.accentStrong, textDecorationLine: focused ? 'underline' : 'none'}]}>{t(aboutExpanded ? 'web.person.showLess' : 'web.person.readMore')}</Text>}
         </Focusable> : null}
       </View> : null}
+      {snapshot.continuation?.phase === 'loading' ? <Text accessibilityLiveRegion="polite" style={[browseType(theme, tv ? 22 : 14, 400), {color: theme.colors.textSecondary}]}>{t('status.loading')}</Text> : null}
+      {snapshot.continuation && snapshot.continuation.phase !== 'loading' ? <AudiobookErrorState refresh={snapshot.continuation.phase === 'refresh-required'} error={snapshot.continuation.error} actionId={`${regionId}.continuation`} retry={() => {void controller.recover();}}/> : null}
       {rows.length ? <View style={{marginTop: tv ? 0 : 18}}>
         <View style={{flexDirection: 'row', alignItems: 'baseline', gap: tv ? 16 : 12, marginBottom: tv ? 12 : 0}}>
           <Text style={[browseType(theme, tv ? 32 : 20, 700), {color: theme.colors.text}]}>{chapters.length ? t('next.browse.chapters') : serverTextLabel(defaultI18n, rowsSection?.heading)}</Text>
           <Text style={[browseType(theme, tv ? 20 : 14, 600), {color: theme.colors.textTertiary}]}>{rowsSection?.totalCount ?? rows.length}</Text>
         </View>
-        <ChapterRows controller={controller} entries={rows} currentId={currentId} fraction={placeFraction} runtime={runtime} tv={tv} focusPrefix={chapterFocus}/>
+        <ChapterRows controller={controller} entries={rows} currentId={currentId} fraction={placeFraction} runtime={runtime} tv={tv} focusPrefix={chapterFocus} onTail={tail}/>
       </View> : null}
     </View>
   </>;
@@ -219,7 +223,7 @@ export function BookScreen({controller, entry, runtime, actions, openEntry, onBa
       style={{position: 'absolute', top: insets.top + 6, left: 10, zIndex: 10, height: 44, width: 44}}/> : null}
     {!tv && <Button variant="icon" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title: entity.title})} onPress={() => actions.menu(entity)}
       style={{position: 'absolute', top: insets.top + 6, right: 10, zIndex: 10, height: 44, width: 44}}/>}
-    <ScrollView contentContainerStyle={tv ? {paddingBottom: 64} : {paddingTop: Math.max(104, insets.top + 56), paddingBottom: 48}} showsVerticalScrollIndicator={false}>
+    <ScrollView onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent; if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 240) tail();}} scrollEventThrottle={200} contentContainerStyle={tv ? {paddingBottom: 64} : {paddingTop: Math.max(104, insets.top + 56), paddingBottom: 48}} showsVerticalScrollIndicator={false}>
       {tv ? <FocusRegion id={regionId} entry={resumeFocusId} orientation="free" style={{width: 1920, height: canvasHeight}}>{body}</FocusRegion>
         : <View style={{alignItems: 'center', paddingHorizontal: 20}}>{body}</View>}
     </ScrollView>
