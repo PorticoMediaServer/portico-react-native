@@ -1,9 +1,10 @@
+import {clonePortableDto} from '../../../../../packages/client-core/src';
 import {liveSourceChoicesService, parseEnvelope, type LiveSourceChoicePage} from '../../../../../packages/client-core/src/administration';
 import {rebaseDraft, sendWithFreshRecord, ALREADY_DONE, type RetryWhenStale} from '../../../../../packages/client-core/src/freshness-actions';
 import {lanConfirmationRoots, previewRemoteSource, remoteSourceDraft, withConfirmedLanRoots, type RemoteSourceDraft, type RemoteSourcePreview, type SourceKind} from '../../../../../packages/client-core/src/linear-api';
 import {normalizeHdHomerunLocator} from '../../../../../packages/client-core/src/server-admin/panel-logic';
 import type {LiveSourceInput} from '../../../../../packages/client-core/src/live-source-draft';
-import {NativeScreenLifetime, NativeScreenStore} from './lifetime';
+import {NativeScreenLifetime, NativeScreenStore, screenScopeEnded} from './lifetime';
 import {
   adminResult, parseChannelMapPage, parseLiveDefaults, parseLiveSourceReceipt, parseLiveSources, parseLogoImport, parseSourceDocument, parseTunerDiscovery, parseUploadPreview, type UploadPreview,
   type ChannelMapEdit, type ChannelMapPage, type LiveDefaults, type LiveSource, type LiveSources, type LiveSourceSettings, type LogoImportOutcome, type TunerDiscovery,
@@ -17,6 +18,7 @@ export type LiveOwnerSnapshot = Readonly<{
 }>;
 
 export type LiveOwnerApi = Readonly<{request: <T>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => Promise<T>}>;
+export type NativeRecordingCommandLifetime = Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
 type Request = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 
 const sourcePath = (id: string, rest: string) => `/v1/admin/live-sources/${encodeURIComponent(id)}${rest}`;
@@ -35,7 +37,7 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
     this.lifetime = lifetime; this.api = api; this.operationId = operationId;
   }
   private request: Request = <T,>(path: string, method?: string, body?: unknown) => this.lifetime.request(signal => this.api.request<T>(path, method, body, signal));
-  private current = () => !this.disposed && this.lifetime.current();
+  readonly current = () => !this.disposed && this.lifetime.current() && !this.disposed;
   load(quiet = false): Promise<void> {
     if (!this.current()) return Promise.resolve();
     const ticket = ++this.loadTicket;
@@ -171,19 +173,47 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
     await this.request('/v1/admin/dvr/recording-permissions', 'PUT', {owner, enabled, inheritProfiles, revision});
   };
   rules = async (cursor = '') => parseAdminRulePage(await this.request<unknown>('/v1/admin/dvr/recording-groups?' + new URLSearchParams({limit: '100', cursor})), this.lifetime.authority.serverId);
-  saveRuleEnabled = async (rule: AdminRule, grants: readonly RecordingGrant[], enabled: boolean) => {
-    if (needsRuleOwner(rule) || rule.owner.authority === '') throw new Error('invalid_rule_owner');
-    const payload = recordingRulePayload({id: rule.id, revision: rule.revision, owner: rule.owner, anchor: rule.anchor, kind: rule.kind, name: rule.name, match: rule.match, sourceId: rule.sourceId, enabled, options: rule.options}, grants, this.operationId());
-    const response = await this.request<unknown>(`/v1/admin/dvr/recording-groups/${encodeURIComponent(rule.id)}`, 'PUT', payload);
+  private async recordingMutation(draft: Parameters<typeof recordingRulePayload>[0], grants: readonly RecordingGrant[], caller?: NativeRecordingCommandLifetime): Promise<AdminRule> {
+    const current = () => {
+      if (!this.current() || caller?.signal.aborted || caller && !caller.isCurrent()) return false;
+      return !this.disposed && !caller?.signal.aborted && this.current() && !this.disposed;
+    };
+    if (!current()) throw screenScopeEnded();
+    const original = clonePortableDto(draft);
+    const payload = clonePortableDto(recordingRulePayload(original, grants, this.operationId()));
+    const expected = clonePortableDto(payload);
+    if (!current()) throw screenScopeEnded();
+    const path = original.id ? `/v1/admin/dvr/recording-groups/${encodeURIComponent(original.id)}` : '/v1/admin/dvr/recording-groups';
+    const response = await this.lifetime.request(async signal => {
+      if (!current()) throw screenScopeEnded();
+      const value = await this.api.request<unknown>(path, original.id ? 'PUT' : 'POST', payload, signal);
+      if (!current()) throw screenScopeEnded();
+      return value;
+    }, caller?.signal);
+    if (!current()) throw screenScopeEnded();
     const envelope = response as {serverId?: unknown; result?: unknown};
     const saved = parseAdminRulePage({serverId: envelope?.serverId, result: {items: [envelope?.result]}}, this.lifetime.authority.serverId).items[0]!;
-    if (saved.id !== rule.id || recordingOwnerKey(saved.owner as RecordingOwner) !== recordingOwnerKey(rule.owner) || saved.sourceId !== rule.sourceId || saved.kind !== rule.kind || saved.match !== rule.match || saved.name !== rule.name.trim() || saved.enabled !== enabled || saved.revision <= rule.revision || (rule.options.prePaddingMs !== null && saved.options.prePaddingMs !== rule.options.prePaddingMs) || (rule.options.postPaddingMs !== null && saved.options.postPaddingMs !== rule.options.postPaddingMs) || (rule.options.keepPolicy !== null && JSON.stringify(saved.options.keepPolicy) !== JSON.stringify(rule.options.keepPolicy)) || saved.options.newEpisodesOnly !== rule.options.newEpisodesOnly || saved.options.priority !== rule.options.priority || saved.options.folderTemplate !== rule.options.folderTemplate) throw new Error('invalid_response');
-    await this.load(true);
+    const options = expected.options as AdminRule['options'];
+    if (!saved.id || original.id && (saved.id !== original.id || saved.revision !== expected.expectedRevision + 1)
+      || saved.revision < 1 || recordingOwnerKey(saved.owner as RecordingOwner) !== recordingOwnerKey(expected.owner)
+      || saved.sourceId !== expected.sourceId || saved.kind !== expected.kind || saved.match !== expected.match
+      || saved.name !== expected.name || saved.enabled !== expected.enabled
+      || options.prePaddingMs !== null && saved.options.prePaddingMs !== options.prePaddingMs
+      || options.postPaddingMs !== null && saved.options.postPaddingMs !== options.postPaddingMs
+      || options.keepPolicy !== null && JSON.stringify(saved.options.keepPolicy) !== JSON.stringify(options.keepPolicy)
+      || saved.options.newEpisodesOnly !== options.newEpisodesOnly || saved.options.priority !== options.priority
+      || saved.options.folderTemplate !== options.folderTemplate) throw new Error('invalid_response');
+    if (!current()) throw screenScopeEnded();
+    // This is a command receipt, not authority to refresh a shared source under
+    // a successor page. The original admitted presenter owns its own reload.
     return saved;
+  }
+  saveRuleEnabled = (rule: AdminRule, grants: readonly RecordingGrant[], enabled: boolean, caller?: NativeRecordingCommandLifetime) => {
+    if (needsRuleOwner(rule) || rule.owner.authority === '') return Promise.reject(new Error('invalid_rule_owner'));
+    return this.recordingMutation({id: rule.id, revision: rule.revision, owner: rule.owner, anchor: rule.anchor, kind: rule.kind, name: rule.name, match: rule.match, sourceId: rule.sourceId, enabled, options: rule.options}, grants, caller);
   };
   deleteRule = async (rule: AdminRule) => {
     await this.request(`/v1/admin/dvr/recording-groups/${encodeURIComponent(rule.id)}?expectedRevision=${rule.revision}&operationId=${encodeURIComponent(this.operationId())}`, 'DELETE');
-    await this.load(true);
   };
   guideSeries = async (day: string, sourceId: string): Promise<readonly RecordingSeries[]> => {
     const route = recordingGuideRoute(day, sourceId);
@@ -192,11 +222,7 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
     const guide = parseChannelGuide(await this.request<unknown>(`/v1/guide?${query.toString()}`), this.lifetime.authority.serverId, route);
     return recordingSeries(guide, true);
   };
-  createRule = async (draft: Parameters<typeof recordingRulePayload>[0], grants: readonly RecordingGrant[]) => {
-    const payload = recordingRulePayload(draft, grants, this.operationId());
-    await this.request('/v1/admin/dvr/recording-groups', 'POST', payload);
-    await this.load(true);
-  };
+  createRule = (draft: Parameters<typeof recordingRulePayload>[0], grants: readonly RecordingGrant[], caller?: NativeRecordingCommandLifetime) => this.recordingMutation(draft, grants, caller);
   dvrSettings = async (): Promise<DVRDocument> => parseDVRDocument(await this.request<unknown>('/v1/admin/dvr/settings'), this.lifetime.authority.serverId);
   saveDvrSettings = async (revision: number, value: DVRDefaults) => parseDVRDocument(await this.request<unknown>('/v1/admin/dvr/settings', 'PUT', {expectedRevision: revision, operationId: this.operationId(), settings: value}), this.lifetime.authority.serverId);
   dispose(): void {
