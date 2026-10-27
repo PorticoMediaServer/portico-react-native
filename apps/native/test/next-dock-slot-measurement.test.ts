@@ -78,7 +78,16 @@ async function rig(reduced = false) {
   let closed = false;
   let tree: any, barTree: any, barProps: any, barHost: ReturnType<typeof createHookHost> | undefined;
   let layout = {x: 24, y: 699.5, width: 80, height: 45};
-  const translatedY = () => elements(tree).find(node => node.type === 'AnimatedView')?.props.style.at(-1).read().transform[0].translateY ?? 0;
+  const translatedY = () => {
+    // The dim layer is a separate AnimatedView. Native slot coordinates inherit the
+    // presence container that actually owns MediaBar, not that earlier sibling.
+    const container = elements(tree).find(node => node.type === 'AnimatedView'
+      && elements(node.props.children).some(child => child.type === MediaBar));
+    assert.ok(container, 'the measured art belongs to the drawn presence container');
+    const animatedStyle = container.props.style.flat(Infinity).find((style: any) => typeof style?.read === 'function');
+    assert.ok(animatedStyle, 'the presence container exposes the controlled native transform');
+    return animatedStyle.read().transform[0].translateY;
+  };
   const artNode = {measureInWindow(callback: (x: number, y: number, width: number, height: number) => void) {
     const rect = {...layout, y: layout.y + translatedY()};
     measurements.push({rect, deliver: (value = rect) => callback(value.x, value.y, value.width, value.height)});

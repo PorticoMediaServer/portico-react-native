@@ -135,7 +135,11 @@ test('the session belongs to the owner, under the identifier the system already 
 test('every JavaScript call is relayed to an owner method of the same name, gated on the manifest only where it is needed', () => {
   const module = section(downloads, '@implementation PorticoDownloads {', '\n@end\n');
   const exported = [...module.matchAll(/^RCT_EXPORT_METHOD\((.*)\) \{\n(.*)\n\}/gm)];
-  assert.equal(exported.length, 14);
+  assert.deepEqual(exported.map(([, signature]) => signature.slice(0, signature.indexOf(':'))), [
+    'list', 'start', 'pause', 'remove', 'removeGeneration', 'setMeta', 'setMetas',
+    'publicationStateOpen', 'publicationStateRead', 'publicationStateWrite',
+    'writeExtra', 'readExtra', 'fetchExtra', 'storage', 'setCellular', 'readState', 'writeState', 'localFile', 'publicationOpen',
+  ]);
   const owner = section(downloads, '@implementation PorticoDownloadOwner', '\n@end\n');
   const extension = section(downloads, '@interface PorticoDownloadOwner ()', '\n@end\n');
   const independent = new Set(['setCellular:', 'readState:', 'writeState:']);
@@ -143,12 +147,28 @@ test('every JavaScript call is relayed to an owner method of the same name, gate
     const selector = signature.replace(/:\([^)]*\)\s*\w+/g, ':').replace(/\s+/g, '');
     const call = signature.replace(/:\([^)]*\)\s*(\w+)/g, ':$1');
     const name = selector.slice(0, selector.indexOf(':') + 1);
+    let ownerSignature = signature, ownerCall = call;
+    if (name === 'removeGeneration:') {
+      ownerSignature = signature.replace('removeGeneration:', 'remove:');
+      ownerCall = call.replace('removeGeneration:', 'remove:');
+    } else if (name.startsWith('publicationState')) {
+      // The bridge lends only its own registry to the actual owner; it cannot
+      // dispatch state work against another bridge's publication tickets.
+      ownerSignature = signature.replace(`${name}(NSString *)handle`, `${name}(PorticoPublicationStateRegistry *)registry handle:(NSString *)handle`);
+      ownerCall = call.replace(`${name}handle`, `${name}self->_publicationState handle:handle`);
+    } else if (name === 'publicationOpen:') {
+      ownerSignature = signature.replace(' resolve:', ' reads:(PorticoPublicationReads *)reads resolve:');
+      ownerCall = call.replace(' resolve:', ' reads:self->_publicationReads resolve:');
+    }
     const expected = independent.has(name)
-      ? `[_owner ${call}];`
-      : `[_owner whenLoaded:^{ [self->_owner ${call}]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];`;
-    assert.equal(body.trim(), expected, selector);
-    assert.ok(owner.includes(`- (void)${signature} {`), `owner implements ${selector}`);
-    assert.ok(extension.includes(`- (void)${signature};`), `owner declares ${selector}`);
+      ? `[_owner ${ownerCall}];`
+      : `[_owner whenLoaded:^{ [self->_owner ${ownerCall}]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];`;
+    if (ownerSignature === signature) assert.equal(body.trim(), expected, selector);
+    else assert.equal(body.replace(/\s/g, ''), expected.replace(/\s/g, ''), selector);
+    const implementation = name === 'publicationStateOpen:'
+      ? ownerSignature.replace('generation:(NSString *)generation', 'generation:(NSString *)expectedGeneration') : ownerSignature;
+    assert.ok(owner.includes(`- (void)${implementation} {`), `owner implements ${selector}`);
+    assert.ok(extension.includes(`- (void)${ownerSignature};`), `owner declares ${selector}`);
   }
   assert.doesNotMatch(owner, /RCT_EXPORT/);
   // Cancelling for Wi-Fi only still records each transfer once the manifest is read.

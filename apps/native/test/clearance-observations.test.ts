@@ -32,7 +32,7 @@ test('a dock covering the toast bottom intersects physically, while a negative g
   assert.equal(beside.readings.tabBar?.intersects, false);
   // Entirely above the toast: again a negative gap with no physical intersection.
   const above = readClearance({...base, tabBar: {x: 16, y: 600, width: 358, height: 40}});
-  assert.equal(above.readings.tabBar?.verticalGap, -120);
+  assert.equal(above.readings.tabBar?.verticalGap, 600 - (base.toast!.y + base.toast!.height));
   assert.equal(above.readings.tabBar?.intersects, false);
 });
 
