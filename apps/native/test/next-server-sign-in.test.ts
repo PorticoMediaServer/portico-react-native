@@ -144,5 +144,15 @@ test('current native local sign-in probes before credentials, verifies the pin a
       } finally {signIn.dispose(); await app.settle();}
       assert.equal((await nativeAppSessions.read()).servers.length, 1);
     });
-  } finally {held?.(); await app.unmount(); app.disposeLoader();}
+  } finally {
+    try {
+      held?.();
+    } finally {
+      try {
+        await app.unmount();
+      } finally {
+        app.disposeLoader();
+      }
+    }
+  }
 });

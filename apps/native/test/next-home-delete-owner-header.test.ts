@@ -307,9 +307,18 @@ test('production Home deletion composes real phone mark/badge through genuine co
       },
     );
   } finally {
-    held.preview();
-    held.mutation();
-    await app.unmount();
-    app.disposeLoader();
+    try {
+      held.preview();
+    } finally {
+      try {
+        held.mutation();
+      } finally {
+        try {
+          await app.unmount();
+        } finally {
+          app.disposeLoader();
+        }
+      }
+    }
   }
 });

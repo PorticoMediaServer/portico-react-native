@@ -90,5 +90,15 @@ test('real App Search tab, canonical genre destination and artless All genres sh
     await input.props.onSubmitEditing(); await app.settle();
     assert.equal(app.requests.filter((request: any) => new URL(request.path, 'https://fixture.invalid').pathname === '/v1/search').length, queryReads, 'dropped old input cannot submit');
     assert.deepEqual(app.errors, []);
-  } finally {await app.unmount(); runtime?.dispose(); app.disposeLoader();}
+  } finally {
+    try {
+      await app.unmount();
+    } finally {
+      try {
+        runtime?.dispose();
+      } finally {
+        app.disposeLoader();
+      }
+    }
+  }
 });

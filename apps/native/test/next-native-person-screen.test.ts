@@ -69,5 +69,15 @@ test('real App mounts the handheld Person route, exact credit actions and retain
     assert.equal(list(), undefined); assert.equal(collection.resident().items, 0);
     const dropped = context.navigation.getSnapshot(); card.props.onNavigate(); assert.equal(context.navigation.getSnapshot(), dropped);
     assert.deepEqual(app.errors, []);
-  } finally {await app.unmount(); runtime?.dispose(); app.disposeLoader();}
+  } finally {
+    try {
+      await app.unmount();
+    } finally {
+      try {
+        runtime?.dispose();
+      } finally {
+        app.disposeLoader();
+      }
+    }
+  }
 });

@@ -143,11 +143,23 @@ async function presenterFixture(t: any) {
   const contextCurrent = () => context.current();
   const retireRuntime = async () => {if (retired) return; retired = true; runtime?.dispose(); await settle();};
   t.after(async () => {
-    await renderer.unmount();
-    await app.unmount();
-    app.disposeLoader();
-    lifetime.dispose();
-    if (!retired) runtime?.dispose();
+    try {
+      await renderer.unmount();
+    } finally {
+      try {
+        await app.unmount();
+      } finally {
+        try {
+          app.disposeLoader();
+        } finally {
+          try {
+            lifetime.dispose();
+          } finally {
+            if (!retired) runtime?.dispose();
+          }
+        }
+      }
+    }
   });
   return {app, failure, lifetime, hosts, byTestId, pressable, text, writes, settle, mount, unmount, contextCurrent, retireRuntime};
 }

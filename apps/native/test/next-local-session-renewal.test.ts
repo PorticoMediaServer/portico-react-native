@@ -30,7 +30,13 @@ test('a genuine Local refresh advances its inactivity horizon through fresh guar
     await app.more();
     assert.ok(app.hosts().some(host => host.name === 'Pressable' && host.props.accessibilityLabel === 'Play'), 'new real Home membership is actionable after rebootstrap');
     assert.equal(app.errors.length, 0);
-  } finally {await app.unmount(); app.disposeLoader();}
+  } finally {
+    try {
+      await app.unmount();
+    } finally {
+      app.disposeLoader();
+    }
+  }
 });
 
 for (const changed of ['installation', 'backwards-horizon'] as const) test(`Local renewal still retires private Home for ${changed}`, async t => {
@@ -48,5 +54,11 @@ for (const changed of ['installation', 'backwards-horizon'] as const) test(`Loca
     await app.refresh();
     assert.equal(app.hosts().some(host => host.props.testID === 'native-home'), false, 'the permitted Local advance does not admit a changed binding or shorter horizon');
     assert.equal(app.hosts().some(host => host.name === 'PorticoPlayer'), false, 'the retired private runtime releases its persistent host');
-  } finally {await app.unmount(); app.disposeLoader();}
+  } finally {
+    try {
+      await app.unmount();
+    } finally {
+      app.disposeLoader();
+    }
+  }
 });

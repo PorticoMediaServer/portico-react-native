@@ -110,7 +110,21 @@ test('a real Settings ACK republishes bootstrap text only after confirmation and
     assert.equal(runtime.text.locale, 'en-GB');
     off(); runtime.dispose();
     assert.throws(() => runtime!.text.locale, {name: 'AbortError'});
-  } finally {release.resolve(); runtime?.dispose(); await app.unmount(); app.disposeLoader();}
+  } finally {
+    try {
+      release.resolve();
+    } finally {
+      try {
+        runtime?.dispose();
+      } finally {
+        try {
+          await app.unmount();
+        } finally {
+          app.disposeLoader();
+        }
+      }
+    }
+  }
 });
 
 

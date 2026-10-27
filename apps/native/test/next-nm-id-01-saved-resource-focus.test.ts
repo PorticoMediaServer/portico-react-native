@@ -149,8 +149,14 @@ test('NM-ID-01: the real Saved page binds Show more and the owner visibility swi
       await host.unmount();
     }
   } finally {
-    await host.unmount();
-    await app.unmount();
-    app.disposeLoader();
+    try {
+      await host.unmount();
+    } finally {
+      try {
+        await app.unmount();
+      } finally {
+        app.disposeLoader();
+      }
+    }
   }
 });

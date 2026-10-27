@@ -45,5 +45,11 @@ test('normal product entry signs in locally through actual React/native bridges 
     assert.ok(app.card(), 'genuine normal Home restored after durable publication');
     assert.ok(app.requests.every((request: any) => request.url.startsWith('https://standard-home.test')));
     assert.equal(app.requests.filter((request: any) => request.path === '/v1/sessions/current').length, 1, 'temporary account family is retired once, viewer stays');
-  } finally {await app.unmount(); app.disposeLoader();}
+  } finally {
+    try {
+      await app.unmount();
+    } finally {
+      app.disposeLoader();
+    }
+  }
 });

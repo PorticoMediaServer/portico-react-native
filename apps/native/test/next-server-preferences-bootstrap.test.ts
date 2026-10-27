@@ -55,7 +55,22 @@ test('bootstrap and Settings share confirmed CAS results without rollback from a
     holdPatch = true; const late = source.applyPreferences('profile-server', 'mobile', revision + 1, {'playback.defaultSpeed': 2});
     await patchBegan.promise; runtime.dispose(); releasePatch.resolve();
     await assert.rejects(late); assert.throws(source.getSnapshot, {name: 'AbortError'}); off();
-  } finally {release.resolve(); releasePatch.resolve(); runtime?.dispose(); await app.unmount(); app.disposeLoader();}
+  } finally {
+    try {
+      release.resolve();
+      releasePatch.resolve();
+    } finally {
+      try {
+        runtime?.dispose();
+      } finally {
+        try {
+          await app.unmount();
+        } finally {
+          app.disposeLoader();
+        }
+      }
+    }
+  }
 });
 
 test('a refresh completing during a preference PATCH does not cancel the authority-owned write', async () => {
@@ -84,5 +99,20 @@ test('a refresh completing during a preference PATCH does not cancel the authori
     await began.promise; releaseRead.resolve(); await refresh;
     assert.equal(patchSignal?.aborted, false, 'refresh batch completion does not abort a concurrent preference request');
     release.resolve(); assert.equal((await patch).effective['playback.defaultSpeed'], 1.5);
-  } finally {release.resolve(); releaseRead.resolve(); runtime?.dispose(); await app.unmount(); app.disposeLoader();}
+  } finally {
+    try {
+      release.resolve();
+      releaseRead.resolve();
+    } finally {
+      try {
+        runtime?.dispose();
+      } finally {
+        try {
+          await app.unmount();
+        } finally {
+          app.disposeLoader();
+        }
+      }
+    }
+  }
 });
