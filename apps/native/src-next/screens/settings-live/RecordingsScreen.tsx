@@ -78,11 +78,13 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
   if (previousScope && (previousScope.controller !== controller || previousScope.key !== scopeKey)) ask.current = undefined;
   scope.current = {controller, key: scopeKey};
   const drawnRoute = routeKey(route), drawnQuery = queryKey(query), drawnScope = scopeKey;
-  const drawnCurrent = () => {
+  // The drawn witnesses this screen's guards read, held as a callback so a handler that closes
+  // over them keeps its exact read order while the values it reads are declared.
+  const drawnCurrent = useCallback(() => {
     if (!alive.current || !controller.viewerOpeningCurrent(viewerOpening) || scope.current?.controller !== controller || scope.current.key !== drawnScope || !controller.lifetime.current() || !navigation.isCurrent()) return false;
     if (runtime.getSnapshot().contentVisible !== true || routeKey(navigation.getSnapshot()) !== drawnRoute) return false;
     return queryKey(controller.getSnapshot().query) === drawnQuery && scope.current?.controller === controller && scope.current.key === drawnScope && controller.lifetime.current() && navigation.isCurrent() && routeKey(navigation.getSnapshot()) === drawnRoute;
-  };
+  }, [controller, drawnQuery, drawnRoute, drawnScope, navigation, runtime, viewerOpening]);
   const confirmation = useRef<typeof confirm>(undefined); confirmation.current = confirm;
   const retire = () => {if (ask.current) controller.unpinViewerRow(ask.current.opening.pin, ask.current.opening.scope); ask.current = undefined;};
   const closeConfirm = () => {if (confirm) controller.unpinViewerRow(confirm.opening.pin, confirm.opening.scope); setConfirm(current => current === confirm ? undefined : current);};
@@ -105,14 +107,14 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
   /** The drawn order of the Recorded grid; the groups reader does the ordering. */
   const sort = query.sort === 'title' || query.sort === 'oldest' ? query.sort : 'recent';
   const selectSort = (next: 'recent' | 'title' | 'oldest') => {setSortOpen(false); if (next === sort) return; retire(); void controller.load({view: 'recorded', sort: next});};
-  const leaveGuide = () => {if (!drawnCurrent()) return; controller.endViewerOpening(viewerOpening); onGuide();};
+  const leaveGuide = useCallback(() => {if (!drawnCurrent()) return; controller.endViewerOpening(viewerOpening); onGuide();}, [controller, drawnCurrent, onGuide, viewerOpening]);
   const back = useCallback(() => {
     if (menu || detail || rule || confirm) return false;
     if (bodyFocused.current && registry.focus({regionId: tabs, childId: query.view})) return true;
     if (query.group) {ask.current = undefined; setGroup(undefined); void controller.load({view: 'recorded'}); return true;}
     ask.current = undefined;
     leaveGuide(); return true;
-  }, [menu, detail, rule, confirm, registry, tabs, query.group, query.view, controller, onGuide, viewerOpening]);
+  }, [menu, detail, rule, confirm, registry, tabs, query.group, query.view, controller, leaveGuide]);
   useScreenBack(runtime, back, theme.isTV);
   const open = (recording: Recording, kind: 'menu' | 'details', expected: typeof state.viewerWindow) => {
     if (!drawnCurrent()) return;
@@ -281,8 +283,10 @@ function RecordingRow({recording, history, runtime, refNode, onOpen, onMenu, onF
 }
 
 /** One opening of the details sheet. The parent keys the sheet by its row and this
- * opening retires itself as well, so either side alone stops a stale completion. */
-type RecordingOpening = {id: string; revision: number; controller: NativeRecordingsController; parent: OverlayOpening; live: boolean};
+ * opening retires itself as well, so either side alone stops a stale completion. The opening
+ * also holds the recording and the currency callback it was drawn for, so its read can only
+ * ever use the witnesses of the render that created it. */
+type RecordingOpening = {id: string; revision: number; controller: NativeRecordingsController; parent: OverlayOpening; recording: Recording; isCurrent: () => boolean; live: boolean};
 
 function RecordingDetails({recording, controller, runtime, opener, onClose, onPlay, onRemove, deletionAvailable, isCurrent, parent}: {recording: Recording; controller: NativeRecordingsController; runtime: NativeShellRuntime; parent: OverlayOpening; isCurrent: () => boolean; opener: React.RefObject<View | null>; onClose: () => void; onPlay: () => void; onRemove: () => void; deletionAvailable: boolean}) {
   const theme = useTheme(), t = defaultI18n.t, state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
@@ -293,32 +297,37 @@ function RecordingDetails({recording, controller, runtime, opener, onClose, onPl
   const opening = useRef<RecordingOpening | undefined>(undefined);
   const previous = opening.current;
   const opened: RecordingOpening = previous && previous.id === recording.id && previous.revision === recording.revision && previous.controller === controller && previous.parent === parent
-    ? previous : {id: recording.id, revision: recording.revision, controller, parent, live: true};
+    ? previous : {id: recording.id, revision: recording.revision, controller, parent, recording, isCurrent, live: true};
   if (previous && previous !== opened) previous.live = false;
   opening.current = opened;
   // A layout effect retires the opening on unmount as well, before any later callback
-  // can land; a passive cleanup would leave it live through a replacement.
-  useLayoutEffect(() => {opened.live = true; return () => {opened.live = false;};}, [opened]);
+  // can land; a passive cleanup would leave it live through a replacement. It is keyed by the
+  // same values that decide the opening, and reads the committed opening itself.
+  useLayoutEffect(() => {const drawn = opening.current; if (!drawn) return; drawn.live = true; return () => {drawn.live = false;};}, [opened.id, opened.revision, opened.controller, opened.parent]);
   // The read carries the opening it was made for, so A's state, capacity and overlaps
-  // are never drawn under B's title.
+  // are never drawn under B's title. The recording and the currency callback are the opening's
+  // own witnesses: this effect runs only when the opening or the controller changes, so they
+  // are exactly the values of the render that drew it.
   const [read, setRead] = useState<Readonly<{for: RecordingOpening; detail?: RecordingDetail; resolver?: ReturnType<NativeRecordingsController['detailOpening']>; error?: unknown}>>();
   const [overlap, setOverlap] = useState<Readonly<{for: RecordingOpening; window: RecordingOverlapWindow; snapshot: OverlapSnapshot}>>();
   useEffect(() => {
+    const drawn = opening.current;
+    if (!drawn) return;
     let active = true, window: RecordingOverlapWindow | undefined;
-    const resolver = controller.detailOpening(recording, () => active && opened.live && isCurrent());
-    if (isCurrent()) void resolver.read().then(value => {
-      if (!active || !opened.live || !isCurrent()) return;
+    const resolver = drawn.controller.detailOpening(drawn.recording, () => active && drawn.live && drawn.isCurrent());
+    if (drawn.isCurrent()) void resolver.read().then(value => {
+      if (!active || !drawn.live || !drawn.isCurrent()) return;
       try {
-        window = new RecordingOverlapWindow(recording, value, controller, () => active && opened.live && isCurrent(), snapshot => {
-          if (active && opened.live && window && isCurrent()) setOverlap({for: opened, window, snapshot});
+        window = new RecordingOverlapWindow(drawn.recording, value, drawn.controller, () => active && drawn.live && drawn.isCurrent(), snapshot => {
+          if (active && drawn.live && window && drawn.isCurrent()) setOverlap({for: drawn, window, snapshot});
         });
-        setRead({for: opened, detail: value, resolver}); window.seed(value);
-      } catch (error) {if (active && opened.live && isCurrent()) setRead({for: opened, error});}
+        setRead({for: drawn, detail: value, resolver}); window.seed(value);
+      } catch (error) {if (active && drawn.live && drawn.isCurrent()) setRead({for: drawn, error});}
     }, value => {
-      if (active && opened.live && isCurrent()) setRead({for: opened, error: value});
+      if (active && drawn.live && drawn.isCurrent()) setRead({for: drawn, error: value});
     });
     return () => {active = false; resolver.dispose(); window?.dispose();};
-  }, [opened, controller, recording.id]);
+  }, [opened.id, opened.revision, opened.controller, opened.parent]);
   const current = read?.for === opened ? read : undefined;
   const detail = current?.detail, error = current?.error;
   const overlapCurrent = overlap?.for === opened ? overlap : undefined;
