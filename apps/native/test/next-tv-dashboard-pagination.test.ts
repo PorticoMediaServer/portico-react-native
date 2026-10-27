@@ -163,3 +163,23 @@ test('real AdminSessionsClient keeps the canonical absent-revision decoder refus
   const client = new AdminSessionsClient({send: async () => ({status: 200, headers: {}, body: {scope: {serverId: 'server', viewerFence: 'a'.repeat(64)}, observedAt: '2026-10-22T07:00:00Z', items: [], page: {limit: 10, total: 0, start: 0}, totals: {streams: 0, paused: 0, converting: 0, bandwidthKbps: 0, people: 0, atHome: 0, away: 0}}})});
   await assert.rejects(client.list(), /invalid_activity_summary/);
 });
+
+for (const field of ['serverId', 'profileId'] as const) test(`Dashboard retires a pending session continuation on ${field} authority replacement`, async () => {
+  let principal = {...authority}, listener: () => void = () => {};
+  const lifetime = new NativeScreenLifetime({authority: () => principal, current: () => true, subscribeAuthority: fn => {listener = fn; return () => {listener = () => {};};}});
+  let finish!: (value: ReturnType<typeof page>) => void; const calls: (string | undefined)[] = [];
+  const readers: NativeDashboardReaders = {
+    sessions: {list: async cursor => {calls.push(cursor); return cursor ? new Promise(resolve => {finish = resolve;}) : page('original', 1, 'next');}},
+    console: {measurement: async name => ({name, observedAt: 1, freshUntil: 30001, facts: {}}), alerts: async () => [], jobs: async () => ({items: [], nextCursor: ''}), dispose() {}},
+  };
+  const controller = new NativeDashboardController(lifetime, () => 'administrator', readers);
+  await controller.refresh(); const original = controller.getSnapshot().sessionWindow!;
+  const pending = controller.nextSessions(original);
+  principal = {...principal, [field]: 'successor'}; listener();
+  assert.equal(lifetime.signal.aborted, true); assert.deepEqual(controller.getSnapshot().sessions, []);
+  assert.equal(controller.focusSession('original0', original), undefined);
+  finish(page('late', 1)); await pending;
+  assert.deepEqual(controller.getSnapshot().sessions, []); assert.equal(controller.getSnapshot().admission, 'denied');
+  await controller.nextSessions(original); assert.deepEqual(calls, [undefined, 'next']);
+  controller.dispose(); lifetime.dispose();
+});
