@@ -21,12 +21,12 @@ const roleLabel = (role: AccessMember['role']): MessageId =>
  * producer's optional fact and is omitted when unknown. */
 export function TVPeoplePanel({ports, runtime, lifetime}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; lifetime: NativeScreenLifetime}) {
   const theme = useTheme(), t = runtime.text.t;
-  const [publication, setPublication] = useState<{pages: PeoplePagesController; state: PeoplePages; ports: NativeSettingsLivePorts; lifetime: NativeScreenLifetime}>();
+  const [publication, setPublication] = useState<{pages: PeoplePagesController; state: PeoplePages; generation: number; ports: NativeSettingsLivePorts; lifetime: NativeScreenLifetime}>();
   const controller = useRef<PeoplePagesController | undefined>(undefined);
   const renderScope = useRef({ports, lifetime});
   renderScope.current = {ports, lifetime};
   useLayoutEffect(() => {
-    const pages = new PeoplePagesController(ports.context, lifetime, state => setPublication({pages, state, ports, lifetime}));
+    const pages = new PeoplePagesController(ports.context, lifetime, state => setPublication({pages, state, generation: pages.currentGeneration(), ports, lifetime}));
     controller.current = pages;
     setPublication(undefined);
     pages.start();
@@ -70,8 +70,8 @@ export function TVPeoplePanel({ports, runtime, lifetime}: {ports: NativeSettings
   </View>;
 
   if (!publication || controller.current !== publication.pages || publication.ports !== ports || publication.lifetime !== lifetime) return <StateView title={t('status.loading')}/>;
-  const {pages, state} = publication;
-  const load = (section: keyof PeoplePages) => {if (controller.current === pages && renderScope.current.ports === ports && renderScope.current.lifetime === lifetime) void pages.load(section, state[section].cursor);};
+  const {pages, state, generation} = publication;
+  const load = (section: keyof PeoplePages) => {if (controller.current === pages && renderScope.current.ports === ports && renderScope.current.lifetime === lifetime) void pages.load(section, state[section].cursor, generation);};
   const sectionTail = (section: keyof PeoplePages, page: PeopleSection<unknown>) => <>
     {page.pending && <StateView title={t('status.loading')}/>}
     {page.error !== undefined && <StateView {...runtime.error(page.error, () => load(section))} testID={`tv-people-${section}-error`}/>}

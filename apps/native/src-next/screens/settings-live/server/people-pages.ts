@@ -14,20 +14,31 @@ const key = (section: Section, row: Row): string => section === 'members' ? (row
 export class PeoplePagesController {
   private state = initial();
   private abort = new AbortController();
+  private generation = 0;
+  private disposed = false;
   private seen: Record<Section, Set<string>> = {members: new Set(), invitations: new Set(), devices: new Set()};
   private api: ReturnType<typeof createTVServerReader>;
   constructor(context: Parameters<typeof createTVServerReader>[0], private lifetime: NativeScreenLifetime, private changed: (state: PeoplePages) => void) {this.api = createTVServerReader(context, lifetime);}
-  start(): void {for (const section of ['members', 'invitations', 'devices'] as const) void this.load(section);}
-  dispose(): void {this.abort.abort();}
-  async load(section: Section, expectedCursor?: string): Promise<void> {
-    const current = this.state[section];
-    if (this.abort.signal.aborted || !this.lifetime.current() || current.pending || current.loaded && !current.cursor || expectedCursor !== undefined && expectedCursor !== current.cursor) return;
+  start(): void {this.refresh();}
+  /** Internal refresh seam. The current panel has no visible refresh emitter. */
+  refresh(): void {
+    if (this.disposed || !this.lifetime.current()) return;
+    this.abort.abort(); this.abort = new AbortController(); this.generation++;
+    this.seen = {members: new Set(), invitations: new Set(), devices: new Set()};
+    this.state = initial(); this.changed(this.state);
+    for (const section of ['members', 'invitations', 'devices'] as const) void this.load(section);
+  }
+  dispose(): void {if (this.disposed) return; this.disposed = true; this.generation++; this.abort.abort();}
+  currentGeneration(): number {return this.generation;}
+  async load(section: Section, expectedCursor?: string, expectedGeneration?: number): Promise<void> {
+    const current = this.state[section], abort = this.abort, generation = this.generation;
+    if (this.disposed || abort.signal.aborted || !this.lifetime.current() || current.pending || current.loaded && !current.cursor || expectedGeneration !== undefined && expectedGeneration !== generation || expectedCursor !== undefined && expectedCursor !== current.cursor) return;
     const cursor = current.loaded ? current.cursor : undefined;
     this.update(section, {...current, pending: true, error: undefined});
     try {
-      const raw = await this.api.peoplePage<unknown>(section, cursor, this.abort.signal);
+      const raw = await this.api.peoplePage<unknown>(section, cursor, abort.signal);
       const page: Page = section === 'members' ? parseAccessMemberPage(raw) : section === 'invitations' ? parseInvitationPage(raw) : parseAccessDevicePage(raw);
-      if (this.abort.signal.aborted || !this.lifetime.current()) return;
+      if (this.disposed || abort.signal.aborted || generation !== this.generation || !this.lifetime.current()) return;
       if (cursor) this.seen[section].add(cursor);
       const present = new Set(current.items.map(row => key(section, row)));
       const items: Row[] = [...current.items];
@@ -35,7 +46,7 @@ export class PeoplePagesController {
       const next = page.nextCursor && !this.seen[section].has(page.nextCursor) && page.nextCursor !== cursor ? page.nextCursor : '';
       this.update(section, {items, cursor: next, pending: false, loaded: true});
     } catch (error) {
-      if (!this.abort.signal.aborted && this.lifetime.current()) this.update(section, {...current, pending: false, error: error ?? new Error('native_tv_people_page_failed')});
+      if (!this.disposed && !abort.signal.aborted && generation === this.generation && this.lifetime.current()) this.update(section, {...current, pending: false, error: error ?? new Error('native_tv_people_page_failed')});
     }
   }
   private update(section: Section, value: PeopleSection<Row>): void {

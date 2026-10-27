@@ -100,3 +100,30 @@ test('authority replacement while a page waits never publishes into the successo
   assert.equal(oldUpdates, 1); assert.deepEqual(successor.devices.items.map(row => row.id), ['successor']);
   old.dispose(); next.dispose(); nextLifetime.dispose();
 });
+
+test('explicit People refresh retires old flights, resets all sections and seen cursors, and disposal is terminal', async () => {
+  const lifetime = new NativeScreenLifetime({authority: () => authority, current: () => true, subscribeAuthority: () => () => {}});
+  let state!: PeoplePages, devices = 0, finishOld!: (value: unknown) => void;
+  const requests: string[] = [];
+  const pages = new PeoplePagesController({account, api: {request: async <T,>(path: string) => {
+    requests.push(path);
+    if (path.includes('/members')) return {items: [], limit: 50, nextCursor: ''} as T;
+    if (path.includes('/invitations')) return {items: [], limit: 50, nextCursor: '', totalCount: 0, matchedCount: 0} as T;
+    devices++;
+    if (devices === 3) return new Promise<unknown>(resolve => {finishOld = resolve;}) as Promise<T>;
+    return {items: [device(`d${devices}`)], limit: 50, nextCursor: devices === 1 || devices === 4 ? 'x' : devices === 2 ? 'y' : ''} as T;
+  }}}, lifetime, next => {state = next;});
+  await pages.load('devices'); await pages.load('devices');
+  const old = pages.load('devices');
+  const oldGeneration = pages.currentGeneration();
+  pages.refresh();
+  assert.deepEqual(state.devices.items, []); assert.equal(state.devices.pending, true);
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.deepEqual(state.devices.items.map(row => row.id), ['d4']); assert.equal(state.devices.cursor, 'x');
+  finishOld({items: [device('stale')], limit: 50, nextCursor: ''}); await old;
+  assert.deepEqual(state.devices.items.map(row => row.id), ['d4']);
+  await pages.load('devices', 'x', oldGeneration); assert.equal(devices, 4);
+  await pages.load('devices'); assert.deepEqual(state.devices.items.map(row => row.id), ['d4', 'd5']);
+  const count = requests.length; pages.dispose(); pages.refresh(); pages.start(); await pages.load('devices');
+  assert.equal(requests.length, count); lifetime.dispose();
+});
