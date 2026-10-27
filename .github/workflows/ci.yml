@@ -26,7 +26,9 @@ concurrency:
 env:
   CI_FULL_TREE: '1'
 jobs:
-  javascript:
+  # Source, mounted types and informational lint run once. They do not depend on
+  # the test shard, so paying for them in every shard would only add cost.
+  javascript-checks:
     if: ${{ !inputs.apple_reading_commit }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -42,7 +44,8 @@ jobs:
         with: {node-version-file: portico-react-native/.node-version, cache: npm, cache-dependency-path: portico-react-native/apps/native/package-lock.json}
       - run: node scripts/shared-packages.mjs --check
         working-directory: portico-react-native
-      - run: python3 scripts/test-ci-affected.py
+      - name: Selection and test-runner regressions
+        run: python3 scripts/test-ci-affected.py
         working-directory: portico-react-native
       - id: native-deps
         run: npm ci --no-audit --no-fund --legacy-peer-deps
@@ -67,23 +70,56 @@ jobs:
           node ../../packages/i18n/scripts/lint-glossary.mjs || status=1
           exit "$status"
         working-directory: portico-react-native/apps/native
+      - name: Retain full diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ci-javascript-checks-${{ strategy.job-index || '0' }}
+          path: |
+            ${{ runner.temp }}/types*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # The whole selected test tree, split into deterministic shards. Every selected
+  # file — mandatory security guards included — belongs to exactly one shard, and
+  # any failing or hung shard fails the workflow. Each shard runs one file per
+  # process, so a hang is named and the rest of that shard still reports.
+  javascript-tests:
+    if: ${{ !inputs.apple_reading_commit }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {path: portico-react-native, fetch-depth: 0}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version-file: portico-react-native/.node-version, cache: npm, cache-dependency-path: portico-react-native/apps/native/package-lock.json}
+      - id: native-deps
+        run: npm ci --no-audit --no-fund --legacy-peer-deps
+        working-directory: portico-react-native/apps/native
       - if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
         name: Full-tree tests plus mandatory sign-in/session/account/profile guards
+        env:
+          CI_SHARD_INDEX: ${{ matrix.shard }}
+          CI_SHARD_TOTAL: '4'
+          CI_TEST_REPORT_DIR: ${{ runner.temp }}/ci-report
         run: |
           status=0
           python3 scripts/ci-affected.py native-js > "$RUNNER_TEMP/full-ci.log" 2>&1 || status=$?
-          tail -n 20 "$RUNNER_TEMP/full-ci.log"
+          tail -n 40 "$RUNNER_TEMP/full-ci.log"
           exit "$status"
         working-directory: portico-react-native
       - name: Retain full diagnostics
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ci-${{ github.job }}-${{ strategy.job-index || '0' }}
+          name: ci-javascript-tests-${{ matrix.shard }}-${{ strategy.job-index || '0' }}
           path: |
             ${{ runner.temp }}/full-ci.log
-            ${{ runner.temp }}/go-build.log
-            ${{ runner.temp }}/types*.log
+            ${{ runner.temp }}/ci-report/**
           if-no-files-found: ignore
           retention-days: 7
 
