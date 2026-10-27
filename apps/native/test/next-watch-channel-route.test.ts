@@ -62,7 +62,7 @@ test('TV keeps its existing pending/error outlet and does not consume a touch la
 });
 
 
-test('original admission after successful start return consumes once; unsuccessful return never authorizes a late receipt',async()=>{
+test('mocked late admission after successful return consumes once; unsuccessful return never authorizes a late receipt',async()=>{
  for(const completed of [true,false]){const f=await fixture();try{
   const launch=f.navigation.getSnapshot();
   await act(()=>completed?f.resolve():f.reject(new Error('start failed')));
@@ -73,7 +73,7 @@ test('original admission after successful start return consumes once; unsuccessf
  }finally{f.dispose();}}
 });
 
-for(const retirement of ['route','authority','unmount','same-id-revisit'] as const)test(`cold-after-return original receipt refuses after ${retirement}`,async()=>{
+for(const retirement of ['route','authority','unmount','same-id-revisit'] as const)test(`mocked late original receipt refuses after ${retirement}`,async()=>{
  const f=await fixture();try{
   await act(()=>f.resolve());
   if(retirement==='authority')f.retire();else if(retirement==='unmount')f.host.unmount();
