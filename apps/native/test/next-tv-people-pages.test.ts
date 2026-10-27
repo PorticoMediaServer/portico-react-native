@@ -127,3 +127,19 @@ test('explicit People refresh retires old flights, resets all sections and seen 
   const count = requests.length; pages.dispose(); pages.refresh(); pages.start(); await pages.load('devices');
   assert.equal(requests.length, count); lifetime.dispose();
 });
+
+test('a prior generation rejection cannot replace refreshed People state', async () => {
+  const lifetime = new NativeScreenLifetime({authority: () => authority, current: () => true, subscribeAuthority: () => () => {}});
+  let state!: PeoplePages, rejectOld!: (reason: Error) => void, calls = 0;
+  const pages = new PeoplePagesController({account, api: {request: <T,>(path: string) => {
+    if (path.includes('/members')) return Promise.resolve({items: [], limit: 50, nextCursor: ''} as T);
+    if (path.includes('/invitations')) return Promise.resolve({items: [], limit: 50, nextCursor: '', totalCount: 0, matchedCount: 0} as T);
+    calls++;
+    return calls === 1 ? new Promise<T>((_, reject) => {rejectOld = reject;}) : Promise.resolve({items: [device('new')], limit: 50, nextCursor: ''} as T);
+  }}}, lifetime, next => {state = next;});
+  const stale = pages.load('devices'); pages.refresh();
+  await new Promise<void>(resolve => setImmediate(resolve));
+  rejectOld(new Error('old failure')); await stale;
+  assert.deepEqual(state.devices.items.map(row => row.id), ['new']); assert.equal(state.devices.error, undefined);
+  pages.dispose(); lifetime.dispose();
+});

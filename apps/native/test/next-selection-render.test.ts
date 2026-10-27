@@ -1329,10 +1329,10 @@ test('TV People retains its focused continuation host and renders the real scope
     await act(() => {});
     const before = focus(); assert.ok(before); assert.equal(before.props.disabled, false);
     let nativeId: string | undefined;
-    withNativeControl(before, host => {nativeId = host.props.testID; host.props.onPress();});
+    withNativeControl(before, host => {nativeId = host.props.testID; host.props.onFocus({nativeEvent: {}}); host.props.onPress();});
     await act(() => {});
     const pending = focus(); assert.ok(pending); assert.equal(pending.key, before.key); assert.equal(pending.props.disabled, true); assert.equal(pending.props.focusableWhenDisabled, true);
-    withNativeControl(pending, host => {assert.equal(host.props.testID, nativeId); assert.equal(host.props.onPress, undefined);});
+    withNativeControl(pending, host => {assert.equal(host.props.testID, nativeId); assert.notEqual(host.props.focusable, false); assert.equal(host.props.onPress, undefined);});
     await act(() => rejectPage(new Error('offline')));
     const failed = focus(); assert.ok(failed); assert.equal(failed.key, before.key); assert.equal(failed.props.disabled, false);
     assert.ok(ofType(panel.tree, Focusable).find(element => element.props.focusId === 'tv-people:device:first'));
