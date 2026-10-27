@@ -8,7 +8,7 @@ import type {NativeInvitationEntry} from '../../platform/portico-invitation';
 import type {PublicInvitation} from '../../../../../packages/client-core/src/direct-account';
 import type {ManagedProfile} from '../../../../../packages/client-core/src/profile-management';
 import {MFARequiredError, type IdentityOptions, type IdentityTransaction} from '../../../../../packages/client-core/src/hosted-security';
-import type {SetupCodeService, SetupCodeSnapshot} from '../../../../../packages/client-core/src/setup-code';
+import type {SetupCodeSnapshot} from '../../../../../packages/client-core/src/setup-code';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {StateLayout} from '../../kit/states';
@@ -23,6 +23,7 @@ import {HostedSignInUnavailable} from '../../platform/hosted-sign-in-unavailable
 import {NativePorticoSignIn, porticoUsernameUnavailable, type NativeFactorWitness} from '../../platform/portico-sign-in';
 import {nativeNetworkFetch, browseNearby} from '../../platform/server-connections';
 import {createNativePorticoTVSignIn} from '../../platform/tv-sign-in';
+import {createTVCodeOpening, type TVCodeCapture, type TVCodeKind, type TVCodeOpening} from './tv-code-opening';
 import {hostedUrl} from '../../platform/account-authority';
 import {TVCredentialForm, TVCodePresenter, TVVerificationForm, TVRequiredSetupHandoff, TVFrontDoor, TVProfilePINForm, TVForgotPINHandoff} from '../../tv/auth';
 import {TVIdentityCodeForm} from '../../tv/auth/TVIdentityCodeForm';
@@ -112,7 +113,8 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const endedTarget = useRef<Readonly<{serverId: string; fingerprint: string}> | undefined>(undefined);
   const identityOrigin = useRef<string | undefined>(undefined);
   const [servers, setServers] = useState<HostedServer[]>([]), [target, setTarget] = useState<HostedServer>(), [retryIn, setRetryIn] = useState(20), [appActive, setAppActive] = useState(AppState.currentState === 'active'), [options, setOptions] = useState<IdentityOptions>(), [transaction, setTransaction] = useState<IdentityTransaction>();
-  const [tvState, setTVState] = useState<SetupCodeSnapshot<unknown>>({phase: 'idle'});
+  const [tvView, setTVView] = useState<{opening: TVCodeOpening; state: SetupCodeSnapshot<unknown>}>();
+  const tvState: SetupCodeSnapshot<unknown> = tvView?.state ?? {phase: 'idle'};
   const [tvKind, setTVKind] = useState<'local' | 'portico'>('portico'), [recovery, setRecovery] = useState(false), [recoveryCode, setRecoveryCode] = useState('');
   const [requiredSetup, setRequiredSetup] = useState<RequiredSetup>();
   const [directoryList, setDirectoryList] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle');
@@ -158,7 +160,14 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const providerNameSeed = useRef<string | undefined>(undefined);
   registerOpeningRef.current = registerOpening; providerOpeningRef.current = providerOpening;
   busyRef.current = busy; stageRef.current = stage; onBackRef.current = onBack; authPrepareFailedRef.current = authPrepareFailed;
-  const tv = useRef<SetupCodeService<LocalSession> | SetupCodeService<HostedSession> | undefined>(undefined), tvOff = useRef<(() => void) | undefined>(undefined);
+  const tvOpening = useRef<TVCodeOpening | undefined>(undefined);
+  const retireTVOpening = useCallback((cancel = false, expected = tvOpening.current, publish = true) => {
+    if (!expected) return;
+    expected.retire(cancel);
+    if (tvOpening.current !== expected) return;
+    tvOpening.current = undefined; adoptingTV.current = false;
+    if (publish && lifetime.current) setBusy(acting.current);
+  }, []);
   const contact = useRef<string | undefined>(undefined), factorKind = useRef<'portico' | 'local'>('local');
   type WorkspaceOpening = {active: boolean; username: string; scope: {accountId: string; familyId: string}; source?: NativeAccountWorkspace; createSource?: () => NativeAccountWorkspace};
   const accountWorkspace = useRef<WorkspaceOpening | undefined>(undefined);
@@ -179,6 +188,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   useLayoutEffect(() => {
     lifetime.current = true;
     return () => {
+      retireTVOpening(false, tvOpening.current, false);
       lifetime.current = false; retireAccountWorkspace(); retireInvitationEntry(); if (invitationIntent.current) operation.current?.dispose(); const switching = invitationSwitch.current; retireInvitationSwitch();
       if (switching) account.current?.dispose();
       const ticket = invitationOpening.current;
@@ -189,7 +199,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
         ticket.source.dispose();
       }
     };
-  }, []);
+  }, [retireTVOpening]);
   // Publish only the public stage before layout observers can collect this commit.
   // Credentials, server/profile data and commands never leave through this port.
   useLayoutEffect(() => {onStageChange?.(stage);}, [onStageChange, stage]);
@@ -199,7 +209,8 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     ownerRecoveryMounted.current = true;
     return () => {ownerRecoveryMounted.current = false; retireOwnerRecoveryContact();};
   }, []);
-  useEffect(() => {lifetime.current = true; return () => {lifetime.current = false; retireInvitation(); memberMoveRef.current?.dispose(); retireOwnerRecoveryContact(); retireOwnerReset(); retireSetupReview(); retireRecovery(); stopRetry(); operation.current?.dispose(); account.current?.dispose(); tvOff.current?.(); tv.current?.pause();};}, []);
+  useEffect(() => {lifetime.current = true; return () => {lifetime.current = false; retireInvitation(); memberMoveRef.current?.dispose(); retireOwnerRecoveryContact(); retireOwnerReset(); retireSetupReview(); retireRecovery(); stopRetry(); operation.current?.dispose(); account.current?.dispose();};}, []);
+  useLayoutEffect(() => {if (stage !== 'tv') retireTVOpening();}, [stage, retireTVOpening]);
   useLayoutEffect(() => {if (stage !== 'servers') retireOwnerRecoveryContact();}, [stage]);
   // Open one signup form per entry to the register stage. Its layout cleanup retires
   // that exact opening before the next effect or the unmount commit finishes, so a
@@ -279,7 +290,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     return () => {ticket.active = false; abort.abort(); for (const probe of probes) probe.dispose();};
   }, [stage, nearbyRefresh]);
   const run = async (work: () => Promise<void>) => {
-    if (busy || acting.current || adoptingTV.current || !lifetime.current) return; acting.current = true; setBusy(true); setError(undefined);
+    if (busy || acting.current || adoptingTV.current || tvOpening.current?.pending() || !lifetime.current) return; acting.current = true; setBusy(true); setError(undefined);
     const startedOperation = operation.current;
     try {await work();} catch (failure) {if (lifetime.current) {
       if (failure instanceof NativeSetupEnded) {
@@ -289,10 +300,9 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       if (endedTarget.current) {setPassword(''); setCode('');}
       if (failure instanceof MFARequiredError) {factorKind.current = 'portico'; setCode(''); setRecovery(false); setStage('factor');}
       else {if (stage === 'profile-pin' || (Platform.isTV && stage === 'factor' && !recovery)) setCode(''); setError(failure);}
-    }} finally {acting.current = false; if (lifetime.current) setBusy(adoptingTV.current);}
+    }} finally {acting.current = false; if (lifetime.current) setBusy(adoptingTV.current || tvOpening.current?.pending() === true);}
   };
-  const reset = () => {retireAccountWorkspace(); retireInvitationEntry(); retireInvitationSwitch(); invitationIntent.current = undefined; retireInvitation(); ownerResetIntent.current = undefined; endedTarget.current = undefined; retireOwnerRecoveryContact(); retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; preparedAuthSource.current = undefined; setAuthPrepareFailed(false); setRootAuthGeneration(value => value + 1); operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
-    tvOff.current?.(); tvOff.current = undefined; if (tv.current) void tv.current.cancel().catch(setError); tv.current = undefined;
+  const reset = () => {retireTVOpening(true); retireAccountWorkspace(); retireInvitationEntry(); retireInvitationSwitch(); invitationIntent.current = undefined; retireInvitation(); ownerResetIntent.current = undefined; endedTarget.current = undefined; retireOwnerRecoveryContact(); retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; preparedAuthSource.current = undefined; setAuthPrepareFailed(false); setRootAuthGeneration(value => value + 1); operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
     setPassword(''); setSetupReview(undefined); setSetupApprovalURL(undefined); setSetupPasswordConfirm(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setTarget(undefined); setError(undefined); retryDelay.current = 20; setRetryIn(20); setStage(initialStage);};
   const cancelDirectory = () => {retireOwnerRecoveryContact(); retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); retireRecovery(); stopRetry(); targetRef.current = undefined; ++directoryAttempt.current; operation.current?.dispose(); operation.current = undefined; acting.current = false; setBusy(false); setTarget(undefined); setError(undefined);};
   const openAccountWorkspace = (scope: Readonly<{accountId: string; familyId: string}> | undefined, isCurrent: () => boolean) => {
@@ -334,6 +344,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     return () => {off(); retire();};
   }, [incomingInvitation]);
   const back = () => {
+    if (stage === 'tv') {if (!adoptingTV.current) reset(); return;}
     if (stage === 'invitation-entry') {
       const external = invitationEntryOpening.current?.external;
       if (external) {if (external.current()) onBack?.(); return;}
@@ -364,6 +375,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   };
   backRef.current = back;
   useEffect(() => {const listener = BackHandler.addEventListener('hardwareBackPress', () => {
+    if (stageRef.current === 'tv' && !adoptingTV.current) {backRef.current(); return true;}
     if (busyRef.current || adoptingTV.current) return true;
     if (stageRef.current === 'welcome' && !onBackRef.current) return false;
     backRef.current(); return true;
@@ -466,23 +478,51 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   };
   directoryConnectRef.current = connectDirectory;
   const chooseAnother = () => cancelDirectory();
-  const startTV = async (kind: 'local' | 'portico') => {
-    setTVKind(kind); setTVState({phase: 'idle'});
-    const service = kind === 'local' ? operation.current!.localTVSignIn() : createNativePorticoTVSignIn();
-    tv.current = service; let adopting = false;
-    tvOff.current = service.subscribe(() => {
-      if (!lifetime.current) return;
-      const value = service.getSnapshot(), {grant: _grant, ...presentation} = value; setTVState(presentation);
-      if (value.phase === 'approved' && value.grant && !adopting) {
-        adopting = true; adoptingTV.current = true; setBusy(true);
-        void (async () => {
-          if (!service.isCurrent(value.grant as never)) return;
-          if (kind === 'portico') {const grant = value.grant as HostedSession; await nativeAccounts.adoptPorticoTVSession(grant); await (service as SetupCodeService<HostedSession>).complete(grant); await directory();}
-          else {const grant = value.grant as LocalSession; const result = await operation.current!.acceptLocalTVSession(grant); await (service as SetupCodeService<LocalSession>).complete(grant); consume(result);}
-        })().catch(failure => {if (lifetime.current) setError(failure);}).finally(() => {adoptingTV.current = false; if (lifetime.current) setBusy(acting.current);});
-      }
+  async function openTV<T>(capture: TVCodeCapture<T, NativeServerSignIn | undefined>,
+    accept: (grant: T, current: () => boolean) => Promise<(() => void | Promise<void>) | undefined>) {
+    const opening: TVCodeOpening = createTVCodeOpening(capture, {
+      owns: value => tvOpening.current === value,
+      current: original => lifetime.current && stageRef.current === 'tv'
+        && (original.kind !== 'local' || operation.current === original.source),
+      publish: (owner, state) => setTVView({opening: owner, state}),
+      busy: (pending, adopting) => {adoptingTV.current = adopting; setBusy(pending || acting.current);},
+      error: setError,
+      accept: async (original, grant, current) => {
+        if (!current()) return;
+        const finish = await accept(grant, current);
+        if (!current() || !finish) return;
+        const completed = await original.service.complete(grant);
+        if (!current() || !completed) return;
+        retireTVOpening(false, opening);
+        await finish();
+      },
+      replace: async (original, current) => {if (current()) await startTV(original.kind, original.source);},
+      credentials: async (original, current) => {await typeTVCredentials(original.kind, current, opening);},
     });
-    setStage('tv'); await service.start();
+    retireTVOpening();
+    tvOpening.current = opening; stageRef.current = 'tv';
+    setTVKind(capture.kind); setTVView({opening, state: {phase: 'idle'}}); setError(undefined);
+    // The opening, not the caller's generic run(), owns this durable await.
+    // Back may leave it while storage is pending without a late run-finally
+    // clearing a successor's busy state.
+    setStage('tv'); void opening.start();
+  }
+  const startTV = async (kind: TVCodeKind, originalSource = operation.current) => {
+    if (!lifetime.current) return;
+    if (kind === 'local') {
+      const source = originalSource;
+      if (!source || operation.current !== source || !lifetime.current) return;
+      return openTV({kind, source, service: source.localTVSignIn()}, async (grant, current) => {
+        if (!current()) return;
+        const result = await source.acceptLocalTVSession(grant);
+        if (current()) return () => consume(result);
+      });
+    }
+    return openTV({kind, source: undefined, service: createNativePorticoTVSignIn()}, async (grant, current) => {
+      if (!current()) return;
+      await nativeAccounts.adoptPorticoTVSession(grant);
+      if (current()) return directory;
+    });
   };
   const portico = async (auto?: {active: boolean; entry: {active: boolean}}) => {
     const autoCurrent = () => !auto || (auto.active && auto.entry === rootEntry.current && stageRef.current === 'welcome');
@@ -684,18 +724,16 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     setIdentityCode(''); setIdentityWrong(false); await inspect(capturedOrigin);
   };
   const choose = async (id: string, enteredPin?: string) => {await operation.current!.chooseProfile(id, enteredPin); onComplete();};
-  const cancelTV = async () => {
-    const service = tv.current;
-    tvOff.current?.(); tvOff.current = undefined;
-    if (service) await service.cancel();
-    if (tv.current === service) tv.current = undefined;
-  };
-  const typeTVCredentials = async () => {
-    await cancelTV(); if (!lifetime.current) return;
-    if (tvKind === 'portico') {
+  const typeTVCredentials = async (kind: TVCodeKind, current: () => boolean, opening: TVCodeOpening) => {
+    if (!current()) return;
+    if (kind === 'portico') {
       account.current?.dispose(); const next = account.current = new NativePorticoSignIn();
-      const available = await next.prepare(); if (!lifetime.current) return; setOptions(available);
+      const available = await next.prepare();
+      if (!current()) {if (account.current === next) {next.dispose(); account.current = undefined;} return;}
+      setOptions(available);
     }
+    if (!current()) return;
+    retireTVOpening(false, opening); stageRef.current = 'tv-credentials';
     setPassword(''); setCode(''); setRecoveryCode(''); setRecovery(false); setStage('tv-credentials');
   };
   const returnToTVCode = async () => {
@@ -714,7 +752,9 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const codeField = (label: string, value: string, change: (next: string) => void) => field(label, value, change, false, undefined, undefined, undefined, undefined, true);
   const fields = (...children: React.ReactNode[]) => <View style={{alignSelf: 'stretch', width: theme.isTV ? 720 : undefined, gap: 14, marginBottom: 20}}>{children}</View>;
   const action = (id: string, label: string, work: () => Promise<void>, disabled = false) => ({id, label, disabled: busy || disabled, loading: busy, onPress: () => {void run(work);}});
-  const backAction = stage !== 'welcome' || onBack ? {id: 'back', label: t('action.back'), disabled: busy, onPress: back} : undefined;
+  const renderedTV = stage === 'tv' ? tvView?.opening : undefined;
+  const codeBack = () => {if (renderedTV?.current()) back();};
+  const backAction = stage !== 'welcome' || onBack ? {id: 'back', label: t('action.back'), disabled: busy, onPress: stage === 'tv' ? codeBack : back} : undefined;
   const failure = error ? presentError(error, stage === 'profile-pin' ? 'profiles' : 'sign-in') : undefined;
   const status = failure && !failure.silent ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginBottom: 16}]}>{failure.body}</Text> : null;
   const directoryView = stage === 'servers' ? directoryFailure(target, error) : 'other';
@@ -1539,16 +1579,16 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const consentBody = tvKind === 'local' && server
     ? tvState.verificationUri ? t('accounts.consent.local', {server: server.name, address: tvState.verificationUri}) : undefined
     : t('accounts.consent.portico');
+  const newCode = tvState.phase === 'error' || tvState.phase === 'denied' || error
+    ? () => {void renderedTV?.newCode();} : undefined;
   if (Platform.isTV) return <TVCodePresenter {...(tvKind === 'local' ? {mode: 'local' as const, serverName: server!.name} : {mode: 'portico' as const})} body={consentBody}
     verificationUri={tvState.verificationUri} verificationUriComplete={tvState.verificationUriComplete} userCode={tvState.userCode}
     status={<>{status}<Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t(tvState.phase === 'denied' ? 'activation.declined' : tvState.phase === 'error' ? 'activation.failed' : 'activation.codeRefreshes')}</Text></>}
-    busy={busy} onTypeCredentials={() => {void run(typeTVCredentials);}} onBack={back}/>;
+    busy={busy} onTypeCredentials={() => {void renderedTV?.credentials();}} onBack={codeBack} onNewCode={newCode}/>;
   return layout(t('activation.title'), consentBody,
     <View style={{gap: 16, marginBottom: 20}}>{tvState.verificationUriComplete && <QRCode value={tvState.verificationUriComplete} size={theme.isTV ? 240 : 180}/>}
       <Text selectable style={[theme.type.title, {color: theme.colors.text}]}>{tvState.userCode ?? t('activation.preparingCode')}</Text>
       {tvState.verificationUri && <Text selectable style={[theme.type.body, {color: theme.colors.textSecondary}]}>{tvState.verificationUri}</Text>}
       <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t(tvState.phase === 'denied' ? 'activation.declined' : tvState.phase === 'error' ? 'activation.failed' : 'activation.codeRefreshes')}</Text></View>,
-    tvState.phase === 'error' || tvState.phase === 'denied' || error ? action('new-code', t('activation.getNewCode'), async () => {
-      tvOff.current?.(); tvOff.current = undefined; await tv.current!.cancel(); await startTV(server?.signIn === 'local' ? 'local' : 'portico');
-    }) : undefined);
+    newCode ? {id: 'new-code', label: t('activation.getNewCode'), disabled: busy, loading: busy, onPress: newCode} : undefined);
 }

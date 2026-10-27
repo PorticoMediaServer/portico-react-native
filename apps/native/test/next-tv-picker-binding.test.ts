@@ -1,3 +1,4 @@
+import * as tvCodeOpening from '../src-next/screens/accounts/tv-code-opening';
 import * as setupOutcome from '../src-next/platform/setup-outcome';
 import * as passwordPolicy from '../../../packages/client-core/src/password-strength';
 import test from 'node:test';
@@ -51,6 +52,7 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
     dispose() {calls.push('dispose');}
   }
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
+    './tv-code-opening': tvCodeOpening,
     ...shared(back), '../../../../../packages/client-core/src': {},
     '../../../../../packages/client-core/src/sign-in': {},
     '../../../../../packages/client-core/src/hosted-security': {MFARequiredError: class extends Error {}},
