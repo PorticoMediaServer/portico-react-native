@@ -43,7 +43,7 @@ const child = (tree: any, id: string): any => {
   }
   return undefined;
 };
-function fixture(isTV = false) {
+function fixture(isTV = false, failed?: (...args: any[]) => unknown) {
   window = {width: 890, height: 626}; posture = {status: 'unavailable', window: null, folds: []};
   let source: any = {authority, fence, retired: false, dock: {local: {fence, expanded: true, kind: 'video'}}, playback: {intent: 'playing'}};
   const listeners = new Set<() => void>(), calls: string[] = [], reveals: number[] = [];
@@ -53,7 +53,7 @@ function fixture(isTV = false) {
   const setPresentation = (context: any) => {calls.push('presentation'); controls.source(source.fence, {...context, expanded: source.dock.local?.expanded === true, paused: source.playback.intent === 'paused'});};
   const reveal = controls.revealAfterLayout.bind(controls);
   controls.revealAfterLayout = (f, deadline) => {calls.push('reveal'); reveals.push(deadline); return reveal(f, deadline);};
-  const bindings = {chrome: () => ({quality: 'actual selected quality'}), panel: () => null, content: () => null};
+  const bindings = {chrome: () => ({quality: 'actual selected quality'}), panel: () => null, content: () => null, failed};
   let tree: any;
   const current = () => authority;
   const host = createHookHost(() => {tree = NativeWatchHost({authority, current, playback, outlet, runtime: {text: {}}, controls, bindings, setPresentation, isTV});});
@@ -117,5 +117,19 @@ test('panel state suppresses fold reveal, closing alone does not reveal, docked/
     assert.equal(d.tree(), null); assert.equal(d.outlet.getSnapshot(), undefined);
     await act(() => {d.source({fence: undefined, dock: {}});});
     assert.equal(d.tree(), null);
+  } finally {d.dispose();}
+});
+
+
+test('handheld failed fence is presented only while its panel does not own the space', async () => {
+  const failures: any[] = [], d = fixture(false, (_host, failure) => {failures.push(failure); return 'failure';});
+  try {
+    await act(() => d.source({playback: {intent: 'playing', phase: 'error', positionSeconds: 42}, capabilities: {retry: true}}));
+    assert.ok(child(d.tree(), 'watch-failed-pane'));
+    assert.equal(failures.at(-1).fence, fence);
+    await act(() => d.controls.open('audio', fence));
+    assert.equal(child(d.tree(), 'watch-failed-pane'), undefined);
+    await act(() => d.controls.closePanel(fence));
+    assert.ok(child(d.tree(), 'watch-failed-pane'));
   } finally {d.dispose();}
 });

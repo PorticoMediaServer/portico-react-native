@@ -215,7 +215,7 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   // to that region only when the control really exists this render.
   const failureAction = isTV && !panelOpen && !!failureRef.current && source.playback.phase === 'error'
     && source.capabilities.retry === true && !!playback.retry && !!fence && sameFence(source.fence, failureRef.current.failure.fence);
-  const failed = bindings.failed && isTV && !panelOpen && failureRef.current
+  const failed = bindings.failed && !panelOpen && failureRef.current
     ? bindings.failed(context, failureRef.current.failure, state.visible) : undefined;
   const content = <Animated.View testID="watch-panes" pointerEvents={initialPlayer && !initialPlayer.controlsAdmitted ? 'none' : 'box-none'} accessibilityElementsHidden={!!initialPlayer && !initialPlayer.controlsAdmitted}
     importantForAccessibility={initialPlayer && !initialPlayer.controlsAdmitted ? 'no-hide-descendants' : 'auto'} style={[{position: 'absolute', inset: 0}, paneFadeStyle]}>
