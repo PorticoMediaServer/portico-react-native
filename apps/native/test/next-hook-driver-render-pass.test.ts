@@ -52,7 +52,7 @@ test('an effect queued by a discarded render pass never commits', () => {
   const host = createHookHost(() => {
     const pass = ++renders;
     const [value, setValue] = React.useState(0);
-    React.useEffect(() => {committed.push(pass);}, []);
+    React.useEffect(() => {committed.push(pass);}, [pass]);
     if (value === 0) setValue(1);
   });
   try {
