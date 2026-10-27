@@ -52,7 +52,7 @@ export function RememberedDownloadsScreen({source, onBack}: {source: RememberedD
       <Button variant="text" onPress={back}>{t('action.back')}</Button>
       <Text accessibilityRole="header" style={[theme.type.title, {color: theme.colors.text}]}>{t('downloads.title')}</Text>
       {source.player ? <RememberedPlayer player={source.player} width={dimensions.width} busy={busy} current={current} run={run}/> : null}
-      {failure && <Text accessibilityRole="alert" style={[theme.type.body, {color: theme.colors.textSecondary}]}>{presentError(failure, 'home').body}</Text>}
+      {!!failure && <Text accessibilityRole="alert" style={[theme.type.body, {color: theme.colors.textSecondary}]}>{presentError(failure, 'home').body}</Text>}
       {entries.map(entry => <Button key={downloadEntryIdentity(entry)} variant="glass" disabled={busy} onPress={() => play(entry)}>{entry.title}</Button>)}
       {!entries.length && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('downloads.emptyTitle')}</Text>}
     </ScrollView>
