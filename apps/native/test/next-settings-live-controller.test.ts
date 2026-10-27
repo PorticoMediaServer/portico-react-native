@@ -704,7 +704,7 @@ test('Resolve preserves the real DVRClient dispatch fence across request-ID crea
   const retired = opening.resolve(seed).then(() => undefined, error => error); pending.push(retired);
   assert.equal(allocations, 1); assert.ok(finishId, 'the real request-ID provider was entered');
   opening.dispose(); finishId('b'.repeat(48));
-  const retiredError = await bounded(retired); assert.equal(retiredError?.name, 'AbortError'); assert.deepEqual(requests, []);
+  const retiredError = await bounded(retired); assert.equal(retiredError?.name, 'AbortError'); assert.equal(requests.length, 0);
   opening = controller.detailOpening(recording, () => true); const liveSeed = await opening.read();
   const live = opening.resolve(liveSeed).then(() => undefined, error => error); pending.push(live);
   assert.equal(await bounded(live), transportStop); assert.equal(allocations, 1);
