@@ -19,20 +19,24 @@ export function homeSpotlightFocusActions(entry: Parameters<typeof homeEntryCapa
   return {offers, order};
 }
 export type HomeStartModel = Readonly<{
-  ids: ReturnType<typeof tvFocusIds>; resolved: boolean; spotlightActions: boolean; fallbacks: readonly string[];
+  ids: ReturnType<typeof tvFocusIds>; resolved: boolean; actionless: boolean; spotlightActions: boolean; fallbacks: readonly string[];
 }>;
 /** Only a document admitted to this immutable authority proves permanent absence. */
 export function homeStartModel(document: HomeDocument | undefined, authority: ShellAuthority, options: Readonly<{
   rows?: readonly string[]; readLibraryIds?: ReadonlySet<string>; mixesReady?: boolean; playbackAvailable?: boolean;
 }> = {}): HomeStartModel {
   const ids = tvFocusIds(authority), admitted = authorizedHome(document, authority);
-  if (!admitted) return {ids, resolved: false, spotlightActions: false, fallbacks: []};
-  const rows = options.rows ?? platformRows(admitted, 'tv', options.readLibraryIds ?? new Set()).filter(homeRowHasContent).map(row => row.id);
-  return {ids, resolved: true,
+  if (!admitted) return {ids, resolved: false, actionless: false, spotlightActions: false, fallbacks: []};
+  const eligible = platformRows(admitted, 'tv', options.readLibraryIds ?? new Set());
+  const rows = options.rows ?? eligible.filter(homeRowHasContent).map(row => row.id);
+  const noContent = !admitted.spotlight.length && !rows.length && !options.mixesReady;
+  const deferred = eligible.some(row => row.deferred === true && !homeRowHasContent(row));
+  return {ids, resolved: !noContent || !deferred, actionless: noContent && !deferred,
     spotlightActions: homeSpotlightModels(admitted).some(model => homeSpotlightFocusActions(model.entry, model.primary?.entry, {platform: 'tv', playbackAvailable: options.playbackAvailable === true}).order.length > 0),
-    fallbacks: [...rows.map(ids.row), ...(options.mixesReady ? [ids.row(homeMixesFocusRow)] : []), ids.customize]};
+    fallbacks: noContent ? [] : [...rows.map(ids.row), ...(options.mixesReady ? [ids.row(homeMixesFocusRow)] : []), ids.customize]};
 }
-export type HomeStartResolution = Readonly<{kind: 'waiting'; address?: undefined}> | Readonly<{kind: 'ready'; address: FocusAddress}>;
+export type HomeStartResolution = Readonly<{kind: 'waiting'; address?: undefined}>
+  | Readonly<{kind: 'empty'; address?: undefined}> | Readonly<{kind: 'ready'; address: FocusAddress}>;
 type StartRegistry = Pick<FocusRegistry, 'entryAddress' | 'config' | 'host'>;
 const waiting: HomeStartResolution = {kind: 'waiting'};
 
@@ -56,6 +60,7 @@ function renderedFallbacks(registry: StartRegistry, model: HomeStartModel): read
 /** No host is invented. Waiting is distinct from a permanently absent Play action. */
 export function resolveTVHomeStart(registry: StartRegistry, model: HomeStartModel): HomeStartResolution {
   if (!model.resolved) return waiting;
+  if (model.actionless) return {kind: 'empty'};
   const primary = registry.entryAddress(model.ids.spotlight);
   if (primary) return {kind: 'ready', address: primary};
   const declared = registry.config(model.ids.spotlight);
@@ -76,7 +81,7 @@ export type HomeMenuState = Readonly<{
   scrolled: boolean; account: boolean; rail: boolean; chromeHidden: boolean; contentVisible: boolean; overlay: boolean;
 }>;
 export function canYieldTVHomeMenu(start: HomeStartResolution, focused: FocusAddress | undefined, state: HomeMenuState): boolean {
-  return start.kind === 'ready' && state.home && state.visible && !state.obscured && !state.expanded && !state.listening
+  return start.kind !== 'waiting' && state.home && state.visible && !state.obscured && !state.expanded && !state.listening
     && !state.scrolled && !state.account && !state.rail && !state.chromeHidden && state.contentVisible && !state.overlay
-    && focused?.regionId === start.address.regionId && focused.childId === start.address.childId;
+    && (start.kind === 'empty' || focused?.regionId === start.address.regionId && focused.childId === start.address.childId);
 }

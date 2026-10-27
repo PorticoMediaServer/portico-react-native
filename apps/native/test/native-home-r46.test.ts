@@ -2,6 +2,8 @@ import {createInitialRegionEntry} from '../src-next/kit/focus/initial-entry.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
+import {heroSpec} from '@portico/design';
+import {presentError} from '../../../packages/client-core/src/presentation/errors';
 import {defaultI18n, type I18n} from '../../../packages/i18n/src';
 import {homeRowPresentation, homeSpotlightModels} from '../../../packages/client-core/src/presentation/home-spotlight';
 import {homeRowHasContent} from '../src-next/screens/home/model';
@@ -14,6 +16,10 @@ import {tvFocusIds, tvHomeRegionMap} from '../src-next/shell/tv-focus';
 import {NativeHomePaging} from '../src-next/shell/home-paging';
 import {tvHomeRows} from '../src-next/screens/home/tv-presentation';
 import * as homeStart from '../src-next/screens/home/home-start';
+import {authorityKey} from '../src-next/shell/model';
+import {act, createHookHost} from './hook-driver';
+import * as pageBack from '../src-next/screens/destinations/tv-page-back';
+import * as homeModel from '../src-next/screens/home/model';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 const descendants = (node: any): any[] => Array.isArray(node) ? node.flatMap(descendants) : node?.props ? [node, ...descendants(node.props.children)] : [];
@@ -162,16 +168,17 @@ test('the drawn phone facts badge is 9 px padding, .28 border and a 700 year; TV
   }
 });
 
-async function homeModule(theme: typeof phoneTheme | (() => typeof phoneTheme), rows: readonly any[], react: any = {...React, default: React}, registry = createFocusRegistry()) {
+async function homeModule(theme: typeof phoneTheme | (() => typeof phoneTheme), rows: readonly any[], react: any = {...React, default: React}, registry = createFocusRegistry(), bindings: Record<string, any> = {}) {
   return screenModule(new URL('../src-next/screens/home/HomeScreen.tsx', import.meta.url), {
-    react,
-    'react-native': {AppState: {currentState: 'active'}, RefreshControl: 'RefreshControl', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
+    react: {...react, useLayoutEffect: react.useLayoutEffect ?? react.useEffect}, '@portico/design': {heroSpec},
+    'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, RefreshControl: 'RefreshControl', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
     'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (fn: unknown) => fn, useAnimatedScrollHandler: (fn: unknown) => fn},
     '../../../../../packages/i18n/src': {defaultI18n},
     '../../../../../packages/client-core/src/home': {},
     '../../../../../packages/client-core/src/library-content': {},
     '../../../../../packages/client-core/src/presentation/home-spotlight': {homeRowPresentation, homeSpotlightModels, homeTitleFactParts: () => []},
     '../../../../../packages/client-core/src/home-selection': {homeEntryCapabilities: () => ({playable: true, details: true, watchlisted: false})},
+    '../../../../../packages/client-core/src/presentation/errors': {presentError},
     '../../../../../packages/client-core/src/presentation/server-text': {serverTextLabel},
     '../../../../../packages/client-core/src/presentation/kit-model': {},
     '../../platform/ArtworkPipeline': {}, '../../kit/artwork': {AmbientArt: 'AmbientArt'}, '../../kit/controls': {Button: 'Button'},
@@ -184,13 +191,16 @@ async function homeModule(theme: typeof phoneTheme | (() => typeof phoneTheme), 
     '../../kit/layout/types': {itemSelection: () => ({})},
     '../../kit/states': {LoadingPaint: 'LoadingPaint', StateView: 'StateView', HomeSkeleton: 'HomeSkeleton', SkeletonBlock: 'SkeletonBlock'},
     '../../platform/home-action-diagnostics': {homeActionDiagnostics: {action() {}}},
-    '../../kit/theme': {nativeType, useTheme: typeof theme === 'function' ? theme : () => theme}, '../../shell/model': {sameAuthority: (a: unknown, b: unknown) => a === b},
+    '../../kit/theme': {nativeType, useTheme: typeof theme === 'function' ? theme : () => theme}, '../../shell/model': {authorityKey, sameAuthority: (a: unknown, b: unknown) => a === b},
     './HomeHeroFacts': {HomeHeroFacts: 'HomeHeroFacts', HomeRemoteHint: 'HomeRemoteHint'},
     './model': {authorizedHome: (value: unknown) => value, platformRows: () => rows, homeRowHasContent, homeCardText: () => ({title: 'x'}), homePlayTarget: () => undefined, pageAtVisibleEnd: () => false},
+    '../../platform/platformPosture': {usePlatformPosture: () => ({status: 'unavailable'})}, '../destinations/useTVPageBack': {useTVPageBack() {}},
+    '../destinations/music/MusicMixesRow': {MusicMixesRow: 'MusicMixesRow'}, './TvHomeRecovery': {TvHomeRecovery: 'Recovery'}, './useTvHomeRecovery': {useTvHomeRecovery: () => ({visible: false})},
+    ...bindings,
   });
 }
 
-test('resolved empty TV Home keeps the real Customize control and native region instead of returning text alone', async () => {
+test('resolved empty TV Home retains its authored actionless composition', async () => {
   const h = hooks(), authority = {serverId: 'actual', viewerFence: 'viewer'};
   const document = {rows: [], spotlight: [], serverId: authority.serverId, viewerFence: authority.viewerFence};
   let opened = 0;
@@ -206,10 +216,8 @@ test('resolved empty TV Home keeps the real Customize control and native region 
   const tree = h.render(() => HomeScreen({runtime, authority}));
   assert.ok(descendants(tree).includes(emptyCopy));
   assert.equal(descendants(tree).some(node => node.type === 'Hero'), false, 'no absent Spotlight paint/controls are introduced');
-  const control = descendants(tree).find(node => node.type === 'Button' && node.props.focusId === 'customize');
-  assert.ok(control); control.props.onPress(); assert.equal(opened, 1);
-  const region = descendants(tree).find(node => node.props.focus?.id === tvFocusIds(authority as any).customize);
-  assert.deepEqual(region.props.focus.order, ['customize']);
+  assert.equal(descendants(tree).some(node => node.type === 'Button' || node.props.focus || node.type === 'FocusRegion'), false);
+  assert.equal(descendants(tree).some(node => node.type === 'ScrollView'), false); assert.equal(opened, 0);
 });
 
 test('phone Home wires the drawn row rhythm, the 13 px sub-line and the live row sub-line', async () => {
@@ -318,4 +326,77 @@ test('the actual TV Home keycap hint uses the supplied current translator withou
   const view = HomeRemoteHint({resume: true, text: {t}});
   const words = labels(view);
   for (const key of ['next.layout.ok', 'next.layout.holdOk', 'next.home.resume', 'next.layout.moreOptions'] as const) assert.ok(words.includes(t(key)));
+});
+
+/** Actual Home renderer + PageBack hook/owner/registry; service, scroll and native hosts are controlled boundaries. */
+async function homeBackFixture(initial: any, prior?: {regionId: string; childId: string}) {
+  const authority = {serverId: 'actual', accountId: 'account', profileId: 'profile', epoch: 'original', viewerFence: 'viewer'};
+  const registry = createFocusRegistry(), callbacks: (() => boolean)[] = [], backs = new Set<() => boolean>();
+  const snapshot = {authority, destination: {kind: 'home'}, contentVisible: true, homeVisible: true, homeObscured: false, mediaExpanded: false, selectionActive: false, libraries: []};
+  let state = {phase: 'ready', document: initial}, tree: any, moves = 0, requests = 0;
+  const scrolled: boolean[] = [], vertical = {scrollRef: {}, offset: {value: 180}, repeating: false, stop() {}, move() {moves++;}, anchor() {}};
+  if (prior) registry.didFocus(prior);
+  const runtime: any = {home: {subscribe: () => () => {}, getSnapshot: () => state, load: async () => {}, more: async () => {}},
+    getSnapshot: () => snapshot, text: defaultI18n, selection: () => ({}), artwork() {}, ambient() {}, setHomeWindow() {}, reportError(error: unknown) {throw error;}, onArtworkError() {},
+    renderHomeEmpty: () => ({type: 'EmptyCopy', props: {}}), actions: {customize() {assert.fail('no empty-state command');}},
+    registerTVPageBack: (back: () => boolean) => {callbacks.push(back); backs.add(back); return () => {backs.delete(back);};}, registerScrollToTop: () => () => {}};
+  const hook = await screenModule(new URL('../src-next/screens/destinations/useTVPageBack.ts', import.meta.url), {
+    react: {...React, default: React}, '../../kit/focus': {useFocusRegistry: () => registry}, './tv-page-back': pageBack});
+  const {HomeScreen} = await homeModule(tvTheme, [], {...React, default: React}, registry, {
+    './model': homeModel, '../destinations/useTVPageBack': hook, '../../kit/layout/FocusAnchor': {useFocusAnchor: () => vertical}});
+  const host = createHookHost(() => {tree = HomeScreen({runtime, authority, onScrolledChange: (value: boolean) => scrolled.push(value)});});
+  await act(() => host.mount());
+  return {registry, runtime, host, snapshot, callbacks, scrolled, authority, vertical,
+    tree: () => tree, counts: () => ({moves, requests}), back: () => [...backs].at(-1)!(),
+    async replace(document: any) {state = {phase: 'ready', document}; await act(() => host.rerender());},
+    attach(address: {regionId: string; childId: string}) {registry.attach(address, {requestTVFocus() {requests++; registry.didFocus(address);}});}};
+}
+const emptyDocument = () => ({serverId: 'actual', viewerFence: 'viewer', rows: [], spotlight: [],
+  layout: {revision: 1, rowOrder: [], hiddenRowIds: []}, revision: {catalog: 1, viewer: 1}, generatedAt: '2026-10-27T00:00:00Z'});
+
+for (const prior of [undefined, {regionId: 'removed.row', childId: 'old'}]) test(`actual empty TV Home creates no action/target/pending jump with prior focus ${JSON.stringify(prior)}`, async () => {
+  const f = await homeBackFixture(emptyDocument(), prior);
+  try {
+    const tree = f.tree(); assert.ok(descendants(tree).some(node => node.type === 'EmptyCopy'));
+    assert.equal(descendants(tree).some(node => node.type === 'Button' || node.type === 'FocusRegion' || node.type === 'ScrollView' || node.props.focus), false);
+    for (let index = 0; index < 8; index++) assert.equal(f.back(), false);
+    assert.deepEqual(f.counts(), {moves: 0, requests: 0});
+    f.attach({regionId: 'late.removed', childId: 'host'}); f.registry.configure({id: 'late.removed', order: ['host']});
+    assert.deepEqual(f.counts(), {moves: 0, requests: 0}, 'registry notifications expose no hidden pending jump');
+    assert.equal(f.registry.host(tvFocusIds(f.authority).customize), undefined);
+  } finally {f.host.unmount();}
+});
+
+test('actual Home retires a deferred Back jump on admitted-empty transition, clearing prior scroll without a focus/scroll command', async () => {
+  const deferred = {...emptyDocument(), rows: [{id: 'pending', title: 'Pending', kind: 'ordinary', artworkShape: 'poster', entries: [], deferred: true}]};
+  const f = await homeBackFixture(deferred);
+  try {
+    assert.equal(descendants(f.tree()).some(node => node.type === 'EmptyCopy'), false, 'deferred descriptors are not empty paint');
+    const old = f.callbacks.at(-1)!;
+    for (let index = 0; index < 8; index++) assert.equal(f.back(), true);
+    assert.deepEqual(f.counts(), {moves: 1, requests: 0}, 'genuine deferred target keeps one pending jump');
+    await act(() => descendants(f.tree()).find(node => node.type === 'ScrollView').props.onScroll({contentOffset: {y: 180}}));
+    await f.replace(emptyDocument());
+    assert.equal(old(), false, 'the old content owner is synchronously retired by the existing hook scope');
+    for (let index = 0; index < 8; index++) assert.equal(f.back(), false);
+    assert.deepEqual(f.scrolled, [true, false]);
+    f.attach({regionId: 'pending', childId: 'late'}); assert.deepEqual(f.counts(), {moves: 1, requests: 0});
+  } finally {f.host.unmount();}
+});
+
+test('an actionless Home keeps the original independent mixes reader mounted and returns to its real offered row', async () => {
+  const f = await homeBackFixture(emptyDocument());
+  const mixes = {phase: 'loading', rows: [] as any[]};
+  const port = {subscribe: () => () => {}, getSnapshot: () => mixes};
+  try {
+    f.runtime.mixes = port; await f.replace(emptyDocument());
+    const reader = descendants(f.tree()).find(node => node.type === 'MusicMixesRow');
+    assert.equal(reader.props.port, port); assert.ok(descendants(f.tree()).some(node => node.type === 'EmptyCopy'));
+    assert.equal(descendants(f.tree()).some(node => node.type === 'Button'), false);
+    mixes.phase = 'ready'; mixes.rows = [{id: 'original-mix'}]; await f.replace(emptyDocument());
+    assert.equal(descendants(f.tree()).some(node => node.type === 'EmptyCopy'), false);
+    const offered = descendants(f.tree()).find(node => node.type === 'MusicMixesRow'); assert.equal(offered.props.port, port);
+    assert.equal(offered.props.focus.id, tvFocusIds(f.authority).row(homeStart.homeMixesFocusRow));
+    assert.equal(descendants(f.tree()).some(node => node.type === 'Button' && node.props.focusId === 'customize'), true, 'real nonempty content retains its existing footer');
+  } finally {f.host.unmount();}
 });

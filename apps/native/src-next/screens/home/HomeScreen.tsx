@@ -161,13 +161,6 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const vertical = useFocusAnchor(false, theme.isTV && active);
   const moveToTop = vertical.move;
   useEffect(() => !theme.isTV ? runtime.registerScrollToTop({kind: 'home'}, () => moveToTop(0, true)) : undefined, [runtime, moveToTop, theme.isTV]);
-  useTVPageBack(runtime, {kind: 'home'}, theme.isTV, {
-    registerTop: true,
-    current: () => active && foreground && sameAuthority(authority, runtime.getSnapshot().authority),
-    start: () => resolveStart().address,
-    atTop: () => vertical.offset.value <= 0 && resolveStart().kind === 'ready',
-    scrollTop: () => {moveToTop(0, true); setFocus(undefined);},
-  });
   const current = useCallback(() => {
     try {return sameAuthority(authority, runtime.getSnapshot().authority);}
     catch (error) {if (error instanceof Error && error.name === 'AbortError') return false; throw error;}
@@ -202,6 +195,19 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const mixesRegion = regionMap.rows.get(mixesFocusRow);
   const startModel = homeStartModel(document, authority, {rows: rows.map(row => row.id), readLibraryIds: readLibraries, mixesReady: hasMixes, playbackAvailable: !!runtime.playback});
   const resolveStart = useCallback(() => resolveTVHomeStart(registry, startModel), [registry, startModel]);
+  useTVPageBack(runtime, {kind: 'home'}, theme.isTV, {
+    // A pending jump from removed content cannot survive an actionless page.
+    scope: startModel.actionless ? 'empty' : 'content', registerTop: true,
+    current: () => active && foreground && sameAuthority(authority, runtime.getSnapshot().authority),
+    start: () => resolveStart().address,
+    atTop: () => {const start = resolveStart(); return start.kind === 'empty' || vertical.offset.value <= 0 && start.kind === 'ready';},
+    scrollTop: () => {moveToTop(0, true); setFocus(undefined);},
+  });
+  useLayoutEffect(() => {
+    if (theme.isTV && startModel.actionless && scrolled.current && !runtime.retirementSignal?.aborted && current()) {
+      scrolled.current = false; onScrolledChange?.(false);
+    }
+  }, [current, onScrolledChange, runtime, startModel.actionless, theme.isTV]);
   const ranges = useRef(new Map<string, {first: number; last: number; keys?: readonly string[]}>());
   const viewportHeight = windowHeight, viewportWidth = windowWidth;
 
@@ -289,14 +295,16 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     renderThumbnail={candidate => <Artwork source={runtime.artwork(candidate.entry.backdropUrl ?? candidate.entry.posterUrl)} width={heroSpec.thumbnail.width} height={heroSpec.thumbnail.height}/>}
     onArtworkError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/>;
   const contentHeight = useRef(viewportHeight);
+  const mixesContent = runtime.mixes ? <MusicMixesRow focusScope={`home:${authorityKey(authority)}.mixes`} port={runtime.mixes} artwork={runtime.artwork} reportError={runtime.reportError} title={t('music.mixesForYou')} onOpen={runtime.musicDiscover} active={active}
+    focus={theme.isTV && mixesRegion ? {id: mixesRegion.id, up: mixesRegion.edges.up!, down: mixesRegion.edges.down, left: ids.rail} : undefined}/> : null;
   if (!document) return recovery.visible && recovery.session
     ? <TvHomeRecovery session={recovery.session} onRetryNow={recovery.retryNow} onSwitchServer={recovery.switchServer} connectionFacts={runtime.connectionFacts}/>
     : snapshot.error ? <StateView {...runtime.error(snapshot.error, () => guarded(() => {void runtime.home.retry();}))}/>
     : <LoadingPaint ready={false} quietMs={0} skeleton={<HomeSkeleton elapsedMs={loadingElapsed} visible={active && foreground}/>}/>;
-  const empty = !document.spotlight.length && !rows.length && !hasMixes;
-  // TV retains its real Customize footer even when the resolved document has no
-  // Spotlight or rows. That control, rather than an absent Play, is its start.
-  if (!theme.isTV && !document.spotlight.length && !rows.length) return <LoadingPaint ready immediate={cachedAtMount.current} skeleton={null}>{runtime.renderHomeEmpty()}</LoadingPaint>;
+  // A resolved actionless TV page has no action region. Keep the independent
+  // mixes reader mounted: it paints nothing until it has a real offered row.
+  if (theme.isTV ? startModel.actionless : !document.spotlight.length && !rows.length) return <LoadingPaint ready immediate={cachedAtMount.current} skeleton={null}>
+    {runtime.renderHomeEmpty()}{theme.isTV ? mixesContent : null}</LoadingPaint>;
 
   return <LoadingPaint ready immediate={cachedAtMount.current} skeleton={null}><Animated.ScrollView ref={vertical.scrollRef} testID="native-home" style={vertical.scrollStyle} scrollEventThrottle={16} onScroll={onScroll}
     refreshControl={theme.isTV ? undefined : <RefreshControl refreshing={refreshing} tintColor={theme.colors.text} onRefresh={() => {
@@ -306,7 +314,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     }}/>}
     onContentSizeChange={(_, height) => {contentHeight.current = height;}} onScrollBeginDrag={vertical.stop}
     showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: homeContentBottom(theme, bottomInset)}}>
-    {theme.isTV && empty ? runtime.renderHomeEmpty() : <View style={{height: homeHeroBlock(theme, heroHeight, !!preview)}}>
+    <View style={{height: homeHeroBlock(theme, heroHeight, !!preview)}}>
       {/* tv-focus frames1..3: the real spotlight controls stay mounted for native
           Up guides while the preview covers them. Focus restores the spotlight. */}
       {theme.isTV ? <View pointerEvents={preview ? 'none' : 'box-none'} style={{position: 'absolute', inset: 0}}>{spotlight}</View> : spotlight}
@@ -315,7 +323,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
         renderMetadata={candidate => <HomeHeroFacts facts={candidate.facts ?? []} continuation={homeCardText(candidate.entry, true, runtime.text)}/>}
         renderHint={candidate => <HomeRemoteHint resume={!!candidate.target?.progressSeconds} text={runtime.text}/>}
         onPreviewError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/></View>}
-    </View>}
+    </View>
     {rows.map((row, rowIndex) => {
       const sourceRow = document.rows.find(value => value.id === row.id);
       if (!sourceRow) return null;
@@ -360,8 +368,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
       </View></HomeWindow>;
     })}
     {pendingRows.map(row => <HomePendingRow key={`pending:${row.id}`} row={row} labels={labels} viewportWidth={viewportWidth}/>)}
-    {runtime.mixes ? <MusicMixesRow focusScope={`home:${authorityKey(authority)}.mixes`} port={runtime.mixes} artwork={runtime.artwork} reportError={runtime.reportError} title={t('music.mixesForYou')} onOpen={runtime.musicDiscover} active={active}
-      focus={theme.isTV && mixesRegion ? {id: mixesRegion.id, up: mixesRegion.edges.up!, down: mixesRegion.edges.down, left: ids.rail} : undefined}/> : null}
+    {mixesContent}
     <HomeRegion focus={theme.isTV ? {...regionMap.customize, order: ['customize']} : undefined}><View style={theme.isTV ? {flexDirection: 'row', alignItems: 'center', gap: 30, paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingVertical: 24} : {marginTop: 34, marginHorizontal: 24, alignItems: 'center', gap: 12}}><Button focusId="customize" variant="glass" icon="i-sliders" style={theme.isTV ? undefined : {height: 48, paddingHorizontal: 22}} onPress={() => guarded(runtime.actions.customize)}>{t('home.customize.action')}</Button>
       {theme.isTV
         ? <Text style={[nativeType({size: 22, weight: 400, tracking: 0, lineHeight: 30.8}, theme.textScale), {color: theme.colors.textTertiary, flexShrink: 1}]}>{t('next.home.customizeDescriptionTV')}</Text>

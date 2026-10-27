@@ -2,12 +2,15 @@ import {createInitialRegionEntry} from '../src-next/kit/focus/initial-entry.ts';
 import {homeActionDiagnostics} from '../src-next/platform/home-action-diagnostics.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {heroSpec} from '@portico/design';
+import {presentError} from '../../../packages/client-core/src/presentation/errors';
+import {authorityKey} from '../src-next/shell/model';
 import {createFocusRegistry} from '../src-next/kit/focus/registry';
 import {tvFocusIds, tvHomeRegionMap} from '../src-next/shell/tv-focus';
 import {NativeHomePaging} from '../src-next/shell/home-paging';
 import {tvHomeRows} from '../src-next/screens/home/tv-presentation';
 import * as homeStart from '../src-next/screens/home/home-start';
-import {createTheme} from '../src-next/kit/theme';
+import {createTheme, nativeType} from '../src-next/kit/theme';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 const descendants = (node: any): any[] => Array.isArray(node) ? node.flatMap(descendants) : node?.props ? [node, ...descendants(node.props.children)] : [];
@@ -28,12 +31,13 @@ test('initial TV focus reanchors when the compact hero measurement arrives and i
     const runtime = {home: {subscribe() {}, getSnapshot: () => ({document, phase: 'ready'})}, playback: {},
       getSnapshot: () => ({authority: currentAuthority, libraries: [], selectionActive: false}), selection: () => ({}), text: {t: (key: string) => key, locale: 'en-US'}};
     const {HomeScreen} = await screenModule(new URL('../src-next/screens/home/HomeScreen.tsx', import.meta.url), {
-      react: h.react,
+      react: {...h.react, useLayoutEffect: h.react.useEffect}, '@portico/design': {heroSpec},
       'react-native': {AppState: {currentState: 'active'}, RefreshControl: 'RefreshControl', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 1920, height: 1080})},
       'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (fn: unknown) => fn, useAnimatedScrollHandler: (fn: unknown) => fn},
       '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},
       '../../../../../packages/client-core/src/presentation/home-spotlight': {homeRowPresentation: () => ({cards: [{entry}], title: 'Continue'}), homeSpotlightModels: () => [], homeTitleFactParts: () => []},
       '../../../../../packages/client-core/src/home-selection': {homeEntryCapabilities: () => ({playable: true, details: true, watchlisted: false})},
+      '../../../../../packages/client-core/src/presentation/errors': {presentError},
       '../../../../../packages/client-core/src/presentation/server-text': {serverTextLabel: (_: unknown, text: string) => text},
       '../../../../../packages/client-core/src/presentation/kit-model': {},
       '../../platform/ArtworkPipeline': {}, '../../kit/artwork': {}, '../../kit/controls': {Button: 'Button'}, '../../kit/cards': {},
@@ -42,7 +46,9 @@ test('initial TV focus reanchors when the compact hero measurement arrives and i
       '../../shell/tv-focus': {tvFocusIds, tvHomeRegionMap}, './tv-presentation': {tvHomeRows}, '../../shell/home-paging': {NativeHomePaging}, './home-start': homeStart,
       '../../kit/layout': {Row: 'Row', Hero: 'Hero', FocusPreviewHero: 'FocusPreviewHero'},
       '../../kit/layout/FocusAnchor': {useFocusAnchor: () => vertical}, '../../kit/layout/types': {}, '../../kit/states': {LoadingPaint: 'LoadingPaint', },
-      '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../kit/theme': {useTheme: () => createTheme({isTV: true, width: 1920})}, '../../shell/model': {sameAuthority: (a: unknown, b: unknown) => a === b},
+      '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../kit/theme': {nativeType, useTheme: () => createTheme({isTV: true, width: 1920})}, '../../shell/model': {authorityKey, sameAuthority: (a: unknown, b: unknown) => a === b},
+      '../../platform/platformPosture': {usePlatformPosture: () => ({status: 'unavailable'})}, '../destinations/useTVPageBack': {useTVPageBack() {}},
+      '../destinations/music/MusicMixesRow': {MusicMixesRow: 'MusicMixesRow'}, './TvHomeRecovery': {TvHomeRecovery: 'Recovery'}, './useTvHomeRecovery': {useTvHomeRecovery: () => ({visible: false})},
       './HomeHeroFacts': {}, './model': {authorizedHome: (value: unknown) => value, platformRows: () => [row], homeRowHasContent: () => true, initialHomeFocus: () => ({rowId: row.id, entryId: entry.id}), homeCardText: () => ({title: entry.title}), homePlayTarget: () => entry},
     });
     const render = (props = {}) => h.render(() => HomeScreen({runtime, authority, ...props}));

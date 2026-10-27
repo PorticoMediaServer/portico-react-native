@@ -44,7 +44,8 @@ test(`${adapter}: the real TV shell retains its page opener and retires Menu bef
   let snapshot: any = {authority, destination: {kind: 'home'}, libraries: [], hasLiveTV: false, profile: {}, account: {actions: []}, selectionActive: false,
     homeVisible: true, homeObscured: false, mediaExpanded: false};
   const navigations: unknown[] = [], tops: unknown[] = [], menuCapture: boolean[] = [];
-  let homeDocument: any = {...authority, rows: [], spotlight: []};
+  let homeDocument: any = {...authority, rows: [], spotlight: [{entry: {id: 'movie', libraryId: 'movies', kind: 'movie', title: 'Movie', playback: {itemId: 'movie'}},
+    reason: {kind: 'featured', text: {fallback: 'Featured'}}}]};
   const runtime = {home: {getSnapshot: () => ({document: homeDocument})}, playback: {}, retirementSignal: original.signal, getSnapshot: () => {
     if (original.signal.aborted) {retiredReads++; throw new Error('retired shell accessor');}
     return snapshot;
@@ -165,18 +166,16 @@ test(`${adapter}: the real TV shell retains its page opener and retires Menu bef
     assert.equal(requests.length, beforePlayer, 'full player context Menu does nothing');
     // Actual ShellSession uses the shared resolved start; it must not keep the
     // former hardcoded Play yield when the real Home has no such action.
-    const emptyGraph = focusModel.tvHomeRegionMap(authority, []);
     await act(() => {
       rail().props.onExpandedChange(false);
       snapshot = {...snapshot, mediaExpanded: false};
+      homeDocument = {...authority, rows: [], spotlight: []};
       registry.attach(ids.start, null);
-      registry.configure({...emptyGraph.spotlight, order: [], entry: undefined});
-      registry.configure({...emptyGraph.customize, order: ['customize']});
-      registry.attach(ids.last, {requestTVFocus() {registry.didFocus(ids.last);}});
-      registry.didFocus(ids.last); sessionHost!.rerender();
+      registry.didFocus(row); sessionHost!.rerender();
     });
-    assert.equal(menuCapture.at(-1), false, 'resolved empty Home yields at its real Customize start');
-    const releaseOverlay = registry.retain(ids.last);
+    assert.equal(menuCapture.at(-1), false, 'admitted empty Home yields with retained prior row focus and no invented Customize');
+    assert.equal(registry.config(ids.customize), undefined);
+    const releaseOverlay = registry.retain(row);
     try {
       await act(() => {sessionHost!.rerender();});
       assert.equal(menuCapture.at(-1), true, 'the original overlay return lease keeps Menu while Home retains focus');
@@ -184,6 +183,8 @@ test(`${adapter}: the real TV shell retains its page opener and retires Menu bef
     assert.equal(menuCapture.at(-1), false, 'actual return-lease removal reopens Home yield without a second owner');
     await act(() => {homeDocument = undefined; sessionHost!.rerender();});
     assert.equal(menuCapture.at(-1), true, 'loading cannot infer an empty Home or release Menu');
+    await act(() => {homeDocument = {...authority, rows: [{id: 'deferred', title: 'Deferred', kind: 'ordinary', artworkShape: 'poster', entries: [], deferred: true}], spotlight: []}; sessionHost!.rerender();});
+    assert.equal(menuCapture.at(-1), true, 'admitted deferred-only Home is still waiting');
     await act(() => {homeDocument = {...authority, rows: [], spotlight: []}; sessionHost!.rerender();});
     assert.equal(menuCapture.at(-1), false);
     await act(() => {registry.didFocus({regionId: ids.rail, childId: 'home'}); rail().props.onExpandedChange(true);});

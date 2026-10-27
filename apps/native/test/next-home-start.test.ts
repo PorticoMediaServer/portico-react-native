@@ -48,16 +48,33 @@ test('resolved music-only Home uses its real first row; Back scrolls once and th
   back.dispose();
 });
 
-test('empty resolved Home starts at Customize and the first Back already yields', () => {
-  const f = fixture(document()); f.attach(ids.last); f.registry.didFocus(ids.last);
+for (const prior of [undefined, ids.last, {regionId: ids.row('removed'), childId: 'old'}]) test(`empty admitted Home has no target and yields with prior focus ${JSON.stringify(prior)}`, () => {
+  const registry = createFocusRegistry(), model = homeStartModel(document(), authority);
+  if (prior) registry.didFocus(prior);
+  const resolve = () => resolveTVHomeStart(registry, model);
   let scrolls = 0;
-  const back = createTVPageBack(f.registry, {current: () => true, start: () => f.resolve().address,
-    atTop: () => f.resolve().kind === 'ready', scrollTop: () => {scrolls++;}});
-  assert.deepEqual(f.resolve(), {kind: 'ready', address: ids.last});
+  const back = createTVPageBack(registry, {current: () => true, start: () => resolve().address,
+    atTop: () => resolve().kind === 'empty', scrollTop: () => {scrolls++;}});
+  assert.deepEqual(resolve(), {kind: 'empty'}); assert.deepEqual(model.fallbacks, []);
   for (let index = 0; index < 8; index++) assert.equal(back.back(), false);
-  assert.equal(scrolls, 0); assert.equal(f.requests(), 0);
-  assert.equal(canYieldTVHomeMenu(f.resolve(), f.registry.capture(), clear), true);
+  assert.equal(scrolls, 0); assert.equal(registry.host(ids.customize), undefined); assert.equal(registry.child(ids.last), undefined);
+  assert.equal(canYieldTVHomeMenu(resolve(), registry.capture(), clear), true);
+  for (const state of [{home: false}, {visible: false}, {obscured: true}, {expanded: true}, {listening: true}, {scrolled: true},
+    {account: true}, {rail: true}, {chromeHidden: true}, {contentVisible: false}, {overlay: true}]) {
+    assert.equal(canYieldTVHomeMenu(resolve(), registry.capture(), {...clear, ...state}), false, JSON.stringify(state));
+  }
+  // Notifications after repeated Back must not reveal a pending focus jump.
+  let requests = 0; registry.attach(ids.last, {requestTVFocus() {requests++;}});
+  assert.equal(requests, 0); assert.deepEqual(resolve(), {kind: 'empty'}, 'old mounted controls cannot become an empty-page start');
   back.dispose();
+});
+
+test('admitted deferred-only descriptors are waiting, not an actionless empty Home', () => {
+  const registry = createFocusRegistry(), model = homeStartModel(document([{...row, entries: [], deferred: true}]), authority);
+  registry.configure({id: ids.customize, order: ['customize']}); registry.attach(ids.last, {requestTVFocus() {assert.fail('must not skip unresolved row');}});
+  const start = resolveTVHomeStart(registry, model);
+  assert.deepEqual(start, {kind: 'waiting'}); assert.equal(model.actionless, false);
+  assert.equal(canYieldTVHomeMenu(start, undefined, clear), false);
 });
 
 test('nonplayable Spotlight starts at the actual Details action, never invented Play', () => {
@@ -114,7 +131,8 @@ test('real mixes are a fallback before Customize and unresolved or foreign docum
 });
 
 test('Menu yields only at that same actual Home start with all other owners absent', () => {
-  const f = fixture(document()); f.attach(ids.last);
+  const f = fixture(document([row])); f.attach(ids.last);
+  f.registry.configure({...f.graph.rows.get(row.id)!, enabled: false});
   const start = f.resolve();
   assert.equal(canYieldTVHomeMenu(start, ids.last, clear), true);
   const blocked: Partial<HomeMenuState>[] = [{home: false}, {visible: false}, {obscured: true}, {expanded: true},
