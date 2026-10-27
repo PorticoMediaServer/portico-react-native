@@ -1,3 +1,4 @@
+import * as accountWork from '../src-next/platform/account-work';
 import * as tvCodeOpening from '../src-next/screens/accounts/tv-code-opening';
 import * as setupOutcome from '../src-next/platform/setup-outcome';
 import * as passwordPolicy from '../../../packages/client-core/src/password-strength';
@@ -56,7 +57,7 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
     ...shared(back), '../../../../../packages/client-core/src': {},
     '../../../../../packages/client-core/src/sign-in': {},
     '../../../../../packages/client-core/src/hosted-security': {MFARequiredError: class extends Error {}},
-    '../../platform/accounts': {nativeAccounts: {}}, '../../platform/server-sign-in': {NativeServerSignIn: SignIn},
+    '../../platform/account-work': accountWork, '../../platform/accounts': {nativeAccounts: {}}, '../../platform/server-sign-in': {NativeServerSignIn: SignIn},
     '../../platform/portico-sign-in': {}, '../../platform/server-connections': {browseNearby: async () => []},
     '../../platform/tv-sign-in': {}, '../../platform/account-authority': {}, 'react-native-qrcode-svg': {default: 'QR'},
     './DirectoryAccessRefused': {DirectoryAccessRefused: 'Refused'}, '../../platform/hosted-sign-in-unavailable': {HostedSignInUnavailable: class extends Error {}}, './directory-refusal': {directoryAccessRefused: () => false, directoryClockSkew: () => false, directoryIdentityUnconfirmed: () => false}, './TVNoServers': {TVNoServers: 'TVNoServers'}, './EndedMoveCodeAction': {EndedMoveCodeAction: 'EndedMoveCodeAction'}, './TVOfflineServers': {TVOfflineServers: 'TVOfflineServers'}, './PhoneAccountWorkspace': {PhoneAccountWorkspace: 'PhoneAccountWorkspace'}, '../../platform/account-workspace': {NativeAccountWorkspace: class {constructor() {throw new Error('unexpected_account_workspace');}}}, './PhoneNoServers': {PhoneNoServers: 'PhoneNoServers'}, './PhoneFrontDoor': {PhoneFrontDoor: 'Phone'},
@@ -115,7 +116,7 @@ test('TV profile-switch hand-off preserves its current family, selection control
   const current = {sessionFamilyId: 'current-family', viewer: {serverId: 'server', profileId: 'current'}};
   const {AccountRoute} = await screenModule(new URL('../src-next/screens/accounts/AccountRoutes.tsx', import.meta.url), {
     './TVServerChooser': {TVServerChooser: 'TVServerChooser'}, './TVTrustedCertificates': {TVTrustedCertificates: 'TVTrustedCertificates'}, './PhoneServerChooser': {PhoneServerChooser: 'PhoneServerChooser'},
-    ...shared(back), '../../platform/accounts': {nativeAccounts: {}}, '../../platform/app-session-storage': {},
+    ...shared(back), '../../platform/account-work': accountWork, '../../platform/accounts': {nativeAccounts: {}}, '../../platform/app-session-storage': {},
     '../../platform/profile-selection': {nativeProfileSelection: (server: string, family: string) => {
       assert.equal(server, 'server'); assert.equal(family, current.sessionFamilyId); created++;
       return {select: async (...args: unknown[]) => {attempts.push(args); throw new Error('refused');}, dispose: () => {disposed++;}};

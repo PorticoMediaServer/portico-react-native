@@ -1,3 +1,4 @@
+import {accountExpectation, nativeAccountRead} from '../../platform/account-work';
 import React, {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {AppState, BackHandler, Linking, NativeModules, Platform, Share, TVEventControl, Image, Text, View} from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
@@ -443,17 +444,20 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       return;
     }
     const attempt = ++directoryAttempt.current;
-    const credentials = nativeAccounts.accountCredentials(), session = await credentials.accessSession();
+    const credentials = nativeAccounts.accountCredentials(), session = credentials.getSnapshot().session;
+    if (!session) {reset(); return;}
+    const expected = accountExpectation(session);
     const current = () => {
       const live = credentials.getSnapshot().session;
-      return lifetime.current && attempt === directoryAttempt.current && live?.account.id === session.account.id && live.familyId === session.familyId;
+      return lifetime.current && attempt === directoryAttempt.current && live?.account.id === expected.accountId && live.familyId === expected.familyId;
     };
     if (!current()) return;
-    accountScope.current = {accountId: session.account.id, familyId: session.familyId};
+    accountScope.current = {accountId: expected.accountId, familyId: expected.familyId};
     stopRetry(); targetRef.current = undefined; setTarget(undefined); setError(undefined); setPassword('');
     setServers([]); setDirectoryList('loading'); setStage('servers');
     try {
-      const out = await new HttpHostedApi(hostedUrl, session.accessToken, nativeNetworkFetch).servers();
+      const out = await nativeAccountRead(credentials, issued => new HttpHostedApi(hostedUrl, issued.accessToken, nativeNetworkFetch).servers(),
+        {expected, isCurrent: current});
       if (!current()) return;
       if (!out || !Array.isArray(out.items) || out.items.some(value => !value || typeof value.id !== 'string' || !value.id ||
         typeof value.name !== 'string' || !value.name || typeof value.baseUrl !== 'string' || typeof value.publicKey !== 'string' ||
@@ -461,7 +465,10 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
         throw Object.assign(new Error('native_directory_invalid'), {code: 'invalid_response'});
       setServers(out.items); setDirectoryList('ready');
     } catch (failure) {
-      if (!current()) return;
+      if (!current()) {
+        if (lifetime.current && attempt === directoryAttempt.current) reset();
+        return;
+      }
       const presentation = presentError(failure, 'portico-account');
       if (presentation.silent) {setDirectoryList('idle'); return;}
       if (['offline', 'unreachable', 'timeout', 'busy', 'unavailable', 'invalid-response', 'rate-limited'].includes(presentation.category)) {
@@ -799,6 +806,17 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const directoryView = stage === 'servers' ? directoryFailure(target, error) : 'other';
   const hostedWaiting = stage === 'servers' && !!target && error instanceof HostedSignInUnavailable;
   const directoryScope = accountScope.current;
+  useLayoutEffect(() => {
+    if (stage !== 'servers' || !directoryScope) return;
+    const credentials = nativeAccounts.accountCredentials(); let retired = false;
+    const changed = () => {
+      if (retired || !lifetime.current || stageRef.current !== 'servers' || accountScope.current !== directoryScope) return;
+      const live = credentials.getSnapshot().session;
+      if (live?.account.id === directoryScope.accountId && live.familyId === directoryScope.familyId) return;
+      retired = true; reset(); // retire this view; canonical owner alone ends credentials
+    };
+    const off = credentials.subscribe(changed); changed(); return off;
+  }, [stage, directoryScope]);
   const offlineRows = stage === 'servers' && directoryList === 'ready' ? directoryRows(servers) : [];
   const allDirectoryOffline = offlineRows.length > 0 && offlineRows.every(row => row.offline);
   useEffect(() => {

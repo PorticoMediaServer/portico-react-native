@@ -1,3 +1,4 @@
+import * as accountWork from '../src-next/platform/account-work';
 import * as tvCodeOpening from '../src-next/screens/accounts/tv-code-opening';
 import * as setupOutcome from '../src-next/platform/setup-outcome';
 import * as passwordPolicy from '../../../packages/client-core/src/password-strength';
@@ -49,7 +50,7 @@ test('the phone sign-in picker offers the account recovery, keeps its own operat
     '../../kit/theme': {useTheme: () => theme}, '../../kit/states': {StateLayout: 'Layout'},
     '../../kit/controls': {Button: 'Button', Focusable: 'Focusable', TextField: 'Field'}, '../../kit/artwork': {ProfilePicker: 'Picker'},
     '../../kit/Icon': {Icon: 'Icon'},
-    '../../platform/accounts': {nativeAccounts: {}}, '../../platform/server-sign-in': {NativeServerSignIn: SignIn},
+    '../../platform/account-work': accountWork, '../../platform/accounts': {nativeAccounts: {}}, '../../platform/server-sign-in': {NativeServerSignIn: SignIn},
     '../../platform/portico-sign-in': {}, '../../platform/server-connections': {browseNearby: async () => []},
     '../../platform/tv-sign-in': {}, '../../platform/account-authority': {}, '../../tv/auth': {},
     '../../tv/auth/TVIdentityCodeForm': {TVIdentityCodeForm: 'IdentityCode'},
@@ -164,7 +165,7 @@ test('a wrong profile PIN uses the profile error context and clears the boxes', 
     '../../kit/theme': {useTheme: () => theme}, '../../kit/states': {StateLayout: 'Layout'},
     '../../kit/controls': {Button: 'Button', Focusable: 'Focusable', TextField: 'Field'}, '../../kit/artwork': {ProfilePicker: 'Picker'},
     '../../kit/Icon': {Icon: 'Icon'},
-    '../../platform/accounts': {nativeAccounts: {}}, '../../platform/server-sign-in': {NativeServerSignIn: SignIn},
+    '../../platform/account-work': accountWork, '../../platform/accounts': {nativeAccounts: {}}, '../../platform/server-sign-in': {NativeServerSignIn: SignIn},
     '../../platform/portico-sign-in': {}, '../../platform/server-connections': {browseNearby: async () => []},
     '../../platform/tv-sign-in': {}, '../../platform/account-authority': {}, '../../tv/auth': {},
     '../../tv/auth/TVIdentityCodeForm': {TVIdentityCodeForm: 'IdentityCode'},

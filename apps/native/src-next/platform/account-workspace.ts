@@ -1,4 +1,4 @@
-import {ApiError, HttpLocalApi} from '../../../../packages/client-core/src';
+import {HttpLocalApi} from '../../../../packages/client-core/src';
 import {AccountSessionReviewService, type AccountSessionRow, type AccountSessionScope, type AccountSessionReviewSnapshot} from '../../../../packages/client-core/src/account-sessions';
 import {AccountNotificationsClient, type AccountNotification} from '../../../../packages/client-core/src/account-notifications';
 import {parseSecurityState, type SecurityState} from '../../../../packages/client-core/src/hosted-security';
@@ -7,6 +7,7 @@ import {routePath} from '../../../../packages/contracts/src/hosted/routes';
 import {hostedUrl} from './account-authority';
 import {nativeNetworkFetch} from './server-connections';
 import type {NativeAccounts} from './accounts';
+import {accountExpectation, nativeAccountRead} from './account-work';
 
 type NotificationView = {epoch: number; cursors: (string | undefined)[]; index: number; next?: string};
 export type AccountWorkspacePage = 'menu' | 'security' | 'devices' | 'notifications';
@@ -49,13 +50,14 @@ export class NativeAccountWorkspace {
     this.controller.signal.addEventListener('abort', abort, {once: true}); signal?.addEventListener('abort', abort, {once: true});
     if (signal?.aborted) abort(); const timer = setTimeout(abort, 15000);
     try {
-      const session = await this.credentials.accessSession(); this.assertEpoch(epoch);
-      if (epoch !== this.epoch || request.signal.aborted || session.account.id !== this.scope.accountId || session.familyId !== this.scope.familyId) throw changed();
-      const api = new HttpLocalApi(hostedUrl, session.accessToken, nativeNetworkFetch);
-      const result = await api.request<T>(path, method, undefined, request.signal); this.assertEpoch(epoch);
+      const original = this.credentials.getSnapshot().session;
+      if (!original) throw changed();
+      const result = await nativeAccountRead(this.credentials, session =>
+        new HttpLocalApi(hostedUrl, session.accessToken, nativeNetworkFetch).request<T>(path, 'GET', undefined, request.signal),
+        {expected: accountExpectation(original), signal: request.signal, isCurrent: () => this.current() && epoch === this.epoch});
+      this.assertEpoch(epoch);
       if (epoch !== this.epoch || request.signal.aborted) throw changed(); return result;
-    } catch (error) {if (epoch === this.epoch && !request.signal.aborted && this.current() && error instanceof ApiError && error.status === 401) this.end(); throw error;}
-    finally {this.requests.delete(request); clearTimeout(timer); this.controller.signal.removeEventListener('abort', abort); signal?.removeEventListener('abort', abort);}
+    } finally {this.requests.delete(request); clearTimeout(timer); this.controller.signal.removeEventListener('abort', abort); signal?.removeEventListener('abort', abort);}
   };
   async open(page: Exclude<AccountWorkspacePage, 'menu'>) {
     this.assert(); const epoch = ++this.epoch; this.retireReads(); this.publish({page, phase: 'loading'});

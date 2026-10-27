@@ -1,3 +1,5 @@
+import {linkNativeAbortSignals} from './abort-signals';
+import {accountExpectation, nativeAccountWork} from './account-work';
 import {HttpLocalApi, assertFirstContactIdentity, type HostedServer, type HostedSession, type LocalSession} from '../../../../packages/client-core/src';
 import {ServerSignInProbe, parseServerSignIn, type ServerSignIn} from '../../../../packages/client-core/src/sign-in';
 import {directSignIn, directSignInContinuation, completeDirectSignInChallenge, selectDirectProfile, parseDirectSnapshot, type DirectSignIn, type DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
@@ -31,6 +33,7 @@ import type {HostedRequestApi} from '../../../../packages/client-core/src/portic
 
 const cancelled = () => Object.assign(new Error('native_sign_in_cancelled'), {name: 'AbortError'});
 const mismatch = () => Object.assign(new Error('native_sign_in_authority_changed'), {code: 'identity_mismatch'});
+const captureAccount = (session: Omit<HostedSession, 'refreshToken'>) => Object.freeze({...session, account: Object.freeze({...session.account})});
 
 /** Current product sign-in commands. UI frames are separate; no retired screen is imported.
  * Every path uses the canonical probe, real verified routes, account/profile API and secure store. */
@@ -355,9 +358,9 @@ export class NativeServerSignIn {
       if (this.api) throw mismatch();
       const credentials = this.owner.accountCredentials();
       await credentials.synchronize(); this.assertCurrent();
-      const account = await credentials.accessSession(); this.assertCurrent();
+      const account = captureAccount(await credentials.accessSession()); this.assertCurrent();
       this.admission = await this.owner.admission('portico', {origin: hostedUrl, accountId: account.account.id});
-      const connected = await connectHostedServer(server, nativeHostedSource(hostedUrl, credentials, account.account.id), nativeServerEnvironment(server.id), this.controller.signal);
+      const connected = await connectHostedServer(server, nativeHostedSource(hostedUrl, credentials, account.account.id, accountExpectation(account)), nativeServerEnvironment(server.id), this.controller.signal);
       this.api = connected.api; this.hosted = connected.hosted; this.assertCurrent();
       const system = await rememberNativeServerDisplay(connected.api, {serverId: server.id, signIn: 'portico',
         signal: this.controller.signal, isCurrent: this.current}); this.assertCurrent();
@@ -371,7 +374,7 @@ export class NativeServerSignIn {
   private async consumeHostedCommand(connected: Awaited<ReturnType<typeof connectHostedServer>>,
     credentials: ReturnType<NativeAccounts['accountCredentials']>, account: Omit<HostedSession, 'refreshToken'>,
     command: (hosted: HostedRequestApi, api: HttpLocalApi, signal: AbortSignal) => Promise<DirectSignIn>) {
-    const signal = this.controller.signal, hosted = new HttpLocalApi(hostedUrl, account.accessToken, nativeNetworkFetch);
+    const signal = this.controller.signal, expected = accountExpectation(account);
     const api = connected.api, routes = connected.connection, origin = api.baseUrl, pin = routes.pin;
     const samePin = () => {const live = api.getRouteConnection()?.pin; return !!live && live.serverId === pin.serverId && live.publicKey === pin.publicKey && live.fingerprint === pin.fingerprint;};
     this.hostedLease = () => {
@@ -394,10 +397,13 @@ export class NativeServerSignIn {
       const cleanup = new HttpLocalApi(origin, fresh.accessToken, nativeNetworkFetch); cleanup.useRoutes(routes);
       await cleanup.logout();
     };
-    const officialHosted: HostedRequestApi = {request: async <T,>(path: string, method?: string, body?: unknown) => {
-      assertHostedCurrent();
-      try {const result = await hosted.request<T>(path, method, body, signal); assertHostedCurrent(); return result;}
+    const officialHosted: HostedRequestApi = {request: async <T,>(path: string, method?: string, body?: unknown, callerSignal?: AbortSignal) => {
+      assertHostedCurrent(); const linked = linkNativeAbortSignals([signal, callerSignal]);
+      try {const result = await nativeAccountWork(credentials, session =>
+        new HttpLocalApi(hostedUrl, session.accessToken, nativeNetworkFetch).request<T>(path, method, body, linked.signal),
+        {expected, signal: linked.signal, isCurrent: this.current}); assertHostedCurrent(); return result;}
       catch (error) {assertHostedCurrent(); throw hostedSignInUnavailable(error) ?? error;}
+      finally {linked.dispose();}
     }};
     const result = await command(officialHosted, api, signal);
     try {assertHostedCurrent();}
@@ -432,11 +438,11 @@ export class NativeServerSignIn {
       if (pin.serverId !== server.id || this.expectedInvitation?.fingerprint && pin.fingerprint !== this.expectedInvitation.fingerprint) throw mismatch();
       assertFirstContactIdentity(origin, pin, {knownRoutes: knownServerRoutes(await nativeAppSessions.read())}); this.assertCurrent();
       const credentials = this.owner.accountCredentials(); await credentials.synchronize(); this.assertCurrent();
-      const account = await credentials.accessSession(); this.assertCurrent();
+      const account = captureAccount(await credentials.accessSession()); this.assertCurrent();
       const accountCurrent = () => {const live = credentials.getSnapshot().session; return live?.account.id === account.account.id && live.familyId === account.familyId;};
       this.hostedLease = accountCurrent; this.assertCurrent();
       this.admission = await this.owner.admission('portico', {origin: hostedUrl, accountId: account.account.id}); this.assertCurrent();
-      const connected = await connectPairedPorticoServer(origin, pin, nativeHostedSource(hostedUrl, credentials, account.account.id), nativeServerEnvironment(server.id), this.controller.signal);
+      const connected = await connectPairedPorticoServer(origin, pin, nativeHostedSource(hostedUrl, credentials, account.account.id, accountExpectation(account)), nativeServerEnvironment(server.id), this.controller.signal);
       try {
         this.assertCurrent(); this.api = connected.api; this.hosted = connected.hosted;
         this.hostedLease = () => {
@@ -625,14 +631,22 @@ export class NativeServerSignIn {
             const live = credentials.getSnapshot().session;
             return !!live && live.account.id === accountId && live.familyId === familyId;
           };
-          const account = await credentials.accessSession(); await assertCurrent();
+          const account = captureAccount(await credentials.accessSession()); await assertCurrent();
           if (!hostedCurrent() || account.account.id !== accountId || account.familyId !== familyId) throw cancelled();
           this.admission = await this.owner.admission('portico', {origin: hostedUrl, accountId}); await assertCurrent();
           if (!hostedCurrent()) throw cancelled();
-          const paired = await connectPairedPorticoServer(origin, pin, nativeHostedSource(hostedUrl, credentials, accountId), nativeServerEnvironment(server.id), this.controller.signal);
+          const paired = await connectPairedPorticoServer(origin, pin, nativeHostedSource(hostedUrl, credentials, accountId, accountExpectation(account)), nativeServerEnvironment(server.id), this.controller.signal);
           try {await assertCurrent(); if (!hostedCurrent()) throw cancelled(); this.hosted = paired.hosted;}
           finally {paired.connection.dispose();}
-          return {api: new HttpLocalApi(hostedUrl, account.accessToken, nativeNetworkFetch), origin: hostedUrl, accountId, familyId,
+          const expected = accountExpectation(account);
+          const hosted: HostedRequestApi = {request: async <T,>(path: string, method?: string, body?: unknown, callerSignal?: AbortSignal) => {
+            const linked = linkNativeAbortSignals([this.controller.signal, callerSignal]);
+            try {return await nativeAccountWork(credentials,
+              issued => new HttpLocalApi(hostedUrl, issued.accessToken, nativeNetworkFetch).request<T>(path, method, body, linked.signal),
+              {expected, signal: linked.signal, isCurrent: () => this.current() && hostedCurrent()});}
+            finally {linked.dispose();}
+          }};
+          return {api: hosted, origin: hostedUrl, accountId, familyId,
             isCurrent: hostedCurrent, assertCurrent: async () => {if (!hostedCurrent()) throw cancelled(); await assertCurrent(); if (!hostedCurrent()) throw cancelled();}};
         },
         adopt: async (result, hosted) => {

@@ -1,3 +1,4 @@
+import * as accountWork from '../src-next/platform/account-work';
 import {presentError} from '../../../packages/client-core/src/presentation/errors';
 import {routeOrigin} from '../../../packages/client-core/src/route-identity';
 import {NativeLocalInvitation} from '../src-next/platform/local-invitation';
@@ -48,7 +49,7 @@ test('phone Portico sign-in offers account help and returns to its form', async 
     './PhoneSetupApproval': {PhoneSetupApproval: 'PhoneSetupApproval'},
     './directory-chooser': directoryChooser,
     '../../kit/states': {StateLayout: 'Layout'}, '../../kit/controls': {Button: 'Button', TextField: 'Field'}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/artwork': {ProfilePicker: 'Picker'},
-    '../../platform/accounts': {nativeAccounts: {accountCredentials: () => account}},
+    '../../platform/account-work': accountWork, '../../platform/accounts': {nativeAccounts: {accountCredentials: () => account}},
     '../../platform/server-sign-in': {NativeServerSignIn: class {}}, '../../platform/portico-sign-in': {NativePorticoSignIn: Portico},
     '../../platform/server-connections': {browseNearby: async () => [], nativeNetworkFetch: async () => {}},
     '../../platform/tv-sign-in': {}, '../../platform/account-authority': {hostedUrl: 'https://web.example'},

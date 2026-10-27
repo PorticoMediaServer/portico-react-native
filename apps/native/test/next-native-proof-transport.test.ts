@@ -54,7 +54,9 @@ test('a Portico route source opens its captured account only when requested and 
   const runtime = NativeModules.PorticoRuntime as Record<string, unknown>, before = runtime.networkRequest;
   t.after(() => {runtime.networkRequest = before;});
   let acquired = 0, synchronized = 0, requested = 0, accountId = 'captured-account';
-  const credentials = {synchronize: async () => {synchronized++;}, accessSession: async () => ({account: {id: accountId}, accessToken: 'synthetic-hosted-access'})} as unknown as CredentialSessionService;
+  const snapshot = () => ({account: {id: accountId}, familyId: 'captured-family', accessToken: 'synthetic-hosted-access'});
+  const credentials = {subscribe: () => () => {}, getSnapshot: () => ({session: snapshot()}),
+    synchronize: async () => {synchronized++;}, accessSession: async () => snapshot()} as unknown as CredentialSessionService;
   runtime.networkRequest = async (_id: string, url: string, _method: string, headers: Record<string, string>) => {
     requested++; assert.equal(url, 'https://web.getportico.tv/v1/servers/synthetic/routes');
     assert.equal(new Headers(headers).get('Authorization'), 'Bearer synthetic-hosted-access');
@@ -66,7 +68,7 @@ test('a Portico route source opens its captured account only when requested and 
   await assert.rejects(source.request('/v1/servers/synthetic/routes', cancelled.signal), code('cancelled'));
   assert.equal(acquired, 0);
   await source.request('/v1/servers/synthetic/routes', new AbortController().signal);
-  assert.equal(acquired, 1); assert.equal(synchronized, 1); assert.equal(requested, 1);
+  assert.equal(acquired, 1); assert.equal(synchronized, 2); assert.equal(requested, 1);
   accountId = 'different-account';
   await assert.rejects(source.request('/v1/servers/synthetic/routes', new AbortController().signal), code('account_changed'));
   assert.equal(requested, 1);

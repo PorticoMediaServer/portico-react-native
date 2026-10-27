@@ -1,3 +1,5 @@
+import {accountExpectation, nativeAccountRead} from './account-work';
+import type {CredentialAccessExpectation} from '../../../../packages/client-core/src/credentials';
 import {nativeReadingPolicy, nativeReadingResponse, nativeReadingStreamResponse} from './reading-response';
 import {revisionRequiredFetch} from './revision-required-fetch';
 import { AppState, NativeEventEmitter, NativeModules, Platform } from 'react-native';
@@ -362,26 +364,21 @@ export function nativeHostedSource(
   origin: string,
   credentials: CredentialSessionService | (() => CredentialSessionService),
   accountId: string,
+  expected?: CredentialAccessExpectation,
 ): HostedConnectionSource {
+  const captured = expected && Object.freeze({...expected});
   return {
     origin,
     accountId,
     request: async <T>(path: string, signal: AbortSignal) => {
       if (signal.aborted) throw new RouteError('cancelled', 'account_route_cancelled');
       const owner = typeof credentials === 'function' ? credentials() : credentials;
-      await owner.synchronize();
-      if (signal.aborted) throw new RouteError('cancelled', 'account_route_cancelled');
-      const session = await owner.accessSession();
-      if (signal.aborted || session.account.id !== accountId)
-        throw new RouteError(
-          'account_changed',
-          'Your Portico Account changed.',
-        );
-      return new HttpLocalApi(
-        origin,
-        session.accessToken,
-        nativeNetworkFetch,
-      ).request<T>(path, 'GET', undefined, signal);
+      const original = owner.getSnapshot().session;
+      if (!original || original.account.id !== accountId || captured && (captured.accountId !== accountId || original.familyId !== captured.familyId))
+        throw new RouteError('account_changed', 'Your Portico Account changed.');
+      return nativeAccountRead(owner, session => new HttpLocalApi(origin, session.accessToken, nativeNetworkFetch)
+        .request<T>(path, 'GET', undefined, signal), {expected: captured ?? accountExpectation(original), signal,
+          isCurrent: () => !signal.aborted});
     },
   };
 }
