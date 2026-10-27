@@ -248,7 +248,7 @@ export function TVArtistScreen({controller, entry, runtime, actions, openEntry}:
           </View> : null}
           <View style={{marginTop: 28, flexDirection: 'row', alignItems: 'center', gap: 20}}>
             {allSongs.songs.length>0
-              ? <SectionHeading title={t('music.allSongs')} detail={allSongs.total === undefined ? undefined : t('title.songCount', {count: allSongs.total})}/>
+              ? <SectionHeading title={t('music.allSongs')} detail={allSongs.total === undefined || allSongs.totalIsLowerBound ? undefined : t('title.songCount', {count: allSongs.total})}/>
               : <Button variant="text" icon="i-music" disabled={allSongs.phase === 'loading'} onPress={() => {void controller.loadAllSongs();}}
                 accessibilityLabel={t('music.allSongs')}>{t('music.allSongs')}</Button>}
           </View>
