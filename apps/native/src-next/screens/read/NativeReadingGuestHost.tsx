@@ -1,4 +1,4 @@
-import React, {useLayoutEffect, useRef, useState} from 'react';
+import React, {useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {NativeModules, View, useWindowDimensions} from 'react-native';
 import WebView from 'react-native-webview';
 import type {PreferenceSnapshot} from '../../../../../packages/client-core/src/preferences';
@@ -17,9 +17,9 @@ type Owner = ReturnType<typeof createReadingSessionOwner>;
 type Reader = ReturnType<typeof createReadingGuestBridge>;
 
 /** One disposable rendering ticket over an already accepted logical session. */
-export function NativeReadingGuestHost({owner, active, preferences, onBack, onSettings, onSearchAll, contentsTarget, onGuestState}: {
+export function NativeReadingGuestHost({owner, active, preferences, onBack, onSettings, onSearchAll, contentsTarget, onGuestState, activeCurrent}: {
   owner: Owner; active: boolean; preferences: Readonly<{getSnapshot: () => PreferenceSnapshot; subscribe: (listener: () => void) => () => void}>;
-  onBack: () => void; onSettings: () => void; onSearchAll?: ReadingHostSearchAll; contentsTarget?: ReadingHostContentsTarget; onGuestState?: (mounted: boolean, incarnation: object) => void;
+  onBack: () => void; onSettings: () => void; onSearchAll?: ReadingHostSearchAll; contentsTarget?: ReadingHostContentsTarget; onGuestState?: (mounted: boolean, incarnation: object) => void; activeCurrent?: () => boolean;
 }) {
   const theme = useTheme(), view = useRef<WebView>(null), reader = useRef<Reader | undefined>(undefined);
   const dimensions = useWindowDimensions(), insets = useSafeAreaInsets(), posture = usePlatformPosture();
@@ -30,6 +30,18 @@ export function NativeReadingGuestHost({owner, active, preferences, onBack, onSe
   const callbacks = useRef({active, onBack, onSettings, onSearchAll}); callbacks.current = {active, onBack, onSettings, onSearchAll};
   const [state, setState] = useState<Readonly<{url?: string; reader?: Reader; failed?: boolean}>>({});
   const [attempt, setAttempt] = useState(0);
+  const mounted = useRef(false);
+  const latest = useRef({owner, state, attempt, active, activeCurrent}); latest.current = {owner, state, attempt, active, activeCurrent};
+  const retryTicket = useMemo(() => ({spent: false}), [owner, state, attempt]);
+  useLayoutEffect(() => {mounted.current = true; return () => {mounted.current = false;};}, []);
+  const retryOriginal = () => {
+    const same = () => mounted.current && !retryTicket.spent && latest.current.owner === owner && latest.current.state === state
+      && latest.current.attempt === attempt && latest.current.active && latest.current.activeCurrent === activeCurrent
+      && callbacks.current.active && state.failed === true;
+    if (!same()) return;
+    try {if (!owner.current() || (activeCurrent && !activeCurrent()) || !owner.current()) return;} catch {return;}
+    if (!same()) return; retryTicket.spent = true; setAttempt(value => value + 1);
+  };
   useLayoutEffect(() => {
     let alive = true, owned: Reader | undefined, ticket: ReturnType<Owner['attach']> | undefined, offPreferences = () => {};
     const current = () => {if (!alive || !ticket?.current()) return false;
@@ -66,7 +78,7 @@ export function NativeReadingGuestHost({owner, active, preferences, onBack, onSe
   return <View pointerEvents={active ? 'auto' : 'none'} accessibilityElementsHidden={!active} importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
     style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink, opacity: active ? 1 : 0}}>
     {state.failed ? <StateView variant="centered" title={defaultI18n.t('next.states.pageFailed')} body={defaultI18n.t('next.states.pageFailedBody')}
-      primaryAction={{id: 'retry', label: defaultI18n.t('next.states.tryAgain'), disabled: !active || !owner.current(), onPress: () => setAttempt(value => value + 1)}}/>
+      primaryAction={{id: 'retry', label: defaultI18n.t('next.states.tryAgain'), disabled: !active || !owner.current(), onPress: retryOriginal}}/>
       : <LoadingPaint ready={!!state.url} immediate={!!state.url} skeleton={<SkeletonBlock width="100%" style={{flex: 1}}/>}>
         {state.url && state.reader ? <ReadingGuestView url={state.url} view={view} reader={state.reader} currentReader={() => reader.current}
           backgroundColor={theme.colors.ink} observeBridge={() => {}} onFailure={failure}/> : null}

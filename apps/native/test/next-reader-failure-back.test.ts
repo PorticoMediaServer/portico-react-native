@@ -43,16 +43,16 @@ type Failure = 'none' | 'pending' | 'versions' | 'open' | 'progress' | 'assets';
 type Fixture = Readonly<{at: Failure; width?: number}>;
 
 async function harness(fixture: Fixture) {
-  let hostCalls = 0, current = true, versionCalls = 0;
+  let hostCalls = 0, current = true, versionCalls = 0, at: Failure = fixture.at;
   const disposals: string[] = [], listeners = new Set<() => void>();
   const received: string[] = [];
   const reader = {dispose: () => disposals.push('host'), confirm() {}, setActive() {}, setCrease() {}, setCreaseRef() {}, receive(message: string) {received.push(message);}};
   const session = {manifest: {format: 'pdf', revision: 'r'.repeat(64)}, signal: new AbortController().signal,
-    progress: async () => {if (fixture.at === 'progress') throw new Error('progress_rejected'); return {progress: null};},
+    progress: async () => {if (at === 'progress') throw new Error('progress_rejected'); return {progress: null};},
     close: async () => {disposals.push('session');}};
   const client = {
-    versions: () => {versionCalls++; return fixture.at === 'pending' ? new Promise(() => {}) : fixture.at === 'versions' ? Promise.reject(new Error('versions_rejected')) : Promise.resolve({versions: [{sourceId: 'source', inventoryAvailable: true}]});},
-    open: async () => {if (fixture.at === 'open') throw new Error('open_rejected'); return session;},
+    versions: () => {versionCalls++; return at === 'pending' ? new Promise(() => {}) : at === 'versions' ? Promise.reject(new Error('versions_rejected')) : Promise.resolve({versions: [{sourceId: 'source', inventoryAvailable: true}]});},
+    open: async () => {if (at === 'open') throw new Error('open_rejected'); return session;},
     dispose() {},
   };
   const context = {
@@ -76,7 +76,7 @@ async function harness(fixture: Fixture) {
     './startup-diagnostics': {readerStartupDiagnostic: () => undefined, readerStartupProbe: ''},
   });
   const {NativeReadingGuestHost} = await screenModule(new URL('../src-next/screens/read/NativeReadingGuestHost.tsx', import.meta.url), {
-    react: {...React, default: React}, 'react-native': {View: 'View', NativeModules: {PorticoReaderAssets: {bundle: async () => fixture.at === 'assets' ? {} : {url: appleReaderEntry}}}, useWindowDimensions: () => ({width, height: 844})},
+    react: {...React, default: React}, 'react-native': {View: 'View', NativeModules: {PorticoReaderAssets: {bundle: async () => at === 'assets' ? {} : {url: appleReaderEntry}}}, useWindowDimensions: () => ({width, height: 844})},
     'react-native-webview': {default: 'WebView'}, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 47})},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/states': {LoadingPaint: 'LoadingPaint', StateView: 'StateView', SkeletonBlock: 'SkeletonBlock'},
     '../../kit/controls/Button': {Button: 'Button'}, '../../kit/theme': {useTheme: () => ({colors: {ink: '#000'}})},
@@ -87,7 +87,7 @@ async function harness(fixture: Fixture) {
     react: {...React, default: React},
     'react-native': {
       AppState: {addEventListener: () => ({remove() {}})}, View: 'View',
-      NativeModules: {PorticoReaderAssets: {bundle: async () => fixture.at === 'assets' ? {} : {url: appleReaderEntry}}},
+      NativeModules: {PorticoReaderAssets: {bundle: async () => at === 'assets' ? {} : {url: appleReaderEntry}}},
       useWindowDimensions: () => ({width, height: width === 390 ? 844 : 1024}),
     },
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 47, bottom: 34, left: 0, right: 0})},
@@ -116,7 +116,7 @@ async function harness(fixture: Fixture) {
     './annotation-sync': {NativeAnnotationSync: class {flush() {return Promise.resolve();} subscribe() {return () => {};} getSnapshot() {return {};} dispose() {}}},
     './annotation-authoring': {NATIVE_OFFLINE_ANNOTATION_AUTHORING: false},
   });
-  return {ReadNativeHost, NativeReadingGuestHost, ReadingGuestView, context, reader, received, get hostCalls() {return hostCalls;}, get versionCalls() {return versionCalls;}, setCurrent(value: boolean) {current = value; for (const listener of [...listeners]) listener();}, disposals};
+  return {ReadNativeHost, NativeReadingGuestHost, ReadingGuestView, context, reader, received, get hostCalls() {return hostCalls;}, get versionCalls() {return versionCalls;}, setFailureAt(value: Failure) {at = value;}, setCurrent(value: boolean) {current = value; for (const listener of [...listeners]) listener();}, disposals};
 }
 
 function mount(component: (props: any) => unknown, props: any) {
@@ -349,4 +349,59 @@ test('an old guest error and message cannot affect a retried guest at the same a
     nextView.props.onMessage({nativeEvent: {url: appleReaderEntry, data: 'current'}});
     assert.deepEqual(fixture.received, ['current']); assert.equal(fixture.versionCalls, 1);
   } finally {guest.host.unmount(); live.host.unmount();}
+});
+
+
+test('a spent acquisition Retry cannot replace the successfully accepted original successor', async () => {
+  const fixture = await harness({at: 'versions'}), view = mount(fixture.ReadNativeHost, propsFor(fixture.context));
+  try {
+    await act(async () => {view.host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
+    const failed = byType(view.tree, 'StateView'); assert.ok(failed);
+    const oldRetry = failed!.props.primaryAction.onPress;
+    fixture.setFailureAt('none');
+    await act(async () => {oldRetry(); await new Promise<void>(resolve => setImmediate(resolve));});
+    const accepted = byType(view.tree, 'NativeReadingGuestHost'); assert.ok(accepted);
+    const originalOwner = accepted!.props.owner;
+    assert.equal(fixture.versionCalls, 2); assert.equal(fixture.disposals.filter(value => value === 'session').length, 0);
+    await act(async () => {oldRetry(); await new Promise<void>(resolve => setImmediate(resolve));});
+    assert.equal(byType(view.tree, 'NativeReadingGuestHost')!.props.owner, originalOwner);
+    assert.equal(fixture.versionCalls, 2); assert.equal(fixture.disposals.filter(value => value === 'session').length, 0);
+  } finally {view.host.unmount();}
+});
+
+test('a spent guest Retry cannot replace a healthy guest or its original session', async () => {
+  const fixture = await harness({at: 'none'}), live = mount(fixture.ReadNativeHost, propsFor(fixture.context));
+  await act(async () => {live.host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
+  const child = byType(live.tree, 'NativeReadingGuestHost'); assert.ok(child);
+  const guest = mount(fixture.NativeReadingGuestHost, child!.props);
+  try {
+    await act(async () => {guest.host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
+    const first = byType(guest.tree, 'ReadingGuestView'); assert.ok(first);
+    await act(() => fixture.ReadingGuestView(first!.props).props.onError());
+    const failed = byType(guest.tree, 'StateView'); assert.ok(failed);
+    const oldRetry = failed!.props.primaryAction.onPress;
+    await act(async () => {oldRetry(); await new Promise<void>(resolve => setImmediate(resolve));});
+    const healthy = byType(guest.tree, 'ReadingGuestView'); assert.ok(healthy);
+    const originalReader = healthy!.props.reader;
+    assert.equal(fixture.hostCalls, 2); assert.equal(fixture.versionCalls, 1);
+    await act(async () => {oldRetry(); await new Promise<void>(resolve => setImmediate(resolve));});
+    assert.equal(byType(guest.tree, 'ReadingGuestView')!.props.reader, originalReader);
+    assert.equal(fixture.hostCalls, 2); assert.equal(fixture.versionCalls, 1);
+    assert.equal(fixture.disposals.filter(value => value === 'session').length, 0);
+  } finally {guest.host.unmount(); live.host.unmount();}
+});
+
+test('a covered acquisition failure cannot Retry until its same original render is active', async () => {
+  const fixture = await harness({at: 'versions'}), initial = propsFor(fixture.context);
+  const view = mount(fixture.ReadNativeHost, initial);
+  try {
+    await act(async () => {view.host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
+    const retry = byType(view.tree, 'StateView')!.props.primaryAction.onPress;
+    fixture.setFailureAt('none'); await act(() => view.update({...initial, active: false}));
+    await act(async () => {retry(); await new Promise<void>(resolve => setImmediate(resolve));});
+    assert.equal(fixture.versionCalls, 1);
+    await act(() => view.update(initial));
+    await act(async () => {retry(); await new Promise<void>(resolve => setImmediate(resolve));});
+    assert.equal(fixture.versionCalls, 2); assert.ok(byType(view.tree, 'NativeReadingGuestHost'));
+  } finally {view.host.unmount();}
 });

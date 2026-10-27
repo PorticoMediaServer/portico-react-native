@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {AppState, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {preferenceValue, ReadingError, type PreferenceSnapshot, type ReadingSession} from '../../../../../packages/client-core/src';
@@ -30,6 +30,8 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
   const theme = useTheme(), dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   const callbacks = useRef({active, onBack, onOpenSettings}); callbacks.current = {active, onBack, onOpenSettings};
   const [retry, setRetry] = useState(0);
+  const mounted = useRef(false);
+  useLayoutEffect(() => {mounted.current = true; return () => {mounted.current = false;};}, []);
   const journal = useMemo(() => new NativeAnnotationJournal(), [context]);
   const annotations = useMemo(() => new NativeAnnotationSync(context, journal), [context, journal]);
   const quietRetry = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -111,6 +113,16 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
   const rendered = useRef(owner);
   if (rendered.current !== owner) {void rendered.current.dispose().catch(() => {}); rendered.current = owner;}
   const snapshot = useSyncExternalStore(owner.subscribe, owner.snapshot, owner.snapshot);
+  const latest = useRef({owner, snapshot, retry, active, resident}); latest.current = {owner, snapshot, retry, active, resident};
+  const retryTicket = useMemo(() => ({spent: false}), [owner, snapshot]);
+  const retryOriginal = () => {
+    const same = () => mounted.current && !retryTicket.spent && rendered.current === owner && latest.current.owner === owner
+      && latest.current.snapshot === snapshot && latest.current.retry === retry && latest.current.active && latest.current.resident
+      && callbacks.current.active && snapshot.phase === 'failed' && !snapshot.session;
+    if (!same()) return;
+    try {if (!owner.current() || !context.current() || (binding && !binding.activeCurrent()) || !owner.current() || owner.snapshot() !== snapshot) return;} catch {return;}
+    if (!same()) return; retryTicket.spent = true; setRetry(value => value + 1);
+  };
   useEffect(() => {void Promise.resolve().then(() => owner.ensure()).catch(() => {}); return () => {void owner.dispose().catch(() => {});};}, [owner]);
   const onSearchAll = (query: string, signal: AbortSignal, isLive: () => boolean) => {
     if (!owner.current() || signal.aborted) return false;
@@ -120,13 +132,13 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
     return context.navigation.allows(destination) && owner.current() && context.navigation.open(destination, context.authority());
   };
   if (snapshot.phase === 'ready' && resident) return <NativeReadingGuestHost owner={owner} active={active} preferences={preferences}
-    onBack={onBack} onSettings={onOpenSettings} onSearchAll={onSearchAll} contentsTarget={target.contentsTarget} onGuestState={onGuestState}/>;
+    onBack={onBack} onSettings={onOpenSettings} onSearchAll={onSearchAll} contentsTarget={target.contentsTarget} onGuestState={onGuestState} activeCurrent={binding?.activeCurrent}/>;
   if (!resident) return null;
   const failed = snapshot.phase === 'failed' || snapshot.phase === 'retired';
   return <View pointerEvents={active ? 'auto' : 'none'} accessibilityElementsHidden={!active} importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
     style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink, opacity: active ? 1 : 0}}>
     {failed ? <StateView variant="centered" title={defaultI18n.t('next.states.pageFailed')} body={defaultI18n.t('next.states.pageFailedBody')}
-      primaryAction={{id: 'retry', label: defaultI18n.t('next.states.tryAgain'), disabled: !active || snapshot.phase === 'retired' || !!snapshot.session || !context.current(), onPress: () => setRetry(value => value + 1)}}/>
+      primaryAction={{id: 'retry', label: defaultI18n.t('next.states.tryAgain'), disabled: !active || snapshot.phase === 'retired' || !!snapshot.session || !context.current(), onPress: retryOriginal}}/>
       : <LoadingPaint ready={false} skeleton={<SkeletonBlock width="100%" style={{flex: 1}}/>}/>}
     <View pointerEvents="box-none" style={{position: 'absolute', left: 12, top: insets.top + 8, zIndex: 20}}>
       <Button testID="native-read-host-back" variant="icon" size="compact" icon="i-left" iconOnly accessibilityLabel={defaultI18n.t('action.back')}
