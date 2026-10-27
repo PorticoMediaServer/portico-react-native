@@ -5,6 +5,8 @@ import {createReadingHost} from '../../../packages/client-core/src';
 import {routeBase64} from '../../../packages/client-core/src/route-identity';
 import {appleReaderEntry, readerAssetEntry, readerNavigationAllowed, readerDelivery} from '../src-next/screens/read/asset-origin';
 import {createReadingSessionOwner} from '../src-next/screens/read/reading-session-owner';
+import {NativeShellNavigation} from '../src-next/shell/routes';
+import {readRouteBack} from '../src-next/screens/read/read-route-back';
 import {act, createHookHost} from './hook-driver';
 import {screenModule} from './helpers/screen-harness.mjs';
 
@@ -20,8 +22,8 @@ function find(value: unknown, type: string): Node | undefined {
 }
 
 /** Exercises the real logical owner, bridge, guest component and WebView
- * element with in-memory session ports. Route projection is tested separately;
- * this is not a device or a signed-publication enrollment test. */
+ * element and actual route projection with in-memory session ports. This is
+ * not a device or a signed-publication enrollment test. */
 test('twenty original sessions can evict and restore real guest components without reopening', async () => {
   const {ReadingGuestView, createReadingGuestBridge} = await screenModule(new URL('../src-next/screens/read/ReadingGuestView.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native-webview': {default: 'WebView'},
@@ -38,16 +40,42 @@ test('twenty original sessions can evict and restore real guest components witho
     '../../kit/theme': {useTheme: () => ({colors: {ink: '#000'}})}, '../../platform/platformPosture': {usePlatformPosture: () => ({status: 'unavailable'})},
     './asset-origin': {readerAssetEntry}, './ReadingGuestView': {ReadingGuestView, createReadingGuestBridge},
   });
+  const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'a'.repeat(64)};
+  const navigation = new NativeShellNavigation(authority, () => authority);
+  const context = {navigation, authority: () => authority, current: () => true, subscribeAuthority: () => () => {}};
+  const {createNativeReadRenderer} = await screenModule(new URL('../src-next/screens/read/ReadRoute.tsx', import.meta.url), {
+    react: {...React, default: React}, 'react-native': {Platform: {isTV: false}}, './host-component': {nativeReadHost: () => 'LogicalReadHost'},
+    './read-route-back': {readRouteBack},
+  });
   let opens = 0, closes = 0; const sessions: any[] = [], progresses: any[] = [], owners: ReturnType<typeof createReadingSessionOwner>[] = [];
-  const mounted = new Map<number, {host: ReturnType<typeof createHookHost>; tree: () => unknown; setActive: (value: boolean) => void}>();
+  const mounted = new Map<number, {host: ReturnType<typeof createHookHost>; tree: () => unknown; view: Node; setActive: (value: boolean) => void}>();
+  const evicted = new Map<number, Node>();
   const preferences = {getSnapshot: () => ({} as any), subscribe: () => () => {}};
-  const settle = async () => {await act(async () => {await new Promise<void>(resolve => setImmediate(resolve));});};
-  const mount = async (index: number, active: boolean) => {
-    let tree: unknown, isActive = active; const host = createHookHost(() => {tree = NativeReadingGuestHost({owner: owners[index], active: isActive, preferences, onBack() {}, onSettings() {}});});
+  const renderer = createNativeReadRenderer(context, preferences, () => {});
+  let residenceElement: any, residenceTree: any, residence: ReturnType<typeof createHookHost> | undefined;
+  const rows = () => {const children = residenceTree.props.children; return (Array.isArray(children) ? children : [children]).filter((value: any) => value?.type === 'LogicalReadHost');};
+  const mount = async (index: number, active: boolean, onGuestState: (present: boolean, incarnation: object) => void) => {
+    let tree: unknown, isActive = active; const host = createHookHost(() => {tree = NativeReadingGuestHost({owner: owners[index], active: isActive, preferences, onBack() {}, onSettings() {}, onGuestState});});
     await act(async () => {host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
     const boundary = find(tree, 'ReadingGuestView'); assert.ok(boundary);
     const webview = ReadingGuestView(boundary!.props); assert.equal(webview.type, 'WebView');
-    mounted.set(index, {host, tree: () => tree, setActive: value => {isActive = value; host.rerender();}}); return webview;
+    mounted.set(index, {host, tree: () => tree, view: webview, setActive: value => {isActive = value; host.rerender();}}); return webview;
+  };
+  const sync = async () => {
+    residenceElement = renderer.renderRetained(); assert.ok(residenceElement);
+    if (!residence) {residence = createHookHost(() => {residenceTree = residenceElement.type(residenceElement.props);}); await act(() => residence!.mount());}
+    else await act(() => residence!.rerender());
+    await act(() => {for (const [index, item] of [...mounted]) {
+      const row = rows().find((value: any) => value.props.target.itemId === `item-${index}`);
+      if (!row?.props.resident) {evicted.set(index, item.view); item.host.unmount(); mounted.delete(index);}
+    }});
+    for (const row of rows()) if (row.props.resident) {
+      const index = Number(row.props.target.itemId.slice(5)), existing = mounted.get(index);
+      if (existing) await act(() => existing.setActive(row.props.active));
+      else await mount(index, row.props.active, row.props.onGuestState);
+    }
+    assert.ok(mounted.size <= 2);
+    assert.equal([...mounted.values()].filter(item => (item.tree() as Node).props.pointerEvents === 'auto').length, navigation.getSnapshot().route.kind === 'read' ? 1 : 0);
   };
   try {
     for (let index = 0; index < 20; index++) {
@@ -56,22 +84,29 @@ test('twenty original sessions can evict and restore real guest components witho
         progress: async () => progress, close: async () => {closes++;}, headPDF: async () => ({}), readRange: async () => new Uint8Array(),
         readAsset: async () => new Uint8Array(), page: async () => ({}), saveProgress: async () => ({saved: false, progress: null})};
       sessions.push(session); progresses.push(progress);
-      const owner = createReadingSessionOwner({current: () => true, subscribe: () => () => {}, acquire: async () => {opens++; return {session: session as any, release() {}};}});
-      owners.push(owner); await owner.ensure();
-      if (mounted.size === 2) {const oldest = mounted.keys().next().value!; mounted.get(oldest)!.host.unmount(); mounted.delete(oldest);}
-      await act(() => {for (const item of mounted.values()) item.setActive(false);});
-      await mount(index, true); assert.ok(mounted.size <= 2);
-      assert.equal([...mounted.values()].filter(item => (item.tree() as Node).props.pointerEvents === 'auto').length, 1);
+      if (index) {assert.equal(navigation.open({kind: 'search-reading', query: `book ${index}`}, authority), true); await sync();}
+      const route = {kind: 'read', itemId: `item-${index}`, sourceId: `source-${index}`} as const;
+      assert.equal(navigation.open(route, authority), true); renderer.render(route);
+      const rendered = renderer.renderRetained();
+      const binding = rendered.props.entries.find((entry: any) => entry.route === route).binding;
+      const owner = createReadingSessionOwner({current: binding.retainedCurrent, subscribe: binding.subscribe,
+        acquire: async () => {opens++; return {session: session as any, release() {}};}});
+      owners.push(owner); await owner.ensure(); await sync();
       assert.equal(opens, index + 1); assert.equal(closes, 0);
     }
     for (let index = 19; index >= 0; index--) {
-      for (const item of mounted.values()) item.host.unmount(); mounted.clear(); await settle();
-      await mount(index, true); assert.equal(owners[index]!.snapshot().manifest, sessions[index].manifest);
+      assert.equal(navigation.getSnapshot().route.kind, 'read');
+      assert.equal((navigation.getSnapshot().route as {itemId: string}).itemId, `item-${index}`);
+      assert.equal(owners[index]!.snapshot().manifest, sessions[index].manifest);
       assert.equal(owners[index]!.snapshot().manifest?.sourceId, `source-${index}`);
-      assert.equal(owners[index]!.snapshot().confirmedProgress, progresses[index]); assert.equal(opens, 20); assert.equal(closes, 0);
+      assert.equal(owners[index]!.snapshot().confirmedProgress, progresses[index]); assert.equal(opens, 20); assert.equal(closes, 19 - index);
+      const old = evicted.get(index), current = mounted.get(index);
+      if (old && current) {old.props.onError(); old.props.onMessage({nativeEvent: {url: appleReaderEntry, data: 'stale'}});
+        assert.equal(find(current.tree(), 'StateView'), undefined, 'evicted callbacks cannot fail the restored guest');}
+      if (index) {assert.equal(navigation.back(authority), true); await sync(); assert.equal(navigation.back(authority), true); await sync();}
     }
   } finally {
-    for (const item of mounted.values()) item.host.unmount();
+    for (const item of mounted.values()) item.host.unmount(); residence?.unmount(); renderer.dispose(); navigation.dispose();
     await Promise.all(owners.map(owner => owner.dispose()));
   }
   assert.equal(closes, 20);
