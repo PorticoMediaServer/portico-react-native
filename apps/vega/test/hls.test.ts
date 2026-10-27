@@ -1063,7 +1063,7 @@ test('the actual pump refuses unprovable sealed media when required coverage dra
     const removeCharge = hls.retained.delete.bind(hls.retained);
     hls.retained.delete = (entry: unknown) => { refunds++; return removeCharge(entry); };
     buffer.remove = () => { removes++; };
-    if (drift === 'range') buffer.spans = [[cohort.ranges[0][0], cohort.frontier - 1]];
+    if (drift === 'range') buffer.spans = [[cohort.ranges[0][0], cohort.frontier - 0.025]];
     else if (drift === 'range-gap') buffer.spans = [[player.currentTime + 0.025, cohort.frontier]];
     else if (drift === 'unreadable') Object.defineProperty(buffer, 'buffered', {get() {throw new Error('native ranges unavailable');}});
     else hls.charge(buffer, hls.generation, 123, drift);
@@ -1087,7 +1087,7 @@ test('the actual pump refuses unprovable sealed media when required coverage dra
 
 test('the actual pump waits through a valid cohort final milliseconds before retiring at its exact frontier', async () => {
   for (const paused of [true, false]) {
-    for (const remaining of [0.01, 0.049]) {
+    for (const remaining of [0.01, 0.025, 0.049]) {
       resetServer(); resetWorld(); film(3, 80_000_000);
       const {source, player, failures} = start(base + 'index.m3u8');
       await source.open(0); await stopTestPump(source as any); source.settled();
