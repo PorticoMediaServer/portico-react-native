@@ -132,7 +132,13 @@ test('only an offered original video file is painted, and retirement disposes th
   try {
     assert.deepEqual(claims, [originalFence]);
     assert.equal(entry.props.entry.video, video);
-    assert.equal(entry.props.entry.node.props.art.props.children[0].props.source.uri, 'file:///original');
+    // The presenter clones the frozen row and paints the offered frame beside the
+    // row's own art, so the picture is the cloned art's Image, not the live tree.
+    const painted = [entry.props.entry.node.props.art.props.children]
+      .flatMap((node: any) => node.props.children as any[]);
+    const images = painted.filter((node: any) => node.type === 'Image');
+    assert.equal(images.length, 1, 'exactly the offered original frame is painted');
+    assert.equal(images[0].props.source.uri, 'file:///original');
     await act(() => {current = false; for (const notify of [...listeners]) notify();});
     assert.equal(outgoing.tree, null);
     assert.equal(r.retiring().length, 0);

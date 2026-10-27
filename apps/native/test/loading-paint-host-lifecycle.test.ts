@@ -13,6 +13,7 @@
  */
 import test, {after} from 'node:test';
 import assert from 'node:assert/strict';
+import type {ReactNode} from 'react';
 import {registerHooks} from 'node:module';
 import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
@@ -21,6 +22,8 @@ import {act, createHookHost} from './hook-driver.ts';
 
 type Element = {type: unknown; props: Record<string, any>};
 type PaintValue = {value: number};
+/** The presenter reads only the reduced flag and a named standard duration. */
+type MotionPolicy = {reduce: boolean; duration: (name: string) => number};
 type Timing = {
   config: {toValue: number; duration: number; easing: unknown};
   value: PaintValue; stopped: boolean; started: boolean; completed: boolean;
@@ -33,10 +36,10 @@ type Timing = {
 };
 
 const stateKey = '__porticoLoadingPaintHostTest';
-const baseline = {reduce: false, duration: (name: string) => (name === 'standard' ? 180 : 0)};
-const state = {
-  setValues: [] as number[],
-  timings: [] as Timing[],
+const baseline: MotionPolicy = {reduce: false, duration: (name: string) => (name === 'standard' ? 180 : 0)};
+const state: {setValues: number[]; timings: Timing[]; motion: MotionPolicy; paint: {visible: boolean; interactive: boolean; root: boolean}} = {
+  setValues: [],
+  timings: [],
   motion: baseline,
   paint: {visible: true, interactive: true, root: true},
 };
@@ -112,8 +115,8 @@ function mountPaint(props: any) {
   host.mount();
   return {host, get tree() {return tree as Element;}, update(next: any) {props = next; host.rerender();}};
 }
-const shape = {type: 'Shape', props: {}} as unknown as Element;
-const child = {type: 'ChildHost', props: {}} as unknown as Element;
+const shape = {type: 'Shape', props: {}} as unknown as ReactNode;
+const child = {type: 'ChildHost', props: {}} as unknown as ReactNode;
 /** Only real rendered element nodes count; `cond && <X/>` leaves false in the array. */
 function rendered(tree: Element): Element[] {
   return (tree.props.children as unknown[]).filter((node): node is Element => !!node && typeof node === 'object' && 'type' in (node as Element) && !!(node as Element).type);
@@ -288,8 +291,14 @@ test('outgoing inert boundary stops a partial content fade at its current paint'
   const host = createHookHost(() => {tree = LoadingBoundary(props);});
   host.mount();
   try {
+    // A ready mount leaves its quiet start on the commit that follows mount, and
+    // only then does the content fade exist. Read the fade after that commit so
+    // the partial paint below is the one the boundary actually renders.
+    await act(() => {});
     const fade = state.timings.at(-1)!;
+    assert.equal(fade.value, tree.props.style[1].opacity, 'the fade drives the rendered opacity value');
     fade.tick(0.42);
+    assert.equal(tree.props.style[1].opacity.value, 0.42, 'the boundary renders the partial paint');
     state.paint = {visible: true, interactive: false, root: true};
     host.rerender(); await act(() => {});
     assert.equal(fade.stopped, true);

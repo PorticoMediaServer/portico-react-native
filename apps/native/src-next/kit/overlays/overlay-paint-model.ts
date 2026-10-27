@@ -155,7 +155,13 @@ export function freezeOverlayPaint(node: OverlayPaintNode, allowedTypes: Overlay
         if (next === REJECT) throw REJECT;
         if (next !== OMIT) define(props, 'children', next);
       }
-      return React.createElement(element.type as never, element.key === null || element.key === undefined ? props : {children: undefined, ...props, key: element.key});
+      const keyed = element.key !== null && element.key !== undefined;
+      const built = React.createElement(element.type as never, keyed ? {children: undefined, ...props} : props);
+      // React's development build turns a key passed through createElement's
+      // config into a warning accessor on the new props object. The key belongs
+      // to the element, so transfer it there and leave the frozen props free of
+      // any accessor, exactly as the source element's props were.
+      return keyed ? React.cloneElement(built, {key: element.key}) : built;
     } finally {context.path.delete(element as unknown as object);}
   }
 
