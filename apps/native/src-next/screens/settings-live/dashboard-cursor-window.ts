@@ -3,7 +3,7 @@
 export type DashboardCursorPage<T, M> = Readonly<{items: readonly T[]; nextCursor?: string; metadata: M}>;
 export type DashboardCursorChunk<T> = Readonly<{cursor: string; items: readonly T[]}>;
 export type DashboardCursorSnapshot<T, M> = Readonly<{
-  generation: number; chunks: readonly DashboardCursorChunk<T>[]; items: readonly T[];
+  scope: object; generation: number; chunks: readonly DashboardCursorChunk<T>[]; items: readonly T[];
   bookmarks: readonly string[]; nextCursor: string; metadata?: M;
   pending: boolean; error?: unknown; refreshRequired: boolean;
 }>;
@@ -14,9 +14,10 @@ export class DashboardCursorWindow<T, M> {
   private disposed = false;
   private flight?: Flight<T, M>;
   private focused?: string;
+  private focusGeneration?: number;
   private held?: {flight: Flight<T, M>; page: DashboardCursorPage<T, M>; previous: boolean; reset: boolean};
   private seen = new Set<string>();
-  private value: DashboardCursorSnapshot<T, M> = {generation: 0, chunks: [], items: [], bookmarks: [''], nextCursor: '', pending: false, refreshRequired: false};
+  private value: DashboardCursorSnapshot<T, M> = {scope: {}, generation: 0, chunks: [], items: [], bookmarks: [''], nextCursor: '', pending: false, refreshRequired: false};
   constructor(private readonly read: (cursor: string, signal: AbortSignal) => Promise<DashboardCursorPage<T, M>>,
     private readonly key: (item: T) => string, private readonly current: () => boolean,
     private readonly changed: (value: DashboardCursorSnapshot<T, M>) => void) {}
@@ -24,7 +25,8 @@ export class DashboardCursorWindow<T, M> {
   private publish(value: DashboardCursorSnapshot<T, M>): void {this.value = Object.freeze(value); this.changed(this.value);}
   private alive(flight: Flight<T, M>): boolean {return !this.disposed && this.current() && this.flight === flight && flight.generation === this.generation && !flight.abort.signal.aborted;}
   /** Called by the actual focus binding, not by a guessed row index. */
-  focus(id?: string): void {this.focused = id; if (this.held && this.alive(this.held.flight)) this.accept(this.held.flight, this.held.page, this.held.previous, this.held.reset);}
+  focus(id?: string, generation = this.generation): void {this.focused = id; this.focusGeneration = id === undefined ? undefined : generation; if (this.held && this.alive(this.held.flight)) this.accept(this.held.flight, this.held.page, this.held.previous, this.held.reset);}
+  blur(id: string, generation: number): void {if (this.focused === id && this.focusGeneration === generation) this.focus(undefined);}
   refresh(): Promise<void> {
     if (this.disposed || !this.current()) return Promise.resolve();
     if (this.flight?.reset && this.alive(this.flight)) return this.flight.promise;
@@ -49,15 +51,16 @@ export class DashboardCursorWindow<T, M> {
   retry(expected: DashboardCursorSnapshot<T, M>): Promise<void> {
     if (expected !== this.value || expected.error === undefined || expected.refreshRequired) return Promise.resolve();
     const cursor = this.retryCursor, previous = this.retryPrevious;
-    return this.request(expected, cursor, previous, false);
+    return this.request(expected, cursor, previous, this.retryReset);
   }
+  private retryReset = false;
   private retryCursor = '';
   private retryPrevious = false;
   private request(expected: DashboardCursorSnapshot<T, M>, cursor: string, previous: boolean, reset: boolean): Promise<void> {
     if (this.disposed || !this.current() || expected !== this.value || this.flight) return Promise.resolve();
     const abort = new AbortController();
     const flight: Flight<T, M> = {generation: this.generation, expected, cursor, abort, promise: Promise.resolve(), reset};
-    this.flight = flight; this.retryCursor = cursor; this.retryPrevious = previous;
+    this.flight = flight; this.retryCursor = cursor; this.retryPrevious = previous; this.retryReset = reset;
     this.publish({...expected, pending: true, error: undefined});
     flight.promise = (async () => {
       try {
@@ -69,7 +72,7 @@ export class DashboardCursorWindow<T, M> {
         }
         this.accept(flight, page, previous, reset);
       } catch (error) {
-        if (this.alive(flight)) {this.flight = undefined; this.publish({...this.value, pending: false, error: error ?? new Error('dashboard_page_failed')});}
+        if (this.alive(flight)) {this.flight = undefined; if (error instanceof Error && error.message === 'dashboard_refresh_required') this.publish({...this.value, pending: false, refreshRequired: true}); else this.publish({...this.value, pending: false, error: error ?? new Error('dashboard_page_failed')});}
       }
     })();
     return flight.promise;

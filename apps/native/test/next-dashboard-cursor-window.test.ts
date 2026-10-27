@@ -53,3 +53,13 @@ test('previous and forward follow retained producer bookmarks without inventing 
   assert.deepEqual(window.snapshot().items.map(row => row.id), ['a', 'b', 'c']);
   assert.deepEqual(calls, ['', 'a', 'b', 'c', '', 'c']); window.dispose();
 });
+
+test('refresh preserves the focused old row until its original focus lease blurs', async () => {
+  let read = 0;
+  const window = new DashboardCursorWindow(async () => ({items: [{id: ++read === 1 ? 'old' : 'fresh'}], nextCursor: '', metadata: read}), row => row.id, () => true, () => {});
+  await window.refresh(); const opening = window.snapshot(); window.focus('old', opening.generation);
+  await window.refresh(); assert.deepEqual(window.snapshot().items.map(row => row.id), ['old']);
+  assert.equal(window.snapshot().pending, true);
+  window.blur('old', opening.generation); assert.deepEqual(window.snapshot().items.map(row => row.id), ['fresh']);
+  assert.equal(window.snapshot().pending, false); window.dispose();
+});
