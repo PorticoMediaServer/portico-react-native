@@ -105,13 +105,14 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
   /** The drawn order of the Recorded grid; the groups reader does the ordering. */
   const sort = query.sort === 'title' || query.sort === 'oldest' ? query.sort : 'recent';
   const selectSort = (next: 'recent' | 'title' | 'oldest') => {setSortOpen(false); if (next === sort) return; retire(); void controller.load({view: 'recorded', sort: next});};
+  const leaveGuide = () => {if (!drawnCurrent()) return; controller.endViewerOpening(viewerOpening); onGuide();};
   const back = useCallback(() => {
     if (menu || detail || rule || confirm) return false;
     if (bodyFocused.current && registry.focus({regionId: tabs, childId: query.view})) return true;
     if (query.group) {ask.current = undefined; setGroup(undefined); void controller.load({view: 'recorded'}); return true;}
     ask.current = undefined;
-    onGuide(); return true;
-  }, [menu, detail, rule, confirm, registry, tabs, query.group, query.view, controller, onGuide]);
+    leaveGuide(); return true;
+  }, [menu, detail, rule, confirm, registry, tabs, query.group, query.view, controller, onGuide, viewerOpening]);
   useScreenBack(runtime, back, theme.isTV);
   const open = (recording: Recording, kind: 'menu' | 'details', expected: typeof state.viewerWindow) => {
     if (!drawnCurrent()) return;
@@ -198,7 +199,7 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
   if (state.accessDenied) return <Screen><StateView {...runtime.error(state.error ?? {status: 403}, onGuide)}/></Screen>;
   return <Screen style={{paddingTop: theme.isTV ? 56 : 20}}>
     <View style={{flexDirection: 'row', alignItems: 'center', height: theme.isTV ? 64 : 48, marginBottom: theme.isTV ? 24 : 16, paddingHorizontal: theme.isTV ? 0 : 20}}>
-      {!theme.isTV && <Button testID="recordings-back" variant="text" icon="i-left" size="small" onPress={onGuide}>{t('action.back')}</Button>}
+      {!theme.isTV && <Button testID="recordings-back" variant="text" icon="i-left" size="small" onPress={leaveGuide}>{t('action.back')}</Button>}
       <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 32, 800, 'normal', -.03), {color: theme.colors.text, flex: 1}]}>{group?.title ?? t('recordings.title')}</Text>
       {!group && state.storage && query.view !== 'storage' && <View style={{width: theme.isTV ? 360 : 160}}><StorageFacts storage={state.storage}/><Meter storage={state.storage}/></View>}
     </View>
@@ -209,7 +210,7 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
         : query.view === 'storage' ? state.storage && <StorageView storage={state.storage} owner={ports.context.account.account.role === 'owner' && ports.context.account.account.primaryProfileId === controller.lifetime.authority.profileId}/>
         : state.loading && !state.page && !state.groups ? <StateView title={t('recordings.loading')}/>
         : unavailable ? <StateView title={t('recordings.unavailableTitle')} body={t('recordings.unavailableBody')}/>
-        : isEmpty ? <StateView testID="recordings-empty" title={t(emptyTitle)} body={emptyBody && t(emptyBody)} primaryAction={emptyGuide ? {id: 'guide', testID: 'recordings-open-guide', label: t('web.dvr.openGuide'), onPress: onGuide} : undefined}/>
+        : isEmpty ? <StateView testID="recordings-empty" title={t(emptyTitle)} body={emptyBody && t(emptyBody)} primaryAction={emptyGuide ? {id: 'guide', testID: 'recordings-open-guide', label: t('web.dvr.openGuide'), onPress: leaveGuide} : undefined}/>
         : query.view === 'recorded' && !query.group ? <View style={{flex: 1}}>{theme.isTV && state.summary && <View style={{flexDirection: 'row', alignItems: 'center', gap: 32, marginBottom: 24}}>
           <Text style={[shellType(24, 600, 'normal'), {color: theme.colors.textSecondary, flex: 1}]}>{t('next.live.recordedHead', {shows: state.summary.groups, recordings: state.summary.recorded, unwatched: state.summary.unwatched})}</Text>
           <Chip focusId="recordings-sort" testID="recordings-sort" onPress={() => setSortOpen(true)}>{`${t('next.browse.sort')} · ${t(sortLabels[sort])}`}</Chip>

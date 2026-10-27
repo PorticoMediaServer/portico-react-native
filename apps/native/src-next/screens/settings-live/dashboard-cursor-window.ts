@@ -7,7 +7,7 @@ export type DashboardCursorSnapshot<T, M> = Readonly<{
   bookmarks: readonly string[]; nextCursor: string; metadata?: M;
   pending: boolean; error?: unknown; refreshRequired: boolean;
 }>;
-type Flight<T, M> = {generation: number; expected: DashboardCursorSnapshot<T, M>; cursor: string; abort: AbortController; promise: Promise<void>; reset: boolean};
+type Flight<T, M> = {generation: number; expected: DashboardCursorSnapshot<T, M>; cursor: string; abort: AbortController; promise: Promise<void>; reset: boolean; admission?: () => boolean};
 
 export class DashboardCursorWindow<T, M> {
   private generation = 0;
@@ -40,7 +40,7 @@ export class DashboardCursorWindow<T, M> {
   isWitness(expected: DashboardCursorSnapshot<T, M>): boolean {return this.issued.has(expected) && expected.scope === this.value.scope && expected.generation === this.generation;}
   private alive(flight: Flight<T, M>): boolean {
     const own = () => !this.disposed && this.flight === flight && flight.generation === this.generation && !flight.abort.signal.aborted;
-    return own() && this.current() && own();
+    return own() && this.current() && own() && (!flight.admission || flight.admission()) && own();
   }
   /** Called by the actual focus binding, not by a guessed row index. */
   focus(id?: string): object | undefined {const token = id === undefined ? undefined : {}; this.focused = id === undefined ? undefined : {id, token: token!}; if (this.held && this.alive(this.held.flight)) this.held.commit(); return token;}
@@ -68,25 +68,28 @@ export class DashboardCursorWindow<T, M> {
     this.value = Object.freeze(publication); this.issued.add(this.value);
     return this.request(this.value, '', false, true, false);
   }
-  next(expected: DashboardCursorSnapshot<T, M>): Promise<void> {
+  next(expected: DashboardCursorSnapshot<T, M>, admission?: () => boolean): Promise<void> {
+    if (admission && !admission()) return Promise.resolve();
     const active = this.coalesced(expected); if (active) return active;
     if (expected !== this.value || !expected.nextCursor || expected.refreshRequired) return Promise.resolve();
-    return this.request(expected, expected.nextCursor, false, false);
+    return this.request(expected, expected.nextCursor, false, false, false, admission);
   }
-  previous(expected: DashboardCursorSnapshot<T, M>): Promise<void> {
+  previous(expected: DashboardCursorSnapshot<T, M>, admission?: () => boolean): Promise<void> {
+    if (admission && !admission()) return Promise.resolve();
     const active = this.coalesced(expected); if (active) return active;
     if (expected !== this.value || expected.refreshRequired || !expected.chunks.length) return Promise.resolve();
     const first = expected.chunks[0].cursor, index = expected.bookmarks.indexOf(first);
     if (!first) return Promise.resolve();
-    if (index < 0 || index <= 1 && this.agedOut) return this.request(expected, '', false, true, false);
+    if (index < 0 || index <= 1 && this.agedOut) return this.request(expected, '', false, true, false, admission);
     const cursor = index > 0 ? expected.bookmarks[index - 1] : '';
-    return this.request(expected, cursor, true, false);
+    return this.request(expected, cursor, true, false, false, admission);
   }
-  retry(expected: DashboardCursorSnapshot<T, M>): Promise<void> {
+  retry(expected: DashboardCursorSnapshot<T, M>, admission?: () => boolean): Promise<void> {
+    if (admission && !admission()) return Promise.resolve();
     const active = this.coalesced(expected); if (active) return active;
     if (expected !== this.value || expected.error === undefined || expected.refreshRequired) return Promise.resolve();
     const cursor = this.retryCursor, previous = this.retryPrevious;
-    return this.request(expected, cursor, previous, this.retryReset, this.retryRehydrate);
+    return this.request(expected, cursor, previous, this.retryReset, this.retryRehydrate, admission);
   }
   /** Brent's constant-memory checkpoint covers a forward producer chain. */
   private restartCycle(cursor?: string): void {this.checkpoint = cursor || undefined; this.power = 1; this.distance = 0;}
@@ -124,11 +127,11 @@ export class DashboardCursorWindow<T, M> {
   private retryRehydrate = false;
   private retryCursor = '';
   private retryPrevious = false;
-  private request(expected: DashboardCursorSnapshot<T, M>, cursor: string, previous: boolean, reset: boolean, rehydrate = false): Promise<void> {
-    if (this.disposed || !this.current() || this.disposed || expected !== this.value || this.flight) return Promise.resolve();
+  private request(expected: DashboardCursorSnapshot<T, M>, cursor: string, previous: boolean, reset: boolean, rehydrate = false, admission?: () => boolean): Promise<void> {
+    if (this.disposed || !this.current() || admission && !admission() || this.disposed || expected !== this.value || this.flight) return Promise.resolve();
     const abort = new AbortController();
     let settle!: () => void; const promise = new Promise<void>(resolve => {settle = resolve;});
-    const flight: Flight<T, M> = {generation: this.generation, expected, cursor, abort, promise, reset};
+    const flight: Flight<T, M> = {generation: this.generation, expected, cursor, abort, promise, reset, admission};
     this.flight = flight; this.retryCursor = cursor; this.retryPrevious = previous; this.retryReset = reset; this.retryRehydrate = rehydrate;
     this.publish({...expected, pending: true, error: undefined});
     if (!this.alive(flight)) {this.retireRefused(flight); settle(); return promise;}

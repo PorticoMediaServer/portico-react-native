@@ -39,12 +39,14 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
   load(query: NativeRecordingQuery = this.getSnapshot().query, opening?: object): Promise<void> {
     if (opening && !this.viewerOpeningCurrent(opening)) return Promise.resolve();
     this.assert();
-    if (this.getSnapshot().accessDenied) return Promise.resolve();
-    this.viewerWindow?.dispose(); this.viewerWindow = undefined;
+    if (this.getSnapshot().accessDenied || opening && !this.viewerOpeningCurrent(opening)) return Promise.resolve();
+    const predecessor = this.viewerWindow, priorEpoch = this.epoch; this.viewerWindow = undefined; predecessor?.dispose();
+    if (this.epoch !== priorEpoch || this.viewerWindow || opening && !this.viewerOpeningCurrent(opening) || this.epoch !== priorEpoch || this.viewerWindow) return Promise.resolve();
     const original = Object.freeze({...query});
     const epoch = ++this.epoch, previous = this.getSnapshot();
     const same = JSON.stringify(previous.query) === JSON.stringify(original);
     this.publish({...previous, query: original, page: same ? previous.page : undefined, groups: same ? previous.groups : undefined, viewerWindow: undefined, loading: true, error: undefined});
+    if (epoch !== this.epoch || opening && !this.viewerOpeningCurrent(opening) || epoch !== this.epoch) return Promise.resolve();
     this.pending = {query: original, epoch, opening};
     // Moving focus quickly across the five chips replaces pending work, instead of queuing
     // private reads for every intermediate selection. At most one page read is in flight.
@@ -54,7 +56,7 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
   private async drain(): Promise<void> {
     while (this.pending && this.current()) {
       const {query, epoch, opening} = this.pending; this.pending = undefined;
-      const admitted = () => this.current() && epoch === this.epoch && !this.getSnapshot().accessDenied && (!opening || this.viewerOpeningCurrent(opening));
+      const admitted = () => this.current() && epoch === this.epoch && !this.getSnapshot().accessDenied && (!opening || this.viewerOpeningCurrent(opening)) && epoch === this.epoch && (!opening || this.viewerOpening === opening);
       if (!admitted()) continue;
       try {
         const result = query.view === 'storage' ? {storage: await this.service.storage()}
@@ -84,9 +86,9 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
   endViewerOpening = (opening: object): void => {if (this.viewerOpening !== opening) return; const window = this.viewerWindow; this.viewerOpening = undefined; window?.cancelPending(); if (!this.viewerOpening && this.viewerWindow === window) window?.focus(undefined);};
   viewerOpeningCurrent = (opening: object): boolean => this.current() && this.viewerOpening === opening && !this.getSnapshot().accessDenied;
   private mayPage(opening?: object): boolean {return opening ? this.viewerOpeningCurrent(opening) : !this.viewerOpening && this.current();}
-  nextViewerPage = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>, opening?: object): Promise<void> => this.mayPage(opening) ? this.viewerWindow?.next(expected) ?? Promise.resolve() : Promise.resolve();
-  previousViewerPage = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>, opening?: object): Promise<void> => this.mayPage(opening) ? this.viewerWindow?.previous(expected) ?? Promise.resolve() : Promise.resolve();
-  retryViewerPage = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>, opening?: object): Promise<void> => this.mayPage(opening) ? this.viewerWindow?.retry(expected) ?? Promise.resolve() : Promise.resolve();
+  nextViewerPage = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>, opening?: object): Promise<void> => this.mayPage(opening) ? this.viewerWindow?.next(expected, opening ? () => this.viewerOpeningCurrent(opening) : undefined) ?? Promise.resolve() : Promise.resolve();
+  previousViewerPage = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>, opening?: object): Promise<void> => this.mayPage(opening) ? this.viewerWindow?.previous(expected, opening ? () => this.viewerOpeningCurrent(opening) : undefined) ?? Promise.resolve() : Promise.resolve();
+  retryViewerPage = (expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>, opening?: object): Promise<void> => this.mayPage(opening) ? this.viewerWindow?.retry(expected, opening ? () => this.viewerOpeningCurrent(opening) : undefined) ?? Promise.resolve() : Promise.resolve();
   viewerFocusToken = (id: string): object | undefined => this.viewerWindow?.focusToken(id);
   focusViewerRow = (id: string, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): object | undefined => {const window = this.viewerWindow; if (!window || !this.current() || this.getSnapshot().accessDenied || this.viewerWindow !== window || !window.isWitness(expected)) return undefined; const row = expected.items.find(item => item.kind === 'group' ? item.value.key === id : item.value.id === id); if (!row || !window.snapshot().items.includes(row) || !this.current() || this.viewerWindow !== window || this.getSnapshot().accessDenied || !window.isWitness(expected) || !window.snapshot().items.includes(row)) return undefined; return window.focus(id);};
   blurViewerRow = (id: string, token: object, expected: DashboardCursorSnapshot<ViewerRow, ViewerPage>): void => {const window = this.viewerWindow; if (window && window.snapshot().scope === expected.scope) window.blur(id, token);};

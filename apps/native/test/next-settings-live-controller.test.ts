@@ -537,3 +537,18 @@ test('viewer row focus from a retained same-generation handler pins the chunk du
   await controller.load({view: 'history'}); assert.equal(controller.focusViewerRow('b', original), undefined);
   controller.dispose(); lifetime.dispose();
 });
+
+test('recording first-page recovery refuses an opening retired inside the lifetime predicate', async () => {
+  const owner = authority(), lifetime = new NativeScreenLifetime(owner), fixture = recordingService();
+  const calls: (string | undefined)[] = [];
+  fixture.service.list = async (_view, cursor) => {calls.push(cursor); return {...fixture.page, nextCursor: 'next'};};
+  const controller = new NativeRecordingsController(lifetime, fixture.service);
+  await controller.load({view: 'upcoming'}); const original = controller.getSnapshot().viewerWindow!;
+  const opening = {}; controller.beginViewerOpening(opening); const originalCurrent = owner.current; let count = 0;
+  owner.current = () => {if (++count === 2) controller.endViewerOpening(opening); return originalCurrent();};
+  await controller.load({view: 'upcoming'}, opening);
+  assert.deepEqual(calls, [undefined]); assert.equal(controller.getSnapshot().viewerWindow, original);
+  owner.current = originalCurrent; const successor = {}; controller.beginViewerOpening(successor);
+  await controller.load({view: 'upcoming'}, successor); assert.deepEqual(calls, [undefined, undefined]);
+  controller.endViewerOpening(successor); controller.dispose(); lifetime.dispose();
+});
