@@ -1366,7 +1366,7 @@ test('TV Dashboard presenter binds real continuation and retry to the captured s
     '../../../../../packages/client-core/src/presentation/content': await import('../../../packages/client-core/src/presentation/content.ts'),
     '../../../../../packages/client-core/src/server-admin/console-catalogue': await import('../../../packages/client-core/src/server-admin/console-catalogue.ts'),
     '../../../../../packages/client-core/src/server-admin/now-playing': await import('../../../packages/client-core/src/server-admin/now-playing.ts'),
-    '../../../../../packages/client-core/src/presentation/kit-model': await import('../../../packages/client-core/src/presentation/kit-model.ts'),
+    '../../../../../packages/client-core/src/presentation/kit-model': await import('../../../packages/client-core/src/presentation/kit-model/index.ts'),
     '../../kit/controls': {Button, Focusable}, '../../kit/focus': await import('../src-next/kit/focus/index.ts'),
     '../../kit/shell': await import('../src-next/kit/shell/index.ts'), '../../kit/states': {StateView},
     '../../kit/shell/visual': await import('../src-next/kit/shell/visual.ts'), '../../kit/theme': {useTheme: () => state.theme},
