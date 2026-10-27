@@ -526,6 +526,10 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       if (current()) return directory;
     });
   };
+  const publishPreparedAccount = (source: NativePorticoSignIn, available: IdentityOptions, current: () => boolean) => {
+    if (!lifetime.current || account.current !== source || !current()) return false;
+    preparedAuthSource.current = source; setOptions(available); return true;
+  };
   const portico = async (auto?: {active: boolean; entry: {active: boolean}}) => {
     const autoCurrent = () => !auto || (auto.active && auto.entry === rootEntry.current && stageRef.current === 'welcome');
     if (auto && !autoCurrent()) return;
@@ -542,8 +546,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       if (account.current === next) {next.dispose(); account.current = undefined;}
       return;
     }
-    preparedAuthSource.current = next;
-    setOptions(available); setStage('portico');
+    if (publishPreparedAccount(next, available, autoCurrent)) setStage('portico');
   };
   const retryRootAuth = () => {
     if (Platform.isTV || stageRef.current !== 'welcome' || invitationActive || busyRef.current || acting.current) return;
@@ -639,9 +642,10 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     if (!lifetime.current || !memberMoveRef.current) return;
     const existing = credentials.getSnapshot().session;
     if (existing) {accountScope.current = {accountId: existing.account.id, familyId: existing.familyId}; setStage('account-sign-out'); return;}
-    account.current?.dispose(); const next = account.current = new NativePorticoSignIn();
+    const move = memberMoveRef.current;
+    preparedAuthSource.current = undefined; account.current?.dispose(); const next = account.current = new NativePorticoSignIn();
     const available = await next.prepare();
-    if (lifetime.current && account.current === next && memberMoveRef.current) {setOptions(available); setStage('register');}
+    if (publishPreparedAccount(next, available, () => !!move && memberMoveRef.current === move)) setStage('register');
   };
   const differentMoveAccount = async () => {
     const credentials = nativeAccounts.accountCredentials(); await credentials.synchronize();
@@ -1128,10 +1132,11 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       if (!current()) return; const credentials = nativeAccounts.accountCredentials(); await credentials.synchronize();
       if (!current()) return;
       if (credentials.getSnapshot().session) {await directory(); return;}
-      account.current?.dispose(); const source = account.current = new NativePorticoSignIn(() => !!ticket?.active
+      preparedAuthSource.current = undefined; account.current?.dispose(); const source = account.current = new NativePorticoSignIn(() => !!ticket?.active
         && invitationSwitch.current === ticket && invitationIntent.current === ticket.entry && lifetime.current);
       const available = await source.prepare(); if (!current() || account.current !== source) return;
-      setOptions(available); stageRef.current = register && available.registration ? 'register' : 'portico'; setStage(stageRef.current);
+      if (!publishPreparedAccount(source, available, current)) return;
+      stageRef.current = register && available.registration ? 'register' : 'portico'; setStage(stageRef.current);
     });};
     return <StateLayout testID="accounts-invitation-account" title={t('accounts.invitation.to') + ' ' + (preview?.serverName ?? '')}
       body={preview ? t('accounts.invitation.porticoBody', {server: preview.serverName}) : undefined}
@@ -1153,11 +1158,12 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
           if (!current()) return; await nativeAccounts.signOutPorticoAccount(ticket!.scope!);
           if (!current()) return;
           setUsername(''); setPassword(''); setCode('');
-          account.current?.dispose(); const source = account.current = new NativePorticoSignIn(() => !!ticket?.active
+          preparedAuthSource.current = undefined; account.current?.dispose(); const source = account.current = new NativePorticoSignIn(() => !!ticket?.active
             && invitationSwitch.current === ticket && invitationIntent.current === ticket.entry && lifetime.current);
           const available = await source.prepare();
           if (!current() || account.current !== source) return;
-          setOptions(available); stageRef.current = 'portico'; setStage('portico');
+          if (!publishPreparedAccount(source, available, current)) return;
+          stageRef.current = 'portico'; setStage('portico');
         });
       }}} secondaryAction={{id: 'cancel', label: t('action.cancel'), disabled: busy, onPress: cancel}}/>;
   }
