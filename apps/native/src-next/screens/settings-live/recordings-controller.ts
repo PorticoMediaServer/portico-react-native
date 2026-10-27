@@ -196,7 +196,7 @@ export class NativeRecordingsController extends NativeScreenStore<NativeRecordin
         if (!eligible(value)) return Promise.resolve(undefined);
         const priority = Math.max(value.recording.options.priority, ...value.overlaps.map(overlap => overlap.priority)) + 1;
         const lifetime = {signal: abort.signal, isCurrent: () => eligible(value)};
-        return this.act(service => {if (!eligible(value)) throw screenScopeEnded(); return service.update(value.recording, {...value.recording.options, priority});}, lifetime);
+        return this.act(service => {if (!eligible(value)) throw screenScopeEnded(); return service.update(value.recording, {...value.recording.options, priority}, lifetime);}, lifetime);
       },
       dispose,
     };
