@@ -1287,14 +1287,31 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     } else consume(await (operation.current!.directoryChallengePending() ? operation.current!.completeDirectorySecondFactor(code) : operation.current!.completeSecondFactor(code)));
     setCode('');
   }, !code));
-  if (stage === 'portico' && !theme.isTV) return <PhoneAccountSignIn busy={busy} error={status} providers={availableProviders}
-    passwordEnabled={!!authOptions?.password} registration={!!authOptions?.registration} recovery={authOptions?.recovery !== false}
-    username={username} password={password} onUsernameChange={setUsername} onPasswordChange={setPassword}
-    onProvider={signInWithProvider}
-    onContinue={() => {if (busy || !authOptions?.password || !username || !password) return; void run(async () => {await account.current!.password(username, password); await directory();});}}
-    onForgot={() => {if (busy || !authOptions?.recovery) return; setPassword(''); setStage('forgot');}}
-    onCreate={() => {if (busy || !authOptions?.registration) return; setPassword(''); setStage('register');}}
-    onLocal={() => {if (busy) return; setPassword(''); setStage('address');}}/>;
+  if (stage === 'portico' && !theme.isTV) {
+    const source = account.current, ticket = invitationSwitch.current;
+    const current = () => !!source && lifetime.current && stageRef.current === 'portico' && account.current === source
+      && preparedAuthSource.current === source && invitationSwitch.current === ticket
+      && (!ticket || (ticket.active && invitationIntent.current === ticket.entry));
+    return <PhoneAccountSignIn busy={busy} error={status} providers={availableProviders}
+      passwordEnabled={!!authOptions?.password} registration={!!authOptions?.registration} recovery={authOptions?.recovery !== false}
+      username={username} password={password} onUsernameChange={value => {if (current()) setUsername(value);}} onPasswordChange={value => {if (current()) setPassword(value);}}
+      onProvider={id => {if (!current() || busy || !availableProviders.some(value => value.id === id)) return; void run(async () => {
+        if (!current() || !source) return;
+        try {
+          const tx = await source.provider(id, current); if (!current()) return; setTransaction(tx);
+          if (tx.status === 'verified' && !tx.needsUsername && !tx.mfaRequired) {
+            const caller = new AbortController(); await source.finishProvider(undefined, undefined, undefined, {signal: caller.signal, isCurrent: current});
+            if (current()) await directory();
+          } else if (current()) setStage('provider');
+        } catch (error) {if (current()) throw error;}
+      });}}
+      onContinue={() => {if (!current() || busy || !authOptions?.password || !username || !password || !source) return; void run(async () => {
+        if (!current()) return; try {await source.password(username, password, current); if (current()) await directory();} catch (error) {if (current()) throw error;}
+      });}}
+      onForgot={() => {if (!current() || busy || !authOptions?.recovery) return; setPassword(''); setStage('forgot');}}
+      onCreate={() => {if (!current() || busy || !authOptions?.registration) return; setPassword(''); setStage('register');}}
+      onLocal={() => {if (!current() || busy) return; setPassword(''); setStage('address');}}/>;
+  }
   if (stage === 'portico') return layout(t('accounts.signIn.portico'), t('auth.accountLead'), options?.password ? fields(field(t('auth.usernameOrEmail'), username, setUsername, false, 'username'), field(t('auth.password'), password, setPassword, true, 'password')) : undefined,
     options?.password ? action('account-password', t('auth.signIn'), async () => {await account.current!.password(username, password); await directory();}, !username || !password) : undefined,
     <View style={{alignSelf: 'stretch', gap: 10, marginTop: 10}}>{options?.providers.filter(value => value.enabled && (NativeModules.PorticoAccountAuth.canOpenBrowser || value.id === 'apple' && value.native && value.nativeClientIds.includes(NativeModules.PorticoAccountAuth.bundleId) && NativeModules.PorticoAccountAuth.canSignInApple)).map(value => <Button key={value.id} variant="glass" disabled={busy} onPress={() => {void run(async () => {
