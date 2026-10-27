@@ -72,7 +72,7 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
     ruleRemoveRef.current = next; setRuleRemoveOpening(next);
   };
   const closeRuleRemove = (target: RuleRemoveOpening) => {if (ruleRemoveRef.current !== target) return; ruleRemoveRef.current = undefined; setRuleRemoveOpening(current => current === target ? undefined : current);};
-  useLayoutEffect(() => {const token = {}; if(chainRef.current) chainRef.current.retired=true; chainRef.current=undefined; headFlight.current=undefined; pageFlight.current=undefined; ruleScopeRef.current = token; ruleOwner.current = controller; ruleRemoveRef.current = undefined; ruleRemoveFlight.current = undefined; return () => {if (ruleScopeRef.current === token) {ruleScopeRef.current = undefined; if(chainRef.current)chainRef.current.retired=true; chainRef.current=undefined;headFlight.current=undefined;pageFlight.current=undefined;ruleRemoveRef.current = undefined; ruleRemoveFlight.current = undefined; operationRef.current?.abort();operationRef.current = undefined; newRuleRef.current = undefined;}};}, [facts]);
+  useLayoutEffect(() => {const token = {}; if(chainRef.current) chainRef.current.retired=true; chainRef.current=undefined; headFlight.current=undefined; pageFlight.current=undefined; ruleScopeRef.current = token; ruleOwner.current = facts.controller; ruleRemoveRef.current = undefined; ruleRemoveFlight.current = undefined; return () => {if (ruleScopeRef.current === token) {ruleScopeRef.current = undefined; if(chainRef.current)chainRef.current.retired=true; chainRef.current=undefined;headFlight.current=undefined;pageFlight.current=undefined;ruleRemoveRef.current = undefined; ruleRemoveFlight.current = undefined; operationRef.current?.abort();operationRef.current = undefined; newRuleRef.current = undefined;}};}, [facts]);
   const ruleRevision = routeRevision;
 
   const shownRuleRemove = ruleRemoveOpening && ruleRemoveRef.current === ruleRemoveOpening && ruleRemoveOpening.controller === controller && ruleRemoveOpening.revision === ruleRevision ? ruleRemoveOpening : undefined;
@@ -293,7 +293,7 @@ function Permissions({policy, draft, runtime, onChange}: {policy: Readonly<{owne
   </Section>;
 }
 
-function Defaults({document, draft, runtime, onChange}: {document: DVRDocument; draft: DVRDefaults; runtime: NativeShellRuntime; onChange: (value: DVRDefaults) => void}) {
+function Defaults({draft, runtime, onChange}: {document: DVRDocument; draft: DVRDefaults; runtime: NativeShellRuntime; onChange: (value: DVRDefaults) => void}) {
   const theme = useTheme(), t = runtime.text.t;
   const patch = (value: Partial<DVRDefaults>) => onChange({...draft, ...value});
   const minutes = (ms: number | null) => String(Math.round((ms ?? 0) / 60000));
@@ -390,6 +390,11 @@ export function NewRuleSheet({controller, runtime, policy, sources, ownerCursor,
     let active = true; const epoch = ++ownEpoch.current; setOwnError(false);
     void Promise.all([controller.policy(), controller.load(true).then(() => controller.getSnapshot().list?.sources ?? [])]).then(([nextPolicy, nextSources]) => {if (active && ownEpoch.current === epoch && sheetCurrent()) {setOwnPolicy(nextPolicy); setOwnSources(nextSources);}}, () => {});
     return () => {active = false; if (ownEpoch.current === epoch) {ownEpoch.current += 1; ownFlight.current = undefined;}};
+  // Keyed to the opening that drew the own data: the previous owner is compared through the
+  // `ownOwner` capture above, which is the render-time retirement witness. Re-keying on the
+  // fetched own state, the revision or the re-created `sheetCurrent` witness would re-run the
+  // effect (and its epoch/cleanup) on every render, so those reads stay at call time.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sheet, policy, sources, controller]);
   const effectivePolicy = policy ?? (ownOwner.current.controller === controller && ownOwner.current.runtime === runtime && ownOwner.current.navigation === runtime.navigation && ownOwner.current.revision === revision ? ownPolicy : undefined), effectiveSources = sources ?? (ownOwner.current.controller === controller && ownOwner.current.runtime === runtime && ownOwner.current.navigation === runtime.navigation && ownOwner.current.revision === revision ? ownSources : undefined) ?? [];
   const loadOwnOwners = async () => {
@@ -417,7 +422,7 @@ export function NewRuleSheet({controller, runtime, policy, sources, ownerCursor,
   const guideQueryRef=useRef<typeof guideQuery | undefined>(undefined);
   useLayoutEffect(()=>{guideQuery.live=true;guideQueryRef.current=guideQuery;return()=>{guideQuery.live=false;if(guideQueryRef.current===guideQuery)guideQueryRef.current=undefined;};},[guideQuery]);
   const guideCurrent=()=>{const local=()=>guideQueryRef.current===guideQuery&&guideQuery.live;return local()&&sheetCurrent()&&local();};
-  const series=seriesPage?.query===guideQuery?seriesPage.items:[];
+  const series=useMemo(()=>seriesPage?.query===guideQuery?seriesPage.items:[],[seriesPage,guideQuery]);
   useEffect(() => {
     if (!sheetCurrent()) return;
     setName(''); setOwner(allowed[0] ? recordingOwnerKey(allowed[0].owner) : ''); setSourceId(effectiveSources[0]?.id ?? ''); setDay(new Date().toISOString().slice(0, 10));
@@ -429,6 +434,10 @@ export function NewRuleSheet({controller, runtime, policy, sources, ownerCursor,
     const current=()=>active&&guideCurrent()&&active;
     if(current())void controller.guideSeries(day,sourceId).then(items=>{if(current()){setSeriesPage({query:guideQuery,items});setAnchor('');}},failure=>{if(current())setError(failure);}).finally(()=>{if(current())setLoading(false);});
     return()=>{active=false;};
+  // `guideQuery` is the witness that captured this sheet, controller, day and source, and it is
+  // already re-created by each of them; `guideCurrent` adds the sheet admission and visibility
+  // read, which must happen at call time rather than re-key the guide read on every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   },[guideQuery]);
   const draftFacts = useMemo(() => ({sheet, effectivePolicy, name, owner, sourceId, day, series, anchor, newOnly, before, after, priority, keepKey}), [sheet, effectivePolicy, name, owner, sourceId, day, series, anchor, newOnly, before, after, priority, keepKey]);
   const draftRef = useRef<typeof draftFacts | undefined>(undefined);

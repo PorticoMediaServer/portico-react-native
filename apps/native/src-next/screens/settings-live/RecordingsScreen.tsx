@@ -112,6 +112,10 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
     if (query.group) {ask.current = undefined; setGroup(undefined); void controller.load({view: 'recorded'}); return true;}
     ask.current = undefined;
     leaveGuide(); return true;
+  // `leaveGuide` is a render-scope witness: `drawnCurrent` reads the drawn scope, route and
+  // visibility when back is pressed, so it cannot be a stable dep. Everything `back` decides
+  // on is listed here.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menu, detail, rule, confirm, registry, tabs, query.group, query.view, controller, onGuide, viewerOpening]);
   useScreenBack(runtime, back, theme.isTV);
   const open = (recording: Recording, kind: 'menu' | 'details', expected: typeof state.viewerWindow) => {
@@ -292,6 +296,9 @@ function RecordingDetails({recording, controller, runtime, opener, onClose, onPl
   // completion or a read that belongs to A can never act on B.
   const opening = useRef<RecordingOpening | undefined>(undefined);
   const previous = opening.current;
+  // The opening is created in this render and the opening it replaces is retired on the next
+  // line, before the replacement draws; a memo would defer or re-key that retirement.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const opened: RecordingOpening = previous && previous.id === recording.id && previous.revision === recording.revision && previous.controller === controller && previous.parent === parent
     ? previous : {id: recording.id, revision: recording.revision, controller, parent, live: true};
   if (previous && previous !== opened) previous.live = false;
@@ -318,6 +325,9 @@ function RecordingDetails({recording, controller, runtime, opener, onClose, onPl
       if (active && opened.live && isCurrent()) setRead({for: opened, error: value});
     });
     return () => {active = false; resolver.dispose(); window?.dispose();};
+  // The read carries `opened`, and `isCurrent`/`recording` are its call-time witnesses: adding
+  // them would repeat the read (and its resolver) whenever the parent re-renders the witness.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opened, controller, recording.id]);
   const current = read?.for === opened ? read : undefined;
   const detail = current?.detail, error = current?.error;
