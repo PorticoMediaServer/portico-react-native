@@ -22,6 +22,10 @@ import {NativeVersionChooserController} from '../src-next/screens/watch/version-
 import {nativeVersionChoices, nativeVersionNames} from '../src-next/screens/watch/version-options.ts';
 import {NativeDiscTitlesController} from '../src-next/screens/watch/disc-titles-controller.ts';
 import {prepareDiscTitle, readDiscTitles} from '../src-next/screens/watch/disc-titles.ts';
+import {NativeWatchPresenters} from '../src-next/screens/watch/presenters.ts';
+import {NativeScreenServices} from '../src-next/screens/screen-services.ts';
+import type {NativeWatchCapture, NativeVersionDestination, NativeVersionsOpening} from '../src-next/screens/watch/factory.ts';
+import type {NativeShellBootstrapContext} from '../src-next/shell/bootstrap.ts';
 
 const {react} = hooks();
 let detailProjection: any = null;
@@ -62,21 +66,38 @@ function fixture(hasDestination = true, readSession?: NativePlaybackAdapter['rea
   let bound = authority, revision = 3, route: any = {kind: 'title', entry: {id: 'show', libraryId: 'library', kind: 'show'}}, holdStart: Promise<void> | undefined, source = {authority, retired: false, fence: undefined as PlaybackFence | undefined, dock: {local: {expanded: true, fence: undefined as PlaybackFence | undefined}}, playback: {intent: 'playing', phase: 'ready'}, session: undefined as {itemId: string; versionId: string; role?: 'local' | 'group_member'} | undefined};
   let respond = async (_url: URL) => offered as unknown;
   const requests: {path: string; signal?: AbortSignal | null}[] = [], menus: any[] = [], versions: any[] = [], starts: any[] = [], errors: unknown[] = [], navigations: unknown[] = [], enqueues: unknown[][] = [], playlistOpens: unknown[][] = [];
-  let versionEpoch = 0;
   const api = new HttpLocalApi('https://portico.test', '', async (input, init) => {
     const url = new URL(String(input)); requests.push({path: url.pathname, signal: init?.signal});
     return new Response(JSON.stringify(await respond(url)), {status: 200});
   });
   const subscribe = (listeners: Set<() => void>) => (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};};
-  const screens = createNativeWatchScreens({api, scope: {serverId: 'server', viewerId: 'viewer'}, authority, current: () => bound,
-    subscribeCurrent: subscribe(authorityListeners), navigation: {getSnapshot: () => ({authority: bound, revision, route}), subscribe: subscribe(routeListeners), back() {}},
-    playback: {getSnapshot: () => source, subscribe: subscribe(playbackListeners), start: async (input: unknown) => {starts.push(input); await holdStart;}, cataloguePlayback: () => ({enqueueSegments: async (...args: unknown[]) => {enqueues.push(args); return {} as never;}}), ...(readSession ? {readSession} : {})},
+  // The real presenter's own Versions opening and destination lifetime, over the
+  // same route, authority and playback ports the factory reads. Its constructor
+  // is the only source of the opening's identity and currentness checks.
+  const navigation = {getSnapshot: () => ({authority: bound, revision, route}), subscribe: subscribe(routeListeners), back() {}, open(entry: unknown) {navigations.push(entry); return true;}};
+  const playback = {getSnapshot: () => source, subscribe: subscribe(playbackListeners), start: async (input: unknown) => {starts.push(input); await holdStart;}, cataloguePlayback: () => ({enqueueSegments: async (...args: unknown[]) => {enqueues.push(args); return {} as never;}}), ...(readSession ? {readSession} : {})};
+  const common = new NativeScreenServices({navigation, current: () => bound === authority, authority: () => bound, subscribeAuthority: subscribe(authorityListeners)}, async () => 'request');
+  const presenters = new NativeWatchPresenters({api, navigation, playback, current: () => bound === authority, authority: () => bound,
+    subscribeAuthority: subscribe(authorityListeners)} as unknown as NativeShellBootstrapContext, common);
+  const factory = createNativeWatchScreens({api, scope: {serverId: 'server', viewerId: 'viewer'}, authority, current: () => bound,
+    subscribeCurrent: subscribe(authorityListeners), navigation, playback,
     playlistPicker: {open: (...args: unknown[]) => {playlistOpens.push(args);}, openAlbum: () => {}, render: () => null, dispose: () => {}}, watch: {register() {throw new Error('not mounted');}}, requestId: async () => 'request', isTV: false,
-    startVersion: async (...args: unknown[]) => {starts.push(args);}, manageFile() {}, openFileInfo() {}, ...(hasDestination ? {openVersions: (...args: unknown[]) => {versions.push(args);}} : {}),
-    beginVersions: (capture: any) => {const epoch = ++versionEpoch; return {capture, live: () => epoch === versionEpoch && bound === authority};},
+    startVersion: async (...args: unknown[]) => {starts.push(args);}, manageFile() {}, openFileInfo() {},
+    ...(hasDestination ? {
+      // Record the exact opening the factory dispatched, then let the real
+      // presenter present that destination under its own current() guard.
+      openVersions: (capture: NativeWatchCapture, destination: NativeVersionDestination, opening: NativeVersionsOpening) => {
+        versions.push([capture, destination, opening]);
+        presenters.openVersions(capture, destination, opening);
+      },
+      beginVersions: presenters.beginVersions,
+    } : {}),
     openMenu: (...args: unknown[]) => {menus.push(args);},
     title: {aboutLabel: 'About', navigate(entry: unknown) {navigations.push(entry);}, myList() {}, renderError() {}, reportError: (error: unknown) => {errors.push(error);}},
   });
+  // The fixture's existing dispose is the one cleanup every test already calls,
+  // so it retires the presenter and its services before the subscription counts.
+  const screens = {...factory, dispose: () => {factory.dispose(); presenters.dispose(); common.dispose();}};
   return {screens, requests, menus, versions, starts, errors, navigations, enqueues, playlistOpens,
     session: (role?: 'local' | 'group_member') => {source = {...source, session: role ? {itemId: entry.id, versionId: 'v1', role} : undefined}; for (const listener of playbackListeners) listener();},
     holdStart: (held: Promise<void>) => {holdStart = held;},
