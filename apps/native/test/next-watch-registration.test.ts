@@ -15,7 +15,8 @@ test('a cold registry creates the one Watch module for the shared entry menu bef
     }},
   });
   const remove = registerNativeWatch((context: any) => ({context}));
-  const base = {current: () => true, session: () => ({}), navigation: {allows: () => true}};
+  const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
+  const base = {current: () => true, authority: () => authority, session: () => ({}), navigation: {allows: () => true}};
   const context = Object.defineProperties({...base}, {
     api: {get: () => {throw new Error('the registry must not construct api on a cold overlay');}},
     playback: {get: () => {throw new Error('the registry must not start playback on a cold overlay');}},
@@ -55,7 +56,8 @@ test('actual bound registry shares one Watch/title clock, Back and disposal per 
     }},
   });
   const remove = registerNativeWatch((context: any) => ({context}));
-  const context = {current: () => true, session: () => ({}), navigation: {allows: () => true}} as any;
+  const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
+  const context = {current: () => true, authority: () => authority, session: () => ({}), navigation: {allows: () => true}} as any;
   const otherContext = {...context};
   const first = registry.bind(context), second = registry.bind(otherContext);
   const route = {kind: 'title', entry: {id: 'actual', kind: 'movie', title: 'Actual'}} as any, runtime = {} as any;

@@ -1,5 +1,10 @@
 import {isTablet} from '../src-next/platform/device-platform';
 import {nativeDeviceSettings} from '../src-next/platform/device-settings';
+import * as groupPort from '../src-next/screens/settings-live/group-port.ts';
+import {nativeServerPreferences} from '../src-next/platform/server-preferences.ts';
+import {browseValueLabel} from '../../../packages/client-core/src/presentation/browse-toolbar.ts';
+import {sameAuthority} from '../src-next/shell/model.ts';
+import {NativeShellNavigation} from '../src-next/shell/routes.ts';
 import test from 'node:test';
 import {audiobookPreferences} from '../../../packages/client-core/src/audiobook-preferences';
 import assert from 'node:assert/strict';
@@ -8,20 +13,38 @@ import {sameFence, playbackFence} from '../../../packages/player-core/src/index.
 import {qualityOptionSelected} from '../../../packages/client-core/src/playback-v1/quality.ts';
 import {nativeWatchTracks} from '../src-next/screens/watch/track-identity.ts';
 import {createNativeWatchPanelNames} from '../src-next/screens/watch/panel-names.ts';
+import {lossSentence} from '../src-next/screens/watch/playback-info.ts';
+import {videoTrackWords} from '../../../packages/client-core/src/video-track-labels.ts';
+import {codecName} from '../../../packages/client-core/src/presentation/playback-info.ts';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 
 const {react} = hooks();
+const infoPanel = await screenModule(new URL('../src-next/screens/watch/PlaybackInfoPanel.tsx', import.meta.url), {
+  react, 'react-native': {ActivityIndicator: 'ActivityIndicator', ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
+  '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/player-core/src': {sameFence},
+  '../../../../../packages/client-core/src/video-track-labels': {videoTrackWords},
+  '../../../../../packages/client-core/src/presentation/playback-info': {codecName},
+  '../../kit/controls': {Button: 'Button', Focusable: 'Focusable'}, '../../kit/theme': {nativeType: (value: unknown) => value, useTheme: () => ({})},
+  './playback-info': {lossSentence},
+});
 const menuCalls: any[][] = [];
 let captured: any, optionsDisposed = 0, screensDisposed = 0;
 const {createNativeWatchModule, nativeWatchChromeFacts} = await screenModule(new URL('../src-next/screens/watch/module.tsx', import.meta.url), {
+  '../settings-live/group-port': groupPort,
   '../../platform/device-platform': {isTablet},
   '../../platform/device-settings': {nativeDeviceSettings},
+  '../../platform/server-preferences': {nativeServerPreferences},
+  '../../shell/model': {sameAuthority},
+  '../../../../../packages/client-core/src/presentation/browse-toolbar': {browseValueLabel},
   '../../../../../packages/client-core/src/audiobook-preferences': {audiobookPreferences}, react, 'react-native': {Platform: {isTV: false}}, '../../../../../packages/player-core/src': {sameFence},
   '../../../../../packages/client-core/src/playback-v1/quality': {qualityOptionSelected}, './track-identity': {nativeWatchTracks},
   '../../../../../packages/i18n/src': {defaultI18n}, './panel-names': {createNativeWatchPanelNames},
   './ChannelRoute': {NativeWatchChannelRoute: 'Channel'},
-  './PlaybackInfoPanel': {NativePlaybackInfoPanel: 'PlaybackInfo'},
+  './PlaybackInfoPanel': {NativePlaybackInfoPanel: 'PlaybackInfo', playbackInfoWords: infoPanel.playbackInfoWords},
   './WatchPanels': {NativeWatchPanels: 'Panels'}, './panel-options': {NativeWatchPanelOptions: class {dispose() {optionsDisposed++;}}},
+  './live-guide': {NativeTVLiveGuide: 'LiveGuide'}, './live-actions': {NativeTVLiveActions: 'LiveActions'},
+  './LiveActionPanels': {NativeLiveActionPanels: 'LiveActionPanels'}, './PlaybackFailed': {NativePlaybackFailed: 'PlaybackFailed'},
+  './HandheldPlaybackFailed': {NativeHandheldPlaybackFailed: 'HandheldPlaybackFailed'}, './PostPlayScreen': {NativeWatchPostPlay: 'PostPlay'},
   './factory': {createNativeWatchScreens: (ports: any) => {captured = ports; return {title: {render: () => 'title'}, watch: {
     render: (runtime: any) => ports.player.chrome(ports.playback.getSnapshot(), runtime), body: () => 'body', back: () => true,
   }, menu: async (...args: any[]) => {menuCalls.push(args);}, dispose: () => {screensDisposed++;}};}},
@@ -46,10 +69,11 @@ test('chrome facts use current selected IDs and never a preferred version or an 
 test('module preserves the genuine adapter/outlet, current preferences, body and retirement lifetime', async () => {
   let live = true, back = 5000, forward = 60000, book = false;
   const transitions: any[] = [], layouts: any[] = [], errors: any[] = [];
-  const transition = {action: 'collapse'}, playback = {getSnapshot: () => ({...source(), dock: {local: {kind: book ? 'audiobook' : 'video'}}}), dock: {collapse: (expected: any) => {assert.equal(expected, fence); return transition;}},
+  const transition = {action: 'collapse'}, playback = {getSnapshot: () => ({...source(), dock: {local: {kind: book ? 'audiobook' : 'video'}}}), subscribe: (_listener: () => void) => () => {}, dock: {collapse: (expected: any) => {assert.equal(expected, fence); return transition;}},
     onTransition: async (value: any) => {transitions.push(value);}}, outlet = {genuine: true};
+  const navigation = new NativeShellNavigation(authority, () => authority);
   const context = {current: () => live, authority: () => authority, session: () => ({viewer: {...authority, authority: 'local'}}), api: {},
-    subscribeAuthority() {}, navigation: {}, playback, watch: outlet,
+    subscribeAuthority: () => () => {}, navigation, playback, watch: outlet,
     preferences: () => ({registry:{fields:[]},effective: {'playback.skipBackMs': back, 'playback.skipForwardMs': forward,'audiobooks.skipBackMs':60000,'audiobooks.skipForwardMs':90000,'audiobooks.resumeRewindMs':0}})};
   const menuListeners = new Set<() => void>();
   const entry = {id: 'member', kind: 'movie', libraryId: 'library', title: 'Member'};

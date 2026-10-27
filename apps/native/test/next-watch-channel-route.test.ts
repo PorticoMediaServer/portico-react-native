@@ -30,14 +30,14 @@ async function fixture(){
 for(const retirement of ['navigation','authority','unmount'] as const)test(`pending real channel route owns Back and original caller: ${retirement}`,async()=>{
  const f=await fixture();try{
   assert.equal(f.request().lifetime.isCurrent(),true);assert.equal(f.request().sourceId,f.route.sourceId);assert(f.back());
-  if(retirement==='unmount')f.host.unmount();else if(retirement==='authority')f.retire();else f.navigation.top({kind:'home'},authority);
+  if(retirement==='unmount')f.host.unmount();else if(retirement==='authority')f.retire();else f.navigation.open({kind:'account'},authority);
   assert.equal(f.request().lifetime.isCurrent(),false);assert.equal(f.request().lifetime.signal.aborted,true);
  }finally{f.dispose();}
 });
 test('failed channel launch retains original Back and guarded Retry; old controls never pop or restart a successor',async()=>{
  const f=await fixture();try{
   await act(()=>{f.reject(new Error('tune failed'));});assert(nodes(f.output()).some(node=>node.type==='Error'));const back=f.back(),retry=f.retry();
-  await act(()=>retry());assert.equal(f.attempts(),2);f.navigation.top({kind:'settings'},authority);const successor=f.navigation.getSnapshot();
+  await act(()=>retry());assert.equal(f.attempts(),2);f.navigation.open({kind:'account'},authority);const successor=f.navigation.getSnapshot();
   await act(()=>{back();retry();});assert.equal(f.navigation.getSnapshot(),successor);assert.equal(f.attempts(),2);
  }finally{f.dispose();}
 });

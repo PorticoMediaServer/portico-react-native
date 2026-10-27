@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {screenModule, hooks} from './helpers/screen-harness.mjs';
 import {HttpLocalApi} from '../../../packages/client-core/src/index.ts';
+import {setContinueDismissed} from '../../../packages/client-core/src/continue-watching.ts';
 import {PlaybackOptionsClient} from '../../../packages/client-core/src/playback-v1/options.ts';
 import {localV1Http} from '../../../packages/client-core/src/playback-v1/local-http.ts';
 import {sameFence, playbackFence, type PlaybackFence} from '../../../packages/player-core/src/index.ts';
@@ -19,6 +20,8 @@ import {infoWords} from './helpers/playback-info.ts';
 import {nativeWatchTracks} from '../src-next/screens/watch/track-identity.ts';
 import {NativeVersionChooserController} from '../src-next/screens/watch/version-destination.ts';
 import {nativeVersionChoices, nativeVersionNames} from '../src-next/screens/watch/version-options.ts';
+import {NativeDiscTitlesController} from '../src-next/screens/watch/disc-titles-controller.ts';
+import {prepareDiscTitle, readDiscTitles} from '../src-next/screens/watch/disc-titles.ts';
 
 const {react} = hooks();
 let detailProjection: any = null;
@@ -39,6 +42,9 @@ const {createNativeWatchScreens} = await screenModule(new URL('../src-next/scree
   react, '../../../../../packages/client-core/src/playback-v1/options': {PlaybackOptionsClient},
   '../../../../../packages/client-core/src/playback-v1/local-http': {localV1Http},
   '../../../../../packages/client-core/src/detail': detailStub,
+  '../../../../../packages/client-core/src/continue-watching': {setContinueDismissed},
+  '../../platform/layout/full-window': {nativeFullWindowOrientation: undefined},
+  './disc-titles-controller': {NativeDiscTitlesController}, './disc-titles': {prepareDiscTitle, readDiscTitles},
   '../../../../../packages/player-core/src': {sameFence}, '../../../../../packages/i18n/src': {defaultI18n},
   '../../shell/model': {sameAuthority}, './controls': {NativeWatchControls}, './file-info': {readNativeFileInfo}, './playback-info': {readNativePlaybackInfo},
   './track-identity': {nativeWatchTracks}, './EpisodePanel': episodes,
@@ -56,6 +62,7 @@ function fixture(hasDestination = true, readSession?: NativePlaybackAdapter['rea
   let bound = authority, revision = 3, route: any = {kind: 'title', entry: {id: 'show', libraryId: 'library', kind: 'show'}}, holdStart: Promise<void> | undefined, source = {authority, retired: false, fence: undefined as PlaybackFence | undefined, dock: {local: {expanded: true, fence: undefined as PlaybackFence | undefined}}, playback: {intent: 'playing', phase: 'ready'}, session: undefined as {itemId: string; versionId: string; role?: 'local' | 'group_member'} | undefined};
   let respond = async (_url: URL) => offered as unknown;
   const requests: {path: string; signal?: AbortSignal | null}[] = [], menus: any[] = [], versions: any[] = [], starts: any[] = [], errors: unknown[] = [], navigations: unknown[] = [], enqueues: unknown[][] = [], playlistOpens: unknown[][] = [];
+  let versionEpoch = 0;
   const api = new HttpLocalApi('https://portico.test', '', async (input, init) => {
     const url = new URL(String(input)); requests.push({path: url.pathname, signal: init?.signal});
     return new Response(JSON.stringify(await respond(url)), {status: 200});
@@ -65,7 +72,9 @@ function fixture(hasDestination = true, readSession?: NativePlaybackAdapter['rea
     subscribeCurrent: subscribe(authorityListeners), navigation: {getSnapshot: () => ({authority: bound, revision, route}), subscribe: subscribe(routeListeners), back() {}},
     playback: {getSnapshot: () => source, subscribe: subscribe(playbackListeners), start: async (input: unknown) => {starts.push(input); await holdStart;}, cataloguePlayback: () => ({enqueueSegments: async (...args: unknown[]) => {enqueues.push(args); return {} as never;}}), ...(readSession ? {readSession} : {})},
     playlistPicker: {open: (...args: unknown[]) => {playlistOpens.push(args);}, openAlbum: () => {}, render: () => null, dispose: () => {}}, watch: {register() {throw new Error('not mounted');}}, requestId: async () => 'request', isTV: false,
-    startVersion: async (...args: unknown[]) => {starts.push(args);}, manageFile() {}, openFileInfo() {}, ...(hasDestination ? {openVersions: (...args: unknown[]) => {versions.push(args);}} : {}), openMenu: (...args: unknown[]) => {menus.push(args);},
+    startVersion: async (...args: unknown[]) => {starts.push(args);}, manageFile() {}, openFileInfo() {}, ...(hasDestination ? {openVersions: (...args: unknown[]) => {versions.push(args);}} : {}),
+    beginVersions: (capture: any) => {const epoch = ++versionEpoch; return {capture, live: () => epoch === versionEpoch && bound === authority};},
+    openMenu: (...args: unknown[]) => {menus.push(args);},
     title: {aboutLabel: 'About', navigate(entry: unknown) {navigations.push(entry);}, myList() {}, renderError() {}, reportError: (error: unknown) => {errors.push(error);}},
   });
   return {screens, requests, menus, versions, starts, errors, navigations, enqueues, playlistOpens,
