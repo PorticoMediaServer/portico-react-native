@@ -68,41 +68,6 @@ test('owner and administrator follow each real People section cursor and request
   }
 });
 
-test('TV People binds final device focus and the scoped retry to its real page controller', async () => {
-  const {hooks, screenModule} = await import('./helpers/screen-harness.mjs');
-  const peopleModule = await import('../src-next/screens/settings-live/server/people-pages');
-  const host = hooks();
-  const effects: Array<() => void | (() => void)> = [];
-  host.react.useLayoutEffect = (next: () => void | (() => void)) => {if (!effects.length) effects.push(next);};
-  const module = await screenModule(new URL('../src-next/screens/settings-live/server/TVPeoplePanel.tsx', import.meta.url), {
-    react: host.react, 'react-native': {Text: 'Text', View: 'View'},
-    '../../../kit/controls': {Focusable: 'Focusable'}, '../../../kit/shell/visual': {shellType: () => ({})},
-    '../../../kit/states': {StateView: 'StateView'}, '../../../kit/theme': {useTheme: () => ({colors: {raised: '', accent: '', accentStrong: '', text: '', textSecondary: ''}})},
-    './people-pages': peopleModule,
-  });
-  const lifetime = new NativeScreenLifetime({authority: () => authority, current: () => true, subscribeAuthority: () => () => {}});
-  let deviceCalls = 0;
-  const ports = {context: {account, api: {request: async <T,>(path: string) => {
-    const [base] = path.split('?');
-    if (base.endsWith('/members')) return {items: [], limit: 50, nextCursor: ''} as T;
-    if (base.endsWith('/invitations')) return {items: [], limit: 50, nextCursor: '', totalCount: 0, matchedCount: 0} as T;
-    deviceCalls++;
-    if (deviceCalls === 2) throw new Error('offline');
-    return {items: [device(deviceCalls === 1 ? 'first' : 'last')], limit: 50, nextCursor: deviceCalls === 1 ? 'next' : ''} as T;
-  }}}};
-  const runtime = {text: {t: (id: string) => id, locale: 'en-US'}, error: (_error: unknown, retry: () => void) => ({title: 'error', retry})};
-  const render = () => host.render(() => module.TVPeoplePanel({ports, runtime, lifetime}));
-  const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
-  const flush = () => new Promise<void>(resolve => setImmediate(resolve));
-  render(); const cleanup = effects[0](); await flush();
-  let first = nodes(render()).find(node => node.props.focusId === 'tv-people:device:first');
-  assert.ok(first); first.props.onFocus(); await flush();
-  const failed = nodes(render()).find(node => node.props.testID === 'tv-people-devices-error');
-  assert.ok(failed); assert.ok(nodes(render()).find(node => node.props.focusId === 'tv-people:device:first'));
-  failed.props.retry(); await flush();
-  assert.ok(nodes(render()).find(node => node.props.focusId === 'tv-people:device:last'));
-  assert.equal(deviceCalls, 3); if (typeof cleanup === 'function') cleanup(); lifetime.dispose();
-});
 
 test('a stale People row cannot start a successor cursor', async () => {
   const lifetime = new NativeScreenLifetime({authority: () => authority, current: () => true, subscribeAuthority: () => () => {}});
@@ -118,4 +83,20 @@ test('a stale People row cannot start a successor cursor', async () => {
   assert.equal(calls, 2);
   assert.equal(state.devices.cursor, 'second');
   pages.dispose(); lifetime.dispose();
+});
+
+test('authority replacement while a page waits never publishes into the successor', async () => {
+  let current = authority;
+  let notify = () => {};
+  const owner = {authority: () => current, current: () => true, subscribeAuthority: (listener: () => void) => {notify = listener; return () => {};}};
+  const oldLifetime = new NativeScreenLifetime(owner);
+  let finish!: (value: unknown) => void, oldUpdates = 0, successor!: PeoplePages;
+  const old = new PeoplePagesController({account, api: {request: <T,>() => new Promise<unknown>(resolve => {finish = resolve;}) as Promise<T>}}, oldLifetime, () => {oldUpdates++;});
+  const pending = old.load('devices');
+  current = {...authority, epoch: 'successor'}; notify();
+  const nextLifetime = new NativeScreenLifetime(owner);
+  const next = new PeoplePagesController({account, api: {request: async <T,>() => ({items: [device('successor')], limit: 50, nextCursor: ''}) as T}}, nextLifetime, state => {successor = state;});
+  await next.load('devices'); finish({items: [device('stale')], limit: 50, nextCursor: ''}); await pending;
+  assert.equal(oldUpdates, 1); assert.deepEqual(successor.devices.items.map(row => row.id), ['successor']);
+  old.dispose(); next.dispose(); nextLifetime.dispose();
 });

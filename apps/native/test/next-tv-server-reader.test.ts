@@ -82,3 +82,20 @@ test('typed People pages serialize only their bounded GET query and retain admis
     assert.equal(calls.length, 3);
   }
 });
+
+test('typed People reader refuses forged selectors and control cursors before dispatch', async () => {
+  let calls = 0;
+  const lifetime = scope();
+  const admin = {...account, account: {...account.account, role: 'admin' as const}};
+  const reader = createTVServerReader({account: admin, api: {request: async <T,>() => {calls++; return {} as T;}}}, lifetime);
+  for (const forged of ['https://example.invalid/v1/admin/access/members', '/v1/admin/access/members?role=owner', 'members?role=owner', '__proto__']) {
+    await assert.rejects(reader.peoplePage(forged as 'members'));
+  }
+  await assert.rejects(reader.peoplePage('members', 'cursor\nlimit=1000'));
+  await assert.rejects(reader.peoplePage('invitations', 'cursor\u2060'));
+  await assert.rejects(reader.request(routePath('get_admin_access_members') + '?cursor=x'));
+  await assert.rejects(reader.request(routePath('get_admin_access_members'), 'POST'));
+  await assert.rejects(reader.request('https://example.invalid/v1/admin/access/members'));
+  assert.equal(calls, 0);
+  lifetime.dispose();
+});

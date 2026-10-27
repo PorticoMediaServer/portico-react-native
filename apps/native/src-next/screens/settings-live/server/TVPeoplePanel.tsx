@@ -75,7 +75,7 @@ export function TVPeoplePanel({ports, runtime, lifetime}: {ports: NativeSettings
   const sectionTail = (section: keyof PeoplePages, page: PeopleSection<unknown>) => <>
     {page.pending && <StateView title={t('status.loading')}/>}
     {page.error !== undefined && <StateView {...runtime.error(page.error, () => load(section))} testID={`tv-people-${section}-error`}/>}
-    {page.loaded && page.cursor && !page.pending && page.error === undefined && <Focusable focusId={`tv-people-${section}-more`} onPress={() => load(section)}><Text style={{color: theme.colors.text}}>{t('next.settings.loadMore')}</Text></Focusable>}
+    {page.loaded && !!page.cursor && <Focusable key={`tv-people-${section}-more`} focusId={`tv-people-${section}-more`} testID={`tv-people-${section}-more`} disabled={page.pending} focusableWhenDisabled onPress={() => load(section)}><Text style={{color: theme.colors.text}}>{t(page.error !== undefined ? 'next.states.tryAgain' : 'next.settings.loadMore')}</Text></Focusable>}
   </>;
   const tail = (section: keyof PeoplePages, index: number, length: number) => index >= length - 2 && state[section].error === undefined ? () => load(section) : undefined;
   return <View>

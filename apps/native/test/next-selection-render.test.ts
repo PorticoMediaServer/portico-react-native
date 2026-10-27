@@ -1300,3 +1300,54 @@ test('drawn list-field prompts use singular catalogue copy and retain real valid
     }
   } finally {state.theme = previous;}
 });
+
+// The actual People panel, state presenter and native controls are materialised
+// through the same element/hook harness used by the other TV focus regressions.
+test('TV People retains its focused continuation host and renders the real scoped retry action', async () => {
+  const {TVPeoplePanel} = await import('../src-next/screens/settings-live/server/TVPeoplePanel.tsx');
+  const {NativeScreenLifetime} = await import('../src-next/screens/settings-live/lifetime.ts');
+  const {NativeScreenServices} = await import('../src-next/screens/screen-services.ts');
+  const {act} = await import('./hook-driver.ts');
+  const authority = {serverId: 'server', accountId: 'account', profileId: 'primary', epoch: 'one', viewerFence: 'fence'};
+  const owner = {authority: () => authority, current: () => true, subscribeAuthority: () => () => {}, navigation: {open() {}}};
+  const lifetime = new NativeScreenLifetime(owner), feedback = new NativeScreenServices(owner as any, async () => 'id');
+  const account = {canManage: true, account: {role: 'admin', primaryProfileId: 'primary', disabled: false}};
+  const device = (id: string) => ({id, accountId: 'account', profileId: 'primary', username: 'a', name: id, platform: 'tv', app: '', appVersion: '', lastNetwork: '', liveState: 'idle', firstSeenAt: '2026-01-01T00:00:00Z', lastSeenAt: '2026-01-01T00:00:00Z', revision: 1});
+  let rejectPage!: (error: Error) => void, resolvePage!: (page: unknown) => void;
+  const requests: string[] = [];
+  const ports = {context: {account, api: {request: async (path: string) => {
+    requests.push(path);
+    if (path.includes('/members')) return {items: [], limit: 50, nextCursor: ''};
+    if (path.includes('/invitations')) return {items: [], limit: 50, nextCursor: '', totalCount: 0, matchedCount: 0};
+    if (!path.includes('cursor=')) return {items: [device('first')], limit: 50, nextCursor: 'offered'};
+    return new Promise((resolve, reject) => {resolvePage = resolve; rejectPage = reject;});
+  }}}};
+  const runtime = {text: {t: (id: string) => id, locale: 'en-US'}, error: feedback.error};
+  const panel = mount(TVPeoplePanel, {ports, runtime, lifetime});
+  const focus = () => ofType(panel.tree, Focusable).find(element => element.props.testID === 'tv-people-devices-more')!;
+  try {
+    await act(() => {});
+    const before = focus(); assert.ok(before); assert.equal(before.props.disabled, false);
+    let nativeId: string | undefined;
+    withNativeControl(before, host => {nativeId = host.props.testID; host.props.onPress();});
+    await act(() => {});
+    const pending = focus(); assert.ok(pending); assert.equal(pending.key, before.key); assert.equal(pending.props.disabled, true); assert.equal(pending.props.focusableWhenDisabled, true);
+    withNativeControl(pending, host => {assert.equal(host.props.testID, nativeId); assert.equal(host.props.onPress, undefined);});
+    await act(() => rejectPage(new Error('offline')));
+    const failed = focus(); assert.ok(failed); assert.equal(failed.key, before.key); assert.equal(failed.props.disabled, false);
+    assert.ok(ofType(panel.tree, Focusable).find(element => element.props.focusId === 'tv-people:device:first'));
+    const error = ofType(panel.tree, StateView).find(element => element.props.testID === 'tv-people-devices-error')!;
+    assert.ok(error.props.primaryAction); const errorView = mount(StateView, error.props);
+    try {
+      const action = elements(errorView.tree).find(element => element.props.action?.id === 'retry')!;
+      assert.ok(action); withNativeControl(action, host => {assert.ok(host.props.testID?.includes('tv-people-devices-error')); host.props.onPress();});
+      await act(() => {}); assert.equal(focus().props.disabled, true);
+      await act(() => resolvePage({items: [device('last')], limit: 50, nextCursor: ''}));
+      assert.ok(ofType(panel.tree, Focusable).find(element => element.props.focusId === 'tv-people:device:first'));
+      assert.ok(ofType(panel.tree, Focusable).find(element => element.props.focusId === 'tv-people:device:last'));
+      assert.deepEqual(requests.filter(path => path.includes('/devices')).map(path => new URLSearchParams(path.split('?')[1]).get('cursor')), [null, 'offered', 'offered']);
+      // A saved callback from the prior page cannot start a successor request.
+      before.props.onPress(); assert.equal(requests.filter(path => path.includes('/devices')).length, 3);
+    } finally {errorView.host.unmount();}
+  } finally {panel.host.unmount(); feedback.dispose(); lifetime.dispose();}
+});
