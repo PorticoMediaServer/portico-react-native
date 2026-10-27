@@ -1,16 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {defaultI18n} from '../../../packages/i18n/src';
+import * as personalSaved from '../../../packages/client-core/src/personal-saved';
+import {NativeHomeSavedViewSummaries} from '../src-next/screens/home/saved-view-summaries';
 import {nativeSavedRouteTarget} from '../src-next/screens/saved/navigation.ts';
 import {exactDurationSeconds, savedMosaicPaths, savedViewConditionCount, savedVisibility} from '../src-next/screens/saved/presentation.ts';
+import {linkNativeAbortSignals} from '../src-next/platform/abort-signals';
+import {nativeDestinationLifetime} from '../src-next/screens/destinations/lifetime';
 
 /** The shell has one registration per kind. The phone hub is this family's;
  * the TV landing is the TV-more owner's, so only the routes remain there. */
 async function load(isTV: boolean) {
   const host = hooks(), registrations: [string, string][] = [];
+  const directoryCommands = await screenModule(new URL('../src-next/screens/saved/directory-commands.ts', import.meta.url), {
+    react: host.react, '../../../../../packages/client-core/src/personal-saved': personalSaved,
+    '../destinations/lifetime': {nativeDestinationLifetime},
+    '../native-screen-services': {nativeScreenServices: () => ({reportError: () => {}})},
+    '../../platform/abort-signals': {linkNativeAbortSignals},
+  });
   const module = await screenModule(new URL('../src-next/screens/saved/register.tsx', import.meta.url), {
     react: host.react,
     'react-native': {Platform: {isTV}, View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
+    '../../../../../packages/i18n/src': {defaultI18n},
     '../../shell/model': {shellLayout: () => ({left: 0, top: 0, width: 390, height: 844, scale: 1})},
     '../../shell/route-registry': {nativeShellRoutes: {
       registerDestination: (kind: string) => {registrations.push(['destination', kind]);},
@@ -25,6 +37,9 @@ async function load(isTV: boolean) {
     './SavedListScreen': {SavedListScreen: 'SavedListScreen'}, './SavedResourceScreen': {SavedResourceScreen: 'SavedResourceScreen'},
     './navigation': {nativeSavedRouteTarget, openNativeSavedView: () => true},
     '../downloads/view': {createNativeDownloadsView: () => ({render: () => null, dispose: () => {}})},
+    './selection': {createNativeSavedSelection: () => ({register: () => () => {}, item: () => undefined, render: () => null, dispose: () => {}})},
+    '../home/saved-view-summaries': {NativeHomeSavedViewSummaries},
+    './directory-commands': directoryCommands,
   });
   return {module, registrations, host};
 }

@@ -10,6 +10,8 @@ import {NativeShellNavigation} from '../src-next/shell/routes';
 import * as savedNavigation from '../src-next/screens/saved/navigation';
 import * as savedSummaryOwner from '../src-next/screens/saved/view-summary-owner';
 import * as savedRename from '../src-next/screens/saved/rename-view';
+import * as customizeIntent from '../src-next/screens/home/customize-intent';
+import * as librarySavedViewIntent from '../src-next/screens/library/saved-view-intent';
 import {nativeDestinationLifetime} from '../src-next/screens/destinations/lifetime';
 import {screenModule} from './helpers/screen-harness.mjs';
 
@@ -97,6 +99,7 @@ async function stateModule() {
     react: {default: React}, '../destinations/lifetime': {nativeDestinationLifetime}, '../destinations/entry-actions': {createNativeEntryActions},
     '../native-screen-services': {nativeScreenServices: () => common}, './navigation': savedNavigation,
     './view-summary-owner': savedSummaryOwner, './rename-view': savedRename,
+    '../home/customize-intent': customizeIntent, '../library/saved-view-intent': librarySavedViewIntent,
     '../downloads/device': {createNativeDownloadsDevice: () => ({device: {}, dispose: () => {}})},
   });
 }
