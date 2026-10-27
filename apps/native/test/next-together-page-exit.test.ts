@@ -4,6 +4,7 @@ import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {act, createHookHost} from './hook-driver.ts';
 import {NativeTogetherController} from '../src-next/screens/settings-live/together-controller.ts';
+import {parseGroupSnapshot} from '../../../packages/client-core/src/social-playback.ts';
 import {GroupSessionService} from '../../../packages/client-core/src/group-session.ts';
 import {NativeScreenLifetime} from '../src-next/screens/settings-live/lifetime.ts';
 const react = {...React, default: React};
@@ -104,7 +105,9 @@ test('late successful server join after page Back is not adopted by the real aut
     await act(() => {find(f.tree(), 'together-code').props.onChangeText('ABCDEFGH'); find(f.tree(), 'together-display-name').props.onChangeText('Viewer');});
     await act(() => find(f.tree(), 'together-form').props.footer.props.onPress());
     assert.ok(requestSignal); await act(() => f.pageBack()); assert.equal(requestSignal!.aborted, true);
-    answer({protocolVersion: '1.0', serverTime: timestamp, group}); await act(async () => {});
+    const accepted = {protocolVersion: '1.0', serverTime: timestamp, group};
+    assert.equal(parseGroupSnapshot(accepted).group.id, 'grp_1');
+    answer(accepted); await act(async () => {});
     assert.equal(service.getSnapshot().phase, 'idle'); assert.equal(service.getSnapshot().group, undefined); assert.equal(streams, 0);
     await act(() => f.pageBack()); assert.equal(f.back(), 1); assert.equal(f.ends(), 0);
     f.dispose(); assert.equal(service.getSnapshot().phase, 'idle', 'page disposal does not dispose authority service');
