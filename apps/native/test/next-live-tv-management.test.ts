@@ -63,7 +63,8 @@ async function fixture({isTV = true, role = 'owner', primary = 'main', canManage
   const native = {View: 'View', Text: 'Text', ScrollView: 'ScrollView', FlatList: 'FlatList', VirtualizedList: 'VirtualizedList', Platform: {OS: 'android'},
     BackHandler: {addEventListener: (_: string, fn: () => boolean) => {backs.add(fn); return {remove: () => backs.delete(fn)};}}, useWindowDimensions: () => ({width: theme.width, height: 1080})};
   const controls = {Button: 'Button', Chip: 'Chip', Focusable: 'Focusable', Segmented: 'Segmented', Select: 'Select', Switch: 'Switch'};
-  const focus = {FocusRegion: 'Region', FocusItem: 'FocusItem', useFocusRegistry: () => ({subscribe, cellPosition: () => undefined})};
+  const focusRequests: unknown[] = []; let guideCalls = 0;
+  const focus = {FocusRegion: 'Region', FocusItem: 'FocusItem', useFocusRegistry: () => ({subscribe, cellPosition: () => undefined, focus: (target: unknown) => {focusRequests.push(target); return true;}})};
   const handoff = await screenModule(new URL('../src-next/tv/auth/TVHandoff.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': native, 'react-native-qrcode-svg': {default: 'QR'}, '../../../../../packages/i18n/src': {defaultI18n, catalogue, enUS},
     '../../kit/controls': controls, '../../kit/focus': focus, '../../kit/theme': {useTheme: () => theme, nativeType}, '../../kit/states/sentence-parts': {stateSentenceParts},
@@ -95,9 +96,9 @@ async function fixture({isTV = true, role = 'owner', primary = 'main', canManage
   });
   const ports = {context};
   let showingRecordings = false;
-  const render = () => host.render(showingRecordings ? jsx(recordingModule.NativeRecordingsScreen, {controller: recordings, ports, runtime, owner, onGuide: noop}) : jsx(NativeLiveScreen, {controller, recordings, owner, ports, runtime})); await render();
+  const render = () => host.render(showingRecordings ? jsx(recordingModule.NativeRecordingsScreen, {controller: recordings, ports, runtime, owner, onGuide: () => {guideCalls++;}}) : jsx(NativeLiveScreen, {controller, recordings, owner, ports, runtime})); await render();
   const all = () => nodes(host.root), find = (id: string) => all().find(node => node.props?.testID === id);
-  return {host, all, find, admin, editors, backs, pageBack, entries, recordingState, viewerCalls, viewerLoads, context, recordingsController: recordings, runtime,
+  return {host, all, find, admin, editors, backs, pageBack, entries, recordingState, viewerCalls, viewerLoads, context, recordingsController: recordings, runtime, focusRequests, guideCalls: () => guideCalls,
     notify() {for (const fn of [...listeners]) fn();},
     disposeRuntime() {retirement.abort(); disposed = true;}, disposedReads: () => disposedReads,
     async press(id = 'live-owner-open') {const node = find(id); assert.ok(node, id); assert.ok(!node.props.disabled); node.props.onPress(); await host.settle();},
@@ -298,5 +299,21 @@ for (const change of ['route', 'query', 'revision', 'normal-close'] as const) te
     if (change === 'revision') {f.recordingState.viewerWindow = {...original, items: [{kind: 'recording', value: {...row, revision: 2}}]}; f.notify();}
     assert.equal(caller.isCurrent(), change === 'normal-close'); assert.equal(caller.signal.aborted, change !== 'normal-close');
     finish(); await f.host.settle(); assert.equal(starts, 1);
+  } finally {await f.close();}
+});
+
+
+test('TV Recordings Back returns focused body to tabs, then group to list, then guide', async () => {
+  const f = await fixture();
+  try {
+    f.recordingState.query = {view: 'recorded', group: 'group', sort: 'recent'};
+    await f.recordings();
+    const body = f.all().find(node => node.type === 'Region' && node.props.onFocusChange); assert.ok(body);
+    const before = f.viewerLoads.length; body.props.onFocusChange(true); assert.equal([...f.backs][0]!(), true);
+    assert.equal(f.focusRequests.length, 1); assert.equal(f.viewerLoads.length, before);
+    body.props.onFocusChange(false); assert.equal([...f.backs][0]!(), true);
+    assert.deepEqual(f.viewerLoads.at(-1), {view: 'recorded'});
+    f.recordingState.query = {view: 'recorded'}; await f.recordings();
+    assert.equal([...f.backs][0]!(), true); assert.equal(f.guideCalls(), 1);
   } finally {await f.close();}
 });
