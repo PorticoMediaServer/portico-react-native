@@ -87,7 +87,7 @@ async function stateModule() {
   const common = {requestId: async () => 'request-id', reportError: () => {}, navigate: (entry: ContentEntry) => entry};
   const menu = {open: async () => {}, isOpen: () => false, subscribe: () => () => {}};
   const {createNativeEntryActions} = await screenModule(new URL('../src-next/screens/destinations/entry-actions.ts', import.meta.url), {
-    react: {default: React}, './lifetime': {nativeDestinationLifetime}, '../native-screen-services': {nativeScreenServices: () => common},
+    react: {default: React}, './lifetime': {nativeDestinationLifetime}, '../read/reading-books-open': {openNativeReadingBookEntry: async () => false}, '../native-screen-services': {nativeScreenServices: () => common},
     '../watch': {nativeWatchEntryMenu: () => menu},
   });
   return screenModule(new URL('../src-next/screens/saved/state.ts', import.meta.url), {

@@ -104,6 +104,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     './route-registry': {nativeShellRoutes: {subscribe: () => () => {}, bind: () => ({render: () => null, renderWatch: () => null, renderRetained: () => null, renderOverlays: () => null, back: () => false, scrollToTop() {}, dispose() {}})}}, '../screens/home/model': homeModel,
     '../screens/read/platform': readPlatform, '../screens/settings-live/NativeTVReceiver': {NativeTVReceiver: 'NativeTVReceiver'},
     '../screens/native-screen-services': screenServices,
+    '../screens/read/reading-books-open': {openNativeReadingBookEntry: async () => false},
     '../screens/home/entry-lifetime': {nativeHomeEntryLifetime},
   });
   const navigation = new NativeShellNavigation(authority, () => authority);
