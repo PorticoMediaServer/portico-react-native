@@ -193,6 +193,12 @@ export class NativeTVMusicController {
   nextAllSongs = (expected: MusicSection<ContentEntry>) => (this.allSongSections.has(expected)?this.allSongPager?.next(this.allSongSections.get(expected)!):undefined) ?? Promise.resolve();
   previousAllSongs = (expected: MusicSection<ContentEntry>) => (this.allSongSections.has(expected)?this.allSongPager?.previous(this.allSongSections.get(expected)!):undefined) ?? Promise.resolve();
   retryAllSongs = (expected: MusicSection<ContentEntry>) => expected===this.state.allSongs&&!this.allSongPager?this.loadAllSongs():(this.allSongSections.has(expected)?this.allSongPager?.retry(this.allSongSections.get(expected)!):undefined)??Promise.resolve();
+  focusSong = (entry: ContentEntry, expected: MusicSection<ContentEntry>) => this.songPager?.focus(entry,expected);
+  blurSong = (entry: ContentEntry) => this.songPager?.blur(entry);
+  focusRelease = (entry: MusicAlbumRow, expected: MusicSection<MusicAlbumRow>) => this.releasePager?.focus(entry,expected);
+  blurRelease = (entry: MusicAlbumRow) => this.releasePager?.blur(entry);
+  focusAllSong = (entry: ContentEntry, expected: MusicSection<ContentEntry>) => {const section=this.allSongSections.get(expected);if(section)this.allSongPager?.focus(entry,section);};
+  blurAllSong = (entry: ContentEntry) => this.allSongPager?.blur(entry);
   refreshSongs = (expected: MusicSection<ContentEntry>) => expected===this.state.songPage?this.load():Promise.resolve();
   refreshReleases = (expected: MusicSection<MusicAlbumRow>) => expected===this.state.releases?this.load():Promise.resolve();
   refreshAllSongs = (expected: MusicSection<ContentEntry>) => expected===this.state.allSongs?this.loadAllSongs():Promise.resolve();

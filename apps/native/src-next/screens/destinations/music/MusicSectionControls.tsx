@@ -13,12 +13,15 @@ export function musicNearEnd(event: NativeScrollEvent, horizontal = false): bool
 export function MusicSectionControls<T>({section, next, previous, retry, refresh, id}: {
   section: MusicSection<T>; next: () => void; previous: () => void; retry: () => void; refresh: () => void; id: string;
 }) {
+  const nextVisible=section.canNext||!!section.nextCursor;
+  const nextAction=section.phase==='error'?retry:section.phase==='refresh-required'?refresh:next;
+  const nextLabel=section.phase==='error'?'action.tryAgain':section.phase==='refresh-required'?'action.refresh':'next.layout.nextItems';
   return <View testID={`music-pages-${id}`} style={{gap: 12, marginTop: 12}}>
     {section.phase === 'error' || section.phase === 'refresh-required'
-      ? <MusicErrorView error={section.error} onRetry={section.phase === 'refresh-required' ? refresh : retry}/> : null}
+      ? <MusicErrorView testID={`music-error-${id}`} retryAction={!nextVisible} error={section.error} onRetry={section.phase === 'refresh-required' ? refresh : retry}/> : null}
     <View style={{flexDirection: 'row', gap: 16}}>
-      {section.canPrevious ? <Button testID={`music-previous-${id}`} focusId={`music-previous-${id}`} disabled={section.phase === 'loading'} variant="text" onPress={previous}>{defaultI18n.t('next.layout.previousItems')}</Button> : null}
-      {section.canNext ? <Button testID={`music-next-${id}`} focusId={`music-next-${id}`} disabled={section.phase === 'loading'} variant="text" onPress={next}>{defaultI18n.t('next.layout.nextItems')}</Button> : null}
+      {section.canPrevious ? <Button testID={`music-previous-${id}`} focusId={`music-previous-${id}`} focusableWhenDisabled disabled={section.phase !== 'ready'} variant="text" onPress={previous}>{defaultI18n.t('next.layout.previousItems')}</Button> : null}
+      {nextVisible ? <Button testID={`music-next-${id}`} focusId={`music-next-${id}`} focusableWhenDisabled disabled={section.phase === 'loading'} variant="text" onPress={nextAction}>{defaultI18n.t(nextLabel)}</Button> : null}
     </View>
   </View>;
 }
