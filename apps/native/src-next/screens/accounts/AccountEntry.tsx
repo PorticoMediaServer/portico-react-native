@@ -112,6 +112,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const profileFocus = useRef(new WeakMap<NativeServerSignIn, string>()).current;
   const [identityCode, setIdentityCode] = useState(''), [identityWrong, setIdentityWrong] = useState(false), [identityAddress, setIdentityAddress] = useState('');
   const invitationIntent = useRef<(NonNullable<ReturnType<typeof NativeServerSignIn.parseInvitationEntry>> & Partial<Pick<NativeInvitationEntry, 'fingerprint' | 'signIn' | 'expiresAt'>> & {publicPreview?: boolean}) | undefined>(undefined);
+  const invitationEpoch = useRef(0);
   const endedTarget = useRef<Readonly<{serverId: string; fingerprint: string}> | undefined>(undefined);
   const identityOrigin = useRef<string | undefined>(undefined);
   const [servers, setServers] = useState<HostedServer[]>([]), [target, setTarget] = useState<HostedServer>(), [retryIn, setRetryIn] = useState(20), [appActive, setAppActive] = useState(AppState.currentState === 'active'), [options, setOptions] = useState<IdentityOptions>(), [transaction, setTransaction] = useState<IdentityTransaction>();
@@ -293,8 +294,8 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   }, [stage, nearbyRefresh]);
   const run = async (work: () => Promise<void>) => {
     if (busy || acting.current || adoptingTV.current || tvOpening.current?.pending() || !lifetime.current) return; acting.current = true; setBusy(true); setError(undefined);
-    const startedOperation = operation.current;
-    try {await work();} catch (failure) {if (lifetime.current) {
+    const startedOperation = operation.current, startedInvitationEpoch = invitationEpoch.current;
+    try {await work();} catch (failure) {if (lifetime.current && invitationEpoch.current === startedInvitationEpoch) {
       if (failure instanceof NativeSetupEnded) {
         if (!startedOperation || operation.current !== startedOperation || !['setup-choice', 'setup-review', 'setup-hosted'].includes(stageRef.current)) return;
         retireSetupReview(); setPassword(''); setCode(''); setSetupEndedReason(failure.reason); setError(undefined); setStage('setup-ended'); return;
@@ -302,7 +303,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       if (endedTarget.current) {setPassword(''); setCode('');}
       if (failure instanceof MFARequiredError) {factorKind.current = 'portico'; setCode(''); setRecovery(false); setStage('factor');}
       else {if (stage === 'profile-pin' || (Platform.isTV && stage === 'factor' && !recovery)) setCode(''); setError(failure);}
-    }} finally {acting.current = false; if (lifetime.current) setBusy(adoptingTV.current || tvOpening.current?.pending() === true);}
+    }} finally {if (invitationEpoch.current === startedInvitationEpoch) {acting.current = false; if (lifetime.current) setBusy(adoptingTV.current || tvOpening.current?.pending() === true);}}
   };
   const reset = () => {retireTVOpening(true); retireAccountWorkspace(); retireInvitationEntry(); retireInvitationSwitch(); invitationIntent.current = undefined; retireInvitation(); ownerResetIntent.current = undefined; endedTarget.current = undefined; retireOwnerRecoveryContact(); retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; preparedAuthSource.current = undefined; setAuthPrepareFailed(false); setRootAuthGeneration(value => value + 1); operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
     setPassword(''); setSetupReview(undefined); setSetupApprovalURL(undefined); setSetupPasswordConfirm(''); setCode(''); setIdentityCode(''); setIdentityWrong(false); setIdentityAddress(''); identityOrigin.current = undefined; setTarget(undefined); setError(undefined); retryDelay.current = 20; setRetryIn(20); setStage(initialStage);};
@@ -334,8 +335,13 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   };
   useLayoutEffect(() => {
     if (!incomingInvitation || Platform.isTV || !incomingInvitation.current()) return;
+    // Replacement is a fresh entry even when the retired link had an in-flight
+    // prepare. Its old run must never clear this entry's pending/error state.
+    lifetime.current = true; acting.current = false; busyRef.current = false; setBusy(false);
     openInvitationEntry(undefined, incomingInvitation);
+    let active = true;
     const retire = () => {
+      if (!active) return; active = false; invitationEpoch.current++;
       // A replacement OS link invalidates the old consumer before React commits
       // its successor, including requests already awaiting server responses.
       lifetime.current = false; retireInvitationEntry(); retireInvitation();
@@ -1373,7 +1379,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     const live = () => !!opening && lifetime.current && stageRef.current === 'verify' && verifyOpeningRef.current === opening
       && account.current === opening.source && registerDraftRev.current === revision;
     const verified = opening?.registration.contactVerified === true;
-    const edit = (apply: (next: string) => void) => (next: string) => {registerDraftRev.current++; apply(next);};
+    const edit = (apply: (next: string) => void) => (next: string) => {if (!live()) return; registerDraftRev.current++; apply(next);};
     return layout(verified ? t('auth.chooseUsername') : t('auth.checkEmail'), verified ? undefined : t('auth.codeSentTo', {address: masked}),
       verified ? fields(field(t('auth.username'), username, next => {setUsernameUnavailable(false); edit(setUsername)(next);}, false, undefined,
         usernameUnavailable ? t('web.signIn.error.accountTaken') : undefined, t('auth.usernameHelp')),
