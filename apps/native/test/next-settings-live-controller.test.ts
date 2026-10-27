@@ -683,18 +683,33 @@ test('an observed detail-opening retirement cannot revive when its predicate bec
   opening.dispose(); controller.dispose(); lifetime.dispose();
 });
 
-test('Resolve must refuse the real DVRClient PATCH when its opening closes during request-ID creation', async () => {
+test('Resolve preserves the real DVRClient dispatch fence across request-ID creation', async t => {
   const lifetime = new NativeScreenLifetime(authority()), fixture = recordingService();
   const recording = {id: 'a'.repeat(64), revision: 7, state: 'conflicted', options: {beforeSeconds: 0, afterSeconds: 0, priority: 1, retentionDays: 0, episodeLimit: 0}} as Recording;
   fixture.service.detail = async () => ({recording, capacity: {known: true, effective: 1}, overlaps: [], nextOverlap: ''});
-  let finishId!: (value: string) => void, patches = 0;
-  const api: ChannelApi = {request: async (_path, method) => {if (method === 'PATCH') patches++; throw new Error('stop after dispatch');}};
-  const client = new DVRClient(api, 'server', () => new Promise(resolve => {finishId = resolve;}));
+  let finishId: ((value: string) => void) | undefined, allocations = 0; const requests: {method: string | undefined; body: any}[] = [], pending: Promise<unknown>[] = [];
+  const transportStop = new Error('transport reached');
+  const api: ChannelApi = {request: async (_path, method, body) => {requests.push({method, body}); throw transportStop;}};
+  const client = new DVRClient(api, 'server', () => {allocations++; return new Promise(resolve => {finishId = resolve;});});
   fixture.service.update = client.update.bind(client);
-  const controller = new NativeRecordingsController(lifetime, fixture.service), opening = controller.detailOpening(recording, () => true), seed = await opening.read();
-  const pending = opening.resolve(seed).catch(() => undefined); opening.dispose(); finishId('b'.repeat(64)); await pending;
-  assert.equal(patches, 0, 'retired detail opening must not dispatch the original PATCH');
-  controller.dispose(); client.dispose(); lifetime.dispose();
+  const controller = new NativeRecordingsController(lifetime, fixture.service);
+  let opening: ReturnType<typeof controller.detailOpening> | undefined;
+  const bounded = async <T,>(promise: Promise<T>): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {return await Promise.race([promise, new Promise<never>((_, reject) => {timer = setTimeout(() => reject(new Error('pending operation did not settle')), 1000);})]);}
+    finally {if (timer) clearTimeout(timer);}
+  };
+  t.after(async () => {finishId?.('b'.repeat(48)); opening?.dispose(); controller.dispose(); client.dispose(); lifetime.dispose(); await bounded(Promise.allSettled(pending));});
+  opening = controller.detailOpening(recording, () => true); const seed = await opening.read();
+  const retired = opening.resolve(seed).then(() => undefined, error => error); pending.push(retired);
+  assert.equal(allocations, 1); assert.ok(finishId, 'the real request-ID provider was entered');
+  opening.dispose(); finishId('b'.repeat(48));
+  const retiredError = await bounded(retired); assert.equal(retiredError?.name, 'AbortError'); assert.deepEqual(requests, []);
+  opening = controller.detailOpening(recording, () => true); const liveSeed = await opening.read();
+  const live = opening.resolve(liveSeed).then(() => undefined, error => error); pending.push(live);
+  assert.equal(await bounded(live), transportStop); assert.equal(allocations, 1);
+  assert.equal(requests.length, 1); assert.equal(requests[0].method, 'PATCH');
+  assert.equal(requests[0].body.requestId, 'b'.repeat(48)); assert.equal(requests[0].body.expectedRevision, 7); assert.equal(requests[0].body.options.priority, 2);
 });
 
 for (const retirement of ['controller-dispose', 'lifetime-abort'] as const) test(`Resolve refuses dispatch when its last predicate triggers ${retirement} and returns true`, async () => {
