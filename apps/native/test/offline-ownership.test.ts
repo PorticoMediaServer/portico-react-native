@@ -592,6 +592,7 @@ test('APP-01: a transfer takes its receipt, address and title before any byte mo
   const issued = receipt({id: 'r-new', viewer: A, itemId: 'item-9', preparationId: 'prep-new'});
   const s = server()
     .route('/v1/downloads/receipt-keys', KEYS)
+    .route('/v1/downloads/preparations/prep-new/bundle', () => service.bundle(p))
     .route('/v1/downloads/receipts', (body: any) => ({results: [{preparationId: body.preparationIds[0], outcome: 'issued', code: '', receipt: issued, titleOnServer: true}]}));
 
   offlineDownloads.connect(s.api as any, service as unknown as DownloadsService, A);
@@ -1012,9 +1013,11 @@ test('a download that arrived without what travels with it gets it on a later pa
   const owner = ownerKeyOf(A);
   const rA = receipt({id: 'r-a', viewer: A, itemId: 'item-1', preparationId: 'prep-a'});
   device.seed({id: 'prep-a', itemId: 'item-1', meta: {owner, receipt: rA, onServer: true, bundle: 1}});
-  const s = server().route('/v1/downloads/receipt-keys', KEYS).route('/v1/downloads/receipts/revalidate', renewing(rA));
+  const service = downloadsService();
+  const s = server().route('/v1/downloads/receipt-keys', KEYS).route('/v1/downloads/receipts/revalidate', renewing(rA))
+    .route('/v1/downloads/preparations/prep-a/bundle', () => service.bundle({id: 'prep-a', itemId: 'item-1'}));
 
-  offlineDownloads.connect(s.api as any, downloadsService() as unknown as DownloadsService, A);
+  offlineDownloads.connect(s.api as any, service as unknown as DownloadsService, A);
   await settle();
 
   assert.ok(extra('prep-a').has('bundle.json') && extra('prep-a').has('poster') && extra('prep-a').has('sub-sub1-1.vtt'));

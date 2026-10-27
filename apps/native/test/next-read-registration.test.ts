@@ -38,15 +38,23 @@ function authorityContext() {
 
 test('Read registration retains the original occurrence across Reading Settings history', async () => {
   const f = authorityContext(); let registered: string | undefined, factory: any;
+  const readingDestinations: string[] = [];
   const {createNativeReadRenderer} = await screenModule(new URL('../src-next/screens/read/ReadRoute.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': {Platform: {isTV: false}}, './host-component': {nativeReadHost: () => 'TrustedReadHost'},
     './read-route-back': {readRouteBack: (await import('../src-next/screens/read/read-route-back')).readRouteBack},
   });
   await screenModule(new URL('../src-next/screens/read/register.tsx', import.meta.url), {
     react: {...React, default: React}, '../../shell/route-registry': {nativeShellRoutes: {registerRoute: (kind: string, create: any) => {registered = kind; factory = create;}}},
-    '../settings/ReadingSettingsRoute': {nativeReadingSettingsPreferences, openNativeReadingSettings}, './ReadRoute': {createNativeReadRenderer},
+    '../settings/ReadingSettingsRoute': {nativeReadingSettingsPreferences, openNativeReadingSettings}, './ReadRoute': {createNativeReadRenderer}, './read-destinations': await screenModule(new URL('../src-next/screens/read/read-destinations.tsx', import.meta.url), {
+      react: {...React, default: React}, '../../shell/route-registry': {nativeShellRoutes: {registerRoute: (kind: string) => readingDestinations.push(kind)}},
+      '../destinations/lifetime': await import('../src-next/screens/destinations/lifetime'),
+      '../settings/ReadingSettingsRoute': {openNativeReadingSettings}, './platform': await import('../src-next/screens/read/platform'),
+      './read-book-model': await import('../src-next/screens/read/read-book-model'), './read-periodical-model': await import('../src-next/screens/read/read-periodical-model'),
+      './read-series-model': await import('../src-next/screens/read/read-series-model'), './ReadBookScreen': {ReadBookScreen: 'ReadBookScreen'},
+      './ReadPeriodicalScreen': {ReadPeriodicalScreen: 'ReadPeriodicalScreen'}, './ReadSeriesScreen': {ReadSeriesScreen: 'ReadSeriesScreen'}}),
   });
   assert.equal(registered, 'read'); assert.equal(f.requests, 0);
+  assert.deepEqual(readingDestinations, ['read-book', 'read-series', 'read-periodical'], 'the real side-effect namespace registers its own destinations');
   const source = nativeReadingSettingsPreferences(f.context), renderer = factory(f.context);
   const library: NativeShellRoute = {kind: 'shell', destination: {kind: 'library', libraryId: 'actual-library'}};
   const read: NativeShellRoute = {kind: 'read', itemId: 'actual-item', sourceId: 'actual-source'};

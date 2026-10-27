@@ -41,7 +41,7 @@ async function fixture() {
       const detail = {scope: {serverId: 'server', libraryId: library.id, itemId: id, viewerFence: 'Detail-own-fence'}, revision: {catalog: 3, viewer: 7},
         item: {id, libraryId: library.id, kind: 'movie', title: id, available: true, durationMs: 10000, progressMs: 0},
         actions: [{id: 'play', labelKey: 'detail.play', enabled: permitted, playback: {itemId: id, startMs: 0}},
-          {id: 'favorite', labelKey: 'detail.favorite', enabled: true}], personal: {watchlisted: false, favorite: false, rating: null, revision: 1},
+          {id: 'favorite', labelKey: 'detail.favorite', enabled: true}, {id: 'queue', labelKey: 'detail.queue', enabled: true}], personal: {watchlisted: false, favorite: false, rating: null, revision: 1},
         metadata: {status: 'unavailable', genres: [], ratings: [], credits: []}};
       data = hold ? await new Promise(resolve => {detailReads.push({signal: init?.signal ?? undefined, finish: () => resolve(detail)});}) : detail;
     } else {
@@ -88,7 +88,8 @@ test('Library selection waits for actual Browse continuity and intersects genuin
     const window = await binding.prepareWindow('actual-visible-window', 0, entries);
     window.toggle(entries[1]); window.toggle(entries[0]);
     assert.equal(binding.model.getSnapshot().summary.every.play, true);
-    assert.equal(binding.model.getSnapshot().summary.every.favorite, false, 'a server offer alone does not install a missing executor');
+    assert.equal(binding.model.getSnapshot().summary.every.favorite, true, 'the Library has an installed personal Favorites executor');
+    assert.equal(binding.model.getSnapshot().summary.every.queue, false, 'a server offer alone does not install a missing queue executor');
     const receipt = await binding.play(); assert.equal(receipt, queue);
     assert.deepEqual(f.starts[0].segments, [{source: {items: {ids: ['movie-0', 'movie-1']}}}], 'Play uses canonical display order');
     assert.equal(f.starts[0].lifetime.isCurrent(), true);

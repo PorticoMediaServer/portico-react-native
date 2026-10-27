@@ -176,7 +176,12 @@ test('the actual TVPeoplePanel failure retry registers in its region and re-read
   const peoplePaths: ReadonlySet<string> = new Set<string>([routePath('get_admin_access_members'), routePath('get_admin_access_invitations'), routePath('get_admin_access_devices')]);
   let reads = 0;
   const api = {request: async <T,>(path: string): Promise<T> => {
-    if (peoplePaths.has(path)) {reads++; throw Object.assign(new Error('people_unreachable'), {code: 'unreachable'});}
+    if (peoplePaths.has(path.split('?')[0])) {
+      const query = new URL(path, 'https://fixture.invalid').searchParams;
+      assert.equal(query.get('limit'), '50', 'the real People read stays bounded');
+      assert.deepEqual([...query.keys()].sort(), path.startsWith(routePath('get_admin_access_invitations')) ? ['limit', 'state'] : ['limit']);
+      if (query.has('state')) assert.equal(query.get('state'), 'pending');
+      reads++; throw Object.assign(new Error('people_unreachable'), {code: 'unreachable'});}
     throw Object.assign(new Error('unexpected_read'), {code: 'unexpected'});
   }};
   const ports = {context: {account: {canManage: true, account: {role: 'owner', primaryProfileId: 'primary', disabled: false}},
@@ -187,12 +192,13 @@ test('the actual TVPeoplePanel failure retry registers in its region and re-read
     await host.render(tree(registry, region('tv.server.people', React.createElement(TVPeoplePanel as any, {ports, runtime, lifetime}))));
     for (let attempt = 0; attempt < 8 && reads === 0; attempt++) await host.settle();
     assert.equal(reads, 3, 'the panel issues exactly the three People reads');
-    assert.deepEqual(registry.order('tv.server.people'), ['retry'], 'the panel error branch attached its retry');
-    assert.ok(registry.child({regionId: 'tv.server.people', childId: 'retry'}), 'the retry is a live region child');
-    const pressable = hostWithTestID(host.root, focusTestID('tv.server.people', 'retry'));
+    const retries = ['members', 'invitations', 'devices'].map(section => focusTestID(`tv-people-${section}-error`, JSON.stringify(['action', 'retry'])));
+    assert.deepEqual(registry.order('tv.server.people'), retries, 'each failed section owns its own retry');
+    for (const childId of retries) assert.ok(registry.child({regionId: 'tv.server.people', childId}), 'the retry is a live region child');
+    const pressable = hostWithTestID(host.root, retries[0]);
     assert.ok(pressable, 'the real failure retry carries the derived region id');
     pressable!.props.onPress();
-    for (let attempt = 0; attempt < 8 && reads < 6; attempt++) await host.settle();
-    assert.equal(reads, 6, 'pressing the real retry performs the three reads again');
+    for (let attempt = 0; attempt < 8 && reads < 4; attempt++) await host.settle();
+    assert.equal(reads, 4, 'the section retry repeats only its own bounded read');
   } finally {lifetime.dispose(); await host.unmount();}
 });
