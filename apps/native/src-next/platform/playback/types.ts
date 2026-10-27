@@ -47,6 +47,9 @@ export type NativeChannelGuideOrigin = Readonly<{
   options: import('../../../../../packages/client-core/src/guide/legacy-source').LegacyGuideOptions;
 }>;
 export type NativePlaybackChannelStart = Readonly<{sourceId: string; channelId: string; timezone: string;
+  /** Once, only this operation's actually adopted playable channel fence. A cold
+   * generation-zero session has no fence; it waits for its own actual update. */
+  onAccepted?: (fence: import('../../../../../packages/player-core/src').ChannelPlaybackFence) => void;
   guide?: NativeChannelGuideOrigin;
   expectedFence?: import('../../../../../packages/player-core/src').ChannelPlaybackFence;
   expectedSourceGeneration?: string;
