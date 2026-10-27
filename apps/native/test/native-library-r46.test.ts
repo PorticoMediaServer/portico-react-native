@@ -244,7 +244,9 @@ test('TV Library composes one measured grid with toolbar memory, short rows and 
     assert.deepEqual(region.props.grid, {columns: 3, count: 8});
     assert.deepEqual(region.props.edges, {left: 'rail', up: 'toolbar:movies'});
     assert.equal(nodes.find(node => node.props.id === 'toolbar:movies')!.props.edges.down, region.props.id);
-    registry.configure(region.props);
+    const regionId: unknown = region.props.id;
+    assert.ok(typeof regionId === 'string');
+    registry.configure({...region.props, id: regionId});
     const requested: string[] = [], hosts = new Map<string, any>();
     for (let index = 0; index < items.length; index++) {
       const slot = grid.props.renderItem(items[index], {index, onFocus() {}, onBlur() {}});
