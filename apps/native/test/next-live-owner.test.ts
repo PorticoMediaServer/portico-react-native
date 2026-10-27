@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {NativeScreenLifetime} from '../src-next/screens/settings-live/lifetime';
 import {NativeLiveOwnerController} from '../src-next/screens/settings-live/live-owner-controller';
 import {parseChannelMapPage, parseLiveSources, parseSourceDocument, parseTunerDiscovery, millisOf, secondsOf, listOf} from '../src-next/screens/settings-live/live-owner-model';
-import {parseAdminRules, parseDVRDocument, parseTunerView} from '../src-next/screens/settings-live/recording-owner-model';
+import {appendRecordingPage, needsRuleOwner, rulePaddingChoice, rulePaddingFromChoice, parseAdminRulePage, parseAdminRules, parseDVRDocument, parseTunerView} from '../src-next/screens/settings-live/recording-owner-model';
 import type {ShellAuthority} from '../src-next/shell/model';
 
 function authority() {
@@ -87,4 +87,70 @@ test('the owner controller reads the real list and writes only after a server re
   assert.equal(controller.getSnapshot().error, rejection);
   assert.equal(controller.getSnapshot().list?.sources[0]!.state, 'ready');
   lifetime.dispose(); controller.dispose();
+});
+
+
+test('administrative rules retain legal DVR values, title and ownerless rows', () => {
+  const row = {id: 'r', revision: 2, owner: {authority: 'local', accountId: 'a', profileId: 'p'}, status: '', kind: 'title', name: 'Title', match: 'Title', sourceId: 's', enabled: false, options: {prePaddingMs: 3600000, postPaddingMs: 21600000, keepPolicy: {mode: 'keep-count', keepCount: 5000, keepDays: 0, keepUntilWatched: false}, newEpisodesOnly: false, priority: 500, folderTemplate: ''}};
+  const legacy = {...row, id: 'legacy', owner: {authority: '', accountId: '', profileId: ''}, status: 'needs-owner-and-guide-selection'};
+  const envelope = (items: unknown[]) => ({serverId: 'server', result: {items, nextCursor: 'next'}});
+  const page = parseAdminRulePage(envelope([row, legacy]), 'server');
+  assert.equal(page.nextCursor, 'next'); assert.equal(page.items[0]!.options.prePaddingMs, 3600000);
+  for (const value of [0, 60000, 1800000, 21600000, null]) {
+    const parsed = parseAdminRulePage(envelope([{...row, kind: 'series', options: {...row.options, prePaddingMs: value, postPaddingMs: 7200000}}]), 'server');
+    assert.equal(parsed.items[0]!.options.prePaddingMs, value); assert.equal(parsed.items[0]!.options.postPaddingMs, 7200000);
+  }
+  assert.equal(page.items[0]!.options.keepPolicy?.keepCount, 5000); assert.equal(needsRuleOwner(page.items[1]!), true);
+  for (const value of [-1, 0.5, 21600001]) assert.throws(() => parseAdminRulePage(envelope([{...row, options: {...row.options, prePaddingMs: value}}]), 'server'));
+});
+
+test('ownerless legacy rule cannot toggle and deletion keeps its original identity and revision', async () => {
+  const owner = authority(), calls: {path: string; method?: string}[] = [];
+  const lifetime = new NativeScreenLifetime(owner);
+  const api = {request: async <T,>(path: string, method?: string) => {
+    calls.push({path, method});
+    if (path === '/v1/admin/live-sources') return {protocolVersion: '1.0', serverId: 'server', sources: [source], refresh: []} as T;
+    return {} as T;
+  }};
+  const controller = new NativeLiveOwnerController(lifetime, api, () => 'op1');
+  const legacy = parseAdminRules({serverId: 'server', result: {items: [{id: 'legacy', revision: 7, owner: {authority: '', accountId: '', profileId: ''}, status: 'needs-owner-and-guide-selection', kind: 'series', name: 'Legacy', match: 'legacy', sourceId: '', enabled: false, options: {prePaddingMs: 0, postPaddingMs: 0, keepPolicy: null, newEpisodesOnly: false, priority: 0, folderTemplate: ''}}]}}, 'server')[0]!;
+  await assert.rejects(controller.saveRuleEnabled(legacy, [], true));
+  assert.equal(calls.length, 0);
+  await controller.deleteRule(legacy);
+  assert.equal(calls[0]!.method, 'DELETE');
+  assert.match(calls[0]!.path, /recording-groups\/legacy\?expectedRevision=7&operationId=op1/);
+});
+
+test('recording controller forwards independent owner and rule cursors', async () => {
+  const calls: string[] = [], lifetime = new NativeScreenLifetime(authority());
+  const api = {request: async <T,>(path: string) => {
+    calls.push(path);
+    const result = path.startsWith('/v1/admin/dvr/recording-owners') ? {items: [], nextCursor: 'owner-next'} : path.startsWith('/v1/admin/dvr/recording-groups') ? {items: [], nextCursor: 'rule-next'} : [];
+    return {serverId: 'server', result} as T;
+  }};
+  const controller = new NativeLiveOwnerController(lifetime, api, () => 'op1');
+  assert.equal((await controller.policy('owner-one')).nextCursor, 'owner-next');
+  assert.equal((await controller.rules('rule-one')).nextCursor, 'rule-next');
+  assert.ok(calls.some(path => path.includes('recording-owners?limit=200&cursor=owner-one')));
+  assert.ok(calls.some(path => path.includes('recording-groups?limit=100&cursor=rule-one')));
+});
+
+
+test('recording continuation deduplicates full keys and refuses cursor cycles without consuming retries', () => {
+  const seen = new Set<string>();
+  const first = [{key: 'local/a/p'}, {key: 'hosted/a/p'}];
+  const second = appendRecordingPage(first, [{key: 'local/a/p'}, {key: 'local/a/q'}], 'c1', 'c2', seen, row => row.key);
+  assert.deepEqual(second.map(row => row.key), ['local/a/p', 'hosted/a/p', 'local/a/q']);
+  seen.add('c1');
+  assert.throws(() => appendRecordingPage(second, [{key: 'third'}], 'c2', 'c1', seen, row => row.key));
+  assert.equal(seen.has('c2'), false);
+  assert.deepEqual(appendRecordingPage(second, [{key: 'third'}], 'c2', '', seen, row => row.key).map(row => row.key), ['local/a/p', 'hosted/a/p', 'local/a/q', 'third']);
+});
+
+
+test('new-rule padding choice preserves minute wire units and null inheritance', () => {
+  assert.equal(rulePaddingFromChoice('60'), 60000);
+  assert.equal(rulePaddingChoice(60000), '60');
+  assert.equal(rulePaddingFromChoice('default'), null);
+  assert.equal(rulePaddingChoice(null), 'default');
 });

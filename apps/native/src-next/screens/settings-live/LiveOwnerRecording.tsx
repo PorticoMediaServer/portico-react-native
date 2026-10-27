@@ -12,6 +12,7 @@ import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeLiveOwnerController} from './live-owner-controller';
 import type {NativeRecordingsController} from './recordings-controller';
+import {appendRecordingPage, needsRuleOwner, rulePaddingChoice, rulePaddingFromChoice} from './recording-owner-model';
 import type {AdminRule, DVRDefaults, DVRDocument, TunerAllocation, TunerView} from './recording-owner-model';
 import type {LiveSource} from './live-owner-model';
 import type {KeepPolicy} from './recording-owner-model';
@@ -24,6 +25,8 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
   const theme = useTheme(), t = runtime.text.t;
   const [tuners, setTuners] = useState<TunerView>(), [policy, setPolicy] = useState<Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>>();
   const [rules, setRules] = useState<readonly AdminRule[]>(), [settings, setSettings] = useState<DVRDocument>(), [storage, setStorage] = useState<RecordingStorage>();
+  const [ownerCursor, setOwnerCursor] = useState(''), [ruleCursor, setRuleCursor] = useState(''), [pageBusy, setPageBusy] = useState(false), [pageError, setPageError] = useState<'owners' | 'rules'>();
+  const pageFlight = useRef<object | undefined>(undefined), ownerSeen = useRef(new Set<string>()), ruleSeen = useRef(new Set<string>()), pageEpoch = useRef(0);
   const [error, setError] = useState<unknown>(), [busy, setBusy] = useState(''), [ruleMenu, setRuleMenu] = useState<AdminRule>(), [newRule, setNewRule] = useState(false);
   // One rule-removal confirmation, exactly the rule it was drawn for; the flight keeps that same
   // opening so a delayed close or a second press cannot reach a successor.
@@ -49,18 +52,47 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
   const [permissionDraft, setPermissionDraft] = useState<Readonly<Record<string, Readonly<{enabled: boolean; inheritProfiles: boolean}>>>>({});
   const [defaultsDraft, setDefaultsDraft] = useState<DVRDefaults>(), [storageDraft, setStorageDraft] = useState<StoragePolicy>();
   const ruleOpeners = useRef(new Map<string, View>()), ruleMenuOpener = useRef<View | null>(null), confirmCancel = useRef<View>(null);
-  const reload = async () => {
+  const reload = async (reset = false) => {
+    const epoch = ++pageEpoch.current; setPageError(undefined);
     setError(undefined);
     try {
       const [nextTuners, nextPolicy, nextRules, nextSettings, nextStorage] = await Promise.all([controller.tuners(), controller.policy(), controller.rules(), controller.dvrSettings(), recordings.storage()]);
-      if (!controller.lifetime.current()) return;
-      setTuners(nextTuners); setPolicy(nextPolicy); setRules(nextRules); setSettings(nextSettings); setStorage(nextStorage);
+      if (!controller.lifetime.current() || pageEpoch.current !== epoch) return;
+      setTuners(nextTuners);
+      setPolicy(current => {if (reset || !current) return nextPolicy; const first = new Set(nextPolicy.owners.map(row => recordingOwnerKey(row.owner))); return {...nextPolicy, owners: [...nextPolicy.owners, ...current.owners.filter(row => !first.has(recordingOwnerKey(row.owner)))]};});
+      setRules(current => {if (reset || !current) return nextRules.items; const first = new Set(nextRules.items.map(row => row.id)); return [...nextRules.items, ...current.filter(row => !first.has(row.id))];});
+      if (reset || !policy) {ownerSeen.current = new Set(); setOwnerCursor(nextPolicy.nextCursor);}
+      if (reset || !rules) {ruleSeen.current = new Set(); setRuleCursor(nextRules.nextCursor);}
+      setSettings(nextSettings); setStorage(nextStorage);
       setDefaultsDraft(current => current ?? nextSettings.settings); setStorageDraft(current => current ?? nextStorage.policy);
-    } catch (failure) {if (controller.lifetime.current()) setError(failure);}
+    } catch (failure) {if (controller.lifetime.current() && pageEpoch.current === epoch) setError(failure);}
   };
-  useEffect(() => {void reload();}, [controller, recordings]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {pageFlight.current = undefined; setPageBusy(false); setPolicy(undefined); setRules(undefined); setOwnerCursor(''); setRuleCursor(''); void reload(true); return () => {pageEpoch.current++; pageFlight.current = undefined;};}, [controller, recordings]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pendingEdits = !!(Object.keys(permissionDraft).length || (settings && defaultsDraft && JSON.stringify(defaultsDraft) !== JSON.stringify(settings.settings)) || (storage && storageDraft && JSON.stringify(storageDraft) !== JSON.stringify(storage.policy)));
+  const loadMore = async (kind: 'owners' | 'rules') => {
+    const cursor = kind === 'owners' ? ownerCursor : ruleCursor;
+    const seen = kind === 'owners' ? ownerSeen.current : ruleSeen.current;
+    if (!cursor || seen.has(cursor) || pageFlight.current || busy || pendingEdits || ruleMenu || shownRuleRemove || (kind === 'rules' && newRule) || ruleRevision === undefined || runtime.navigation?.getSnapshot().revision !== ruleRevision || runtime.getSnapshot().contentVisible !== true || ruleOwner.current !== controller) return;
+    const epoch = pageEpoch.current, revision = runtime.navigation?.getSnapshot().revision;
+    const current = () => mounted.current && ruleOwner.current === controller && controller.lifetime.current() && runtime.getSnapshot().contentVisible === true && pageEpoch.current === epoch && runtime.navigation?.getSnapshot().revision === revision;
+    const flight = {}; pageFlight.current = flight; setPageBusy(true); setPageError(undefined);
+    try {
+      if (kind === 'owners') {
+        const page = await controller.policy(cursor); if (!current()) return;
+        if (!policy || JSON.stringify(policy.grants) !== JSON.stringify(page.grants)) throw new Error('invalid_response');
+        const owners = appendRecordingPage(policy.owners, page.owners, cursor, page.nextCursor, seen, row => recordingOwnerKey(row.owner));
+        seen.add(cursor); setPolicy({...policy, owners}); setOwnerCursor(page.nextCursor);
+      } else {
+        const page = await controller.rules(cursor); if (!current()) return;
+        if (!rules) throw new Error('invalid_response');
+        const nextRules = appendRecordingPage(rules, page.items, cursor, page.nextCursor, seen, row => row.id);
+        seen.add(cursor); setRules(nextRules); setRuleCursor(page.nextCursor);
+      }
+    } catch {if (current()) setPageError(kind);}
+    finally {if (pageFlight.current === flight) {pageFlight.current = undefined; if (mounted.current) setPageBusy(false);}}
+  };
   const write = async (key: string, work: () => Promise<unknown>, current: () => boolean = () => true) => {
-    if (busy) return;
+    if (busy || pageFlight.current) return;
     const live = () => controller.lifetime.current() && current();
     setBusy(key); setError(undefined);
     try {await work(); if (live()) await reload();}
@@ -68,7 +100,7 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
     finally {if (live()) setBusy('');}
   };
   const saveAll = async () => {
-    if (busy || !policy) return;
+    if (busy || pageFlight.current || !policy) return;
     setBusy('save'); setError(undefined);
     try {
       for (const [key, change] of Object.entries(permissionDraft)) {
@@ -90,29 +122,32 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
       {tuners && !tuners.sources.length && <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{t('web.dvrSettings.noTuners')}</Text>}
       {!tuners && error === undefined && <Text style={[shellType(13), {color: theme.colors.textTertiary}]}>{t('web.librarySettings.loading')}</Text>}
     </Section>
-    {policy && <Permissions policy={policy} draft={permissionDraft} runtime={runtime} onChange={(owner, change) => setPermissionDraft(current => ({...current, [recordingOwnerKey(owner)]: change}))}/>}
-    <Section title={t('web.recordingRules.title')} description={t('web.recordingRules.lede')} action={policy && <Button testID="live-owner-new-rule" icon="i-plus" size="small" onPress={() => setNewRule(true)}>{t('web.recordingRules.newRule')}</Button>}>
+    {policy && <Permissions policy={policy} draft={permissionDraft} runtime={runtime} onChange={(owner, change) => !pageFlight.current && setPermissionDraft(current => ({...current, [recordingOwnerKey(owner)]: change}))}/>}
+    {pageError && <Button disabled={pageBusy} onPress={() => void loadMore(pageError)}>{t('next.states.tryAgain')}</Button>}
+    {!!ownerCursor && <Button disabled={pageBusy || !!busy || pendingEdits} onPress={() => void loadMore('owners')}>{t('next.settings.loadMore')}</Button>}
+    <Section title={t('web.recordingRules.title')} description={t('web.recordingRules.lede')} action={policy && <Button testID="live-owner-new-rule" icon="i-plus" size="small" disabled={pageBusy} onPress={() => setNewRule(true)}>{t('web.recordingRules.newRule')}</Button>}>
       {rules?.map(rule => <Focusable key={rule.id} ref={node => {if (node) ruleOpeners.current.set(rule.id, node); else ruleOpeners.current.delete(rule.id);}} testID={`live-owner-rule-${rule.id}`} focusKind="row"
-        onPress={() => {ruleMenuOpener.current = ruleOpeners.current.get(rule.id) ?? null; setRuleMenu(rule);}} style={{flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.colors.raised, borderRadius: 14, padding: 14}}>
+        onPress={() => {if (pageFlight.current) return; ruleMenuOpener.current = ruleOpeners.current.get(rule.id) ?? null; setRuleMenu(rule);}} style={{flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.colors.raised, borderRadius: 14, padding: 14}}>
         <View style={{flex: 1, gap: 4}}>
           <Text style={[shellType(15, 700), {color: theme.colors.text}]} numberOfLines={1}>{rule.name || rule.match}</Text>
-          <Text style={[shellType(12.5), {color: theme.colors.textSecondary}]} numberOfLines={2}>{[t('web.recordingRules.seriesKind'), rule.options.newEpisodesOnly ? t('web.recordingRules.newOnly') : '', ownerName(policy?.owners, rule.owner) ?? ''].filter(Boolean).join(' · ')}</Text>
+          <Text style={[shellType(12.5), {color: theme.colors.textSecondary}]} numberOfLines={2}>{[needsRuleOwner(rule) ? t('web.recordingRules.chooseOwner') : t(rule.kind === 'title' ? 'web.recordingRules.titleMatch' : 'web.recordingRules.seriesKind'), rule.options.newEpisodesOnly ? t('web.recordingRules.newOnly') : '', rule.owner.authority ? ownerName(policy?.owners, rule.owner as RecordingOwner) ?? '' : ''].filter(Boolean).join(' · ')}</Text>
         </View>
         <Text style={[shellType(12.5, 700), {color: rule.enabled ? theme.colors.healthy : theme.colors.textTertiary}]}>{rule.enabled ? t('recordings.on') : t('web.recordingRules.pausedRule')}</Text>
       </Focusable>)}
+      {!!ruleCursor && <Button disabled={pageBusy || !!busy || pendingEdits || newRule} onPress={() => void loadMore('rules')}>{t('next.settings.loadMore')}</Button>}
       {rules && !rules.length && <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{t('web.recordingRules.noRules')} {t('web.recordingRules.noRulesHelp')}</Text>}
     </Section>
-    {settings && defaultsDraft && <Defaults document={settings} draft={defaultsDraft} runtime={runtime} onChange={value => setDefaultsDraft(value)}/>}
-    {storage && storageDraft && <Storage storage={storage} draft={storageDraft} runtime={runtime} onChange={value => setStorageDraft(value)}/>}
+    {settings && defaultsDraft && <Defaults document={settings} draft={defaultsDraft} runtime={runtime} onChange={value => {if (!pageFlight.current) setDefaultsDraft(value);}}/>}
+    {storage && storageDraft && <Storage storage={storage} draft={storageDraft} runtime={runtime} onChange={value => {if (!pageFlight.current) setStorageDraft(value);}}/>}
     {settings && storage && <PendingBar count={Object.keys(permissionDraft).length + (JSON.stringify(defaultsDraft) !== JSON.stringify(settings.settings) ? 1 : 0) + (JSON.stringify(storageDraft) !== JSON.stringify(storage.policy) ? 1 : 0)}
-      busy={busy === 'save'} onDiscard={() => {setPermissionDraft({}); setDefaultsDraft(settings.settings); setStorageDraft(storage.policy);}}
+      busy={busy === 'save' || pageBusy} onDiscard={() => {setPermissionDraft({}); setDefaultsDraft(settings.settings); setStorageDraft(storage.policy);}}
       onSave={() => void saveAll()} runtime={runtime}/>}
     <Menu open={ruleMenu !== undefined} onOpenChange={value => {if (!value) setRuleMenu(undefined);}} title={ruleMenu?.name} anchorRef={ruleMenuOpener} presentation="sheet" testID="live-owner-rule-menu" items={ruleMenu ? [
-      ...(policy ? [{id: 'toggle', icon: ruleMenu.enabled ? 'i-pause' as const : 'i-play' as const, label: t(ruleMenu.enabled ? 'web.recordingRules.pauseRule' : 'web.recordingRules.resumeRule'), onSelect: () => void write(`rule:${ruleMenu.id}`, () => controller.saveRuleEnabled(ruleMenu, policy.grants, !ruleMenu.enabled))}] : []),
+      ...(policy && !needsRuleOwner(ruleMenu) ? [{id: 'toggle', icon: ruleMenu.enabled ? 'i-pause' as const : 'i-play' as const, label: t(ruleMenu.enabled ? 'web.recordingRules.pauseRule' : 'web.recordingRules.resumeRule'), onSelect: () => void write(`rule:${ruleMenu.id}`, async () => {const saved = await controller.saveRuleEnabled(ruleMenu, policy.grants, !ruleMenu.enabled); if (controller.lifetime.current()) setRules(current => current?.map(row => row.id === saved.id ? saved : row));})}] : []),
       {id: 'separator', separator: true as const},
       {id: 'remove', icon: 'i-trash' as const, label: t('web.recordingRules.remove'), destructive: true, onSelect: () => openRuleRemove(ruleMenu)},
     ] : []}/>
-    {policy && <NewRuleSheet controller={controller} runtime={runtime} policy={policy} sources={sources} open={newRule} onOpenChange={setNewRule}
+    {policy && <NewRuleSheet controller={controller} runtime={runtime} policy={policy} sources={sources} ownerCursor={ownerCursor} ownerLoading={pageBusy} ownerError={pageError === 'owners'} onMoreOwners={() => void loadMore('owners')} open={newRule} onOpenChange={setNewRule}
       onSaved={() => {setNewRule(false); void reload();}}/>}
     <Dialog open={shownRuleRemove !== undefined} onOpenChange={value => {if (!value && !ruleRemoveFlight.current && shownRuleRemove) closeRuleRemove(shownRuleRemove);}} title={t('web.recordingRules.removeTitle', {name: shownRuleRemove?.rule.name ?? ''})} description={t('web.recordingRules.removeBody')} testID="live-owner-rule-remove" initialFocusRef={confirmCancel}
       footer={<View style={{flexDirection: 'row', gap: 10}}><Button ref={confirmCancel} variant="glass" disabled={!!busy} onPress={() => {if (shownRuleRemove) closeRuleRemove(shownRuleRemove);}}>{t('action.cancel')}</Button><Button variant="glass" textStyle={{color: theme.colors.record}} style={{backgroundColor: `${theme.colors.record}29`}} disabled={!!busy} loading={busy.startsWith('rule')} onPress={() => {
@@ -123,7 +158,7 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
         // Visibility and the controller are re-read at the press.
         if (runtime.getSnapshot().contentVisible !== true || !opening.controller.lifetime.current()) return;
         ruleRemoveFlight.current = opening;
-        void write(`rule:${opening.rule.id}`, () => opening.controller.deleteRule(opening.rule),
+        void write(`rule:${opening.rule.id}`, async () => {await opening.controller.deleteRule(opening.rule); if (opening.controller.lifetime.current() && ruleRemoveRef.current === opening) setRules(current => current?.filter(row => row.id !== opening.rule.id));},
           () => mounted.current && ruleRemoveFlight.current === opening && ruleRemoveRef.current === opening
             && opening.controller === controller && runtime.navigation?.getSnapshot().revision === opening.revision).then(
           () => {if (mounted.current && opening.controller.lifetime.current() && ruleRemoveRef.current === opening) closeRuleRemove(opening);},
@@ -165,7 +200,7 @@ function TunerCard({source, runtime}: {source: TunerAllocation; runtime: NativeS
 function Permissions({policy, draft, runtime, onChange}: {policy: Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>; draft: Readonly<Record<string, Readonly<{enabled: boolean; inheritProfiles: boolean}>>>; runtime: NativeShellRuntime; onChange: (owner: RecordingOwner, change: Readonly<{enabled: boolean; inheritProfiles: boolean}>) => void}) {
   const theme = useTheme(), t = runtime.text.t;
   const accounts = new Map<string, RecordingOwnerChoice[]>();
-  for (const choice of policy.owners) {const key = choice.owner.accountId; accounts.set(key, [...(accounts.get(key) ?? []), choice]);}
+  for (const choice of policy.owners) {const key = JSON.stringify([choice.owner.authority, choice.owner.accountId]); accounts.set(key, [...(accounts.get(key) ?? []), choice]);}
   return <Section title={t('web.dvrSettings.whoCanRecord')} description={t('web.dvrSettings.whoCanRecordLede')}>
     {[...accounts.entries()].map(([accountId, profiles]) => {
       const primary = profiles[0]!, primaryKey = recordingOwnerKey(primary.owner), primaryGrant = policy.grants.find(grant => recordingOwnerKey(grant.owner) === primaryKey);
@@ -186,7 +221,7 @@ function Permissions({policy, draft, runtime, onChange}: {policy: Readonly<{owne
         })}
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 6, paddingLeft: 18, minHeight: 40}}>
           <Text style={[shellType(13), {color: theme.colors.textSecondary, flex: 1}]}>{t('web.dvrSettings.inheritRow')}</Text>
-          <Switch testID={`live-owner-inherit-${accountId}`} accessibilityLabel={t('web.dvrSettings.inheritSwitch')} checked={primaryValue.inheritProfiles} disabled={!primaryValue.enabled}
+          <Switch testID={`live-owner-inherit-${primary.owner.accountId}`} accessibilityLabel={t('web.dvrSettings.inheritSwitch')} checked={primaryValue.inheritProfiles} disabled={!primaryValue.enabled}
             onCheckedChange={inheritProfiles => onChange(primary.owner, {...primaryValue, inheritProfiles})}/>
         </View>
       </View>;
@@ -255,16 +290,38 @@ function PendingBar({count, busy, runtime, onDiscard, onSave}: {count: number; b
 }
 
 /** Frame 17a: a new rule from a series the guide really lists, for a permitted profile. */
-export function NewRuleSheet({controller, runtime, policy, sources, open, onOpenChange, onSaved}: {controller: NativeLiveOwnerController; runtime: NativeShellRuntime; policy?: Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>; sources?: readonly LiveSource[]; open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void}) {
+export function NewRuleSheet({controller, runtime, policy, sources, ownerCursor, ownerLoading, ownerError, onMoreOwners, open, onOpenChange, onSaved}: {controller: NativeLiveOwnerController; runtime: NativeShellRuntime; policy?: Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>; sources?: readonly LiveSource[]; ownerCursor?: string; ownerLoading?: boolean; ownerError?: boolean; onMoreOwners?: () => void; open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void}) {
   const theme = useTheme(), t = runtime.text.t;
-  const [ownPolicy, setOwnPolicy] = useState<Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>>(), [ownSources, setOwnSources] = useState<readonly LiveSource[]>();
+  const [ownPolicy, setOwnPolicy] = useState<Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]; nextCursor: string}>>(), [ownSources, setOwnSources] = useState<readonly LiveSource[]>();
+  const [ownLoading, setOwnLoading] = useState(false), [ownError, setOwnError] = useState(false);
+  const ownOpenRef = useRef(open); ownOpenRef.current = open;
+  const ownRevision = runtime.navigation?.getSnapshot().revision;
+  const ownController = useRef(controller);
+  const ownEpoch = useRef(0), ownFlight = useRef<object | undefined>(undefined), ownSeen = useRef(new Set<string>());
   useEffect(() => {
-    if (!open || policy && sources) return;
-    let active = true;
-    void Promise.all([controller.policy(), controller.load(true).then(() => controller.getSnapshot().list?.sources ?? [])]).then(([nextPolicy, nextSources]) => {if (active) {setOwnPolicy(nextPolicy); setOwnSources(nextSources);}}, () => {});
-    return () => {active = false;};
+    const changedController = ownController.current !== controller;
+    if (changedController) {ownController.current = controller; ownEpoch.current++; ownSeen.current = new Set(); setOwnPolicy(undefined); setOwnSources(undefined);}
+    if (open) setOwnLoading(false);
+    if (!open || policy && sources || (!changedController && ownPolicy && ownSources)) return;
+    let active = true; const epoch = ++ownEpoch.current; setOwnError(false);
+    void Promise.all([controller.policy(), controller.load(true).then(() => controller.getSnapshot().list?.sources ?? [])]).then(([nextPolicy, nextSources]) => {if (active && ownEpoch.current === epoch && controller.lifetime.current()) {setOwnPolicy(nextPolicy); setOwnSources(nextSources);}}, () => {});
+    return () => {active = false; ownEpoch.current++; ownFlight.current = undefined;};
   }, [open, policy, sources, controller]);
-  const effectivePolicy = policy ?? ownPolicy, effectiveSources = sources ?? ownSources ?? [];
+  const effectivePolicy = policy ?? (ownController.current === controller ? ownPolicy : undefined), effectiveSources = sources ?? (ownController.current === controller ? ownSources : undefined) ?? [];
+  const loadOwnOwners = async () => {
+    const cursor = ownPolicy?.nextCursor;
+    if (!open || !ownOpenRef.current || policy || !ownPolicy || !cursor || ownFlight.current || ownSeen.current.has(cursor) || ownRevision === undefined || runtime.navigation?.getSnapshot().revision !== ownRevision || runtime.getSnapshot().contentVisible !== true) return;
+    const epoch = ownEpoch.current, revision = runtime.navigation?.getSnapshot().revision;
+    const current = () => ownOpenRef.current && ownEpoch.current === epoch && controller.lifetime.current() && runtime.getSnapshot().contentVisible === true && runtime.navigation?.getSnapshot().revision === revision;
+    const flight = {}; ownFlight.current = flight; setOwnLoading(true); setOwnError(false);
+    try {
+      const page = await controller.policy(cursor); if (!current()) return;
+      if (JSON.stringify(ownPolicy.grants) !== JSON.stringify(page.grants)) throw new Error('invalid_response');
+      const owners = appendRecordingPage(ownPolicy.owners, page.owners, cursor, page.nextCursor, ownSeen.current, row => recordingOwnerKey(row.owner));
+      ownSeen.current.add(cursor); setOwnPolicy({...ownPolicy, owners, nextCursor: page.nextCursor});
+    } catch {if (current()) setOwnError(true);}
+    finally {if (ownFlight.current === flight) {ownFlight.current = undefined; if (ownEpoch.current === epoch) setOwnLoading(false);}}
+  };
   const allowed = effectivePolicy ? effectivePolicy.owners.filter(value => recordingAllowed(value.owner, effectivePolicy.grants)) : [];
   const [name, setName] = useState(''), [owner, setOwner] = useState(''), [sourceId, setSourceId] = useState(''), [day, setDay] = useState(() => new Date().toISOString().slice(0, 10));
   const [series, setSeries] = useState<readonly RecordingSeries[]>([]), [anchor, setAnchor] = useState(''), [newOnly, setNewOnly] = useState(false);
@@ -288,10 +345,10 @@ export function NewRuleSheet({controller, runtime, policy, sources, open, onOpen
   const kept: KeepPolicy | null = keepKey === 'default' ? null : keepKey === 'keep-all' ? {mode: 'keep-all', keepCount: 0, keepDays: 0, keepUntilWatched: false} : keepKey === 'keep-count' ? {mode: 'keep-count', keepCount: 10, keepDays: 0, keepUntilWatched: false} : {mode: 'keep-days', keepCount: 0, keepDays: 30, keepUntilWatched: false};
   const ready = !!chosenOwner && name.trim().length > 0 && !!chosen && recordingGuideRoute(day, sourceId) !== null;
   const save = async () => {
-    if (!ready || !chosen || !chosenOwner) return;
+    if (!ready || !chosen || !chosenOwner || ownerLoading || ownLoading) return;
     setBusy(true); setError(undefined);
     try {
-      await controller.createRule({owner: chosenOwner.owner, anchor: chosen.anchor, kind: 'series', name: name.trim(), match: chosen.seriesId, sourceId: chosen.anchor.sourceId, enabled: chosen.recordAvailable,
+      await controller.createRule({owner: chosenOwner.owner, anchor: chosen.anchor, kind: chosen.seriesId ? 'series' : 'title', name: name.trim(), match: chosen.seriesId || chosen.title, sourceId: chosen.anchor.sourceId, enabled: chosen.recordAvailable,
         options: {prePaddingMs: before, postPaddingMs: after, keepPolicy: kept, newEpisodesOnly: newOnly, priority: Math.round(Number(priority) || 0), folderTemplate: ''}}, effectivePolicy!.grants);
       onSaved();
     } catch (failure) {setError(failure);}
@@ -299,11 +356,11 @@ export function NewRuleSheet({controller, runtime, policy, sources, open, onOpen
   };
   const paddingOptions = [{value: 'default', label: t('web.recordingRules.default')}, ...[0, 60, 120, 300, 600, 900].map(value => ({value: String(value), label: value ? t('recordings.minutes', {count: value / 60}) : t('recordings.none')}))];
   return <Dialog open={open} onOpenChange={value => onOpenChange(value)} title={t('web.recordingRules.newTitle')} initialFocusRef={cancel} testID="live-owner-new-rule-sheet"
-    footer={<View style={{flexDirection: 'row', gap: 10}}><Button ref={cancel} variant="glass" disabled={busy} onPress={() => onOpenChange(false)}>{t('action.cancel')}</Button><Button variant="primary" loading={busy} disabled={!ready} onPress={() => void save()}>{t('action.save')}</Button></View>}>
+    footer={<View style={{flexDirection: 'row', gap: 10}}><Button ref={cancel} variant="glass" disabled={busy} onPress={() => onOpenChange(false)}>{t('action.cancel')}</Button><Button variant="primary" loading={busy} disabled={!ready || ownerLoading || ownLoading} onPress={() => void save()}>{t('action.save')}</Button></View>}>
     <View style={{gap: 12}}>
       {error !== undefined && <StateView testID="live-owner-new-rule-error" {...runtime.error(error, () => setError(undefined))}/>}
       <TextField testID="live-owner-new-rule-name" label={t('web.recordingRules.ruleName')} value={name} maxLength={160} onChangeText={setName}/>
-      <Select testID="live-owner-new-rule-owner" label={t('web.recordingRules.recordFor')} value={owner} options={[{value: '', label: t('web.recordingRules.chooseProfile')}, ...allowed.map(value => ({value: recordingOwnerKey(value.owner), label: recordingOwnerLabel(value)}))]} onValueChange={setOwner}/>
+      <Select testID="live-owner-new-rule-owner" label={t('web.recordingRules.recordFor')} pickerContext={(policy ? ownerCursor : ownPolicy?.nextCursor) ? <Button disabled={ownerLoading || ownLoading || busy} onPress={policy ? onMoreOwners : () => void loadOwnOwners()}>{t((policy ? ownerError : ownError) ? 'next.states.tryAgain' : 'next.settings.loadMore')}</Button> : undefined} value={owner} options={[{value: '', label: t('web.recordingRules.chooseProfile')}, ...allowed.map(value => ({value: recordingOwnerKey(value.owner), label: recordingOwnerLabel(value)}))]} onValueChange={setOwner}/>
       {!allowed.length && <Text style={[shellType(13), {color: theme.colors.amber}]}>{t('web.recordingRules.allowFirst')}</Text>}
       <Select testID="live-owner-new-rule-source" label={t('live.guideSource')} value={sourceId} options={effectiveSources.map(value => ({value: value.id, label: value.name}))} onValueChange={value => {setSourceId(value); setAnchor('');}}/>
       <TextField testID="live-owner-new-rule-day" label={t('web.recordingRules.guideDate')} value={day} maxLength={10} autoCapitalize="none" onChangeText={value => {setDay(value); setAnchor('');}}/>
@@ -314,8 +371,8 @@ export function NewRuleSheet({controller, runtime, policy, sources, open, onOpen
       {!loading && !series.length && recordingGuideRoute(day, sourceId) && error === undefined && <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{t('web.recordingRules.noSeries')}</Text>}
       {chosen && !chosen.recordAvailable && <Text style={[shellType(13), {color: theme.colors.amber}]}>{t('web.recordingRules.captureUnavailable')}</Text>}
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}><Text style={[shellType(15, 600), {color: theme.colors.text, flex: 1}]}>{t('guide.newOnly')}</Text><Switch testID="live-owner-new-rule-new-only" accessibilityLabel={t('guide.newOnly')} checked={newOnly} onCheckedChange={setNewOnly}/></View>
-      <Select testID="live-owner-new-rule-before" label={t('web.recordingRules.startEarlySeconds')} value={before === null ? 'default' : String(before)} options={paddingOptions} onValueChange={value => setBefore(value === 'default' ? null : Number(value))}/>
-      <Select testID="live-owner-new-rule-after" label={t('web.recordingRules.endLateSeconds')} value={after === null ? 'default' : String(after)} options={paddingOptions} onValueChange={value => setAfter(value === 'default' ? null : Number(value))}/>
+      <Select testID="live-owner-new-rule-before" label={t('web.recordingRules.startEarlySeconds')} value={rulePaddingChoice(before)} options={paddingOptions} onValueChange={value => setBefore(rulePaddingFromChoice(value))}/>
+      <Select testID="live-owner-new-rule-after" label={t('web.recordingRules.endLateSeconds')} value={rulePaddingChoice(after)} options={paddingOptions} onValueChange={value => setAfter(rulePaddingFromChoice(value))}/>
       <TextField testID="live-owner-new-rule-priority" label={t('web.recordingRules.priority')} description={t('web.recordingRules.priorityHelp')} keyboardType="number-pad" value={priority} onChangeText={setPriority}/>
       <Select testID="live-owner-new-rule-keep" label={t('recordings.keepLabel')} value={keepKey} options={[{value: 'default', label: t('web.recordingRules.useDefaults')}, {value: 'keep-all', label: t('web.logs.everything')}, {value: 'keep-count', label: t('web.recordingRules.latestFew')}, {value: 'keep-days', label: t('web.dvrSettings.keepDays')}]} onValueChange={setKeepKey}/>
     </View>
