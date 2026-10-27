@@ -31,9 +31,7 @@ type Opening = {
 
 const limit = 16 * 1024 * 1024;
 const blank: UploadInput = Object.freeze({id: '', requestId: '', expectedRevision: 0, name: '', playlist: '', guide: '', tunerCount: 0});
-const sizeLabel = (bytes: number) => bytes >= 1024 * 1024
-  ? `${defaultI18n.number(Number((bytes / (1024 * 1024)).toFixed(1)))} MB`
-  : `${defaultI18n.number(Math.max(1, Math.round(bytes / 1024)))} KB`;
+const sizeLabel = (bytes: number) => defaultI18n.bytes(bytes);
 /** Idempotency/source ids are not secrets; use the device crypto when present. */
 const makeId = () => {
   const bytes = new Uint8Array(24), crypto = globalThis.crypto;

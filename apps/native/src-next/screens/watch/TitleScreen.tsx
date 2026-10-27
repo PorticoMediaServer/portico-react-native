@@ -94,8 +94,9 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const artListeners = useRef(new Set<() => void>()), artMounted = useRef(false);
   useLayoutEffect(() => {for (const listener of [...artListeners.current]) listener();});
   useLayoutEffect(() => {
+    const ownedArtListeners = artListeners.current;
     artMounted.current = true;
-    return () => {artMounted.current = false;for (const listener of [...artListeners.current]) listener();};
+    return () => {artMounted.current = false;for (const listener of [...ownedArtListeners]) listener();};
   }, [controller]);
   const posture = usePlatformPosture(), registry = useOptionalFocusRegistry();
   useSyncExternalStore(registry?.subscribe ?? noMenuSubscribe, registry?.getSnapshot ?? noFocusSnapshot, registry?.getSnapshot ?? noFocusSnapshot);

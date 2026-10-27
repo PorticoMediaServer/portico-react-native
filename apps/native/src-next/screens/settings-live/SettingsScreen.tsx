@@ -64,6 +64,9 @@ import QRCode from 'react-native-qrcode-svg';
 import {nativeEqualizer} from '../../platform/playback/equalizer';
 import {publicTVHandoffAddress} from '../../tv/auth/TVHandoff';
 
+/** settings.html wins over the structure's group order. */
+const serverPageOrder = ['general', 'dashboard', 'history', 'libraries', 'remote-sources', 'metadata', 'segments', 'live', 'people', 'signin', 'remote', 'integrations', 'streaming', 'storage', 'troubleshooting'];
+
 /** Same icon normalization as settings.html: strip one leading i-, look up, fall back. */
 export function nativeSettingsIcon(name: string): IconName {
   const key = `i-${name.replace(/^i-/, '')}`;
@@ -131,7 +134,6 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   }, [awayLimit, t]);
   // settings.html wins over the structure's group order. Only pages whose real native
   // renderer is mounted here are listed; the rest land with their owners.
-  const serverPageOrder = ['general', 'dashboard', 'history', 'libraries', 'remote-sources', 'metadata', 'segments', 'live', 'people', 'signin', 'remote', 'integrations', 'streaming', 'storage', 'troubleshooting'];
   const serverPages = useMemo(() => {
     if (theme.isTV) return [];
     const pages = (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'dashboard' || value.id === 'libraries' || value.id === 'storage' || value.id === 'troubleshooting' || managesServer && (value.id === 'general' || value.id === 'remote' || value.id === 'live' || value.id === 'integrations' || value.id === 'segments' || value.id === 'remote-sources' || value.id === 'streaming'));

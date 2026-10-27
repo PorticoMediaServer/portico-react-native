@@ -79,7 +79,7 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
   // downloadable view; the same current activation gates the existing actions.
   const visible = () => activation.getSnapshot().visible;
   const showDownloads = useCallback(() => {
-    if (!visible()) return;
+    if (!activation.getSnapshot().visible) return;
     if (tablet) {setSavedTab('downloads'); return;}
     actions.openDownloads();
   }, [activation, actions, tablet]);
@@ -94,7 +94,7 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
   const myListColumns = theme.platform === 'tablet' ? 4 : 5;
   useEffect(() => {
     if (!downloadsOpen || !active.visible) return;
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {if (!visible()) return false; setSavedTab('watchlist'); return true;});
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {if (!activation.getSnapshot().visible) return false; setSavedTab('watchlist'); return true;});
     return () => subscription.remove();
   }, [active.visible, activation, downloadsOpen]);
   const tabItems = [

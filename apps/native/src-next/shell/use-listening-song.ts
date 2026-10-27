@@ -34,7 +34,7 @@ export function useListeningSong(detail: NativeListeningSongDetail | undefined, 
   const canRead = !!detail && !!fence && !!lifetime && detail.canRead(fence, lifetime);
   useLayoutEffect(() => {
     mounted.current = true;
-    return () => {mounted.current = false; ticket.current++; openingRef.current = undefined; pendingRef.current = undefined;};
+    return () => {mounted.current = false; ticket.current += 1; openingRef.current = undefined; pendingRef.current = undefined;};
   }, []);
   useLayoutEffect(() => {
     // Retire the previous opening before publishing anything for this one; its state and its

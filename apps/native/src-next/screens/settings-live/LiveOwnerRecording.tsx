@@ -387,7 +387,7 @@ export function NewRuleSheet({controller, runtime, policy, sources, ownerCursor,
     if (!sheetCurrent() || policy && sources || (!changedController && ownPolicy && ownSources)) return;
     let active = true; const epoch = ++ownEpoch.current; setOwnError(false);
     void Promise.all([controller.policy(), controller.load(true).then(() => controller.getSnapshot().list?.sources ?? [])]).then(([nextPolicy, nextSources]) => {if (active && ownEpoch.current === epoch && sheetCurrent()) {setOwnPolicy(nextPolicy); setOwnSources(nextSources);}}, () => {});
-    return () => {active = false; if (ownEpoch.current === epoch) {ownEpoch.current++; ownFlight.current = undefined;}};
+    return () => {active = false; if (ownEpoch.current === epoch) {ownEpoch.current += 1; ownFlight.current = undefined;}};
   }, [sheet, policy, sources, controller]);
   const effectivePolicy = policy ?? (ownOwner.current.controller === controller && ownOwner.current.runtime === runtime && ownOwner.current.navigation === runtime.navigation && ownOwner.current.revision === revision ? ownPolicy : undefined), effectiveSources = sources ?? (ownOwner.current.controller === controller && ownOwner.current.runtime === runtime && ownOwner.current.navigation === runtime.navigation && ownOwner.current.revision === revision ? ownSources : undefined) ?? [];
   const loadOwnOwners = async () => {
