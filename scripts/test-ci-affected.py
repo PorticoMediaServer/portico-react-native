@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -472,7 +473,7 @@ class ShardedJsChecksTests(unittest.TestCase):
         self.assertEqual([file for _, _, file in runner.entries],
                          ["test/next-thing.test.ts"])
 
-    def test_source_lint_keeps_args_then_cwd_order_and_its_exact_command(self):
+    def test_the_test_runner_never_runs_source_lint(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         root = Path(temp.name)
@@ -484,34 +485,29 @@ class ShardedJsChecksTests(unittest.TestCase):
                 patch.object(ci, "js_plan", return_value=[]), \
                 patch.object(ci, "report_directory", return_value=(root / "report", False)), \
                 patch.object(ci.test_watchdog, "Runner", self.FakeRunner), \
+                patch.object(ci, "print_versions"), \
                 patch.object(ci, "run") as run, \
                 patch.dict(ci.os.environ, {"CI_SHARD_INDEX": "0", "CI_SHARD_TOTAL": "1"}), \
-                contextlib.redirect_stdout(io.StringIO()):
-            ci.js_checks(True)
-        self.assertEqual(run.call_count, 1)
-        args, cwd = run.call_args.args
-        self.assertEqual(cwd, root / "apps/native")
-        self.assertEqual(args[:4], ["npx", "--no-install", "eslint", "--no-eslintrc"])
-        self.assertEqual(args[-1], "src-next/port.ts")
-
-    def test_source_lint_is_deferred_to_shard_zero_not_dropped(self):
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        root = Path(temp.name)
-        source = root / "apps/native/src-next/port.ts"
-        source.parent.mkdir(parents=True)
-        source.write_text("export const value = 1;\n")
-        with patch.object(ci, "ROOT", root), \
-                patch.object(ci, "changed", return_value={"apps/native/src-next/port.ts"}), \
-                patch.object(ci, "js_plan", return_value=[]), \
-                patch.object(ci, "report_directory", return_value=(root / "report", False)), \
-                patch.object(ci.test_watchdog, "Runner", self.FakeRunner), \
-                patch.object(ci, "run") as run, \
-                patch.dict(ci.os.environ, {"CI_SHARD_INDEX": "1", "CI_SHARD_TOTAL": "4"}), \
                 contextlib.redirect_stdout(io.StringIO()) as output:
             ci.js_checks(True)
+        # Lint is not a test: the dedicated javascript-checks job owns it.
         self.assertEqual(run.call_count, 0)
-        self.assertIn("source lint runs once in shard 0", output.getvalue())
+        self.assertNotIn("eslint", output.getvalue().lower())
+        self.assertNotIn("eslint", Path(ci.__file__).read_text().lower())
+
+    def test_a_stuck_version_probe_reports_unavailable_instead_of_hanging(self):
+        with patch.object(ci.subprocess, "check_output",
+                          side_effect=subprocess.TimeoutExpired(["go", "version"], 15)):
+            self.assertEqual(ci._tool_line(["go", "version"]), "unavailable")
+
+    def test_go_entry_prints_versions_first(self):
+        with patch.object(ci, "print_versions") as versions, \
+                patch.object(ci, "changed", return_value=set()), \
+                patch.object(ci, "go_plan", return_value={}), \
+                patch.object(ci, "run_all"):
+            ci.go_checks("server", "affected")
+        versions.assert_called_once()
+
 
     def test_four_shards_are_disjoint_and_cover_the_whole_selection(self):
         temp = tempfile.TemporaryDirectory()
@@ -551,6 +547,45 @@ class ShardedJsChecksTests(unittest.TestCase):
         self.assertEqual(len(union), len(set(union)))
         expected = {("apps/native", f"test/{path.name}") for path in selection}
         self.assertEqual(set(union), expected)
+
+
+class WorkflowLintTests(unittest.TestCase):
+    """The workflow owns the one required hooks lint; tests only run tests."""
+
+    workflow = Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml"
+
+    def job_block(self, name):
+        lines = self.workflow.read_text().splitlines()
+        start = lines.index(f"  {name}:")
+        for index in range(start + 1, len(lines)):
+            if re.match(r"^  \S", lines[index]):
+                return "\n".join(lines[start:index])
+        return "\n".join(lines[start:])
+
+    def steps(self, job):
+        return re.split(r"\n(?=      - )", job)
+
+    def test_the_required_hooks_lint_runs_exactly_once_in_the_checks_job(self):
+        text = self.workflow.read_text()
+        self.assertEqual(text.count(".eslintrc.hooks.cjs"), 1)
+        self.assertIn(".eslintrc.hooks.cjs", self.job_block("javascript-checks"))
+        step = next(step for step in self.steps(self.job_block("javascript-checks"))
+                    if ".eslintrc.hooks.cjs" in step)
+        self.assertIn("name: Mounted application lint (required)", step)
+        self.assertNotIn("informational", step.lower())
+        # Required means a lint error fails the job; it is not swallowed.
+        self.assertNotIn("continue-on-error", step)
+        self.assertIn('exit "$status"', step)
+        for lint in ("lint:boundary", "lint-strings.mjs", "lint-raw-errors.mjs",
+                     "lint-glossary.mjs"):
+            self.assertIn(lint, step)
+
+    def test_the_test_job_runs_tests_without_any_lint(self):
+        job = self.job_block("javascript-tests")
+        self.assertIn("scripts/ci-affected.py native-js", job)
+        for lint in ("eslint", "lint:boundary", "lint-strings", "lint-raw-errors",
+                     "lint-glossary"):
+            self.assertNotIn(lint, job)
 
 
 class WatchdogTests(unittest.TestCase):

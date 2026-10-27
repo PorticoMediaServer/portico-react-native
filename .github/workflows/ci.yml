@@ -25,7 +25,7 @@ concurrency:
 env:
   CI_FULL_TREE: '1'
 jobs:
-  # Source, mounted types and informational lint run once. They do not depend on
+  # Source, mounted types and the required lint run once. They do not depend on
   # the test shard, so paying for them in every shard would only add cost.
   javascript-checks:
     if: ${{ !inputs.apple_reading_commit }}
@@ -41,6 +41,10 @@ jobs:
         with: {repository: PorticoMediaServer/portico-server, path: portico-server, ref: '${{ steps.server.outputs.revision }}'}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with: {node-version-file: portico-react-native/.node-version, cache: npm, cache-dependency-path: portico-react-native/apps/native/package-lock.json}
+      - name: Record the actual job toolchain
+        run: |
+          echo "node $(node --version) (pinned $(cat portico-react-native/.node-version))"
+          if command -v go >/dev/null 2>&1; then echo "$(go version) (not used by this job)"; else echo "go unavailable (not used by this job)"; fi
       - run: node scripts/shared-packages.mjs --check
         working-directory: portico-react-native
       - name: Selection and test-runner regressions
@@ -59,7 +63,7 @@ jobs:
           exit "$status"
         working-directory: portico-react-native/apps/native
       - if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
-        name: Mounted application lint (informational)
+        name: Mounted application lint (required)
         run: |
           status=0
           npm run lint:boundary || status=1
@@ -96,6 +100,10 @@ jobs:
         with: {path: portico-react-native, fetch-depth: 0}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with: {node-version-file: portico-react-native/.node-version, cache: npm, cache-dependency-path: portico-react-native/apps/native/package-lock.json}
+      - name: Record the actual job toolchain
+        run: |
+          echo "node $(node --version) (pinned $(cat portico-react-native/.node-version))"
+          if command -v go >/dev/null 2>&1; then echo "$(go version) (not used by this job)"; else echo "go unavailable (not used by this job)"; fi
       - id: native-deps
         run: npm ci --no-audit --no-fund --legacy-peer-deps
         working-directory: portico-react-native/apps/native
@@ -137,6 +145,13 @@ jobs:
           ref: ${{ inputs.apple_reading_commit || github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Record the actual job toolchain
+        run: |
+          if command -v node >/dev/null 2>&1; then echo "node $(node --version) (not used by this job)"; else echo "node unavailable (not used by this job)"; fi
+          if command -v go >/dev/null 2>&1; then echo "$(go version) (not used by this job)"; else echo "go unavailable (not used by this job)"; fi
+          swiftc --version
+          clang --version | head -n 1
+          xcodebuild -version | head -n 1
       - name: Public Reading stream Foundation tests
         if: ${{ inputs.apple_reading_commit != '' }}
         env:
