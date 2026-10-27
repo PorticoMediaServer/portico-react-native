@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import * as core from '../../../packages/client-core/src';
+import * as serverProbe from '../../../packages/client-core/src/sign-in';
+import * as localRoutes from '../../../packages/contracts/src/routes';
 import {CredentialSessionService, type CredentialRecord} from '../../../packages/client-core/src/credentials';
 import {presentError} from '../../../packages/client-core/src/presentation/errors';
 import {defaultI18n} from '../../../packages/i18n/src';
@@ -30,13 +32,14 @@ const grant = (familyId = 'family', accountId = 'account', accessToken = 'old-ac
 });
 /** Actual coordinator + in-memory credential storage and issuing API. Actual HttpLocalApi/
  * native transport consumes synthetic HTTP responses below; no native secure store or live Hosted. */
+const storageHold = () => ({...deferred<void>(), entered: deferred<void>()});
 async function fixture() {
-  let record: CredentialRecord<string> | undefined, holdLoad: ReturnType<typeof deferred<void>> | undefined;
+  let record: CredentialRecord<string> | undefined, holdLoad: ReturnType<typeof storageHold> | undefined;
   let renewal: () => Promise<core.HostedSession> = async () => grant('family', 'account', 'renewed-access');
   const renewals: string[] = [], revocations: string[] = [];
   const owner = new CredentialSessionService({authorityFromSession: value => value.refreshToken!,
     refresh: async authority => {renewals.push(authority); return renewal();}, revoke: async authority => {revocations.push(authority);}},
-  {load: async () => {const hold = holdLoad; holdLoad = undefined; if (hold) await hold.promise; return structuredClone(record);},
+  {load: async () => {const hold = holdLoad; holdLoad = undefined; if (hold) {hold.entered.resolve(); await hold.promise;} return structuredClone(record);},
     save: async value => {record = structuredClone(value);}}, async () => 'fixture-renewal-request');
   await owner.synchronize(); await owner.authenticate(async () => grant());
   const original = owner.getSnapshot().session!;
@@ -44,7 +47,7 @@ async function fixture() {
     renewal: (work: typeof renewal) => {renewal = work;},
     install: async (session: core.HostedSession) => owner.authenticate(async () => session),
     external: (session: core.HostedSession) => {record = {version: 1, active: {session, authority: session.refreshToken!, context: {}}, revocations: []};},
-    holdLoad: () => holdLoad = deferred<void>(),
+    holdLoad: () => holdLoad = storageHold(),
   };
 }
 type F = Awaited<ReturnType<typeof fixture>>;
@@ -103,11 +106,12 @@ for (const kind of ['routes', 'workspace'] as const) {
       const view = workspace(f), abort = new AbortController();
       const pending = kind === 'routes' ? source(f).request('/v1/servers/server/routes', abort.signal) : view.open('notifications');
       const settled = Promise.allSettled([pending]); await arrived.promise;
-      let storage: ReturnType<typeof deferred<void>> | undefined;
+      let storage: ReturnType<typeof storageHold> | undefined;
       if (replacement === 'unmount') {abort.abort(); view.dispose();}
       else if (replacement === 'storage-await') {
         storage = f.holdLoad(); release.resolve();
-        // synchronize's storage awaits the held read; its result must admit the exact original family.
+        await storage.entered.promise; assert.equal(f.renewals.length, 0);
+        // The original request is now actually waiting inside storage.load.
         f.external(grant('new-family', 'account', 'successor-access')); storage.resolve();
       } else {
         await f.install(grant('new-family', replacement === 'other-account' ? 'other' : 'account', 'successor-access'));
@@ -186,7 +190,8 @@ for (const replacement of ['same-account', 'other-account', 'ABA', 'unmount', 's
     const app = await entry(t, f); await arrived.promise;
     if (replacement === 'unmount') app.host.unmount();
     else if (replacement === 'storage-await') {
-      const read = f.holdLoad(); release.resolve(); f.external(grant('new-family', 'account', 'successor-access')); read.resolve();
+      const read = f.holdLoad(); release.resolve(); await read.entered.promise;
+      assert.equal(f.renewals.length, 0); f.external(grant('new-family', 'account', 'successor-access')); read.resolve();
     } else await act(async () => {
       await f.install(grant('new-family', replacement === 'other-account' ? 'other' : 'account', 'successor-access'));
       if (replacement === 'ABA') await f.install(grant());
@@ -210,25 +215,31 @@ for (const status of [403, 429, 'network'] as const) {
 /** Public connectPortico -> actual consumeHostedCommand -> actual HTTP -> real owner.
  * Verified-route and command-producer ports are synthetic; this does not prove real signed routes
  * or invitation/member/owner/TV admission. No server-local selection operation is supplied. */
-async function serverCommand(f: F, kind: string) {
-  const installation = {}, pin = {serverId: 'server', publicKey: 'public', fingerprint: 'fingerprint'};
-  const routes = {pin, dispose() {}}, api = {baseUrl: 'https://server.example', getRouteConnection: () => routes};
-  const selection = {servers: [{connection: {session: {sessionFamilyId: 'retained-server-local'}}}]}, before = structuredClone(selection);
+async function serverCommand(f: F, kind: string, produce?: (hosted: any) => Promise<any>) {
+  const installation = {installationId: 'fixture-installation'}, pin = {serverId: 'server', publicKey: 'public', fingerprint: 'fingerprint'};
+  const descriptor = {id: 'server', name: 'Server', version: '1', signIn: 'portico', move: 'to_portico', setupRequired: false, hostedConfigured: true, hostedAttached: true};
+  const routes = {pin, dispose() {}}, api = {baseUrl: 'https://server.example', getRouteConnection: () => routes,
+    request: async (path: string) => {assert.equal(path, localRoutes.routePath('get_system')); return descriptor;}};
+  const selection = {revision: 1, selectedServerId: 'server', servers: [{connection: {pin, session: {sessionFamilyId: 'retained-server-local'}}}]}, before = structuredClone(selection);
   const modules: Record<string, any> = {react: {default: React},
-    '../../../../packages/client-core/src': core,
-    '../../../../packages/client-core/src/sign-in': {ServerSignInProbe: class {dispose() {}}},
+    '../../../../packages/client-core/src': {...core, assertFirstContactIdentity() {}},
+    '../../../../packages/client-core/src/sign-in': {...serverProbe, ServerSignInProbe: class {dispose() {} async inspect() {return descriptor;} getSnapshot() {return {origin: api.baseUrl};}}},
+    '../../../../packages/contracts/src/routes': localRoutes,
+    '../../../../packages/client-core/src/app-sessions': {knownServerRoutes: () => []},
     '../../../../packages/client-core/src/installation': {installationIdentity: () => installation},
-    '../../../../packages/client-core/src/portico-servers': {porticoSignIn: async (hosted: any) => hosted.request('/v1/servers/server/identity', 'POST', {challenge: 'original-' + kind, requestId: 'original-operation'})},
-    '../../../../packages/client-core/src/server-connections': {connectHostedServer: async () => ({api, connection: routes, hosted: {origin: hostedUrl, accountId: 'account'}})},
+    '../../../../packages/client-core/src/portico-servers': {porticoSignIn: produce ?? (async (hosted: any) => hosted.request('/v1/servers/server/identity', 'POST', {challenge: 'original-' + kind, requestId: 'original-operation'}))},
+    '../../../../packages/client-core/src/server-connections': {inspectDirectServer: async () => pin, connectPairedServer: async () => ({api, connection: routes}),
+      connectPairedPorticoServer: async () => ({api, connection: routes, hosted: {origin: hostedUrl, accountId: 'account'}}), connectHostedServer: async () => ({api, connection: routes, hosted: {origin: hostedUrl, accountId: 'account'}})},
     './accounts': {nativeAccounts: {}}, './account-work': accountWork, './abort-signals': abortSignals, './account-authority': {hostedUrl},
     './server-connections': await import('../src-next/platform/server-connections'),
     './server-display': {rememberNativeServerDisplay: async () => ({id: 'server', name: 'Server', signIn: 'portico'})},
-    './app-session-storage': {nativeAppSessions: {read: async () => selection}},
+    './app-session-storage': {nativeAppSessions: {read: async () => selection}, subscribeNativeAppSessions: () => () => {}},
+    './member-account-move': {NativeMemberAccountMove: class {captureHosted: () => Promise<any>; constructor(ports: any) {this.captureHosted = ports.captureHosted;} dispose() {}}},
     './hosted-sign-in-unavailable': {hostedSignInUnavailable: () => undefined},
   };
   const {NativeServerSignIn} = await screenModule(new URL('../src-next/platform/server-sign-in.ts', import.meta.url), new Proxy(modules, {get: (all, key: string) => all[key] ?? {}}));
   const command = new NativeServerSignIn({accountCredentials: () => f.owner, onCancel: () => () => {}, admission: async () => ({})});
-  return {command, start: () => command.connectPortico({id: 'server'}), selection: () => {assert.deepEqual(selection, before);}};
+  return {command, start: () => command.connectPortico({id: 'server'}), member: async () => {await command.inspect(api.baseUrl); const move = await command.createMemberMove('password'); return move.captureHosted();}, selection: () => {assert.deepEqual(selection, before);}};
 }
 for (const kind of ['directory', 'invitation', 'member', 'owner', 'TV']) {
   test(`actual server-sign-in request closure never repeats ${kind} mutation when 401 renews the original family`, async t => {
@@ -239,4 +250,43 @@ for (const kind of ['directory', 'invitation', 'member', 'owner', 'TV']) {
     assert.deepEqual(sent.map(value => JSON.parse(value)), [{challenge: 'original-' + kind, requestId: 'original-operation'}]);
     assert.equal(f.renewals.length, 1); assert.equal(f.owner.getSnapshot().session?.familyId, 'family'); operation.selection(); operation.command.dispose();
   });
+}
+
+for (const closure of ['official', 'member'] as const) {
+  for (const cancel of [false, true]) {
+    test(`actual ${closure} Hosted closure snapshots nested command JSON before held storage; cancel=${cancel}`, async t => {
+      const f = await fixture(), caller = new AbortController(), issued = deferred<ReturnType<F['holdLoad']>>();
+      const body = {challenge: 'original-challenge', requestId: 'original-request', target: {id: 'original-target', nested: ['original']}};
+      const sent: {path: string; method: string; body: string | null}[] = [];
+      transport(t, async (path, method, _headers, wire) => {sent.push({path, method, body: wire}); return response(401);});
+      const invoke = (hosted: any) => {const hold = f.holdLoad(); issued.resolve(hold);
+        return hosted.request('/v1/servers/server/identity', 'POST', body, caller.signal);};
+      const operation = await serverCommand(f, 'snapshot', invoke);
+      const member = closure === 'member' ? await operation.member() : undefined;
+      const pending = closure === 'official' ? operation.start() : invoke(member.api);
+      const settled = Promise.allSettled([pending]), hold = await issued.promise; await hold.entered.promise;
+      assert.equal(sent.length, 0, 'canonical storage is actually holding original admission');
+      body.challenge = 'successor-challenge'; body.requestId = 'successor-request'; body.target.id = 'successor-target'; body.target.nested[0] = 'successor';
+      if (cancel) caller.abort(); hold.resolve(); const [result] = await settled;
+      assert.equal(result!.status, 'rejected');
+      if (cancel) {assert.deepEqual(sent, []); assert.equal(f.renewals.length, 0);}
+      else {
+        assert.deepEqual(sent, [{path: hostedUrl + '/v1/servers/server/identity', method: 'POST', body: JSON.stringify({challenge: 'original-challenge', requestId: 'original-request', target: {id: 'original-target', nested: ['original']}})}]);
+        assert.equal(f.renewals.length, 1);
+      }
+      operation.selection(); operation.command.dispose();
+    });
+  }
+  for (const body of [undefined, null]) {
+    test(`actual ${closure} Hosted closure preserves ${body === undefined ? 'absent' : 'null'} command body`, async t => {
+      const f = await fixture(), sent: (string | null)[] = [];
+      transport(t, async (_path, _method, _headers, wire) => {sent.push(wire); return response(401);});
+      const invoke = (hosted: any) => hosted.request('/v1/servers/server/identity', 'POST', body);
+      const operation = await serverCommand(f, 'body-shape', invoke);
+      if (closure === 'official') await assert.rejects(operation.start());
+      else {const member = await operation.member(); await assert.rejects(invoke(member.api));}
+      assert.deepEqual(sent, [body === undefined ? null : 'null']); assert.equal(f.renewals.length, 1);
+      operation.selection(); operation.command.dispose();
+    });
+  }
 }
