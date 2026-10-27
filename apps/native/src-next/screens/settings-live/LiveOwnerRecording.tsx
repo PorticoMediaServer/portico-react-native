@@ -72,7 +72,7 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
     ruleRemoveRef.current = next; setRuleRemoveOpening(next);
   };
   const closeRuleRemove = (target: RuleRemoveOpening) => {if (ruleRemoveRef.current !== target) return; ruleRemoveRef.current = undefined; setRuleRemoveOpening(current => current === target ? undefined : current);};
-  useLayoutEffect(() => {const token = {}; if(chainRef.current) chainRef.current.retired=true; chainRef.current=undefined; headFlight.current=undefined; pageFlight.current=undefined; ruleScopeRef.current = token; ruleOwner.current = controller; ruleRemoveRef.current = undefined; ruleRemoveFlight.current = undefined; return () => {if (ruleScopeRef.current === token) {ruleScopeRef.current = undefined; if(chainRef.current)chainRef.current.retired=true; chainRef.current=undefined;headFlight.current=undefined;pageFlight.current=undefined;ruleRemoveRef.current = undefined; ruleRemoveFlight.current = undefined; operationRef.current?.abort();operationRef.current = undefined; newRuleRef.current = undefined;}};}, [facts]);
+  useLayoutEffect(() => {const token = {}; if(chainRef.current) chainRef.current.retired=true; chainRef.current=undefined; headFlight.current=undefined; pageFlight.current=undefined; ruleScopeRef.current = token; ruleOwner.current = facts.controller; ruleRemoveRef.current = undefined; ruleRemoveFlight.current = undefined; return () => {if (ruleScopeRef.current === token) {ruleScopeRef.current = undefined; if(chainRef.current)chainRef.current.retired=true; chainRef.current=undefined;headFlight.current=undefined;pageFlight.current=undefined;ruleRemoveRef.current = undefined; ruleRemoveFlight.current = undefined; operationRef.current?.abort();operationRef.current = undefined; newRuleRef.current = undefined;}};}, [facts]);
   const ruleRevision = routeRevision;
 
   const shownRuleRemove = ruleRemoveOpening && ruleRemoveRef.current === ruleRemoveOpening && ruleRemoveOpening.controller === controller && ruleRemoveOpening.revision === ruleRevision ? ruleRemoveOpening : undefined;
@@ -293,7 +293,7 @@ function Permissions({policy, draft, runtime, onChange}: {policy: Readonly<{owne
   </Section>;
 }
 
-function Defaults({document, draft, runtime, onChange}: {document: DVRDocument; draft: DVRDefaults; runtime: NativeShellRuntime; onChange: (value: DVRDefaults) => void}) {
+function Defaults({draft, runtime, onChange}: {document: DVRDocument; draft: DVRDefaults; runtime: NativeShellRuntime; onChange: (value: DVRDefaults) => void}) {
   const theme = useTheme(), t = runtime.text.t;
   const patch = (value: Partial<DVRDefaults>) => onChange({...draft, ...value});
   const minutes = (ms: number | null) => String(Math.round((ms ?? 0) / 60000));
@@ -353,6 +353,24 @@ function PendingBar({count, busy, runtime, onDiscard, onSave}: {count: number; b
   </View>;
 }
 
+/** What the new-rule sheet's own data is read for: the drawn owner keys, the sheet guard and the
+ * own state of one render, frozen so a successor render cannot change what a committed read
+ * follows. Only the four keys decide when this owner is replaced. */
+type OwnRead = Readonly<{controller: NativeLiveOwnerController; runtime: NativeShellRuntime; navigation: NativeShellRuntime['navigation']; revision: number | undefined; current: () => boolean; policy: Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]; nextCursor: string}> | undefined; sources: readonly LiveSource[] | undefined}>;
+type OwnKeys = Readonly<Pick<OwnRead, 'controller' | 'runtime' | 'navigation' | 'revision'>>;
+function ownRead(controller: NativeLiveOwnerController, runtime: NativeShellRuntime, navigation: NativeShellRuntime['navigation'], revision: number | undefined, current: () => boolean, policy: OwnRead['policy'], sources: readonly LiveSource[] | undefined): OwnRead {
+  return Object.freeze({controller, runtime, navigation, revision, current, policy, sources});
+}
+function sameOwnOwner(left: OwnKeys | undefined, right: OwnKeys): boolean {
+  return !!left && left.controller === right.controller && left.runtime === right.runtime && left.navigation === right.navigation && left.revision === right.revision;
+}
+/** The guide read's drawn witnesses: the sheet guard, the query key, and the day and source the
+ * guide is listed for, frozen for the render that asked. */
+type GuideRead = Readonly<{controller: NativeLiveOwnerController; day: string; sourceId: string; query: object; current: () => boolean}>;
+function guideRead(controller: NativeLiveOwnerController, day: string, sourceId: string, query: object, current: () => boolean): GuideRead {
+  return Object.freeze({controller, day, sourceId, query, current});
+}
+
 /** Frame 17a: a new rule from a series the guide really lists, for a permitted profile. */
 export function NewRuleSheet({controller, runtime, policy, sources, ownerCursor, ownerLoading, ownerError, onMoreOwners, open, onOpenChange, onSaved}: {controller: NativeLiveOwnerController; runtime: NativeShellRuntime; policy?: Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>; sources?: readonly LiveSource[]; ownerCursor?: string; ownerLoading?: boolean; ownerError?: boolean; onMoreOwners?: () => void; open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void}) {
   const theme = useTheme(), t = runtime.text.t;
@@ -379,16 +397,20 @@ export function NewRuleSheet({controller, runtime, policy, sources, ownerCursor,
   const [ownPolicy, setOwnPolicy] = useState<Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]; nextCursor: string}>>(), [ownSources, setOwnSources] = useState<readonly LiveSource[]>();
   const [ownLoading, setOwnLoading] = useState(false), [ownError, setOwnError] = useState(false);
   const ownRevision = revision;
-  const ownOwner = useRef({controller, runtime, navigation: runtime.navigation, revision});
+  const ownOwner = useRef<OwnKeys>({controller, runtime, navigation, revision});
   const ownEpoch = useRef(0), ownSeen = useRef(new Set<string>());
+  // The render's own read witness: what this effect follows when it runs, with the sheet guard
+  // and own state of the same render.
+  const ownDraw = useRef<OwnRead | undefined>(undefined);
+  ownDraw.current = ownRead(controller, runtime, navigation, revision, sheetCurrent, ownPolicy, ownSources);
   useEffect(() => {
-    const oldOwner = ownOwner.current;
-    const changedController = oldOwner.controller !== controller || oldOwner.runtime !== runtime || oldOwner.navigation !== runtime.navigation || oldOwner.revision !== revision;
-    if (changedController) {ownOwner.current = {controller, runtime, navigation: runtime.navigation, revision}; ownEpoch.current++; ownSeen.current = new Set(); setOwnPolicy(undefined); setOwnSources(undefined);}
-    if (sheetCurrent()) setOwnLoading(false);
-    if (!sheetCurrent() || policy && sources || (!changedController && ownPolicy && ownSources)) return;
+    const now = ownDraw.current!;
+    const changedController = !sameOwnOwner(ownOwner.current, now);
+    if (changedController) {ownOwner.current = now; ownEpoch.current++; ownSeen.current = new Set(); setOwnPolicy(undefined); setOwnSources(undefined);}
+    if (now.current()) setOwnLoading(false);
+    if (!now.current() || policy && sources || (!changedController && now.policy && now.sources)) return;
     let active = true; const epoch = ++ownEpoch.current; setOwnError(false);
-    void Promise.all([controller.policy(), controller.load(true).then(() => controller.getSnapshot().list?.sources ?? [])]).then(([nextPolicy, nextSources]) => {if (active && ownEpoch.current === epoch && sheetCurrent()) {setOwnPolicy(nextPolicy); setOwnSources(nextSources);}}, () => {});
+    void Promise.all([controller.policy(), controller.load(true).then(() => controller.getSnapshot().list?.sources ?? [])]).then(([nextPolicy, nextSources]) => {if (active && ownEpoch.current === epoch && now.current()) {setOwnPolicy(nextPolicy); setOwnSources(nextSources);}}, () => {});
     return () => {active = false; if (ownEpoch.current === epoch) {ownEpoch.current += 1; ownFlight.current = undefined;}};
   }, [sheet, policy, sources, controller]);
   const effectivePolicy = policy ?? (ownOwner.current.controller === controller && ownOwner.current.runtime === runtime && ownOwner.current.navigation === runtime.navigation && ownOwner.current.revision === revision ? ownPolicy : undefined), effectiveSources = sources ?? (ownOwner.current.controller === controller && ownOwner.current.runtime === runtime && ownOwner.current.navigation === runtime.navigation && ownOwner.current.revision === revision ? ownSources : undefined) ?? [];
@@ -417,17 +439,21 @@ export function NewRuleSheet({controller, runtime, policy, sources, ownerCursor,
   const guideQueryRef=useRef<typeof guideQuery | undefined>(undefined);
   useLayoutEffect(()=>{guideQuery.live=true;guideQueryRef.current=guideQuery;return()=>{guideQuery.live=false;if(guideQueryRef.current===guideQuery)guideQueryRef.current=undefined;};},[guideQuery]);
   const guideCurrent=()=>{const local=()=>guideQueryRef.current===guideQuery&&guideQuery.live;return local()&&sheetCurrent()&&local();};
-  const series=seriesPage?.query===guideQuery?seriesPage.items:[];
+  // The render's guide read witness: the same guard, day and source the drawn query lists.
+  const guideDraw = useRef<GuideRead | undefined>(undefined);
+  guideDraw.current = guideRead(controller, day, sourceId, guideQuery, guideCurrent);
+  const series=useMemo(()=>seriesPage?.query===guideQuery?seriesPage.items:[],[seriesPage,guideQuery]);
   useEffect(() => {
     if (!sheetCurrent()) return;
     setName(''); setOwner(allowed[0] ? recordingOwnerKey(allowed[0].owner) : ''); setSourceId(effectiveSources[0]?.id ?? ''); setDay(new Date().toISOString().slice(0, 10));
     setSeriesPage(undefined); setAnchor(''); setNewOnly(false); setBefore(null); setAfter(null); setPriority('0'); setKeepKey('default'); setError(undefined); setBusy(false);
   }, [sheet]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{
-    if(!guideCurrent()||!sourceId||!recordingGuideRoute(day,sourceId))return;
+    const now = guideDraw.current!;
+    if(!now.current()||!now.sourceId||!recordingGuideRoute(now.day,now.sourceId))return;
     let active=true;setLoading(true);setError(undefined);
-    const current=()=>active&&guideCurrent()&&active;
-    if(current())void controller.guideSeries(day,sourceId).then(items=>{if(current()){setSeriesPage({query:guideQuery,items});setAnchor('');}},failure=>{if(current())setError(failure);}).finally(()=>{if(current())setLoading(false);});
+    const current=()=>active&&now.current()&&active;
+    if(current())void now.controller.guideSeries(now.day,now.sourceId).then(items=>{if(current()){setSeriesPage({query:now.query,items});setAnchor('');}},failure=>{if(current())setError(failure);}).finally(()=>{if(current())setLoading(false);});
     return()=>{active=false;};
   },[guideQuery]);
   const draftFacts = useMemo(() => ({sheet, effectivePolicy, name, owner, sourceId, day, series, anchor, newOnly, before, after, priority, keepKey}), [sheet, effectivePolicy, name, owner, sourceId, day, series, anchor, newOnly, before, after, priority, keepKey]);
