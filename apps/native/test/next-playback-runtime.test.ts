@@ -2658,7 +2658,7 @@ async function assertRefusedChannelOpening(opening: ObservedChannelOpening) {
   else {
     assert(opening.outcome.error instanceof Error);
     assert.match(opening.outcome.error.message, /^(cancelled|stale_selection_context)$/);
-    await assert.rejects(opening.promise, /^(cancelled|stale_selection_context)$/);
+    await assert.rejects(opening.promise, (error: unknown) => error === opening.outcome.error);
   }
 }
 function assertColdChannelPending(d: ReturnType<typeof fixture>, response: FakeResponse | undefined, opening: ObservedChannelOpening, callbacks: readonly unknown[]) {
