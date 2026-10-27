@@ -21,6 +21,17 @@ export type NativeFactorWitness = Readonly<{readonly [nativeFactorWitness]: true
 export const porticoUsernameUnavailable = (error: unknown): boolean =>
   error instanceof ApiError && error.status === 409 && error.code === 'username_unavailable';
 
+// In-process ordering for this port's per-origin continuation storage operations.
+const continuationWrites = new Map<string, Promise<void>>();
+function serializeContinuation<T>(origin: string, work: () => Promise<T>): Promise<T> {
+  const previous = continuationWrites.get(origin) ?? Promise.resolve();
+  const result = previous.then(work);
+  const settled = result.then(() => {}, () => {});
+  continuationWrites.set(origin, settled);
+  void settled.then(() => {if (continuationWrites.get(origin) === settled) continuationWrites.delete(origin);});
+  return result;
+}
+
 /** Explicit Portico sign-in only. Native continuation storage contains a binding and
  * one-time completion, never a password, provider assertion or session credential. */
 export class NativePorticoSignIn {
@@ -46,21 +57,36 @@ export class NativePorticoSignIn {
   private nativeApple = false;
   private readonly off = nativeAccounts.onCancel(() => this.dispose());
   private check() {if (this.abort.signal.aborted || !this.isCurrent()) throw Object.assign(new Error('native_portico_cancelled'), {name: 'AbortError'});}
-  private async checkpoint(update: Partial<NativeAccountContinuation>) {
-    this.check(); if (!this.continuation) throw new Error('native_continuation_missing');
-    this.continuation = {...this.continuation, ...update};
-    await this.bridge.saveContinuation(hostedUrl, JSON.stringify(this.continuation)); this.check();
+  private checkCaller(callerCurrent?: () => boolean) {
+    this.check();
+    if (callerCurrent && !callerCurrent()) throw new CodedError('cancelled', 'native_portico_changed');
+  }
+  private async checkpoint(update: Partial<NativeAccountContinuation>, callerCurrent?: () => boolean) {
+    this.checkCaller(callerCurrent);
+    const original = this.continuation;
+    if (!original) throw new Error('native_continuation_missing');
+    const next = {...original, ...update}, bytes = JSON.stringify(next), binding = original.binding;
+    const current = () => {this.checkCaller(callerCurrent); if (this.continuation !== original || this.continuation.binding !== binding) throw new CodedError('cancelled', 'native_portico_changed');};
+    await serializeContinuation(hostedUrl, async () => {
+      current(); await this.bridge.saveContinuation(hostedUrl, bytes); current();
+      this.continuation = next;
+    });
+    this.checkCaller(callerCurrent);
   }
   async prepare() {
-    this.check();
-    const raw: unknown = await this.bridge.loadContinuation(hostedUrl); this.check();
-    let saved: NativeAccountContinuation | undefined;
-    if (typeof raw === 'string') {try {saved = parseNativeAccountContinuation(raw);} catch { /* Invalid noncredential continuation is replaced. */ }}
-    const binding: unknown = saved?.binding ?? await this.bridge.newBinding(); this.check();
-    if (typeof binding !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(binding)) throw new Error('native_continuation_invalid');
-    this.continuation = saved ?? {version: 1, binding, expiresAt: new Date(Date.now() + 15 * 60000).toISOString()};
-    this.client = nativeAccounts.accountClient(binding, () => !this.abort.signal.aborted && this.isCurrent(), () => this.authenticating);
-    await this.checkpoint({});
+    await serializeContinuation(hostedUrl, async () => {
+      this.check(); const raw: unknown = await this.bridge.loadContinuation(hostedUrl); this.check();
+      let saved: NativeAccountContinuation | undefined;
+      if (typeof raw === 'string') {try {saved = parseNativeAccountContinuation(raw);} catch { /* Invalid noncredential continuation is replaced. */ }}
+      const binding: unknown = saved?.binding ?? await this.bridge.newBinding(); this.check();
+      if (typeof binding !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(binding)) throw new Error('native_continuation_invalid');
+      const continuation = saved ?? {version: 1 as const, binding, expiresAt: new Date(Date.now() + 15 * 60000).toISOString()};
+      const bytes = JSON.stringify(continuation);
+      this.check(); await this.bridge.saveContinuation(hostedUrl, bytes); this.check();
+      this.continuation = continuation;
+      this.client = nativeAccounts.accountClient(binding, () => !this.abort.signal.aborted && this.isCurrent(), () => this.authenticating);
+    });
+    this.check(); if (!this.client) throw new Error('native_continuation_missing');
     const options = await this.client.options(this.abort.signal); this.check();
     this.nativeApple = this.bridge.canSignInApple === true && options.providers.some(value => value.id === 'apple' && value.enabled && value.native && value.nativeClientIds.includes(this.bridge.bundleId));
     return options;
@@ -79,9 +105,9 @@ export class NativePorticoSignIn {
     };
     try {
       const result = await nativeAccounts.authenticatePorticoAccount(async signal => {this.check(); return work(signal);}, admitted);
-      await this.checkpoint({mfa: undefined, transactionId: undefined, completionCode: undefined}); return result;
+      await this.checkpoint({mfa: undefined, transactionId: undefined, completionCode: undefined}, callerCurrent); return result;
     } catch (error) {
-      if (error instanceof MFARequiredError) await this.checkpoint({mfa: error.challenge});
+      if (error instanceof MFARequiredError) await this.checkpoint({mfa: error.challenge}, callerCurrent);
       throw error;
     } finally {this.authenticating = false;}
   }
@@ -135,7 +161,7 @@ export class NativePorticoSignIn {
     if (!binding) throw new Error('native_continuation_missing');
     this.providerAttempt = Object.freeze({transactionId: start.transactionId, nativeApple, continuationBinding: binding});
     this.providerRefresh = undefined;
-    current(); await this.checkpoint({transactionId: start.transactionId, completionCode: undefined}); current();
+    current(); await this.checkpoint({transactionId: start.transactionId, completionCode: undefined}, callerCurrent); current();
     if (nativeApple) {
       current(); const assertion = await this.bridge.signInApple(start.nativeNonce); current();
       const transaction = await this.api().nativeApple(start.transactionId, assertion.idToken, assertion.displayName ?? '', this.abort.signal); current();
@@ -145,7 +171,7 @@ export class NativePorticoSignIn {
       current(); const result = await this.bridge.openBrowser(start.authorizationUrl, start.transactionId); current();
       const returned = parseAccountReturn(result, start.transactionId, hostedUrl);
       this.providerAttempt = Object.freeze({transactionId: start.transactionId, nativeApple: false, completionCode: returned.completionCode, continuationBinding: binding});
-      current(); await this.checkpoint({completionCode: returned.completionCode}); current();
+      current(); await this.checkpoint({completionCode: returned.completionCode}, callerCurrent); current();
       const transaction = await this.api().transaction(start.transactionId, this.abort.signal, returned.completionCode); current();
       this.transaction = transaction ?? undefined;
     }
