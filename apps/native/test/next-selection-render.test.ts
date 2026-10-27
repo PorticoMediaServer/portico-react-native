@@ -1393,7 +1393,7 @@ test('TV Dashboard presenter binds real continuation and retry to the captured s
   try {
     await act(() => {});
     const row = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-session-first')!;
-    assert.ok(row); row.props.onFocus(); await act(() => {});
+    assert.ok(row); withNativeControl(row, host => host.props.onFocus({nativeEvent: {}})); await act(() => {});
     let more = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-sessions-more')!;
     assert.ok(more); assert.equal(more.props.disabled, true); assert.equal(more.props.focusableWhenDisabled, true);
     withNativeControl(more, host => {assert.equal(host.props.onPress, undefined); assert.notEqual(host.props.focusable, false);});
