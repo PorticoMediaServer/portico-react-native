@@ -1384,7 +1384,7 @@ for (const role of ['administrator', 'owner'] as const) test(`TV Dashboard ${rol
   let reject!: (error: Error) => void, complete!: (value: any) => void;
   const calls: (string | undefined)[] = [], jobCalls: (string | undefined)[] = [];
   const controller = new NativeDashboardController(lifetime, () => role, {
-    sessions: {list: async cursor => {calls.push(cursor); return cursor ? new Promise((resolve, fail) => {complete = resolve; reject = fail;}) : {items: [session('first')] as never[], nextCursor: 'next', totals, revision: 'rev-1', scope: {serverId: 'server', viewerFence: 'fence'}};}},
+    sessions: {list: async cursor => {calls.push(cursor); return cursor ? new Promise((resolve, fail) => {complete = resolve; reject = fail;}) : {items: [session('first'), ...Array.from({length: 9}, (_, i) => session(`first${i + 1}`))] as never[], nextCursor: 'next', totals, revision: 'rev-1', scope: {serverId: 'server', viewerFence: 'fence'}};}},
     console: {measurement: async name => ({name, observedAt: 1, freshUntil: 30001, facts: {}}), alerts: async () => [], jobs: async cursor => {jobCalls.push(cursor); return {items: [{id: cursor ? 'later' : 'first', kind: 'scan', revision: 1}] as never[], nextCursor: cursor ? '' : 'job-next'};}, dispose() {}},
   });
   const runtime = {text: {t: defaultI18n.t, locale: 'en-US'}, error: feedback.error, artwork: () => undefined};
@@ -1419,6 +1419,7 @@ for (const role of ['administrator', 'owner'] as const) test(`TV Dashboard ${rol
       assert.equal(more.props.disabled, true);
       await act(() => complete({items: [session('last')], nextCursor: undefined, totals, revision: 'rev-1', scope: {serverId: 'server', viewerFence: 'fence'}}));
       assert.ok(ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-session-last'));
+      assert.equal(controller.getSnapshot().sessions.length, 11);
       assert.ok(sessionEvent); sessionEvent!(); await act(() => {});
       assert.ok(controller.sessionFocusToken('first')); assert.equal(controller.getSnapshot().sessionWindow?.pending, true);
       await act(() => complete({items: [session('last')], nextCursor: undefined, totals, revision: 'rev-1', scope: {serverId: 'server', viewerFence: 'fence'}}));
