@@ -32,7 +32,8 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
   const [retry, setRetry] = useState(0);
   const mounted = useRef(false);
   useLayoutEffect(() => {mounted.current = true; return () => {mounted.current = false;};}, []);
-  const journal = useMemo(() => new NativeAnnotationJournal(), [context]);
+  const journalOwner = useMemo(() => ({context, journal: new NativeAnnotationJournal()}), [context]);
+  const journal = journalOwner.journal;
   const annotations = useMemo(() => new NativeAnnotationSync(context, journal), [context, journal]);
   const quietRetry = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const livePort = useRef<NativeAnnotationLivePort | undefined>(undefined);
@@ -45,7 +46,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
     return () => subscription.remove();
   }, [active, annotations, target.downloadId]);
 
-  const owner = useMemo(() => {
+  const ownerBinding = useMemo(() => {
     const captured = context.session();
     const authorityCurrent = () => {if (!captured || !context.current()) return false;
       const actual = context.session();
@@ -53,7 +54,7 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
         && (['authority', 'serverId', 'accountId', 'profileId', 'role'] as const).every(key => actual.viewer[key] === captured.viewer[key])
         && context.current();};
     const current = () => authorityCurrent() && (!binding || binding.retainedCurrent()) && authorityCurrent();
-    return createReadingSessionOwner({current, subscribe: listener => binding ? binding.subscribe(listener) : context.subscribeAuthority(listener), acquire: async (signal, ownerCurrent) => {
+    const sessionOwner = createReadingSessionOwner({current, subscribe: listener => binding ? binding.subscribe(listener) : context.subscribeAuthority(listener), acquire: async (signal, ownerCurrent) => {
       if (!captured || !ownerCurrent()) throw cancelled();
       const downloads = target.downloadId ? createNativeDownloadsDevice(context) : undefined;
       // The original authority, not the retired guest, permits only the bounded
@@ -108,13 +109,15 @@ export function ReadNativeHost({context, target, active, preferences, onBack, on
         throw error;
       }
     }});
+    return {retry, owner: sessionOwner};
   }, [context, target, preferences, retry, journal, annotations, binding]);
+  const owner = ownerBinding.owner;
   // Render replacement retires the old original before a late callback can borrow the new one.
   const rendered = useRef(owner);
   if (rendered.current !== owner) {void rendered.current.dispose().catch(() => {}); rendered.current = owner;}
   const snapshot = useSyncExternalStore(owner.subscribe, owner.snapshot, owner.snapshot);
   const latest = useRef({owner, snapshot, retry, active, resident}); latest.current = {owner, snapshot, retry, active, resident};
-  const retryTicket = useMemo(() => ({spent: false}), [owner, snapshot]);
+  const retryTicket = useMemo(() => ({spent: false, owner, snapshot}), [owner, snapshot]);
   const retryOriginal = () => {
     const same = () => mounted.current && !retryTicket.spent && rendered.current === owner && latest.current.owner === owner
       && latest.current.snapshot === snapshot && latest.current.retry === retry && latest.current.active && latest.current.resident

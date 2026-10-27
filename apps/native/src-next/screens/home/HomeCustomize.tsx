@@ -20,6 +20,27 @@ export type NativeHomeCustomizeCopy = Readonly<{
   move: string; drop: string; putBack: string;
 }>;
 
+/** A pick-up lands on the row itself: the D-pad listener moves only a lifted row that holds
+ * focus, so a pick started from the row's own handle must not leave focus on the handle. A
+ * later Back, reset, removal, close or unmount leaves the frame with nothing to do. */
+function focusWhenPicked(
+  controller: NativeHomeCustomizeController,
+  frame: {current: Readonly<{controller: NativeHomeCustomizeController; id: number}> | undefined},
+  picked: {current: View | null},
+  pickedId: string,
+  also?: () => void,
+) {
+  if (frame.current) cancelAnimationFrame(frame.current.id);
+  const id = requestAnimationFrame(() => {
+    const held = frame.current;
+    frame.current = undefined;
+    if (!held || held.controller !== controller || !controller.isCurrent() || controller.getSnapshot().pickedId !== pickedId) return;
+    also?.();
+    focusTarget(picked.current);
+  });
+  frame.current = {controller, id};
+}
+
 export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views, summary, notice, noticeAction, renderError, testID}: {
   controller: NativeHomeCustomizeController; copy: NativeHomeCustomizeCopy; i18n: Pick<I18n, 't' | 'has'>;
   onClose: () => void; onAddView: () => void; testID: string; summary: (view: PersonalResource) => string | undefined; notice?: string; noticeAction?: Readonly<{label: string; onPress: () => void}>;
@@ -75,8 +96,8 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
     if (!returning.current || choosing || !theme.isTV) return;
     returning.current = false;
     if (!state.pickedId) return;
-    focusWhenPicked(state.pickedId, () => {scroller.current?.scrollToEnd({animated: true});});
-  }, [choosing, state.pickedId, theme.isTV]);
+    focusWhenPicked(controller, focusFrame, picked, state.pickedId, () => {scroller.current?.scrollToEnd({animated: true});});
+  }, [choosing, controller, state.pickedId, theme.isTV]);
   useEffect(() => {
     if (!theme.isTV || !state.pickedId || state.pending) return;
     const listener = TVEventHandler.addListener(event => {
@@ -98,24 +119,9 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
     if (focusFrame.current) cancelAnimationFrame(focusFrame.current.id);
     focusFrame.current = undefined;
   }, [controller]);
-  /** A pick-up lands on the row itself: the D-pad listener moves only a lifted row that holds
-   * focus, so a pick started from the row's own handle must not leave focus on the handle. A
-   * later Back, reset, removal, close or unmount leaves the frame with nothing to do. */
-  function focusWhenPicked(pickedId: string, also?: () => void) {
-    const control = controller;
-    if (focusFrame.current) cancelAnimationFrame(focusFrame.current.id);
-    const id = requestAnimationFrame(() => {
-      const held = focusFrame.current;
-      focusFrame.current = undefined;
-      if (!held || held.controller !== control || !control.isCurrent() || control.getSnapshot().pickedId !== pickedId) return;
-      also?.();
-      focusTarget(picked.current);
-    });
-    focusFrame.current = {controller: control, id};
-  }
   const pickRow = (id: string) => {
     if (!controller.pick(id)) return;
-    focusWhenPicked(id);
+    focusWhenPicked(controller, focusFrame, picked, id);
   };
   const rowsById = new Map(state.rows.map(row => [row.id, row]));
   const displayed = state.pickupOrder ? state.pickupOrder.map(id => rowsById.get(id)!).filter(Boolean) : state.rows;

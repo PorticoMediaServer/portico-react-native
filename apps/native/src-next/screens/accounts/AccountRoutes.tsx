@@ -118,25 +118,25 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
       setPinDraft(''); setPinAgain('');
     };
   }, [context, route]);
-  const scopedTransport = (ticket: {lease: ProfileLease; controller: AbortController}) => ({
+  const scopedTransport = useCallback((ticket: {lease: ProfileLease; controller: AbortController}) => ({
     request: async <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
       if (!ticket.lease.current() || ticket.controller.signal.aborted) throw profileAbort();
       const raw = await ticket.lease.lifetime.request(next => context.api.request<T>(path, method, body, next), ticket.controller.signal);
       if (!ticket.lease.current() || ticket.controller.signal.aborted) throw profileAbort();
       return raw;
     },
-  });
+  }), [context]);
   const scopedManager = (ticket: {lease: ProfileLease; controller: AbortController}) => new ManagedProfilesClient(scopedTransport(ticket), {authority: 'local', accountId: context.account.account.id, serverId: context.account.serverId});
-  const scopedRaw = (ticket: {lease: ProfileLease; controller: AbortController}) => ({
+  const scopedRaw = useCallback((ticket: {lease: ProfileLease; controller: AbortController}) => ({
     requestRaw: async (path: string, method: string, options: Readonly<{headers?: Readonly<Record<string, string>>; body?: unknown; signal?: AbortSignal}> = {}) => {
       if (!ticket.lease.current() || ticket.controller.signal.aborted) throw profileAbort();
       const raw = await ticket.lease.lifetime.request(next => context.api.requestRaw(path, method, {...options, signal: next}), ticket.controller.signal);
       if (!ticket.lease.current() || ticket.controller.signal.aborted) throw profileAbort();
       return raw;
     },
-  });
-  const scopedIdentity = (ticket: {lease: ProfileLease; controller: AbortController}) => new IdentityClient(scopedTransport(ticket), profileAvatarUpload(scopedRaw(ticket)));
-  const identityForLimits = useCallback((controller: AbortController) => new IdentityClient(scopedTransport({lease: lease!, controller}), profileAvatarUpload(scopedRaw({lease: lease!, controller}))), [context, lease]);
+  }), [context]);
+  const scopedIdentity = useCallback((ticket: {lease: ProfileLease; controller: AbortController}) => new IdentityClient(scopedTransport(ticket), profileAvatarUpload(scopedRaw(ticket))), [scopedRaw, scopedTransport]);
+  const identityForLimits = useCallback((controller: AbortController) => new IdentityClient(scopedTransport({lease: lease!, controller}), profileAvatarUpload(scopedRaw({lease: lease!, controller}))), [lease, scopedRaw, scopedTransport]);
   const [avatars, setAvatars] = useState<readonly ProfileAvatar[]>([]);
   const avatarsLease = useRef<ProfileLease | undefined>(undefined);
   useEffect(() => {
@@ -145,7 +145,7 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
     avatarsLease.current = lease;
     void identity.avatars(controller.signal).then(found => {if (lease.current() && !controller.signal.aborted) setAvatars(found);}, () => {});
     return () => {controller.abort(); if (avatarsLease.current === lease) {avatarsLease.current = undefined; setAvatars([]);}};
-  }, [context, lease]);
+  }, [lease, scopedIdentity]);
   useEffect(() => {alive.current = true; const session = context.session();
     if (session) selection.current = nativeProfileSelection(session.viewer.serverId, session.sessionFamilyId);
     return () => {alive.current = false; selection.current?.dispose();};
