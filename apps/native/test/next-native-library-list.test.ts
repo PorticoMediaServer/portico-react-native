@@ -72,5 +72,12 @@ test('phone Library mode switches the same sparse collection and keeps genuine r
     assert.ok(restoredGrid.props.contentOffset.y > 0, 'an old unmounted grid scroll cannot reset the new presentation anchor');
     assert.equal(browseReads, before);
     assert.deepEqual(app.errors, []);
-  } finally {await app.unmount(); runtime?.dispose(); app.disposeLoader();}
+  } finally {
+    try {
+      await app.unmount();
+    } finally {
+      runtime?.dispose();
+      app.disposeLoader();
+    }
+  }
 });
