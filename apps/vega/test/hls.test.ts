@@ -521,7 +521,7 @@ test('audio switch holds the feed and stages init and media before replacing the
   assert.deepEqual(failures, []);
 });
 
-test('optional over-budget media defers and becomes a required refusal at its frontier', async () => {
+test('foreign non-retirable media still makes the required aggregate unsupported', async () => {
   film(2);
   const {source, player} = start(base + 'index.m3u8');
   const hls = source as any;
@@ -677,6 +677,7 @@ test('candidate staging counts both real old tracks before changing their audio 
   const {source, player, failures} = start(base + 'index.m3u8');
   await source.open(0); player.currentTime = 1;
   await until(() => player.source.buffers[1].spans.length > 0, 15000);
+  await (source as any).sealCohorts((source as any).generation);
   const before = player.source.buffers[1].spans.map((span: number[]) => [...span]);
   let mutations = 0;
   const operation = source.selectAudio(1, {current: () => true, sourceCurrent: () => true, willMutate: () => { mutations++; }});
@@ -685,4 +686,167 @@ test('candidate staging counts both real old tracks before changing their audio 
   assert.deepEqual(player.source.buffers[1].spans, before);
   assert.equal(failures[0]?.refused, 'unsupported');
   assert.ok((source as any).retainedBytes() <= 128 * 1024 * 1024);
+});
+
+/** Release only the stand-in's consumed padding; actual XHR/append byte lengths remain real. */
+function discardConsumedPadding(buffer: any): void {
+  const clean = () => { for (const value of buffer.appended) delete value.pad; };
+  clean(); buffer.addEventListener('updateend', clean);
+}
+
+function observeRetainedCohortRemovals(hls: any, player: any, buffer: any) {
+  const removed = new Set<unknown>();
+  let removals = 0;
+  const nativeRemove = buffer.remove.bind(buffer);
+  buffer.remove = (from: number, to: number) => {
+    if (to === Number.MAX_SAFE_INTEGER) {
+      assert.equal(from, 0);
+      assert.equal(hls.target, undefined); assert.equal(hls.arrival, undefined);
+      assert.ok(buffer.spans.every(([, end]: number[]) => end <= player.currentTime), 'no current or arrival interval is evicted');
+      const cohort = hls.cohorts.get(buffer);
+      assert.ok(cohort, 'pressure retirement owns one sealed whole-buffer cohort');
+      for (const entry of cohort.entries) {
+        assert.ok(hls.retained.has(entry), 'charge is still held before native success');
+        assert.equal(removed.has(entry), false, 'each original charge retires once');
+        removed.add(entry);
+      }
+      removals++;
+    }
+    nativeRemove(from, to);
+  };
+  return () => removals;
+}
+
+test('the actual pump continues beyond 128 MiB through repeated 36 MB and 80 MB cohorts', async () => {
+  for (const bytes of [36_000_000, 80_000_000]) {
+    resetServer(); resetWorld(); film(9, bytes);
+    const {source, player, failures} = start(base + 'index.m3u8');
+    const hls = source as any;
+    let peak = 0;
+    const charge = hls.charge.bind(hls);
+    hls.charge = (...args: any[]) => { const entry = charge(...args); peak = Math.max(peak, hls.retainedBytes()); assert.ok(peak <= 128 * 1024 * 1024); return entry; };
+    await source.open(0);
+    player.currentTime = source.elementTime(0); source.settled();
+    const buffer = player.source.buffers[0];
+    discardConsumedPadding(buffer);
+    const removals = observeRetainedCohortRemovals(hls, player, buffer);
+    for (let n = 0; n < 9; n++) {
+      await until(() => buffer.appended.filter((value: any) => !value.init).length > n || failures.length > 0, 15000);
+      assert.deepEqual(failures, []);
+      const media = buffer.appended.filter((value: any) => !value.init);
+      assert.equal(media[n].pts, 1 + n * 6, 'every supported source segment appends once and in order');
+      player.advance(1 + (n + 1) * 6 - player.currentTime);
+      assert.ok(hls.retainedBytes() <= 128 * 1024 * 1024);
+    }
+    assert.ok(bytes * 9 > 128 * 1024 * 1024);
+    assert.ok(removals() >= 2, 'played cohorts are reclaimed before further admission');
+    assert.ok([...hls.retained].some((entry: any) => entry.kind === 'init'), 'media retirement preserves initialization dependency charges');
+    assert.deepEqual(failures, []);
+    source.close(); assert.equal(hls.retainedBytes(), 0); assert.equal(hls.mediaBusy, false);
+  }
+});
+
+function repeatedTwoTrackRoutes(count: number, audioDuration = 6) {
+  audioSwitchRoutes();
+  const playlist = (prefix: string, duration: number) => {
+    let text = `#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-MAP:URI="${prefix}-init.mp4"\n`;
+    for (let n = 0; n < count * 6 / duration; n++) {
+      text += `#EXTINF:${duration},\n${prefix}-${n}.m4s\n`;
+      server.routes.set(base + `${prefix}-${n}.m4s`, segment({pts: 1 + n * duration, duration, bytes: prefix === 'v' ? 80_000_000 : 36_000_000}));
+    }
+    return text + '#EXT-X-ENDLIST\n';
+  };
+  server.routes.set(base + 'video.m3u8', playlist('v', 6));
+  server.routes.set(base + 'a0.m3u8', playlist('a0', audioDuration));
+}
+
+test('two-track cohorts retire independently at their actual native frontiers', async () => {
+  for (const duration of [6, 3]) {
+    resetServer(); resetWorld(); repeatedTwoTrackRoutes(4, duration);
+    const {source, player, failures} = start(base + 'index.m3u8');
+    await source.open(0); player.currentTime = source.elementTime(0); source.settled();
+    const hls = source as any, buffers = player.source.buffers;
+    for (const buffer of buffers) discardConsumedPadding(buffer);
+    const removed = buffers.map((buffer: any) => observeRetainedCohortRemovals(hls, player, buffer));
+    for (let frame = 0; frame < 24; frame += duration) {
+      await until(() => buffers.every((buffer: any) => buffer.spans.some(([start, end]: number[]) => start <= player.currentTime && end > player.currentTime)) || failures.length > 0, 15000);
+      assert.deepEqual(failures, []);
+      player.advance(duration);
+      assert.ok(hls.retainedBytes() <= 128 * 1024 * 1024, 'the aggregate includes both real tracks');
+    }
+    assert.ok(removed.every((count: () => number) => count() >= 2));
+    assert.deepEqual(failures, []); source.close();
+  }
+});
+
+async function stopTestPump(hls: any): Promise<void> {
+  hls.audioHold = {};
+  await Promise.allSettled([...hls.pumpRuns.values()]);
+  hls.audioHold = undefined;
+}
+
+test('a sealed unknown/overlapping successor addition is never adopted for cohort retirement', async () => {
+  film(1);
+  const {source, player} = start(base + 'index.m3u8');
+  await source.open(0); await stopTestPump(source as any); source.settled();
+  const hls = source as any, buffer = player.source.buffers[0];
+  await hls.sealCohorts(hls.generation);
+  const original = hls.cohorts.get(buffer); assert.ok(original);
+  const data = new TextEncoder().encode(JSON.stringify({pts: 0, duration: 3}));
+  hls.charge(buffer, hls.generation, data.byteLength, 'media');
+  await hls.append(buffer, data.buffer, hls.generation);
+  const before = hls.retainedBytes(); let removed = 0;
+  const remove = buffer.remove.bind(buffer); buffer.remove = (...args: any[]) => { removed++; remove(...args); };
+  player.currentTime = 100;
+  await hls.retirePlayedCohorts(hls.generation);
+  assert.equal(removed, 0); assert.equal(hls.retainedBytes(), before);
+  assert.equal(hls.cohorts.get(buffer), original, 'the original sealed set does not adopt the late addition');
+});
+
+test('cohort retirement errors, unreadable/residual results and stale updateend refund zero', async () => {
+  for (const outcome of ['error', 'abort', 'residual', 'unreadable', 'stale'] as const) {
+    resetServer(); resetWorld(); film(1);
+    const {source, player} = start(base + 'index.m3u8');
+    await source.open(0); await stopTestPump(source as any); source.settled();
+    const hls = source as any, buffer = player.source.buffers[0];
+    await hls.sealCohorts(hls.generation); player.currentTime = 7;
+    const before = hls.retainedBytes();
+    buffer.remove = () => { buffer.updating = true; };
+    const removal = hls.retirePlayedCohorts(hls.generation) as Promise<void>;
+    const rejected = assert.rejects(removal);
+    await Promise.resolve(); await Promise.resolve();
+    assert.equal(buffer.updating, true);
+    if (outcome === 'stale') { hls.nextGeneration(); hls.charge(buffer, hls.generation, 123, 'media'); }
+    buffer.updating = false;
+    if (outcome === 'unreadable') Object.defineProperty(buffer, 'buffered', {get() {throw new Error('unreadable');}});
+    else if (outcome !== 'residual') buffer.spans = [];
+    buffer.emit(outcome === 'error' || outcome === 'abort' ? outcome : 'updateend');
+    await rejected;
+    assert.equal(hls.retainedBytes(), before + (outcome === 'stale' ? 123 : 0));
+    source.close();
+  }
+});
+
+test('seek during cohort clear keeps the old updateend from owning the arrival generation', async () => {
+  film(1);
+  const {source, player, failures} = start(base + 'index.m3u8');
+  await source.open(0); await stopTestPump(source as any); source.settled();
+  const hls = source as any, buffer = player.source.buffers[0], oldGeneration = hls.generation;
+  await hls.sealCohorts(oldGeneration); player.currentTime = 7;
+  const originalEntries = [...hls.retained].filter((entry: any) => entry.kind === 'media');
+  const nativeRemove = buffer.remove.bind(buffer);
+  buffer.remove = () => { buffer.updating = true; };
+  const retiring = hls.retirePlayedCohorts(oldGeneration) as Promise<void>;
+  const rejected = assert.rejects(retiring);
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(buffer.updating, true);
+  player.currentTime = source.seek(0);
+  assert.ok(hls.generation > oldGeneration, 'even an in-buffer seek owns a new operation when a cohort clear has started');
+  assert.ok(originalEntries.every(entry => hls.retained.has(entry)), 'old charges are sealed until a current verified removal');
+  buffer.remove = nativeRemove; buffer.updating = false; buffer.spans = []; buffer.emit('updateend');
+  await rejected;
+  await until(() => server.log.filter(url => url === base + 's0.m4s').length >= 2 && buffer.spans.some(([from, to]: number[]) => from <= 1 && to > 1));
+  const media = [...hls.retained].filter((entry: any) => entry.kind === 'media');
+  assert.ok(media.length > 0 && media.every((entry: any) => entry.generation === hls.generation), 'arrival media keeps its own charge');
+  assert.deepEqual(failures, []);
 });
