@@ -306,7 +306,7 @@ export class HlsSource {
       const at = this.target !== undefined && !this.live ? this.elementTime(this.target) : Number(this.player.currentTime);
       const ranges = this.cohortRanges(buffer);
       if (!Number.isFinite(at)) throw new SourceError(false, 'buffer clock unavailable');
-      covered = ranges.some(([start, end]) => start <= at + 0.05 && end > at + 0.05);
+      covered = ranges.some(([start, end]) => start <= at && end > at);
     } catch (error) { failure = error; }
     // Reentrant seek/selection/retirement owns its own disposition. No native
     // callback occurs after this final original-demand proof.
