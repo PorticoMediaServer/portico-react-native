@@ -45,7 +45,7 @@ function fixture(phase = 'idle', actualService?: any) {
   const context = {account: {profiles: []}, navigation, current: () => lifetime.current(), subscribeAuthority: (fn: () => void) => {authorityListeners.add(fn); return () => authorityListeners.delete(fn);},
     session: () => ({sessionFamilyId: 'f', tokenGeneration: principal, authorizationHorizon: 'h', deviceId: 'd', installationId: 'i'})};
   const pages = nativeTogetherPages(context as any, lifetime);
-  const capture = () => pages.capture(navigation.getSnapshot().route as {kind: 'together'});
+  const capture = () => {const value = pages.capture(navigation.getSnapshot().route as {kind: 'together'}); assert(value); return value;};
   let page = capture();
   const runtime = {text: {t: (s: string) => s}, getSnapshot: () => ({profile: {name: 'Name'}}), reportError: assert.fail};
   let tree: any;
@@ -205,4 +205,35 @@ test('returning to the same actual Together occurrence issues a fresh page openi
     assert.equal(find(f.tree(), 'together-form').props.open, true);
     await act(() => f.pageBack()); assert.equal(find(f.tree(), 'together-form').props.open, false);
   } finally {f.dispose();}
+});
+
+for (const cleanup of ['successor', 'dispose'] as const) test(`original page abort cleanup cannot overwrite a reentrant ${cleanup}`, async () => {
+  const authority = () => ({serverId: 's', accountId: 'a', profileId: 'profile', epoch: 'e', viewerFence: 'v'});
+  const navigation = new NativeShellNavigation(authority(), authority), lifetime = new NativeScreenLifetime({authority, current: () => true, subscribeAuthority: () => () => {}});
+  let token = '1', joins = 0;
+  const context = {navigation, current: () => lifetime.current(), subscribeAuthority: () => () => {}, session: () => ({sessionFamilyId: 'f', tokenGeneration: token, authorizationHorizon: 'h', deviceId: 'd', installationId: 'i'})};
+  const pages = nativeTogetherPages(context as any, lifetime);
+  const firstRoute = {kind: 'together'} as const; navigation.open(firstRoute, authority());
+  const first = pages.capture(firstRoute); assert(first);
+  let successor: ReturnType<typeof pages.capture>;
+  first.signal.addEventListener('abort', () => {
+    if (cleanup === 'dispose') {pages.dispose(); return;}
+    const nextRoute = {kind: 'together'} as const; assert.equal(navigation.open(nextRoute, authority()), true);
+    successor = pages.capture(nextRoute); assert(successor);
+  }, {once: true});
+  // Principal replacement is observed by this actual capture. Its predecessor
+  // retirement synchronously opens/captures R2 before outer R1 can install.
+  token = '2';
+  try {
+    assert.equal(pages.capture(firstRoute), undefined);
+    assert.equal(first.current(), false);
+    if (cleanup === 'dispose') assert.equal(pages.capture(firstRoute), undefined);
+    else {
+      assert(successor); assert.equal(successor.current(), true); assert.equal(successor.signal.aborted, false);
+      const controller = new NativeTogetherController(lifetime, {getSnapshot: () => ({phase: 'idle', directory: [], busy: false}), subscribe: () => () => {},
+        join: async (_code: string, _who: string, proof: any) => {assert.equal(proof.isCurrent(), true); assert.equal(proof.signal.aborted, false); joins++; return true;}} as any);
+      try {assert.equal(await controller.join('ABCDEFGH', 'Viewer', {signal: successor.signal, isCurrent: successor.current}), true); assert.equal(joins, 1); assert.equal(successor.current(), true);}
+      finally {controller.dispose();}
+    }
+  } finally {pages.dispose(); navigation.dispose(); lifetime.dispose();}
 });

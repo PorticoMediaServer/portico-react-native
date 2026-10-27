@@ -45,7 +45,7 @@ export function createNativeSettingsLiveRenderers(ports: NativeSettingsLivePorts
   return {
     settings,
     live: {render: (route, runtime) => {lifetime.assert(); if (route.kind !== 'shell' || route.destination.kind !== 'live') throw new Error('native_live_route_mismatch'); return <NativeLiveScreen ports={{...ports, requestId: ports.requestId ?? nativeSettingsRequestId}} controller={live} recordings={recordings} owner={owner} runtime={runtime}/>;}},
-    together: {render: (route, runtime) => {lifetime.assert(); if (route.kind !== 'together') throw new Error('native_together_route_mismatch'); const page=togetherPages.capture(route);return <NativeTogetherScreen key={page.key} page={page} ports={ports} controller={together} media={togetherMedia} runtime={runtime} onBack={page.back}/>;}},
+    together: {render: (route, runtime) => {lifetime.assert(); if (route.kind !== 'together') throw new Error('native_together_route_mismatch'); const page=togetherPages.capture(route);if(!page)return null;return <NativeTogetherScreen key={page.key} page={page} ports={ports} controller={together} media={togetherMedia} runtime={runtime} onBack={page.back}/>;}},
     serverDashboard,
     dispose,
   };

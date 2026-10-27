@@ -17,7 +17,7 @@ export function createNativeTogetherRenderer(context: NativeShellBootstrapContex
     render: (route, runtime) => {
       lifetime.assert();
       if (route.kind !== 'together') throw new Error('native_together_route_mismatch');
-      const page=pages.capture(route);
+      const page=pages.capture(route);if(!page)return null;
       return <NativeTogetherScreen key={page.key} page={page} ports={{context}} controller={controller} media={media} runtime={runtime} onBack={page.back}/>;
     },
     dispose: () => {pages.dispose();controller.dispose(); media.dispose(); lifetime.dispose();},
