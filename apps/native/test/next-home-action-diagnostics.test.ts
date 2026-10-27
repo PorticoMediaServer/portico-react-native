@@ -49,7 +49,9 @@ test('passive receipts classify canonical routes and correlate only local numeri
     'https://private-user:private-password@private-host/v1/items/private-item/playback-options?token=private-token',
   );
   f.logger.response(ticket, 200);
-  const [dispatch, response] = f.read();
+  const receipts = f.read();
+  assert.equal(receipts.length, 2, 'one dispatch and its single response are the entire receipt stream');
+  const [dispatch, response] = receipts;
   assert.deepEqual(dispatch, {
     v: 1,
     sequence: 1,
