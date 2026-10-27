@@ -727,10 +727,14 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const typeTVCredentials = async (kind: TVCodeKind, current: () => boolean, opening: TVCodeOpening) => {
     if (!current()) return;
     if (kind === 'portico') {
+      preparedAuthSource.current = undefined;
       account.current?.dispose(); const next = account.current = new NativePorticoSignIn();
       const available = await next.prepare();
-      if (!current()) {if (account.current === next) {next.dispose(); account.current = undefined;} return;}
-      setOptions(available);
+      if (!current() || account.current !== next) {
+        if (account.current === next) {next.dispose(); account.current = undefined; preparedAuthSource.current = undefined;}
+        return;
+      }
+      preparedAuthSource.current = next; setOptions(available);
     }
     if (!current()) return;
     retireTVOpening(false, opening); stageRef.current = 'tv-credentials';

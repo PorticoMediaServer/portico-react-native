@@ -113,9 +113,23 @@ async function presenter(f: ReturnType<typeof fixture>, kind: TVCodeKind) {
     refresh: () => act(() => host.rerender())};
 }
 
-async function accountEntry(f: ReturnType<typeof fixture>) {
+async function accountEntry(f: ReturnType<typeof fixture>, prepare: () => Promise<Record<string, unknown>> = async () => ({})) {
   let tree: any, completed = 0;
   const back = new Set<() => boolean>();
+  // Observe actual hook references/state publications without relying on hook
+  // positions. Capability bookkeeping is deliberately not a TV UI gate.
+  const refs = new Set<{current: unknown}>(), writes: unknown[] = [];
+  const observedReact = {...React, default: React,
+    useRef: (value: unknown) => {const ref = React.useRef(value); refs.add(ref); return ref;},
+    useState: (value: any) => {const [state, set] = React.useState(value); return [state, (next: any) => {writes.push(next); set(next);}];},
+  };
+  const accounts: AuthSource[] = [];
+  class AuthSource {
+    disposed = 0;
+    constructor() {accounts.push(this);}
+    async prepare() {return prepare();}
+    dispose() {this.disposed++;}
+  }
   class LocalSource {
     static parseInvitationEntry() {return undefined;}
     async inspect() {return {id: 'fixture', name: 'Fixture server', signIn: 'local'};}
@@ -128,7 +142,7 @@ async function accountEntry(f: ReturnType<typeof fixture>) {
     dispose() {}
   }
   const modules: Record<string, unknown> = {
-    react: {...React, default: React},
+    react: observedReact,
     'react-native': {Platform: {isTV: true}, AppState: {currentState: 'active', addEventListener: () => ({remove() {}})},
       BackHandler: {addEventListener: (_: string, fn: () => boolean) => {back.add(fn); return {remove: () => back.delete(fn)};}},
       TVEventControl: {enableTVMenuKey() {}, disableTVMenuKey() {}}, View: 'View', Text: 'Text', Image: 'Image', NativeModules: {}},
@@ -143,7 +157,7 @@ async function accountEntry(f: ReturnType<typeof fixture>) {
     '../../tv/auth': {TVCodePresenter: 'Code', TVFrontDoor: 'Front', TVCredentialForm: 'Credentials'},
     '../../platform/accounts': {nativeAccounts: {accountCredentials: () => ({synchronize: async () => {}, getSnapshot: () => ({})})}},
     '../../platform/server-sign-in': {NativeServerSignIn: LocalSource}, '../../platform/setup-outcome': setupOutcome,
-    '../../platform/portico-sign-in': {NativePorticoSignIn: class {async prepare() {return {};} dispose() {}}},
+    '../../platform/portico-sign-in': {NativePorticoSignIn: AuthSource},
     '../../platform/server-connections': {browseNearby: async () => []},
     '../../platform/tv-sign-in': {createNativePorticoTVSignIn: () => f.newService('portico')},
     './directory-chooser': directoryChooser, './tv-code-opening': tvCodeOpening,
@@ -157,7 +171,7 @@ async function accountEntry(f: ReturnType<typeof fixture>) {
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), strict);
   const host = createHookHost(() => {tree = AccountEntry({onComplete: () => {completed++;}});});
   await act(() => host.mount());
-  return {host, tree: () => tree, completed: () => completed, back,
+  return {host, tree: () => tree, completed: () => completed, back, accounts, refs, writes, AuthSource,
     async enter(kind: TVCodeKind) {
       if (kind === 'portico') await act(() => {tree.props.onPortico();});
       else {
@@ -168,6 +182,92 @@ async function accountEntry(f: ReturnType<typeof fixture>) {
       assert.equal(tree.type, 'Code');
     }};
 }
+
+test('Portico TV credential prepare publishes readiness only for its own prepared source', async t => {
+  t.mock.timers.enable({apis: ['Date', 'setTimeout']});
+  const f = fixture(), hold = deferred<Record<string, unknown>>(), available = {password: true, providers: []};
+  const entry = await accountEntry(f, () => hold.promise);
+  try {
+    await entry.enter('portico'); t.mock.timers.tick(0); await settle();
+    await act(() => {entry.tree().props.onTypeCredentials();}); await settle();
+    const source = entry.accounts[0];
+    assert.equal([...entry.refs].filter(ref => ref.current === source).length, 1, 'pending source has no readiness marker');
+    assert.ok(!entry.writes.includes(available)); assert.equal(entry.tree().type, 'Code');
+    hold.resolve(available); await settle();
+    assert.equal(entry.tree().type, 'Credentials'); assert.equal(entry.tree().props.busy, false);
+    assert.equal([...entry.refs].filter(ref => ref.current === source).length, 2, 'account and readiness name the same original source');
+    assert.equal(entry.writes.filter(value => value === available).length, 1);
+  } finally {entry.host.unmount(); f.cleanup();}
+});
+
+for (const refusal of [false, true]) {
+  test(`Portico TV delayed prepare ${refusal ? 'rejection' : 'success'} after Back cannot mark or alter prepared successor`, async t => {
+    t.mock.timers.enable({apis: ['Date', 'setTimeout']});
+    const f = fixture(), oldHold = deferred<Record<string, unknown>>(); let calls = 0;
+    const ownOptions = {password: true, providers: []}, staleOptions = {password: false, providers: []};
+    const entry = await accountEntry(f, () => ++calls === 1 ? oldHold.promise : Promise.resolve(ownOptions));
+    try {
+      await entry.enter('portico'); t.mock.timers.tick(0); await settle();
+      await act(() => {entry.tree().props.onTypeCredentials();}); await settle();
+      const original = entry.accounts[0];
+      await act(() => {assert.equal([...entry.back][0](), true);});
+      await entry.enter('portico'); t.mock.timers.tick(0); await settle();
+      await act(() => {entry.tree().props.onTypeCredentials();}); await settle();
+      const successor = entry.accounts[1], shown = entry.tree().props;
+      assert.equal(entry.tree().type, 'Credentials');
+      assert.equal([...entry.refs].filter(ref => ref.current === successor).length, 2);
+      if (refusal) oldHold.reject(new Error('late original prepare')); else oldHold.resolve(staleOptions);
+      await settle();
+      assert.equal(entry.tree().props, shown); assert.equal(successor.disposed, 0);
+      assert.equal([...entry.refs].filter(ref => ref.current === successor).length, 2);
+      assert.equal([...entry.refs].filter(ref => ref.current === original).length, 0);
+      assert.ok(!entry.writes.includes(staleOptions));
+    } finally {entry.host.unmount(); f.cleanup();}
+  });
+}
+
+test('Portico TV prepare requires source identity as well as original opening; replacement marker is preserved', async t => {
+  t.mock.timers.enable({apis: ['Date', 'setTimeout']});
+  const f = fixture(); let hold = deferred<Record<string, unknown>>();
+  const entry = await accountEntry(f, () => hold.promise);
+  try {
+    await entry.enter('portico'); t.mock.timers.tick(0); await settle();
+    await act(() => {entry.tree().props.onTypeCredentials();}); await settle();
+    const first = entry.accounts[0], account = [...entry.refs].find(ref => ref.current === first)!;
+    hold.resolve({password: true, providers: []}); await settle();
+    const marker = [...entry.refs].find(ref => ref !== account && ref.current === first)!;
+    assert.ok(marker);
+    await act(() => {entry.tree().props.onBack();}); t.mock.timers.tick(0); await settle();
+    hold = deferred<Record<string, unknown>>();
+    // Retain an earlier marker to prove replacement clears it before prepare.
+    marker.current = first;
+    await act(() => {entry.tree().props.onTypeCredentials();}); await settle();
+    const pending = entry.accounts[1]; assert.equal(account.current, pending); assert.equal(marker.current, undefined);
+    // Model independent account-source replacement while the TV opening stays
+    // current: the old prepare may touch neither its successor nor its marker.
+    const successor = new entry.AuthSource(); account.current = successor; marker.current = successor;
+    const shown = entry.tree().props, staleOptions = {password: false, providers: []};
+    hold.resolve(staleOptions); await settle();
+    assert.equal(entry.tree().type, 'Code'); assert.deepEqual(entry.tree().props.status, shown.status);
+    assert.equal(entry.tree().props.busy, false, 'the still-current TV opening settles its own transition');
+    assert.equal(account.current, successor); assert.equal(marker.current, successor);
+    assert.equal(successor.disposed, 0); assert.equal(pending.disposed, 0); assert.ok(!entry.writes.includes(staleOptions));
+  } finally {entry.host.unmount(); f.cleanup();}
+});
+
+test('Portico TV current prepare refusal leaves readiness unready and settlement with its opening', async t => {
+  t.mock.timers.enable({apis: ['Date', 'setTimeout']});
+  const f = fixture(), hold = deferred<Record<string, unknown>>(), entry = await accountEntry(f, () => hold.promise);
+  try {
+    await entry.enter('portico'); t.mock.timers.tick(0); await settle();
+    await act(() => {entry.tree().props.onTypeCredentials();}); await settle();
+    const source = entry.accounts[0];
+    hold.reject(new Error('current prepare unavailable')); await settle();
+    assert.equal(entry.tree().type, 'Code'); assert.equal(entry.tree().props.busy, false);
+    assert.equal([...entry.refs].filter(ref => ref.current === source).length, 1, 'failed preparation has no readiness marker');
+    assert.equal(source.disposed, 0); assert.ok(entry.tree().props.onNewCode, 'original helper presents explicit recovery');
+  } finally {entry.host.unmount(); f.cleanup();}
+});
 
 for (const kind of ['local', 'portico'] as const) {
   test(`${kind}: actual AccountEntry owns initial storage settlement after Back, not a stale generic run-finally`, async t => {
