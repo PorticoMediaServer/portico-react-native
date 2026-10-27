@@ -100,7 +100,7 @@ export function TVNoServers(props: Props) {
           {noticeView}
           {props.error}
         </View>
-        <FocusRegion id="accounts.empty.fields" entry="address" order={['address', 'invitation', 'join']} style={{position: 'absolute', left: 0, top: 0, width: canvas.width, height: 1220}}>
+        <FocusRegion id="accounts.empty.fields" entry="address" order={['address', 'invitation', 'join', 'find', 'sign-out']} style={{position: 'absolute', left: 0, top: 0, width: canvas.width, height: 1220}}>
           <View style={{position: 'absolute', left: 200, top: 296, width: 860}}>
             <TextField focusId="address" label={t('accounts.signIn.address')} value={address} onFocus={() => {if (current()) setField('address');}} showSoftInputOnFocus={false} editable={!props.busy} autoCapitalize="none" autoCorrect={false}
               onChangeText={value => {if (owns()) setAddress(value);}}/>
@@ -118,8 +118,8 @@ export function TVNoServers(props: Props) {
           </View>
           <Button focusId="join" disabled={props.busy || !invitation.trim()} onPress={() => {if (owns()) {setInvitation(''); props.onJoin(draft.invitation, draft.address);}}} style={{position: 'absolute', left: 200, top: joinTop, width: 320}}>{t('services.start.joinAction')}</Button>
           <View style={{position: 'absolute', left: 200, top: footerTop, flexDirection: 'row', gap: 24}}>
-            <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.onFind();}}>{t('connection.discovery.find')}</Button>
-            <Button variant="text" disabled={props.busy} onPress={() => {if (current()) props.onSignOut();}}>{t('accounts.signOut.portico')}</Button>
+            <Button focusId="find" variant="text" disabled={props.busy} onPress={() => {if (current()) props.onFind();}}>{t('connection.discovery.find')}</Button>
+            <Button focusId="sign-out" variant="text" disabled={props.busy} onPress={() => {if (current()) props.onSignOut();}}>{t('accounts.signOut.portico')}</Button>
           </View>
         </FocusRegion>
         <View style={{position: 'absolute', left: 1160, top: 300, width: 664, gap: 18}}>

@@ -44,7 +44,7 @@ async function bindings() {
     const a = createHookHost(() => {outer = focus.FocusRegion.render(get(), null);}); a.mount(); drivers.push(a);
     const b = createHookHost(() => {contexts[1].current = undefined; contexts[2].current = undefined; guide = outer.type.render(outer.props, null);}); b.mount(); drivers.push(b);
     guide.props.ref({nativeTag: tag++, requestTVFocus() {}, setDestinations() {}});
-    return {get guide() {return guide;}, refresh() {a.rerender(); b.rerender();}};
+    return {get guide() {return guide;}, refresh() {a.rerender(); b.rerender();}, dispose() {b.unmount(); a.unmount();}};
   }
   function target(regionId: string, get: () => any, item?: any) {
     let pressable: any, calls = 0;
@@ -53,7 +53,7 @@ async function bindings() {
       const props = get(), bound = Focusable.render(props, props.ref ?? null); pressable = bound.type.render(bound.props, bound.props.ref);
     }); driver.mount(); drivers.push(driver);
     const host = {nativeTag: tag++, requestTVFocus() {calls++;}}; pressable.props.ref(host); driver.flush();
-    return {host, get calls() {return calls;}, get props() {return pressable.props;}, refresh() {driver.rerender();}};
+    return {host, get calls() {return calls;}, get props() {return pressable.props;}, refresh() {driver.rerender();}, dispose() {driver.unmount();}};
   }
   return {react, native, animation, focus, paint, theme, registry, contexts, Focusable, entry, listeners, drivers, region, target,
     dispose() {for (const driver of drivers.splice(0).reverse()) driver.unmount();}};
@@ -610,4 +610,123 @@ test('actual Search registration keeps equal-value retained genre R1/R2 sort roo
     assert.deepEqual(menus.map(menu => menu.getScope()), scopes, 'Back/retained visibility never renames either occurrence');
     assert.equal(latestReads, 0, 'scope uses the original registration authority, never a latest runtime lookup');
   } finally {for (const driver of drivers.reverse()) driver.unmount(); controller.dispose(); b.dispose(); t.mock.timers.reset();}
+});
+
+function actualButtonProps(o: Awaited<ReturnType<typeof overlayBindings>>, props: any) {
+  const outer = o.Button.render(props, props.ref ?? null);
+  return outer.type.render(outer.props, outer.props.ref).props;
+}
+
+test('Join caller binds Find/Sign out to its real field region and preserves commands through busy and Back', async () => {
+  const b = await bindings(), o = await overlayBindings(b), backs = new Set<() => boolean>();
+  const native = {...b.native, BackHandler: {addEventListener: (_: string, fn: () => boolean) => {backs.add(fn); return {remove: () => backs.delete(fn)};}}};
+  const {TVNoServers} = await screenModule(new URL('../src-next/screens/accounts/TVNoServers.tsx', import.meta.url), {
+    react: b.react, 'react-native': native, 'react-native-qrcode-svg': {default: 'QR'}, '../../../../../packages/i18n/src': {defaultI18n},
+    '../../kit/focus': b.focus, '../search/TVKeyboard': {NativeTVKeyboard: 'Keyboard'}, '../../kit/artwork': {ColourBackdrop: 'Backdrop'},
+    '../../kit/controls': {Button: o.Button, Focusable: b.Focusable, TextField: 'TextField'}, '../../kit/Icon': {Icon: 'Icon'},
+    '../../kit/theme': {useTheme: () => b.theme, nativeType}, '../destinations/useEntryFocus': b.entry,
+    '../../shell/model': {shellLayout: () => ({left: 0, top: 0, width: 1920, height: 1080, scale: 1})}, '../../tv/auth/entry-revision': {useTVBusyEntryRevision}});
+  let tree: any, busy = false, current = true; const calls: unknown[] = [];
+  const props = {isCurrent: () => current, onJoin: (...value: string[]) => calls.push(value), onFind: () => calls.push('find'),
+    onSignOut: () => calls.push('sign-out'), onRefresh() {}, onBack: () => calls.push('back')};
+  const source = createHookHost(() => {tree = TVNoServers({...props, busy});}); source.mount(); await flush();
+  nodes(tree).find(node => node.type?.name === 'DoorTiles').props.onJoin(); await flush();
+  const region = () => nodes(tree).find(node => node.type === b.focus.FocusRegion && node.props.id === 'accounts.empty.fields');
+  const field = (id: string) => nodes(tree).find(node => node.type === 'TextField' && node.props.focusId === id);
+  await act(() => {field('address').props.onChangeText('https://original.example'); field('invitation').props.onChangeText('ORIGINAL-CODE');});
+  const guide = b.region(() => region().props), button = (id: string) => nodes(tree).find(node => node.type === o.Button && node.props.focusId === id);
+  const find = b.target('accounts.empty.fields', () => actualButtonProps(o, button('find').props));
+  const signOut = b.target('accounts.empty.fields', () => actualButtonProps(o, button('sign-out').props));
+  const join = b.target('accounts.empty.fields', () => actualButtonProps(o, button('join').props));
+  try {
+    assert.deepEqual(b.registry.order('accounts.empty.fields'), ['address', 'invitation', 'join', 'find', 'sign-out']);
+    assert.equal(b.registry.config('accounts.empty.fields')?.entry, 'address');
+    assert.equal(find.props.testID, registryModule.focusTestID('accounts.empty.fields', 'find'));
+    assert.equal(signOut.props.testID, registryModule.focusTestID('accounts.empty.fields', 'sign-out'));
+    const refs = [find.props.ref, signOut.props.ref];
+    busy = true; source.rerender(); guide.refresh(); find.refresh(); signOut.refresh(); join.refresh();
+    for (const target of [find, signOut, join]) {assert.equal(target.props.disabled, true); assert.equal(target.props.onPress, undefined);}
+    assert.deepEqual(calls, []);
+    busy = false; source.rerender(); guide.refresh(); find.refresh(); signOut.refresh(); join.refresh();
+    assert.equal(find.props.ref, refs[0]); assert.equal(signOut.props.ref, refs[1]);
+    assert.equal(b.registry.child({regionId: 'accounts.empty.fields', childId: 'find'}), find.host);
+    assert.equal(b.registry.child({regionId: 'accounts.empty.fields', childId: 'sign-out'}), signOut.host);
+    find.props.onPress(); signOut.props.onPress(); join.props.onPress(); await flush();
+    assert.deepEqual(calls, ['find', 'sign-out', ['ORIGINAL-CODE', 'https://original.example']]);
+    current = false; find.props.onPress(); signOut.props.onPress(); assert.equal(calls.length, 3, 'original current predicate still refuses stale callers');
+    current = true; assert.equal([...backs][0]!(), true); await flush();
+    assert.ok(nodes(tree).find(node => node.type?.name === 'DoorTiles')); assert.equal(calls.length, 3, 'Back retains the original in-page return');
+  } finally {source.unmount(); b.dispose();}
+});
+
+for (const kind of ['trusted', 'identity'] as const) for (const closeBy of ['cancel', 'back'] as const) test(`${kind} Forget caller binds safe Cancel and distinct real footer hosts, re-enables after failure, then returns by ${closeBy}`, async t => {
+  t.mock.timers.enable({apis: ['setTimeout']});
+  const b = await bindings(), o = await overlayBindings(b);
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'require');
+  Object.defineProperty(globalThis, 'require', {configurable: true, writable: true, value: (path: string) => {assert.equal(path, '../../../assets/wordmark.png'); return 1;}});
+  let tree: any, reject!: (error: Error) => void, operations = 0, errors = 0;
+  const certificate = {address: 'https://original.example', fingerprint: 'sha256:original', serverId: 'original-server'};
+  const forgotten: any[] = [], failure = new Promise<void>((_resolve, refuse) => {reject = refuse;});
+  const common = {react: b.react, 'react-native': b.native, '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/controls': {Button: o.Button},
+    '../../kit/overlays': {...o.surface, OverlaysProvider: o.host.OverlaysProvider}, '../../kit/theme': {useTheme: () => b.theme, nativeType},
+    '../../kit/artwork': {ColourBackdrop: 'Backdrop'}, '../../kit/Icon': {Icon: 'Icon'},
+    '../../shell/model': {shellLayout: () => ({left: 0, top: 0, width: 1920, height: 1080, scale: 1})},
+    'react-native-svg': {default: 'Svg', Circle: 'Circle', Path: 'Path'}};
+  const mod = await screenModule(new URL(kind === 'trusted' ? '../src-next/screens/accounts/TVTrustedCertificates.tsx' : '../src-next/screens/accounts/ServerIdentityFailure.tsx', import.meta.url), {
+    ...common, '../../../../../packages/client-core/src/presentation/errors': {presentError: () => ({body: 'Refused'})},
+    '../../platform/server-connections': {savedCertificates: async () => [certificate], forgetCapturedCertificate: async (value: any) => {operations++; forgotten.push(value); await failure;}}});
+  const source = createHookHost(() => {tree = kind === 'trusted' ? mod.TVTrustedCertificates({}) : mod.ServerIdentityFailure({
+    failure: {changed: true, server: {name: 'Original server'}}, onRetry() {}, onChoose() {}, onForget: async () => {operations++; await failure;}, onError: () => {errors++;}});});
+  let renderer: ReturnType<typeof createHookHost> | undefined;
+  try {
+    source.mount(); await flush();
+    const openerNode = () => nodes(tree).find(node => node.type === o.Button && (kind === 'trusted'
+      ? node.props.children === defaultI18n.t('connection.certificates.forget')
+      : node.props.children === defaultI18n.t('connection.identity.forget', {server: 'Original server'})));
+    // The outer account focus receipt is a controlled native boundary. The identity
+    // caller additionally supplies its actual captured returnFocusRef.
+    b.region(() => ({id: 'original.account.page', order: ['original-opener']}));
+    const original = b.target('original.account.page', () => ({focusId: 'original-opener'})); original.props.onFocus({});
+    const opener = b.target(undefined as any, () => actualButtonProps(o, openerNode().props));
+    opener.props.onPress(); await flush();
+    const dialog = () => nodes(tree).find(node => node.type === o.surface.Dialog).props;
+    const expected = kind === 'trusted' ? 'tv-trusted-certificate-forget' : 'identity-forget';
+    assert.equal(dialog().testID, expected);
+    let overlay: any;
+    renderer = createHookHost(() => {const node = o.surface.Dialog(dialog()); overlay = node.type(node.props);}); renderer.mount();
+    const boundary = () => {const node = nodes(overlay).find(node => node.type === o.surface.FocusBoundary); return node.type(node.props);};
+    const guide = b.region(() => boundary().props);
+    const footer = (id: string) => nodes(dialog().footer).find(node => node.type === o.Button && node.props.focusId === id).props;
+    const cancel = b.target(expected, () => actualButtonProps(o, footer('cancel'))), forget = b.target(expected, () => actualButtonProps(o, footer('forget')));
+    const refresh = () => {
+      source.rerender(); renderer!.rerender();
+      if (!overlay) {cancel.dispose(); forget.dispose(); guide.dispose(); return;}
+      guide.refresh(); cancel.refresh(); forget.refresh();
+    };
+    assert.deepEqual(nodes(dialog().footer).filter(node => node.type === o.Button).map(node => node.props.focusId), kind === 'trusted' ? ['cancel', 'forget'] : ['forget', 'cancel']);
+    assert.equal(cancel.props.testID, registryModule.focusTestID(expected, 'cancel')); assert.equal(forget.props.testID, registryModule.focusTestID(expected, 'forget'));
+    t.mock.timers.tick(180); assert.equal(cancel.calls, 1, 'actual Dialog initial ref enters safe Cancel'); assert.equal(forget.calls, 0); assert.equal(operations, 0);
+    const refs = [cancel.props.ref, forget.props.ref];
+    forget.props.onPress(); refresh();
+    assert.equal(operations, 1); assert.equal(cancel.props.disabled, true); assert.equal(forget.props.disabled, true);
+    assert.equal(cancel.props.onPress, undefined); assert.equal(forget.props.onPress, undefined);
+    assert.equal([...o.back][0]!(), true); refresh(); assert.equal(dialog().open, true, 'original busy Back refusal is preserved');
+    reject(new Error('original operation refused')); await flush(); refresh();
+    assert.equal(dialog().open, true); assert.equal(!!cancel.props.disabled, false); assert.equal(!!forget.props.disabled, false);
+    assert.equal(typeof cancel.props.onPress, 'function'); assert.equal(typeof forget.props.onPress, 'function');
+    assert.equal(cancel.props.ref, refs[0]); assert.equal(forget.props.ref, refs[1]);
+    assert.equal(b.registry.child({regionId: expected, childId: 'cancel'}), cancel.host); assert.equal(b.registry.child({regionId: expected, childId: 'forget'}), forget.host);
+    assert.equal(operations, 1, 'failure/re-enable never invokes another command');
+    if (kind === 'trusted') {assert.deepEqual(forgotten, [certificate]); assert.notEqual(forgotten[0], certificate); assert.equal(Object.isFrozen(forgotten[0]), true);}
+    else assert.equal(errors, 1);
+    if (closeBy === 'cancel') cancel.props.onPress(); else assert.equal([...o.back][0]!(), true);
+    refresh(); assert.equal(dialog().open, false); t.mock.timers.tick(500); refresh();
+    assert.equal(overlay, null); assert.equal(b.registry.child({regionId: expected, childId: 'cancel'}), undefined);
+    assert.equal(b.registry.child({regionId: expected, childId: 'forget'}), undefined);
+    assert.equal(kind === 'identity' ? opener.calls : original.calls, 1, 'actual Dialog lifecycle restores its original explicit ref or captured registry receipt');
+    assert.equal(operations, 1);
+  } finally {
+    renderer?.unmount(); source.unmount(); b.dispose(); t.mock.timers.reset();
+    if (descriptor) Object.defineProperty(globalThis, 'require', descriptor); else delete (globalThis as any).require;
+  }
 });
