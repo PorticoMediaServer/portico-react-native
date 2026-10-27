@@ -10,16 +10,24 @@ import {sameAuthority} from '../../shell/model';
 import {nativeTogetherSession} from './together-session';
 import {publishGroupPort} from './group-port';
 
+export type NativeTogetherPlaybackContext = Pick<NativeShellBootstrapContext, 'api' | 'authority' | 'current' | 'session' | 'subscribeAuthority'> & Readonly<{
+  playback: Pick<NativeShellBootstrapContext['playback'], 'getSnapshot' | 'start' | 'toggle' | 'seek' | 'skip' | 'next' | 'previous' | 'replay' | 'queuePlay' | 'setRate' | 'open'>;
+  navigation: Pick<NativeShellBootstrapContext['navigation'], 'getSnapshot' | 'subscribe'>;
+}>;
+const owners = new WeakMap<NativeTogetherPlaybackContext, () => void>();
+
 /** One authority-owned follower on the existing native player. The direct ports
  * below bypass the viewer-command policy so clock corrections never echo to the room. */
-export function bindNativeTVTogether(context: NativeShellBootstrapContext): () => void {
+export function bindNativeTogether(context: NativeTogetherPlaybackContext, television: boolean): () => void {
+  const existing = owners.get(context);
+  if (existing) return existing;
   const service = nativeTogetherSession(context), playback = context.playback;
   const direct = {toggle: playback.toggle, seek: playback.seek, skip: playback.skip, next: playback.next, previous: playback.previous, replay: playback.replay, queuePlay: playback.queuePlay, setRate: playback.setRate, open: playback.open};
   const presentationListeners = new Set<() => void>();
   let playerOpen = false;
   const emitPresentation = () => {for (const listener of [...presentationListeners]) listener();};
-  const playerVisible = () => context.navigation.getSnapshot().route.kind !== 'together' || playerOpen;
-  const closePlayer = () => {if (!context.current() || !playerOpen || context.navigation.getSnapshot().route.kind !== 'together') return false;playerOpen = false;emitPresentation();return true;};
+  const playerVisible = () => !television || context.navigation.getSnapshot().route.kind !== 'together' || playerOpen;
+  const closePlayer = () => {if (!television || !context.current() || !playerOpen || context.navigation.getSnapshot().route.kind !== 'together') return false;playerOpen = false;emitPresentation();return true;};
   let pendingCurrent: (() => boolean) | undefined;
   let disposed = false, follower: GroupFollower | undefined, pending: AbortController | undefined;
   let local: {groupId: string; viewer: string; entryId: string; itemId: string; run: number; queueId: string; localEntry: string; sessionId: string; scope: QueueScope} | undefined;
@@ -56,7 +64,7 @@ export function bindNativeTVTogether(context: NativeShellBootstrapContext): () =
     if (!group.permissions.canControl) {service.notice(defaultI18n.t('together.hostOnly.playPause'));return;}
     await work();
   };
-  playback.open = fence => {if (matches(fence)) {playerOpen = true;emitPresentation();}direct.open(fence);};
+  playback.open = fence => {if (television && matches(fence)) {playerOpen = true;emitPresentation();}direct.open(fence);};
   playback.toggle = fence => command(fence, () => service.transport(playback.getSnapshot().playback.intent === 'playing' ? 'pause' : 'play'), () => direct.toggle(fence));
   playback.seek = (fence, seconds) => command(fence, () => service.transport('seek', {positionUs: String(Math.round(Math.max(0, seconds) * 1e6))}), () => direct.seek(fence, seconds));
   playback.skip = (fence, seconds) => command(fence, () => service.transport('seek', {positionUs: String(Math.round(Math.max(0, playback.getSnapshot().playback.positionSeconds + seconds) * 1e6))}), () => direct.skip(fence, seconds));
@@ -123,10 +131,24 @@ export function bindNativeTVTogether(context: NativeShellBootstrapContext): () =
   };
   const off = service.subscribe(update), offAuthority = context.subscribeAuthority(update);
   const offNavigation = context.navigation.subscribe(() => {playerOpen = false;emitPresentation();});
-  const retirePort = publishGroupPort({getSnapshot: service.getSnapshot, subscribe: listener => {const off = service.subscribe(listener);presentationListeners.add(listener);return () => {off();presentationListeners.delete(listener);};}, current: () => !disposed && context.current(), matches, playerVisible, closePlayer,
+  const wrapped = {toggle: playback.toggle, seek: playback.seek, skip: playback.skip, next: playback.next, previous: playback.previous, replay: playback.replay, queuePlay: playback.queuePlay, setRate: playback.setRate, open: playback.open};
+  let retirePort = () => {};
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    if (owners.get(context) === dispose) owners.delete(context);
+    pending?.abort();follower?.stop();off();offAuthority();offNavigation();retirePort();presentationListeners.clear();
+    // Retire only our wrappers. A successor owner may already have replaced one.
+    for (const key of Object.keys(direct) as (keyof typeof direct)[]) {
+      if (playback[key] === wrapped[key]) Object.assign(playback, {[key]: direct[key]});
+    }
+  };
+  owners.set(context, dispose);
+  const registration = publishGroupPort({getSnapshot: service.getSnapshot, subscribe: listener => {const off = service.subscribe(listener);presentationListeners.add(listener);return () => {off();presentationListeners.delete(listener);};}, current: () => !disposed && context.current(), matches, playerVisible, closePlayer,
     makeHost: memberId => {const group = room();const member = group?.members.find(value => value.id === memberId && value.state === 'joined');
       if (!group || !member || !(group.permissions.isHost && member.role !== 'host' || memberId === group.viewerMemberId && group.permissions.canClaimHost === true)) return Promise.resolve(false);
       return service.makeHost(memberId);}});
-  update();
-  return () => {disposed = true;pending?.abort();follower?.stop();off();offAuthority();offNavigation();retirePort();presentationListeners.clear();Object.assign(playback, direct);};
+  if (disposed) registration();
+  else {retirePort = registration;update();}
+  return dispose;
 }
