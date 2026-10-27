@@ -1,3 +1,4 @@
+import {captureTVApprovalGrant} from './tv-approval-grant';
 import {NativeModules} from 'react-native';
 import {HttpLocalApi, type HostedSession, type LocalSession} from '../../../../packages/client-core/src';
 import {ServerSignInProbe, signInLabelKey} from '../../../../packages/client-core/src/sign-in';
@@ -151,12 +152,16 @@ export class NativeAccounts {
       return client.login(username, password, id, signal);
     });
   }
-  adoptPorticoTVSession(session: HostedSession) {
+  adoptPorticoTVSession(session: HostedSession, callerCurrent?: () => boolean) {
+    const original = captureTVApprovalGrant(session), admitted = original.session;
+    const current = () => original.current() && (!callerCurrent || callerCurrent()) && original.current();
     return this.authenticatePorticoAccount(async signal => {
-      const me = decodeMeGetResponse(await new HttpLocalApi(hostedUrl, session.accessToken, nativeNetworkFetch).request(hostedPath('me_get'), 'GET', undefined, signal));
-      if (me.account.id !== session.account.id) throw Object.assign(new Error('native_account_identity_mismatch'), {code: 'identity_mismatch'});
-      return session;
-    });
+      const me = decodeMeGetResponse(await new HttpLocalApi(hostedUrl, admitted.accessToken, nativeNetworkFetch).request(hostedPath('me_get'), 'GET', undefined, signal));
+      if (me.account.id !== admitted.account.id) throw Object.assign(new Error('native_account_identity_mismatch'), {code: 'identity_mismatch'});
+      // The canonical coordinator receives the original immutable issued family,
+      // even when current() now refuses it, so its exact compensation still runs.
+      return admitted;
+    }, current);
   }
   async localTVConsent(api: HttpLocalApi, session: () => LocalSession | undefined) {
     const current = session(), generation = this.generation; this.assertCurrent(generation);
