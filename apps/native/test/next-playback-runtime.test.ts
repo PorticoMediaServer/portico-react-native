@@ -128,7 +128,7 @@ function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFil
       const seek = (request.body as {seek?: {id: string; live?: boolean; positionMs: number}} | undefined)?.seek;
       if (seek) channelSeeks.set(body.id, {id: seek.id, positionMs: seek.live ? 120000 : seek.positionMs, acknowledged: false});
       const held = channelSeeks.get(body.id);
-      response = {...response, body: {...body, presentation: {...body.presentation, linear: {name: 'channel-1', originMs: 0, windowStartMs: channelWindow.startMs, windowEndMs: channelWindow.endMs, liveEdgeMs: channelWindow.endMs, state: 'ready',
+      response = {...response, body: {...body, presentation: {...body.presentation, linear: {name: 'channel-1', originMs: 0, windowStartMs: body.presentation.generation === 0 ? 0 : channelWindow.startMs, windowEndMs: body.presentation.generation === 0 ? 0 : channelWindow.endMs, liveEdgeMs: body.presentation.generation === 0 ? 0 : channelWindow.endMs, state: body.presentation.generation === 0 ? 'preparing' : 'ready',
         ...(held ? {seek: held, confirmedPositionMs: held.positionMs} : {})}}}};
     }
     if (path.endsWith('/timeline') && request.method === 'POST') {
@@ -2540,4 +2540,66 @@ test('channel admission callback identifies only its original accepted start and
     await d.runtime.startChannel({sourceId: '', channelId: 'channel-1', timezone: 'UTC', lifetime: versionLifetime(), onAccepted: () => {refused++;}});
     assert.equal(refused, 0, 'a matching old channel is not admission by an early-refused start');
   } finally {release();await opening;d.runtime.dispose();}
+});
+
+
+function coldChannel(d: ReturnType<typeof fixture>) {
+  d.respond(async request => {
+    if (request.method !== 'POST' || request.path !== routePath('start_playback_session') || !record(request.body) || typeof request.body.channelId !== 'string') return;
+    // The real fixture session exists; only its initial wire response is the
+    // declared cold 201. The next actual poll returns its positive generation.
+    const response = await d.server.handle(request), body = response.body;
+    if (!record(body) || !record(body.presentation)) throw new Error('missing actual channel fixture');
+    return {...response, body: {...body, presentation: {...body.presentation, generation: 0, url: ''}}};
+  });
+}
+
+test('cold channel notifies only at its own actual positive update and only once', async t => {
+  t.mock.timers.enable({apis: ['setTimeout']});
+  const d = fixture(), accepted: unknown[] = [];coldChannel(d);
+  try {
+    await d.runtime.startChannel({sourceId: 'source-1', channelId: 'channel-1', timezone: 'UTC', lifetime: versionLifetime(), onAccepted: fence => {accepted.push(fence);}});
+    assert.equal(d.runtime.playback.getSnapshot().session?.generation, 0);
+    assert.equal(d.runtime.getSnapshot().fence, undefined);
+    assert.deepEqual(accepted, [], 'a real cold resource is not a playable fence');
+    t.mock.timers.tick(1000);await settle(100);
+    const own = d.runtime.getSnapshot().fence;assert.ok(own?.kind === 'channel');
+    assert.deepEqual(accepted, [own]);
+    t.mock.timers.tick(2000);await settle(80);assert.deepEqual(accepted, [own]);
+  } finally {d.runtime.dispose();t.mock.timers.reset();}
+});
+
+for (const retirement of ['caller', 'authority', 'source'] as const) test(`cold channel cannot notify after original ${retirement} retirement`, async t => {
+  t.mock.timers.enable({apis: ['setTimeout']});
+  const d = fixture(), accepted: unknown[] = [], abort = new AbortController();coldChannel(d);
+  let live = true;
+  try {
+    await d.runtime.startChannel({sourceId: 'source-1', channelId: 'channel-1', timezone: 'UTC', lifetime: {signal: abort.signal, isCurrent: () => live}, onAccepted: fence => {accepted.push(fence);}});
+    assert.equal(d.runtime.playback.getSnapshot().session?.generation, 0);assert.deepEqual(accepted, []);
+    if (retirement === 'caller') live = false;
+    else if (retirement === 'authority') d.changeAuthority();
+    else await d.start('movie-successor');
+    t.mock.timers.tick(1000);await settle(100);assert.deepEqual(accepted, []);
+    // A refused notification never revives when a retained route predicate
+    // later returns true. Ordinary accepted channel playback is separate.
+    live = true;t.mock.timers.tick(1000);await settle(80);assert.deepEqual(accepted, []);
+    if (retirement === 'source') assert.equal(d.runtime.getSnapshot().playback.itemId, 'movie-successor');
+  } finally {abort.abort();d.runtime.dispose();t.mock.timers.reset();}
+});
+
+test('reentrant channel admission cannot publish an old fence over its replacement', async t => {
+  t.mock.timers.enable({apis: ['setTimeout']});
+  const d = fixture(), accepted: unknown[] = [];coldChannel(d);
+  let replacement: Promise<void> | undefined;
+  try {
+    await d.runtime.startChannel({sourceId: 'source-1', channelId: 'channel-1', timezone: 'UTC', lifetime: versionLifetime(), onAccepted: fence => {
+      accepted.push(fence);replacement = d.start('movie-new-owner');
+    }});
+    t.mock.timers.tick(1000);await settle(100);
+    assert.equal(accepted.length, 1);assert.ok(replacement);await replacement;
+    const successor = d.runtime.getSnapshot().fence;assert.ok(successor?.kind === 'queue');
+    assert.equal(d.runtime.getSnapshot().playback.itemId, 'movie-new-owner');
+    t.mock.timers.tick(3000);await settle(80);
+    assert.deepEqual(d.runtime.getSnapshot().fence, successor);assert.equal(accepted.length, 1);
+  } finally {d.runtime.dispose();if (replacement) await replacement.catch(() => {});t.mock.timers.reset();}
 });

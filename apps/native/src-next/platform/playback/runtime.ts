@@ -562,14 +562,17 @@ export class NativePlaybackRuntime {
     let adopted = false, opening = false, notified = false;
     const valid = () => epoch === this.startEpoch && this.currentAuthority() && (adopted || !signal.aborted && beforeAdoption());
     const notifyAccepted = () => {
-      if (!onAccepted || notified || !adopted || !valid() || !beforeAdoption()) return;
+      if (!onAccepted || notified || !adopted) return;
+      // Observed retirement is terminal for this notification, independently of
+      // the accepted channel owner's ordinary playback lifetime.
+      if (!valid() || !beforeAdoption()) {notified = true;return;}
       const fence = this.fence(), session = this.playback.getSnapshot().session;
       if (fence?.kind !== 'channel' || fence.channelKind !== reference.kind || fence.channelId !== reference.channelId
         || fence.sourceId !== reference.sourceId || fence.channelGeneration !== reference.generation
         || session?.id !== fence.sessionId || session.generation !== fence.generation) return;
       // Predicates may synchronously retire or replace an owner. Check the same
       // actual fence again, then latch before invoking the captured callback.
-      if (!valid() || !beforeAdoption() || !sameFence(this.fence(), fence)) return;
+      if (!valid() || !beforeAdoption() || !sameFence(this.fence(), fence)) {notified = true;return;}
       notified = true;
       onAccepted(fence);
       if (!valid() || !beforeAdoption() || !sameFence(this.fence(), fence)) return;
