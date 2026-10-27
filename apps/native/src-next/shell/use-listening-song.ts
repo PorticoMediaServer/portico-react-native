@@ -28,6 +28,11 @@ export function useListeningSong(detail: NativeListeningSongDetail | undefined, 
   const openingRef = useRef<Opening | undefined>(undefined), pendingRef = useRef<Opening | undefined>(undefined), ticket = useRef(0);
   const tokens = useRef(new WeakMap<object, Opening>()), mounted = useRef(true), currentRef = useRef(current);
   currentRef.current = current;
+  // The effect is keyed by this fence's content (`fenceKey`) so progress ticks never reopen
+  // it. The ref pins the exact fence object of each render, so the opening it commits is the
+  // one from the render the content key named, not a later render's object.
+  const fenceRef = useRef(fence);
+  fenceRef.current = fence;
   const fenceKey = fence ? JSON.stringify(fence) : '';
   // Bounded eligibility for exactly this fence and lifetime. It changes when the accepted window
   // arrives or retires, not on progress ticks, and opens or closes the reading with it.
@@ -42,11 +47,12 @@ export function useListeningSong(detail: NativeListeningSongDetail | undefined, 
     const at = ++ticket.current;
     openingRef.current = undefined; pendingRef.current = undefined;
     if (mounted.current) setState(() => ({pending: false}));
-    if (!canRead || !detail || !fence || !lifetime) return;
+    const pinned = fenceRef.current;
+    if (!canRead || !detail || !pinned || !lifetime) return;
     const owner = currentRef.current;
-    const opening: Opening = Object.freeze({port: detail, fence, lifetime, live: () => lifetime.isCurrent() && owner()});
+    const opening: Opening = Object.freeze({port: detail, fence: pinned, lifetime, live: () => lifetime.isCurrent() && owner()});
     openingRef.current = opening;
-    void detail.read(fence, lifetime).then(song => {
+    void detail.read(pinned, lifetime).then(song => {
       if (!mounted.current || openingRef.current !== opening || ticket.current !== at || !opening.live()) return;
       if (song) tokens.current.set(song, opening);
       setState({opening, ...(song ? {song} : {}), pending: false});
