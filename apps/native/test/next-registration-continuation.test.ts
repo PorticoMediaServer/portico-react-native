@@ -6,14 +6,14 @@ import {ApiError} from '../../../packages/client-core/src/index';
 import {CodedError} from '../../../packages/client-core/src/server-messages';
 import {MFARequiredError, parseNativeAccountContinuation} from '../../../packages/client-core/src/hosted-security';
 
-async function port() {
+async function port(beforeWork?: () => Promise<void>) {
   const original = {kind: 'registration', registrationId: 'original', status: 'contact_pending', revision: '1', maskedAddress: 'a***@example.test', expiresAt: new Date(Date.now() + 60000).toISOString(), contactVerified: false};
   const requests: any[] = []; let read: any = {...original, contactVerified: true}, onRead = () => {};
   const api = {options: async () => ({providers: []}), register: async () => original,
     registration: async (id: string) => {assert.equal(id, 'original'); onRead(); return {...await read};},
     verifyRegistration: async (id: string, input: unknown) => {requests.push({id, input}); if (requests.length < 3) throw new ApiError(409, 'username_unavailable', 'taken', false); return {};}};
   const bridge = {loadContinuation: async () => null, newBinding: async () => 'a'.repeat(43), saveContinuation: async () => {}, newRequestId: async () => 'request', cancel() {}};
-  const nativeAccounts = {onCancel: () => () => {}, accountClient: () => api, authenticatePorticoAccount: async (work: (signal: AbortSignal) => Promise<unknown>, current: () => boolean) => {assert.ok(current()); return work(new AbortController().signal);}};
+  const nativeAccounts = {onCancel: () => () => {}, accountClient: () => api, authenticatePorticoAccount: async (work: (signal: AbortSignal) => Promise<unknown>, current: () => boolean) => {assert.ok(current()); if (beforeWork) await beforeWork(); if (!current()) throw new Error('retired'); return work(new AbortController().signal);}};
   const {NativePorticoSignIn} = await screenModule(new URL('../src-next/platform/portico-sign-in.ts', import.meta.url), {
     react: {default: {}}, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}},
     '../../../../packages/client-core/src/hosted-security': {MFARequiredError}, '../../../../packages/client-core/src/server-messages': {CodedError},
@@ -126,10 +126,12 @@ test('legacy reset and update share ordering with a current native prepare', asy
     './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://mixed.example'}, '../../src/bridge/continuation-queue': continuationQueue,
   });
   const owner = await legacy.nativeAccount('https://mixed.example'), oldBinding = owner.continuation.binding;
+  const oldPrepared = new next.NativePorticoSignIn(); await oldPrepared.prepare();
   hold = true; const reset = owner.reset(); await started;
   const staleUpdate = owner.update(oldBinding, {transactionId: 'old'}), successor = new next.NativePorticoSignIn(), preparing = successor.prepare();
-  assert.equal(writes, 2); release(); await reset; await assert.rejects(staleUpdate, /replaced/); await preparing;
-  assert.equal(writes, 3); assert.equal(JSON.parse(record!).binding, owner.continuation.binding); assert.notEqual(owner.continuation.binding, oldBinding);
+  assert.equal(writes, 3); release(); await reset; await assert.rejects(staleUpdate, /replaced/); await preparing;
+  await assert.rejects(oldPrepared.provider('google'));
+  assert.equal(writes, 4); assert.equal(JSON.parse(record!).binding, owner.continuation.binding); assert.notEqual(owner.continuation.binding, oldBinding);
   const binding = owner.continuation.binding;
   started = new Promise<void>(resolve => {announce = resolve;}); hold = true;
   const firstUpdate = owner.update(binding, {transactionId: 'first'}); await started;
@@ -140,5 +142,29 @@ test('legacy reset and update share ordering with a current native prepare', asy
   const beforeReset = owner.update(binding, {transactionId: 'before-reset'}); await started;
   const queuedReset = owner.reset(); release(); await beforeReset; await queuedReset;
   assert.notEqual(owner.continuation.binding, binding); assert.equal(JSON.parse(record!).binding, owner.continuation.binding);
-  successor.dispose();
+  const retiredLegacyBinding = owner.continuation.binding; record = null;
+  const replacementSource = new next.NativePorticoSignIn(); await replacementSource.prepare();
+  await assert.rejects(owner.update(retiredLegacyBinding, {transactionId: 'stale'}), /replaced/);
+  assert.notEqual(JSON.parse(record!).binding, retiredLegacyBinding);
+  oldPrepared.dispose(); successor.dispose(); replacementSource.dispose();
+});
+
+
+test('registration and replacement values remain original across coordinator delay', async () => {
+  let release!: () => void, started!: () => void; const waiting = new Promise<void>(resolve => {started = resolve;});
+  const p = await port(() => {started(); return new Promise<void>(resolve => {release = resolve;});});
+  const registration = p.registration; assert.ok(Object.isFrozen(registration));
+  const pending = p.source.verifyRegistration('123456', registration, {isCurrent: () => true}); await waiting;
+  assert.throws(() => {registration.registrationId = 'successor';}); release(); await assert.rejects(pending, {code: 'username_unavailable'});
+  const verified = p.source.registrationAfterCollision(registration); assert.ok(Object.isFrozen(verified));
+  const replacement = {username: 'Original', displayName: 'Name'};
+  let release2!: () => void, started2!: () => void; const wait2 = new Promise<void>(resolve => {started2 = resolve;});
+  // A new port shares the existing test-local fake coordinator, held before the wire callback.
+  const q = await port(() => {started2(); return new Promise<void>(resolve => {release2 = resolve;});});
+  const initial = q.source.verifyRegistration('123456', q.registration, {isCurrent: () => true}); await wait2; release2(); await assert.rejects(initial);
+  const bound = q.source.registrationAfterCollision(q.registration); assert.ok(bound);
+  const changed = q.source.verifyRegistration('', bound, {isCurrent: () => true}, replacement);
+  await Promise.resolve(); replacement.username = 'successor'; replacement.displayName = 'Other'; release2(); await assert.rejects(changed);
+  assert.equal(q.requests[1].input.username, 'original'); assert.equal(q.requests[1].input.displayName, 'Name');
+  p.source.dispose(); q.source.dispose();
 });
