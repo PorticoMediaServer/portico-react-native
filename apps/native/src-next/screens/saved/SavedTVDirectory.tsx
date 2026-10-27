@@ -67,7 +67,7 @@ export function SavedTVDirectory({view, destination, runtime, libraries, enabled
   return <FocusRegion id={regionId} entryRegion={firstId ? gridId : hasToolbar ? toolbarId : undefined} enabled={enabled} edges={edges} style={{flex: 1}}>
     <FocusRegion id={toolbarId} entry="tv-saved-sort" orientation="horizontal" enabled={enabled && hasToolbar}
       edges={{...edges, down: gridId}} style={{height: 76, flexDirection: 'row', alignItems: 'center', gap: 14, paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight}}>
-      {view === 'playlists' && !!sorts.length && <PlaylistToolbar sorts={sorts} filters={filters} enabled={enabled}
+      {view === 'playlists' && !!sorts.length && <PlaylistToolbar sorts={sorts} filters={filters} enabled={enabled} focusScope={toolbarId}
         value={{sort: saved?.projection?.query.sort ?? sorts[0]?.id ?? '',
           direction: saved?.projection?.query.direction === 'asc' ? 'asc' : 'desc',
           filter: (saved?.projection?.query.category ?? 'all') as PlaylistListFilter}}
