@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import androidx.lifecycle.Lifecycle
 import android.os.Bundle
 import android.view.KeyEvent
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -31,9 +32,12 @@ class MainActivity : ReactActivity() {
    * saved sign-in rather than from restored fragments (react-native-screens requires this).
    */
   override fun onCreate(savedInstanceState: Bundle?) {
+    // The system splash hands over to the native boot view, which React's Boot replaces (PorticoBoot).
+    PorticoBoot.keep(installSplashScreen())
     // A cold launch's link is filtered before React Native can read it.
     intent = PorticoUrlRoutes.filtered(intent)
     super.onCreate(null)
+    PorticoBoot.attach(this)
   }
 
   /** The small window opened, or closed: back at full size when the activity is still on screen, dismissed otherwise. */

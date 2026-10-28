@@ -32,11 +32,7 @@ android_icons() {
   B="$RES/drawable-xhdpi"; mkdir -p "$B"
   gradient 640 360 "$B/bg.png"
   magick "$B/bg.png" \( "$BRAND/wordmark-white-4096w.png" -resize "$(( 640 * 74 / 100 ))x" \) -gravity center -composite -alpha off "$B/tv_banner.png"; rm "$B/bg.png"
-  # Launch logo: the white wordmark, centred by res/drawable/launch_screen.xml (200dp wide).
-  for D in "mdpi 1" "hdpi 1.5" "xhdpi 2" "xxhdpi 3" "xxxhdpi 4"; do set -- $D
-    L="$RES/drawable-$1"; mkdir -p "$L"
-    magick "$BRAND/wordmark-white-4096w.png" -resize "$(echo "200 * $2 / 1" | bc)x" "$L/launch_logo.png"
-  done
+  # The launch wordmark is a vector (res/drawable/boot_wordmark.xml, portico_wordmark.xml).
 }
 if [ "$TARGET" != apple ]; then android_icons; fi
 if [ "$TARGET" = android ]; then echo "icons written"; exit 0; fi

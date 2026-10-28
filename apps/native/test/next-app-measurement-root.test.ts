@@ -21,6 +21,7 @@ for (const dev of [true, false]) test(`actual App root disables collapsing only 
     presets: [require.resolve('@react-native/babel-preset')],
     plugins: [require.resolve('@babel/plugin-transform-modules-commonjs')],
   });
+  const reportFirstFrame = () => {};
   const modules: Record<string, unknown> = {
     react: state.react,
     'react/jsx-runtime': {jsx, jsxs: jsx},
@@ -28,7 +29,7 @@ for (const dev of [true, false]) test(`actual App root disables collapsing only 
     'react-native-gesture-handler': {GestureHandlerRootView: 'GestureHandlerRootView'},
     'react-native-safe-area-context': {SafeAreaProvider: 'SafeAreaProvider'},
     './kit/theme': {ThemeProvider: 'ThemeProvider', useTheme: () => ({colors: {ink: '#010203'}})},
-    './shell/AppErrorBoundary': {AppErrorBoundary: 'AppErrorBoundary'},
+    './shell/AppErrorBoundary': {AppErrorBoundary: 'AppErrorBoundary'}, './platform/boot-host': {reportFirstFrame},
     './shell': {NativeShell: leaf}, './shell/RestoredShell': {RestoredShell: leaf}, './shell/settings-mount': {},
     './screens/watch': {registerNativeWatch: (factory: unknown) => {assert.equal(factory, leaf);}, createNativeWatchBindings: leaf},
     './dev/Kit': {KitHost: leaf}, './dev/public-measurement': {NativePublicMeasurementGate: leaf},
@@ -47,6 +48,8 @@ for (const dev of [true, false]) test(`actual App root disables collapsing only 
   }, module.exports, module, dev);
   const App = module.exports.default;
   assert.ok(App);
+  // React's first layout, whatever it draws, hands over from the native boot layer.
+  assert.equal((App({}) as unknown as {props: {onLayout?: unknown}}).props.onLayout, reportFirstFrame);
   const roots = nodes(App({})).filter(element => typeof element.type === 'function');
   assert.equal(roots.length, 1, 'actual App exposes one NativeRoot under the existing providers');
   const root = state.render(() => (roots[0].type as (props: object) => Element)(roots[0].props));

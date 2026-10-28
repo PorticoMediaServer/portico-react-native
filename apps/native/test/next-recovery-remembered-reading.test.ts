@@ -51,7 +51,7 @@ test(`compact ${category} recovery admits only original usable downloads: ${cond
     '../screens/downloads/presentation': {downloadEntryIdentity}, '../screens/settings/NativeSettingsAppearance': {NativeSettingsAppearance: 'NativeSettingsAppearance'},
     '../platform/home-action-diagnostics': {homeActionDiagnostics: {error() {}, lifetime() {}}},
     '../platform/secure-records': {acknowledgeSecureRecordsRecovered() {}, isSecureRecordsLost: () => false, secureRecordsRecoveredNotice: () => undefined},
-    './SecureRecordsRecovery': {SecureRecordsRecovery: 'SecureRecordsRecovery'},
+    './SecureRecordsRecovery': {SecureRecordsRecovery: 'SecureRecordsRecovery'}, '../platform/boot-host': {takeLaunchStartedAt: (now = Date.now()) => now},
     './StartupBoot': {StartupBoot: ({children}: any) => children}, './startup-recovery': startupRecovery,
   });
   try {

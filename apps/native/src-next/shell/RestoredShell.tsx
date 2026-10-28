@@ -29,6 +29,7 @@ import {NativeSettingsAppearance} from '../screens/settings/NativeSettingsAppear
 import {homeActionDiagnostics} from '../platform/home-action-diagnostics';
 import {acknowledgeSecureRecordsRecovered, isSecureRecordsLost, secureRecordsRecoveredNotice} from '../platform/secure-records';
 import {SecureRecordsRecovery} from './SecureRecordsRecovery';
+import {takeLaunchStartedAt} from '../platform/boot-host';
 import {StartupBoot} from './StartupBoot';
 import {createNativeStartupRecovery, startupRetrySeconds, startupWait, type NativeStartupWait} from './startup-recovery';
 
@@ -163,9 +164,9 @@ export function RestoredShell() {
       if (rootCurrent()) publishState({phase: 'loading'});
     });
     void checkSelection();
-    // Native first-frame time must eventually be supplied by the platform host.
+    // The first opening starts when the person started the app (the platform's launch time).
     // This opening's clock is never reset by its automatic or manual retries.
-    const started = Date.now();
+    const started = takeLaunchStartedAt();
     if (rootCurrent()) {publishState({phase: 'loading'}); setShowAccounts(previous => rootCurrent() ? false : previous); setServerDisplay(previous => rootCurrent() ? {attempt} : previous);}
     if (rootCurrent()) void nativeAccounts.snapshot().then(value => {if (rootCurrent()) {
       setRetained(previous => rootCurrent() ? value.servers.length > 0 : previous);

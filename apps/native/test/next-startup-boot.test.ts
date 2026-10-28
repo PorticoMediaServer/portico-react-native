@@ -51,7 +51,8 @@ for (const [name, options, width, shape, spinner] of [
   ['iPad', {os: 'ios', platform: 'tablet', isPad: true}, 224, 'side', 32],
   ['Android tablet', {os: 'android', platform: 'tablet'}, 176, 'side', 32],
   ['Apple TV', {os: 'ios', platform: 'tv'}, 640, 'side', 64],
-  ['Android TV', {os: 'android', platform: 'tv'}, 320, 'side', 32],
+  // The 1920 design canvas: 640 units are 320 dp (640 px at 1080p).
+  ['Android TV', {os: 'android', platform: 'tv'}, 640, 'side', 64],
 ] as const)
 test(`${name} boot uses the bound wordmark and backdrop geometry without moving the wordmark for its spinner`, async () => {
   const f = await boot(options);

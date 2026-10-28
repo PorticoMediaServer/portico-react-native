@@ -36,7 +36,7 @@ function modules(state: {
     '../platform/server-connections': serverConnections,
     '../platform/home-action-diagnostics': {homeActionDiagnostics: {error() {}, lifetime() {}}},
     '../platform/secure-records': secureRecords,
-    './SecureRecordsRecovery': {SecureRecordsRecovery: 'SecureRecordsRecovery'},
+    './SecureRecordsRecovery': {SecureRecordsRecovery: 'SecureRecordsRecovery'}, '../platform/boot-host': {takeLaunchStartedAt: (now = Date.now()) => now},
     './StartupBoot': {StartupBoot: 'StartupBoot'},
     './startup-recovery': startupRecovery,
     '../../../../packages/client-core/src/presentation/errors': {presentError: () => ({title: 'failed', body: 'failed'})},

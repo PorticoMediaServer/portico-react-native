@@ -19,6 +19,7 @@ import java.util.concurrent.Executors
 import org.json.JSONArray
 import org.json.JSONObject
 import tv.getportico.portico.BuildConfig
+import tv.getportico.portico.PorticoBoot
 import tv.getportico.portico.TelevisionDisplay
 
 /**
@@ -43,6 +44,8 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
   override fun getConstants(): Map<String, Any> {
     val values = HashMap<String, Any>()
     values["launchId"] = launchId
+    // Boot's t = 0 (DESIGN "Ready, and what boot waits for"): when the person started the app.
+    values["launchStartedAt"] = PorticoBoot.startedAt.toDouble()
     values["pictureInPictureSupported"] = android.os.Build.VERSION.SDK_INT >= 26 && reactApplicationContext.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
     // The layout this process was started with (the Layout setting, or what the device says).
     values["television"] = TelevisionDisplay.isTelevision
@@ -51,6 +54,9 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
     if (BuildConfig.DEBUG) testLogin()?.let { values["testLogin"] = it }
     return values
   }
+
+  /** React has drawn its first frame: the native boot view goes, without animation. */
+  @ReactMethod fun bootDrawn() {PorticoBoot.reactDrew()}
 
   /** The Portico Account origin the build names (`-PporticoHostedUrl=…`), as Info.plist's PorticoHostedURL. */
   private fun hostedUrl(): String? = try {

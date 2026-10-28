@@ -6,6 +6,7 @@ import {ThemeProvider, useTheme} from './kit/theme';
 import {NativeShell, type NativeShellRuntime} from './shell';
 import {RestoredShell} from './shell/RestoredShell';
 import {AppErrorBoundary} from './shell/AppErrorBoundary';
+import {reportFirstFrame} from './platform/boot-host';
 
 if (!Platform.isTV) {
   // Native accounts routes register as a module side effect. Metro's inline
@@ -53,5 +54,6 @@ function NativeRoot({phoneShell, tvShell, runtime}: NativeAppProps) {
 
 /** The product restores its actual native session; test/dev hosts may inject an owned runtime. */
 export default function App(props: NativeAppProps) {
-  return <GestureHandlerRootView style={{flex: 1}}><SafeAreaProvider><ThemeProvider reduceMotion={props.reduceMotion} textScale={props.textScale}><AppErrorBoundary><NativeRoot {...props} /></AppErrorBoundary></ThemeProvider></SafeAreaProvider></GestureHandlerRootView>;
+  // Whatever React draws first (Boot, a shell or the failure page) replaces the native boot layer.
+  return <GestureHandlerRootView style={{flex: 1}} onLayout={reportFirstFrame}><SafeAreaProvider><ThemeProvider reduceMotion={props.reduceMotion} textScale={props.textScale}><AppErrorBoundary><NativeRoot {...props} /></AppErrorBoundary></ThemeProvider></SafeAreaProvider></GestureHandlerRootView>;
 }

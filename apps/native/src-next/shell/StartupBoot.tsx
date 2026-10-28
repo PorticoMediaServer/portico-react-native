@@ -43,12 +43,13 @@ export function StartupBoot({active, waiting, serverName, children, onHidden}: {
     const callback = complete.current; complete.current = undefined; callback?.();
   }, [shown, active]);
   const phone = theme.platform === 'phone', tv = theme.isTV;
-  const wordmarkWidth = tv ? Platform.OS === 'android' ? 320 : 640 : Platform.OS === 'ios' && (Platform as {isPad?: boolean}).isPad ? 224 : 176;
-  const tvScale = tv ? wordmarkWidth / 640 : 1;
+  // A television is laid out on the 1920 design canvas, so 640 is DESIGN's 640 pt (Apple TV, Vega)
+  // and 320 dp (640 px at 1080p) on Android TV, Google TV and Fire TV.
+  const wordmarkWidth = tv ? 640 : Platform.OS === 'ios' && (Platform as {isPad?: boolean}).isPad ? 224 : 176;
   const wordmarkHeight = wordmarkWidth * 405 / 1774;
-  const diameter = tv ? 64 * tvScale : phone ? 28 : 32, stroke = tv ? 5 * tvScale : phone ? 2.5 : 3;
-  const gap = tv ? 72 * tvScale : phone ? 40 : 44, messageGap = tv ? 32 * tvScale : phone ? 18 : 20;
-  const size = tv ? 32 * tvScale : phone ? 15 : 17;
+  const diameter = tv ? 64 : phone ? 28 : 32, stroke = tv ? 5 : phone ? 2.5 : 3;
+  const gap = tv ? 72 : phone ? 40 : 44, messageGap = tv ? 32 : phone ? 18 : 20;
+  const size = tv ? 32 : phone ? 15 : 17;
   const connecting = serverName ? defaultI18n.t('web.chooser.connecting', {server: serverName}) : defaultI18n.t('next.boot.connecting');
   const stillConnecting = defaultI18n.t('next.boot.stillConnecting');
   const message = waiting.message === 'still-connecting' ? stillConnecting : waiting.message === 'connecting' ? connecting : '';
