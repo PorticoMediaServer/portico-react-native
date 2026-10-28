@@ -80,7 +80,7 @@ function device(options: FakeServerOptions = {}) {
   return {server, playback, player, path, engine, errors, sent, close};
 }
 
-test('a playing title reports its timeline through the session, with the generation and the engine\'s position', async () => {
+test('a playing title reports observations through the session, with the generation and the engine\'s position', async () => {
   const d = device();
   try {
     await d.playback.play('movie-1', 30);
@@ -88,13 +88,15 @@ test('a playing title reports its timeline through the session, with the generat
     const s = d.playback.getSnapshot();
     assert.equal(s.error, undefined, s.error);
     assert.equal(s.phase, 'ready');
+    // These timers never fire: a flush sends the latest reading now.
+    await d.path.controller.flush();
     const session = d.server.session(s.session!.id)!;
-    assert.ok(session.reports.length >= 1, 'the first reading is reported at once');
+    assert.ok(session.reports.length >= 1, 'the reading is reported');
     const first = session.reports[0]!;
     assert.equal(first.generation, s.session!.generation);
     assert.ok(Number(first.positionMs) >= 30_000, `position ${first.positionMs}`);
     assert.equal(first.seq, 1);
-    assert.equal(d.path.transport.reportedSeq(s.session!.id), session.lastSeq, 'a native owner taking the session over would continue from here');
+    assert.equal(d.path.transport.handOverObserver(s.session!.id), first.epoch, 'a native owner taking the session over claims with this epoch');
   } finally { d.close(); }
 });
 

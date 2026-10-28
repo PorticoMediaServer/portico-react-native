@@ -40,6 +40,8 @@ static double Timestamp(id value) {
 @property(nonatomic,assign) BOOL finished;
 @property(nonatomic,assign) BOOL binary;
 @property(nonatomic,assign) NSUInteger byteLimit;
+/** Seconds before the request is given up (0: the default 15). */
+@property(nonatomic,assign) double timeout;
 /** Extra request headers (v1: If-Match, Idempotency-Key, Content-Type), and the response's. */
 @property(nonatomic,copy,nullable) NSDictionary<NSString *,NSString *> *headers;
 @property(nonatomic,copy,nullable) NSDictionary *responseHeaders;
@@ -54,10 +56,13 @@ static double Timestamp(id value) {
 - (void)start:(NSURL *)url token:(NSString *)token body:(NSDictionary *)body method:(NSString *)method {
  self.started=Mono();self.data=[NSMutableData new];
  NSURLSessionConfiguration *configuration=NSURLSessionConfiguration.ephemeralSessionConfiguration;
- configuration.HTTPCookieStorage=nil;configuration.URLCache=nil;configuration.URLCredentialStorage=nil;configuration.timeoutIntervalForRequest=15;configuration.timeoutIntervalForResource=20;
+ double timeout=self.timeout>0?self.timeout:15;
+ configuration.HTTPCookieStorage=nil;configuration.URLCache=nil;configuration.URLCredentialStorage=nil;configuration.timeoutIntervalForRequest=timeout;configuration.timeoutIntervalForResource=self.timeout>0?timeout:20;
  self.session=[NSURLSession sessionWithConfiguration:configuration delegate:self delegateQueue:NSOperationQueue.mainQueue];
- NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:15];
+ NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:timeout];
  [request setValue:[@"Bearer " stringByAppendingString:token] forHTTPHeaderField:@"Authorization"];
+ // This owner reports with observations; the server refuses playback to one that doesn't.
+ [request setValue:@"2" forHTTPHeaderField:@"Portico-Playback"];
  request.HTTPMethod=method;
  if(body){request.HTTPBody=[NSJSONSerialization dataWithJSONObject:body options:NSJSONWritingSortedKeys error:nil];[request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];}
  for(NSString *name in self.headers)[request setValue:self.headers[name] forHTTPHeaderField:name];
@@ -146,6 +151,9 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
  BOOL _transitions,_wasPlaying;
  NSString *_intent;double _rate;NSNumber *_preferredRate;
  long long _seq,_audibleSeq;
+ // Observations: the epoch this owner reports under (claimed, or handed over by JS), its own
+ // clocks since the claim; the seek serial is _seekRevision. The latest goes once a second.
+ NSString *_epoch,*_replaces;long long _observed;double _claimedAt,_playClock,_playingSince;
  double _leaseUntil,_nextReport,_reportEvery,_retryAt,_backoff,_audioCooldown;
  BOOL _reportNow,_patchWanted,_ended,_endedReported,_terminal,_safetyPaused,_engineFailed,_interrupted,_busy,_invalidated,_emitting,_routeReady,_resetEngine,_rendering;
  NSInteger _routeRevision,_seekRevision,_sequence,_ackSequence,_transitionSequence,_failures,_commitTries,_interruptionRevision,_actionRevision,_intentRevision;
@@ -205,6 +213,7 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
  _duration=[context[@"durationSeconds"] doubleValue];if(_duration<=0)_duration=[_render durationSeconds:session[@"presentation"]];
  _transitions=[context[@"transitions"] boolValue];_intent=context[@"intent"];_rate=1;_preferredRate=nil;
  _seq=[context[@"lastSeq"] longLongValue];_audibleSeq=0;
+ _epoch=nil;_replaces=WireID(context[@"observerEpoch"])?[context[@"observerEpoch"] copy]:nil;_observed=0;_playClock=0;_playingSince=-1;
  _leaseUntil=Mono()+[context[@"leaseMs"] doubleValue]/1000.0;_nextReport=0;_reportEvery=10;_retryAt=0;_backoff=0;_audioCooldown=0;
  _reportNow=YES;_patchWanted=NO;_ended=NO;_endedReported=NO;_terminal=NO;_safetyPaused=NO;_engineFailed=NO;_interrupted=NO;_busy=NO;_resetEngine=NO;_rendering=NO;
  _routeReady=YES;_routeRevision=-1;_seekRevision=0;_sequence=0;_ackSequence=0;_transitionSequence=0;_failures=0;_commitTries=0;_actionRevision=0;_intentRevision=0;
@@ -297,10 +306,13 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
 
 /** One request at a time; a lost answer is retried with backoff, never duplicated. */
 - (void)send:(NSString *)method path:(NSString *)path body:(id)body headers:(NSDictionary *)headers completion:(void (^)(NSInteger,id,double,PorticoListeningRequest *))completion {
+ [self send:method path:path body:body headers:headers timeout:0 completion:completion];
+}
+- (void)send:(NSString *)method path:(NSString *)path body:(id)body headers:(NSDictionary *)headers timeout:(double)timeout completion:(void (^)(NSInteger,id,double,PorticoListeningRequest *))completion {
  if(!_owner||_terminal||!_routeReady)return;
  NSString *owner=_owner,*requestToken=_token;
  BOOL fast=_fastRetry;_fastRetry=NO;
- _busy=YES;PorticoListeningRequest *request=[PorticoListeningRequest new];request.headers=headers;_request=request;
+ _busy=YES;PorticoListeningRequest *request=[PorticoListeningRequest new];request.headers=headers;request.timeout=timeout;_request=request;
  __weak PorticoListeningSessionOwner *weakSelf=self;__weak PorticoListeningRequest *weakRequest=request;
  request.completion=^(NSInteger status,id value,double started){PorticoListeningRequest *request=weakRequest;
   PorticoListeningSessionOwner *self=weakSelf;if(!self||![self->_owner isEqual:owner]||self->_request!=request||self->_terminal)return;
@@ -365,7 +377,9 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
  if(_reportNow||Mono()>=_nextReport){[self report];return;}
  [self maybePrepare];
 }
-/** The timeline (spec §6): progress, lease renewal and observation in one POST. */
+/** One observation (P2-21): the latest state, once a second. The first claims the session's epoch
+ * (naming JS's, when it handed over); a refused or lost sample is replaced by the next one, never
+ * resent. The lease is the one the server last wrote, from the ack. */
 - (void)report {
  if(!_session)return;
  NSDictionary *engine=[_controller listeningSnapshot],*binding=V1Dictionary(engine[@"binding"]);
@@ -378,23 +392,39 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
   state=_ended?@"ended":(![self allowed]||![_intent isEqual:@"playing"])?@"paused":[engine[@"ready"] boolValue]?@"playing":@"buffering";
  }
  if(_endedReported&&[state isEqual:@"ended"]){_reportNow=NO;_nextReport=INFINITY;return;}
- long long seq=_seq+1;NSString *session=_session[@"id"];
- NSDictionary *body=@{@"seq":@(seq),@"generation":_session[@"presentation"][@"generation"],@"state":state,@"positionMs":@((long long)llround(MAX(0,position)*1000)),@"rate":@(_rate)};
+ NSString *session=_session[@"id"];double now=Mono();
+ if(_playingSince>=0){_playClock+=now-_playingSince;_playingSince=-1;}
+ if([state isEqual:@"playing"])_playingSince=now;
  _reportNow=NO;
- [self send:@"POST" path:[self sessionPath:@"/timeline"] body:body headers:nil completion:^(NSInteger status,id value,double started,PorticoListeningRequest *request){
+ NSString *claimed=_epoch;
+ if(!claimed){
+  NSDictionary *claim=_replaces?@{@"generation":_session[@"presentation"][@"generation"],@"replaces":_replaces}:@{@"generation":_session[@"presentation"][@"generation"]};
+  [self send:@"POST" path:[self sessionPath:@"/observer"] body:claim headers:nil completion:^(NSInteger status,id value,double started,PorticoListeningRequest *request){
+   if(![self->_session[@"id"] isEqual:session])return;
+   NSString *granted=V1Dictionary(value)[@"epoch"];
+   if(status>=200&&status<300&&WireID(granted)){self->_epoch=[granted copy];self->_replaces=nil;self->_observed=0;self->_claimedAt=Mono();self->_playClock=0;if(self->_playingSince>=0)self->_playingSince=self->_claimedAt;self->_reportNow=YES;return;}
+   if([self sessionGone:status value:value]){[self learnEnd];return;}
+   self->_nextReport=Mono()+1; // another owner still reports (a handover): claim again shortly
+  }];
+  return;
+ }
+ double monotonic=MAX(0,now-_claimedAt)*1000,played=MIN(monotonic,(_playClock+(_playingSince>=0?now-_playingSince:0))*1000);
+ long long next=++_observed;
+ NSDictionary *body=@{@"epoch":claimed,@"seq":@(next),@"generation":_session[@"presentation"][@"generation"],@"state":state,@"positionMs":@((long long)llround(MAX(0,position)*1000)),
+  @"rate":@([state isEqual:@"playing"]?_rate:0),@"monotonicMs":@((long long)floor(monotonic)),@"playClockMs":@((long long)floor(played)),@"seekSerial":@(_seekRevision)};
+ [self send:@"PUT" path:[self sessionPath:@"/observation"] body:body headers:nil timeout:1.5 completion:^(NSInteger status,id value,double started,PorticoListeningRequest *request){
   if(![self->_session[@"id"] isEqual:session])return;
   if(status>=200&&status<300){
-   self->_seq=MAX(self->_seq,seq);self->_leaseUntil=started+120;
+   self->_seq=MAX(self->_seq,next);
+   double until=Timestamp(V1Dictionary(value)[@"leaseUntil"]);if(isfinite(until))self->_leaseUntil=Mono()+(until-Wall());
    if([self->_error isEqual:@"playback_reconnecting"]||[self->_error isEqual:@"playback_confirmation_expired"])self->_error=nil;
-   NSString *every=nil;for(NSString *key in request.responseHeaders)if([key caseInsensitiveCompare:@"Report-Every-Ms"]==NSOrderedSame)every=request.responseHeaders[key];
-   if(every.doubleValue>0)self->_reportEvery=MAX(1,every.doubleValue/1000.0);
-   self->_nextReport=Mono()+([state isEqual:@"paused"]?MAX(30,self->_reportEvery):self->_reportEvery);
+   self->_nextReport=Mono()+1;
    if([state isEqual:@"ended"]){self->_endedReported=YES;self->_nextReport=INFINITY;[self completed];}
    [self emit];return;
   }
+  if([V1ErrorCode(value) isEqual:@"observation_epoch_changed"]){self->_replaces=self->_epoch;self->_epoch=nil;self->_reportNow=YES;return;}
   if([self sessionGone:status value:value]){[self learnEnd];return;}
-  self->_seq=MAX(self->_seq,seq); // a rejected seq is spent either way
-  self->_retryAt=Mono()+2;
+  self->_nextReport=Mono()+1;
  }];
 }
 /** Pause and resume are the session's desired state (PATCH with If-Match); rate stays local. */
@@ -535,7 +565,7 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
  [self carryTimerTo:session automatic:automatic];
  NSString *previous=_audible[@"id"]?:_session[@"id"];
  if(previous||_transition){_transition=@{@"previousSessionId":_transition?_transition[@"previousSessionId"]:previous,@"queue":queue?:NSNull.null};_transitionSequence=_sequence+1;}
- _pausedAt=0;_wasPlaying=NO;_session=[session copy];_audible=nil;_seq=0;_leaseUntil=started+120;_nextReport=0;_reportNow=YES;_ended=NO;_endedReported=NO;_error=nil;_notice=nil;
+ _pausedAt=0;_wasPlaying=NO;_session=[session copy];_audible=nil;_seq=0;_epoch=nil;_replaces=nil;_leaseUntil=started+120;_nextReport=0;_reportNow=YES;_ended=NO;_endedReported=NO;_error=nil;_notice=nil;
  _prepared=nil;_committed=nil;_commitWanted=NO;_audioReady=NO;_renderFailures=0;_startPending=nil;_parkedCommit=nil;_replayTries=0;
  _pausedAt=0;_wasPlaying=NO;_intent=(_timerStopped||[session[@"state"] isEqual:@"paused"])?@"paused":@"playing";_safetyPaused=NO;_engineFailed=NO;_audioAttempt=nil;_rendering=NO;_policyRateKey=nil;
  _duration=[_render durationSeconds:session[@"presentation"]];
@@ -627,7 +657,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
    // the boundary. The old grant fetches nothing more.
    self->_committed=@{@"token":prepared[@"token"],@"session":next,@"sameAlbum":prepared[@"sameAlbum"]?:@NO};
    self->_audible=self->_session;self->_audibleSeq=self->_seq;self->_audibleDuration=self->_duration;
-   self->_session=[next copy];self->_seq=0;self->_leaseUntil=started+120;self->_reportNow=YES;self->_endedReported=NO;
+   self->_session=[next copy];self->_seq=0;self->_epoch=nil;self->_replaces=nil;self->_leaseUntil=started+120;self->_reportNow=YES;self->_endedReported=NO;
    self->_duration=[self->_render durationSeconds:next[@"presentation"]];
    [self persist];[self apply];[self emit];return;
   }

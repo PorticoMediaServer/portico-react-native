@@ -30,7 +30,7 @@ import {QueueSelectionRegistrations, type QueueSelectionRegistration} from '../.
 import type {PlaybackApi, PlaybackService, PlaybackSession, PlaybackSnapshot, SessionEndInfo} from '../../../../../packages/client-core/src/index';
 import type {PlayerFailureCode} from '../../../../../packages/client-core/src/client-profile';
 import {AutomaticQuality, fixedQualityOf, qualityRequest, type FixedQuality} from '../../../../../packages/client-core/src/playback-v1/choices';
-import {PlaybackApiError, idempotencyKey, type V1Http, type V1Request} from '../../../../../packages/client-core/src/playback-v1/http';
+import {PlaybackApiError, idempotencyKey, type V1Http} from '../../../../../packages/client-core/src/playback-v1/http';
 import {PlaybackOptionsClient} from '../../../../../packages/client-core/src/playback-v1/options';
 import type {MediaPlayer, PlayerEvent, PlayerObservation, PlayerSource, PlayerState} from '../../../../../packages/client-core/src/playback-v1/port';
 import {parseObservedPlayback, type ObservedPlayback} from '../../../../../packages/client-core/src/playback-v1/observed-playback';
@@ -126,24 +126,6 @@ class ObservedEngine implements MediaPlayer {
   }
 }
 
-/** Remembers the highest timeline `seq` sent for each session, for a native owner that takes one
- * over and must continue from it. */
-function countingReports(http: V1Http, seqs: Map<string, number>): V1Http {
-  const timeline = /^\/v1\/playback\/sessions\/([^/]+)\/timeline$/;
-  return {
-    send(request: V1Request) {
-      const match = request.method === 'POST' ? timeline.exec(request.path) : null;
-      const seq = match ? (request.body as {seq?: unknown} | undefined)?.seq : undefined;
-      if (match && typeof seq === 'number' && Number.isSafeInteger(seq)) {
-        const id = decodeURIComponent(match[1]!);
-        seqs.set(id, Math.max(seqs.get(id) ?? 0, seq));
-        if (seqs.size > 32) seqs.delete(seqs.keys().next().value!);
-      }
-      return http.send(request);
-    },
-  };
-}
-
 const finite = (value: unknown): number | undefined => (typeof value === 'number' && Number.isFinite(value) ? value : undefined);
 
 export class NativePlayback {
@@ -156,7 +138,6 @@ export class NativePlayback {
   private readonly known = new Map<string, Session>();
   private readonly registrations = new QueueSelectionRegistrations();
   private readonly selectionAdoptions = new WeakMap<PlaybackSession, {id: string; registration: QueueSelectionRegistration}>();
-  private readonly seqs = new Map<string, number>();
   private readonly positions = new Map<string, number>();
   private readonly retired = new Set<string>();
   private readonly changedListeners = new Set<(session: Session) => void>();
@@ -178,7 +159,7 @@ export class NativePlayback {
 
   constructor(host: NativePlaybackHost) {
     this.host = host;
-    const http = countingReports(host.http, this.seqs);
+    const http = host.http;
     this.client = new SessionsClient(http, host.timers);
     this.options = new PlaybackOptionsClient(host.http);
     this.controller = new PlaybackSessionController({
@@ -186,6 +167,8 @@ export class NativePlayback {
       // The engines seek inside the stream they hold; the server follows the requests.
       serverSeek: () => false,
       wantsPlaying: () => this.service?.getSnapshot().intent === 'playing',
+      // A pause or play asked elsewhere goes through the service that owns the engine (RN-09).
+      onRemoteControl: state => { const service = this.service; if (!service) return; if (state === 'paused') service.pause(); else service.resume(); },
       onServerEnded: (session, end) => this.serverEnded(session.id, end),
       onLeaseExpired: (session, positionMs) => void this.leaseExpired(session, positionMs),
     });
@@ -502,7 +485,7 @@ export class NativePlayback {
         if (adopted) {const own = self.selectionAdoptions.get(adopted); return own?.id === id ? own.registration : undefined;}
         return self.known.has(id) ? undefined : self.captureSelectionRegistration(id);
       },
-      reportedSeq: (id: string) => self.seqs.get(id) ?? 0,
+      handOverObserver: (id: string) => self.controller.handOverObserver(id),
       session: (id: string) => self.known.get(id),
       async change(id: string, change: SessionChange, durationSeconds: number, context?: SessionChangeContext) {
         requireSessionChangeCurrent(context);
@@ -562,12 +545,15 @@ export class NativePlayback {
       },
       sessionUpdated(sessionId: string, revision?: string, data?: unknown) {
         if (self.retired.has(sessionId)) return;
-        const d = data && typeof data === 'object' ? data as {state?: unknown; reason?: unknown; generation?: unknown} : undefined;
+        const d = data && typeof data === 'object' ? data as {state?: unknown; reason?: unknown; generation?: unknown; control?: {revision?: unknown}} : undefined;
         if (d?.state === 'ended' && typeof d.reason === 'string' && OWN_ENDS.includes(d.reason)) return;
-        // Every report this device sends moves the session's revision; only an end or a new
-        // presentation is worth reading the session again for.
+        // This device's own reports move the session's state but never its command revision: an
+        // end, a new presentation or a newer command (a pause or play asked elsewhere, RN-09) is
+        // worth reading the session again for.
         const held = self.controller.getSnapshot().session;
-        if (d && d.state !== 'ended' && typeof d.generation === 'number' && held?.id === sessionId && d.generation <= held.presentation.generation) return;
+        const control = Number(d?.control?.revision), heldControl = Number(held?.control?.revision);
+        const newerControl = Number.isSafeInteger(control) && !(Number.isSafeInteger(heldControl) && control <= heldControl);
+        if (d && d.state !== 'ended' && typeof d.generation === 'number' && held?.id === sessionId && d.generation <= held.presentation.generation && !newerControl) return;
         void self.controller.sessionUpdated(sessionId, revision, data);
       },
     };

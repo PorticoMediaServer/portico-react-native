@@ -78,6 +78,14 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   private var rate = 1.0
   private var seq = 0L
   private var audibleSeq = 0L
+  // Observations: the epoch this owner reports under (claimed, or handed over by JS), its own
+  // clocks since the claim and the seek serial (seekRevision). The latest is sent once a second.
+  private var epoch: String? = null
+  private var replaces: String? = null
+  private var observed = 0L
+  private var claimedAt = 0.0
+  private var playClock = 0.0
+  private var playingSince = -1.0
   private var leaseUntil = 0.0
   private var nextReport = 0.0
   private var reportEvery = 10.0
@@ -182,6 +190,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     intent = handover["intent"] as String
     rate = 1.0
     seq = num(handover["lastSeq"])!!.toLong(); audibleSeq = 0
+    epoch = null; replaces = (handover["observerEpoch"] as? String)?.takeIf { wireId(it) }; observed = 0; playClock = 0.0; playingSince = -1.0
     leaseUntil = mono() + num(handover["leaseMs"])!! / 1000.0
     nextReport = 0.0; reportEvery = 10.0; retryAt = 0.0; backoff = 0.0; audioCooldown = 0.0
     reportNow = true; patchWanted = false; ended = false; endedReported = false; terminal = false; safetyPaused = false; engineFailed = false; busy = false; rendering = false
@@ -366,7 +375,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
 
   // --- requests --------------------------------------------------------------------------
 
-  private inner class Exchange(val binary: Boolean = false, val byteLimit: Long = 1L shl 20) {
+  private inner class Exchange(val binary: Boolean = false, val byteLimit: Long = 1L shl 20, val timeoutMs: Long = 0) {
     var completion: ((Int, Any?, Double, Headers?) -> Unit)? = null
     private var call: Call? = null
     private var started = 0.0
@@ -375,11 +384,14 @@ internal class PorticoListeningOwner(private val context: Context, private val c
       started = mono()
       val builder = try { Request.Builder().url(url) } catch (_: Exception) { main.post { finish(0, null, null) }; return }
       builder.header("Authorization", "Bearer $token")
+      // This owner reports with observations; the server refuses playback to one that doesn't.
+      builder.header("Portico-Playback", "2")
       val type = (headers?.get("Content-Type") ?: "application/json").toMediaType()
       val payload = body?.let { json(it).toByteArray(Charsets.UTF_8).toRequestBody(type) }
       builder.method(method, payload ?: if (method == "POST" || method == "PATCH" || method == "PUT") ByteArray(0).toRequestBody(type) else null)
       headers?.forEach { (name, value) -> if (name != "Content-Type") builder.header(name, value) }
-      val made = http.newCall(builder.build())
+      val client = if (timeoutMs > 0) http.newBuilder().callTimeout(timeoutMs, TimeUnit.MILLISECONDS).build() else http
+      val made = client.newCall(builder.build())
       call = made
       made.enqueue(object : Callback {
         override fun onFailure(call: Call, e: IOException) { main.post { finish(0, null, null) } }
@@ -418,14 +430,14 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   }
 
   /** One request at a time; a lost answer is retried with backoff, never duplicated. */
-  private fun send(method: String, path: String, body: Map<String, Any?>?, headers: Map<String, String>?, completion: (Int, Any?, Double, Headers?) -> Unit) {
+  private fun send(method: String, path: String, body: Map<String, Any?>?, headers: Map<String, String>?, timeoutMs: Long = 0, completion: (Int, Any?, Double, Headers?) -> Unit) {
     val owner = activeOwner ?: return
     if (terminal || !routeReady) return
     val requestToken = token
     val fast = fastRetry
     fastRetry = false
     busy = true
-    val exchange = Exchange()
+    val exchange = Exchange(timeoutMs = timeoutMs)
     request = exchange
     exchange.completion = completion@{ status, value, started, responseHeaders ->
       if (activeOwner != owner || request !== exchange || terminal) return@completion
@@ -517,7 +529,9 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     maybePrepare()
   }
 
-  /** The timeline (spec §6): progress, lease renewal and observation in one POST. */
+  /** One observation (P2-21): the latest state, once a second. The first claims the session's
+   * epoch (naming JS's, when it handed over); a refused or lost sample is replaced by the next one,
+   * never resent. The lease is the one the server last wrote, from the ack. */
   private fun report() {
     val engine = controller.listeningSnapshot()
     val binding = engine["binding"] as? Map<*, *>
@@ -531,26 +545,47 @@ internal class PorticoListeningOwner(private val context: Context, private val c
       state = if (ended) "ended" else if (!allowed() || intent != "playing") "paused" else if (engine["ready"] == true) "playing" else "buffering"
     }
     if (endedReported && state == "ended") { reportNow = false; nextReport = Double.POSITIVE_INFINITY; return }
-    val next = seq + 1
     val id = session["id"]
-    val body = mapOf("seq" to next, "generation" to generation(session), "state" to state, "positionMs" to Math.round(Math.max(0.0, position) * 1000), "rate" to rate)
+    val now = mono()
+    if (playingSince >= 0) { playClock += now - playingSince; playingSince = -1.0 }
+    if (state == "playing") playingSince = now
     reportNow = false
-    send("POST", sessionPath("/timeline"), body, null) { status, value, started, headers ->
+    val claimed = epoch
+    if (claimed == null) {
+      val claim = if (replaces != null) mapOf("generation" to generation(session), "replaces" to replaces) else mapOf("generation" to generation(session))
+      send("POST", sessionPath("/observer"), claim, null) { status, value, _, _ ->
+        if (session["id"] != id) return@send
+        val granted = (value as? Map<*, *>)?.get("epoch") as? String
+        if (status in 200..299 && granted != null && wireId(granted)) {
+          epoch = granted; replaces = null; observed = 0; claimedAt = mono(); playClock = 0.0
+          if (playingSince >= 0) playingSince = claimedAt
+          reportNow = true
+          return@send
+        }
+        if (sessionGone(status, value)) { learnEnd(); return@send }
+        nextReport = mono() + 1 // another owner still reports (a handover): claim again shortly
+      }
+      return
+    }
+    val monotonic = Math.max(0.0, now - claimedAt) * 1000
+    val played = Math.min(monotonic, (playClock + (if (playingSince >= 0) now - playingSince else 0.0)) * 1000)
+    val next = ++observed
+    val body = mapOf("epoch" to claimed, "seq" to next, "generation" to generation(session), "state" to state, "positionMs" to Math.round(Math.max(0.0, position) * 1000),
+      "rate" to (if (state == "playing") rate else 0.0), "monotonicMs" to Math.floor(monotonic).toLong(), "playClockMs" to Math.floor(played).toLong(), "seekSerial" to seekRevision)
+    send("PUT", sessionPath("/observation"), body, null, OBSERVATION_TIMEOUT_MS) { status, value, _, _ ->
       if (session["id"] != id) return@send
       if (status in 200..299) {
         seq = Math.max(seq, next)
-        leaseUntil = started + 120
+        timestamp((value as? Map<*, *>)?.get("leaseUntil"))?.let { leaseUntil = mono() + (it - wall()) }
         if (error?.startsWith("Reconnecting") == true || error?.startsWith("Playback paused: the server") == true) error = null
-        val every = headers?.get("Report-Every-Ms")?.toDoubleOrNull()
-        if (every != null && every > 0) reportEvery = Math.max(1.0, every / 1000.0)
-        nextReport = mono() + (if (state == "paused") Math.max(30.0, reportEvery) else reportEvery)
+        nextReport = mono() + 1
         if (state == "ended") { endedReported = true; nextReport = Double.POSITIVE_INFINITY; completed() }
         emit()
         return@send
       }
+      if (errorCode(value) == "observation_epoch_changed") { replaces = epoch; epoch = null; reportNow = true; return@send }
       if (sessionGone(status, value)) { learnEnd(); return@send }
-      seq = Math.max(seq, next) // a rejected seq is spent either way
-      retryAt = mono() + 2
+      nextReport = mono() + 1
     }
   }
 
@@ -724,7 +759,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     val previous = (audible?.get("id") ?: session["id"]) as? String
     transition = mapOf("previousSessionId" to (transition?.get("previousSessionId") ?: previous), "queue" to moved)
     transitionSequence = sequence + 1
-    session = next; audible = null; seq = 0; leaseUntil = started + 120; nextReport = 0.0; reportNow = true; ended = false; endedReported = false; error = null; notice = null
+    session = next; audible = null; seq = 0; epoch = null; replaces = null; leaseUntil = started + 120; nextReport = 0.0; reportNow = true; ended = false; endedReported = false; error = null; notice = null
     prepared = null; committed = null; commitWanted = false; audioReady = false; renderFailures = 0; startPending = null; parkedCommit = null; replayTries = 0
     pausedAt = 0.0; wasPlaying = false
     intent = if (timerStopped || next["state"] == "paused") "paused" else "playing"
@@ -835,7 +870,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
         // to the boundary. The old grant fetches nothing more.
         committed = mapOf("token" to reserved["token"], "session" to next, "sameAlbum" to (reserved["sameAlbum"] == true))
         audible = session; audibleSeq = seq; audibleDuration = duration
-        session = next!!; seq = 0; leaseUntil = started + 120; reportNow = true; endedReported = false
+        session = next!!; seq = 0; epoch = null; replaces = null; leaseUntil = started + 120; reportNow = true; endedReported = false
         duration = PorticoAudioPlan.durationSeconds(decodePlan(presentation(next)))
         persist(); apply(); emit()
         return@send
@@ -1435,6 +1470,8 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   private fun seekTo(seconds: Double): Map<String, Any?> = mapOf("revision" to (++seekRevision).toDouble(), "positionSeconds" to Math.max(0.0, if (seconds.isFinite()) seconds else 0.0))
 
   companion object {
+    /** An observation that has not answered in this long is replaced by the next one. */
+    private const val OBSERVATION_TIMEOUT_MS = 1500L
     /** The app's one listening owner, for the media session service. */
     @Volatile var shared: PorticoListeningOwner? = null
 
