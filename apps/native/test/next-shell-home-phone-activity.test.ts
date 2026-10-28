@@ -1,3 +1,4 @@
+import {headerWordmark} from '../src-next/kit/shell/brand';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
@@ -20,7 +21,7 @@ test('G14 renders only the owner glyph and invokes the genuine existing Dashboar
       'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 24})},
       '../../../../packages/i18n/src': {defaultI18n}, '../kit/shell': {ProfileAvatar: 'ProfileAvatar'},
       '../kit/controls': {Focusable: 'Focusable'}, '../kit/Icon': {Icon: 'Icon'},
-      '../kit/theme': {useTheme: () => theme}, '../platform/native-blur': {BlurView: 'BlurView'},
+      '../kit/shell/brand': {headerWordmark}, '../kit/theme': {useTheme: () => theme}, '../platform/native-blur': {BlurView: 'BlurView'},
       'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'LinearGradient', Rect: 'Rect', Stop: 'Stop'},
       './model': {phoneHeaderGeometry: () => ({top: 54, height: 104})},
     });
