@@ -1285,8 +1285,8 @@ export class NativePlaybackRuntime {
       this.clearForcedImage();
       this.audioTrackSelection.clear();
       const engine = this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', tracks = this.localTracks;
-      // Native rich renderers admit network resources; their local-file path is WebVTT only.
-      const rendering = engine === 'native' ? ['text'] : this.o.engineFeatures(engine).subtitleRendering;
+      // The local renderer validates every original, companion and font against the download.
+      const rendering = this.o.engineFeatures(engine).subtitleRendering;
       const offeredRendering = settings.engine !== 'native' && this.o.engines.transport('mpv')
         ? [...new Set([...rendering, ...this.o.engineFeatures('mpv').subtitleRendering])] : rendering;
       tracks?.configure(engine, this.coordinator.getInstanceId(), rendering, offeredRendering, engine === 'mpv' || this.o.nativeLocalSubtitleTiming === true);

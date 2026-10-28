@@ -92,3 +92,79 @@
 }
 - (void)dealloc{if(_errorObserver)[[NSNotificationCenter defaultCenter]removeObserver:_errorObserver];if(_observer)[[NSNotificationCenter defaultCenter]removeObserver:_observer];}
 @end
+
+static BOOL PorticoLocalAudioInteger(id value) {
+ return [value isKindOfClass:NSNumber.class]&&CFGetTypeID((__bridge CFTypeRef)value)!=CFBooleanGetTypeID()&&[value doubleValue]>=1&&[value doubleValue]<=9007199254740991.0&&floor([value doubleValue])==[value doubleValue];
+}
+@implementation PorticoLocalAudioSelection {
+ AVPlayerItem *_item; AVMediaSelectionGroup *_group; NSDictionary *_command,*_handled,*_attempted;
+ NSDictionary<NSString *,AVMediaSelectionOption *> *_options; NSArray<NSString *> *_ordered;
+ NSUInteger _lifetime; NSInteger _catalogue; BOOL _loading,_loaded; id _observer;
+}
+- (void)invalidate {
+ _lifetime++;if(_observer)[NSNotificationCenter.defaultCenter removeObserver:_observer];_observer=nil;
+ _item=nil;_group=nil;_options=nil;_ordered=nil;_command=nil;_handled=nil;_attempted=nil;_loading=NO;_loaded=NO;
+}
+- (void)emit:(NSString *)type extra:(NSDictionary *)extra {
+ if(!_item||!self.onFact)return;
+ NSMutableDictionary *fact=[@{@"type":type} mutableCopy];[fact addEntriesFromDictionary:extra];self.onFact(fact);
+}
+- (void)result:(NSString *)type command:(NSDictionary *)command {
+ if(!command)return;
+ [self emit:type extra:@{@"audioTrackRevision":command[@"revision"]?:@0,@"catalogRevision":command[@"catalogRevision"]?:@0,@"trackId":command[@"trackId"]?:@"",@"error":[type isEqual:@"localAudioTrackApplied"]?@"":@"audio_track_unavailable"}];
+}
+- (void)sample {
+ if(!_group)return;
+ AVMediaSelectionOption *selected=[_item.currentMediaSelection selectedMediaOptionInMediaSelectionGroup:_group];
+ NSMutableArray *tracks=[NSMutableArray new];NSString *observed=nil;
+ for(NSString *key in _ordered){
+  AVMediaSelectionOption *option=_options[key];BOOL active=option==selected;
+  if(active)observed=key;
+  NSMutableDictionary *track=[@{@"id":key,@"language":option.extendedLanguageTag?:option.locale.languageCode?:@"",@"title":option.displayName?:@"",@"selected":@(active),@"default":@(option==_group.defaultOption),@"external":@NO,@"commentary":@([option hasMediaCharacteristic:AVMediaCharacteristicIsAuxiliaryContent]),@"visualImpaired":@([option hasMediaCharacteristic:AVMediaCharacteristicDescribesVideoForAccessibility])} mutableCopy];
+  // These are AVFoundation's actual advertised subtypes, never a guessed stream ordinal.
+  NSNumber *subtype=option.mediaSubTypes.firstObject;if(subtype){uint32_t code=subtype.unsignedIntValue;char chars[5]={(char)(code>>24),(char)(code>>16),(char)(code>>8),(char)code,0};NSString *codec=[[NSString alloc]initWithBytes:chars length:4 encoding:NSASCIIStringEncoding];if(codec)track[@"codec"]=codec;}
+  [tracks addObject:track];
+ }
+ [self emit:@"mediaInfo" extra:@{@"audioTracks":tracks,@"audioTrackCatalogRevision":@(_catalogue)}];
+ if(_handled&&[_handled[@"catalogRevision"]isEqual:@(_catalogue)]&&[_handled[@"trackId"]isEqual:observed]){
+  NSDictionary *accepted=_handled;_handled=nil;[self result:@"localAudioTrackApplied" command:accepted];
+ }
+}
+- (void)selectPending {
+ if(!_group||!_command)return;
+ if([_command isEqual:_attempted])return;
+ _attempted=_command;_handled=nil;
+ if(![_command[@"catalogRevision"]isEqual:@(_catalogue)]||!_options[_command[@"trackId"]]){NSDictionary *failed=_command;[self result:@"localAudioTrackFailed" command:failed];return;}
+ NSDictionary *pending=_command;_handled=pending;
+ [_item selectMediaOption:_options[pending[@"trackId"]] inMediaSelectionGroup:_group];[self sample];
+ NSUInteger lifetime=_lifetime;__weak PorticoLocalAudioSelection *weakSelf=self;
+ dispatch_after(dispatch_time(DISPATCH_TIME_NOW,5*NSEC_PER_SEC),dispatch_get_main_queue(),^{
+  PorticoLocalAudioSelection *s=weakSelf;if(!s||s->_lifetime!=lifetime||s->_handled!=pending)return;
+  s->_handled=nil;[s result:@"localAudioTrackFailed" command:pending];
+ });
+}
+- (void)apply:(NSDictionary *)command item:(AVPlayerItem *)item {
+ if(![item.asset isKindOfClass:AVURLAsset.class]||!((AVURLAsset *)item.asset).URL.isFileURL){[self invalidate];return;}
+ if(_item!=item){[self invalidate];_item=item;_catalogue++;}
+ if(command){
+  if(![command isKindOfClass:NSDictionary.class]||!PorticoLocalAudioInteger(command[@"revision"])||!PorticoLocalAudioInteger(command[@"catalogRevision"])||![command[@"trackId"]isKindOfClass:NSString.class])return;
+  if(!_command||[command[@"revision"]longLongValue]>[_command[@"revision"]longLongValue])_command=[command copy];
+ }
+ if(_group){[self selectPending];return;}
+ if(_loaded&&!_loading&&!_group){if(_command&&![_attempted isEqual:_command]){_attempted=_command;[self result:@"localAudioTrackFailed" command:_command];}return;}
+ if(_loading||_loaded)return;_loading=YES;_loaded=YES;NSUInteger lifetime=_lifetime;__weak PorticoLocalAudioSelection *weakSelf=self;
+ void (^loaded)(AVMediaSelectionGroup *)=^(AVMediaSelectionGroup *group){
+  PorticoLocalAudioSelection *s=weakSelf;if(!s||s->_lifetime!=lifetime||s->_item!=item||!s->_loading)return;s->_loading=NO;
+  NSArray *supported=[AVMediaSelectionGroup playableMediaSelectionOptionsFromArray:group.options?:@[]];
+  if(!group||supported.count>64){[s emit:@"mediaInfo" extra:@{@"audioTracks":@[],@"audioTrackCatalogRevision":@(s->_catalogue)}];NSDictionary *failed=s->_command;s->_attempted=failed;[s result:@"localAudioTrackFailed" command:failed];return;}
+  NSMutableDictionary *options=[NSMutableDictionary new];NSMutableArray *ordered=[NSMutableArray new];
+  for(AVMediaSelectionOption *option in supported){NSString *key=NSUUID.UUID.UUIDString;options[key]=option;[ordered addObject:key];}
+  s->_group=group;s->_options=options;s->_ordered=ordered;
+  s->_observer=[NSNotificationCenter.defaultCenter addObserverForName:AVPlayerItemMediaSelectionDidChangeNotification object:item queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){PorticoLocalAudioSelection *current=weakSelf;if(current&&current->_lifetime==lifetime)[current sample];}];
+  [s sample];[s selectPending];
+ };
+ [item.asset loadMediaSelectionGroupForMediaCharacteristic:AVMediaCharacteristicAudible completionHandler:^(AVMediaSelectionGroup *group,NSError *error){dispatch_async(dispatch_get_main_queue(),^{loaded(group);});}];
+ dispatch_after(dispatch_time(DISPATCH_TIME_NOW,15*NSEC_PER_SEC),dispatch_get_main_queue(),^{loaded(nil);});
+}
+- (void)dealloc {if(_observer)[NSNotificationCenter.defaultCenter removeObserver:_observer];}
+@end

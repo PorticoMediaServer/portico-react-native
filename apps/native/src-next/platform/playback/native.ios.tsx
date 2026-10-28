@@ -81,7 +81,7 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
   const offlineDevice = !Platform.isTV && offlineDownloads.getSnapshot().supported
     && typeof NativeModules.PorticoDownloads?.localFile === 'function' ? options.offlineDevice ?? offlineDownloads : undefined;
   let runtime: NativePlaybackRuntime;
-  runtime = new NativePlaybackRuntime({...options, offlineDevice, subtitleFilePicker: appleSubtitleFilePicker, ...(nativeDynamicRangeMatchingAvailable() ? {nativeDynamicRangeMatching: true as const} : {}), ...(pipSupported ? {pictureInPictureControls: true as const} : {}), engineFeatures: () => nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
+  runtime = new NativePlaybackRuntime({...options, nativeLocalSubtitleTiming: true, offlineDevice, subtitleFilePicker: appleSubtitleFilePicker, ...(nativeDynamicRangeMatchingAvailable() ? {nativeDynamicRangeMatching: true as const} : {}), ...(pipSupported ? {pictureInPictureControls: true as const} : {}), engineFeatures: () => nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
     disposeCapabilities: () => { closed = true; offSettings(); capabilitiesEvent?.remove(); pictureEvent?.remove(); capabilityHttp.dispose(); appState?.remove(); void native.purgeAudioCache?.().catch(() => {}); },
     engines: {initial: 'native', transport: kind => kind === 'native' ? nativeTransport : undefined, choose: () => 'native'}});
   runtime.installSnapshotCapture(createVideoSnapshotCapture({isCurrent: runtime.isSnapshotSourceCurrent}));

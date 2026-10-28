@@ -456,5 +456,86 @@
       "false": [],
       "cases": 1
     }
+  },
+  "apps/native/test/apple-local-audio-tests.m": {
+    "runnable": true,
+    "sdk": "iphonesimulator",
+    "flags": [
+      "-Wno-nullability-completeness",
+      "-Wno-deprecated-declarations",
+      "-DPORTICO_LOCAL_CONTROLLER_TEST=1"
+    ],
+    "fixtures": "local-tracks/ from apps/native/test/make-local-track-fixtures.py",
+    "sources": [
+      "apps/native/Native/PorticoAudioSelection.m",
+      "apps/native/Native/PorticoPlaybackController.m",
+      "apps/native/Native/PorticoSubtitleSelection.m",
+      "apps/native/Native/PorticoSubtitleOverlay.m",
+      "apps/native/Native/PorticoAudioRender.m",
+      "apps/native/Native/PorticoAudioProcessing.m",
+      "apps/native/Native/PorticoAudioCapture.m"
+    ],
+    "frameworks": [
+      "Foundation",
+      "AVFoundation",
+      "UIKit",
+      "AVKit",
+      "AudioToolbox",
+      "CoreMedia",
+      "CoreText",
+      "MediaAccessibility"
+    ],
+    "runs": [
+      {
+        "args": [
+          "{fixtures}/local-tracks/local-audio.mp4"
+        ],
+        "env": {
+          "TMPDIR": "{tmp}"
+        }
+      }
+    ],
+    "verdict": {
+      "kind": "summary",
+      "minimum": 21
+    },
+    "media": true
+  },
+  "apps/native/test/apple-local-subtitle-tests.m": {
+    "runnable": true,
+    "sdk": "iphonesimulator",
+    "flags": [
+      "-Wno-nullability-completeness",
+      "-Wno-deprecated-declarations"
+    ],
+    "fixtures": "local-tracks/ from apps/native/test/make-local-track-fixtures.py",
+    "sources": [
+      "apps/native/Native/PorticoSubtitleSelection.m",
+      "apps/native/Native/PorticoSubtitleOverlay.m"
+    ],
+    "frameworks": [
+      "Foundation",
+      "UIKit",
+      "AVFoundation",
+      "CoreMedia",
+      "CoreText",
+      "MediaAccessibility"
+    ],
+    "media": true,
+    "runs": [
+      {
+        "args": [
+          "{fixtures}/local-tracks",
+          "{root}/apps/native/assets/manrope-400.ttf"
+        ],
+        "env": {
+          "TMPDIR": "{tmp}"
+        }
+      }
+    ],
+    "verdict": {
+      "kind": "summary",
+      "minimum": 33
+    }
   }
 }

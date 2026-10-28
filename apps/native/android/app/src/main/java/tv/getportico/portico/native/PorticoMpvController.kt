@@ -122,6 +122,7 @@ internal class PorticoMpvController(private val context: Context) {
   private var snapshot = PorticoMpvSnapshot()
   private var lastPosition = Double.NaN
   private var tracks: List<Map<String, Any?>> = emptyList()
+  private val localAudioIdentity = tv.getportico.portico.policy.PorticoIsoAudioIdentity.Cache()
   private var chapters: List<Map<String, Any?>> = emptyList()
   private var videoParams: Map<String, Any?> = emptyMap()
 
@@ -132,6 +133,8 @@ internal class PorticoMpvController(private val context: Context) {
   private var audioHandledRevision = -1L
   private var audioTrackHandled = -1L
   private var audioTrackPending: Triple<Long, Int, Long>? = null
+  private var audioTrackReadbackRevision = -1L
+  private var audioTrackTimeout: Runnable? = null
 
   private val subtitleOverlay = PorticoSubtitleSelection()
   private val fontFetcher = PorticoMpvFontFetcher(context)
@@ -592,8 +595,13 @@ internal class PorticoMpvController(private val context: Context) {
     pendingDisplayReady = null
     startSeek = null
     seekInFlight = null
+    cancelAudioTrackTimeout()
     audioTrackPending = null
+    audioTrackReadbackRevision = -1
+    // A new playback object restarts its revisions; a later load must accept them again.
+    audioTrackHandled = -1
     tracks = emptyList()
+    localAudioIdentity.clear()
     chapters = emptyList()
     videoParams = emptyMap()
     directRefused = false
@@ -772,6 +780,16 @@ internal class PorticoMpvController(private val context: Context) {
         }
       }
       is PorticoMpvEvent.SubtitleText -> fontForText(event.text)
+      is PorticoMpvEvent.AudioTrackReadback -> {
+        val pending = audioTrackPending
+        if (pending != null && pending.first == event.revision) {
+          if (event.code < 0) failAudioTrack(pending.first, pending.third)
+          else {
+            audioTrackReadbackRevision = event.revision
+            confirmAudioTrack()
+          }
+        }
+      }
       is PorticoMpvEvent.Changed -> when (event.name) {
         "paused-for-cache" -> {
           if (next.pausedForCache && !before.pausedForCache && hasPlayed && !next.eofReached) emit("stalled", null)
@@ -1130,6 +1148,9 @@ internal class PorticoMpvController(private val context: Context) {
   private fun publishMediaInfo() {
     if (onFact == null || !ready()) return
     val video = selectedVideo()
+    val proof = localAudioIdentity.get(if (localSource()) source else null)
+    val localAudio = tracks.asSequence().filter { it["type"] == "audio" && it["external"] != true }.take(65).toList()
+    val sourceIds = if (localAudio.size <= 64) localAudio.groupingBy { it["src-id"] }.eachCount() else emptyMap()
     val picture = HashMap<String, Any?>()
     picture["dynamicRange"] = sourceRange()
     picture["hardwareDecoding"] = snapshot.hwdec != "no" && snapshot.hwdec.isNotEmpty()
@@ -1143,6 +1164,9 @@ internal class PorticoMpvController(private val context: Context) {
       out["selected"] = track["selected"] == true
       out["external"] = track["external"] == true
       PorticoMpvSupport.streamIndex(track)?.let { out["streamIndex"] = it }
+      if (track["type"] == "audio" && sourceIds[track["src-id"]] == 1) {
+        proof.mpv(snapshot.fileFormat, track["src-id"], track["external"] == true)?.let { out["sourceTrackIdentity"] = it }
+      }
       (track["lang"] as? String)?.let { out["language"] = it }
       (track["title"] as? String)?.let { out["title"] = it }
       (track["codec"] as? String)?.let { out["codec"] = it }
@@ -1269,31 +1293,64 @@ internal class PorticoMpvController(private val context: Context) {
     if (!loaded) return
     val wanted = PorticoMpvSupport.map(command?.get("audioTrack")) ?: return
     val revision = PorticoMpvSupport.integer(wanted["revision"]) ?: return
-    if (revision == audioTrackHandled) return
+    // JavaScript sends rising revisions. A replayed older command must not supersede the
+    // current readback, so equal or lower revisions are already handled.
+    if (revision <= audioTrackHandled) return
     val index = PorticoMpvSupport.integer(wanted["streamIndex"], 0.0) ?: return
-    audioTrackHandled = revision
     val found = PorticoMpvSupport.tracks(tracks, "audio").filter { PorticoMpvSupport.streamIndex(it)?.toLong() == index }
     val track = if (found.size == 1) PorticoMpvSupport.trackId(found[0]) else null
     if (track == null) {
-      val fact = baseFact("audioTrackFailed", currentPosition(), "This audio track is unavailable in the current player.")
-      fact["audioTrackRevision"] = revision.toDouble()
-      fact["streamIndex"] = index.toDouble()
-      publish(fact)
+      audioTrackHandled = revision
+      failAudioTrack(revision, index)
       return
     }
+    val core = core
+    // Nothing can be posted without a live core; leave this revision unhandled so the next
+    // command tick retries it once the engine is back.
+    if (core == null) return
+    cancelAudioTrackTimeout()
     audioTrackPending = Triple(revision, track, index)
-    core?.set("aid", track.toString())
-    if (currentAudioTrack() == track) confirmAudioTrack()
+    audioTrackReadbackRevision = -1
+    if (!core.selectAudioTrack(track, revision, loadEpoch)) {
+      // A stopped Handler rejected the post. Keep the revision retryable.
+      audioTrackPending = null
+      return
+    }
+    audioTrackHandled = revision
+    // A guard-dropped command is answered with a failure readback. An `aid` mpv accepts but
+    // coerces never produces the exact readback, so bound the wait like the native path.
+    val timeout = Runnable {
+      val pending = audioTrackPending
+      if (pending != null && pending.first == revision) failAudioTrack(pending.first, pending.third)
+    }
+    audioTrackTimeout = timeout
+    main.postDelayed(timeout, AUDIO_TRACK_TIMEOUT_MS)
   }
 
   private fun confirmAudioTrack() {
     val pending = audioTrackPending ?: return
-    if (currentAudioTrack() != pending.second) return
+    if (audioTrackReadbackRevision != pending.first || currentAudioTrack() != pending.second) return
+    cancelAudioTrackTimeout()
     audioTrackPending = null
     val fact = baseFact("audioTrackApplied", currentPosition(), null)
     fact["audioTrackRevision"] = pending.first.toDouble()
     fact["streamIndex"] = pending.third.toDouble()
     publish(fact)
+  }
+
+  private fun failAudioTrack(revision: Long, index: Long) {
+    cancelAudioTrackTimeout()
+    audioTrackPending = null
+    audioTrackReadbackRevision = -1
+    val fact = baseFact("audioTrackFailed", currentPosition(), "This audio track is unavailable in the current player.")
+    fact["audioTrackRevision"] = revision.toDouble()
+    fact["streamIndex"] = index.toDouble()
+    publish(fact)
+  }
+
+  private fun cancelAudioTrackTimeout() {
+    audioTrackTimeout?.let { main.removeCallbacks(it) }
+    audioTrackTimeout = null
   }
 
   // --- subtitles -------------------------------------------------------------------------
@@ -1985,6 +2042,9 @@ internal class PorticoMpvController(private val context: Context) {
      * HDR is always tone-mapped on the device.
      */
     const val HDR_DIRECT_OUTPUT = true
+
+    /** A local `audioTrack` choice must produce its exact readback within this window. */
+    const val AUDIO_TRACK_TIMEOUT_MS = 15_000L
 
     /**
      * Whether this engine plays live channels. The code is complete but has not yet been played

@@ -3,6 +3,7 @@
 #import "PorticoSubtitleSelection.h"
 #import "PorticoSubtitlePayload.h"
 #import "PorticoSubtitleClock.h"
+#import "PorticoLocalSubtitle.h"
 #import <CoreText/CoreText.h>
 #import <Libporticosubtitle/PorticoSubtitleCore.h>
 
@@ -80,6 +81,8 @@ typedef NS_ENUM(NSInteger,PSFetchFailure){PSFetchOK,PSFetchTransient,PSFetchDeni
  if(!transient){
   // Fence both pending loads and queued images before clearing a revoked/invalid renderer.
   _epoch++;for(PSFetch *f in _fetches)[f cancel];[_fetches removeAllObjects];[self clearRenderer];_lastFetch=now;
+  // A saved VTT reading can take over after a local original/font/companion fails.
+  if([NSURL URLWithString:_source].isFileURL)_active=NO;
  }else{
   if(now>=_authorized)[self clearRenderer];
   _lastFetch=now-20;NSUInteger epoch=_epoch;__weak PorticoSubtitleOverlay *weakSelf=self;
@@ -89,9 +92,21 @@ typedef NS_ENUM(NSInteger,PSFetchFailure){PSFetchOK,PSFetchTransient,PSFetchDeni
 }
 /* The URL must belong to this media grant's resource, including each font and IDX companion. */
 - (NSURL *)scoped:(id)value source:(NSString *)source resource:(NSString *)resource {
+ if([NSURL URLWithString:source].isFileURL)return PorticoLocalSubtitleURL(value,source,self.allowsLocalFile);
  return PorticoScopedSubtitleURL(value,source,resource);
 }
+- (NSURL *)companion:(NSDictionary *)render source:(NSString *)source index:(NSURL *)index {
+ if(![NSURL URLWithString:source].isFileURL)return PorticoVobSubCompanionURL(render,source,index);
+ NSURL *pair=[self scoped:render[@"companionUrl"] source:source resource:nil];
+ return [index.pathExtension.lowercaseString isEqual:@"idx"]&&[pair.pathExtension.lowercaseString isEqual:@"sub"]&&[[pair.path stringByDeletingPathExtension]isEqual:[index.path stringByDeletingPathExtension]]?pair:nil;
+}
 - (void)fetch:(NSURL *)url limit:(NSUInteger)limit epoch:(NSUInteger)epoch done:(void (^)(NSData *))done {
+ if(url.isFileURL){
+  NSString *source=[_source copy];BOOL (^allowed)(NSURL *)=[self.allowsLocalFile copy];__weak PorticoSubtitleOverlay *weakSelf=self;
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{NSData *data=PorticoReadLocalSubtitle(url,source,limit,allowed);
+   dispatch_async(dispatch_get_main_queue(),^{PorticoSubtitleOverlay *s=weakSelf;if(!s||s->_epoch!=epoch)return;if(!data){[s failed:@"subtitle_download_unavailable" transient:NO];return;}done(data);});
+  });return;
+ }
  PSFetch *f=[PSFetch new];[_fetches addObject:f];__weak PorticoSubtitleOverlay *weakSelf=self;
  [f start:url limit:limit done:^(NSData *data,PSFetchFailure failure){PorticoSubtitleOverlay *s=weakSelf;if(!s||s->_epoch!=epoch)return;
   [s->_fetches removeObject:f];if(!data){[s failed:failure==PSFetchTransient?@"subtitle_connection_failed":@"subtitle_unavailable" transient:failure==PSFetchTransient];return;}done(data);
@@ -116,7 +131,7 @@ typedef NS_ENUM(NSInteger,PSFetchFailure){PSFetchOK,PSFetchTransient,PSFetchDeni
  if(![@[@"ass",@"pgs",@"vobsub",@"dvb"] containsObject:kind]){if(_active)[self invalidate];return;}
  if(!PorticoSubtitleOverlayOffsetUS(command)){[self invalidate];if(self.onStatus)self.onStatus(@"subtitle_source_invalid");return;}
  NSURL *url=[self scoped:render[@"url"] source:source resource:nil];
- if(!url||([kind isEqual:@"vobsub"]&&!PorticoVobSubCompanionURL(render,source,url))){[self invalidate];if(self.onStatus)self.onStatus(@"subtitle_source_invalid");return;}
+ if(!url||([kind isEqual:@"vobsub"]&&![self companion:render source:source index:url])){[self invalidate];if(self.onStatus)self.onStatus(@"subtitle_source_invalid");return;}
  if([_command isEqual:command]&&[_source isEqual:source])return;
  [self invalidate];_active=YES;_command=[command copy];_source=[source copy];[self load];
 }
@@ -148,16 +163,16 @@ typedef NS_ENUM(NSInteger,PSFetchFailure){PSFetchOK,PSFetchTransient,PSFetchDeni
     NSString *failure=next?@"":fontsValid?@"subtitle_decode_failed":@"subtitle_font_invalid";
     dispatch_async(dispatch_get_main_queue(),^{PorticoSubtitleOverlay *view=weakSelf;if(!view||view->_epoch!=epoch){dispatch_async(owner->_queue,^{ps_close(next);});return;}
      if(!next){[view failed:failure transient:NO];return;}
-     view->_loading=NO;view->_imageRevision++;view->_authorized=NSProcessInfo.processInfo.systemUptime+40;
+     view->_loading=NO;view->_imageRevision++;view->_authorized=[NSURL URLWithString:view->_source].isFileURL?DBL_MAX:NSProcessInfo.processInfo.systemUptime+40;
      [view->_authorizationTimer invalidate];
-     view->_authorizationTimer=[NSTimer timerWithTimeInterval:40 repeats:NO block:^(NSTimer *timer){PorticoSubtitleOverlay *s=weakSelf;if(s&&s->_epoch==epoch&&NSProcessInfo.processInfo.systemUptime>=s->_authorized)[s clearRenderer];}];[NSRunLoop.mainRunLoop addTimer:view->_authorizationTimer forMode:NSRunLoopCommonModes];
+     if(![NSURL URLWithString:view->_source].isFileURL){view->_authorizationTimer=[NSTimer timerWithTimeInterval:40 repeats:NO block:^(NSTimer *timer){PorticoSubtitleOverlay *s=weakSelf;if(s&&s->_epoch==epoch&&NSProcessInfo.processInfo.systemUptime>=s->_authorized)[s clearRenderer];}];[NSRunLoop.mainRunLoop addTimer:view->_authorizationTimer forMode:NSRunLoopCommonModes];}
      dispatch_async(view->_queue,^{ps_close(view->_renderer);view->_renderer=next;});
      if(view.onStatus)view.onStatus(failure);
     });
    });
   };
   if([kind isEqual:@"vobsub"]){
-   NSURL *pair=PorticoVobSubCompanionURL(render,s->_source,url);if(!pair){[s failed:@"subtitle_source_invalid" transient:NO];return;}
+   NSURL *pair=[s companion:render source:s->_source index:url];if(!pair){[s failed:@"subtitle_source_invalid" transient:NO];return;}
    [s fetch:pair limit:64*1024*1024-data.length epoch:epoch done:^(NSData *bytes){finish(bytes,@[]);}];return;
   }
   if(render[@"fonts"]&&![render[@"fonts"] isKindOfClass:NSArray.class]){[s failed:@"subtitle_font_invalid" transient:NO];return;}
@@ -168,7 +183,7 @@ typedef NS_ENUM(NSInteger,PSFetchFailure){PSFetchOK,PSFetchTransient,PSFetchDeni
 }
 - (void)renderAtSourceTime:(double)seconds size:(CGSize)pixels {
  if(!_active||!isfinite(seconds)||seconds<0)return;
- if(NSProcessInfo.processInfo.systemUptime-_lastFetch>=25)[self load];
+ if(![NSURL URLWithString:_source].isFileURL&&NSProcessInfo.processInfo.systemUptime-_lastFetch>=25)[self load];
  if(NSProcessInfo.processInfo.systemUptime>=_authorized){if(_authorized>0)[self clearRenderer];else if(self.onImage)self.onImage(nil);return;}
  if(_busy)return;int width=(int)llround(pixels.width),height=(int)llround(pixels.height);
  if(width<1||height<1)return;
