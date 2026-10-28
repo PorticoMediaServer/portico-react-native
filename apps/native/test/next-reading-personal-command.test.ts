@@ -15,7 +15,7 @@ async function fixture() {
   const read = {read: false, get revision() {beforeRevision?.(); return 9;}};
   const listed = {listed: false, revision: 4};
   const client = {
-    versions: async () => ({versions: [{sourceId: 'source', format: 'pdf', inventoryAvailable: true, size: 10}]}),
+    versions: async () => ({chosenSourceId: 'source', versions: [{sourceId: 'source', format: 'pdf', inventoryAvailable: true, size: 10}]}),
     open: async () => ({manifest, progress: async () => ({location: {format: 'pdf', pageIndex: 0, progression: 0}, sourceRevision: manifest.sourceRevision}), close: async () => {}}),
     canUseMyList: () => true, canMarkRead: () => true, getMyList: async () => listed, readMark: async () => read,
     setReadMark: async (id: string, body: any, signal: AbortSignal) => {calls.push({kind: 'read', id, body, signal}); return reply('read', body);},

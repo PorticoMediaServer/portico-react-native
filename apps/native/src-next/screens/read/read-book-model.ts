@@ -339,10 +339,10 @@ export class NativeReadBook {
       const client = this.reading(), signal = this.life!.signal;
       const versions = await client.versions(this.item.id, signal);
       if (flight !== this.flight || !this.current()) return;
-      // The item's own source opens when it has inventory; otherwise the first
-      // real available version does, never a format preference.
+      // A version the reader picked on this page stays; otherwise the server's
+      // chosen version opens. The client never picks one itself.
       const available = versions.versions.filter(version => version.inventoryAvailable);
-      const selected = available.find(version => version.sourceId === (this.selected ?? this.item.sourceId)) ?? available[0];
+      const selected = available.find(version => version.sourceId === this.selected) ?? available.find(version => version.sourceId === versions.chosenSourceId);
       if (!selected) throw new ReadingError('source_unavailable');
       const session = await client.open({itemId: this.item.id, sourceId: selected.sourceId}, signal);
       let progress: ReadingProgress | undefined, closeError: unknown;

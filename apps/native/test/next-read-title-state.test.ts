@@ -30,7 +30,7 @@ function fixture(reply: (call: Call) => Promise<Response> | Response, tv = false
 }
 function controls(versions = [version('source')], onProgress?: (call: Call) => Promise<Response> | Response) {
   return (call: Call) => {
-    if (call.url.pathname.endsWith('/reading/versions')) return json({versions});
+    if (call.url.pathname.endsWith('/reading/versions')) return json({versions, chosenSourceId: (versions.find(v => v.inventoryAvailable) ?? versions[0])?.sourceId});
     if (call.method === 'POST') {
       const {itemId, sourceId} = JSON.parse(String(call.init.body));
       return json({sessionId: 'session_' + sourceId, itemId, sourceId, revision, format: 'pdf', size: 1200, metadata: {title: 'Catalogue title'}});

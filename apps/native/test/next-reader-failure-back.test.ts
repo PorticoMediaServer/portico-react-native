@@ -51,7 +51,7 @@ async function harness(fixture: Fixture) {
     progress: async () => {if (at === 'progress') throw new Error('progress_rejected'); return {progress: null};},
     close: async () => {disposals.push('session');}};
   const client = {
-    versions: () => {versionCalls++; return at === 'pending' ? new Promise(() => {}) : at === 'versions' ? Promise.reject(new Error('versions_rejected')) : Promise.resolve({versions: [{sourceId: 'source', inventoryAvailable: true}]});},
+    versions: () => {versionCalls++; return at === 'pending' ? new Promise(() => {}) : at === 'versions' ? Promise.reject(new Error('versions_rejected')) : Promise.resolve({chosenSourceId: 'source', versions: [{sourceId: 'source', inventoryAvailable: true}]});},
     open: async () => {if (at === 'open') throw new Error('open_rejected'); return session;},
     dispose() {},
   };

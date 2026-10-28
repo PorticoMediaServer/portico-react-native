@@ -53,7 +53,7 @@ test(`actual retained Read components cap guest residency and restore original s
     const method = init.method ?? 'GET', path = new URL(String(url)).pathname;
     if (path.endsWith('/reading/versions')) {
       const item = path.split('/')[3]!; calls.push({method, item, kind: 'versions'});
-      return new Response(JSON.stringify({versions: [{sourceId: `source-${item.slice(5)}`, inventoryAvailable: true, size: 100, format: 'pdf'}]}), {headers: {'Content-Type': 'application/json'}});
+      return new Response(JSON.stringify({chosenSourceId: `source-${item.slice(5)}`, versions: [{sourceId: `source-${item.slice(5)}`, inventoryAvailable: true, size: 100, format: 'pdf'}]}), {headers: {'Content-Type': 'application/json'}});
     }
     if (method === 'POST') {
       const body = JSON.parse(String(init.body)), item = body.itemId, index = Number(item.slice(5)); calls.push({method, item});

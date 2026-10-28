@@ -166,3 +166,24 @@ test('both failed producers are an error state and retry reads again', async () 
   } finally {controller.dispose();}
   assert.equal(disposed, 1);
 });
+
+test('a Discover row continues alone from its own cursor and never repeats a drawn title', async () => {
+  const d = discoveryFixture({discover: {rows: [{key: 'recent', items: [{id: 'b1', title: 'One'}], nextCursor: '20.1'}]}});
+  const rows: {row: string; options: {libraryId?: string; cursor?: string}}[] = [];
+  const pages = [{row: {key: 'recent', items: [{id: 'b1', title: 'One'}, {id: 'b2', title: 'Two'}], nextCursor: '10.2'}}, {row: {key: 'recent', items: [{id: 'b3', title: 'Three'}]}}];
+  const client = d.context.api.reading();
+  client.discoverRow = async (row: string, options: {libraryId?: string; cursor?: string}) => {rows.push({row, options}); return pages[rows.length - 1];};
+  const controller = new NativeReadingDiscovery(d.context, 'books');
+  try {
+    await controller.load();
+    await Promise.all([controller.more('recent'), controller.more('recent')]);
+    assert.equal(rows.length, 1, 'one request per row at a time');
+    assert.deepEqual(rows[0], {row: 'recent', options: {libraryId: 'books', cursor: '20.1', limit: 20}});
+    await controller.more('recent');
+    await controller.more('recent');
+    assert.deepEqual(rows.map(call => call.options.cursor), ['20.1', '10.2'], 'the last page ends the row');
+    assert.deepEqual(controller.getSnapshot().recent.map(item => item.id), ['b1', 'b2', 'b3']);
+    await controller.more('short-reads');
+    assert.equal(rows.length, 2, 'a row with no cursor asks for nothing');
+  } finally {controller.dispose();}
+});

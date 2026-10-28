@@ -16,7 +16,7 @@ async function fixture() {
     '../../../../../packages/client-core/src/presentation/errors': {presentError: (error: Error) => ({category: error.message === 'offline' ? 'offline' : 'unexpected'})},
     '../downloads/request': {askNativeDownload() {}}, './eligibility': {nativeReadOrigin: () => ({route, revision: 1}), openNativeReadBook: async () => true},
   });
-  const client = {versions: async () => ({versions: [{sourceId: 'source', format: 'pdf', inventoryAvailable: true}]}),
+  const client = {versions: async () => ({chosenSourceId: 'source', versions: [{sourceId: 'source', format: 'pdf', inventoryAvailable: true}]}),
     open: async () => ({manifest, progress: async () => ({progress: null}), close: async () => {}}),
     canUseMyList: () => false, canMarkRead: () => false, series: async () => {calls++; return respond();}, dispose() {}};
   const model = new NativeReadBook({api: {reading: () => client}, authority: () => authority, current: () => true,

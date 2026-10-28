@@ -330,3 +330,54 @@ test('OFF-13: a failed local reading save restores the pending badge after rollb
     assert.equal(store.getSnapshot().pendingProgress, 0);
   } finally {await session?.close(); native.readExtra = oldRead; native.publicationOpen = oldOpen;}
 });
+
+// OFF-10: settled downloaded books adopt a newer position saved elsewhere.
+const refresh = (store: any, only?: string[]) => Reflect.get(store, 'refreshReadingProgress').call(store, Reflect.get(store, 'generation'), only) as Promise<void>;
+function refreshServer(store: any, answer: (receipt: any, index: number) => unknown, during?: () => void) {
+  const calls: any[] = [];
+  Reflect.set(store, 'api', {baseUrl: 'http://server.test', mediaUrl: (path: string) => 'http://server.test' + path,
+    request: async (path: string, _method: string, body: any) => {
+      assert.equal(path, '/v1/reading/offline/progress/read'); calls.push(body); during?.();
+      return {results: body.receipts.map((receipt: any, index: number) => answer(receipt, index))};
+    }});
+  return calls;
+}
+const current = (receipt: any, progress: unknown) => ({receiptId: receipt.receiptId, outcome: 'current', itemId: receipt.claims.itemId,
+  sourceId: receipt.claims.publication.sourceId, sourceRevision, progress});
+const elsewhere = (receipt: any, revision: number, stale = false) => ({sourceId: receipt.claims.publication.sourceId, sourceRevision: stale ? 'd'.repeat(64) : sourceRevision,
+  location: {format: 'pdf', pageIndex: 40, progression: .8}, revision, observedAt: at + 5000, stale});
+
+test('OFF-10: a settled book adopts the newer server position; pending books are never sent', async () => {
+  const store = await open({settled: record('settled', false), pending: record('pending')});
+  const calls = refreshServer(store, receipt => current(receipt, elsewhere(receipt, 5)));
+  await refresh(store);
+  assert.deepEqual(calls.map(body => body.receipts.map((receipt: any) => receipt.claims.itemId)), [['item-settled']]);
+  assert.equal(read(store).settled.serverRevision, 5);
+  assert.equal(read(store).settled.progress.progress.location.pageIndex, 40);
+  assert.equal(saved().settled.serverRevision, 5, 'the adopted position is persisted');
+  assert.equal(read(store).pending.pending.id, 'observation-pending');
+});
+
+test('OFF-10: stale, absent, older and refused answers change nothing', async () => {
+  for (const answer of [
+    (receipt: any) => current(receipt, elsewhere(receipt, 5, true)),
+    (receipt: any) => current(receipt, null),
+    (receipt: any) => current(receipt, elsewhere(receipt, 1)),
+    (receipt: any) => ({receiptId: receipt.receiptId, outcome: 'refused', code: 'source_unavailable'}),
+    (receipt: any) => ({receiptId: receipt.receiptId, outcome: 'refused', code: 'receipt_rejected'}),
+  ]) {
+    const store = await open({settled: record('settled', false)}), before = read(store).settled;
+    refreshServer(store, answer);
+    await refresh(store);
+    assert.equal(read(store).settled, before);
+    assert.ok(device.entries.has('settled'), 'a refusal never removes the copy');
+  }
+});
+
+test('OFF-10: a local observation saved while the refresh is out wins', async () => {
+  const store = await open({settled: record('settled', false)});
+  const local = {...record('settled'), serverRevision: 1};
+  refreshServer(store, receipt => current(receipt, elsewhere(receipt, 9)), () => {read(store).settled = local;});
+  await refresh(store);
+  assert.equal(read(store).settled, local);
+});

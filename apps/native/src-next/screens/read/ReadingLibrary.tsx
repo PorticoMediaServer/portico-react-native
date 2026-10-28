@@ -182,10 +182,12 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
         onNavigate={() => openDiscover(row.item)} menuAnchorRef={anchorRef} selection={offered ? readingActions.selection(offered) : undefined}
         onMore={offered ? () => readingActions.actions.show({...offered, anchorRef}) : undefined}/>;}}</ReadingMenuAnchor>)}
     </DiscoveryRow> : null}
-    {discoveryState.recent.length ? <DiscoveryRow title={defaultI18n.t('home.row.recentlyAdded')} first={!discoveryState.continueItems.length} onSeeAll={() => setTab('browse')}>
+    {discoveryState.recent.length ? <DiscoveryRow title={defaultI18n.t('home.row.recentlyAdded')} first={!discoveryState.continueItems.length} onSeeAll={() => setTab('browse')}
+      onNearEnd={() => {void discovery.more('recent').catch(runtime.reportError);}}>
       {discoveryState.recent.map(item => <DiscoveryCoverCard key={item.id} item={item} width={tablet ? 142 : 118} onOpen={openDiscover} offer={readingOffer(item, 'discover')} actions={readingActions}/>)}
     </DiscoveryRow> : null}
-    {discoveryState.shortReads.length ? <DiscoveryRow title={defaultI18n.t('next.reader.shortReads')} sub={defaultI18n.t('next.reader.underThreeHours')}>
+    {discoveryState.shortReads.length ? <DiscoveryRow title={defaultI18n.t('next.reader.shortReads')} sub={defaultI18n.t('next.reader.underThreeHours')}
+      onNearEnd={() => {void discovery.more('short-reads').catch(runtime.reportError);}}>
       {discoveryState.shortReads.map(row => <DiscoveryCoverCard key={row.item.id} item={row.item} width={tablet ? 142 : 118} onOpen={openDiscover} offer={readingOffer(row.item, 'discover')} actions={readingActions}
         detail={defaultI18n.t('next.reader.aboutDuration', {duration: formatDuration(row.estimatedSeconds)})}/>)}
     </DiscoveryRow> : null}
@@ -249,7 +251,7 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
 }
 
 /** The drawn Read row heading and its horizontal track (phone-read frames 1-3). */
-function DiscoveryRow({title, sub, first = false, onSeeAll, children}: {title: string; sub?: string; first?: boolean; onSeeAll?: () => void; children?: ReactNode}) {
+function DiscoveryRow({title, sub, first = false, onSeeAll, onNearEnd, children}: {title: string; sub?: string; first?: boolean; onSeeAll?: () => void; onNearEnd?: () => void; children?: ReactNode}) {
   const theme = useTheme();
   return <View style={{marginTop: first ? 14 : 44}}>
     <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 14, paddingHorizontal: theme.gutter, marginBottom: 14}}>
@@ -260,7 +262,11 @@ function DiscoveryRow({title, sub, first = false, onSeeAll, children}: {title: s
         <Icon name="i-right" size={18} color={theme.colors.textTertiary}/>
       </Focusable> : null}
     </View>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false}
+    {/* Within about two screens of the end, the row asks for its next page (WEB-053). */}
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEventThrottle={200}
+      onScroll={onNearEnd ? ({nativeEvent: {contentOffset, layoutMeasurement, contentSize}}) => {
+        if (contentOffset.x + layoutMeasurement.width * 3 >= contentSize.width) onNearEnd();
+      } : undefined}
       contentContainerStyle={{gap: theme.platform === 'phone' ? 16 : 14, paddingHorizontal: theme.gutter, paddingTop: 10, paddingBottom: 14}}>{children}</ScrollView>
   </View>;
 }

@@ -35,6 +35,9 @@ export class NativeReadingDiscovery {
   private listeners = new Set<() => void>();
   private disposed = false;
   private opened = false;
+  /** Each paged row's own next cursor, and the rows asking for it now (WEB-053). */
+  private cursors = new Map<'recent' | 'short-reads', string>();
+  private loadingMore = new Set<'recent' | 'short-reads'>();
 
   constructor(context: NativeShellBootstrapContext, libraryId: string) {
     this.context = context; this.libraryId = libraryId; this.authority = context.authority();
@@ -74,6 +77,9 @@ export class NativeReadingDiscovery {
       if (!this.current()) return;
       const failures = [continuePage, discover].filter((result): result is PromiseRejectedResult => result.status === 'rejected' && !cancelled(result.reason));
       const continueItems = continuePage.status === 'fulfilled' ? continuePage.value.items : [];
+      this.cursors.clear();
+      if (discover.status === 'fulfilled') for (const row of discover.value.rows)
+        if ((row.key === 'recent' || row.key === 'short-reads') && row.nextCursor) this.cursors.set(row.key, row.nextCursor);
       const recent = discover.status === 'fulfilled' ? discover.value.rows.find(row => row.key === 'recent')?.items ?? [] : [];
       const shortReads = discover.status === 'fulfilled' ? discover.value.rows.find(row => row.key === 'short-reads')?.shortReads ?? [] : [];
       this.publish({phase: failures.length ? 'error' : 'ready', continueItems, recent, shortReads,
@@ -81,6 +87,30 @@ export class NativeReadingDiscovery {
     } catch (error) {
       if (this.current() && !cancelled(error)) this.publish({phase: 'error', continueItems: [], recent: [], shortReads: [], error});
     }
+  };
+  /** Near a row's end: that row's next page alone, appended without repeating a
+   * title already drawn. A failed page ends the row and is reported. */
+  more = async (row: 'recent' | 'short-reads'): Promise<void> => {
+    const cursor = this.cursors.get(row);
+    if (!cursor || this.loadingMore.has(row) || !this.current() || this.state.phase !== 'ready') return;
+    this.loadingMore.add(row);
+    const before = this.state;
+    try {
+      const page = await this.reading().discoverRow(row, {libraryId: this.libraryId, cursor, limit: 20}, this.life.signal);
+      if (!this.current() || this.state !== before) return;
+      if (page.row.nextCursor) this.cursors.set(row, page.row.nextCursor); else this.cursors.delete(row);
+      if (row === 'recent') {
+        const seen = new Set(before.recent.map(item => item.id));
+        this.publish({...before, recent: [...before.recent, ...page.row.items.filter(item => !seen.has(item.id))]});
+      } else {
+        const seen = new Set(before.shortReads.map(entry => entry.item.id));
+        this.publish({...before, shortReads: [...before.shortReads, ...(page.row.shortReads ?? []).filter(entry => !seen.has(entry.item.id))]});
+      }
+    } catch (error) {
+      if (!this.current() || cancelled(error)) return;
+      this.cursors.delete(row);
+      throw error;
+    } finally {this.loadingMore.delete(row);}
   };
   retry = async (): Promise<void> => {
     if (!this.current()) return;

@@ -8,7 +8,7 @@ for (const kind of ['ebook', 'comic'] as const) test(`${kind} entry admits actua
   const navigation = new NativeShellNavigation(authority, () => authority), origin = navigation.getSnapshot();
   let resident = true, calls = 0;
   const context: any = {current: () => true, session: () => ({sessionFamilyId: 'family', viewer: {}}), authority: () => authority, navigation,
-    api: {reading: () => ({versions: async (id: string) => {assert.equal(id, 'item'); calls++; return {versions: [{sourceId: 'actual-source', format: kind === 'ebook' ? 'epub' : 'cbz', inventoryAvailable: true}]};}, dispose() {}})}};
+    api: {reading: () => ({versions: async (id: string) => {assert.equal(id, 'item'); calls++; return {chosenSourceId: 'actual-source', versions: [{sourceId: 'actual-source', format: kind === 'ebook' ? 'epub' : 'cbz', inventoryAvailable: true}]};}, dispose() {}})}};
   const entry = {id: 'item', libraryId: 'library', kind, title: 'Actual'};
   const opened = await openNativeReadingBookEntry(context, {libraryId: 'library', entry, origin: {route: origin.route, revision: origin.revision}, resident: () => resident});
   assert.equal(opened, true); assert.equal(calls, 2);
@@ -29,7 +29,7 @@ test('a late versions response cannot navigate after the origin is replaced', as
   const opening = openNativeReadingBookEntry(context, {libraryId: 'library', entry: {id: 'item', libraryId: 'library', kind: 'ebook', title: 'Actual'},
     origin: {route: origin.route, revision: origin.revision}, resident: () => navigation.getSnapshot() === origin});
   navigation.open({kind: 'notifications'}, authority);
-  resolve({versions: [{sourceId: 'actual-source', format: 'epub', inventoryAvailable: true}]});
+  resolve({chosenSourceId: 'actual-source', versions: [{sourceId: 'actual-source', format: 'epub', inventoryAvailable: true}]});
   assert.equal(await opening, false); assert.equal(navigation.getSnapshot().route.kind, 'notifications');
   navigation.dispose();
 });

@@ -13,7 +13,7 @@ const newest = issue('newest', '2026-10-28'), older = issue('older', '2026-10-01
 const years = [{value: '2026', count: 61}, {value: '2025', count: 4}, {value: '2024', count: 1}];
 const days = [{value: '2026-10-01', count: 1}, {value: '2026-10-28', count: 1}];
 const page = (items: readonly unknown[], extra: object = {}) => ({items, yearChoices: years, dayChoices: days, ...extra});
-type Query = {year?: string; month?: string; issueDate?: string; cursor?: string; limit?: number};
+type Query = {year?: string; month?: string; issueDate?: string; cursor?: string; limit?: number; order?: string};
 async function fixture(kind = 'newspaper') {
   const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'one', viewerFence: 'viewer'};
   const route = {kind: 'read-periodical', libraryId: 'library', groupId: 'group', publicationType: kind};
@@ -202,4 +202,35 @@ test('periodical hero inspects My List once per item and route lease, not per pu
     assert.deepEqual(reads, ['newest', 'older', 'older']);
     assert.deepEqual(errors, []);
   } finally {driver.unmount(); lease.abort();}
+});
+
+test('SUP-017: magazine Order walks the whole archive oldest first, years and issues alike', async () => {
+  const f = await fixture('magazine');
+  try {
+    const first = f.model.getSnapshot();
+    assert.equal(first.order, 'newest'); assert.equal(first.selectedYear, '2026');
+    assert.deepEqual(f.calls.at(-1), {year: '2026', order: 'newest', limit: 60});
+    await f.model.setOrder(first, 'oldest');
+    const oldest = f.model.getSnapshot();
+    assert.equal(oldest.order, 'oldest');
+    assert.deepEqual(oldest.years.map((year: any) => year.value), ['2024', '2025', '2026'], 'oldest year first');
+    assert.equal(oldest.selectedYear, '2024');
+    assert.deepEqual(f.calls.at(-1), {year: '2024', order: 'oldest', limit: 60});
+    await f.model.ensureYear(oldest, oldest.years[1]);
+    assert.deepEqual(f.calls.at(-1), {year: '2025', order: 'oldest', limit: 60}, 'every section keeps the order');
+    const count = f.calls.length;
+    await f.model.setOrder(first, 'newest');
+    assert.equal(f.calls.length, count, 'a retained render cannot change the order');
+  } finally {f.model.dispose();}
+});
+
+test('SUP-017: newspapers keep their calendar and refuse an order', async () => {
+  const f = await fixture();
+  try {
+    const before = f.model.getSnapshot(), count = f.calls.length;
+    assert.equal(before.order, undefined);
+    await f.model.setOrder(before, 'oldest');
+    assert.equal(f.calls.length, count);
+    assert.ok(f.calls.every(call => call.order === undefined));
+  } finally {f.model.dispose();}
 });

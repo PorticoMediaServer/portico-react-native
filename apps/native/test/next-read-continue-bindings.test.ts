@@ -17,7 +17,7 @@ const row = (id: string, sourceId = 'source', inventoryAvailable = true): Native
 });
 const pageOf = (items: readonly NativeReadingContinueRow[], nextCursor?: string): NativeReadingContinuePage =>
   ({items: [...items], ...(nextCursor === undefined ? {} : {nextCursor})});
-const versions = (inventoryAvailable = true) => ({versions: [{sourceId: 'source', inventoryAvailable, format: 'pdf', size: 1200}]});
+const versions = (inventoryAvailable = true) => ({chosenSourceId: 'source', versions: [{sourceId: 'source', inventoryAvailable, format: 'pdf', size: 1200}]});
 const isCancelled = (error: unknown) => (error as {code?: string}).code === 'cancelled';
 
 function fixture(reply: (call: Call) => Promise<Response> | Response, options: Readonly<{tv?: boolean}> = {}) {

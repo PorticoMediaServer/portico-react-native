@@ -15,7 +15,7 @@ for (const destination of ['search', 'saved'] as const) test(`${destination} Rea
   let member: any = {kind: 'ebook', id: 'item', libraryId: 'books', title: 'Actual'};
   const context: any = {navigation: nav, current: () => true, authority: () => authority, subscribeAuthority: nav.subscribe,
     session: () => ({sessionFamilyId: 'family', viewer: {...authority, authority: 'local'}}), libraries: () => [{id: 'books', kind: 'book'}],
-    api: {reading: () => ({versions: async () => ({versions: [{sourceId: 'actual', format: 'epub', inventoryAvailable: true}]}), dispose() {}})}};
+    api: {reading: () => ({versions: async () => ({chosenSourceId: 'actual', versions: [{sourceId: 'actual', format: 'epub', inventoryAvailable: true}]}), dispose() {}})}};
   const common = {navigate: (entry: any) => {assert.equal(nativeEntryRouteSupported(entry), true); nav.open(nativeEntryRoute(entry), authority);}, reportError: assert.fail};
   const {createNativeEntryActions} = await screenModule(new URL('../src-next/screens/destinations/entry-actions.ts', import.meta.url), {
     react: {...React, default: React}, './lifetime': {nativeDestinationLifetime}, '../read/reading-books-open': {openNativeReadingBookEntry},

@@ -7,7 +7,7 @@ import type {ReadingListMembership, ReadingPeriodicalIssue, ReadingYearChoice} f
 import {Artwork, AmbientArt, GeneratedCover} from '../../kit/artwork';
 import {Button, Focusable} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
-import {BottomSheet} from '../../kit/overlays';
+import {BottomSheet, Menu} from '../../kit/overlays';
 import {SkeletonBlock, StateView} from '../../kit/states';
 import {SelectionCircle} from '../../kit/selection';
 import {Scrim} from '../../kit/cards/primitives';
@@ -171,8 +171,10 @@ function MagazineIssues({state, controller, theme, runtime, tablet, width, onOpe
     if (index >= 0) list.current?.scrollToIndex({index, viewOffset: 56});
     void controller.selectYear(state, choice).catch(runtime.reportError);
   };
+  const orderAnchor = useRef<View>(null), [orderMenu, setOrderMenu] = useState(false);
+  const chooseOrder = (order: 'newest' | 'oldest') => {setOrderMenu(false); void controller.setOrder(state, order).catch(runtime.reportError);};
   const header = <View onLayout={event => setHeaderHeight(event.nativeEvent.layout.height)}>{hero}
-    <View style={{marginTop: 24}}><FlatList horizontal data={state.years} keyExtractor={year => year.value} showsHorizontalScrollIndicator={false}
+    <View style={{marginTop: 24, flexDirection: 'row', alignItems: 'center'}}><FlatList horizontal style={{flex: 1}} data={state.years} keyExtractor={year => year.value} showsHorizontalScrollIndicator={false}
       contentContainerStyle={{paddingHorizontal: tablet ? 28 : 20, gap: 8}} initialNumToRender={10} windowSize={5}
       getItemLayout={(_data, index) => ({index, length: 72, offset: (tablet ? 28 : 20) + 80 * index})}
       renderItem={({item: year}) => <Focusable accessibilityRole="button" accessibilityLabel={year.value} accessibilityState={{selected: year.value === state.selectedYear}}
@@ -181,7 +183,17 @@ function MagazineIssues({state, controller, theme, runtime, tablet, width, onOpe
           backgroundColor: year.value === state.selectedYear ? alpha(theme.colors.accent, tablet ? .2 : .28) : alpha(theme.colors.text, .08),
           borderWidth: year.value === state.selectedYear ? 1 : 0, borderColor: tablet ? alpha(theme.colors.accentStrong, .62) : theme.colors.accentStrong}}>
         <Text style={[browseType(theme, tablet ? 14 : 13.5, 700), {color: theme.colors.textSecondary}]}>{year.value}</Text>
-      </Focusable>}/></View>
+      </Focusable>}/>
+      {/* tablet-read 10: the archive's Order, beside the year chips. */}
+      {tablet && state.order ? <Focusable ref={orderAnchor} accessibilityRole="button" accessibilityLabel={`${t('next.overlays.order')}, ${t('next.reader.issueOrder', {order: state.order})}`}
+        onPress={() => setOrderMenu(true)} focusKind="chip" focusRadius={9}
+        style={{height: 34, marginRight: 28, paddingLeft: 12, paddingRight: 9, borderRadius: 9, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: alpha(theme.colors.text, .08)}}>
+        <Text style={[browseType(theme, 14, 600), {color: theme.colors.textTertiary, marginRight: 4}]}>{t('next.overlays.order')}</Text>
+        <Text style={[browseType(theme, 14, 700), {color: theme.colors.text}]}>{t('next.reader.issueOrder', {order: state.order})}</Text>
+        <Icon name="i-down" size={18} color={theme.colors.textTertiary}/>
+      </Focusable> : null}
+      <Menu open={orderMenu} onOpenChange={setOrderMenu} anchorRef={orderAnchor} title={t('next.overlays.order')} items={(['newest', 'oldest'] as const).map(order => ({
+        id: order, label: t('next.reader.issueOrder', {order}), selected: state.order === order, onSelect: () => chooseOrder(order)}))}/></View>
     <ReadingSelectionToolbar port={actions} runtime={runtime}/>
   </View>;
   return <FlatList ref={list} testID="native-read-magazine-years" data={rows} keyExtractor={row => row.key} ListHeaderComponent={header}

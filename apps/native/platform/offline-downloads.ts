@@ -1,6 +1,7 @@
 import type {NativeOfflinePublicationLease} from './offline-reading-authority';
 import {publicationUTF8, openOfflineReadingSession, publicationBinding, nativePublicationReadsAvailable, type OfflineReadingSession, type PublicationBinding} from './offline-reading';
 import {decodeGetReadingSessionsSessionIdProgressResponse, decodePutReadingSessionsSessionIdProgressResponse} from '../../../packages/contracts/src';
+import {parseReadingOfflineRefresh, readingOfflineRefreshLimit, readingOfflineRefreshPath} from '../../../packages/client-core/src/reading-offline-refresh';
 import type {ReadingLocation, ReadingProgress, ReadingSavedProgress} from '../../../packages/client-core/src/reading';
 import {storedSubtitle, subtitleExtraFiles, type StoredSubtitle} from './offline-subtitle-files';
 import {receiptTime, serverReceiptFloor} from './receipt-clock';
@@ -523,7 +524,7 @@ export class OfflineDownloads {
       this.publish({pendingProgress: this.pendingCount()});
       void this.renewReceipts(generation, api, owner, false);
       void this.syncProgress(generation);
-      void this.syncReadingProgress(generation);
+      void this.syncReadingProgress(generation).then(() => this.refreshReadingProgress(generation));
       void this.collect();
       void this.continueNext(generation);
       void this.tend(generation);
@@ -1042,7 +1043,7 @@ export class OfflineDownloads {
     if (generation !== this.generation) return;
     void this.collect(generation);
     void this.syncProgress(generation);
-    void this.syncReadingProgress(generation);
+    void this.syncReadingProgress(generation).then(() => this.refreshReadingProgress(generation, undefined, false));
     void this.continueNext(generation);
     void this.renewReceipts(generation, api, owner, false);
     const now = Date.now();
@@ -1594,6 +1595,9 @@ export class OfflineDownloads {
     return Object.freeze(lease);
   }
   async readingSession(entry: OfflineEntry, scope: Readonly<{signal: AbortSignal; current: () => boolean; paused: () => boolean}>): Promise<OfflineReadingSession> {
+    // OFF-10: when online, pick up a newer position saved elsewhere first, but
+    // never hold the book closed for long on a slow connection.
+    if (this.api) await Promise.race([this.refreshReadingProgress(this.generation, [entry.id]).catch(() => {}), new Promise(done => setTimeout(done, 1500))]);
     const authority = this.publicationLease(entry, scope), owner = authority.owner, binding = authority.binding, receipt = authority.receipt(), current = authority.current;
     let raw: string; try {raw = await authority.descriptor();} catch (error) {authority.dispose(); throw error;}
     const records = bucket(this.stored.reading, owner);
@@ -1616,6 +1620,52 @@ export class OfflineDownloads {
         void this.syncReadingProgress(); return {progress: progress.progress, saved: true};
       },
     });} catch (error) {authority.dispose(); throw error;}
+  }
+  private lastReadingRefresh = 0;
+  /** OFF-10: adopt a newer position the server saved for a downloaded book (read
+   * elsewhere). Only settled records refresh: an unsent local observation, a
+   * blocked one, or one saved while the request was out always stays. A position
+   * recorded against another revision of the source is not this copy's, and an
+   * absent or refused answer changes nothing (the copy is never removed here). */
+  private async refreshReadingProgress(generation: number, only?: readonly string[], force = true): Promise<void> {
+    const api = this.api, owner = this.ownerKey(); if (!api || !owner || generation !== this.generation) return;
+    if (!force && Date.now() - this.lastReadingRefresh < 10 * 60_000) return;
+    if (!only) this.lastReadingRefresh = Date.now();
+    const current = () => this.generation === generation && this.api === api && this.ownerKey() === owner;
+    const records = this.stored.reading[owner]; if (!records) return;
+    const settled = Object.entries(records).filter(([id, value]) => value && !value.pending && !value.syncBlocked && (!only || only.includes(id)));
+    for (let at = 0; at < settled.length; at += readingOfflineRefreshLimit) {
+      if (!current()) return;
+      const batch: {id: string; sent: ReadingRecord; receipt: DownloadReceipt}[] = [];
+      for (const [id, sent] of settled.slice(at, at + readingOfflineRefreshLimit)) {
+        const live = this.all.find(value => value.id === id && this.entryOwner(value) === owner && value.receipt);
+        try {
+          const receipt = decodeDownloadReceipt(live?.receipt).receipt, binding = this.publicationBinding(receipt);
+          if (receipt.claims.itemId !== sent.itemId || offlineOwnerKey(receipt.claims.viewer) !== owner || Date.parse(receipt.claims.expiresAt) <= this.receiptNow()
+            || binding.sourceId !== sent.sourceId || binding.revision !== sent.revision || binding.documentSha256 !== sent.documentSha256) continue;
+          batch.push({id, sent, receipt});
+        } catch { /* A copy without a usable receipt has nothing to refresh. */ }
+      }
+      if (!batch.length) continue;
+      let results: ReturnType<typeof parseReadingOfflineRefresh>;
+      try {
+        const raw = await api.request<unknown>(readingOfflineRefreshPath, 'POST', {receipts: batch.map(value => value.receipt)});
+        if (!current()) return;
+        results = parseReadingOfflineRefresh(raw, batch.map(value => ({receiptId: value.receipt.receiptId, itemId: value.sent.itemId, sourceId: value.sent.sourceId, sourceRevision: value.sent.revision})));
+      } catch {return;} // A transport, authority or malformed answer ends this pass; the next one retries.
+      const adopted = new Map<string, Readonly<{prior: ReadingRecord; next: ReadingRecord}>>();
+      results.forEach((result, index) => {
+        const {id, sent} = batch[index]!, latest = records[id];
+        if (result.outcome !== 'current' || !result.progress || result.progress.stale) return;
+        if (latest !== sent || result.progress.revision <= latest.serverRevision) return;
+        const next: ReadingRecord = Object.freeze({...latest, serverRevision: result.progress.revision, progress: decodeGetReadingSessionsSessionIdProgressResponse({progress: result.progress})});
+        adopted.set(id, {prior: latest, next}); records[id] = next;
+      });
+      if (adopted.size && !await this.persist()) {
+        for (const [id, {prior, next}] of adopted) if (records[id] === next) records[id] = prior;
+        return;
+      }
+    }
   }
   private readingSync?: {generation: number; task: Promise<void>};
   private syncReadingProgress(generation = this.generation): Promise<void> {

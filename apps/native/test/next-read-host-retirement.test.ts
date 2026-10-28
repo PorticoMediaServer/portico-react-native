@@ -104,7 +104,7 @@ test(`actual live host with its presentation binding fences original close on ${
   const api = new HttpLocalApi('http://127.0.0.1:39141', 'reader-fixture-token', async (url, init = {}) => {
     const method = init.method ?? 'GET'; calls.push(method);
     const data = method === 'POST' ? {sessionId: 'session', itemId: 'item', sourceId: 'source', revision, size: 100, format: 'pdf', metadata: {title: 'Stored title'}}
-      : String(url).endsWith('/versions') ? {versions: [{sourceId: 'source', inventoryAvailable: true, size: 100, format: 'pdf'}]} : {progress: null};
+      : String(url).endsWith('/versions') ? {chosenSourceId: 'source', versions: [{sourceId: 'source', inventoryAvailable: true, size: 100, format: 'pdf'}]} : {progress: null};
     return method === 'DELETE' ? new Response(null, {status: 204}) : new Response(JSON.stringify(data), {headers: {'Content-Type': 'application/json', ETag: `"${revision}"`}});
   });
   const context = {api, navigation, authority: () => authority, current: () => valid,

@@ -1,4 +1,4 @@
-import {ReadingError, type LocalSession, type ReadingClient, type ReadingDayChoice, type ReadingPeriodicalIssue, type ReadingPeriodicalType, type ReadingYearChoice} from '../../../../../packages/client-core/src';
+import {ReadingError, type LocalSession, type ReadingClient, type ReadingDayChoice, type ReadingPeriodicalIssue, type ReadingPeriodicalOrder, type ReadingPeriodicalType, type ReadingYearChoice} from '../../../../../packages/client-core/src';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRoute} from '../../shell/routes';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
@@ -28,6 +28,9 @@ export type NativeReadPeriodicalState = Readonly<{
   issueCount?: number;
   publicationType?: ReadingPeriodicalType;
   selectedYear?: string;
+  /** Magazine issue order across the whole archive (SUP-017): years and the
+   * issues within each year run newest first or oldest first. */
+  order?: ReadingPeriodicalOrder;
   selectedMonth?: string;
   selectedDate?: string;
   /** Each magazine year owns its own cursor; only visible sections are loaded. */
@@ -72,6 +75,10 @@ export class NativeReadPeriodical {
   private command?: object;
   private readonly yearTickets = new Map<string, object>();
   private disposed = false;
+  private order: ReadingPeriodicalOrder = 'newest';
+  /** A magazine's year queries carry the chosen order; newspapers keep their calendar. */
+  private ordered = () => this.publicationType === 'magazine' ? {order: this.order} : {};
+  private orderedYears = (years: readonly ReadingYearChoice[]) => this.publicationType === 'magazine' && this.order === 'oldest' ? [...years].reverse() : years;
 
   constructor(context: NativeShellBootstrapContext, route: PeriodicalRoute) {
     this.context = context; this.libraryId = route.libraryId; this.groupId = route.groupId;
@@ -144,14 +151,14 @@ export class NativeReadPeriodical {
       // yearChoices are the validated {value, count} projection.
       const buckets = unfiltered.yearChoices;
       const issueCount = buckets.length ? buckets.reduce((total, year) => total + year.count, 0) : undefined;
-      const selectedYear = this.publicationType === 'magazine' ? buckets[0]?.value : undefined;
+      const selectedYear = this.publicationType === 'magazine' ? this.orderedYears(buckets)[0]?.value : undefined;
       const selectedMonth = this.publicationType === 'newspaper' ? months[0] : undefined;
-      const page = selectedYear ? await client.periodicalIssues(this.libraryId, this.groupId, this.publicationType, {year: selectedYear, limit: 60}, signal)
+      const page = selectedYear ? await client.periodicalIssues(this.libraryId, this.groupId, this.publicationType, {year: selectedYear, ...this.ordered(), limit: 60}, signal)
         : selectedMonth ? await client.periodicalIssues(this.libraryId, this.groupId, this.publicationType, {month: selectedMonth, limit: 60}, signal)
           : unfiltered;
       if (flight !== this.flight || !this.current()) return;
-      this.publish({phase: 'ready', items: page.items, ...(latest ? {latest} : {}), years: page.yearChoices, days: page.dayChoices,
-        months, ...(groupName ? {groupName} : {}), ...(issueCount === undefined ? {} : {issueCount}), publicationType: this.publicationType,
+      this.publish({phase: 'ready', items: page.items, ...(latest ? {latest} : {}), years: this.orderedYears(page.yearChoices), days: page.dayChoices,
+        months, ...(groupName ? {groupName} : {}), ...(issueCount === undefined ? {} : {issueCount}), publicationType: this.publicationType, ...(this.publicationType === 'magazine' ? {order: this.order} : {}),
         ...(selectedYear ? {selectedYear, yearSections: [{year: selectedYear, phase: 'ready' as const, items: page.items, nextCursor: page.nextCursor}]} : {}),
         ...(selectedMonth ? {selectedMonth, selectedDate: latest?.issueDate ?? page.items[0]?.issueDate} : {}),
         ...(page.nextCursor ? {nextCursor: page.nextCursor} : {}),
@@ -162,6 +169,13 @@ export class NativeReadPeriodical {
     }
   };
   retry = (): Promise<void> => this.load();
+  /** A new order is a new archive walk: every year section reloads in that order. */
+  setOrder = async (rendered: NativeReadPeriodicalState, order: ReadingPeriodicalOrder): Promise<void> => {
+    if (!this.current() || this.state !== rendered || rendered.phase !== 'ready' || this.publicationType !== 'magazine' || order === this.order
+      || order !== 'newest' && order !== 'oldest') return;
+    this.order = order;
+    await this.load();
+  };
   /** Selecting a chip moves to its year section; it does not replace the other
    * sections. Each section is read lazily from its own server-issued cursor. */
   selectYear = async (rendered: NativeReadPeriodicalState, choice: ReadingYearChoice): Promise<void> => {
@@ -185,7 +199,7 @@ export class NativeReadPeriodical {
     const current = () => this.life === life && this.flight === flight && this.yearTickets.get(choice.value) === ticket && this.current()
       && this.state.yearSections?.find(section => section.year === choice.value) === pending;
     try {
-      const page = await this.reading().periodicalIssues(this.libraryId, this.groupId, this.publicationType, {year: choice.value, ...(cursor ? {cursor} : {}), limit: 60}, life.signal);
+      const page = await this.reading().periodicalIssues(this.libraryId, this.groupId, this.publicationType, {year: choice.value, ...this.ordered(), ...(cursor ? {cursor} : {}), limit: 60}, life.signal);
       if (!current()) return;
       const seen = new Set(pending.items.map(issue => issue.item.id));
       if (page.items.some(issue => seen.has(issue.item.id)) || cursor && page.nextCursor === cursor) throw new ReadingError('invalid_document');
@@ -265,12 +279,12 @@ export class NativeReadPeriodical {
     const pending = Object.freeze({...rendered, pending: true, error: undefined});
     this.publish(pending);
     try {
-      const query = rendered.selectedYear ? {year: rendered.selectedYear} : rendered.selectedMonth ? {month: rendered.selectedMonth} : {};
+      const query = rendered.selectedYear ? {year: rendered.selectedYear, ...this.ordered()} : rendered.selectedMonth ? {month: rendered.selectedMonth} : {};
       const page = await this.reading().periodicalIssues(this.libraryId, this.groupId, this.publicationType, {...query, cursor, limit: 60}, life.signal);
       if (this.life !== life || this.command !== ticket || flight !== this.flight || this.state !== pending || !this.current() || this.state.nextCursor !== cursor) return;
       const seen = new Set(rendered.items.map(issue => issue.item.id));
       if (page.nextCursor === cursor || page.items.some(issue => seen.has(issue.item.id))) throw new ReadingError('invalid_document');
-      this.publish({...rendered, pending: false, items: [...rendered.items, ...page.items], years: page.yearChoices, days: page.dayChoices,
+      this.publish({...rendered, pending: false, items: [...rendered.items, ...page.items], years: this.orderedYears(page.yearChoices), days: page.dayChoices,
         ...(page.nextCursor ? {nextCursor: page.nextCursor} : {nextCursor: undefined})});
     } catch (error) {
       if (this.life === life && this.command === ticket && flight === this.flight && this.state === pending && this.current() && !cancelled(error))
