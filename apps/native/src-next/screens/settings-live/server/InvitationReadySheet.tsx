@@ -114,7 +114,7 @@ export function InvitationReadySheet({source, opening, runtime, serverName, sign
 
 /** The card drawn once as a picture: the same facts, never notes or the short code. */
 const InvitationPicture = React.forwardRef<SvgHandle, {picture: Picture}>(function InvitationPicture({picture}, ref) {
-  const rows = genMatrix(picture.link, 'M') as number[][];
+  const rows = genMatrix(picture.link, 'M');
   const size = rows.length, cell = Math.max(1, Math.floor(260 / (size + 8))), tile = cell * (size + 8), left = (512 - tile) / 2, top = 218;
   let path = '';
   rows.forEach((row, y) => row.forEach((on, x) => {if (on) path += `M${left + (x + 4) * cell} ${top + (y + 4) * cell}h${cell}v${cell}h-${cell}z`;}));

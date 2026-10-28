@@ -73,6 +73,8 @@ test('phone Portico sign-in offers account help and returns to its form', async 
     assert.deepEqual(forgotten, [['nana@example.com']]);
     assert.equal(tree.props.title, defaultI18n.t('auth.checkEmail'));
     assert.equal(tree.props.body, defaultI18n.t('auth.resetLinkSent'));
+    // Services makes the link single-use and 15 minutes long; the sent state says so, as on web.
+    assert.ok(nodes(tree.props.beforeActions).some(node => node.type === 'Text' && node.props.children === defaultI18n.t('services.recovery.expiry')));
     await act(() => tree.props.primaryAction.onPress());
     assert.equal(tree.type, 'PhoneAccountSignIn'); assert.equal(tree.props.recovery, true);
     await act(() => tree.props.onLocal());

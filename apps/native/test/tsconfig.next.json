@@ -1,7 +1,8 @@
 {
   "extends": "./tsconfig.json",
   "include": [
-    "next-*.test.ts"
+    "next-*.test.ts",
+    "../src-next/types/**/*.d.ts"
   ],
   "exclude": []
 }

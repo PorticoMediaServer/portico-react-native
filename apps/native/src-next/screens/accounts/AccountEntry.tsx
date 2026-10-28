@@ -1396,7 +1396,11 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       {theme.isTV ? null : <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('auth.noPasswordForSocial')}</Text>}
     </View>);
   if (stage === 'forgot-sent') return layout(t('auth.checkEmail'), t('auth.resetLinkSent'),
-    <Text style={[theme.type.caption, {color: theme.colors.textSecondary, marginBottom: 16}]}>{t('auth.privacySameAnswer')}</Text>,
+    <>
+      {/* account 10 and 31 draw the link's lifetime under the lede, as web shows it. */}
+      <Text style={[theme.type.caption, {color: theme.colors.textSecondary, marginBottom: 8}]}>{t('services.recovery.expiry')}</Text>
+      <Text style={[theme.type.caption, {color: theme.colors.textSecondary, marginBottom: 16}]}>{t('auth.privacySameAnswer')}</Text>
+    </>,
     action('back-to-sign-in', t('auth.backToSignIn'), async () => {if (lifetime.current) setStage('portico');}),
     <Text style={[theme.type.caption, {color: theme.colors.textSecondary, marginTop: 10}]}>{t('auth.noPasswordForSocial')}</Text>);
   if (stage === 'register') {
