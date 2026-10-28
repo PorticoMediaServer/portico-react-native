@@ -11,7 +11,6 @@ static BOOL SnapshotInteger(id value) {return [value isKindOfClass:NSNumber.clas
 @interface PorticoSnapshotFlight : NSObject
 @property(nonatomic,copy) NSString *identifier;
 @property(nonatomic) BOOL passive;
-@property(nonatomic) BOOL refreshedOutput;
 @property(nonatomic,copy) NSDictionary *source;
 @property(nonatomic,copy) NSDictionary *binding;
 @property(nonatomic,weak) PorticoPlaybackController *controller;
@@ -90,10 +89,6 @@ RCT_REMAP_METHOD(capture,capture:(NSString *)identifier source:(NSDictionary *)s
  CGAffineTransform transform=CGAffineTransformIdentity;CMTime decodedTime=kCMTimeInvalid;
  CVPixelBufferRef frame=[flight.controller copyVideoFrameForBinding:flight.binding displayTime:&decodedTime transform:&transform];
  if(!frame){
-  if(!flight.refreshedOutput){
-   flight.refreshedOutput=YES;
-   if(![flight.controller refreshVideoOutputForBinding:flight.binding]){[self fail:flight code:@"snapshot_stale"];return;}
-  }
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW,16*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[self captureFrame:flight];});
   return;
  }
