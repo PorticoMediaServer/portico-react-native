@@ -6,7 +6,9 @@ import {standardHomeApp} from './helpers/standard-home-app-harness.mjs';
 // signed-in session, and a demotion removes privileged controls.
 test('a role change on refresh keeps the signed-in Home and rebuilds privileged controls for the new role', async t => {
   const app = await standardHomeApp({accountRole: 'owner', deleteCapability: true});
-  t.after(() => app.unmount());
+  t.after(async () => {
+    try { await app.unmount(); } finally { app.disposeLoader(); }
+  });
   const home = () => app.hosts().some((host: any) => host.props.testID === 'native-home');
   const deleteOffered = async () => {
     await app.more();

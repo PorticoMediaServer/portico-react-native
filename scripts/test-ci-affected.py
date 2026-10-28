@@ -328,9 +328,9 @@ class JsCommandTests(unittest.TestCase):
     def test_native_file_keeps_transform_types_register_and_the_bounds(self):
         with patch.object(ci, "ROOT", Path("/repo")):
             argv = ci.js_command("apps/native", "test/next-account-proof-entry.test.ts")
-        self.assertEqual(argv[:5], ["node", "--experimental-transform-types", "--import", "./test/register.mjs",
-                                    f"--test-timeout={ci.TEST_TIMEOUT_MS}"])
-        self.assertEqual(argv[5], "--test-reporter=/repo/scripts/test-events.mjs")
+        self.assertEqual(argv[:6], ["node", "--experimental-transform-types", "--import", "./test/register.mjs",
+                                    "--experimental-vm-modules", f"--test-timeout={ci.TEST_TIMEOUT_MS}"])
+        self.assertEqual(argv[6], "--test-reporter=/repo/scripts/test-events.mjs")
         self.assertEqual(argv[-3:], ["--test-concurrency=1", "--test", "test/next-account-proof-entry.test.ts"])
 
     def test_package_file_uses_transform_types_without_the_native_register(self):

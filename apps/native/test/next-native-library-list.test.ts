@@ -55,8 +55,10 @@ test('phone Library mode switches the same sparse collection and keeps genuine r
     assert.equal(selectedList?.props.accessibilityState.checked, true);
     const row = app.hosts().find((host: any) => host.props.testID?.startsWith('library-list-') && host.props.accessibilityLabel?.startsWith('Actual display title ')); assert.ok(row);
     assert.equal(row.props.style.height, 70, 'the list uses the drawn catalogue row height');
-    assert.ok(app.hosts().some((host: any) => host.props.accessibilityLabel === `Play ${row.props.accessibilityLabel}`));
-    assert.ok(app.hosts().some((host: any) => host.props.accessibilityLabel === `More for ${row.props.accessibilityLabel}`));
+    // The row reads its title and caption; its actions name the title.
+    const title = /^Actual display title \d+/.exec(row.props.accessibilityLabel)![0];
+    assert.ok(app.hosts().some((host: any) => host.props.accessibilityLabel === `Play ${title}`));
+    assert.ok(app.hosts().some((host: any) => host.props.accessibilityLabel === `More for ${title}`));
     const listOffset = listHost.props.contentOffset.y; assert.ok(listOffset > 0, 'switching preserves the actual first-visible item, not a raw grid pixel offset');
     grid.props.onScroll({contentOffset: {x: 0, y: 0}}); await app.settle();
     row.props.onPress({nativeEvent: {}, stopPropagation() {}}); await app.settle();

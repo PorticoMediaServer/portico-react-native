@@ -72,6 +72,7 @@ test('Home distinguishes a direct chapter play from a container Resume with a ch
   });
   const homeModel = await screenModule(new URL('../src-next/screens/home/model.ts', import.meta.url), {
     react, '../../../../../packages/client-core/src/presentation/home-spotlight': {}, '../../../../../packages/client-core/src/presentation/kit-model': {},
+    '../../../../../packages/client-core/src/presentation/content-entry-subject': {},
   });
   const chapter = entry('chapter'), movie = entry('movie'), book = {...entry('book'), playback: undefined};
   const resumedChapter = {...chapter, playback: {...chapter.playback, startSeconds: 450}};

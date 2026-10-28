@@ -39,7 +39,7 @@ async function rig() {
     return entry;
   }
   function slot(kind: 'full' | 'mini', ownFence: any = fence) {
-    const replies: ((...rect: number[]) => void)[] = [], node = {current: {measureInWindow: (reply: (...rect: number[]) => void) => replies.push(reply)}};
+    const replies: ((...rect: number[]) => void)[] = [], node = {current: {measureInWindow: (reply: (...rect: number[]) => void) => {replies.push(reply);}}};
     let output: any;
     const host = createHookHost(() => {output = useListeningCoverSlot(ownFence, kind, node);}); host.mount();
     return {host, node, replies, get output() {return output;}};

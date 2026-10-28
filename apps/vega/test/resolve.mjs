@@ -3,7 +3,9 @@
 // under test uses: a media element, a media source and its buffers, and nothing else. The code
 // under test is the real, unmodified bridge.
 import {fileURLToPath, pathToFileURL} from 'node:url';
+import {readFile} from 'node:fs/promises';
 import path from 'node:path';
+import ts from 'typescript';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const stub = name => pathToFileURL(path.join(here, 'stubs', name)).href;
@@ -36,4 +38,13 @@ export async function resolve(specifier, context, next) {
     }
     throw error;
   }
+}
+
+// Node strips types but cannot read JSX, and Metro compiles both; a `.tsx` module the code under
+// test imports (the caption line, for one) is compiled here the same way, then run unmodified.
+export async function load(url, context, next) {
+  if (!url.startsWith('file:') || !url.endsWith('.tsx')) return next(url, context);
+  const source = await readFile(new URL(url), 'utf8');
+  const options = {module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX};
+  return {format: 'module', shortCircuit: true, source: ts.transpileModule(source, {compilerOptions: options, fileName: fileURLToPath(url)}).outputText};
 }

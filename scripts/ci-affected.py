@@ -408,6 +408,10 @@ def js_command(group, file):
     """The exact per-file command: same loader/flags as the suite, one file wide."""
     if group in ("apps/native", "web", "web-next"):
         args = ["node", "--experimental-transform-types", "--import", "./test/register.mjs"]
+        if group == "apps/native":
+            # Offline source tests load real modules through vm.SourceTextModule
+            # (test/helpers/offline-source-module.mjs).
+            args.append("--experimental-vm-modules")
     else:
         # Package sources may use syntax strip-only mode refuses - a constructor
         # parameter property, for instance - so package files load in transform

@@ -7,14 +7,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
-import {freezeOverlayPaint} from '../src-next/kit/overlays/overlay-paint-model.ts';
+import {freezeOverlayPaint, type OverlayPaintNode} from '../src-next/kit/overlays/overlay-paint-model.ts';
 
 const View = 'View';
 const Allowed = (_props: {title?: string}) => null;
 const Unknown = () => null;
 const Portal = () => null;
 
-const child = (type: unknown, props: Record<string, unknown> = {}) => React.createElement(type as never, props);
+const child = (type: unknown, props: Record<string, unknown> = {}): OverlayPaintNode => React.createElement(type as React.ElementType, props);
 /** A frozen children prop may be one element, an array, or absent. */
 const kids = (node: unknown): Array<{type: unknown; props: Record<string, unknown>}> => {
   if (node === undefined || node === null || node === false) return [];
@@ -131,7 +131,7 @@ test('unknown components, function children, functional styles and cycles are re
 });
 
 test('an unlisted fragment or native host is rejected unless the caller lists it', () => {
-  const fragment = React.createElement(React.Fragment, null, child(Allowed, {}));
+  const fragment = child(React.Fragment, {children: child(Allowed, {})});
   assert.equal(freezeOverlayPaint(fragment, [Allowed]), undefined);
   assert.ok(freezeOverlayPaint(fragment, [React.Fragment, Allowed]));
   assert.equal(freezeOverlayPaint(child('Text', {children: 'hi'}), [View]), undefined);

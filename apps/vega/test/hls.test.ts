@@ -9,6 +9,7 @@ import {finishResponse, releaseResponse, resetServer, segment, server} from './s
 import {mp4Init} from './stubs/mp4.mjs';
 import {VideoPlayer, resetWorld, world} from './stubs/w3cmedia.mjs';
 import {HlsSource, type SourceError} from '../src/bridge/hls.ts';
+import {segmentNumbered} from '../src/bridge/hls-playlist.ts';
 
 const base = 'http://server.test/v1/media/GRANT/';
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -1023,8 +1024,14 @@ test('other-buffer retirement cannot unfreeze a video cohort during changing-siz
   repeatedTwoTrackRoutes(8, 3);
   for (let n = 1; n < 8; n++) server.routes.set(base + `v-${n}.m4s`, segment({pts: 1 + n * 6, duration: 6, bytes: 36_000_000}));
   const {source, player, failures} = start(base + 'index.m3u8');
-  await source.open(0); player.currentTime = source.elementTime(0); source.settled();
+  await source.open(0); player.currentTime = source.elementTime(0);
   const hls = source as any, video = player.source.buffers[0], audio = player.source.buffers[1];
+  // Left alone, the pump takes audio's second segment first (it enters the window first), and
+  // that overflow seals both buffers before video's download can start. Hold the pump and run
+  // the real admissions in the order this race needs; the pump resumes for playback below.
+  await stopTestPump(hls); source.settled();
+  const [videoTrack, audioTrack] = hls.tracks;
+  if (!audio.spans.length) await hls.feed(audioTrack, segmentNumbered(audioTrack.playlist, audioTrack.next), hls.generation);
   for (const buffer of [video, audio]) discardConsumedPadding(buffer);
   const removals = [video, audio].map(buffer => observeRetainedCohortRemovals(hls, player, buffer));
   const get = hls.getMedia.bind(hls);
@@ -1036,11 +1043,15 @@ test('other-buffer retirement cannot unfreeze a video cohort during changing-siz
     if (first && url === base + 'v-1.m4s') { first = false; downloaded = true; await held; }
     return lease;
   };
-  await until(() => audio.spans.length > 0);
+  assert.ok(audio.spans.length > 0, 'audio\'s first segment is in');
+  assert.equal(hls.cohorts.size, 0, 'nothing is sealed yet');
   player.advance(1); // video36 is now inside measured ahead, audio36 is still current.
+  const admission = hls.feed(videoTrack, segmentNumbered(videoTrack.playlist, videoTrack.next), hls.generation);
   await until(() => downloaded, 15000);
   player.advance(2); // audio reaches4 while video80 remains current until7.
   release();
+  assert.equal(await admission, 'deferred', 'freeing audio\'s bytes does not unseal video');
+  hls.startPump(hls.generation);
   await until(() => hls.cohorts.has(video) && audio.spans.some(([from, to]: number[]) => from <= 4 && to > 4) || failures.length > 0, 15000);
   assert.deepEqual(failures, []);
   assert.equal(video.appended.filter((value: any) => !value.init).length, 1, 'the downloaded candidate is discarded while its own buffer remains sealed');
