@@ -10,6 +10,7 @@ import {NativeTitleMemory, type NativeTitleAnchor, type NativeTitleTab} from './
 import {NativeTitlePages} from './title-pages';
 import {NativeTitleEpisodeDetails} from './title-episode';
 import {NativeTitleCredits, type NativeTitleCreditsSnapshot} from './title-credits';
+import {nativeRelatedRow, type NativeRelatedRow, type NativeRelatedRowSnapshot} from './title-related';
 
 export type NativeTitleControllerOptions = Readonly<{
   entry: ContentEntry;
@@ -45,6 +46,7 @@ export class NativeTitleController {
   private ingested: unknown;
   private creditData?: object;
   private credits?: NativeTitleCredits;
+  private related = new Map<string, NativeRelatedRow>();
   private creditReadHost?: NativeTitlePageHost;
   private creditRefresh = false;
   private readonly options: NativeTitleControllerOptions;
@@ -94,6 +96,17 @@ export class NativeTitleController {
         credits: creditData.metadata.credits, totals: creditData.metadata.creditTotals,
         current: () => this.current() && this.detail.getSnapshot().data === creditData,
         read: (group, cursor, signal) => readCreditPage(this.options.api, creditData.item.id, group, {cursor, limit: 37}, signal), changed: this.changed});
+      for (const row of this.related.values()) row.dispose();
+      this.related = new Map();
+      // Each related row continues through the title's row route under this detail's fence and revision.
+      if (creditData) for (const row of creditData.related?.rows ?? []) {
+        const source = {libraryId: creditData.item.libraryId, itemId: creditData.item.id, kind: creditData.item.kind};
+        const api = {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => {
+          if (!this.current() || this.detail.getSnapshot().data !== creditData) return Promise.reject(new DOMException('Title changed', 'AbortError'));
+          return this.options.api.request<T>(path, method, body, signal);
+        }};
+        this.related.set(row.id, nativeRelatedRow(api, source, row, {viewerFence: creditData.scope.viewerFence, revision: creditData.revision}, this.changed));
+      }
     }
     const workspace = this.retired ? undefined : this.workspace.getSnapshot(), data = workspace?.data;
     if (workspace?.phase === 'ready' && data && data !== this.ingested) {
@@ -102,7 +115,9 @@ export class NativeTitleController {
         fence: JSON.stringify([data.scope.serverId, data.scope.libraryId, data.scope.viewerFence, data.revision.catalog, data.revision.viewer]),
         episodeCursor: workspace.pagination.cursor, seasonCursor: workspace.seasonPagination.cursor, episodes: data.episodes.sections[0]?.entries ?? [], seasons: data.seasons});
     }
-    return Object.freeze({entry: this.entry, detail, credits: this.credits?.getSnapshot(), workspace, ...this.pages.getSnapshot(), place: this.memory.getSnapshot(), retired: this.retired});
+    const related: Record<string, NativeRelatedRowSnapshot> = {};
+    for (const [id, row] of this.related) related[id] = row.getSnapshot();
+    return Object.freeze({entry: this.entry, detail, credits: this.credits?.getSnapshot(), related: Object.freeze(related), workspace, ...this.pages.getSnapshot(), place: this.memory.getSnapshot(), retired: this.retired});
   }
   getSnapshot = () => this.snapshot;
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
@@ -188,6 +203,8 @@ export class NativeTitleController {
     }
     await owner.next(expected);
   };
+  /** A related row's page boundary, for the exact row snapshot it rendered. */
+  moreRelated = (id: string, expected: NativeRelatedRowSnapshot): void => {if (this.current()) this.related.get(id)?.next(expected);};
   moreEpisodes = async (): Promise<void> => {if (this.current() && this.workspace.getSnapshot().phase === 'ready') await this.workspace.nextEpisodes();};
   moreSeasons = async (): Promise<void> => {if (this.current() && this.workspace.getSnapshot().phase === 'ready') await this.workspace.nextSeasons();};
   /** Owner show settings, bound to the exact page and host the sheet opened on.
@@ -231,6 +248,8 @@ export class NativeTitleController {
     this.saves.clear();
     for (const off of this.off) off(); this.off = [];
     this.credits?.dispose(); this.credits = undefined;
+    for (const row of this.related.values()) row.dispose();
+    this.related = new Map();
     this.detail.dispose(); this.workspace.dispose(); this.pages.dispose(); this.episode.dispose(); this.snapshot = this.read();
     for (const listener of [...this.listeners]) listener(); this.listeners.clear();
   };

@@ -145,6 +145,7 @@ test('artist Top songs has real vertical exits and Play entry; album geometry an
   const react: any = {createElement: (type: any, props: any, ...children: any[]) => ({type, props: {...props, children}}),
     useSyncExternalStore: (_subscribe: any, get: any) => get(), useMemo: (read: any) => read(), useState: () => [undefined, () => {}], useRef: () => ({current: null})}; react.default = react;
   const {TVAlbumScreen, TVArtistScreen} = await screenModule(new URL('../src-next/screens/destinations/music/TVMusicScreens.tsx', import.meta.url), {
+    '../../../kit/states': {SkeletonBlock: () => null},
     react, 'react-native': native, '../../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key, number: String}},
     '../../../../../../packages/client-core/src/presentation/kit-model': {cardText: (entry: any) => ({title: entry.title, caption: [], detail: []})},
     '../../../../../../packages/client-core/src/presentation/library-tabs': {artistReleaseGroups: (albums: any[]) => [{id: 'albums', label: 'Albums', entries: albums}]},
@@ -157,7 +158,7 @@ test('artist Top songs has real vertical exits and Play entry; album geometry an
   const song = {id: 'track', kind: 'song', title: 'Track'}, album = {id: 'release', title: 'Release'}, entry = {id: 'entity', kind: 'artist', title: 'Artist'};
   let state: any = {songs: [song], albums: [album], similar: Array.from({length: 12}, (_, index) => ({id: `similar-${index}`, title: 'Similar', kind: 'artist'})),
     allSongs: {songs: [], phase: 'idle'}, songPage: {offset: 0}, releases: {}};
-  const controller = {subscribe: () => () => {}, getSnapshot: () => state}, runtime = {ambient: () => ({kind: 'palette'}), artwork: () => ({kind: 'image'}), text: {}}, actions = {isMenuOpen: () => false};
+  const controller = {subscribe: () => () => {}, getSnapshot: () => state, similarPage: () => undefined}, runtime = {ambient: () => ({kind: 'palette'}), artwork: () => ({kind: 'image'}), text: {}}, actions = {isMenuOpen: () => false};
   let tree = TVArtistScreen({controller, entry, runtime, actions, openEntry() {}}), all = nodes(tree);
   const top = all.find(node => node.props.id === 'music-artist-entity.songs');
   assert.deepEqual(top.props.edges, {up: 'music-play-entity.actions', down: 'music-artist-entity.rest', right: 'music-artist-entity.albums'});

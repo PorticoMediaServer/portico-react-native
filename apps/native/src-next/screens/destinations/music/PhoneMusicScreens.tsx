@@ -1,5 +1,5 @@
 import React, {useId, useMemo, useRef, useSyncExternalStore} from 'react';
-import {ScrollView, Text, View, type View as NativeView} from 'react-native';
+import {ScrollView, Text, View, type NativeScrollEvent, type NativeSyntheticEvent, type View as NativeView} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
@@ -142,7 +142,7 @@ function SimilarAlbums({snapshot,controller,runtime,actions,openEntry,selection}
     <Text style={[browseType(theme,19,700),{color:theme.colors.text,marginBottom:10}]}>{t('next.controls.moreLikeThis')}</Text>
     {cards.length?<Text style={[browseType(theme,13,500),{color:theme.colors.textSecondary,marginBottom:10}]}>{t(snapshot.similarBySound?'music.moreLikeThisBySound':'music.moreLikeThisHint')}</Text>:null}
     {snapshot.similarError?<MusicErrorView testID={`music-similar-${snapshot.entry?.id??'page'}-error`} error={snapshot.similarError} onRetry={()=>{void controller.load();}}/>:null}
-    {cards.length?<ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap:14}}>
+    {cards.length?<ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap:14}} scrollEventThrottle={100} onScroll={similarNearEnd(controller,snapshot)}>
       {cards.map(value=>{const id=value.id,libraryId=value.libraryId!;return <AlbumCard key={id} album={{id,libraryId,title:value.title,year:value.year,posterUrl:value.posterUrl}} original={value}
         current={()=>controller.similarCurrent(snapshot,value)} selection={selection} runtime={runtime} actions={actions} openEntry={openEntry}/>;})}
     </ScrollView>:null}
@@ -174,7 +174,7 @@ function SimilarArtists({snapshot,controller,runtime,actions,openEntry,inset,gap
       {cards.length?<Text numberOfLines={1} style={[browseType(theme,13,500),{color:theme.colors.textSecondary,flexShrink:1}]}>{t(snapshot.similarBySound?'music.moreLikeThisBySound':'music.moreLikeThisHint')}</Text>:null}
     </View>
     {snapshot.similarError?<MusicErrorView testID={`music-similar-${snapshot.entry?.id??'page'}-error`} error={snapshot.similarError} onRetry={()=>{void controller.load();}} style={{marginHorizontal:inset}}/>:null}
-    {cards.length?<ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap,paddingHorizontal:inset}}>
+    {cards.length?<ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap,paddingHorizontal:inset}} scrollEventThrottle={100} onScroll={similarNearEnd(controller,snapshot)}>
       {cards.map(entry => <SimilarArtistCard key={entry.id} entry={entry} snapshot={snapshot} controller={controller} runtime={runtime} actions={actions} openEntry={openEntry} selection={selection}/>)}
     </ScrollView>:null}
   </View>;
@@ -389,4 +389,11 @@ export function PhoneArtistScreen({controller, entry, runtime, actions, openEntr
     </MusicScrollView>
     <PhoneHeader title={entry.title} onBack={onBack} onMore={() => actions.menu(entry, more)} moreRef={more}/>
   </View>;
+}
+
+/** TV-005/WEB-050 parity: a similar row reads its next page within a screen of its end. */
+function similarNearEnd(controller:NativeTVMusicController,snapshot:NativeTVMusicSnapshot){
+  return ({nativeEvent:{contentOffset,layoutMeasurement,contentSize}}:NativeSyntheticEvent<NativeScrollEvent>)=>{
+    if(contentOffset.x+layoutMeasurement.width>=contentSize.width-layoutMeasurement.width)controller.similarPage(snapshot)?.requestNext();
+  };
 }

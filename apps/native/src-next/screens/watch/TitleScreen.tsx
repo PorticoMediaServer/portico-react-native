@@ -16,7 +16,7 @@ import {tvTitleRegionMap, tvTitleFocusSection} from './tv-title-focus';
 import {TVTitleBackdrop, TVTitleCompactHeader, TVTitleHeroCopy} from './TVTitleChrome';
 import {useMotion} from '../../kit/useMotion';
 import {HeroMetadata} from '../../kit/layout/Hero';
-import {StateLayout, TitleSkeleton} from '../../kit/states';
+import {SkeletonBlock, StateLayout, TitleSkeleton} from '../../kit/states';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import {nativeType, useTheme} from '../../kit/theme';
 import type {ShowSettings} from '../../../../../packages/client-core/src/show-workspace';
@@ -543,13 +543,23 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
             return episodes.map(entry => cell(entry.id, open?.id === entry.id ? plate(entry) : card(entry, 'row', bodyWidth - 40)));
           })()}
         </>)}
-        {(theme.isTV || selectedTab === 'related') && relatedRows.map(row => cell(row.id, <View><Text style={[theme.isTV ? theme.type.rowHeading : theme.type.heading, {color: theme.colors.text, marginBottom: 14}]}>{row.heading}</Text>
-          {theme.isTV ? <TVShelf items={row.entries} getKey={tvItemKey} getFocusId={tvItemKey} focus={regions.related.get(row.id)} itemWidth={214} itemHeight={420} gap={28}
-            renderItem={(entry, slot) => <TitleRelated entry={entry} focusId={slot.focusId} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.displayTitle ?? entry.title} artwork={props.artwork(entry.posterUrl)} width={214}
+        {(theme.isTV || selectedTab === 'related') && relatedRows.map(row => {
+          // MOB-054/TV-019: each related row continues to its end through the title's row route.
+          const pages = snapshot.related?.[row.id], entries = pages?.entries ?? row.entries;
+          const paging = pages ? {hasMore: pages.hasMore, loading: pages.loading, failed: pages.failed, waitingId: pages.waitingId, fulfilled: pages.fulfilled,
+            waitingItem: relatedWaiting(pages.waitingId, row.entries[0]), requestNext: () => controller.moreRelated(row.id, pages)} : undefined;
+          return cell(row.id, <View><Text style={[theme.isTV ? theme.type.rowHeading : theme.type.heading, {color: theme.colors.text, marginBottom: 14}]}>{row.heading}</Text>
+          {theme.isTV ? <TVShelf items={entries} getKey={tvItemKey} getFocusId={tvItemKey} focus={regions.related.get(row.id)} itemWidth={214} itemHeight={420} gap={28} paging={paging}
+            renderItem={(entry, slot) => slot.waiting ? <Focusable focusId={slot.focusId} testID="watch-related-pending" focusTreatment="none" accessibilityLabel={defaultI18n.t('next.states.loading')}
+              onFocus={() => {slot.onFocus(); paging?.requestNext();}} onBlur={slot.onBlur} style={{width: 214}}><SkeletonBlock width={214} height={321} radius={12} shine={!paging?.failed}/></Focusable>
+            : <TitleRelated entry={entry} focusId={slot.focusId} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.displayTitle ?? entry.title} artwork={props.artwork(entry.posterUrl)} width={214}
               caption={entry.year !== undefined ? [{id: 'year', text: defaultI18n.number(entry.year, {useGrouping: false}), role: 'value'}] : undefined}
               watched={entry.watched} progress={entry.duration && Number.isFinite(entry.duration) && entry.duration > 0 && entry.progressSeconds !== undefined && Number.isFinite(entry.progressSeconds) ? Math.max(0, Math.min(1, entry.progressSeconds / entry.duration)) : undefined}
               onFocus={slot.onFocus} onBlur={slot.onBlur} onNavigate={() => props.navigate(entry)}/>}/>
-            : <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 10}}>{row.entries.map(entry => <TitleRelated key={entry.id} entry={entry} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.displayTitle ?? entry.title} artwork={props.artwork(entry.posterUrl)} width={(bodyWidth - 60) / 3} caption={entry.year !== undefined ? [{id: 'year', text: String(entry.year), role: 'supplement'}] : undefined} onNavigate={() => props.navigate(entry)}/>)}</ScrollView>}</View>))}
+            : <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 10}} scrollEventThrottle={100}
+              onScroll={({nativeEvent: {contentOffset, layoutMeasurement, contentSize}}) => {if (paging?.hasMore && contentOffset.x + layoutMeasurement.width >= contentSize.width - layoutMeasurement.width) paging.requestNext();}}>
+              {entries.map(entry => <TitleRelated key={entry.id} entry={entry} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.displayTitle ?? entry.title} artwork={props.artwork(entry.posterUrl)} width={(bodyWidth - 60) / 3} caption={entry.year !== undefined ? [{id: 'year', text: String(entry.year), role: 'supplement'}] : undefined} onNavigate={() => props.navigate(entry)}/>)}</ScrollView>}</View>);
+        })}
         {(theme.isTV || selectedTab === 'details') && cell('details', <View style={{gap: 16}}>
           {theme.isTV ? <View testID="watch-title-about" style={{flexDirection: 'row', alignItems: 'flex-start', gap: 88}}>
             <View style={{width: 860}}>
@@ -642,6 +652,11 @@ export function TitleEpisode({entry, more, ...props}: EpisodeTileProps & {entry:
   const anchor = useRef<View>(null);
   return <EpisodeTile {...props} menuAnchorRef={anchor} onMore={() => more(entry, anchor)}/>;
 }
+/** The waiting host of a related row's next page: a cursor, never a title. */
+function relatedWaiting(waitingId: string, like: ContentEntry | undefined): ContentEntry {
+  return {id: waitingId, kind: like?.kind ?? 'movie', title: '', libraryId: like?.libraryId} as ContentEntry;
+}
+
 export function TitleRelated({entry, more, ...props}: PosterCardProps & {entry: ContentEntry; more: NativeTitleScreenProps['more']}) {
   const anchor = useRef<View>(null);
   return <PosterCard {...props} menuAnchorRef={anchor} onMore={() => more(entry, anchor)}/>;

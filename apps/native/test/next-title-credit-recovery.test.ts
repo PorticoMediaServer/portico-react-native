@@ -4,6 +4,7 @@ import {screenModule} from './helpers/screen-harness.mjs';
 import {NativeTitleCredits} from '../src-next/screens/watch/title-credits.ts';
 import {NativeTitleMemory} from '../src-next/screens/watch/title-memory.ts';
 import {NativeTitlePages} from '../src-next/screens/watch/title-pages.ts';
+import * as titleRelated from '../src-next/screens/watch/title-related.ts';
 
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
 const credit = (id: string) => ({id, personId: id, name: id, role: 'cast'});
@@ -35,6 +36,7 @@ async function fixture() {
     dispose() {}
   }
   const {NativeTitleController} = await screenModule(new URL('../src-next/screens/watch/title-controller.ts', import.meta.url), {
+    './title-related': titleRelated,
     react: {default: {}},
     '../../../../../packages/client-core/src/detail': {DetailService: Detail, readCreditPage: async (_api: unknown, id: string, group: string, options: {cursor?: string}, signal: AbortSignal) => {
       reads.push({id, group, ...options, signal});

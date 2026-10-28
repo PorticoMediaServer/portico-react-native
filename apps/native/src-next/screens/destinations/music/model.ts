@@ -5,6 +5,7 @@ import {
 } from '../../../../../../packages/client-core/src/browse';
 import {getContainerState, setContainerFlag, type ContainerState} from '../../../../../../packages/client-core/src/container-state';
 import {readListeningSimilar, LibraryContentService} from '../../../../../../packages/client-core/src/library-content';
+import {nativeSimilarRow, type NativeRelatedRow, type NativeRelatedRowSnapshot} from '../../watch/title-related';
 import {encodedRoutePath} from '../../../../../../packages/contracts/src/routes';
 import {unreadableServerResponse} from '../../../../../../packages/client-core/src/server-messages';
 import type {NativeShellBootstrapContext} from '../../../shell/bootstrap';
@@ -28,6 +29,8 @@ export type NativeTVMusicSnapshot = Readonly<{
   similarBySound?: boolean;
   similarProjection?: ContentProjection;
   similarError?: unknown;
+  /** The similar row's continuation (TV-005): its pages as the shelf's paging contract. */
+  similarPaging?: NativeRelatedRowSnapshot;
   favorite: boolean;
   allSongs: MusicSection<ContentEntry> & Readonly<{songs: readonly ContentEntry[]}>;
   artistDetails?: ContentEntry;
@@ -93,6 +96,7 @@ export class NativeTVMusicController {
   private topSongsRevision?: string;
   private entityWitness?: Readonly<{service: LibraryContentService; projection: ContentProjection; signal: AbortSignal}>;
   private similarEntries = new WeakSet<ContentEntry>();
+  private similarRow?: NativeRelatedRow;
   private songFavorites = new WeakMap<ContentEntry, boolean>();
   private songFavoriteOperations = new Map<ContentEntry, {controller: AbortController; service: DetailService; current: () => boolean; desired: boolean; running: boolean}>();
   private releaseDTOs = new WeakMap<MusicAlbumRow,ContentEntry>();
@@ -209,6 +213,14 @@ export class NativeTVMusicController {
     return !!row&&this.state.releases.phase!=='refresh-required'&&this.state.albums.includes(row);
   }
   /** A card belongs to the original entity projection, not a later same-ID page. */
+  /** The similar row's page boundary, for the exact row snapshot it rendered. */
+  moreSimilar = (expected: NativeRelatedRowSnapshot): void => {if(this.current())this.similarRow?.next(expected);};
+  /** The similar row's paging for a shelf; the waiting host is a cursor, never a title. */
+  similarPage = (snapshot: NativeTVMusicSnapshot) => {
+    const pages=snapshot.similarPaging;
+    return pages?{hasMore:pages.hasMore,loading:pages.loading,failed:pages.failed,waitingId:pages.waitingId,fulfilled:pages.fulfilled,
+      waitingItem:{id:pages.waitingId,kind:this.options.entry.kind,title:'',libraryId:this.options.entry.libraryId} as ContentEntry,requestNext:()=>this.moreSimilar(pages)}:undefined;
+  };
   similarCurrent = (snapshot: NativeTVMusicSnapshot, entry: ContentEntry): boolean => {
     const witness=this.entityWitness;
     return !!witness&&this.entityCurrent(witness)&&snapshot.similar===this.state.similar&&
@@ -241,11 +253,11 @@ export class NativeTVMusicController {
     this.songFavoriteOperations.clear(); this.songFavorites = new WeakMap();
     this.controller = controller;
     const generation = ++this.generation;
-    this.songPager?.dispose();this.releasePager?.dispose();this.allSongPager?.dispose();this.allSongsController?.abort();
-    this.songPager=undefined;this.releasePager=undefined;this.allSongPager=undefined;
+    this.songPager?.dispose();this.releasePager?.dispose();this.allSongPager?.dispose();this.allSongsController?.abort();this.similarRow?.dispose();
+    this.songPager=undefined;this.releasePager=undefined;this.allSongPager=undefined;this.similarRow=undefined;
     this.entityWitness?.service.dispose();this.entityWitness=undefined;
     this.songQuery = undefined; this.allSongQuery = undefined; this.topSongsRevision = undefined;
-    this.publish({songs:[],albums:[],songPage:emptyMusicSection<ContentEntry>(),releases:emptyMusicSection<MusicAlbumRow>(),allSongs:Object.freeze({...emptyMusicSection<ContentEntry>(),songs:[]}),phase:'loading',error:undefined,albumDetails:undefined,similar:[],similarBySound:undefined,similarProjection:undefined,similarError:undefined});
+    this.publish({songs:[],albums:[],songPage:emptyMusicSection<ContentEntry>(),releases:emptyMusicSection<MusicAlbumRow>(),allSongs:Object.freeze({...emptyMusicSection<ContentEntry>(),songs:[]}),phase:'loading',error:undefined,albumDetails:undefined,similar:[],similarBySound:undefined,similarProjection:undefined,similarError:undefined,similarPaging:undefined});
     const task = (this.options.entry.kind === 'album' ? this.loadAlbum(controller.signal) : this.loadArtist(controller.signal))
       .catch(error => { if (this.current() && generation === this.generation && !controller.signal.aborted) this.publish({phase: 'error', error}); })
       .finally(() => { if (this.pending === task) this.pending = undefined; });
@@ -318,12 +330,20 @@ export class NativeTVMusicController {
       const projection=witness.projection;
       if(value.libraryId!==projection.scope.libraryId||value.itemId!==projection.scope.entityId||
         value.revision.catalog!==projection.revision.catalog||value.revision.viewer!==projection.revision.viewer)throw membershipFailure('invalid_projection');
-      const similar=Object.freeze(value.entries.filter(entry=>entry.kind===this.options.entry.kind&&entry.id!==this.options.entry.id));
-      for(const entry of similar)this.similarEntries.add(entry);
-      this.publish({similar,similarBySound:value.bySound,similarProjection:projection,similarError:undefined});
+      // The row continues to its end on this page's basis and revision.
+      this.similarRow?.dispose();
+      const row:NativeRelatedRow=nativeSimilarRow(this.api,this.options.similarScope,value,()=>publish());
+      const publish=()=>{
+        if(this.similarRow!==row||!this.entityCurrent(witness))return;
+        const pages=row.getSnapshot();
+        const similar=Object.freeze(pages.entries.filter(entry=>entry.kind===this.options.entry.kind&&entry.id!==this.options.entry.id));
+        for(const entry of similar)this.similarEntries.add(entry);
+        this.publish({similar,similarBySound:value.bySound,similarProjection:projection,similarError:undefined,similarPaging:pages});
+      };
+      this.similarRow=row;publish();
     }catch(error){
       if(this.current()&&!signal.aborted&&(!witness||this.entityWitness===witness))
-        this.publish({similar:[],similarBySound:undefined,similarProjection:undefined,similarError:stageFailure('similar',error,signal,diagnose('similar','GET',path,error))});
+        this.publish({similar:[],similarBySound:undefined,similarProjection:undefined,similarError:stageFailure('similar',error,signal,diagnose('similar','GET',path,error)),similarPaging:undefined});
     }
   }
   private async loadAlbum(signal: AbortSignal): Promise<void> {
@@ -502,6 +522,7 @@ export class NativeTVMusicController {
   dispose = (): void => {
     if (this.disposed) return;
     this.disposed = true;
+    this.similarRow?.dispose(); this.similarRow = undefined;
     for (const operation of this.songFavoriteOperations.values()) operation.controller.abort();
     this.songFavoriteOperations.clear();
     this.generation++;

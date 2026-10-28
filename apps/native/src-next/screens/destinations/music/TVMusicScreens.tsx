@@ -6,6 +6,7 @@ import {cardText} from '../../../../../../packages/client-core/src/presentation/
 import {artistReleaseGroups} from '../../../../../../packages/client-core/src/presentation/library-tabs';
 import {AmbientArt, Artwork, ArtistCircle} from '../../../kit/artwork';
 import {Button, Chip, Focusable} from '../../../kit/controls';
+import {SkeletonBlock} from '../../../kit/states';
 import {SquareCard} from '../../../kit/cards';
 import {TrackRow, type TrackRowData, type TrackSelection} from '../../../kit/browse';
 import {SelectionCircle} from '../../../kit/selection';
@@ -17,7 +18,7 @@ import {TVShelf} from '../../../tv/layout/TVShelf';
 import {TVArtFocus} from '../../../tv/layout/TVArtFocus';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeEntryActions} from '../entry-actions';
-import type {NativeTVMusicController, MusicAlbumRow} from './model';
+import type {NativeTVMusicController, NativeTVMusicSnapshot, MusicAlbumRow} from './model';
 import {MusicErrorView} from './MusicErrorView';
 import {MusicSectionControls, musicNearEnd} from './MusicSectionControls';
 import {MusicFormatBadges} from './MusicFormatBadges';
@@ -155,8 +156,8 @@ export function TVAlbumScreen({controller, entry, runtime, actions, openEntry, o
         <SectionHeading title={t('music.moreLikeThis')} detail={t(snapshot.similarBySound?'music.moreLikeThisBySound':'music.moreLikeThisHint')} left={200} top={moreTop}/>
         {snapshot.similarError?<MusicErrorView testID={`music-similar-${entry.id}-error`} error={snapshot.similarError} onRetry={()=>{void controller.load();}} style={{position:'absolute',left:200,top:moreTop+58,width:1000,zIndex:3}}/>:null}
         <View style={{position: 'absolute', left: 200, right: 96, top: moreTop+58, zIndex: 2}}>
-          <TVShelf items={snapshot.similar.filter(value => value.kind === 'album')} getKey={value => value.id} itemWidth={200} itemHeight={300} gap={32}
-            renderItem={(value, slot) => <SquareCard width={200} focusId={slot.focusId} onFocus={slot.onFocus} onBlur={slot.onBlur} title={value.displayTitle ?? value.title}
+          <TVShelf items={snapshot.similar.filter(value => value.kind === 'album')} getKey={value => value.id} itemWidth={200} itemHeight={300} gap={32} paging={controller.similarPage(snapshot)}
+            renderItem={(value, slot) => slot.waiting ? <SimilarPending focusId={slot.focusId} onFocus={slot.onFocus} onBlur={slot.onBlur} snapshot={snapshot} controller={controller} size={200}/> : <SquareCard width={200} focusId={slot.focusId} onFocus={slot.onFocus} onBlur={slot.onBlur} title={value.displayTitle ?? value.title}
               caption={factLine(value.artist?.name ?? '')} artwork={runtime.artwork(value.posterUrl)} onNavigate={()=>{if(controller.similarCurrent(snapshot,value))openEntry(value);}} onMore={()=>{if(controller.similarCurrent(snapshot,value))actions.menu(value);}} moreExpanded={controller.similarCurrent(snapshot,value)&&actions.isMenuOpen(value)}/>}/>
         </View>
       </View>
@@ -226,7 +227,8 @@ export function TVArtistScreen({controller, entry, runtime, actions, openEntry, 
           <SectionHeading title={t('music.similarArtists')} detail={snapshot.similarBySound?t('music.moreLikeThisBySound'):undefined}/>
           {snapshot.similarError?<MusicErrorView testID={`music-similar-${entry.id}-error`} error={snapshot.similarError} onRetry={()=>{void controller.load();}} style={{marginTop:24}}/>:null}
           <View style={{marginTop: 24}}>
-            <TVShelf items={snapshot.similar.filter(value => value.kind === 'artist')} getKey={value => value.id} itemWidth={200} itemHeight={280} gap={40} renderItem={(value, slot) => {
+            <TVShelf items={snapshot.similar.filter(value => value.kind === 'artist')} getKey={value => value.id} itemWidth={200} itemHeight={280} gap={40} paging={controller.similarPage(snapshot)} renderItem={(value, slot) => {
+              if (slot.waiting) return <SimilarPending focusId={slot.focusId} onFocus={slot.onFocus} onBlur={slot.onBlur} snapshot={snapshot} controller={controller} size={200} round/>;
               const albumCovers = (value.artworkPaths ?? []).flatMap(path => {const source = runtime.artwork(path); return source ? [source] : [];});
               return <Focusable focusId={slot.focusId} onFocus={slot.onFocus} onBlur={slot.onBlur} accessibilityRole="button" accessibilityLabel={value.displayTitle??value.title} focusKind="card" focusTreatment="none"
                 onPress={()=>{if(controller.similarCurrent(snapshot,value))openEntry(value);}} style={{width:200}}>
@@ -258,4 +260,13 @@ export function TVArtistScreen({controller, entry, runtime, actions, openEntry, 
       </FocusRegion>
     </ScrollView>
   </View>;
+}
+
+/** The similar row's next-page host (TV-005): reading it is asked for when it takes focus. */
+function SimilarPending({focusId, onFocus, onBlur, snapshot, controller, size, round = false}: {focusId?: string; onFocus: () => void; onBlur: () => void; snapshot: NativeTVMusicSnapshot; controller: NativeTVMusicController; size: number; round?: boolean}) {
+  const failed = !!snapshot.similarPaging?.failed;
+  return <Focusable focusId={focusId} testID="music-similar-pending" focusTreatment="none" accessibilityLabel={defaultI18n.t('next.states.loading')}
+    onFocus={() => {onFocus(); controller.similarPage(snapshot)?.requestNext();}} onBlur={onBlur} style={{width: size}}>
+    <SkeletonBlock width={size} height={size} radius={round ? size / 2 : 12} shine={!failed}/>
+  </Focusable>;
 }

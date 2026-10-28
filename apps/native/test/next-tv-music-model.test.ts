@@ -7,6 +7,7 @@ import {readListeningSimilar} from '../../../packages/client-core/src/library-co
 import * as readingBooksOpen from '../src-next/screens/read/reading-books-open.ts';
 import * as musicPaging from '../src-next/screens/destinations/music/paging.ts';
 import {presentError} from '../../../packages/client-core/src/presentation/errors.ts';
+import * as titleRelated from '../src-next/screens/watch/title-related.ts';
 
 const song = (id: string, track: number, duration: number, title: string) => ({id, libraryId: 'music', kind: 'song', title, duration, trackNumber: track, artist: {id: 'artist-1', name: 'Kendrick Lamar'}, album: {id: 'album-1', name: 'DAMN.'}});
 const albumEntry = {id: 'album-1', libraryId: 'music', kind: 'album', title: 'DAMN.', artist: {id: 'artist-1', name: 'Kendrick Lamar'}, year: 2017, posterUrl: '/v1/items/a/art/poster'};
@@ -67,6 +68,7 @@ async function controller(entry: any, options: Fixture = {}) {
     throw new Error(`unexpected ${path}`);
   }};
   const {NativeTVMusicController} = await screenModule(new URL('../src-next/screens/destinations/music/model.ts', import.meta.url), {
+    '../../watch/title-related': titleRelated,
     './paging': musicPaging,
     '../../../../../../packages/client-core/src/detail': {DetailService},
     react: {default: {}},
@@ -620,6 +622,7 @@ async function tvMusicScreens(){
  const hooks={...windowHooks,createElement:(type:any,props:any,...children:any[])=>({type,props:{...props,children}}),useSyncExternalStore:(_off:any,get:any)=>get(),useMemo:(fn:any)=>fn(),useRef:(value:any)=>({current:value}),useCallback:(fn:any)=>fn,useId:()=> 'real-test-gradient'};
  const {artistReleaseGroups}=await import('../../../packages/client-core/src/presentation/library-tabs.ts');
  const screens=await screenModule(new URL('../src-next/screens/destinations/music/TVMusicScreens.tsx',import.meta.url),{
+  '../../../kit/states': {SkeletonBlock: () => null},
   '../../../kit/selection': {SelectionCircle: 'SelectionCircle'}, '../../../tv/layout/TVShelf': {TVShelf: 'TVShelf'},
   react:{default:hooks,...hooks},'react-native':{ScrollView:'ScrollView',Text:'Text',View:'View'},'react-native-svg':{default:'Svg',Defs:'Defs',LinearGradient:'LinearGradient',Rect:'Rect',Stop:'Stop'},
   '../../../../../../packages/i18n/src':{defaultI18n:{t:(key:string,args?:unknown)=>args?`${key}:${JSON.stringify(args)}`:key,number:String}},

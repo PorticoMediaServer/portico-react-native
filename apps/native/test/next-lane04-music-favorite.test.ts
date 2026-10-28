@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {screenModule} from './helpers/screen-harness.mjs';
+import * as titleRelated from '../src-next/screens/watch/title-related.ts';
 
 async function fixture({ambiguous = false, holdRead = false, denied = false} = {}) {
   let active = true, releases: (() => void)[] = [], mutations = 0, retries = 0, disposals = 0, instances = 0;
@@ -27,6 +28,7 @@ async function fixture({ambiguous = false, holdRead = false, denied = false} = {
   }
   const empty = () => ({phase: 'idle', items: [], offset: 0, nextCursor: '', canPrevious: false, canNext: false});
   const {NativeTVMusicController} = await screenModule(new URL('../src-next/screens/destinations/music/model.ts', import.meta.url), {
+    '../../watch/title-related': titleRelated,
     react: {default: {}}, '../../../../../../packages/client-core/src/detail': {DetailService: Detail},
     '../../../../../../packages/client-core/src/browse': {}, '../../../../../../packages/client-core/src/container-state': {},
     '../../../../../../packages/client-core/src/library-content': {}, '../../../../../../packages/contracts/src/routes': {},
