@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useState, useSyncExternalStore} from 'react';
-import {Linking, ScrollView, Text, View} from 'react-native';
+import {ScrollView, Text, View} from 'react-native';
 import {artworkLimitText, openSubtitlesSummary, type MetadataSettings} from '../../../../../../packages/client-core/src/metadata-settings';
 import {settingsSpec, settingsRowIndex, type SettingsRow} from '../../../../../../packages/client-core/src/presentation/settings-spec';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
@@ -100,8 +100,7 @@ function MetadataPage({ports, runtime, compactHeader, onLibraries, controller, c
         {select('metadata.artworkLanguage', settings.artworkLanguage, value => ({artworkLanguage: value as MetadataSettings['artworkLanguage']}), settings.artworkPreference === undefined)}
       </LibraryGroup></>}
       <SectionTitle>{groupTitle(4)}</SectionTitle><LibraryGroup>
-        <LibraryRow first label={t(row('metadata.osGet').label)} trailing={<Button variant="text" size="xs" onPress={() => {if (current()) void Linking.openURL('https://www.opensubtitles.com/').catch(error => {if (current()) runtime.reportError(error);});}}>{t(row('metadata.osGet').control.label!)}</Button>}/>
-        {credential('metadata.osKey', settings.openSubtitlesKeyConfigured)}
+        {credential('metadata.osKey', settings.openSubtitlesKeyConfigured, true)}
         {credential('metadata.osUser', !!settings.openSubtitlesUsername)}
         {credential('metadata.osPass', settings.openSubtitlesPasswordConfigured)}
         <LibraryRow label={t(row('metadata.osStatus').label)} help={subtitles.downloads} value={subtitles.text}/>

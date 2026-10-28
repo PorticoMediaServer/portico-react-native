@@ -23,13 +23,18 @@ import {nativeStorageOwner} from './storage/space-source';
 import {useFormState, useStorageForms, useStorageSet, type StorageForms} from './storage/forms';
 
 const IDS = ['runtime'] as const;
-function reportContext() {let zone = 'UTC';try {zone = Intl.DateTimeFormat().resolvedOptions().timeZone || zone;}catch {}return captureReportContext(zone);}
+export function historyReportContext(reportError: (error: unknown) => void) {
+  let zone = 'UTC';
+  try {zone = Intl.DateTimeFormat().resolvedOptions().timeZone || zone;}
+  catch (error) {reportError(error);}
+  return captureReportContext(zone);
+}
 function createHistory(context: NativeShellBootstrapContext, reportError: NativeShellRuntime['reportError']) {
   const lifetime = new NativeScreenLifetime(context), current = () => lifetime.current() && nativeStorageOwner(context);
   const api = {request: <T,>(path: string, method?: string, body?: unknown, caller?: AbortSignal): Promise<T> => current()
     ? lifetime.request(signal => context.api.request<T>(path, method, body, signal), caller) : Promise.reject(screenScopeEnded())};
   const dashboard = new DashboardDataClient(api);
-  const source = new NativeHistorySource({page: (filters, cursor, signal) => fetchPlayHistory(api, filters, cursor, signal), people: (filters, cursor, signal) => dashboard.people(filters, cursor, 100, signal)}, current, reportContext, reportError);
+  const source = new NativeHistorySource({page: (filters, cursor, signal) => fetchPlayHistory(api, filters, cursor, signal), people: (filters, cursor, signal) => dashboard.people(filters, cursor, 100, signal)}, current, () => historyReportContext(reportError), reportError);
   const retire = () => source.dispose();lifetime.signal.addEventListener('abort', retire, {once: true});
   return {context, source, current, dispose: () => {source.dispose();lifetime.signal.removeEventListener('abort', retire);lifetime.dispose();}};
 }
@@ -64,12 +69,12 @@ function History({group, forms, runtime, compactHeader}: {group: Group; forms: S
     const played = new Intl.DateTimeFormat(defaultI18n.locale, {dateStyle: 'medium', timeStyle: 'short', timeZone: state.report.timeZone}).format(new Date(entry.startedAt));
     return <View style={{paddingVertical: 16, gap: 6, borderBottomWidth: 1, borderBottomColor: theme.colors.lineSoft}}>
       <Text style={[shellType(16, 700), {color: theme.colors.text}]}>{playHistoryTitle(entry, {t})}</Text>
-      <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}><Text style={[shellType(14, 600), {color: theme.colors.text}]}>{entry.user}</Text>{entry.profile && entry.profile !== entry.user && <Text style={{color: theme.colors.textSecondary}}>{entry.profile}</Text>}</View>
-      {(entry.device || platform) && <Text style={{color: theme.colors.textSecondary}}>{[entry.device, platform].filter(Boolean).join(' · ')}</Text>}
-      <Text style={{color: theme.colors.textSecondary}}>{played}</Text>
+      <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}><Text style={[shellType(14, 600), {color: theme.colors.text}]}>{entry.user}</Text>{entry.profile && entry.profile !== entry.user && <Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary}]}>{entry.profile}</Text>}</View>
+      {(entry.device || platform) && <Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary}]}>{[entry.device, platform].filter(Boolean).join(' · ')}</Text>}
+      <Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary}]}>{played}</Text>
       <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 12}}>
-        {entry.completed ? <Text style={{color: theme.colors.textSecondary}}>{t('server.jobState.succeeded')}{entry.watchedMs !== undefined ? ` · ${duration(entry.watchedMs / 1000)}` : ''}</Text> : entry.watchedMs !== undefined ? <Text style={{color: theme.colors.textSecondary}}>{duration(entry.watchedMs / 1000)}</Text> : null}
-        {place && <Text style={{color: theme.colors.textTertiary}}>{t(place === 'home' ? 'next.kit.session.local' : 'next.kit.session.remote')}</Text>}
+        {entry.completed ? <Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary}]}>{t('server.jobState.succeeded')}{entry.watchedMs !== undefined ? ` · ${duration(entry.watchedMs / 1000)}` : ''}</Text> : entry.watchedMs !== undefined ? <Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary}]}>{duration(entry.watchedMs / 1000)}</Text> : null}
+        {place && <Text style={[shellType(14, 400, 20), {color: theme.colors.textTertiary}]}>{t(place === 'home' ? 'next.kit.session.local' : 'next.kit.session.remote')}</Text>}
       </View>
     </View>;
   };
@@ -87,10 +92,10 @@ function History({group, forms, runtime, compactHeader}: {group: Group; forms: S
       <Select testID="server-history-period" rowLabel={t(filter('range')!.label)} value={state.query.period} options={filter('range')!.options.map(option => ({value: option.value, label: t(option.label)}))} onValueChange={value => {if (value === 'today' || value === '7d' || value === '30d' || value === 'all') change({period: value});}}/>
       <Select testID="server-history-sort" rowLabel={t('web.filters.sortBy')} value={state.query.sort} options={(table.control.columns ?? []).filter(column => column.sort && column.id).map(column => ({value: column.id!, label: t(column.label)}))} onValueChange={sort => change({sort})}/>
       <Select testID="server-history-direction" rowLabel={t('builder.preset.order')} value={state.query.direction} options={[{value: 'desc', label: t('web.filters.direction', {kind: 'other', dir: 'desc'})}, {value: 'asc', label: t('web.filters.direction', {kind: 'other', dir: 'asc'})}]} onValueChange={direction => {if (direction === 'asc' || direction === 'desc') change({direction});}}/>
-      {state.total !== undefined && <Text style={{color: theme.colors.textSecondary}}>{defaultI18n.number(state.total)} {table.control.noun ? t(table.control.noun[state.total === 1 ? 0 : 1]!) : ''}</Text>}
+      {state.total !== undefined && <Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary}]}>{defaultI18n.number(state.total)} {table.control.noun ? t(table.control.noun[state.total === 1 ? 0 : 1]!) : ''}</Text>}
       {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => source.retry())}/>}
     </View>}
-    ListEmptyComponent={state.phase === 'ready' ? <Text style={{color: theme.colors.textSecondary, marginTop: 20}}>{t(table.control.empty!)}</Text> : state.phase === 'loading' || state.phase === 'idle' ? <StateView title={t('status.loading')}/> : null}
+    ListEmptyComponent={state.phase === 'ready' ? <Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary, marginTop: 20}]}>{t(table.control.empty!)}</Text> : state.phase === 'loading' || state.phase === 'idle' ? <StateView title={t('status.loading')}/> : null}
     ListFooterComponent={<View style={{gap: 14, marginTop: 16}}>
       {!!state.nextCursor && <Button variant="glass" loading={state.phase === 'loading'} disabled={state.phase !== 'ready'} onPress={() => source.more()}>{t('action.showMore')}</Button>}
       <NativeAdvancedSection testID="server-history-advanced" summary={days === undefined ? t('status.loading') : days === 0 ? t('next.settings.allDefaults') : `${t(keep.label)}: ${keepOptions.find(option => option.value === choice)?.label ?? days}`}>
