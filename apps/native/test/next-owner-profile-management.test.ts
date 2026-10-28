@@ -24,7 +24,8 @@ async function fixture(main = true, pinRequired = false) {
   const primary = {id: 'main', name: 'Main', art: 'blue', primary: true, pinRequired: false, position: 0, revision: 2, pinRevision: 1};
   const other = {id: 'other', name: 'Other', art: 'mint', primary: false, pinRequired, position: 1, revision: 7, pinRevision: 2};
   let profiles = [primary, other];
-  const preview = {profileId: other.id, name: other.name, revision: 7, primary: false};
+  const preview = {profileId: other.id, name: other.name, revision: 7, primary: false, lifetime: '0123456789abcdef0123456789abcdef'};
+  let deleteWait: Promise<void> | undefined, releaseDelete: (() => void) | undefined, deleteBlocked = false;
   const route = {kind: 'shell', destination: {kind: 'settings'}};
   const authority = {serverId: 'server', accountId: 'account', profileId: main ? primary.id : other.id, epoch: 'one', viewerFence: 'fixture'};
   const session = {sessionFamilyId: 'family', viewer: authority};
@@ -44,7 +45,12 @@ async function fixture(main = true, pinRequired = false) {
       async forgetTrust(profileId: string) {writes.push({kind: 'forget', profileId});}
       async order(next: typeof profiles) {writes.push({kind: 'order', profiles: next}); profiles = [...next];}
       async previewDelete(target: any) {writes.push({kind: 'preview', target}); return preview;}
-      async delete(target: any) {writes.push({kind: 'delete', target}); profiles = profiles.filter(profile => profile.id !== target.profileId);}
+      async delete(target: any, options?: any) {writes.push({kind: 'delete', target});
+        options?.onStatus?.({profileId: target.profileId, lifetime: target.lifetime, state: 'removing'});
+        if (deleteWait) await deleteWait;
+        if (deleteBlocked) {options?.onStatus?.({profileId: target.profileId, lifetime: target.lifetime, state: 'blocked'}); throw Object.assign(new Error('blocked'), {code: 'retirement_blocked'});}
+        profiles = profiles.filter(profile => profile.id !== target.profileId);
+        options?.onStatus?.({profileId: target.profileId, lifetime: target.lifetime, state: 'removed'});}
     }},
     '../../../../../packages/client-core/src/identity-client': {IdentityClient: class {
       async restrictions(profileId: string) {return {profileId, revision: 3, ratingSystem: 'us', maximumAgeRating: '', allowUnrated: true, allowDownloads: true, allowLiveTv: true, allowDvr: true, allowWatchTogether: true, blockedLabels: []};}
@@ -75,7 +81,9 @@ async function fixture(main = true, pinRequired = false) {
     });
   } finally {renderingHost = host;}};
   render(); // Publish the committed profile lease before interacting.
-  return {render, renderLimits, writes, primary, other, preview, context};
+  return {render, renderLimits, writes, primary, other, preview, context,
+    holdDelete: () => {deleteWait = new Promise<void>(resolve => {releaseDelete = resolve;}); return () => {deleteWait = undefined; releaseDelete!();};},
+    blockDelete: () => {deleteBlocked = true;}};
 }
 
 test('embedded profile list manages another profile without changing the viewer and orders real revisions', async () => {
@@ -234,5 +242,45 @@ test('named deletion checks the current confirmation input and keeps the exact p
   sheet = actionSheet(f.render(), 'profile.delete');
   nodes(sheet.props.footer).find(node => node.type === 'Button' && text(node) === 'profile.delete')!.props.onPress(); await tick();
   assert.deepEqual(f.writes.filter(value => value.kind === 'delete'), [{kind: 'delete', target: f.preview}]);
+  sheet = actionSheet(f.render(), 'profile.delete');
+  assert.equal(sheet.props.open, true, 'the profile leaving the refreshed list does not end the retirement dialog');
+  assert.ok(nodes(sheet).some(node => node.props.testID === 'profile-delete-done'));
+  byID(f.render(), 'profile-delete-done').props.onPress(); await tick();
   assert.equal(actionSheet(f.render(), 'profile.delete').props.open, false);
+});
+
+test('an accepted retirement says Removing… until the server says Removed, then Done closes it', async () => {
+  const f = await fixture(); byID(f.render(), 'settings-profile-other').props.onPress();
+  nodes(f.render()).find(node => node.type === 'Button' && text(node) === 'profile.delete' && !node.props.loading)!.props.onPress(); await tick();
+  nodes(actionSheet(f.render(), 'profile.delete')).find(node => node.type === 'TextField')!.props.onChangeText(f.other.name);
+  const release = f.holdDelete();
+  nodes(actionSheet(f.render(), 'profile.delete').props.footer).find(node => node.type === 'Button' && text(node) === 'profile.delete')!.props.onPress();
+  await tick();
+  let sheet = actionSheet(f.render(), 'profile.delete');
+  assert.equal(sheet.props.open, true, 'the pending purge keeps the dialog open');
+  assert.equal(text(byID(f.render(), 'profile-delete-retirement')), 'profile.deleteConfirm.removing');
+  assert.equal(nodes(sheet).some(node => node.props.testID === 'profile-delete-done'), false, 'a pending purge is never offered as done');
+  release(); await tick();
+  sheet = actionSheet(f.render(), 'profile.delete');
+  assert.equal(sheet.props.open, true);
+  assert.ok(nodes(sheet).some(node => node.props.testID === 'profile-delete-done'));
+  assert.ok(text(sheet).includes('profile.deleteConfirm.removed'));
+  assert.equal(text(sheet).includes('profile.deleteConfirm.removing'), false);
+  assert.equal(nodes(f.render()).some(node => node.props.testID === 'settings-profile-other'), false, 'the retired profile left the list');
+  byID(f.render(), 'profile-delete-done').props.onPress(); await tick();
+  assert.equal(actionSheet(f.render(), 'profile.delete').props.open, false);
+});
+
+test('a blocked retirement keeps the pending wording and the existing failure, never success', async () => {
+  const f = await fixture(); byID(f.render(), 'settings-profile-other').props.onPress();
+  nodes(f.render()).find(node => node.type === 'Button' && text(node) === 'profile.delete' && !node.props.loading)!.props.onPress(); await tick();
+  nodes(actionSheet(f.render(), 'profile.delete')).find(node => node.type === 'TextField')!.props.onChangeText(f.other.name);
+  f.blockDelete();
+  nodes(actionSheet(f.render(), 'profile.delete').props.footer).find(node => node.type === 'Button' && text(node) === 'profile.delete')!.props.onPress(); await tick();
+  const sheet = actionSheet(f.render(), 'profile.delete');
+  assert.equal(sheet.props.open, true);
+  assert.ok(text(sheet).includes('profile.deleteConfirm.removing'));
+  assert.ok(text(sheet).includes('fixture failure'), 'the screen’s existing error handling owns the retry');
+  assert.equal(nodes(sheet).some(node => node.props.testID === 'profile-delete-done'), false);
+  assert.equal(text(sheet).includes('profile.deleteConfirm.removed'), false);
 });
