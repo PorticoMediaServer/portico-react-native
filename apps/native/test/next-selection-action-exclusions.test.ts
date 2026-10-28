@@ -47,3 +47,18 @@ test('Playlist exclusion uses the existing sort reason only for an offered actio
   const rules = Object.fromEntries(names.map(name => [name, {state: 'hidden'}]));rules.playlist = {state: 'disabled', reason: 'unsupported-sort'} as never;
   assert.deepEqual(nativeSelectionOffers(rules as never, () => nativeSelectionUnavailableReason('unsupported-sort')), [{id: 'playlist', disabled: true, reason: 'Unavailable with this sort order.'}]);
 });
+test('Delete exclusion maps the offered bounded control without replacing authority or the large-view reason', async () => {
+  const summary = {count: 200, every: {delete: true}, unavailableActions: {delete: 'unsupported-sort'}} as const;
+  assert.deepEqual(nativeSelectionUnavailableActions([{id: 'delete'}], summary as never), [{id: 'delete', disabled: true, reason: 'Unavailable with this sort order.'}]);
+  assert.equal(nativeSelectionActionUnavailable(summary as never, 'delete'), true);
+  assert.deepEqual(nativeSelectionUnavailableActions([], summary as never), []);
+  const denied = [{id: 'delete', disabled: true, reason: 'Permission required'}] as const;
+  assert.deepEqual(nativeSelectionUnavailableActions(denied, summary as never), denied);
+  const limit = [{id: 'delete', disabled: true, reason: 'Delete at most 200 titles.'}] as const;
+  assert.deepEqual(nativeSelectionUnavailableActions(limit, {...summary, count: 201} as never), limit);
+  assert.equal(nativeSelectionActionUnavailable({...summary, count: 201} as never, 'delete'), false);
+  assert.deepEqual(nativeSelectionUnavailableActions([{id: 'delete'}], {count: 200, every: summary.every} as never), [{id: 'delete'}]);
+  const {nativeWholeQueryUnavailableActions} = await import('../src-next/screens/library/whole-query-unavailable');
+  const large = nativeWholeQueryUnavailableActions({target: {mode: 'query'}, summary: {...summary, count: 201}} as never);
+  assert.equal(large[0]?.id, 'delete');assert.equal(large[0]?.disabled, true);assert.notEqual(large[0]?.reason, 'Unavailable with this sort order.');
+});

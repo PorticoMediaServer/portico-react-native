@@ -248,7 +248,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
   // select 21/22: the owner's real bulk editor and delete dialog, over exactly
   // the selected leaves and the captured view. No grant, no row.
   const openAdmin = (kind: 'edit' | 'delete', view: SelectionSnapshot<BrowseSelectionContext>) => {
-    if (view !== snapshot()) return;
+    if (view !== snapshot() || kind === 'delete' && nativeSelectionActionUnavailable(view.summary, 'delete')) return;
     const current = producer, model = current?.model;
     if (!current || !model || !view.active || !view.selectedKeys.length || destinations || bulk || pending || personalController
       || !!personal?.service.getSnapshot().results.length || personal?.service.getSnapshot().busy || !visible()) return;

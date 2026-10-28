@@ -1491,3 +1491,24 @@ test('phone and TV selection actions retain disabled sort reasons and Queue expl
     }
   } finally {state.theme = previous;}
 });
+test('bounded unavailable Delete uses the existing phone control reason while TV owner curation remains intact', async () => {
+  const previous = state.theme, calls: string[] = [], reason = 'Unavailable with this sort order.';
+  try {
+    for (const isTV of [false, true]) {
+      state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
+      const props: SelectionBarProps = {count: 200, onCancel() {}, menu: 'more', onMenuChange() {}, onAction: id => calls.push(id), actions: [{id: 'more'}, {id: 'delete', disabled: true, reason}]};
+      const bar = await mount(SelectionBar, props);
+      try {
+        const node = elements(bar.tree).find(element => element.props.menu === 'more' && element.type !== SelectionBar)!;
+        const menu = await mount(node.type, node.props);
+        try {
+          if (isTV) assert.deepEqual((menu.tree as any).props.items, [], 'a new exclusion cannot expose a curated owner action');
+          else {
+            const row = elements(menu.tree).find(element => element.props.description === reason && element.props.onPress);assert.ok(row);assert.equal(row.props.disabled, true);row.props.onPress();
+          }
+          assert.deepEqual(calls, []);
+        } finally {await menu.host.unmount();}
+      } finally {await bar.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});

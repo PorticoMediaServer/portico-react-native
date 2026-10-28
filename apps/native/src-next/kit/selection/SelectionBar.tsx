@@ -42,7 +42,7 @@ function SelectionMenus(props: SelectionBarProps & {returnFocusRef?: FocusRef}) 
     if (!offer || isTV && menu === 'more' && id === 'watched') continue;
     if (ownerActions.includes(id) && !items.some(item => 'section' in item)) items.push({id: 'owner', section: true, label: props.ownerTag, tone: 'owner'});
     items.push({id, label: id === 'watched' ? selectionText('next.selection.native.markWatched') : label(id), icon: icons[id], description: offer.reason ?? offer.description, disabled: offer.disabled,
-      tone: ownerActions.includes(id) ? 'owner' : 'default', destructive: id === 'delete', onSelect: () => props.onAction(id)});
+      tone: ownerActions.includes(id) ? 'owner' : 'default', destructive: id === 'delete', onSelect: () => {if (!offer.disabled) props.onAction(id);}});
   }
   const actionItems = items.filter((entry): entry is Extract<MenuEntry, {onSelect: unknown}> => 'onSelect' in entry);
   if (!isTV && (menu === 'queue' || menu === 'more')) {
