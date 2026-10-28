@@ -1,5 +1,5 @@
 import React, {useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
-import {NativeModules, Text, View} from 'react-native';
+import {Linking, NativeModules, Text, View} from 'react-native';
 import {HttpLocalApi} from '../../../../../packages/client-core/src';
 import {parseSecurityState} from '../../../../../packages/client-core/src/hosted-security';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
@@ -19,6 +19,7 @@ import {createNativeAccountSecurityScope, nativeAccountSecurityAllowed} from './
 import type {NativeSettingsPanelDeps} from './settings-panels';
 
 type Opening = Readonly<{current: () => boolean; refresh: () => Promise<void>}>;
+const noSubscription = () => () => {};
 
 /** Sample the matching Portico session once per original server Settings opening. */
 export function NativeHostedSignInPanel({kind, context, lifetime, t, runtime}: NativeSettingsPanelDeps & {
@@ -84,7 +85,17 @@ export function NativeHostedSignInPanel({kind, context, lifetime, t, runtime}: N
     changed(); void refresh();
     return () => dispose();
   }, [context, lifetime, kind, navigation.revision, navigation.route, retirement, theme.isTV]);
+  // A local account never consults the Portico credential owner, here either.
+  const linked = context.account.account.hostedAccountId, credentials = linked ? nativeAccounts.accountCredentials() : undefined;
+  const signedInAccount = useSyncExternalStore(credentials?.subscribe ?? noSubscription, () => credentials?.getSnapshot().session?.account.id);
   if (theme.isTV || !lifetime.current() || !context.current() || !nativeAccountSecurityAllowed(context, kind)) return null;
+  // H09 on native: the app holds no Portico Account session for this server's account (signed out of
+  // it here, or another account). Never draw dead rows: say who the server knows and open the Portico
+  // Account's own Security page in the browser. One row, under Password; Two-step adds nothing.
+  if (linked && signedInAccount !== linked) return kind !== 'password' ? null : <SettingsRow first testID="settings-panel-portico-account"
+    label={t('settings.row.porticoAccount')} value={context.account.account.username}
+    control={<Button testID="settings-manage-portico-account" variant="glass" size="compact"
+      onPress={() => {if (lifetime.current() && context.current()) void Linking.openURL(`${hostedUrl}/account?tab=security`).catch(() => {});}}>{t('web.signIn.manage')}</Button>}/>;
   const ready = opening?.current() ? source : undefined, security = ready?.security;
   const locked = security ? accountSecurityAvailability(security, NativeModules.PorticoAccountAuth).credentialLocked : true;
   const action = (task: NativeAccountSecurityKind, label: string) => ready && <Button testID={`account-security-${task}`} variant="glass" size="compact" disabled={locked}

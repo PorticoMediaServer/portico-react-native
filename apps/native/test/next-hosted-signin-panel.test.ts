@@ -23,7 +23,7 @@ async function fixture({hosted = true, matching = true, hasPassword = true, prov
   let navigation: any = {revision: 1, route: {kind: 'shell', destination: {kind: 'settings'}}};
   const localSession = {sessionFamilyId: 'server-family', viewer: {serverId: 'server', accountId: 'member', profileId: 'main'}};
   const context: any = {
-    account: {serverId: 'server', account: {id: 'member', primaryProfileId: 'main', disabled: false, ...(hosted ? {hostedAccountId: 'portico-account'} : {})}, canManage: true, capabilities: {manageAccount: true}},
+    account: {serverId: 'server', account: {id: 'member', username: 'member-name', primaryProfileId: 'main', disabled: false, ...(hosted ? {hostedAccountId: 'portico-account'} : {})}, canManage: true, capabilities: {manageAccount: true}},
     current: () => true, session: () => localSession,
     authority: () => ({serverId: 'server', accountId: 'member', profileId: 'main', epoch: 'epoch', viewerFence: 'fence'}),
     subscribeAuthority: (listener: () => void) => {authorityListeners.add(listener); return () => authorityListeners.delete(listener);},
@@ -50,8 +50,9 @@ async function fixture({hosted = true, matching = true, hasPassword = true, prov
     dispose() {this.disposed = true;}
     open(task: string) {this.opened.push(task);}
   }
+  const opened: string[] = [];
   const {NativeHostedSignInPanel} = await screenModule(new URL('../src-next/screens/settings-live/NativeHostedSignInPanel.tsx', import.meta.url), {
-    react: host.react, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}, Text: 'Text', View: 'View'},
+    react: host.react, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}, Text: 'Text', View: 'View', Linking: {openURL: async (url: string) => {opened.push(url);}}},
     '../../../../../packages/client-core/src': {HttpLocalApi: class {constructor(readonly origin: string, readonly token: string) {} async request(...args: any[]) {calls.push([this.origin, this.token, ...args]); return reply();}}},
     '../../../../../packages/client-core/src/hosted-security': {parseSecurityState},
     '../../../../../packages/client-core/src/presentation/errors': {presentError: (error: unknown, audience: string) => {presented.push([error, audience]); return {body: 'Security read failed'};}},
@@ -66,7 +67,7 @@ async function fixture({hosted = true, matching = true, hasPassword = true, prov
   const render = () => {tree = host.render(() => NativeHostedSignInPanel({kind, context, lifetime, t: (key: string) => key, runtime: {}})); for (const effect of effects.splice(0)) effect(); return tree;};
   const settle = async () => {await new Promise(resolve => setImmediate(resolve)); render();};
   render(); await settle();
-  return {calls, controllers, presented, credentials: () => credentialReads, tree: () => tree, find: (id: string) => nodes(tree).find(node => node.props.testID === id),
+  return {calls, controllers, presented, opened, credentials: () => credentialReads, tree: () => tree, find: (id: string) => nodes(tree).find(node => node.props.testID === id),
     sheet: () => nodes(tree).find(node => node.type === 'AccountSecuritySheet'), settle,
     session: (value: any) => {session = value; for (const listener of [...listeners]) listener(); render();},
     route: () => {navigation = {...navigation, revision: navigation.revision + 1}; for (const listener of [...navigationListeners]) listener(); render();},
@@ -85,14 +86,29 @@ test('Hosted Settings reads the matching Portico account, opens the shared task,
   } finally {f.dispose();}
 });
 
-test('Non-matching Portico sessions and local accounts draw only the label and make zero Portico requests', async () => {
-  for (const options of [{matching: false}, {hosted: false}]) {
-    const f = await fixture(options);
+test('Local accounts draw only the label and never consult the Portico credential owner', async () => {
+  const f = await fixture({hosted: false});
+  try {
+    assert.equal(f.calls.length, 0); assert.equal(f.controllers.length, 0); assert.equal(f.sheet(), undefined);
+    const row = f.find('settings-panel-password'); assert.equal(row.props.label, 'settings.row.password');
+    assert.equal(row.props.control, undefined); assert.equal(row.props.onPress, undefined); assert.equal(row.props.description, undefined);
+    assert.equal(f.credentials(), 0);
+  } finally {f.dispose();}
+});
+
+test('H09: without this account’s Portico session the app says who the server knows and opens the Portico Account, with zero Portico requests', async () => {
+  for (const kind of ['password', 'twoStep'] as const) {
+    const f = await fixture({matching: false, kind});
     try {
       assert.equal(f.calls.length, 0); assert.equal(f.controllers.length, 0); assert.equal(f.sheet(), undefined);
-      const row = f.find('settings-panel-password'); assert.equal(row.props.label, 'settings.row.password');
-      assert.equal(row.props.control, undefined); assert.equal(row.props.onPress, undefined); assert.equal(row.props.description, undefined);
-      if (options.hosted === false) assert.equal(f.credentials(), 0);
+      assert.equal(f.find('settings-panel-password'), undefined, 'no dead Password or Two-step rows');
+      assert.equal(f.find('settings-panel-twoStep'), undefined);
+      const row = f.find('settings-panel-portico-account');
+      if (kind === 'twoStep') {assert.equal(row, undefined, 'the one Portico Account row sits under Password'); continue;}
+      assert.equal(row.props.label, 'settings.row.porticoAccount'); assert.equal(row.props.value, 'member-name');
+      const manage = f.find('settings-manage-portico-account'); manage.props.onPress(); await new Promise(resolve => setImmediate(resolve));
+      assert.deepEqual(f.opened, ['https://accounts.example.invalid/account?tab=security']);
+      assert.equal(f.calls.length, 0);
     } finally {f.dispose();}
   }
 });
