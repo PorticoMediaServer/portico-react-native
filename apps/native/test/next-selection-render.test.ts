@@ -1488,3 +1488,30 @@ test('TV whole-query unavailable Delete and Download stay visible with reasons a
     } finally {await menu.host.unmount();}
   } finally {await bar.host.unmount(); state.theme = previous;}
 });
+
+
+test('actual phone tablet and TV selection bars expose the disabled count-free search refusal with no executor', async () => {
+ const previous = state.theme, viewport = state.viewport;
+ const calls: string[] = [];
+ try {
+  for(const [isTV,width] of [[false,390],[false,1024],[true,1920]] as const) {
+   state.theme = createTheme({isTV,width}); state.viewport = {...viewport,width};
+   const props: SelectionBarProps = {count:1,actions:[{id:'play'}],menu:null,onMenuChange(){},onCancel(){calls.push('cancel');},onAction:id=>calls.push(id),
+    selectAllUnavailable:{label:'Select all',reason:'Unavailable for this search.'},
+    selectAllLabel:'Select all 999',onSelectAll(){calls.push('stale');}};
+   const bar = await mount(SelectionBar, props);
+   try {
+    const control = ofType(bar.tree,Button).find(node=>node.props.accessibilityLabel==='Select all')!;
+    assert.ok(control); assert.equal(control.props.disabled,true); assert.equal(control.props.onPress,undefined);
+    assert.equal(control.props.accessibilityHint,props.selectAllUnavailable!.reason); assert.deepEqual(control.props.accessibilityState,{disabled:true});
+    assert.equal(text(control),'Select all'); assert.match(text(bar.tree),/Unavailable for this search\./); assert.doesNotMatch(text(bar.tree),/999/);
+    await bar.update({...props,selectAllUnavailable:undefined});
+    const ready = ofType(bar.tree,Button).find(node=>text(node)==='Select all 999')!;
+    assert.ok(ready); ready.props.onPress(); assert.equal(calls.at(-1),'stale');
+    await bar.update({...props,selectAllUnavailable:undefined,selectAllLabel:undefined,onSelectAll:undefined});
+    assert.doesNotMatch(text(bar.tree),/Select all|Unavailable for this search/);
+   } finally {await bar.host.unmount();}
+  }
+ } finally {state.theme=previous;state.viewport=viewport;}
+ assert.deepEqual(calls,['stale','stale','stale']);
+});
