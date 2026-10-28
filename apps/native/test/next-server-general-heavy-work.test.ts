@@ -26,7 +26,7 @@ test('General heavy-work edits roundtrip through the revisioned maintenance form
         assert.match(value.operationId, /^[a-f0-9]{48}$/);
         writes.push(structuredClone(value));
         document = {...document, revision: document.revision + 1, settings: structuredClone(value.settings)};
-        return {} as T;
+        return {protocolVersion: '1', serverId: 'server', result: structuredClone(document)} as T;
       }
       reads++;
       return {protocolVersion: '1', serverId: 'server', result: structuredClone(document)} as T;
@@ -37,7 +37,7 @@ test('General heavy-work edits roundtrip through the revisioned maintenance form
     assert.equal(readHeavyWork(form.getSnapshot().draft!, 'general.heavyWork'), 'any');
     form.set(draft => patchHeavyWork(draft, 'general.heavyWork', 'overnight'));
     await form.save();
-    assert.equal(reads, 2, 'save rereads the persisted maintenance document');
+    assert.equal(reads, 1, 'save consumes the complete canonical write answer without an extra read');
     assert.equal(readHeavyWork(form.getSnapshot().saved!, 'general.heavyWork'), 'overnight');
     assert.deepEqual(document.settings.windows[0], initial().settings.windows[0]);
     assert.deepEqual(document.settings.windows[1], {...initial().settings.windows[1], enabled: true, cadence: 'nightly', days: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'], startMinute: 60, durationMinutes: 300, timezone: ''});

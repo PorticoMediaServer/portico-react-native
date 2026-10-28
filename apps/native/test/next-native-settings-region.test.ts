@@ -82,7 +82,7 @@ test('a real Settings ACK republishes bootstrap text only after confirmation and
     if (!request.path.startsWith('/v1/preferences')) return;
     if (request.method === 'PATCH') {
       assert.equal(request.body.expectedRevision, confirmed.documents[0]!.revision);
-      if (rejectWrite) throw new Error('region save refused');
+      if (rejectWrite) return {status: 409, body: {error: {code: 'preference_conflict', message: 'region save refused'}}};
       begun.resolve(); await release.promise;
       confirmed = preferences(request.body.values['region.locale'], request.body.values['region.formats'], confirmed.documents[0]!.revision + 1);
     }
@@ -106,7 +106,7 @@ test('a real Settings ACK republishes bootstrap text only after confirmation and
     assert.notEqual(runtime.getSnapshot(), before); assert.ok(publications > 0);
     assert.equal(captured.preferences(), source.getSnapshot());
     rejectWrite = true;
-    await assert.rejects(source.applyPreferences('profile-server', 'mobile', 2, {'region.locale': 'en-US'}), /region save refused/);
+    await assert.rejects(source.applyPreferences('profile-server', 'mobile', 2, {'region.locale': 'en-US'}), {code: 'preference_conflict'});
     assert.equal(runtime.text.locale, 'en-GB');
     off(); runtime.dispose();
     assert.throws(() => runtime!.text.locale, {name: 'AbortError'});

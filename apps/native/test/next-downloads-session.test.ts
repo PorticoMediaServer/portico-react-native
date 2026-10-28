@@ -1,3 +1,7 @@
+import {HttpLocalApi} from '../../../packages/client-core/src/index.ts';
+import {NativeUserMutationStore} from '../src-next/platform/user-mutations.ts';
+import {NativeUserMutationSelectionOwner} from '../src-next/platform/user-mutation-selection.ts';
+import {userMutationBridge} from './helpers/user-mutation-bridge.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {offlineModule} from './helpers/offline-module.mjs';
@@ -14,7 +18,7 @@ let active: Fixture;
 
 function fixture() {
   const viewer = {serverId: 'server', accountId: 'account', profileId: 'profile', authority: 'local', role: 'member'};
-  const session = {viewer, sessionFamilyId: 'family', authorizationHorizon: 'horizon', deviceId: 'device'};
+  const session = {viewer, accessToken: 'fixture-token', sessionFamilyId: 'family', authorizationHorizon: 'horizon', deviceId: 'device'};
   const authority = {...viewer, epoch: 'epoch', viewerFence: 'viewer-fence'};
   const state = {
     current: true, connects: 0, disconnects: 0, starts: 0, stops: 0, disposed: 0, playbackDisposed: 0,
@@ -39,7 +43,7 @@ function fixture() {
         state.calls.push(path); if (signal) state.requests.push(signal); return state.request(path, signal);
       }},
   } as unknown as NativeShellBootstrapContext;
-  return {state, viewer, session, authority, context, device};
+  return {state, viewer, session, authority, context, device, mutationBridge: userMutationBridge()};
 }
 
 class FakeDownloadsService {
@@ -74,9 +78,13 @@ const account = {account: {username: 'member', role: 'member'}, profiles: [{id: 
 const home = {load: async () => {}, getSnapshot: () => ({document: {serverId: 'server', viewerFence: 'viewer-fence'}}), subscribe, dispose: noop};
 const playback = {getSnapshot: () => ({dock: {}}), subscribe, dispose: noop};
 const selected = () => ({signIn: 'local', connection: {session: active.session, logicalOrigin: 'https://server.test', pin: {serverId: 'server', fingerprint: 'fingerprint'}}});
-const localApi = () => ({...active.context.api, setDeviceClass: noop, setAccessToken: noop, getRouteConnection: () => undefined, subscribeRoute: subscribe});
+const localApi = () => {
+  const api = new HttpLocalApi('https://server.test');
+  api.request = active.context.api.request;
+  return api;
+};
 const bootModules: Record<string, Record<string, unknown>> = {
-  'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove: noop})}, Dimensions: {get: () => ({width: 390, height: 844}), addEventListener: () => ({remove: noop})}, Platform: {OS: 'ios', isTV: false}},
+  'react-native': {NativeModules: {}, NativeEventEmitter: class {addListener() {return {remove: noop};}}, AppState: {currentState: 'active', addEventListener: () => ({remove: noop})}, Dimensions: {get: () => ({width: 390, height: 844}), addEventListener: () => ({remove: noop})}, Platform: {OS: 'ios', isTV: false}},
   '../screens/settings-live/lifetime': {NativeScreenLifetime: class {}},
   '../screens/settings-live/device-client-report': {sendNativeDeviceReport: noop},
   '../screens/settings-live/together-playback': {bindNativeTogether: subscribe},
@@ -91,6 +99,11 @@ const bootModules: Record<string, Record<string, unknown>> = {
   '../../../../packages/client-core/src/playback-v1/local-http': {localV1Http: (value: unknown) => value},
   '../../../../packages/client-core/src/event-feed': {runEventFeed: subscribe},
   '../../../../packages/client-core/src/artwork': {ambientArtworkSource: noop},
+  '../platform/user-mutations': {
+    NativeUserMutationStore: class extends NativeUserMutationStore {constructor() {super(active.mutationBridge);}},
+    retainNativeUserMutationSelection: (store: NativeUserMutationStore, scope: any, report: (error: unknown) => void) =>
+      new NativeUserMutationSelectionOwner(async work => work({...active.viewer, origin: 'https://server.test', familyId: active.session.sessionFamilyId, deviceId: active.session.deviceId}), subscribe).activate(store, scope, report),
+  },
   '../platform/session': {restoreNativeConnection: async () => ({api: localApi(), session: active.session}), readNativeSelectedViewer: async () => ({session: active.session, serverUrl: 'https://server.test'}), trackNativeConnection: noop},
   '../platform/installation': {beginNativeInstallation: () => {
     const owner = active;

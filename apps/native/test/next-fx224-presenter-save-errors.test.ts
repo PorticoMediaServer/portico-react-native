@@ -79,6 +79,7 @@ const textOf = (value: unknown): string => Array.isArray(value)
   : '';
 
 async function presenterFixture(t: any) {
+  t.mock.timers.enable({apis: ['Date'], now: Date.now()});
   const failure = {consoleWrite: false, consoleConflict: false, maintenanceWrite: false, remoteWrite: false};
   const app = await standardHomeApp({
     accountRole: 'owner',
@@ -93,10 +94,10 @@ async function presenterFixture(t: any) {
         if (failure.consoleWrite) throw new Error('synthetic transport failure');
         return {status: 200, body: envelope(runtimeDocument(2, request.body.values))};
       }
-      if (request.path === '/v1/admin/maintenance/settings' && request.method === 'GET') return {status: 200, body: maintenanceDocument()};
+      if (request.path === '/v1/admin/maintenance/settings' && request.method === 'GET') return {status: 200, body: {protocolVersion: '1', serverId: fixture.pin.serverId, result: maintenanceDocument()}};
       if (request.path === '/v1/admin/maintenance/settings' && request.method === 'PUT') {
         if (failure.maintenanceWrite) throw new Error('synthetic maintenance failure');
-        return {status: 200, body: {...maintenanceDocument(), revision: 2, settings: request.body.settings}};
+        return {status: 200, body: {protocolVersion: '1', serverId: fixture.pin.serverId, result: {...maintenanceDocument(), revision: 2, settings: request.body.settings}}};
       }
       if (request.path === '/v1/admin/updates' && request.method === 'GET') return {status: 200, body: updateReport};
       if (request.path === '/v1/admin/connectivity/status' && request.method === 'GET') return {status: 200, body: connectivityStatus()};
@@ -163,7 +164,22 @@ async function presenterFixture(t: any) {
       }
     }
   });
-  return {app, failure, lifetime, hosts, byTestId, pressable, text, writes, settle, mount, unmount, contextCurrent, retireRuntime};
+  // Ambiguous delivery stays pending and retries the immutable key. Advance
+  // only the coordinator's wall clock, then explicitly reconcile its real CAS
+  // state; app/Fabric timers still use the real event loop.
+  const failPending = async () => {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      t.mock.timers.tick(60_000);
+      await context.api.getUserMutationCoordinator()!.reconcile();
+      await settle();
+    }
+  };
+  const retryPending = async () => {
+    t.mock.timers.tick(60_000);
+    await context.api.getUserMutationCoordinator()!.reconcile();
+    await settle();
+  };
+  return {app, failure, failPending, retryPending, lifetime, hosts, byTestId, pressable, text, writes, settle, mount, unmount, contextCurrent, retireRuntime};
 }
 
 const press = (app: any, host: any) => host.props.onPress({nativeEvent: {}, stopPropagation() {}});
@@ -181,18 +197,20 @@ test('a rejected General save shows the real FormSet saveError, keeps the draft 
   f.failure.consoleWrite = true;
   press(f.app, save);
   await f.settle();
+  await f.failPending();
   assert.match(f.text(), /Something went wrong\. Try again\./, 'the rejected write projects the shared inline error state');
   assert.equal(f.byTestId('server-general-name').props.value, 'Rejected name', 'the unsaved draft is retained');
-  assert.equal(f.writes('/v1/admin/console/settings', 'PATCH').length, 1, 'no success and no repeated write');
+  assert.equal(f.writes('/v1/admin/console/settings', 'PATCH').length, 5, 'bounded transport retries keep one original intent');
   const original = f.writes('/v1/admin/console/settings', 'PATCH')[0].body.idempotencyKey;
   assert.equal(typeof original, 'string');
   f.failure.consoleWrite = false;
   const retry = f.pressable('Try again');
   assert.ok(retry, 'the visible error offers the shared retry action');
   press(f.app, retry);
-  await f.settle();
+  await f.retryPending();
   const retried = f.writes('/v1/admin/console/settings', 'PATCH');
-  assert.equal(retried.length, 2);
+  assert.equal(retried.length, 6);
+  assert.ok(retried.every(request => JSON.stringify(request.body) === JSON.stringify(retried[0].body)), 'every physical retry keeps the original body');
   assert.equal(retried[1].body.idempotencyKey, original, 'the retry re-sends the same original operation identity');
   assert.equal(f.byTestId('server-general-name').props.value, 'Rejected name');
   assert.equal(f.pressable('Try again'), undefined, 'the accepted save clears the inline error');
@@ -242,13 +260,14 @@ test('a partial multi-form failure keeps the unsaved General form and still repo
   f.failure.maintenanceWrite = true;
   press(f.app, f.pressable('Save'));
   await f.settle();
+  await f.failPending();
   assert.match(f.text(), /Something went wrong\. Try again\./, 'the failed maintenance form keeps the page error visible');
   assert.equal(f.byTestId('server-general-name').props.value, 'Stored name', 'the first form kept the accepted value');
   assert.ok(f.pressable('Save'), 'the unsaved maintenance form keeps the page dirty');
   const runtimeWrites = f.writes('/v1/admin/console/settings', 'PATCH');
   const maintenanceWrites = f.writes('/v1/admin/maintenance/settings', 'PUT');
   assert.equal(runtimeWrites.length, 1, 'the runtime form saved first');
-  assert.equal(maintenanceWrites.length, 1, 'the maintenance form was attempted and failed');
+  assert.equal(maintenanceWrites.length, 5, 'the maintenance form retains its intent across bounded transport retries');
   assert.ok(f.app.receipts.some((receipt: any) => receipt.path === '/v1/admin/console/settings' && receipt.method === 'PATCH' && receipt.status === 200));
 });
 
@@ -260,6 +279,7 @@ test('a really unmounted General page refuses its captured retry', async t => {
   f.failure.consoleWrite = true;
   press(f.app, f.pressable('Save'));
   await f.settle();
+  await f.failPending();
   const unmountedRetry = f.pressable('Try again');
   assert.ok(unmountedRetry);
   await f.unmount();
@@ -277,6 +297,7 @@ test('a retired original bootstrap authority refuses its captured retry', async 
   f.failure.consoleWrite = true;
   press(f.app, f.pressable('Save'));
   await f.settle();
+  await f.failPending();
   const replacedRetry = f.pressable('Try again');
   assert.ok(replacedRetry);
   assert.equal(f.contextCurrent(), true, 'the mounted page borrows the live bootstrap context before retirement');
@@ -298,16 +319,18 @@ test('a rejected Remote access save projects the same inline state and retries t
   f.failure.remoteWrite = true;
   press(f.app, f.pressable('Save'));
   await f.settle();
+  await f.failPending();
   assert.match(f.text(), /Something went wrong\. Try again\./);
   assert.ok(f.pressable('Save'), 'the rejected save keeps the remote form dirty');
   const writes = f.writes('/v1/networking/remote/config', 'POST');
-  assert.equal(writes.length, 1);
+  assert.equal(writes.length, 5);
   assert.equal(writes[0].body.config.enabled, true, 'the retry keeps the owner edit');
   f.failure.remoteWrite = false;
   press(f.app, f.pressable('Try again'));
-  await f.settle();
+  await f.retryPending();
   const retried = f.writes('/v1/networking/remote/config', 'POST');
-  assert.equal(retried.length, 2);
+  assert.equal(retried.length, 6);
+  assert.ok(retried.every(request => JSON.stringify(request.body) === JSON.stringify(retried[0].body)), 'every physical retry keeps the original body');
   assert.deepEqual(retried[0].body, retried[1].body, 'the retry re-sends the same original configuration');
   assert.equal(f.pressable('Try again'), undefined, 'the accepted save clears the inline error');
   assert.equal(f.pressable('Save'), undefined, 'the accepted save clears dirty');

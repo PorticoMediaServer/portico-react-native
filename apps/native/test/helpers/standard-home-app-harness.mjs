@@ -1,3 +1,5 @@
+import {userMutationRoute} from '../../../../packages/client-core/src/user-mutation-routes.ts';
+import {userMutationBridge} from './user-mutation-bridge.mjs';
 import {readFileSync} from 'node:fs';
 import {createRequire, registerHooks, stripTypeScriptTypes} from 'node:module';
 import {compileFunction} from 'node:vm';
@@ -593,6 +595,11 @@ export async function standardHomeApp({
       });
       if (response) return response;
     }
+    if (path === routePath('get_user_mutation_policy')) return {status: 200, body: {serverTimeMs: Date.now(), retiredBeforeMs: 0}};
+    if (path.startsWith('/v1/user-mutations/')) {
+      const receipt = mutationReceipts.get(decodeURIComponent(path.slice('/v1/user-mutations/'.length)));
+      return receipt ? {status: 200, body: receipt} : {status: 404, body: {error: {code: 'receipt_unknown'}}};
+    }
     if (path === routePath('get_system')) return {status: 200, body: {id: pin.serverId, name: 'Synthetic living room', version: '1', move: null, signIn: 'local', setupRequired: false, hostedConfigured: false, hostedAttached: false}};
     if (path === routePath('get_me')) return {status: 200, body: {viewer: {...viewer, role: accountRole}}};
     if (path === routePath('get_home')) return {status: 200, body: homeDoc()};
@@ -711,7 +718,9 @@ export async function standardHomeApp({
       return {status: 200, body: homeEntry()};
     return backend.handle(request);
   };
+  const mutationReceipts = new Map();
   state.modules.PorticoRuntime = {
+    ...userMutationBridge(),
     playbackRequestId: () => randomUUID(),
     newRequestId: () => randomUUID(),
     playbackRandomBytes: n => [...randomBytes(n)],
@@ -743,6 +752,11 @@ export async function standardHomeApp({
       requests.push(request);
       try {
         const response = await reply(request);
+        const mutation = userMutationRoute(request.path, method);
+        const key = Object.entries(headers).find(([name]) => name.toLowerCase() === 'idempotency-key')?.[1];
+        if (mutation && key && response.status >= 200 && response.status < 300) {
+          mutationReceipts.set(key, {key, operation: mutation.id, status: 'applied', committedMs: Date.now(), expiresMs: Date.now() + 30 * 86400000});
+        }
         receipts.push({
           path: request.path,
           method,

@@ -1,3 +1,4 @@
+import * as userMutations from '../../../packages/client-core/src/user-mutations.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {screenModule} from './helpers/screen-harness.mjs';
@@ -25,7 +26,7 @@ async function fixture() {
   }
   const core = '../../../../../../packages/client-core/src/';
   const module = await screenModule(new URL('../src-next/screens/settings-live/owner-libraries/controller.ts', import.meta.url), {
-    react: {default: {}}, '../../../../../../packages/contracts/src/routes': routes,
+    react: {default: {}}, '../../../../../../packages/client-core/src/user-mutations': userMutations, '../../../../../../packages/contracts/src/routes': routes,
     [core + 'library-management']: {LibraryManagementService: Management, fetchEpisodeIssues: async () => ({issues: [], nextCursor: ''})},
     [core + 'library-inventory']: {LibraryInventoryService: Inventory},
     [core + 'remote-sources']: {RemoteSourceService: class {dispose() {}}},
