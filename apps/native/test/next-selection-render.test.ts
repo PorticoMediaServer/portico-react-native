@@ -1456,3 +1456,62 @@ for (const role of ['administrator', 'owner'] as const) test(`TV Dashboard ${rol
     } finally {await errorView.host.unmount();}
   } finally {await panel.host.unmount(); controller.dispose(); feedback.dispose(); lifetime.dispose();}
 });
+
+test('TV whole-query unavailable Delete and Download stay visible with reasons and cannot execute', async () => {
+  const previous = state.theme; state.theme = createTheme({isTV: true, width: 1920});
+  const calls: string[] = [], deletion = 'Delete at most 200 titles at once. Select fewer, or narrow the view with a filter first.', download = 'This isn’t available on your server right now.';
+  const props: SelectionBarProps = {count: 201, selectionLabel: '201 movies', onCancel() {}, menu: 'more', onMenuChange() {}, onAction: id => calls.push(id), actions: [
+    {id: 'more'}, {id: 'collection'},
+    {id: 'download', disabled: true, wholeQueryUnavailable: true, reason: download},
+    {id: 'delete', disabled: true, wholeQueryUnavailable: true, reason: deletion},
+    {id: 'edit', disabled: true, wholeQueryUnavailable: true, reason: 'Unrelated disabled owner action'}, {id: 'refresh'},
+  ]};
+  const bar = await mount(SelectionBar, props);
+  try {
+    const node = elements(bar.tree).find(element => element.props.menu === 'more' && element.type !== SelectionBar)!;
+    const menu = await mount(node.type, node.props);
+    try {
+      const element = menu.tree as Element; assert.equal(element.type, Menu); assert.equal(element.props.presentation, 'sideSheet');
+      const rows = element.props.items.filter((entry: any) => entry.onSelect);
+      assert.deepEqual(rows.map((entry: any) => entry.id), ['collection', 'download', 'delete']);
+      for (const [id, reason] of [['download', download], ['delete', deletion]]) {
+        const row = rows.find((entry: any) => entry.id === id); assert.ok(row); assert.equal(row.disabled, true); assert.equal(row.description, reason); row.onSelect();
+        const rendered = await mount(MenuRow, {...row, onPress: row.onSelect});
+        try {const control = ofType(rendered.tree, Focusable)[0]!; assert.equal(control.props.disabled, true); assert.equal(control.props.accessibilityState.disabled, true); assert.ok(text(rendered.tree).includes(reason));} finally {await rendered.host.unmount();}
+      }
+      assert.deepEqual(calls, [], 'even direct invocation of an unavailable row cannot reach an executor');
+      rows[0].onSelect(); assert.deepEqual(calls, ['collection']);
+      await menu.update({...node.props, actions: [{id: 'delete', wholeQueryUnavailable: true}, {id: 'download', disabled: true, reason: download}, {id: 'edit'}, {id: 'refresh'}]});
+      assert.deepEqual((menu.tree as Element).props.items, [], 'marker alone and ordinary ready/disabled forbidden actions remain curated');
+      await menu.update({...node.props, count: 200});
+      assert.deepEqual((menu.tree as Element).props.items.filter((entry: any) => entry.onSelect).map((entry: any) => entry.id), ['collection'], 'the exception cannot expose bounded-query owner/download actions');
+    } finally {await menu.host.unmount();}
+  } finally {await bar.host.unmount(); state.theme = previous;}
+});
+
+
+test('actual phone tablet and TV selection bars expose the disabled count-free search refusal with no executor', async () => {
+ const previous = state.theme, viewport = state.viewport;
+ const calls: string[] = [];
+ try {
+  for(const [isTV,width] of [[false,390],[false,1024],[true,1920]] as const) {
+   state.theme = createTheme({isTV,width}); state.viewport = {...viewport,width};
+   const props: SelectionBarProps = {count:1,actions:[{id:'play'}],menu:null,onMenuChange(){},onCancel(){calls.push('cancel');},onAction:id=>calls.push(id),
+    selectAllUnavailable:{label:'Select all',reason:'Unavailable for this search.'},
+    selectAllLabel:'Select all 999',onSelectAll(){calls.push('stale');}};
+   const bar = await mount(SelectionBar, props);
+   try {
+    const control = ofType(bar.tree,Button).find(node=>node.props.accessibilityLabel==='Select all')!;
+    assert.ok(control); assert.equal(control.props.disabled,true); assert.equal(control.props.onPress,undefined);
+    assert.equal(control.props.accessibilityHint,props.selectAllUnavailable!.reason); assert.deepEqual(control.props.accessibilityState,{disabled:true});
+    assert.equal(text(control),'Select all'); assert.match(text(bar.tree),/Unavailable for this search\./); assert.doesNotMatch(text(bar.tree),/999/);
+    await bar.update({...props,selectAllUnavailable:undefined});
+    const ready = ofType(bar.tree,Button).find(node=>text(node)==='Select all 999')!;
+    assert.ok(ready); ready.props.onPress(); assert.equal(calls.at(-1),'stale');
+    await bar.update({...props,selectAllUnavailable:undefined,selectAllLabel:undefined,onSelectAll:undefined});
+    assert.doesNotMatch(text(bar.tree),/Select all|Unavailable for this search/);
+   } finally {await bar.host.unmount();}
+  }
+ } finally {state.theme=previous;state.viewport=viewport;}
+ assert.deepEqual(calls,['stale','stale','stale']);
+});

@@ -1,8 +1,10 @@
+import {nativeWholeQueryUnavailableActions} from './whole-query-unavailable';
 import React, {useRef, useState, useSyncExternalStore} from 'react';
 import {Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
+import type {BrowseWholeSelectionUnavailable} from '../../../../../packages/client-core/src/browse';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {catalogueQuerySelectionSegments, enqueueCatalogueQuerySelection} from '../../../../../packages/client-core/src/catalogue-query-selection';
 import type {BulkMetadataPreview} from '../../../../../packages/client-core/src/home-selection/metadata-preview';
@@ -46,9 +48,8 @@ type RegisteredWindow = Readonly<{id: string; first: number; entries: readonly C
  * collection picker, and the owner's bulk edit and delete. Download has no
  * executor on this surface, so that capability stays false.
  *
- * Select all is deliberately absent. It means the whole result (select.html #5),
- * which needs the whole-query membership descriptor; this view is windowed, so a
- * loaded window is never presented as all of it. */
+ * Whole-view Select all needs a server descriptor. An explicit refusal stays
+ * visible with its reason; the loaded page remains a separate selection. */
 export function createNativeLibrarySelection(context: NativeShellBootstrapContext, source: NativeLibraryDestination, activation: NativeDestinationActivationPort) {
   const lifetime = nativeDestinationLifetime(context), services = nativeScreenServices(context);
   const listeners = new Set<() => void>(), windows = new Map<string, RegisteredWindow>();
@@ -281,6 +282,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
       clear();
     },
     whole: () => snapshot()?.active && visible() ? producer?.whole() : undefined,
+    wholeUnavailable: () => snapshot()?.active && visible() && source.getSnapshot().phase === 'ready' ? source.getSnapshot().wholeSelectionUnavailable : undefined,
     /** The bar's own view and descriptor id: a retained menu never selects a successor. */
     selectWhole: (view: SelectionSnapshot<BrowseSelectionContext>, id: string) => {
       if (!producer || view !== snapshot() || producer.whole()?.id !== id || !visible() || pending || destinations
@@ -331,7 +333,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     },
     render: (artwork?: (path?: string) => React.ReactNode) => <LibrarySelectionBars store={store} artwork={artwork ?? (() => null)}/>,
   };
-  const off = [activation.subscribe(() => {if (!visible()) reset(); emit();}), context.subscribeAuthority(() => {reset(); emit();})];
+  const off = [source.subscribe(() => {if (producer && sourceToken() !== token) reset(); emit();}), activation.subscribe(() => {if (!visible()) reset(); emit();}), context.subscribeAuthority(() => {reset(); emit();})];
   return Object.freeze({...port, dispose: () => {if (disposed) return; disposed = true; off.forEach(stop => stop()); reset(); listeners.clear();}});
 }
 
@@ -343,6 +345,7 @@ type Store = {subscribe(listener: () => void): () => void; getSnapshot(): number
   execute(action: 'play' | 'playNext' | 'playLater', view: SelectionSnapshot<BrowseSelectionContext>): Promise<void>;
   cancel(view: SelectionSnapshot<BrowseSelectionContext>): void;
   whole(): Readonly<{id: string; total: number}> | undefined;
+  wholeUnavailable(): BrowseWholeSelectionUnavailable | undefined;
   selectWhole(view: SelectionSnapshot<BrowseSelectionContext>, id: string): void;
   destination(): NativeLoadedDestinations | undefined; destinationKind(): 'playlist' | 'collection' | undefined;
   openDestination(kind: 'playlist' | 'collection', view: SelectionSnapshot<BrowseSelectionContext>): void; closeDestinations(expected?: NativeLoadedDestinations): void;
@@ -358,8 +361,8 @@ function LibrarySelectionBars({store, artwork}: {store: Store; artwork: (path?: 
   if (!store.active()) return null;
   const summary = state?.summary;
   const actions: SelectionActionOffer[] = [];
-  // A whole view has query executors for Play and Queue only; every other control
-  // would be a stub, so it is not drawn at all.
+  // Whole views have Play/Queue executors. Large-query Delete/Download retain
+  // their unavailable controls and reasons without inventing a producer.
   const explicit = state?.target?.mode !== 'query';
   const queryTarget = state?.target?.mode === 'query' ? state.target : undefined;
   // Unchecking one title refines the whole-view target, and the query executor refuses
@@ -375,8 +378,9 @@ function LibrarySelectionBars({store, artwork}: {store: Store; artwork: (path?: 
   if (explicit && summary?.every.edit) actions.push({id: 'edit', disabled: store.busy()});
   if (explicit && summary?.every.delete) actions.push({id: 'delete', disabled: store.busy()});
   if (explicit && summary?.every.watched) actions.push({id: 'watched', disabled: store.busy()}, {id: 'unwatched', disabled: store.busy()});
-  if (explicit && actions.some(action => ['removeMyList', 'favorite', 'watched', 'unwatched', 'edit', 'delete'].includes(action.id))) actions.push({id: 'more', disabled: store.busy()});
-  const personal = store.personal(), destination = store.destination(), destinationKind = store.destinationKind(), whole = store.whole();
+  const unavailable = nativeWholeQueryUnavailableActions(state); actions.push(...unavailable);
+  if ((explicit || unavailable.length > 0) && actions.some(action => ['removeMyList', 'favorite', 'watched', 'unwatched', 'edit', 'delete', 'download'].includes(action.id))) actions.push({id: 'more', disabled: store.busy()});
+  const personal = store.personal(), destination = store.destination(), destinationKind = store.destinationKind(), whole = store.whole(), wholeUnavailable = store.wholeUnavailable();
   const bulk = store.bulk(), bulkState = bulk?.getSnapshot(), preview: BulkMetadataPreview | undefined = bulkState?.preview;
   const bulkSummary: readonly {id: string; text: string}[] = bulkState ? Object.entries(bulkState.changes).flatMap(([field, change]) => {
     const spec = preview?.schema.find(candidate => candidate.field === field);
@@ -389,7 +393,7 @@ function LibrarySelectionBars({store, artwork}: {store: Store; artwork: (path?: 
   }) : [];
   const props: SelectionBarProps = {count: summary?.count ?? 0, selectionLabel: summary ? selectedItemsLabel(summary) : undefined,
     onCancel: () => {setMenu(null); store.cancel(state!);}, actions, menu, onMenuChange: setMenu,
-    ...(whole ? {selectAllLabel: defaultI18n.t('next.selection.selectAll', {count: whole.total}), onSelectAll: () => store.selectWhole(state!, whole.id)} : {}),
+    ...(wholeUnavailable ? {selectAllUnavailable: {label: defaultI18n.t('next.selection.selectAllUnavailableLabel'), reason: defaultI18n.t('next.selection.selectAllSearchNotBounded')}} : whole ? {selectAllLabel: defaultI18n.t('next.selection.selectAll', {count: whole.total}), onSelectAll: () => store.selectWhole(state!, whole.id)} : {}),
     fourthSlot: summary && selectionFourthAction(summary) === 'mark-watched' ? 'watched' : 'myList',
     onAction: action => {
       if (action === 'play' || action === 'playNext' || action === 'playLater') {setMenu(null); void store.execute(action, state!);}

@@ -1,3 +1,5 @@
+import * as mutationRecovery from '../../../packages/client-core/src/user-mutation-recovery.ts';
+import {NativePendingChanges} from '../src-next/shell/pending-changes.ts';
 // @fabric-react
 import * as layoutModel from '../src-next/kit/layout/model.ts';
 import * as homeWindow from '../src-next/screens/home/home-window';
@@ -98,7 +100,9 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     './music-discover-navigation': {createNativeMusicDiscoverNavigation: inactiveOverlay},
     '../screens/destinations/music/mixes': {createNativeMusicMixes},
     react, 'react-native': {...native, Platform: {isTV: tv}, NativeModules: {}, BackHandler: {addEventListener: () => ({remove() {}})}},
-    '../../../../packages/i18n/src': {defaultI18n}, '../../../../packages/client-core/src/home-selection/index': homeSelection,
+    '../../../../packages/i18n/src': {defaultI18n}, '../../../../packages/client-core/src/user-mutation-recovery': mutationRecovery,
+    './pending-changes': {NativePendingChanges}, './PendingChanges': {PendingChanges: 'PendingChanges'},
+    '../../../../packages/client-core/src/home-selection/index': homeSelection,
     '../../../../packages/client-core/src/home-selection': homeCapabilities, '../../../../packages/client-core/src/presentation/errors': {presentError: () => ({silent: true})},
     '../../../../packages/client-core/src/library-management': {}, '../../../../packages/client-core/src/presentation/home-spotlight': homePresentation,
     '../platform/home-action-diagnostics': {homeActionDiagnostics}, '../platform/haptics': {}, '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {}, '../kit/shell': {OwnerTag: 'Owner'},
@@ -112,7 +116,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
   });
   const navigation = new NativeShellNavigation(authority, () => authority);
   const bindings = createNativeShellBindings({home, current: () => true, authority: () => authority, session: () => ({viewer: {...authority, authority: 'local', role: 'member'}}),
-    account: {account: {role: 'member'}}, api: {request: async () => {throw new Error('unexpected API read in Home registration fixture');}}, events: {on: () => () => {}}, navigation, subscribeAuthority: navigation.subscribe, libraries: () => [],
+    account: {account: {role: 'member'}}, api: {getUserMutationCoordinator: () => undefined, getUserMutationScope: () => undefined, request: async () => {throw new Error('unexpected API read in Home registration fixture');}}, events: {on: () => () => {}}, navigation, subscribeAuthority: navigation.subscribe, libraries: () => [],
     playback: {selectionPlayback: () => ({play() {throw new Error('unexpected playback');}, enqueue() {throw new Error('unexpected queue');}, playChannel() {throw new Error('unexpected channel');}}), getSnapshot: () => ({dock: {local: null}})}});
   const listeners = new Set<() => void>();
   let revision = 0, snapshot = {...bindings.getState(), authority, libraries: [], mediaExpanded: false, revision};

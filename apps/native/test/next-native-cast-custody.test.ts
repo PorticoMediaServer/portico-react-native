@@ -81,7 +81,7 @@ async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:P
     react: {default: {}}, 'react-native': {NativeEventEmitter: Emitter, NativeModules: {PorticoCast: bridge}, Platform: {isTV: false}},
     '../../../../../packages/client-core/src/cast': {CastController,sameCastRemote,parseCastEvent},
     '../../../../../packages/player-core/src': {sameFence}, './cast-transport': {castTransport: transport,validCastAttachment:(value:unknown)=>value===attachmentId},
-    './cast-controller-storage': {castControllerStorage: {get: (key:string) => options.returning?records.get(key):undefined, set() {}}, castControllerStorageReady: options.storage ?? Promise.resolve()},
+    './cast-controller-storage': {castControllerStorage: {get: (key:string) => records.get(key), set: (key: string, value: string) => {records.set(key, value);}}, castControllerStorageReady: options.storage ?? Promise.resolve()},
     './cast-offered': {castOffered},
   });
   const session = {sessionFamilyId: 'family',deviceId:'device',serverIdentity:{publicKey:'a'.repeat(43),fingerprint:'b'.repeat(43)}, viewer: {...scope, role: 'member'}};

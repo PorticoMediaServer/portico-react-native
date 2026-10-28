@@ -328,7 +328,9 @@ test('Discover uses the actual section continuation and retires it with the curr
     const beforeEnd = calls.length; await destination.nextDiscover('real-section');
     assert.equal(calls.length, beforeEnd, 'the actual exhausted cursor stops paging');
     await destination.load('browse');
-    const afterTab = calls.length; await destination.nextDiscover('real-section');
-    assert.equal(calls.length, afterTab, 'an old Discover row cannot read after changing the actual tab');
+    const discoverCalls = () => calls.filter(path => path.includes('view=discover'));
+    const afterTab = discoverCalls().length; await destination.nextDiscover('real-section'); await tick();
+    assert.equal(discoverCalls().length, afterTab, 'an old Discover row cannot read after changing the actual tab');
+    assert.equal(destination.getSnapshot().collection?.itemAt(0)?.id, 'actual-0', 'the new Browse page still loads independently');
   } finally {destination.dispose();}
 });
