@@ -154,7 +154,7 @@ test('a number sheet steps within the row’s range and refuses a value off its 
   assert.deepEqual(saved, [120]);
 });
 
-test('Streaming on TV draws Location with a folder picker row and Device with each adapter found', () => {
+test('Streaming on TV draws Location with memory and a folder picker row, the memory limit under memory, and Device with each adapter found', () => {
   const capacity = {hardware: {devices: [{id: 'drm-0a1b', name: 'Intel UHD 770', inUse: true}]}, temporaryDirectory: {path: '/var/portico/transcode', fallback: false, memoryPath: '/dev/shm', ready: true}} as any;
   const drafts = {runtime: {conversionMode: 'all', hardwareSelection: 'drm-0a1b', hardwareDecode: true, temporaryDirectory: '/mnt/fast/convert'}, connectivity: {}};
   const allIds = [...section('streaming').groups!, ...section('streaming').advanced!.groups!].flatMap(group => group.rows.flatMap(row => [row.id, ...(row.children ?? []).map(child => child.id)]));
@@ -163,7 +163,12 @@ test('Streaming on TV draws Location with a folder picker row and Device with ea
   const main = items(streaming);
   const location = main.find(item => item.id === 'streaming.transcodeLocation') as any;
   assert.equal(location.value, 'folder');
-  assert.ok(!location.options.some((option: any) => option.value === 'memory'), 'In memory is not offered');
+  const memory = location.options.find((option: any) => option.value === 'memory');
+  assert.ok(memory && !memory.disabled, 'In memory is offered where the server has a RAM file system');
+  assert.ok(!items(streaming, true).some(item => item.id === 'streaming.memoryCap'), 'the memory limit is hidden until the location is memory');
+  const inMemory = state('streaming', {...drafts, runtime: {...drafts.runtime, temporaryDirectory: '/dev/shm', memoryCap: 'half'}}, {capacity, configuration: configured});
+  assert.equal((items(inMemory).find(item => item.id === 'streaming.transcodeLocation') as any).value, 'memory');
+  assert.equal((items(inMemory, true).find(item => item.id === 'streaming.memoryCap') as any)?.value, 'half');
   const folder = main.find(item => item.id === 'streaming.transcodeFolder') as any;
   assert.deepEqual([folder.kind, folder.value, folder.dependent], ['folder', '/mnt/fast/convert', true]);
   const device = items(streaming, true).find(item => item.id === 'streaming.hardware') as any;
