@@ -36,11 +36,13 @@ test('OFF-03: an accepted copy outside the first server page is collected and re
     const queued = preparation('older-queued', 'item', 'original', 'queued');
     await f.offline.want([queued]); await settle();
     f.offline.dispose(); f.offline = new f.implementation.OfflineDownloads();
-    const {durationSeconds, ...title} = queued.title;
-    f.handlers.set('/v1/downloads/preparations/older-queued', () => ({...queued, state: 'ready', title: {...title, durationMs: durationSeconds * 1000},
-      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z'}));
+    f.handlers.set('lookupPreparations', ids => ids.includes('older-queued') ? [{...queued, state: 'ready'}] : []);
+    const before = f.calls.length;
     await connected(f); await settle();
     assert.deepEqual(f.started.map(value => value.id), ['older-ready', 'older-queued']);
+    // OFF-04: exact ids in one bounded batched read, never per-id or item-id requests.
+    assert.deepEqual(f.calls.slice(before).filter(value => value.path === 'lookupPreparations').map(value => value.ids), [['older-queued']]);
+    assert.equal(f.calls.some(value => value.path === '/v1/downloads/preparations/older-queued'), false);
   } finally {f.offline.dispose();}
 });
 

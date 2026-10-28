@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {serviceText} from '../../../packages/client-core/src/presentation/service-text.ts';
+import * as capabilityReadiness from '../src-next/platform/playback/capability-readiness.ts';
 
 type ApplePicker = typeof import('../src-next/platform/playback/subtitle-file-picker.ios').appleSubtitleFilePicker;
 const file = (patch: Record<string, unknown> = {}) => ({data: 'YQ==', format: 'srt', title: 'selected.srt', ...patch});
@@ -107,7 +108,7 @@ test('the actual Apple factory injects only the installed platform picker into i
       '../../../../../packages/client-core/src/playback-v1/local-http': {localV1Http: () => ({})},
       '../../../../../packages/client-core/src/presentation/service-text': {serviceText},
       './engine-choice': {parseEngineFeatures: () => ({})},
-      './dynamic-range-matching': {nativeDynamicRangeMatchingAvailable: () => false},
+      './dynamic-range-matching': {nativeDynamicRangeMatchingAvailable: () => false}, './capability-readiness': capabilityReadiness,
       './capability-document.ios': {deviceCapabilityDocument: () => ({})},
       './NativeListeningAdapter': {},
       './runtime': {NativePlaybackRuntime: class {constructor(options: unknown) {captured = options;return runtime;}}},

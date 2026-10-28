@@ -87,6 +87,8 @@ export async function offlineFixture(options = {}) {
     '../src-next/platform/server-connections': {nativeRouteCrypto: crypto},
   });
   const serviceListeners = new Set();
+  /** @type {Map<string, (body: any) => unknown>} */
+  const handlers = new Map();
   /** @type {{items: any[], requests: any[], phase: string}} */
   const snapshot = {items: [], requests: [], phase: 'ready'};
   const service = {
@@ -94,9 +96,9 @@ export async function offlineFixture(options = {}) {
     publish() {for (const listener of serviceListeners) listener();},
     async grant({id}) {return {preparationId: id, itemId: snapshot.items.find(value => value.id === id)?.itemId ?? 'item', token: 'grant-' + id, url: '/v1/downloads/artifacts/grant-' + id, artifact};},
     async request() {return {items: [], accepted: 0, rejected: [], duplicate: false};},
+    /** Exact preparation reads (OFF-04): routed through `handlers` like the API. */
+    async lookupPreparations(ids) {calls.push({path: 'lookupPreparations', ids: [...ids]}); const handler = handlers.get('lookupPreparations'); return handler ? handler(ids) : [];},
   };
-  /** @type {Map<string, (body: any) => unknown>} */
-  const handlers = new Map();
   const api = {
     baseUrl: 'https://server.invalid', mediaUrl: path => 'https://server.invalid' + path,
     async request(path, method, body) {

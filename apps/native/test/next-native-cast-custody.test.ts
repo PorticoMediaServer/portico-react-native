@@ -216,9 +216,10 @@ test('a returning Continue here held on metadata cannot replace a newer local ru
  gate.resolve();await continued;assert.equal(f.starts.length,0);assert.equal(f.effects.length,0);
 });
 
-test('V02: the receiver loads the same edition this device is playing', async t => {
+test('V02/V01: the receiver loads the same edition and audio track this device is playing', async t => {
   const f = await fixture(); t.after(() => f.caller.dispose());
-  f.change({session: {...f.snapshot().session, versionId: 'edition-b'}});
+  f.change({session: {...f.snapshot().session, versionId: 'edition-b', presentation: {...f.snapshot().session.presentation, audioTrackId: 'a2'}}});
   f.caller.start(); f.choose(); const load = await f.loaded.promise;
   assert.equal(load.versionId, 'edition-b');
+  assert.equal(load.audioTrackId, 'a2', 'V01: and the audio track chosen here');
 });

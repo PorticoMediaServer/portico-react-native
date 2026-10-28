@@ -7,7 +7,7 @@ import {receiptTime, serverReceiptFloor} from './receipt-clock';
 import {NativeEventEmitter, NativeModules, Platform} from 'react-native';
 import {nativeRouteCrypto} from '../src-next/platform/server-connections';
 import {
-  DownloadsService, parseDownloadBundle, decodeDownloadReceipt, downloadTitleLines, downloadReasonMessage, getDownloadRequest, parseDeferredProgressReceipt, parseDownloadPreparation, parseDownloadTitle, parseReceiptKeys, parseReceiptOutcomes, receiptUsable,
+  DownloadsService, parseDownloadBundle, decodeDownloadReceipt, downloadTitleLines, downloadReasonMessage, getDownloadRequest, parseDeferredProgressReceipt, parseDownloadTitle, parseReceiptKeys, parseReceiptOutcomes, receiptUsable,
   type DeferredProgressEntry, type DownloadBundle, type DownloadPreparation, type DownloadReceipt, type DownloadTitle, type ReceiptOutcome,
 } from '../../../packages/client-core/src/index';
 import {serviceText} from '../../../packages/client-core/src/presentation/service-text';
@@ -747,21 +747,26 @@ export class OfflineDownloads {
   /** A first-page server list need not contain an older accepted preparation.
    * Resolve only this device's exact pending ids, in bounded retryable passes. */
   private async findPreparations(owner: string, generation: number) {
-    const api = this.api; if (!api) return;
-    const visible = new Set(this.service?.getSnapshot().items.map(value => value.id) ?? []);
+    const service = this.service; if (!service) return;
+    const visible = new Set(service.getSnapshot().items.map(value => value.id));
     const wanted = new Set([...Object.keys(this.stored.wanted[owner] ?? {}), ...Object.keys(this.stored.wantedPublications[owner] ?? {})]);
-    let checked = 0, more = false;
+    const due: string[] = []; let more = false;
     for (const id of wanted) {
       const key = JSON.stringify([owner, id]), cached = this.enrolledPreparations.get(key), now = Date.now();
       if (visible.has(id) || cached?.state === 'ready' || now - (this.preparationChecks.get(key) ?? 0) < RETRY_EVERY_MS) continue;
-      if (checked++ === 20) {more = true; break;}
-      this.preparationChecks.set(key, now);
-      try {
-        const preparation = parseDownloadPreparation(await api.request<unknown>(`/v1/downloads/preparations/${encodeURIComponent(id)}`));
-        if (generation !== this.generation) return;
-        if (preparation.id !== id || this.stored.wanted[owner]?.[id] && this.stored.wanted[owner]![id].itemId !== preparation.itemId) continue;
-        if (this.stored.wanted[owner]?.[id] || this.stored.wantedPublications[owner]?.[id]) this.enrolledPreparations.set(key, preparation);
-      } catch { /* Keep the exact intent and retry when its server can answer. */ }
+      if (due.length === 200) {more = true; break;}
+      due.push(id); this.preparationChecks.set(key, now);
+    }
+    if (!due.length) return;
+    // OFF-04: one bounded read of this device's exact pending preparation ids.
+    let found: readonly DownloadPreparation[];
+    try {found = await service.lookupPreparations(due);}
+    catch { return; } // Keep every exact intent; the next pass after the retry floor asks again.
+    if (generation !== this.generation || this.service !== service) return;
+    for (const preparation of found) {
+      const key = JSON.stringify([owner, preparation.id]), want = this.stored.wanted[owner]?.[preparation.id];
+      if (want && want.itemId !== preparation.itemId) continue;
+      if (want || this.stored.wantedPublications[owner]?.[preparation.id]) this.enrolledPreparations.set(key, preparation);
     }
     if (more) this.enrollSoon(generation);
   }

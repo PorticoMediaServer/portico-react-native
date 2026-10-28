@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {screenModule} from './helpers/screen-harness.mjs';
 import * as engineChoice from '../src-next/platform/playback/engine-choice.ts';
 import * as engineMedia from '../src-next/platform/playback/engine-media.ts';
+import * as capabilityReadiness from '../src-next/platform/playback/capability-readiness.ts';
 
 async function factory({available = true, setting = 'automatic', container, subtitleRendering, previousSession}: {available?: boolean; setting?: string; container?: string; subtitleRendering?: string; previousSession?: object} = {}) {
   let captured: any;
@@ -25,7 +26,7 @@ async function factory({available = true, setting = 'automatic', container, subt
     './engine-choice': engineChoice, './engine-media': engineMedia,
     './capability-document': {deviceCapabilityDocument: () => ({})}, './NativeListeningAdapter': {},
     './runtime': {NativePlaybackRuntime: class {constructor(options: unknown) {captured = options;return runtime;}}},
-    './scope-http': {PlaybackScopeHttp: class {dispose() {}}}, './dynamic-range-matching': {nativeDynamicRangeMatchingAvailable: () => false},
+    './scope-http': {PlaybackScopeHttp: class {dispose() {}}}, './dynamic-range-matching': {nativeDynamicRangeMatchingAvailable: () => false}, './capability-readiness': capabilityReadiness,
     '../../../platform/offline-downloads': {offlineDownloads: {}}, '../video-snapshot': {createVideoSnapshotCapture: () => ({})},
   });
   createNativeShellPlaybackAdapter({appVersion: 'test', api: {}, session: () => ({viewer: {authority: 'local', profileId: 'profile'}}),

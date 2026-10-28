@@ -189,6 +189,8 @@ export class NativeCastCaller {
         queueId: queue.id, entryId: fence.entryId, queueRevision: queue.revision}),
         // V02: the receiver starts the same edition this device is playing.
         ...(session.versionId ? {versionId: session.versionId} : {}),
+        // V01: and the audio track chosen here.
+        ...(session.presentation.audioTrackId ? {audioTrackId: session.presentation.audioTrackId} : {}),
         ...(snapshot.subtitles?.plan ? {subtitleTrackId: snapshot.subtitles.plan.mode === 'off' ? null : snapshot.subtitles.plan.selected?.id} : {})})});
     this.source = source; this.retired = false; this.cancelling = false; this.dockStarted = false; this.receiver = undefined; this.idleObserved=false;this.metadataItem = fence.itemId;
     const entry = snapshot.entry;

@@ -2919,3 +2919,24 @@ for (const cold of [false, true]) test(`real ${cold ? 'cold-ordered-join' : 'war
     try {await joinChannelCleanup(opening); assert.equal(d.engine.subscriptions, 0); assert.equal(d.engine.listener, undefined);} finally {if (cold) t.mock.timers.reset();}
   }
 });
+
+test('RN-05: the same source rereads its subtitles on return to the foreground, without polling, and a replaced source does not', async () => {
+  const {AppState} = await import('react-native') as unknown as {AppState: {addEventListener: (type: string, listener: (state: string) => void) => {remove: () => void}}};
+  const original = AppState.addEventListener, listeners = new Set<(state: string) => void>();
+  AppState.addEventListener = (_type, listener) => {listeners.add(listener); return {remove: () => {listeners.delete(listener);}};};
+  const d = fixture();
+  try {
+    await d.start('movie-1');
+    const reads = (item: string) => d.requests.filter(request => request.method === 'GET' && request.path === `/v1/items/${item}/subtitles`).length;
+    const before = reads('movie-1');
+    assert.ok(before >= 1);
+    for (const listener of [...listeners]) listener('background');
+    await settle(); assert.equal(reads('movie-1'), before, 'going to the background does not read');
+    for (const listener of [...listeners]) listener('active');
+    await settle(); assert.equal(reads('movie-1'), before + 1);
+    await d.start('movie-2');
+    const replaced = reads('movie-1');
+    for (const listener of [...listeners]) listener('active');
+    await settle(); assert.equal(reads('movie-1'), replaced, 'the retired source no longer listens');
+  } finally {d.runtime.dispose(); AppState.addEventListener = original;}
+});

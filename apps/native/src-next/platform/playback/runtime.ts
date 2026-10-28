@@ -201,8 +201,11 @@ export class NativePlaybackRuntime {
       id => !!this.path?.session(id) || this.path?.controller.getSnapshot().session?.id === id || this.playback?.getSnapshot().session?.id === id);
     this.http = new PlaybackScopeHttp(localV1Http(options.api), () => this.currentAuthority(), (request, response) => this.retiredStart(request, response));
     const originalHttp = {send: (request: V1Request) => {this.preparingStarts.observe(request); return this.http.send(request);}};
+    // onChange lets startup and seek deadlines pause while the app is hidden (V14).
     const visibility = {hidden: () => AppState.currentState !== 'active', onVisible(listener: () => void) {
       const off = AppState.addEventListener('change', state => {if (state === 'active') listener();});return () => off.remove();
+    }, onChange(listener: () => void) {
+      const off = AppState.addEventListener('change', () => listener());return () => off.remove();
     }};
     const captureCurrent = (request: V1Request) => {
       const epoch = this.startEpoch, context = this.startContext, guard = this.http.capture(request.signal);
@@ -234,7 +237,7 @@ export class NativePlaybackRuntime {
           && (!initial || this.startContext === original);
       }});
     if (options.offlineDevice) this.offline = new NativeOfflinePlayback(options.session, options.offlineDevice);
-    this.playback = new PlaybackService(this.offline?.wrap(this.path.transport) ?? this.path.transport, options.requestId, {queueRequired: true, deferRecovery: true});
+    this.playback = new PlaybackService(this.offline?.wrap(this.path.transport) ?? this.path.transport, options.requestId, {queueRequired: true, deferRecovery: true, pageVisibility: visibility});
     this.queue = new V1QueuePlayer({http: startHttp, api: this.path.transport, playback: this.playback, viewer: this.scope, key: options.requestId, events: options.events,
       transitions: () => this.transitions, native: options.nativeListening, nativeFor: kind => nativeListeningFor(this.serverKinds)(kind),
       retireQueuedSelection: (session, isUnowned) => this.stopOwnedSession(session.id, undefined, () => isUnowned()
@@ -1219,7 +1222,20 @@ export class NativePlaybackRuntime {
       const service = new SubtitleService({request: this.request}, {itemId, sessionId: state.session.id, generation: state.session.generation}, this.o.requestId,
         {install: presentation => valid() && this.playback.installSubtitlePresentation(presentation)});
       this.subtitleService = service;
-      this.subtitleOff = service.subscribe(() => { if (valid()) { this.applyOptions(); this.publish(); } });
+      // RN-05: no catalogue polling. The same source retries once the app returns to the
+      // foreground or its route recovers; replacing or retiring the source unsubscribes.
+      let routeReady = (this.o.api.getRouteSnapshot()?.phase ?? 'ready') === 'ready';
+      // A failed refresh is published as the service's own error state.
+      const retry = () => {if (valid() && this.subtitleService === service) void service.refresh().catch(() => {});};
+      const offs = [
+        service.subscribe(() => { if (valid()) { this.applyOptions(); this.publish(); } }),
+        (() => {const off = AppState.addEventListener('change', state => {if (state === 'active') retry();}); return () => off.remove();})(),
+        this.o.api.subscribeRoute(() => {
+          const ready = (this.o.api.getRouteSnapshot()?.phase ?? 'ready') === 'ready', recovered = ready && !routeReady;
+          routeReady = ready; if (recovered) retry();
+        }),
+      ];
+      this.subtitleOff = () => {for (const off of offs) off();};
       service.setPolling(false); service.start();
     }
   }

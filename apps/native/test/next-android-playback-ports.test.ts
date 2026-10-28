@@ -4,6 +4,7 @@ import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
 import type {NativeExternalPresentationLifetime} from '../src-next/platform/playback/types';
 import type {PlaybackFence} from '../../../packages/player-core/src';
+import * as capabilityReadiness from '../src-next/platform/playback/capability-readiness.ts';
 
 // Contract source for BLK-PLAY-006: the generic (Android/phone) factory must
 // forward the already-installed external-presentation and Picture in Picture
@@ -84,7 +85,7 @@ const modules = {
   './NativeListeningAdapter': {NativeListeningV1Adapter: class {}},
   './runtime': {NativePlaybackRuntime: FakeRuntime},
   './scope-http': {PlaybackScopeHttp: class {constructor() {}}},
-  './dynamic-range-matching': {nativeDynamicRangeMatchingAvailable: () => false},
+  './dynamic-range-matching': {nativeDynamicRangeMatchingAvailable: () => false}, './capability-readiness': capabilityReadiness,
   '../video-snapshot': {createVideoSnapshotCapture: () => ({})},
   '../../../platform/offline-downloads': {offlineDownloads: {getSnapshot: () => ({supported: false})}},
   './types': {},

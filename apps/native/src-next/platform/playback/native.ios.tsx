@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useRef, useSyncExternalStore, type ComponentRef} from 'react';
 import {AppState, NativeEventEmitter, NativeModules, Platform, UIManager, findNodeHandle, requireNativeComponent, type HostComponent, type ViewProps} from 'react-native';
 import {CapabilityPublisher} from '../../../../../packages/client-core/src/playback-v1/options';
+import {NativeCapabilityReadiness} from './capability-readiness';
 import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/local-http';
 import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
 import {parseEngineFeatures} from './engine-choice';
@@ -54,21 +55,18 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
   const authority = [initialAuthority.serverId, initialAuthority.accountId, initialAuthority.profileId, initialAuthority.epoch, initialAuthority.viewerFence].join('\n');
   const capabilityHttp = new PlaybackScopeHttp(localV1Http(options.api), () => [options.authority().serverId, options.authority().accountId, options.authority().profileId, options.authority().epoch, options.authority().viewerFence].join('\n') === authority && options.session()?.viewer.profileId === viewer.profileId);
   const publisher = new CapabilityPublisher(capabilityHttp);
-  let closed = false, publishing: Promise<void> = Promise.resolve();
-  const publishCapabilities = (): Promise<void> => {
-    publishing = publishing.then(async () => {
-      if (closed) return;
-      const settings = options.settings();
-      const facts = await ((NativeModules.PorticoCapabilities?.facts?.() as Promise<NativeFacts | null> | undefined)?.catch(() => null) ?? Promise.resolve(null));
-      if (closed) return;
-      const document = deviceCapabilityDocument({overrides: settings.overrides, native: facts, appVersion: options.appVersion,
-        device: {television: Platform.isTV, pad: !Platform.isTV && (Platform as {isPad?: boolean}).isPad === true, osVersion: String(Platform.Version)}});
-      await publisher.publish(document);
-    }).catch(() => {});
-    return publishing;
-  };
+  let closed = false;
+  const readiness = new NativeCapabilityReadiness(publisher, () => closed);
+  const publishCapabilities = (): Promise<void> => readiness.publish(async () => {
+    const settings = options.settings();
+    const facts = await ((NativeModules.PorticoCapabilities?.facts?.() as Promise<NativeFacts | null> | undefined)?.catch(() => null) ?? Promise.resolve(null));
+    if (closed) return undefined;
+    const document = deviceCapabilityDocument({overrides: settings.overrides, native: facts, appVersion: options.appVersion,
+      device: {television: Platform.isTV, pad: !Platform.isTV && (Platform as {isPad?: boolean}).isPad === true, osVersion: String(Platform.Version)}});
+    return document;
+  });
   void publishCapabilities();
-  const ready = async () => { for (;;) { const pending = publishing; await pending; if (pending === publishing) return; } };
+  const ready = readiness.ready;
   const offSettings = options.subscribeSettings(() => { void publishCapabilities(); });
   const capabilitiesModule = NativeModules.PorticoCapabilities;
   const capabilitiesEvent = capabilitiesModule ? new NativeEventEmitter(capabilitiesModule).addListener('portico.capabilities', () => { void publishCapabilities(); }) : undefined;

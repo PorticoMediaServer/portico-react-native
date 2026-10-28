@@ -1,5 +1,5 @@
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
-import {playbackInfoProjection, type PlaybackComparisonProjection, type PlaybackInfoWords} from '../../../../../packages/client-core/src/playback-info-projection';
+import {playbackInfoProjection, reconciledPlaybackLosses, type PlaybackComparisonProjection, type PlaybackInfoWords} from '../../../../../packages/client-core/src/playback-info-projection';
 import type {PlaybackInfo, PlaybackReplacement} from '../../../../../packages/client-core/src/playback-v1/playback-info';
 type PlaybackLoss = PlaybackInfo['losses'][number];
 import {playbackFence, sameFence, type PlaybackFence, type QueuePlaybackFence} from '../../../../../packages/player-core/src';
@@ -92,7 +92,8 @@ export async function readNativePlaybackInfo(
       || session.presentation.generation !== captured.generation || session.queue?.entryId !== captured.entryId) return;
     const comparison = playbackInfoProjection(session.playbackInfo, session.observedPlayback, words);
     if (!current()) return;
-    const notice = nativeWatchLossNotice(session.playbackInfo);
+    // FMT-22: the notice and the comparison share one reconciliation of this occurrence's losses.
+    const notice = nativeWatchLossNotice({losses: reconciledPlaybackLosses(session.playbackInfo, session.observedPlayback)});
     return Object.freeze({fence: captured, revision: session.revision, comparison, ...(notice ? {notice} : {})});
   } catch (error) {
     if (!current()) return;

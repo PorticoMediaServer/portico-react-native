@@ -5,6 +5,7 @@ import {screenModule} from './helpers/screen-harness.mjs';
 import type {NativePlaybackReadLifetime} from '../src-next/platform/playback/types';
 import type {PlaybackFence} from '../../../packages/player-core/src';
 import type {V1QueuedEntrySelection, V1QueueEditIntent, V1QueuePolicyIntent} from '../../../packages/client-core/src/playback-v1/v1-queue-player';
+import * as capabilityReadiness from '../src-next/platform/playback/capability-readiness.ts';
 
 // Contract source for BLK-PLAY-001: the Apple factory must forward the five
 // already-installed runtime commands unchanged. This drives the real native.ios
@@ -81,7 +82,7 @@ const modules = {
   '../../../../../packages/client-core/src/playback-v1/local-http': {localV1Http: () => ({})},
   '../../../../../packages/client-core/src/presentation/service-text': {serviceText: (key: string) => key},
   './engine-choice': {parseEngineFeatures: () => ({})},
-  './dynamic-range-matching': {nativeDynamicRangeMatchingAvailable: () => false},
+  './dynamic-range-matching': {nativeDynamicRangeMatchingAvailable: () => false}, './capability-readiness': capabilityReadiness,
   './capability-document.ios': {deviceCapabilityDocument: () => ({})},
   './NativeListeningAdapter': {NativeListeningV1Adapter: class {}},
   './runtime': {NativePlaybackRuntime: FakeRuntime},

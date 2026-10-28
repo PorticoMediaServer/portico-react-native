@@ -5,6 +5,7 @@ import {defaultI18n} from '../../../../../packages/i18n/src';
 import {sameFence} from '../../../../../packages/player-core/src';
 import type {NativeWatchPanelNames} from './panel-model';
 import {nativeWatchLossNotice} from './playback-info';
+import {reconciledPlaybackLosses} from '../../../../../packages/client-core/src/playback-info-projection';
 
 /** VS-3e names from the actual offers. Codec, layout and subtitle origin are
  * file facts; none of them establishes how the engine is rendering the track. */
@@ -45,8 +46,9 @@ export function createNativeWatchPanelNames(text: TextEnvironment): NativeWatchP
       // Offered/default tracks and transcode codec names cannot establish an
       // audible loss or an output layout. Use only this presentation's committed
       // audio losses; absent handling observations never imply passthrough.
-      const info = session.playbackInfo;
-      const notice = nativeWatchLossNotice({...info, losses: info.losses.filter(loss => loss.feature === 'atmos' || loss.feature === 'dtsx')});
+      // FMT-22: the same reconciled losses as Playback info.
+      const losses = reconciledPlaybackLosses(session.playbackInfo, session.observedPlayback);
+      const notice = nativeWatchLossNotice({losses: losses.filter(loss => loss.feature === 'atmos' || loss.feature === 'dtsx')});
       return notice ? [notice.message] : [];
     },
     qualityFooter: source => {
