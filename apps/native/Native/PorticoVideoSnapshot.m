@@ -76,14 +76,26 @@ RCT_REMAP_METHOD(capture,capture:(NSString *)identifier source:(NSDictionary *)s
  PorticoSnapshotFlight *flight=[PorticoSnapshotFlight new];flight.identifier=identifier;flight.source=@{@"reactTag":source[@"reactTag"],@"engine":@"native",@"lease":[source[@"lease"]copy],@"binding":[binding copy]};flight.resolve=resolve;flight.reject=reject;
  NSMutableDictionary *full=[binding mutableCopy];full[@"lease"]=source[@"lease"];flight.binding=full;flight.controller=PorticoSnapshotController(source[@"reactTag"],source[@"lease"]);
  if(![self current:flight]){reject(@"snapshot_stale",@"snapshot_stale",nil);return;}
+ _flight=flight;
+ // Pull-based output can first return an old sample after a hidden view has gone idle.
+ // Wait for a current decoded frame inside the existing total capture budget, rechecking
+ // the original attachment on every attempt. Cancellation and replacement retire the flight.
+ dispatch_after(dispatch_time(DISPATCH_TIME_NOW,1500*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[self fail:flight code:@"snapshot_timeout"];});
+ [self captureFrame:flight];
+}
+- (void)captureFrame:(PorticoSnapshotFlight *)flight {
+ if(_flight!=flight)return;
+ if(![self current:flight]){[self fail:flight code:@"snapshot_stale"];return;}
  CGAffineTransform transform=CGAffineTransformIdentity;CMTime decodedTime=kCMTimeInvalid;
  CVPixelBufferRef frame=[flight.controller copyVideoFrameForBinding:flight.binding displayTime:&decodedTime transform:&transform];
- if(!frame){reject(@"snapshot_unavailable",@"snapshot_unavailable",nil);return;}
+ if(!frame){
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,16*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[self captureFrame:flight];});
+  return;
+ }
  // Bound work even for a malicious/inaccurate source. No output larger than the shared JPEG limit.
  size_t width=CVPixelBufferGetWidth(frame),height=CVPixelBufferGetHeight(frame);
- if(!width||!height||width>8192||height>8192||width*height>16777216){CVPixelBufferRelease(frame);reject(@"snapshot_unavailable",@"snapshot_unavailable",nil);return;}
- _flight=flight;_encoding=YES;NSURL *directory=_directory;
- dispatch_after(dispatch_time(DISPATCH_TIME_NOW,1500*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[self fail:flight code:@"snapshot_timeout"];});
+ if(!width||!height||width>8192||height>8192||width*height>16777216){CVPixelBufferRelease(frame);[self fail:flight code:@"snapshot_unavailable"];return;}
+ _encoding=YES;NSURL *directory=_directory;
  dispatch_async(_encoder,^{@autoreleasepool{
   CIImage *image=[[CIImage imageWithCVPixelBuffer:frame]imageByApplyingTransform:transform];CVPixelBufferRelease(frame);
   CGRect extent=image.extent;CGFloat scale=MIN(1,MIN(1280/MAX(extent.size.width,extent.size.height),sqrt(921600/(extent.size.width*extent.size.height))));
@@ -116,7 +128,7 @@ RCT_REMAP_METHOD(capture,capture:(NSString *)identifier source:(NSDictionary *)s
    // File lifetime starts at capture completion; retainForExit never renews it.
    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,15*NSEC_PER_SEC),dispatch_get_main_queue(),^{if(self->_retained==flight)[self discardRetained];});
    RCTPromiseResolveBlock completion=flight.resolve;flight.resolve=nil;flight.reject=nil;
-   if(completion)completion(@{@"id":identifier,@"uri":url.absoluteString,@"width":@(encodedWidth),@"height":@(encodedHeight)});
+   if(completion)completion(@{@"id":flight.identifier,@"uri":url.absoluteString,@"width":@(encodedWidth),@"height":@(encodedHeight)});
   });
  }});
 }
