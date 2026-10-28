@@ -17,6 +17,36 @@ class PorticoTransportReplayTest {
   private fun request(server: MockWebServer, method: String, bytes: ByteArray?): Request =
       checkNotNull(PorticoTransport.request(server.url("/mutation"), method, null, bytes))
 
+  @Test fun bulkPreviewRetainsCancellationWithoutTheOrdinaryTotalDeadline() {
+    val server = MockWebServer()
+    server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+    server.start()
+    try {
+      val preview = checkNotNull(PorticoTransport.request(server.url("/v1/metadata/bulk/preview"), "POST", null, "{}".toByteArray()))
+      val policy = PorticoTransport.clientFor(preview)
+      assertEquals(0, policy.callTimeoutMillis)
+      assertEquals(0, policy.readTimeoutMillis)
+      assertEquals(15_000, policy.connectTimeoutMillis)
+      assertEquals(15_000, policy.writeTimeoutMillis)
+      val call = policy.newCall(preview)
+      val cancelled = java.util.concurrent.CountDownLatch(1)
+      val failure = java.util.concurrent.atomic.AtomicReference<IOException?>()
+      call.enqueue(object : okhttp3.Callback {
+        override fun onFailure(call: okhttp3.Call, e: IOException) { failure.set(e); cancelled.countDown() }
+        override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) { response.close(); cancelled.countDown() }
+      })
+      assertNotNull(server.takeRequest(5, TimeUnit.SECONDS))
+      call.cancel()
+      assertTrue(cancelled.await(5, TimeUnit.SECONDS))
+      assertNotNull(failure.get())
+      assertTrue(call.isCanceled())
+      for ((method, path) in listOf("GET" to "/v1/metadata/bulk/preview", "POST" to "/v1/metadata/bulk", "POST" to "/v1/metadata/bulk/preview?extra=1")) {
+        val ordinary = checkNotNull(PorticoTransport.request(server.url(path), method, null, if (method == "POST") "{}".toByteArray() else null))
+        assertEquals(15_000, PorticoTransport.clientFor(ordinary).callTimeoutMillis)
+      }
+    } finally { server.shutdown() }
+  }
+
   @Test fun onlySubtitleUploadsGetTheLongTimeouts() {
     val url = "https://server.test/v1/items/item_1/subtitles".toHttpUrl()
     val file = File.createTempFile("portico-subtitle-", ".srt").canonicalFile

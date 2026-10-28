@@ -92,6 +92,15 @@ int main(void){@autoreleasepool{
  NSURLSessionConfiguration *configuration=[PorticoQueueTransport sessionFor:NO].configuration;
  check(!configuration.HTTPShouldSetCookies&&!configuration.HTTPCookieStorage&&!configuration.URLCredentialStorage&&!configuration.URLCache&&configuration.timeoutIntervalForResource==15,"same ephemeral pool has no cookie credential or cache persistence");
  r=make(@"GET",@"source",@64);r.binaryResponse=NO;task=install(r);respond(task,200,@{});[transport URLSession:session dataTask:task didReceiveData:json];[transport URLSession:session task:task didCompleteWithError:nil];check([answer[@"body"]isEqual:[[NSString alloc]initWithData:json encoding:NSUTF8StringEncoding]]&&!answer[@"bodyBase64"],"existing JSON text completion remains unchanged");
+ NSMutableURLRequest *preview=[NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://server.test/v1/metadata/bulk/preview"]];preview.HTTPMethod=@"POST";
+ check(PorticoBulkMetadataPreview(preview),"exact owner preview gets caller-owned lifetime");
+ preview.HTTPMethod=@"GET";check(!PorticoBulkMetadataPreview(preview),"ordinary reads keep their deadline");
+ preview.HTTPMethod=@"POST";preview.URL=[NSURL URLWithString:@"https://server.test/v1/metadata/bulk/preview?extra=1"];check(!PorticoBulkMetadataPreview(preview),"malformed preview cannot bypass ordinary deadlines");
+ NSURLSessionConfiguration *previewConfiguration=[PorticoQueueTransport sessionFor:NO subtitleUpload:NO bulkPreview:YES].configuration;
+ check(previewConfiguration.timeoutIntervalForResource==NSURLSessionConfiguration.ephemeralSessionConfiguration.timeoutIntervalForResource&&previewConfiguration.timeoutIntervalForRequest==previewConfiguration.timeoutIntervalForResource,"preview keeps Foundation resource policy instead of the ordinary fifteen-second cap");
+ check(!previewConfiguration.HTTPShouldSetCookies&&!previewConfiguration.HTTPCookieStorage&&!previewConfiguration.URLCredentialStorage&&!previewConfiguration.URLCache,"preview keeps private transport configuration");
+ r=make(@"GET",@"source",@64);r.bulkPreview=YES;task=install(r);[PorticoQueueTransport cancelOwnedBy:owner];check(rejected==1&&task.cancelled,"caller cancellation still releases a preview read");
+ [[PorticoQueueTransport sessionFor:NO subtitleUpload:NO bulkPreview:YES] invalidateAndCancel];
  [[PorticoQueueTransport sessionFor:NO] invalidateAndCancel];[[PorticoQueueTransport sessionFor:YES] invalidateAndCancel];
  printf("Apple Reading byte transport: %lu checks passed\n",(unsigned long)checks);
  return 0;

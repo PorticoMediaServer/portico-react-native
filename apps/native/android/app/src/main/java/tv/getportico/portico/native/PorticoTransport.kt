@@ -162,9 +162,16 @@ internal object PorticoTransport {
     builder.method(method, payload).build()
   } catch (_: IllegalArgumentException) { null }
 
+  internal fun bulkMetadataPreview(request: Request) = request.method == "POST" &&
+      request.url.encodedPath == "/v1/metadata/bulk/preview" && request.url.encodedQuery == null
+
   /** The selected production policy is also exercised by the JVM transport tests. */
   internal fun clientFor(request: Request, streaming: Boolean = false): OkHttpClient {
-    val base = if (streaming) streamClient else if (request.method !in setOf("GET", "HEAD")) writeClient else client
+    val preview = bulkMetadataPreview(request)
+    val base = if (streaming) streamClient else if (!preview && request.method !in setOf("GET", "HEAD")) writeClient else client
+    // A paged owner read may span millions of candidates. Keep connect/write
+    // bounds and caller cancellation, without a whole-scan/read-idle timer.
+    if (preview) return base.newBuilder().callTimeout(0, TimeUnit.MILLISECONDS).readTimeout(0, TimeUnit.MILLISECONDS).build()
     // Derive from the trusted client, retaining its pool, dispatcher and one-shot write policy.
     return if (request.tag(SubtitleUpload::class.java) != null) base.newBuilder()
         .callTimeout(110, TimeUnit.SECONDS)
@@ -175,7 +182,7 @@ internal object PorticoTransport {
 
   /** Admits a request: start it, queue it, or refuse it when 76 are already pending. */
   fun submit(owner: Any, identifier: String, request: Request, limit: Long, domain: String, busy: String, promise: Promise, binary: Boolean = false, streaming: Boolean = false) {
-    val critical = request.method !in setOf("GET", "HEAD")
+    val critical = request.method !in setOf("GET", "HEAD") && !bulkMetadataPreview(request)
     val entry = Entry(identifier, owner, limit, promise, critical, binary, streaming)
     val call: Call
     synchronized(entries) {
@@ -188,7 +195,7 @@ internal object PorticoTransport {
       val requestClient = clientFor(request, streaming)
       call = requestClient.newCall(request)
       entry.call = call
-      entry.deadline = deadlines.schedule({ finish(entry, "The request took too long.", null, TIMEOUT) }, requestClient.callTimeoutMillis.toLong(), TimeUnit.MILLISECONDS)
+      if (requestClient.callTimeoutMillis > 0) entry.deadline = deadlines.schedule({ finish(entry, "The request took too long.", null, TIMEOUT) }, requestClient.callTimeoutMillis.toLong(), TimeUnit.MILLISECONDS)
     }
     call.enqueue(object : Callback {
       override fun onFailure(call: Call, e: IOException) =

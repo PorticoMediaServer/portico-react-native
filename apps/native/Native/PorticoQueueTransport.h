@@ -11,11 +11,12 @@ typedef void (^PorticoTransportReject)(NSString *code,NSString *message,NSError 
 // player here; Reading also uses this same transport for bounded binary reads.
 //
 // PERF-04: every request used to open its own NSURLSession, so each API call paid a new TCP
-// connection and TLS handshake, and a 17th concurrent request was rejected outright. Now three
+// connection and TLS handshake, and a 17th concurrent request was rejected outright. Now four
 // shared, ephemeral, cookie-less, cache-less sessions (so connections and TLS sessions are
 // reused), at most 12 requests in flight and up to 64 waiting, with control work first. The security bounds are
 // unchanged and enforced per task: no redirects, 1 MB controls / 8 MB API GETs / up to 32 MB Reading bytes.
-// Ordinary sessions use 15 s; subtitle uploads have their own 60 s idle / 110 s total lane.
+// Ordinary sessions use 15 s; subtitle uploads use 60 s idle / 110 s total.
+// Paged owner metadata previews use caller cancellation and Foundation resource policy.
 @interface PorticoQueueRequest : NSObject
 @property(nonatomic,strong) NSURLSessionTask *task;
 @property(nonatomic,strong) NSURLRequest *wire;
@@ -29,6 +30,7 @@ typedef void (^PorticoTransportReject)(NSString *code,NSString *message,NSError 
 @property(nonatomic) BOOL started;
 @property(nonatomic) BOOL critical;
 @property(nonatomic) BOOL subtitleUpload;
+@property(nonatomic) BOOL bulkPreview;
 @property(nonatomic) NSUInteger responseLimit;
 @property(nonatomic) BOOL binaryResponse;
 @property(nonatomic) BOOL streamingResponse;
@@ -56,6 +58,10 @@ static const NSInteger PorticoQueueMaxActive=12;
 static const NSTimeInterval PorticoSubtitleUploadIdleTimeout=60,PorticoSubtitleUploadTimeout=110;
 static const NSUInteger PorticoStreamChunkLimit=1048576,PorticoStreamPullLimit=49152;
 
+static BOOL PorticoBulkMetadataPreview(NSURLRequest *wire) {
+ return [wire.HTTPMethod isEqualToString:@"POST"]&&[wire.URL.path isEqualToString:@"/v1/metadata/bulk/preview"]&&wire.URL.query==nil;
+}
+
 static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
  NSMutableDictionary *headers=[NSMutableDictionary dictionary];
  for(id key in response.allHeaderFields)headers[[key description]]=[response.allHeaderFields[key] description];
@@ -64,20 +70,26 @@ static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
 
 @interface PorticoQueueTransport : NSObject<NSURLSessionDataDelegate,NSURLSessionTaskDelegate> @end
 @implementation PorticoQueueTransport
-+ (NSURLSession *)sessionFor:(BOOL)critical subtitleUpload:(BOOL)subtitleUpload {
- static NSURLSession *reads,*writes,*uploads;static dispatch_once_t once;
++ (NSURLSession *)sessionFor:(BOOL)critical subtitleUpload:(BOOL)subtitleUpload bulkPreview:(BOOL)bulkPreview {
+ static NSURLSession *reads,*writes,*uploads,*previews;static dispatch_once_t once;
  dispatch_once(&once,^{
   // Separate socket pools keep ten slow reads from occupying the control connections.
   // Resource timeouts apply to every task in a session, so uploads need a separate lane.
-  for(NSInteger lane=0;lane<3;lane++){
+  for(NSInteger lane=0;lane<4;lane++){
    NSURLSessionConfiguration *configuration=NSURLSessionConfiguration.ephemeralSessionConfiguration;
-   configuration.timeoutIntervalForRequest=lane==2?PorticoSubtitleUploadIdleTimeout:15;configuration.timeoutIntervalForResource=lane==2?PorticoSubtitleUploadTimeout:15;configuration.HTTPShouldSetCookies=NO;configuration.HTTPCookieStorage=nil;configuration.URLCredentialStorage=nil;configuration.URLCache=nil;configuration.requestCachePolicy=NSURLRequestReloadIgnoringLocalCacheData;configuration.HTTPMaximumConnectionsPerHost=lane?2:10;
-   NSOperationQueue *queue=[NSOperationQueue new];queue.maxConcurrentOperationCount=1;queue.name=lane==2?@"tv.getportico.subtitle-uploads":lane?@"tv.getportico.control":@"tv.getportico.reads";
+   // A paged preview keeps Foundation's default resource lifetime; caller
+   // cancellation owns the operation. Other lanes keep their existing timers.
+   if(lane==3)configuration.timeoutIntervalForRequest=configuration.timeoutIntervalForResource;
+   else {configuration.timeoutIntervalForRequest=lane==2?PorticoSubtitleUploadIdleTimeout:15;configuration.timeoutIntervalForResource=lane==2?PorticoSubtitleUploadTimeout:15;}configuration.HTTPShouldSetCookies=NO;configuration.HTTPCookieStorage=nil;configuration.URLCredentialStorage=nil;configuration.URLCache=nil;configuration.requestCachePolicy=NSURLRequestReloadIgnoringLocalCacheData;configuration.HTTPMaximumConnectionsPerHost=lane?2:10;
+   NSOperationQueue *queue=[NSOperationQueue new];queue.maxConcurrentOperationCount=1;queue.name=lane==3?@"tv.getportico.metadata-preview":lane==2?@"tv.getportico.subtitle-uploads":lane?@"tv.getportico.control":@"tv.getportico.reads";
    NSURLSession *session=[NSURLSession sessionWithConfiguration:configuration delegate:[PorticoQueueTransport new] delegateQueue:queue];
-   if(lane==2)uploads=session;else if(lane)writes=session;else reads=session;
+   if(lane==3)previews=session;else if(lane==2)uploads=session;else if(lane)writes=session;else reads=session;
   }
  });
- return subtitleUpload?uploads:critical?writes:reads;
+ return bulkPreview?previews:subtitleUpload?uploads:critical?writes:reads;
+}
++ (NSURLSession *)sessionFor:(BOOL)critical subtitleUpload:(BOOL)subtitleUpload {
+ return [self sessionFor:critical subtitleUpload:subtitleUpload bulkPreview:NO];
 }
 + (NSURLSession *)sessionFor:(BOOL)critical {
  return [self sessionFor:critical subtitleUpload:NO];
@@ -102,7 +114,7 @@ static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
   } failure:^(NSError *error){PorticoQueueRequest *current=weakRequest;if(current)@synchronized(current){if(!current.completed)[current transportFailed:error];}}];
   return;
  }
- NSURLSessionDataTask *task=[[self sessionFor:request.critical subtitleUpload:request.subtitleUpload] dataTaskWithRequest:request.wire];request.task=task;
+ NSURLSessionDataTask *task=[[self sessionFor:request.critical subtitleUpload:request.subtitleUpload bulkPreview:request.bulkPreview] dataTaskWithRequest:request.wire];request.task=task;
  task.taskDescription=request.identifier;
  [task resume];
 }
@@ -117,13 +129,15 @@ static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
 + (void)submit:(PorticoQueueRequest *)request domain:(NSString *)domain busy:(NSString *)busy {
  @synchronized(PorticoQueueRequest.class){
   if(!PorticoQueueRequests)PorticoQueueRequests=[NSMutableDictionary dictionary];if(!PorticoQueueWaiting)PorticoQueueWaiting=[NSMutableArray array];
-  request.critical=![@[@"GET",@"HEAD"] containsObject:request.wire.HTTPMethod];
+  request.bulkPreview=PorticoBulkMetadataPreview(request.wire);
+  request.critical=!request.bulkPreview&&![@[@"GET",@"HEAD"] containsObject:request.wire.HTTPMethod];
+  if(request.bulkPreview){NSMutableURLRequest *wire=[request.wire mutableCopy];wire.timeoutInterval=[self sessionFor:NO subtitleUpload:NO bulkPreview:YES].configuration.timeoutIntervalForRequest;request.wire=wire;}
   NSUInteger reads=0;for(PorticoQueueRequest *r in PorticoQueueRequests.allValues)if(!r.critical)reads++;
   if(PorticoQueueRequests[request.identifier]||PorticoQueueRequests.count>=76||(!request.critical&&reads>=66)){request.reject(domain,busy,nil);return;}
   PorticoQueueRequests[request.identifier]=request;[PorticoQueueWaiting addObject:request];[self pump];
   // Include queue residence in the operation's deadline. Cancellation releases admission once.
   NSTimeInterval timeout=request.subtitleUpload?PorticoSubtitleUploadTimeout:request.wire.timeoutInterval;
-  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(timeout*NSEC_PER_SEC)),dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{@synchronized(request){if(!request.completed){request.failureCode=@"timeout";[request finish:@"The request took too long."];}}});
+  if(!request.bulkPreview)dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(timeout*NSEC_PER_SEC)),dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{@synchronized(request){if(!request.completed){request.failureCode=@"timeout";[request finish:@"The request took too long."];}}});
  }
 }
 /** Caller holds the class lock. */
