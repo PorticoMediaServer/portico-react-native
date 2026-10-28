@@ -9,7 +9,7 @@ import * as registryPort from '../src-next/shell/route-registry.ts';
 import {authorityKey} from '../src-next/shell/model.ts';
 import {nativeDestinationLifetime} from '../src-next/screens/destinations/lifetime.ts';
 import {NativeSearchDestination} from '../src-next/screens/search/model.ts';
-import {NativeSearchExplore} from '../src-next/screens/search/explore.ts';
+import {NativeSearchExplore, NativeSearchGenreList} from '../src-next/screens/search/explore.ts';
 import {NativeLoadedDestinations} from '../src-next/screens/search/loaded-destinations.ts';
 import {createNativeReadingSearch} from '../src-next/screens/search/reading-search.ts';
 import {NativeBulkMedia} from '../src-next/screens/destinations/bulk-media.ts';
@@ -19,7 +19,6 @@ import {presentError} from '../../../packages/client-core/src/presentation/error
 import {mediaSelectionKey} from '../../../packages/client-core/src/media-selection';
 import * as selectionCore from '../../../packages/client-core/src/selection-model';
 import {selectedItemsLabel} from '../src-next/shell/selection-display';
-import {nativeSearchEntryKey} from '../src-next/screens/search/model';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -63,7 +62,8 @@ const history = {serverId: 'server', viewerFence: 'actual-history-fence', maxEnt
 async function setup() {
   const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'home-only'};
   const navigation = new NativeShellNavigation(authority, () => authority), authorityListeners = new Set<() => void>(), preferenceListeners = new Set<() => void>();
-  const paths: string[] = [], errors: unknown[] = [];
+  const paths: string[] = [], errors: unknown[] = [], appStateListeners = new Set<(state: string) => void>();
+  const AppState = {currentState: 'active', addEventListener: (_event: string, listener: (state: string) => void) => {appStateListeners.add(listener); return {remove: () => appStateListeners.delete(listener)};}};
   let current = true;
   const session: LocalSession = {viewer: {...authority, authority: 'local', role: 'member'}, accessToken: '', expiresAt: '2026-10-25T00:00:00Z',
     authorizationHorizon: '2026-10-26T00:00:00Z', sessionFamilyId: 'fixture-family', tokenGeneration: '1'};
@@ -73,7 +73,7 @@ async function setup() {
     api: new HttpLocalApi('https://fixture.invalid', '', async (input, init) => {
       const url = new URL(String(input)); paths.push(url.pathname + url.search);
       const data = url.pathname === '/v1/search' ? searchPage(url) : url.pathname.includes('/history') ? history
-        : {revision: 'opaque', genres: [{value: 'drama', label: 'Drama', count: 20, covers: [], backdrop: art('drama')}], nextCursor: ''};
+        : {queryId:'genre_query',revision: 'opaque', hasGenres: true, genres: [{value: 'drama', label: 'Drama', count: 20, covers: [], backdrop: art('drama')}]};
       assert.equal(init?.method ?? 'GET', 'GET');
       return new Response(JSON.stringify(data), {status: 200, headers: {'Content-Type': 'application/json'}});
     }),
@@ -122,18 +122,18 @@ async function setup() {
     './reading-search': {createNativeReadingSearch}, './ReadingSearchScreen': {ReadingSearchScreen: 'ReadingSearchScreen'},
   });
   await screenModule(new URL('../src-next/screens/search/register.tsx', import.meta.url), {
-    react: hooks().react, 'react-native': {Platform: {isTV: true}, View: 'View'}, '../../shell/route-registry': registry,
+    react: hooks().react, 'react-native': {AppState, Platform: {isTV: true}, View: 'View'}, '../../shell/route-registry': registry,
     '../../shell/model': {authorityKey},
     '../destinations/lifetime': {nativeDestinationLifetime},
     '../destinations/entry-actions': {createNativeEntryActions: () => ({dispose() {}, menuState: {subscribe: () => () => {}, getSnapshot: () => 0}})},
     './selection': {createNativeSearchSelection},
     './controller': {createNativeSearchController}, './actions': {createNativeSearchActions: () => ({dispose() {}})},
-    './navigation': navigationPorts, './explore': {NativeSearchExplore: RecordingExplore},
+    './navigation': navigationPorts, './explore': {NativeSearchExplore: RecordingExplore, NativeSearchGenreList},
     './SearchScreen': {SearchScreen: 'SearchScreen'}, './GenreBrowseScreen': {GenreBrowseScreen: 'GenreBrowseScreen'},
     './AllGenresScreen': {AllGenresScreen: 'AllGenresScreen'},
     './reading-register': readingRegister,
   });
-  return {context, navigation, authority, paths, errors, authorityListeners, preferenceListeners,
+  return {context, navigation, authority, paths, errors, authorityListeners, preferenceListeners, appStateListeners,
     retire: () => {current = false; for (const listener of [...authorityListeners]) listener();},
   };
 }
@@ -180,6 +180,8 @@ test('the TV entry registers the real Search module against the TV surface, with
     const genres = states.render(() => expand(bound!.renderRetained(runtime)));
     const all = find(genres, 'AllGenresScreen') as Element | undefined;
     assert.ok(all, 'search-genres registers at the TV entry');
+    assert.notEqual(all.props.explore, screen.props.explore, 'All genres owns its independent directory');
+    assert.ok(all.props.explore instanceof NativeSearchGenreList);
     assert.equal(s.navigation.open({kind: 'search-genre', value: 'drama', label: 'Drama'}, s.authority), true);
     const genre = states.render(() => expand(bound!.renderRetained(runtime)));
     const browse = find(genre, 'GenreBrowseScreen') as Element | undefined;
@@ -196,5 +198,5 @@ test('the TV entry registers the real Search module against the TV surface, with
   } finally {
     bound?.dispose(); s.navigation.dispose();
   }
-  assert.equal(s.authorityListeners.size, 0);
+  assert.equal(s.authorityListeners.size, 0); assert.equal(s.appStateListeners.size, 0);
 });

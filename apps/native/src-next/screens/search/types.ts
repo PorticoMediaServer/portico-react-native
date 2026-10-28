@@ -13,6 +13,9 @@ export type NativeSearchGenre = Readonly<{
 export type NativeSearchExploreSnapshot = Readonly<{
   phase: 'idle' | 'loading' | 'ready' | 'error';
   genres: readonly NativeSearchGenre[];
+  /** Independent server-ordered phone-empty slot; never derived from covers. */
+  backdropGenres?: readonly NativeSearchGenre[];
+  hasGenres?: boolean;
   initialHeading: MessageId; emptyHeading: MessageId;
   error?: unknown;
 }>;
