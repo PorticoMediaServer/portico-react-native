@@ -2,8 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {NativeListeningV1Adapter, parseNativeListeningV1Event, type NativeListeningBridge} from '../src/bridge/NativeListeningAdapter.ts';
-import {NativeListeningV1Adapter as CurrentNativeListeningV1Adapter} from '../src-next/platform/playback/NativeListeningAdapter.ts';
+import {NativeListeningV1Adapter, parseNativeListeningV1Event, type NativeListeningBridge} from '../src-next/platform/playback/NativeListeningAdapter.ts';
 import type {NativeListeningPolicy, NativeListeningV1Context, NativeListeningV1Event} from '../../../packages/client-core/src/playback/native-listening.ts';
 
 const session = (id: string, over: Record<string, unknown> = {}) => ({
@@ -142,7 +141,7 @@ test('the adapter hands the session over once, acknowledges snapshots and follow
 });
 
 test('INT T1: a kind plays under the native owner only when the server lists it and the app turns it on; music and audiobooks are on', async () => {
-  const {nativeListeningFor, nativeV1ListeningKinds, serverPlaybackV1Kinds} = await import('../src/bridge/native-listening-kinds.ts');
+  const {nativeListeningFor, nativeV1ListeningKinds, serverPlaybackV1Kinds} = await import('../src-next/platform/playback/native-listening-kinds.ts');
   assert.deepEqual([...nativeV1ListeningKinds], ['song', 'track', 'audiobook_file']);
   const server = serverPlaybackV1Kinds({features: {playback_v1: 'enabled', playback_v1_kinds: ['movie', 'audiobook_file', 'song']}});
   assert.deepEqual(server, ['movie', 'audiobook_file', 'song']);
@@ -206,8 +205,7 @@ type PolicyAdapter = {adopt: (context: NativeListeningV1Context, sink: (event: N
 type PolicyBridge = ReturnType<typeof bridge>;
 const policyDraft = (revision: number, timer: PolicyTimer | null = null): PolicyDraft => ({revision, preferences: {bookRate: 1, passoutMinutes: 45}, activityRevision: 3, activityAtMs: 1_760_000_000_000, timerRevision: revision, effects: {gapless: true, crossfadeSeconds: 0, normalization: 'off'}, timer});
 const policyAdapters: readonly (readonly [string, (x: PolicyBridge) => PolicyAdapter])[] = [
-  ['current', x => new CurrentNativeListeningV1Adapter({bridge: x.b, principal: policyPrincipal, bearer: () => 'token', id: () => 'owner-1', subscribe: x.subscribe})],
-  ['legacy', x => new NativeListeningV1Adapter({bridge: x.b, principal: policyPrincipal, bearer: () => 'token', id: () => 'owner-1', subscribe: x.subscribe})],
+  ['current', x => new NativeListeningV1Adapter({bridge: x.b, principal: policyPrincipal, bearer: () => 'token', id: () => 'owner-1', subscribe: x.subscribe})],
 ];
 for (const [path, make] of policyAdapters) {
   const open = () => {const x = bridge(); return {x, adapter: make(x)};};

@@ -1,7 +1,7 @@
 import {serviceText} from '../../../packages/client-core/src/presentation/service-text';
 
 /**
- * How this app names its platform to servers and to people. `overrides/native/bridge/device-platform.ts`
+ * How this app names its platform to servers and to people. `overrides/native-next/platform/device-platform.ts`
  * puts these in place of what the shared code works out for an Apple or Android device.
  */
 export const platformId = 'vega';

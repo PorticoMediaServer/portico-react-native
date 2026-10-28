@@ -1,6 +1,6 @@
 import * as Vega from '@amazon-devices/react-native-kepler';
 import React, {useEffect, useState} from 'react';
-import {diagnosticText, redact} from '../../native/src/app/error-journal';
+import {diagnosticText, redact} from '../../native/src-next/platform/error-journal';
 
 /**
  * A development aid, off unless `portico.debugConsole` is set in `app.json`, drawn over the

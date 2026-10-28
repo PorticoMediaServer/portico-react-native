@@ -10,11 +10,6 @@ on:
         required: false
         default: ''
   workflow_call:
-    inputs:
-      legacy_compatibility:
-        description: Compatibility now runs once nightly, not per merge
-        type: boolean
-        default: false
 permissions:
   contents: read
 concurrency:

@@ -3,7 +3,7 @@ import {randomBytes, uuid} from '../bridge/random';
 /**
  * Shared services that are not handed an id source of their own make their request ids with
  * `crypto.randomUUID`, or build one from `crypto.getRandomValues` (client-core `randomId`). The
- * Apple and Android apps install the first at launch (`apps/native/src/bridge/random-id.ts`),
+ * Apple and Android apps install the first at launch (`apps/native/src-next/platform/random-id.ts`),
  * because their JavaScript runtime has no `crypto`. This is the same thing for Vega, from the
  * system's random source (`bridge/random.ts`), and it is careful in one more way: whatever
  * `crypto` this runtime may already have is left exactly as it is, and nothing here can stop the

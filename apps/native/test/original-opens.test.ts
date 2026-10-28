@@ -1,7 +1,7 @@
 /** The download menu says when a title's original is a file this device cannot open by itself. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {devicePlayerOpens, originalMayNotPlay} from '../src/app/original-opens.ts';
+import {devicePlayerOpens, originalMayNotPlay} from '../src-next/screens/downloads/original-opens.ts';
 
 test('a container is read however the server names it', () => {
   assert.equal(devicePlayerOpens('matroska', 'apple'), false);

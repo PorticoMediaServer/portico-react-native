@@ -1,7 +1,7 @@
 /** Cast is offered only where the server names the receiver application this build was made for. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {castOffered} from '../src/app/cast-offered.ts';
+import {castOffered} from '../src-next/platform/play-on/cast-offered.ts';
 
 test('the server’s setting decides: none set, no Cast', () => {
   assert.equal(castOffered(true, '', 'ABCD1234'), false);

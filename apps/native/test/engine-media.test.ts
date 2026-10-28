@@ -2,7 +2,7 @@
  * reports about the file. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {chapterAt, chaptersOf, deliveriesOf, deviceDrawnTrack, engineSubtitleRender, fontsUrlOf, kindOfFormat, parseSubtitleFonts, planEngineOf, renderingToRequest, requiredSubtitleRendering} from '../src/player/engine-media.ts';
+import {chapterAt, chaptersOf, deliveriesOf, deviceDrawnTrack, engineSubtitleRender, fontsUrlOf, kindOfFormat, parseSubtitleFonts, planEngineOf, renderingToRequest, requiredSubtitleRendering} from '../src-next/platform/playback/engine-media.ts';
 
 const all = ['text', 'ass', 'pgs', 'vobsub', 'dvb'];
 const absolute = (path: string) => 'https://portico.test' + path;

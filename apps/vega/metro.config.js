@@ -9,11 +9,10 @@ const {getDefaultConfig, mergeConfig} = require('@react-native/metro-config');
 //    SDK's React Native plus Portico's modules and the few television exports whose names or
 //    behavior differ. Libraries in node_modules keep the SDK's package.
 // 2. A shared file that is Apple-specific is replaced by the file at the same path under
-//    `src/overrides/native` (the `.vega.ts` sibling, kept out of `apps/native`); a file of the
+//    `src/overrides/native-next` (the `.vega.ts` sibling, kept out of `apps/native`); a file of the
 //    shared packages, by the one under `src/overrides/packages`.
 const app = __dirname;
 const shared = path.resolve(app, '../native');
-const sharedSrc = path.join(shared, 'src');
 const packages = path.resolve(app, '../../packages');
 const modules = path.join(app, 'node_modules');
 const shims = path.join(app, 'src/shims');
@@ -22,7 +21,6 @@ const debugFile = path.join(app, 'src/debug.tsx');
 const overrides = path.join(app, 'src/overrides');
 const reactNativeShim = path.join(shims, 'react-native.ts');
 const nextSrc = path.join(shared, 'src-next');
-const reanimatedShim = path.join(shims, 'reanimated.tsx');
 const sdkReactNative = '@amazon-devices/react-native-kepler';
 
 // The community names the shared sources import, and the SDK's builds of them.
@@ -44,7 +42,7 @@ const plainLibraries = ['react-native-url-polyfill', 'react-native-qrcode-svg'].
 const inNodeModules = file => file.includes(`${path.sep}node_modules${path.sep}`) && !plainLibraries.some(library => file.startsWith(library));
 const within = (dir, file) => file === dir || file.startsWith(dir + path.sep);
 
-const overrideRoots = [[sharedSrc, path.join(overrides, 'native')], [nextSrc, path.join(overrides, 'native-next')], [packages, path.join(overrides, 'packages')]];
+const overrideRoots = [[nextSrc, path.join(overrides, 'native-next')], [packages, path.join(overrides, 'packages')]];
 
 function overrideFor(file) {
   for (const [root, replacements] of overrideRoots) {
@@ -89,11 +87,8 @@ module.exports = mergeConfig(getDefaultConfig(app), {
       if (moduleName === sdkReactNative && !inNodeModules(origin) && !within(shims, origin) && !within(bridge, origin) && origin !== debugFile) {
         return {type: 'sourceFile', filePath: reactNativeShim};
       }
-      // Legacy motion keeps its existing shim; the new shell uses the actual SDK.
+      // The app uses the SDK's full layout/scroll/worklet API.
       if (requested === 'react-native-reanimated' && !inNodeModules(origin)) {
-        // The new shell uses the SDK's full layout/scroll/worklet API. Keep the
-        // legacy screen workaround confined to the legacy sources it was built for.
-        if (!within(nextSrc, origin)) return {type: 'sourceFile', filePath: reanimatedShim};
         return context.resolveRequest(context, '@amazon-devices/react-native-reanimated', platform);
       }
       const resolved = context.resolveRequest(context, moduleName, platform);

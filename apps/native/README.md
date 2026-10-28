@@ -6,7 +6,7 @@ The React Native (react-native-tvos) client for Portico. It builds on:
   projections, detail, show workspace, search, saved, guide, playback).
 - `packages/design`: colour, spacing and icon tokens.
 - `Native/`: the Apple AVPlayer engine, audio, keychain, networking and system
-  modules, with their JavaScript bindings in `src/bridge/`.
+  modules, with their JavaScript bindings in `src-next/platform/`.
 - `android/`: the same native modules for Android, in Kotlin, under the same
   names (Media3 for playback, the Keystore for records). Every screen is shared;
   only this layer differs.
@@ -15,11 +15,11 @@ The React Native (react-native-tvos) client for Portico. It builds on:
 
 | Folder | Role |
 | --- | --- |
-| `src/ui` | The design system. Every visual primitive lives here; no other folder may use hex colours, `StyleSheet.create`, font literals or raw `Pressable`/`Text`. |
-| `src/app` | Session controller, content/detail hooks, routes, device preferences, the server-compat shim. |
-| `src/shell` | Authenticated frame: television rail, handheld bottom tabs, navigation stack, Menu-key policy. |
-| `src/screens` | Destinations: auth flow, Home, Library, Detail, Show, Entity, Search, Saved, Live TV, Channels, Settings. |
-| `src/player` | Player engine binding + full-screen chrome, handheld mini bar, television now-playing pill. |
+| `src-next/kit` | The design system: theme, icons, artwork, cards, controls, focus, overlays and states. |
+| `src-next/platform` | Bindings to the native modules, sessions and accounts, playback, Play On, downloads, device settings. |
+| `src-next/shell` | The app frame: start-up, the television rail, the handheld tab bar, the playback layer. |
+| `src-next/screens` | Destinations: accounts, Home, Library, Search, Saved, Watch, Read, Downloads, People, Settings. |
+| `src-next/tv`, `src-next/dev` | Television-only pieces; development galleries and measurement hosts. |
 | `ios/` | iPhone/iPad Xcode project (`tv.getportico.portico.ios`). |
 | `tvos/` | Apple TV Xcode project (`tv.getportico.portico.tv`). |
 | `android/` | Android project (`tv.getportico.portico`): phones, tablets, Android TV, and Fire TV as the `firetv` flavor. |
@@ -81,7 +81,7 @@ empty component registry, so safe-area-context, svg, screens and reanimated fall
 back to old-style views. In a Release build that meant a blank screen and a
 crash at launch (`RCTEventEmitter.receiveEvent`), because the production bundle
 has nothing registered to receive old-style view events.
-`src/app/legacy-events.ts` now drops such events with a warning instead of
+`src-next/platform/legacy-events.ts` now drops such events with a warning instead of
 crashing.
 
 ## Apple playback (iPhone, iPad, Apple TV)
@@ -148,7 +148,7 @@ Notes:
   not ask for it; the build has FFmpeg's bwdif and yadif filters, so it could), and Dolby
   Vision profile 5 colours (mpv draws with `vo=gpu`; libplacebo's Dolby Vision reshaping is
   used only by `vo=gpu-next`). See the engine's capability profile in
-  `src/bridge/mpv-profile.ts`.
+  `src-next/platform/playback/mpv-profile.ts`.
 - **Network.** mpv only ever reads `http://127.0.0.1:<port>/...` from the in-app relay
   (`PorticoMpvRelay`), which fetches from the server with OkHttp, so the server's certificate is
   checked exactly as for the rest of the app. mpv's own protocols are limited to plain HTTP and

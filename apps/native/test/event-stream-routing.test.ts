@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {NativeModules} from './react-native-stub.mjs';
-import {openEventStream} from '../src/bridge/event-stream.ts';
+import {openEventStream} from '../src-next/platform/event-stream.ts';
 import {readEventStream} from '../../../packages/client-core/src/sse.ts';
 
 function fixture() {

@@ -2,7 +2,7 @@
  * at the position it had reached, in the same session. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {NativePlaybackCoordinator, type NativePlaybackTransport} from '../src/bridge/NativePlaybackCoordinator.ts';
+import {NativePlaybackCoordinator, type NativePlaybackTransport} from '../src-next/platform/playback/NativePlaybackCoordinator.ts';
 
 type Fact = Record<string, unknown>;
 class FakeEngine implements NativePlaybackTransport {

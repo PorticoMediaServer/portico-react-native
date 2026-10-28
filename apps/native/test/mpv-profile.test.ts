@@ -4,8 +4,8 @@
  * server accepts. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mpvDeviceClass, mpvDisplayRanges, mpvEngineCapabilities, type EngineCapabilities, type MpvDeviceFacts} from '../src/bridge/mpv-profile.ts';
-import {deviceCapabilityDocument, probedDevice} from '../src/bridge/capability-document.ts';
+import {mpvDeviceClass, mpvDisplayRanges, mpvEngineCapabilities, type EngineCapabilities, type MpvDeviceFacts} from '../src-next/platform/playback/mpv-profile.ts';
+import {deviceCapabilityDocument, probedDevice} from '../src-next/platform/playback/capability-document.ts';
 import {capabilityDocumentProblem} from '../../../packages/client-core/src/client-profile.ts';
 
 const GiB = 1024 ** 3;

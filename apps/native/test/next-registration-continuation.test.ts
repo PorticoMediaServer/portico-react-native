@@ -107,49 +107,6 @@ test('continuation storage serializes an old in-flight save, skips a retired wai
   old.dispose(); skipped.dispose(); successor.dispose(); failing.dispose(); after.dispose();
 });
 
-test('legacy reset and update share ordering with a current native prepare', async () => {
-  let record: string | null = null, release!: () => void, announce!: () => void, hold = false, writes = 0, bindingCount = 0;
-  let started = new Promise<void>(resolve => {announce = resolve;});
-  const bridge = {loadContinuation: async () => record, newBinding: async () => String(++bindingCount).padStart(43, 'a'),
-    saveContinuation: async (_origin: string, bytes: string) => {writes++; if (hold) {hold = false; announce(); await new Promise<void>(resolve => {release = resolve;});} record = bytes;}, cancel() {}};
-  class HostedAccountClient {constructor(..._args: unknown[]) {}}
-  const legacy = await screenModule(new URL('../src/bridge/native-account.ts', import.meta.url), {
-    react: {default: {}}, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}},
-    '../../../../packages/client-core/src/index': {ApiError, HostedAccountClient, parseNativeAccountContinuation},
-    './server-connections': {nativeNetworkFetch: async () => {}}, './continuation-queue': continuationQueue,
-  });
-  const nativeAccounts = {onCancel: () => () => {}, accountClient: () => ({options: async () => ({providers: []})})};
-  const next = await screenModule(new URL('../src-next/platform/portico-sign-in.ts', import.meta.url), {
-    react: {default: {}}, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}},
-    '../../../../packages/client-core/src/hosted-security': {MFARequiredError, parseNativeAccountContinuation}, '../../../../packages/client-core/src/server-messages': {CodedError},
-    '../../../../packages/client-core/src': {ApiError}, '../../../../packages/contracts/src/hosted/routes': {},
-    './accounts': {nativeAccounts}, './abort-signals': {}, './account-authority': {hostedUrl: 'https://mixed.example'}, './continuation-queue': continuationQueue,
-  });
-  const owner = await legacy.nativeAccount('https://mixed.example'), oldBinding = owner.continuation.binding;
-  const oldPrepared = new next.NativePorticoSignIn(); await oldPrepared.prepare();
-  hold = true; const reset = owner.reset(); await started;
-  const staleUpdate = owner.update(oldBinding, {transactionId: 'old'}), successor = new next.NativePorticoSignIn(), preparing = successor.prepare();
-  assert.equal(writes, 3); release(); await reset; await assert.rejects(staleUpdate, /replaced/); await preparing;
-  await assert.rejects(oldPrepared.provider('google'));
-  assert.equal(writes, 4); assert.equal(JSON.parse(record!).binding, owner.continuation.binding); assert.notEqual(owner.continuation.binding, oldBinding);
-  const binding = owner.continuation.binding;
-  started = new Promise<void>(resolve => {announce = resolve;}); hold = true;
-  const firstUpdate = owner.update(binding, {transactionId: 'first'}); await started;
-  const secondUpdate = owner.update(binding, {transactionId: 'second'}); release();
-  await firstUpdate; await secondUpdate;
-  assert.equal(owner.continuation.transactionId, 'second'); assert.equal(JSON.parse(record!).transactionId, 'second');
-  started = new Promise<void>(resolve => {announce = resolve;}); hold = true;
-  const beforeReset = owner.update(binding, {transactionId: 'before-reset'}); await started;
-  const queuedReset = owner.reset(); release(); await beforeReset; await queuedReset;
-  assert.notEqual(owner.continuation.binding, binding); assert.equal(JSON.parse(record!).binding, owner.continuation.binding);
-  const retiredLegacyBinding = owner.continuation.binding; record = null;
-  const replacementSource = new next.NativePorticoSignIn(); await replacementSource.prepare();
-  await assert.rejects(owner.update(retiredLegacyBinding, {transactionId: 'stale'}), /replaced/);
-  assert.notEqual(JSON.parse(record!).binding, retiredLegacyBinding);
-  oldPrepared.dispose(); successor.dispose(); replacementSource.dispose();
-});
-
-
 test('registration and replacement values remain original across coordinator delay', async () => {
   let release!: () => void, started!: () => void; const waiting = new Promise<void>(resolve => {started = resolve;});
   const p = await port(() => {started(); return new Promise<void>(resolve => {release = resolve;});});

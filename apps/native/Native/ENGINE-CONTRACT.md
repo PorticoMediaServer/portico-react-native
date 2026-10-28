@@ -3,7 +3,7 @@
 Every video engine in the app implements this one contract between JavaScript and native code.
 Apple has one video engine, **AVPlayer**, exposed as **native**. Android retains its native
 Media3 and mpv engines; every mpv-specific section below applies to Android only. The player
-screen drives the platform's installed engine through `src/bridge/NativePlaybackCoordinator.ts`
+screen drives the platform's installed engine through `src-next/platform/playback/NativePlaybackCoordinator.ts`
 and holds a lease on one engine at a time.
 
 JavaScript owns the playback session. The engine owns the player. JavaScript sends **commands**,

@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {checkApplePlainHttp, localPlainHttpHost} from '../src/bridge/apple-plain-http.ts';
+import {checkApplePlainHttp, localPlainHttpHost} from '../src-next/platform/apple-plain-http.ts';
 import {RouteError} from '../../../packages/client-core/src/route-identity.ts';
 
 test('local addresses may use plain HTTP', () => {

@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {PlaybackService} from '../../../packages/client-core/src/index.ts';
 import {FakePlaybackServer, fakeHttp} from '../../../packages/client-core/src/playback-v1/testing/fake-server.ts';
-import {NativePlayback} from '../src/player/native-playback.ts';
+import {NativePlayback} from '../src-next/platform/playback/native-playback.ts';
 import {V1QueuePlayer} from '../../../packages/client-core/src/playback-v1/v1-queue-player.ts';
-import {NativePlaybackCoordinator} from '../src/bridge/NativePlaybackCoordinator.ts';
+import {NativePlaybackCoordinator} from '../src-next/platform/playback/NativePlaybackCoordinator.ts';
 
 const viewer = {serverId: 'server', authority: 'local' as const, accountId: 'account', profileId: 'profile'};
 const settle = async (n = 30) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };

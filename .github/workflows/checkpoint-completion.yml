@@ -33,32 +33,19 @@ jobs:
       - id: deps
         run: npm ci --no-audit --no-fund --legacy-peer-deps
         working-directory: portico-react-native/apps/native
-      - name: Mounted copy checks
-        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
-        run: |
-          status=0
-          node ../../packages/i18n/scripts/lint-strings.mjs src-next scripts/next-strings-baseline.json --all --strict || status=1
-          node ../../packages/i18n/scripts/lint-raw-errors.mjs src-next --strict || status=1
-          node ../../packages/i18n/scripts/lint-glossary.mjs || status=1
-          exit "$status"
-        working-directory: portico-react-native/apps/native
-      - name: All mounted unit tests
-        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
-        run: node --experimental-strip-types --import ./test/register.mjs --test test/next-*.test.ts
-        working-directory: portico-react-native/apps/native
-      - name: Historical test types
-        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
-        run: npm run typecheck:test
-        working-directory: portico-react-native/apps/native
-      - name: Historical hooks
-        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
-        run: npm run lint:hooks
-        working-directory: portico-react-native/apps/native
-      - name: Historical strings
+      - name: Copy checks
         if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
         run: npm run lint:strings
         working-directory: portico-react-native/apps/native
-      - name: All historical unit tests
+      - name: Test types
         if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
-        run: node --experimental-strip-types --import ./test/register.mjs --test $(find test -maxdepth 1 -name '*.test.ts' ! -name 'next-*' -print)
+        run: npm run typecheck:test
+        working-directory: portico-react-native/apps/native
+      - name: Hooks
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: npm run lint:hooks
+        working-directory: portico-react-native/apps/native
+      - name: All unit tests
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: npm test
         working-directory: portico-react-native/apps/native

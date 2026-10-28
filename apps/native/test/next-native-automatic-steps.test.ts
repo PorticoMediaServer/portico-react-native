@@ -1,14 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {automaticSteps} from '../platform/automatic-video-quality.ts';
-import {automaticSteps as legacySteps} from '../src/player/native-playback.ts';
 import {automaticSteps as nextSteps} from '../src-next/platform/playback/native-playback.ts';
 import type {QualityOption} from '../../../packages/client-core/src/playback-v1/quality.ts';
 import {parseOptions} from '../../../packages/client-core/src/playback-v1/types.ts';
 
 test('both native paths use the same exact offered canonical targets in ladder order', () => {
   const offered: readonly QualityOption[] = [{mode: 'fixed', id: '720p-low'}, {mode: 'original'}, {mode: 'automatic'}, {mode: 'fixed', id: '1080p-low'}, {mode: 'fixed', id: '720p-low'}];
-  assert.equal(legacySteps, automaticSteps); assert.equal(nextSteps, automaticSteps);
+  assert.equal(nextSteps, automaticSteps);
   assert.deepEqual(automaticSteps(offered).map(value => value.id), ['1080p-low', '720p-low']);
 });
 

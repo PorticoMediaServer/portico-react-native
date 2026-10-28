@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createNativeOfflineDownloadsAdapter, offlineDownloads, type OfflineEntry, type OfflineSnapshot} from '../src-next/platform/offline-downloads';
-import {offlineDownloads as legacyDevice} from '../src/bridge/offline-downloads';
+// The shared device module behind every shell's downloads.
+import {offlineDownloads as deviceOwner} from '../platform/offline-downloads';
 
 test('both shells share the same authoritative device owner', () => {
-  assert.equal(offlineDownloads,legacyDevice);
+  assert.equal(offlineDownloads,deviceOwner);
 });
 
 test('the screen port observes the same device store and routes play through its runtime callback', async () => {

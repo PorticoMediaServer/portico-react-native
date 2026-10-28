@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
 import {settingsRowId, settingsStructure, type SettingsPage, type SettingsStructure} from '../../../packages/client-core/src/presentation/index.ts';
 
 // The native clients consume the shared structure, including its phone-only source editor.
@@ -101,20 +100,4 @@ test('Card size, Show backdrops and the caption style are a phone’s and a tele
   // A server that does not publish the card size has no row for it.
   const bare = settingsStructure({owner: false, platform: 'phone', capabilities: {preferenceKeys: new Set(['appearance.showBackdrops'])}});
   assert.equal(page(bare, 'account', 'appearance').sections.flatMap(x => x.rows.map(settingsRowId)).includes('cardSize'), false);
-});
-
-test('every panel the phone structure names is one this app draws', () => {
-  const legacy = readFileSync(new URL('../src/screens/settings/ServerPage.tsx', import.meta.url), 'utf8');
-  const current = readFileSync(new URL('../src-next/screens/settings-live/settings-panels.tsx', import.meta.url), 'utf8');
-  const screen = readFileSync(new URL('../src-next/screens/settings-live/SettingsScreen.tsx', import.meta.url), 'utf8');
-  const segments = readFileSync(new URL('../src-next/screens/settings-live/server/SegmentsPage.tsx', import.meta.url), 'utf8');
-  assert.match(current, /case 'server\.segments': return <IntroCreditsReview/);
-  assert.match(screen, /segmentsPage \? <NativeServerSegments ports=\{ports\} runtime=\{runtime\}/);
-  assert.match(segments, /ports\.renderSettingsPanel\('server\.segments', runtime\)/);
-  const drawn = new Set([...`${legacy}\n${current}`.matchAll(/case '([^']+)':/g)].map(m => m[1]));
-  for (const context of [owner, administrator]) {
-    for (const p of heading(on(context, false), 'server')!.pages) for (const id of panels(p)) {
-      assert.ok(drawn.has(id), id);
-    }
-  }
 });

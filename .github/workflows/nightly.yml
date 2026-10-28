@@ -8,7 +8,7 @@ permissions:
 jobs:
   javascript:
     runs-on: ubuntu-24.04
-    # The checkpoint runs every retired and mounted test file one process at a
+    # The checkpoint runs every native test file one process at a
     # time, so a hang is named instead of holding the job; the bound is the whole
     # checkpoint's backstop, not a per-file deadline.
     timeout-minutes: 180
@@ -39,23 +39,18 @@ jobs:
         run: npm run typecheck
         working-directory: portico-react-native/apps/native
       - if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
-        run: npm run typecheck:next-test
+        run: npm run typecheck:test
         working-directory: portico-react-native/apps/native
       - if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
-        name: Check hooks in the mounted application
-        run: npx --no-install eslint --no-eslintrc -c .eslintrc.hooks.cjs --ext .ts,.tsx src-next App.tsx
+        name: Check hooks
+        run: npm run lint:hooks
         working-directory: portico-react-native/apps/native
       - if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
-        name: Check mounted application copy
-        run: |
-          status=0
-          node ../../packages/i18n/scripts/lint-strings.mjs src-next scripts/next-strings-baseline.json --all --strict || status=1
-          node ../../packages/i18n/scripts/lint-raw-errors.mjs src-next --strict || status=1
-          node ../../packages/i18n/scripts/lint-glossary.mjs || status=1
-          exit "$status"
+        name: Check application copy
+        run: npm run lint:strings
         working-directory: portico-react-native/apps/native
       - if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
-        name: Test the mounted and retired applications under the per-file supervisor
+        name: Test the application under the per-file supervisor
         env:
           CI_TEST_REPORT_DIR: ${{ runner.temp }}/checkpoint-report
         run: |
@@ -64,21 +59,6 @@ jobs:
           tail -n 60 "$RUNNER_TEMP/checkpoint.log"
           exit "$status"
         working-directory: portico-react-native
-      # src is retained for compatibility, but App.tsx mounts src-next. Its
-      # historical checks stay available at a checkpoint and remain mandatory
-      # for release callers; they are not the source gate for the current app.
-      - name: Retired application test types
-        if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
-        run: npm run typecheck:test
-        working-directory: portico-react-native/apps/native
-      - name: Retired application hooks
-        if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
-        run: npm run lint:hooks
-        working-directory: portico-react-native/apps/native
-      - name: Retired application strings
-        if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
-        run: npm run lint:strings
-        working-directory: portico-react-native/apps/native
       - name: Retain full diagnostics
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

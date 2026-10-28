@@ -1,5 +1,5 @@
 /**
- * `react-native`, as the app and the shared screens (`apps/native/src`) see it on Vega.
+ * `react-native`, as the app and the shared screens (`apps/native/src-next`) see it on Vega.
  *
  * Everything is the Vega SDK's React Native except the exports below, which the shared code uses
  * with the names and behavior of the Apple TV build (react-native-tvos):

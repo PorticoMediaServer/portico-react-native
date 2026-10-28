@@ -1,7 +1,7 @@
 /** Original scoped proofs only; storage custody is not adoption authority. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readControllerProofs} from '../src/bridge/cast-controller-storage.ts';
+import {readControllerProofs} from '../src-next/platform/play-on/cast-controller-storage.ts';
 import {castProofKey} from '../../../packages/client-core/src/cast/controller-proof.ts';
 const scope={serverId:'server',authority:'local',accountId:'account',profileId:'profile',senderDeviceId:'phone',senderFamilyId:'family'};
 const context={...scope,publicKey:'a'.repeat(43),origin:'https://server.test'};

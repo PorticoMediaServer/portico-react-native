@@ -678,51 +678,43 @@ CHECKPOINT_DIR = "apps/native/test"
 
 
 def checkpoint_selection():
-    """Exactly the retired and mounted Native test files the checkpoint runs.
+    """Exactly the Native test files the checkpoint runs.
 
-    Recursively select every extension admitted by the hourly selector, retaining
-    the retired/mounted split only for reporting. A nested or MJS regression must
-    not disappear merely because the checkpoint used to use a top-level TS glob.
+    Recursively select every extension admitted by the hourly selector. A nested
+    or MJS regression must not disappear merely because the checkpoint used to
+    use a top-level TS glob.
     """
-    names = [name for name in git("ls-files", "--", CHECKPOINT_DIR)
-             if Path(name).is_relative_to(CHECKPOINT_DIR)
-             and JS_TEST.search(name)]
-    retired = sorted(name for name in names if not Path(name).name.startswith("next-"))
-    mounted = sorted(name for name in names if Path(name).name.startswith("next-"))
-    if not retired or not mounted:
-        raise RuntimeError(
-            "checkpoint selection is incomplete: "
-            f"{len(retired)} retired and {len(mounted)} mounted test files")
-    for name in retired + mounted:
+    selected = sorted(name for name in git("ls-files", "--", CHECKPOINT_DIR)
+                      if Path(name).is_relative_to(CHECKPOINT_DIR)
+                      and JS_TEST.search(name))
+    if not selected:
+        raise RuntimeError("checkpoint selection is empty")
+    for name in selected:
         if not (ROOT / name).is_file():
             raise RuntimeError("missing selected checkpoint test: " + name)
-    missing = [name for name in MANDATORY_TESTS[True] if name not in mounted]
+    missing = [name for name in MANDATORY_TESTS[True] if name not in selected]
     if missing:
         raise RuntimeError("missing mandatory security test: " + ", ".join(missing))
-    return retired, mounted
+    return selected
 
 
 def checkpoint_checks():
-    """Run the retired and mounted checkpoint files under the same supervisor.
+    """Run every checkpoint file under one supervisor.
 
     One process per file, with the per-test limit, the per-file watchdog and the
     exit grace: a hung or leaked checkpoint file is named instead of hiding every
     later file behind one suite-wide timeout.
     """
     print_versions()
-    retired, mounted = checkpoint_selection()
-    selected = retired + mounted
-    print(f"CHECKPOINT {len(retired)} retired + {len(mounted)} mounted test files", flush=True)
-    for name in retired:
-        print(f"  retired {name}", flush=True)
-    for name in mounted:
-        print(f"  mounted {name}", flush=True)
+    selected = checkpoint_selection()
+    print(f"CHECKPOINT {len(selected)} test files", flush=True)
+    for name in selected:
+        print(f"  {name}", flush=True)
     directory, ephemeral = report_directory(0, 1, "native-checkpoint")
     runner = test_watchdog.Runner(
         directory, file_seconds=TEST_FILE_SECONDS, test_timeout_ms=TEST_TIMEOUT_MS,
         exit_grace=TEST_EXIT_GRACE,
-        context={"suite": "native-checkpoint", "retired": len(retired),
-                 "mounted": len(mounted), "selected": len(selected)})
+        context={"suite": "native-checkpoint", "selected": len(selected)})
     entries = [("apps/native", ROOT / "apps/native",
                 str(Path(name).relative_to("apps/native"))) for name in selected]
     runner.run(entries, lambda group, cwd, file: js_command(group, file))

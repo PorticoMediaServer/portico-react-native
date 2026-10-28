@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import './react-native-stub.mjs';
-import type * as OfflineModule from '../src/bridge/offline-downloads.ts';
+import type * as OfflineModule from '../src-next/platform/offline-downloads.ts';
 
 const title = (over: Record<string, unknown>) => ({kind: 'movie', title: '', year: 0, durationSeconds: 0, parentId: '', parentTitle: '', groupId: '', groupTitle: '', groupNumber: null, number: null, artist: '', onServer: true, ...over});
 const entry = (id: string, addedAt: number, info: ReturnType<typeof title>, artworkUrl = '') => ({
@@ -15,7 +15,7 @@ const entry = (id: string, addedAt: number, info: ReturnType<typeof title>, artw
 }) as unknown as OfflineModule.OfflineEntry;
 
 test('downloads are grouped under their show, album or book and ordered within it', async () => {
-  const {groupOfflineEntries} = await import('../src/bridge/offline-downloads.ts');
+  const {groupOfflineEntries} = await import('../src-next/platform/offline-downloads.ts');
   const show = {kind: 'episode', parentId: 'show-1', parentTitle: 'The Show'};
   const groups = groupOfflineEntries([
     entry('e3', 30, title({...show, title: 'Third', groupNumber: 2, number: 1})),
@@ -34,7 +34,7 @@ test('downloads are grouped under their show, album or book and ordered within i
 });
 
 test('a download with no stored title facts stands by itself', async () => {
-  const {groupOfflineEntries} = await import('../src/bridge/offline-downloads.ts');
+  const {groupOfflineEntries} = await import('../src-next/platform/offline-downloads.ts');
   const bare = {...entry('x', 1, title({})), info: undefined} as unknown as OfflineModule.OfflineEntry;
   const groups = groupOfflineEntries([bare, entry('y', 2, title({kind: 'episode', title: 'Loose'}))]);
   assert.equal(groups.length, 2, 'an episode whose show is unknown is not put into a nameless group');

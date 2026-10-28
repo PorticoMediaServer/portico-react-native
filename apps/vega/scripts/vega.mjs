@@ -72,7 +72,7 @@ function mirror(from, to, extra = []) {
 function stage(work) {
   if (!work.staged) return;
   mirror(app, work.app, ['--exclude', '/build', '--exclude', '/*.log', '--exclude', '/assets/fonts']);
-  for (const part of ['src', 'src-next', 'platform', 'assets']) mirror(path.join(shared, part), path.join(work.root, 'apps/native', part));
+  for (const part of ['src-next', 'platform', 'assets']) mirror(path.join(shared, part), path.join(work.root, 'apps/native', part));
   for (const file of ['App.tsx', 'package.json']) copyFileSync(path.join(shared, file), path.join(work.root, 'apps/native', file));
   mirror(packages, path.join(work.root, 'packages'), ['--exclude', 'node_modules']);
 }

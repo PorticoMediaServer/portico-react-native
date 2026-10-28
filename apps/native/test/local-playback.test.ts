@@ -2,8 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {PlaybackService, type PlaybackApi} from '../../../packages/client-core/src/index.ts';
-import {LocalPlayback, isLocalSession, type LocalMedia, type LocalProgress} from '../src/bridge/local-playback.ts';
-import {PlaybackQueue} from '../src/bridge/playback-paths.ts';
+import {LocalPlayback, isLocalSession, type LocalMedia, type LocalProgress} from '../platform/local-playback.ts';
 
 const tick = () => new Promise(r => setImmediate(r));
 const media: LocalMedia = {entryId: 'dl1', itemId: 'movie1', playId: 'play-1', fileUrl: 'file:///var/app/Library/Application%20Support/Downloads/dl1/movie.mp4', durationSeconds: 600, startSeconds: 42};
@@ -160,27 +159,4 @@ test('a play from the server after a download still goes to the server', async (
 test('only a file URL can be a local session', () => {
   const local = new LocalPlayback(() => {});
   assert.throws(() => local.session({...media, fileUrl: 'https://example.com/movie.mp4'}));
-});
-
-type Fake = {disposed: number; connect: () => () => void; dispose: () => void};
-const fake = (): Fake => {
-  const f: Fake = {disposed: 0, connect: () => () => {}, dispose: () => { f.disposed++; }};
-  return f;
-};
-
-test('a download removes the installed queue until the next play from the server', () => {
-  const made: Fake[] = [];
-  const queue = new PlaybackQueue(() => { const f = fake(); made.push(f); return f as never; });
-  const initial = fake();
-  queue.install(initial as never);
-  queue.goLocal();
-  assert.equal(initial.disposed, 1);
-  assert.equal(queue.controller, undefined);
-  assert.equal(queue.playingLocal, true);
-  queue.ensure();
-  assert.equal(made.length, 1);
-  assert.equal(queue.controller, made[0] as never);
-  assert.equal(queue.playingLocal, false);
-  queue.ensure();
-  assert.equal(made.length, 1, 'an installed player is kept');
 });

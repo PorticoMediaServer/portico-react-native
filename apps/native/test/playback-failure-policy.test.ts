@@ -12,7 +12,7 @@ test('generic engine classes are not used to learn native incompatibilities', ()
   const apple = source('Native/PorticoPlaybackController.m');
   assert.doesNotMatch(android, /else -> "engine_error"/);
   assert.doesNotMatch(apple, /NSString \*engine=@"engine_error"/);
-  assert.doesNotMatch(source('src/player/usePlayer.ts'), /\['decode_error', 'source_not_supported', 'engine_error'\]/);
+  assert.doesNotMatch(source('src-next/platform/playback/runtime.ts'), /\['decode_error', 'source_not_supported', 'engine_error'\]/);
 });
 
 test('transport failures take precedence over decoder evidence on both platforms', () => {
@@ -41,7 +41,7 @@ test('native startup and wrapped HTTP evidence reaches the shared failure policy
   assert.match(apple, /PorticoHTTPStatusInComment\(log.errorComment\)/);
   assert.match(apple, /@"hasPlayed":@\(_hasPlayed\)/);
   assert.match(apple, /displayReadyForLease:[^\n]+_hasPlayed=YES/);
-  assert.match(source('src/player/usePlayer.ts'), /const failure = classifyPlaybackFailure\(f\)/);
+  assert.match(source('src-next/platform/playback/runtime.ts'), /const failure = classifyPlaybackFailure\(fact\)/);
 });
 
 test('the Apple classifier lets the outermost evidence decide and treats a socket error as the connection', () => {
@@ -81,5 +81,5 @@ test('both runtimes mark a failure that is not about the media, so start-up does
   const classification = apple.slice(apple.indexOf('- (void)publishFailure:'), apple.indexOf('- (void)stalled:'));
   assert.match(classification, /BOOL uncertain=!network&&!delivery&&!httpStatus&&!engine\.length&&\(interrupted\|\|fresh\);/);
   assert.match(classification, /@"uncertain":@\(uncertain\)/);
-  assert.match(source('src/player/playback-failure.ts'), /fact\.uncertain !== true/);
+  assert.match(source('src-next/platform/playback/playback-failure.ts'), /fact\.uncertain !== true/);
 });

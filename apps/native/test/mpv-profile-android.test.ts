@@ -3,8 +3,8 @@
  * document makes to the Android platform player's profile. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mpvDeviceClass, mpvDisplayRanges, mpvEngineCapabilities, softwareLimit, type EngineCapabilities, type MpvDeviceFacts} from '../src/bridge/mpv-profile.ts';
-import {deviceCapabilityDocument} from '../src/bridge/capability-document.ts';
+import {mpvDeviceClass, mpvDisplayRanges, mpvEngineCapabilities, softwareLimit, type EngineCapabilities, type MpvDeviceFacts} from '../src-next/platform/playback/mpv-profile.ts';
+import {deviceCapabilityDocument} from '../src-next/platform/playback/capability-document.ts';
 
 const GiB = 1024 ** 3;
 const codec = (e: EngineCapabilities, name: string) => e.video.find(v => v.codec === name);

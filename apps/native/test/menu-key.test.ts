@@ -17,11 +17,7 @@ test('the activity never turns Menu into Select', () => {
   assert.match(activity, /window\.superDispatchKeyEvent\(event\)/);
 });
 
-test('Menu runs the focused control\'s long-press action, and only that', () => {
-  const focusable = source('src/ui/Focusable.tsx');
-  assert.match(focusable, /event\?\.eventType === 'menu' && event\.eventKeyAction === 1\) focusedMenu\?\.run\(\)/);
-  assert.match(focusable, /if \(Platform\.OS !== 'android' \|\| !Platform\.isTV\) return;/);
-  // A busy or disabled control, or one with no long-press action, has nothing for Menu to run.
-  assert.match(focusable, /heldNow\.current = onLongPress && !busy && !disabled \? onLongPress : undefined;/);
+// What Menu runs is covered behaviourally by next-controls-menu and next-overlay-keys.
+test('the app installs the Menu key handler', () => {
   assert.match(source('App.tsx'), /useMenuKey\(\);/);
 });

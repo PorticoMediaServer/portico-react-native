@@ -34,7 +34,7 @@ import {CaptionLabel} from './caption-label';
  * Music and audiobooks play here too. Apple hands them to a native owner (the `listening…`
  * methods) so that they go on while JavaScript sleeps; a Vega app's JavaScript runs while it
  * plays, so the shared queue player keeps them itself and those methods refuse or do nothing
- * (`overrides/native/bridge/native-listening-kinds.ts`).
+ * (`overrides/native-next/platform/playback/native-listening-kinds.ts`).
  */
 export const playbackEvents = new ModuleEvents();
 

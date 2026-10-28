@@ -1,7 +1,7 @@
 /** Which player engine plays a title: the plan's word, the viewer's setting, and the local rule. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {chooseEngine, localRuleFacts, nativeEngineFeatures, parseEngineFeatures, parseEngineSetting, type EngineFacts} from '../src/player/engine-choice.ts';
+import {chooseEngine, localRuleFacts, nativeEngineFeatures, parseEngineFeatures, parseEngineSetting, type EngineFacts} from '../src-next/platform/playback/engine-choice.ts';
 
 const base: EngineFacts = {setting: 'automatic', mpvAvailable: true};
 

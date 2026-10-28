@@ -122,11 +122,11 @@ test('every font the apps carry is in the asset inventory', () => {
 });
 
 test('the lists are loaded only by the licence screens, never at start', () => {
-  for (const loader of ['apps/native/src/licences/load.ts', 'apps/native/src/licences/load.android.ts', 'apps/vega/src/overrides/native/licences/load.ts']) {
+  for (const loader of ['apps/native/src-next/platform/licences.ts', 'apps/native/src-next/platform/licences.android.ts', 'apps/vega/src/overrides/native-next/platform/licences.ts']) {
     const source = read(loader);
     // A require inside the function: Metro evaluates the list's module only when it is called.
     assert.match(source, /export function loadLicences\(\)[^{]*\{\s*(\/\/[^\n]*\n\s*)?return parseLicenceData\(require\(/, loader);
   }
-  const importers = (dir: string): string[] => readdirSync(at(dir), {withFileTypes: true}).flatMap(e => e.isDirectory() ? importers(`${dir}${e.name}/`) : /\.tsx?$/.test(e.name) && /from ['"][^'"]*licences\/load['"]/.test(read(`${dir}${e.name}`)) ? [`${dir}${e.name}`] : []);
-  assert.deepEqual(importers('apps/native/src/'), ['apps/native/src/screens/Licences.tsx']);
+  const importers = (dir: string): string[] => readdirSync(at(dir), {withFileTypes: true}).flatMap(e => e.isDirectory() ? importers(`${dir}${e.name}/`) : /\.tsx?$/.test(e.name) && /from ['"][^'"]*platform\/licences['"]/.test(read(`${dir}${e.name}`)) ? [`${dir}${e.name}`] : []);
+  assert.deepEqual(importers('apps/native/src-next/'), ['apps/native/src-next/screens/settings-live/NativeLicencesScreen.tsx']);
 });

@@ -1368,7 +1368,7 @@ class CheckpointTests(unittest.TestCase):
 
     def standard_tree(self):
         tracked = [self.file(name) for name in self.MANDATORY]
-        tracked.append(self.file("apps/native/test/legacy-session.test.ts"))
+        tracked.append(self.file("apps/native/test/platform-session.test.ts"))
         tracked.append(self.file("apps/native/test/next-extra.test.ts"))
         # Every runnable extension and nested tests belong to the same inventory.
         for name in ["native-esm.test.mjs", "commonjs.test.cjs", "plain.test.js", "component.test.tsx",
@@ -1378,27 +1378,28 @@ class CheckpointTests(unittest.TestCase):
         tracked.append(self.file("apps/native/src-next/entry.test.ts"))
         return tracked
 
-    def test_checkpoint_selects_exactly_the_retired_and_mounted_files(self):
+    EXPECTED = sorted(["apps/native/test/commonjs.test.cjs", "apps/native/test/component.test.tsx",
+                       "apps/native/test/platform-session.test.ts", "apps/native/test/native-esm.test.mjs",
+                       "apps/native/test/nested/deep.test.ts", "apps/native/test/plain.test.js",
+                       *MANDATORY, "apps/native/test/next-extra.test.ts",
+                       "apps/native/test/nested/next-deep.test.mjs"])
+
+    def test_checkpoint_selects_exactly_the_native_test_files(self):
         tracked = self.standard_tree()
         with patch.object(ci, "git", return_value=tracked) as git:
-            retired, mounted = ci.checkpoint_selection()
+            selected = ci.checkpoint_selection()
         git.assert_called_once_with("ls-files", "--", "apps/native/test")
-        self.assertEqual(retired, ["apps/native/test/commonjs.test.cjs", "apps/native/test/component.test.tsx",
-                                   "apps/native/test/legacy-session.test.ts", "apps/native/test/native-esm.test.mjs",
-                                   "apps/native/test/nested/deep.test.ts", "apps/native/test/plain.test.js"])
-        self.assertEqual(mounted, sorted([*self.MANDATORY, "apps/native/test/next-extra.test.ts",
-                                          "apps/native/test/nested/next-deep.test.mjs"]))
-        self.assertEqual(len(set(retired + mounted)), 12)
+        self.assertEqual(selected, self.EXPECTED)
+        self.assertEqual(len(set(selected)), 12)
 
     def test_checkpoint_fails_closed_on_a_missing_mandatory_or_an_absent_file(self):
-        partial = [self.file("apps/native/test/legacy.test.ts"),
+        partial = [self.file("apps/native/test/platform.test.ts"),
                    *[self.file(name) for name in self.MANDATORY[:-1]]]
         with patch.object(ci, "git", return_value=partial):
             with self.assertRaisesRegex(RuntimeError, "missing mandatory security test"):
                 ci.checkpoint_selection()
-        only_mounted = [self.file(name) for name in self.MANDATORY]
-        with patch.object(ci, "git", return_value=only_mounted):
-            with self.assertRaisesRegex(RuntimeError, "incomplete"):
+        with patch.object(ci, "git", return_value=[self.file("apps/native/test/helper.ts")]):
+            with self.assertRaisesRegex(RuntimeError, "empty"):
                 ci.checkpoint_selection()
         tracked = self.standard_tree() + ["apps/native/test/deleted.test.ts"]
         with patch.object(ci, "git", return_value=tracked):
@@ -1428,11 +1429,7 @@ class CheckpointTests(unittest.TestCase):
 
     def test_checkpoint_supervises_every_selected_file_with_the_native_command(self):
         tracked = self.standard_tree()
-        expected = ["apps/native/test/commonjs.test.cjs", "apps/native/test/component.test.tsx",
-                    "apps/native/test/legacy-session.test.ts", "apps/native/test/native-esm.test.mjs",
-                    "apps/native/test/nested/deep.test.ts", "apps/native/test/plain.test.js",
-                    *sorted([*self.MANDATORY, "apps/native/test/next-extra.test.ts",
-                             "apps/native/test/nested/next-deep.test.mjs"])]
+        expected = self.EXPECTED
         runner_class, instances = self.fake_runner()
         output = io.StringIO()
         with patch.object(ci, "git", return_value=tracked), \
@@ -1446,17 +1443,16 @@ class CheckpointTests(unittest.TestCase):
                          [Path(name).relative_to("apps/native").as_posix() for name in expected])
         self.assertEqual({group for group, _, _ in runner.entries}, {"apps/native"})
         self.assertEqual({cwd for _, cwd, _ in runner.entries}, {self.root / "apps/native"})
-        self.assertEqual((runner.context["suite"], runner.context["retired"],
-                          runner.context["mounted"]), ("native-checkpoint", 6, 6))
+        self.assertEqual((runner.context["suite"], runner.context["selected"]), ("native-checkpoint", 12))
         group, cwd, file = runner.entries[0]
         argv = runner.argv_for(group, cwd, file)
         self.assertEqual(argv[:3], ["node", "--experimental-transform-types", "--import"])
         self.assertEqual(argv[-2:], ["--test", file])
         self.assertIn(f"--test-timeout={ci.TEST_TIMEOUT_MS}", argv)
         text = output.getvalue()
-        self.assertIn("CHECKPOINT 6 retired + 6 mounted test files", text)
-        self.assertIn("retired apps/native/test/legacy-session.test.ts", text)
-        self.assertIn("mounted apps/native/test/next-extra.test.ts", text)
+        self.assertIn("CHECKPOINT 12 test files", text)
+        self.assertIn("  apps/native/test/platform-session.test.ts", text)
+        self.assertIn("  apps/native/test/next-extra.test.ts", text)
         self.assertIn("CHECKPOINT PASS: 12 files", text)
 
     def test_checkpoint_fails_the_step_when_the_supervisor_fails(self):

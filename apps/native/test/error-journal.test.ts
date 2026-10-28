@@ -1,7 +1,7 @@
 /** What a report to the owner holds, and what it never holds. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ErrorJournal, MAX_ENTRIES, MAX_REPORT_CHARS, fatalRecord, readFatalRecord, redact, reportBody} from '../src/app/error-journal.ts';
+import {ErrorJournal, MAX_ENTRIES, MAX_REPORT_CHARS, fatalRecord, readFatalRecord, redact, reportBody} from '../src-next/platform/error-journal.ts';
 
 test('credentials never ride along', () => {
   assert.equal(redact('GET /v1/me failed with Authorization: Bearer abc.def-ghi_123'), 'GET /v1/me failed with Authorization: Bearer [removed]');

@@ -80,13 +80,3 @@ test('Android maps a lost key to its own error and exposes reset and restart', (
   assert.match(runtimeSource, /fun resetSecureRecords\(promise: Promise\)/);
   assert.match(runtimeSource, /fun restart\(promise: Promise\)/);
 });
-
-test('the sign-in screens show the reset in place of sign-in, and only a confirmation resets', () => {
-  const flow = source('src/screens/auth/AuthFlow.tsx');
-  assert.ok(flow.indexOf('if (session.deviceReset) return <DeviceReset />') < flow.indexOf('if (session.direct.pending) return <DirectProfiles'));
-  const screen = source('src/screens/auth/DeviceReset.tsx');
-  assert.match(screen, /<ConfirmSheet/);
-  // The reset itself is only ever called from the confirmation.
-  assert.equal(screen.split('reset.reset()').length - 1, 1);
-  assert.ok(screen.indexOf('reset.reset()') > screen.indexOf('onConfirm='));
-});

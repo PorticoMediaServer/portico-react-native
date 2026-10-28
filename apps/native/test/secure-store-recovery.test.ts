@@ -10,14 +10,15 @@ const source = (path: string) => readFileSync(new URL('../' + path, import.meta.
 test('both runtime contracts prepare secure records before installation identity is used', () => {
   assert.match(source('android/app/src/main/java/tv/getportico/portico/native/PorticoRuntime.kt'), /fun prepareSecureRecords\(promise: Promise\)/);
   assert.match(source('Native/PorticoPlayer.m'), /RCT_REMAP_METHOD\(prepareSecureRecords/);
-  const session = source('src/app/session.tsx');
+  const session = source('src-next/platform/session.ts');
   assert.ok(session.indexOf('await prepareSecureRecords()') < session.indexOf('Promise.all([profileInstallation()'));
-  assert.match(session, /secureRecordsRecovered/);
+  assert.match(session, /const recovered = await prepareSecureRecords\(\)/);
+  assert.match(session, /return \{recovered,/);
 });
 
 test('an older native runtime still permits installation initialization', async () => {
   const {NativeModules} = await import('./react-native-stub.mjs');
-  const bridge = await import('../src/bridge/profile-trust.ts');
+  const bridge = await import('../src-next/platform/profile-trust.ts');
   const prepare = (bridge as any).prepareSecureRecords;
   assert.equal(typeof prepare, 'function');
   delete NativeModules.PorticoRuntime.prepareSecureRecords;

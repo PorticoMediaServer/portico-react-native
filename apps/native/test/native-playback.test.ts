@@ -1,5 +1,5 @@
 /** The native apps' one playback path: the shared playback service and session controller over a
- * player engine that JavaScript only commands and hears from (`src/player/native-playback.ts`).
+ * player engine that JavaScript only commands and hears from (`src-next/platform/playback/native-playback.ts`).
  * These run the real service, queue player, session controller and coordinator against the shared
  * fake server and an engine that follows ENGINE-CONTRACT.md as far as these rules go. */
 import test from 'node:test';
@@ -8,9 +8,9 @@ import {PlaybackService} from '../../../packages/client-core/src/index.ts';
 import {FakePlaybackServer, fakeHttp, type FakeServerOptions} from '../../../packages/client-core/src/playback-v1/testing/fake-server.ts';
 import {V1QueuePlayer} from '../../../packages/client-core/src/playback-v1/v1-queue-player.ts';
 import {queueItemInput} from '../../../packages/client-core/src/queue-controller.ts';
-import {NativePlaybackCoordinator} from '../src/bridge/NativePlaybackCoordinator.ts';
-import {NativePlayback, automaticSteps} from '../src/player/native-playback.ts';
-import {planEngineOf} from '../src/player/engine-media.ts';
+import {NativePlaybackCoordinator} from '../src-next/platform/playback/NativePlaybackCoordinator.ts';
+import {NativePlayback, automaticSteps} from '../src-next/platform/playback/native-playback.ts';
+import {planEngineOf} from '../src-next/platform/playback/engine-media.ts';
 import {PlaybackOptionsClient} from '../../../packages/client-core/src/playback-v1/options.ts';
 
 const viewer = {serverId: 'server', authority: 'local' as const, accountId: 'account', profileId: 'profile'};

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {revisionRequiredFetch} from '../src/bridge/revision-required-fetch.ts';
+import {revisionRequiredFetch} from '../src-next/platform/revision-required-fetch.ts';
 import {routePath} from '../../../packages/contracts/src/routes.ts';
 
 const origin = 'http://server.test';

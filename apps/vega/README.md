@@ -13,11 +13,11 @@ holds only what Vega needs to run them.
 | `src/shims/focus.tsx` | `TVFocusGuideView` with the Apple TV's meaning of `focusable={false}` and `autoFocus`. |
 | `src/shims/snap.tsx` | Rows and pages that follow focus (the tvOS `snapToAlignment="item"` and `scrollSnap…` props). |
 | `src/shims/text-input.tsx` | A field's hidden input, mounted only while the system keyboard is up. |
-| `src/shims/motion.ts`, `reanimated.tsx` | The Reanimated API the shared screens use, without the library. |
+| `src/shims/motion.ts` | Whether rows and pages glide to follow focus (`portico.animations` in `app.json`). |
 | `src/shims/menu-key.tsx` | The remote's Menu key (≡): it opens the focused control's menu, as on a Fire TV that runs Android. |
 | `src/debug.tsx`, `scripts/debug-sink.mjs` | An on-screen console for development (`portico.debugConsole` in `app.json`), and a listener for its lines. |
-| `src/bridge/` | Every `NativeModules.Portico…` module the shared `src/bridge` expects, with the Apple names, methods and events, written over the SDK's APIs. |
-| `src/overrides/` | Replacements for shared files that cannot be right on Vega: `native/<path under ../native/src>` (and `packages/<path under ../../packages>`, none today). There are four: what the device is (`bridge/device-platform.ts`), what its players can do that Settings and the player offer a choice about (`bridge/native-listening-kinds.ts`), its capability document (`bridge/capability-publisher.ts`) and the loading ring (`ui/Ring.tsx`). |
+| `src/bridge/` | Every `NativeModules.Portico…` module the shared `src-next/platform` expects, with the Apple names, methods and events, written over the SDK's APIs. |
+| `src/overrides/` | Replacements for shared files that cannot be right on Vega: `native-next/<path under ../native/src-next>` (and `packages/<path under ../../packages>`, none today). |
 | `test/` | Tests of the bridge that need no device: the stream reader, the player engine, subtitles, event streams and the capability document, against stand-ins for the media element and a server (`test/stubs`). |
 | `metro.config.js` | Resolves `react-native` to the shim, community package names to the SDK's builds, and shared files to their overrides. |
 | `scripts/vega.mjs` | Build, install, launch, remote keys, screenshots and logs. |
@@ -96,8 +96,7 @@ Checks: `npx tsc --noEmit` (this app and the shared sources together), `npx tsc 
   comments at the top of `focus.tsx`, `snap.tsx`, `pressable.tsx` and `text-input.tsx`.
 - The new `src-next` shell uses the SDK 0.24 gesture, Reanimated and Worklets packages, including
   layout animations, scroll handlers and reactions. Babel uses the SDK Worklets plugin.
-  Legacy screens retain `src/shims/reanimated.tsx` and `motion.ts`, preserving their existing
-  focus-style workaround. React Native's own `Animated` is the SDK's.
+  React Native's own `Animated` is the SDK's.
 - The SDK MaskedView renders real alpha masks; the adapter removes Android's unsupported
   `androidRenderingMode`. The existing TV glass policy selects translucent fills. An unexpected
   native backdrop-blur mount fails explicitly; this app does not provide that native module.
@@ -199,7 +198,7 @@ Accessibility settings.
 
 Music and audiobooks use the same player. On Apple a native owner takes them over so that they
 continue while JavaScript sleeps; here the shared queue player keeps them
-(`src/overrides/native/bridge/native-listening-kinds.ts`), so there are no gapless or crossfade
+(`src/overrides/native-next/platform/playback/native-listening-kinds.ts`), so there are no gapless or crossfade
 edges: the next track starts when its stream opens.
 
 ## Not provided

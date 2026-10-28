@@ -6,9 +6,9 @@ import {fileURLToPath} from 'node:url';
 
 /**
  * The app's own Metro rule for `react-native-reanimated`, exercised through the real
- * `metro.config.js` resolver rather than a copy of it: shared current sources (the `src-next`
- * shell) must reach the installed Amazon SDK, legacy sources keep the app's own shim, and the
- * React Native shim's own import must reach the SDK instead of itself.
+ * `metro.config.js` resolver rather than a copy of it: shared sources (the `src-next` shell) must
+ * reach the installed Amazon SDK, and the React Native shim's own import must reach the SDK
+ * instead of itself.
  *
  * Only a missing direct `@react-native/metro-config` dependency skips these: that is the one
  * thing this file cannot supply for itself. Once it resolves, the config is required with no
@@ -60,15 +60,6 @@ test('shared current sources reach the Amazon reanimated package', {skip}, () =>
   context.originModulePath = path.join(app, '../native/src-next/kit/overlays/BottomSheet.tsx');
   resolveRequest(context, 'react-native-reanimated', 'tv');
   assert.deepEqual(calls.map(call => call.requested), ['@amazon-devices/react-native-reanimated']);
-});
-
-test('legacy sources keep the app shim', {skip}, () => {
-  const resolveRequest = appResolver();
-  const {context, calls} = resolver();
-  context.originModulePath = path.join(app, '../native/src/player/usePlayer.ts');
-  const resolved = resolveRequest(context, 'react-native-reanimated', 'tv') as {filePath: string};
-  assert.equal(calls.length, 0);
-  assert.equal(resolved.filePath, path.join(app, 'src/shims/reanimated.tsx'));
 });
 
 test("the shim's own react-native import reaches the SDK, not itself", {skip}, () => {

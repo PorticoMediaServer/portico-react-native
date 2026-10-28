@@ -23,6 +23,6 @@
       "react-native-qrcode-svg": ["./node_modules/react-native-qrcode-svg"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "types/**/*.d.ts", "../native/App.tsx", "../native/src/app/error-capture.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "types/**/*.d.ts", "../native/App.tsx", "../native/src-next/platform/error-capture.ts"],
   "exclude": ["node_modules", "build"]
 }

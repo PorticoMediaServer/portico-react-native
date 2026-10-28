@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import {device, crypto, emit, NativeModules} from './react-native-stub.mjs';
 import {serviceText} from '../../../packages/client-core/src/presentation/service-text.ts';
 import type {DownloadsService} from '../../../packages/client-core/src/index';
-import type * as OfflineModule from '../src/bridge/offline-downloads.ts';
+import type * as OfflineModule from '../platform/offline-downloads.ts';
 
 type Viewer = {authority: string; accountId: string; profileId: string; serverId: string};
 

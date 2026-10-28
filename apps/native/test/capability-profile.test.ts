@@ -2,8 +2,8 @@
  * it, and the server's audio plan mode from it. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {androidAudioDecodeFor, appleAudioDecode} from '../src/bridge/audio-decode.ts';
-import {deviceCapabilityDocument} from '../src/bridge/capability-document.ts';
+import {androidAudioDecodeFor, appleAudioDecode} from '../src-next/platform/playback/audio-decode.ts';
+import {deviceCapabilityDocument} from '../src-next/platform/playback/capability-document.ts';
 import {capabilityDocumentProblem} from '../../../packages/client-core/src/client-profile.ts';
 import {CapabilityPublisher} from '../../../packages/client-core/src/playback-v1/options.ts';
 import {SessionsClient} from '../../../packages/client-core/src/playback-v1/sessions.ts';

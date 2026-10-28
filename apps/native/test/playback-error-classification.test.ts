@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 test('both platform HTTP facts share retryable and permanent delivery policy', async () => {
-  const {classifyPlaybackFailure} = await import('../src/player/playback-failure.ts');
+  const {classifyPlaybackFailure} = await import('../src-next/platform/playback/playback-failure.ts');
   for (const httpStatus of [403, 404, 410, 408, 429, 500, 503]) {
     const expectedNetwork = httpStatus >= 500 || httpStatus === 408 || httpStatus === 429;
     for (const networkError of [true, false]) {
@@ -14,7 +14,7 @@ test('both platform HTTP facts share retryable and permanent delivery policy', a
 });
 
 test('startup engine failures retain fallback while healthy and delivery failures do not learn', async () => {
-  const {classifyPlaybackFailure} = await import('../src/player/playback-failure.ts');
+  const {classifyPlaybackFailure} = await import('../src-next/platform/playback/playback-failure.ts');
   assert.equal(classifyPlaybackFailure({hasPlayed: false}).engine, 'source_not_supported');
   assert.equal(classifyPlaybackFailure({hasPlayed: true}).engine, null);
   for (const hasPlayed of [false, true]) {
@@ -27,7 +27,7 @@ test('startup engine failures retain fallback while healthy and delivery failure
 });
 
 test('a start-up failure whose cause is uncertain teaches nothing; a named decoder or parser fault still does', async () => {
-  const {classifyPlaybackFailure} = await import('../src/player/playback-failure.ts');
+  const {classifyPlaybackFailure} = await import('../src-next/platform/playback/playback-failure.ts');
   // An interruption, a time-out, or a transport that was reporting trouble: not the media's fault.
   assert.deepEqual(classifyPlaybackFailure({hasPlayed: false, uncertain: true}), {network: false, engine: null});
   assert.deepEqual(classifyPlaybackFailure({hasPlayed: true, uncertain: true}), {network: false, engine: null});

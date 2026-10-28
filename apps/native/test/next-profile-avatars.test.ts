@@ -116,13 +116,10 @@ test('upload rejects invalid sizes and paths before sending; full-size binary da
   assert.deepEqual(Buffer.from((calls[0] as {body: {nativeAvatarBase64: string}}).body.nativeAvatarBase64, 'base64'), Buffer.from(full));
 });
 
-test('both screens use routed helpers; native byte decoding is limited to bounded avatar POSTs', () => {
-  const profiles = readFileSync(new URL('../src/screens/Profiles.tsx', import.meta.url), 'utf8');
-  const chooser = readFileSync(new URL('../src/screens/auth/ProfileAvatar.tsx', import.meta.url), 'utf8');
-  for (const source of [profiles, chooser]) {
-    assert.match(source, /profilePictureSource\(/); assert.match(source, /useAvatarRoute\(api\)/); assert.doesNotMatch(source, /api!?\.baseUrl\s*\+/);
-  }
-  assert.match(profiles, /profileAvatarUpload\(api!\)/); assert.doesNotMatch(profiles, /await fetch\(/);
+test('the accounts screen uses routed helpers; native byte decoding is limited to bounded avatar POSTs', () => {
+  const accounts = readFileSync(new URL('../src-next/screens/accounts/AccountRoutes.tsx', import.meta.url), 'utf8');
+  assert.match(accounts, /profilePictureSource\(/); assert.match(accounts, /profileAvatarUpload\(/); assert.doesNotMatch(accounts, /api!?\.baseUrl\s*\+/);
+  assert.doesNotMatch(accounts, /await fetch\(/);
   const apple = readFileSync(new URL('../Native/PorticoPlayer.m', import.meta.url), 'utf8');
   const android = readFileSync(new URL('../android/app/src/main/java/tv/getportico/portico/native/PorticoRuntime.kt', import.meta.url), 'utf8');
   assert.equal(apple.match(/BOOL avatar=PorticoAvatarUploadPath\(target.path,method\)/g)?.length, 2); assert.match(apple, /data.length>0&&data.length<=4194304/);
