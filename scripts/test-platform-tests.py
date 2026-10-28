@@ -103,25 +103,115 @@ class OwnedAppleRunnerTests(unittest.TestCase):
         self.runner = module('run_owned_apple', 'run-owned-apple.py')
         self.platform = module('platform_tests_for_runner', 'platform-tests.py')
 
-    def test_a_suite_passes_only_on_exit_zero_and_a_clean_json_summary(self):
+    def test_summary_requires_exit_zero_and_explicit_integer_failures(self):
         outcome = self.runner.outcome
         self.assertEqual(outcome('noise\n{"assertions":12,"failures":0}\n', 0), (True, 12))
-        self.assertEqual(outcome('{"assertions":12,"failures":1}', 0), (False, 12))
-        self.assertEqual(outcome('{"assertions":0,"failures":0}', 0), (False, 0))
+        for text in ['{"assertions":12,"failures":1}', '{"assertions":0,"failures":0}',
+                     '{"assertions":true,"failures":0}', '{"assertions":12}',
+                     '{"assertions":12,"failures":false}', 'no summary']:
+            self.assertFalse(outcome(text, 0)[0], text)
         self.assertEqual(outcome('{"assertions":12,"failures":0}', 1), (False, 0))
-        self.assertEqual(outcome('{"fooPass":true,"barPass":true,"rate":44100}', 0), (True, 2))
-        self.assertEqual(outcome('{"fooPass":true,"barPass":false}', 0), (False, 2))
-        self.assertEqual(outcome('{"rate":44100}', 0), (False, 0))
-        self.assertEqual(outcome('no summary', 0), (False, 0))
-        self.assertEqual(outcome('{"assertions":true}', 0), (False, 0))
 
-    def test_every_owned_suite_has_a_recipe_or_a_stated_reason(self):
+    def test_fields_accept_diagnostics_but_require_every_case(self):
+        verdict = {'kind': 'fields', 'true': ['pass'], 'false': ['dropped'], 'cases': 13}
+        row = '{"pass":true,"dropped":false,"physicalAcceptance":false}\n'
+        self.assertEqual(self.runner.outcome(row * 13, 0, verdict), (True, 26))
+        for text in [row * 12, row * 14, row * 12 + '{"pass":false,"dropped":false}',
+                     row * 12 + '{"pass":true}', row * 12 + '{"pass":1,"dropped":false}']:
+            self.assertFalse(self.runner.outcome(text, 0, verdict)[0])
+        self.assertFalse(self.runner.outcome(row * 13, 1, verdict)[0])
+
+    def test_output_matrix_cannot_repeat_one_case_in_place_of_another(self):
+        recipe = json.loads(self.runner.RECIPES.read_text())['apps/native/test/apple-audio-output-tests.m']
+        verdict = recipe['verdict']
+        rows = [dict(row, **{'pass': True}) for row in verdict['expectedCases']]
+        self.assertEqual(self.runner.outcome('\n'.join(json.dumps(row) for row in rows), 0, verdict), (True, 13))
+        rows[-1] = rows[0]
+        self.assertFalse(self.runner.outcome('\n'.join(json.dumps(row) for row in rows), 0, verdict)[0])
+
+    def test_decode_requires_all_pretty_printed_fixture_results_and_album_joins(self):
+        files = [f'fixture-{index}.flac' for index in range(7)]
+        verdict = {'kind': 'decode', 'files': files}
+        document = {'fixtures': [{'file': name, 'status': 'pass'} for name in files],
+                    'albums': {'one': {'allTracksPass': True, 'worstBoundaryFrames': 0, 'tracks': 2}}}
+        def check():
+            return self.runner.outcome('decoder diagnostic\n' + json.dumps(document, indent=2), 0, verdict)
+        self.assertEqual(check(), (True, 8))
+        document['fixtures'][0]['status'] = 'fail'
+        self.assertFalse(check()[0])
+        document['fixtures'][0]['status'] = 'pass'
+        document['albums']['one']['worstBoundaryFrames'] = 1
+        self.assertFalse(check()[0])
+        document['albums'] = {}
+        document['fixtures'].pop()
+        self.assertFalse(check()[0])
+        document['fixtures'].append({'file': files[1], 'status': 'pass'})
+        self.assertFalse(check()[0])
+
+    def test_plain_text_reader_summary_is_exact(self):
+        verdict = {'kind': 'reader'}
+        self.assertEqual(self.runner.outcome('Apple reader assets: 36 checks, 0 failures\n', 0, verdict), (True, 36))
+        for text in ['Apple reader assets: 35 checks, 0 failures', 'Apple reader assets: 36 checks, 1 failures']:
+            self.assertFalse(self.runner.outcome(text, 0, verdict)[0])
+
+    def test_every_owned_suite_has_a_runnable_recipe_and_explicit_verdict(self):
         recipes = json.loads(self.runner.RECIPES.read_text())
         self.assertEqual(set(recipes), set(self.runner.owned_sources()))
         for source, recipe in recipes.items():
-            self.assertTrue(recipe.get('runnable') or recipe.get('reason'), source)
-            command, reason = self.runner.plan(source, recipe, Path('/tmp/work'), None)
-            self.assertTrue(command is not None or reason, source)
+            self.assertTrue(recipe.get('runnable'), source)
+            self.assertIn('kind', recipe['verdict'])
+        self.assertEqual(recipes['apps/native/test/apple-audio-output-tests.m']['verdict']['cases'], 13)
+
+    def test_builds_use_debug_and_real_pods_and_tvos_target(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            pods, products = work / 'Pods', work / 'Products'
+            (pods / 'Headers/Public/React-Core').mkdir(parents=True)
+            (products / 'React-Core').mkdir(parents=True)
+            (products / 'React-Core/libReact-Core.a').touch()
+            recipes = json.loads(self.runner.RECIPES.read_text())
+            for source, recipe in recipes.items():
+                command, reason = self.runner.plan(source, recipe, work, work, products, pods)
+                self.assertIsNone(reason)
+                if source.endswith('.m'):
+                    self.assertIn('-DDEBUG=1', command['build'])
+                if recipe.get('pods'):
+                    self.assertIn('-Wl,-force_load,' + str(products / 'React-Core/libReact-Core.a'), command['build'])
+                if source.endswith('.swift'):
+                    self.assertIn('arm64-apple-tvos15.1-simulator', command['build'])
+
+    def test_simulator_boot_failure_is_registered_for_shutdown_and_delete(self):
+        from unittest.mock import patch
+        import subprocess
+        def checked(argv, **kwargs):
+            if 'runtimes' in argv:
+                return json.dumps({'runtimes': [{'isAvailable': True, 'version': '27.0', 'identifier': 'com.apple.CoreSimulator.SimRuntime.iOS-27-0'}]})
+            if 'devicetypes' in argv:
+                return json.dumps({'devicetypes': [{'productFamily': 'iPhone', 'identifier': 'phone'}]})
+            if 'create' in argv:
+                return 'disposable-id'
+            raise subprocess.CalledProcessError(1, argv)
+        with patch.object(self.runner, 'checked', side_effect=checked), patch.object(self.runner.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '', '')) as run:
+            simulators = self.runner.Simulators()
+            with self.assertRaises(subprocess.CalledProcessError):
+                simulators.get('iphonesimulator')
+            simulators.close()
+            self.assertEqual([call.args[0][2:] for call in run.call_args_list],
+                             [['shutdown', 'disposable-id'], ['delete', 'disposable-id']])
+
+    def test_early_dirty_checkout_rejection_removes_all_scratch(self):
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            with patch.object(self.runner.sys, 'argv', ['runner', '--output', directory]), \
+                    patch.object(self.runner, 'checked', return_value='modified'), \
+                    patch.object(self.runner, 'Simulators') as simulators:
+                with self.assertRaisesRegex(SystemExit, 'uncommitted changes'):
+                    self.runner.main()
+                simulators.return_value.close.assert_called_once()
+            self.assertEqual(list(output.iterdir()), [])
 
     def test_receipts_list_only_passed_suites_and_the_validator_refuses_an_incomplete_set(self):
         sources = self.runner.owned_sources()

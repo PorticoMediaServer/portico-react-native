@@ -28,7 +28,18 @@
           "PORTICO_AUDIO_OUTPUT_CAPTURE": "{tmp}/capture-96000.caf"
         }
       }
-    ]
+    ],
+    "verdict": {
+      "kind": "fields",
+      "true": [
+        "pass",
+        "sourceFloat32Exact"
+      ],
+      "false": [
+        "droppedOrFailed"
+      ],
+      "cases": 1
+    }
   },
   "apps/native/test/apple-audio-decode-tests.m": {
     "runnable": true,
@@ -36,7 +47,8 @@
     "fixtures": "an authored decode fixture directory at <fixtures>/audio-decode",
     "sources": [
       "apps/native/Native/PorticoAudioRender.m",
-      "apps/native/Native/PorticoAudioProcessing.m"
+      "apps/native/Native/PorticoAudioProcessing.m",
+      "apps/native/Native/PorticoAudioCapture.m"
     ],
     "frameworks": [
       "Foundation",
@@ -50,7 +62,11 @@
           "{fixtures}/audio-decode"
         ]
       }
-    ]
+    ],
+    "verdict": {
+      "kind": "decode"
+    },
+    "media": true
   },
   "apps/native/test/apple-audio-output-tests.m": {
     "runnable": true,
@@ -59,7 +75,121 @@
     "frameworks": [
       "Foundation",
       "AVFoundation"
-    ]
+    ],
+    "verdict": {
+      "kind": "fields",
+      "true": [
+        "pass"
+      ],
+      "false": [],
+      "cases": 13,
+      "expectedCases": [
+        {
+          "rate": 44100,
+          "channels": 2,
+          "eq": false,
+          "bandHz": 1000,
+          "bandGainDb": 6.0,
+          "preamp": 0.0
+        },
+        {
+          "rate": 96000,
+          "channels": 8,
+          "eq": false,
+          "bandHz": 1000,
+          "bandGainDb": 6.0,
+          "preamp": 0.0
+        },
+        {
+          "rate": 48000,
+          "channels": 2,
+          "eq": true,
+          "bandHz": 31,
+          "bandGainDb": 12.0,
+          "preamp": 0.0
+        },
+        {
+          "rate": 48000,
+          "channels": 2,
+          "eq": true,
+          "bandHz": 62,
+          "bandGainDb": -12.0,
+          "preamp": 0.0
+        },
+        {
+          "rate": 48000,
+          "channels": 2,
+          "eq": true,
+          "bandHz": 125,
+          "bandGainDb": 0.5,
+          "preamp": 0.0
+        },
+        {
+          "rate": 48000,
+          "channels": 2,
+          "eq": true,
+          "bandHz": 250,
+          "bandGainDb": -0.5,
+          "preamp": 0.0
+        },
+        {
+          "rate": 48000,
+          "channels": 2,
+          "eq": true,
+          "bandHz": 500,
+          "bandGainDb": 6.0,
+          "preamp": 0.0
+        },
+        {
+          "rate": 48000,
+          "channels": 2,
+          "eq": true,
+          "bandHz": 1000,
+          "bandGainDb": -6.0,
+          "preamp": 0.0
+        },
+        {
+          "rate": 48000,
+          "channels": 2,
+          "eq": true,
+          "bandHz": 2000,
+          "bandGainDb": 12.0,
+          "preamp": 0.0
+        },
+        {
+          "rate": 48000,
+          "channels": 2,
+          "eq": true,
+          "bandHz": 4000,
+          "bandGainDb": -12.0,
+          "preamp": 0.0
+        },
+        {
+          "rate": 48000,
+          "channels": 2,
+          "eq": true,
+          "bandHz": 8000,
+          "bandGainDb": 0.5,
+          "preamp": 0.0
+        },
+        {
+          "rate": 48000,
+          "channels": 2,
+          "eq": true,
+          "bandHz": 16000,
+          "bandGainDb": -0.5,
+          "preamp": 0.0
+        },
+        {
+          "rate": 48000,
+          "channels": 2,
+          "eq": true,
+          "bandHz": 1000,
+          "bandGainDb": 6.0,
+          "preamp": -6.0
+        }
+      ]
+    }
   },
   "apps/native/test/apple-audio-processing-tests.m": {
     "runnable": true,
@@ -71,15 +201,25 @@
       "Foundation",
       "AVFoundation",
       "UIKit"
-    ]
+    ],
+    "verdict": {
+      "kind": "fields",
+      "true": [
+        "localEqualizerAndRatePersistencePass",
+        "offZeroPreferenceAccepted"
+      ],
+      "false": [],
+      "cases": 1
+    }
   },
   "apps/native/test/apple-audio-render-tests.m": {
     "runnable": true,
     "sdk": "iphonesimulator",
-    "fixtures": "an authored audio file at <fixtures>/audio-render/source.flac",
+    "fixtures": "audio-render/render-test.wav: authored 8000Hz stereo PCM16, 16000 frames",
     "sources": [
       "apps/native/Native/PorticoAudioRender.m",
-      "apps/native/Native/PorticoAudioProcessing.m"
+      "apps/native/Native/PorticoAudioProcessing.m",
+      "apps/native/Native/PorticoAudioCapture.m"
     ],
     "frameworks": [
       "Foundation",
@@ -89,18 +229,48 @@
     ],
     "runs": [
       {
-        "args": [
-          "{fixtures}/audio-render/source.flac"
-        ],
+        "args": [],
         "env": {
           "PORTICO_APPLE_ISOLATED_SIMULATOR_TESTS": "1"
         }
       }
-    ]
+    ],
+    "verdict": {
+      "kind": "fields",
+      "true": [
+        "renderedProcessingFactsAndStrictPass"
+      ],
+      "false": [],
+      "cases": 1
+    },
+    "media": true,
+    "scene": "PorticoAudioTestScene",
+    "flags": [
+      "-DPORTICO_UIKIT_TEST_APP=1"
+    ],
+    "resources": {
+      "{fixtures}/audio-render/render-test.wav": "render-test.wav"
+    }
   },
   "apps/native/test/apple-haptics-tests.m": {
-    "runnable": false,
-    "reason": "imports React (RCTBridgeModule): needs the Pods build products; recipe to be completed on the Mac"
+    "runnable": true,
+    "pods": true,
+    "sdk": "iphonesimulator",
+    "sources": [
+      "apps/native/Native/PorticoHaptics.m"
+    ],
+    "frameworks": [
+      "Foundation",
+      "UIKit"
+    ],
+    "verdict": {
+      "kind": "fields",
+      "true": [
+        "simulatorContextMenuAndSelectionRefuseHardwarePass"
+      ],
+      "false": [],
+      "cases": 1
+    }
   },
   "apps/native/test/apple-reader-assets-tests.m": {
     "runnable": true,
@@ -112,15 +282,79 @@
       "Foundation",
       "WebKit",
       "UIKit"
-    ]
+    ],
+    "verdict": {
+      "kind": "reader"
+    }
   },
   "apps/native/test/apple-server-trust-tests.m": {
-    "runnable": false,
-    "reason": "links React (RCTHTTPRequestHandler) and needs loopback TLS fixtures and a second-process readback phase; recipe to be completed on the Mac"
+    "runnable": true,
+    "pods": true,
+    "tls": true,
+    "sdk": "iphonesimulator",
+    "sources": [
+      "apps/native/Native/PorticoServerTrust.m"
+    ],
+    "frameworks": [
+      "Foundation",
+      "AVFoundation",
+      "UIKit",
+      "Security"
+    ],
+    "verdict": {
+      "kind": "fields",
+      "true": [
+        "actualTLSProofAndForgetPass"
+      ],
+      "false": [],
+      "cases": 1
+    },
+    "runs": [
+      {
+        "args": [
+          "{origin}",
+          "{fingerprint}",
+          "exercise"
+        ],
+        "env": {
+          "PORTICO_APPLE_ISOLATED_SIMULATOR_TESTS": "1"
+        }
+      },
+      {
+        "args": [
+          "{origin}",
+          "{fingerprint}",
+          "readback"
+        ],
+        "env": {
+          "PORTICO_APPLE_ISOLATED_SIMULATOR_TESTS": "1"
+        },
+        "verdict": {
+          "kind": "fields",
+          "true": [
+            "durableForgetReadbackPass"
+          ],
+          "false": [],
+          "cases": 1
+        }
+      }
+    ]
   },
   "apps/native/test/apple-subtitle-picker-tests.m": {
-    "runnable": false,
-    "reason": "a UIApplicationMain test app (UIKit scene): needs an .app bundle installed and launched with simctl; recipe to be completed on the Mac"
+    "runnable": true,
+    "pods": true,
+    "sdk": "iphonesimulator",
+    "sources": [],
+    "scene": "PorticoSubtitlePickerTestScene",
+    "frameworks": [
+      "Foundation",
+      "UIKit",
+      "UniformTypeIdentifiers"
+    ],
+    "verdict": {
+      "kind": "summary",
+      "minimum": 29
+    }
   },
   "apps/native/test/apple-subtitle-timeline-tests.m": {
     "runnable": true,
@@ -135,15 +369,70 @@
       "CoreMedia",
       "MediaAccessibility",
       "CoreText"
-    ]
+    ],
+    "verdict": {
+      "kind": "summary",
+      "minimum": 25
+    }
   },
   "apps/native/test/apple-topshelf-feed-tests.swift": {
-    "runnable": false,
-    "reason": "needs the tvOS Top Shelf provider sources and a tvOS simulator; recipe to be completed on the Mac"
+    "runnable": true,
+    "sdk": "appletvsimulator",
+    "sources": [
+      "apps/native/tvos/TopShelf/PorticoShelfFeed.swift"
+    ],
+    "frameworks": [
+      "Foundation"
+    ],
+    "verdict": {
+      "kind": "summary",
+      "minimum": 14
+    }
   },
   "apps/native/test/apple-video-snapshot-tests.m": {
-    "runnable": false,
-    "reason": "links React and the real player view/controller: needs the Pods build products; recipe to be completed on the Mac"
+    "runnable": true,
+    "pods": true,
+    "media": true,
+    "sdk": "iphonesimulator",
+    "sources": [
+      "apps/native/Native/PorticoPlayerView.m",
+      "apps/native/Native/PorticoPlaybackController.m",
+      "apps/native/Native/PorticoVideoSnapshot.m",
+      "apps/native/Native/PorticoServerTrust.m",
+      "apps/native/Native/PorticoSubtitleSelection.m",
+      "apps/native/Native/PorticoSubtitleOverlay.m",
+      "apps/native/Native/PorticoAudioSelection.m",
+      "apps/native/Native/PorticoAudioRender.m",
+      "apps/native/Native/PorticoAudioProcessing.m",
+      "apps/native/Native/PorticoAudioCapture.m"
+    ],
+    "scene": "PorticoSnapshotTestScene",
+    "fixtures": "video/snapshot-red-blue.mp4: authored red 0-5s and blue 5-10s",
+    "resources": {
+      "{fixtures}/video/snapshot-red-blue.mp4": "snapshot-red-blue.mp4"
+    },
+    "frameworks": [
+      "Foundation",
+      "UIKit",
+      "AVFoundation",
+      "AVKit",
+      "AudioToolbox",
+      "CoreMedia",
+      "CoreText",
+      "MediaAccessibility",
+      "Security",
+      "CoreImage",
+      "ImageIO"
+    ],
+    "verdict": {
+      "kind": "fields",
+      "true": [
+        "decodedMissingBoundsPass",
+        "sameViewTagControllerPlayerItemLeaseBinding"
+      ],
+      "false": [],
+      "cases": 1
+    }
   },
   "apps/native/test/apple-webvtt-clock-tests.m": {
     "runnable": true,
@@ -158,6 +447,14 @@
       "CoreMedia",
       "MediaAccessibility",
       "CoreText"
-    ]
+    ],
+    "verdict": {
+      "kind": "fields",
+      "true": [
+        "webvttBakedOffsetOncePass"
+      ],
+      "false": [],
+      "cases": 1
+    }
   }
 }

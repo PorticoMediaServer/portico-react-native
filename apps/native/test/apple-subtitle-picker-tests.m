@@ -18,11 +18,8 @@ static void PorticoTestDispatchAsync(dispatch_queue_t queue,dispatch_block_t wor
 #import "../Native/PorticoSubtitleFiles.m"
 #undef dispatch_async
 
-// Only React registration/presenter lookup are supplied by this native test app.
-// The actual UIKit picker, production request lifetime and coordinated file reader run.
-void RCTRegisterModule(Class moduleClass) {}
+// Real React registration and presenter lookup are linked from the installed Pods.
 static UIViewController *testPresenter;
-UIViewController *RCTPresentedViewController(void) {return testPresenter;}
 static NSMutableArray<NSString *> *passed;
 static int failures;
 static BOOL check(BOOL condition,NSString *name) {if(condition){[passed addObject:name];return YES;}failures++;fprintf(stderr,"FAIL %s\n",name.UTF8String);return NO;}
@@ -109,7 +106,7 @@ static int tests(void) {@autoreleasepool {
  [subject documentPickerWasCancelled:invalidatedPicker];check(rejects==1,@"late invalidated callback is discarded");settledPresentation();
 #endif
  [subject invalidate];code=nil;[subject pick:@"after-close" resolver:resolve rejecter:reject];check([code isEqual:@"bridge_closed"],@"invalidated bridge refuses new request");
- NSDictionary *receipt=@{@"exit":@(failures?1:0),@"passed":passed,@"failures":@(failures),@"scope":@"actual UIKit native boundary; no JS upload or genuine watch UI acceptance"};
+ NSDictionary *receipt=@{@"exit":@(failures?1:0),@"passed":passed,@"assertions":@(passed.count+failures),@"failures":@(failures),@"scope":@"actual UIKit native boundary; no JS upload or genuine watch UI acceptance"};
  NSURL *dir=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;[[NSJSONSerialization dataWithJSONObject:receipt options:NSJSONWritingPrettyPrinted error:nil]writeToURL:[dir URLByAppendingPathComponent:@"result.json"] atomically:YES];
  fprintf(stderr,"%s\n",receipt.description.UTF8String);return failures?1:0;
 }}

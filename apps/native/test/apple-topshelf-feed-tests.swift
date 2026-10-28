@@ -2,6 +2,11 @@ import Foundation
 
 @main enum ShelfFeedTests {
   static func main() throws {
+    var assertions = 0
+    func check(_ value: @autoclosure () -> Bool) {
+      assertions += 1
+      precondition(value())
+    }
     func entry(_ id: String, show: String? = nil) -> [String: Any] {
       var value: [String: Any] = ["id": id, "title": "Title \(id)", "displayUrl": "portico://item/\(id)", "kind": "episode"]
       if let show { value["showTitle"] = show }
@@ -22,35 +27,35 @@ import Foundation
       section("later", [entry("d")]),
     ])
     let rows = feed.selectedRows()
-    precondition(rows.map { $0.section.id } == ["continue", "recent"])
-    precondition(rows[0].entries.map(\.id) == ["a", "b"])
-    precondition(rows[1].entries.map(\.id) == ["c"])
-    precondition(rows[0].entries[0].tileTitle == "Actual show")
-    precondition(rows[0].entries[1].tileTitle == "Title b")
+    check(rows.map { $0.section.id } == ["continue", "recent"])
+    check(rows[0].entries.map(\.id) == ["a", "b"])
+    check(rows[1].entries.map(\.id) == ["c"])
+    check(rows[0].entries[0].tileTitle == "Actual show")
+    check(rows[0].entries[1].tileTitle == "Title b")
     var lookups: [(String, [String: String])] = []
     let title = rows[0].section.localizedTitle { code, params in
       lookups.append((code, params)); return "Catalogue row"
     }
-    precondition(title == "Catalogue row" && lookups[0].0 == "next.home.continueWatching" && lookups[0].1.isEmpty)
+    check(title == "Catalogue row" && lookups[0].0 == "next.home.continueWatching" && lookups[0].1.isEmpty)
     let nextTitle = rows[1].section.localizedTitle { code, params in
-      precondition(code == "home.row.recentlyAddedIn" && params == ["library": "Films"])
+      check(code == "home.row.recentlyAddedIn" && params == ["library": "Films"])
       return "Resolved library row"
     }
-    precondition(nextTitle == "Resolved library row")
-    precondition(rows[1].section.localizedTitle { _, _ in nil } == "Server recent")
+    check(nextTitle == "Resolved library row")
+    check(rows[1].section.localizedTitle { _, _ in nil } == "Server recent")
     let unknown = try decode([section("unknown", [entry("e")], code: "unknown.server.code")]).selectedRows()
-    precondition(unknown[0].section.localizedTitle { _, _ in nil } == "Server unknown")
+    check(unknown[0].section.localizedTitle { _, _ in nil } == "Server unknown")
     let empty = try decode([])
-    precondition(empty.selectedRows().isEmpty)
+    check(empty.selectedRows().isEmpty)
     let limited = try decode([
       section("continue", (0..<15).map { entry("c\($0)") }),
       section("next", (0..<15).map { entry("n\($0)") }),
     ]).selectedRows()
-    precondition(limited.map { $0.entries.count } == [10, 10])
+    check(limited.map { $0.entries.count } == [10, 10])
     let noContinue = try decode([section("empty", []), section("first", [entry("f")]), section("second", [entry("g")])]).selectedRows()
-    precondition(noContinue.map { $0.section.id } == ["first"])
+    check(noContinue.map { $0.section.id } == ["first"])
     let suppliedEmpty = try decode([section("first", [entry("h", show: "")])]).selectedRows()
-    precondition(suppliedEmpty[0].entries[0].tileTitle.isEmpty)
-    print("Apple Top Shelf feed checks passed")
+    check(suppliedEmpty[0].entries[0].tileTitle.isEmpty)
+    print("{\"assertions\":\(assertions),\"failures\":0}")
   }
 }
