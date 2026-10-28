@@ -53,7 +53,7 @@ static void PorticoConfigureItem(AVPlayerItem *item) {
  if (screenPixels.width > 0) item.preferredMaximumResolution = screenPixels;
 #endif
 }
-@interface PorticoPlaybackController ()
+@interface PorticoPlaybackController () <AVPlayerItemOutputPullDelegate>
 @property(nonatomic,copy) NSDictionary *command;
 @end
 @implementation PorticoPlaybackController {
@@ -161,6 +161,21 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
 - (void)clearCapturedVideoFrame {
  if(_capturedVideoFrame){CVPixelBufferRelease(_capturedVideoFrame);_capturedVideoFrame=NULL;}
  _capturedVideoTime=kCMTimeInvalid;
+}
+- (BOOL)requestVideoFrameForBinding:(NSDictionary *)binding {
+ if(!NSThread.isMainThread||![binding isEqual:self.externalPresentationBinding]||!_videoOutput)return NO;
+ // A snapshot is an intermittent consumer. Announce its return from quiescence once,
+ // rather than asking AVFoundation to wake for every frame or altering the player/layer.
+ [_videoOutput setDelegate:self queue:dispatch_get_main_queue()];
+ [_videoOutput requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03];
+ return YES;
+}
+- (void)outputMediaDataWillChange:(AVPlayerItemOutput *)output {
+ // The bounded snapshot flight pulls on the main queue; the callback wakes AVFoundation's
+ // idle output without starting another clock or giving the output playback ownership.
+}
+- (void)outputSequenceWasFlushed:(AVPlayerItemOutput *)output {
+ if(output==_videoOutput)[self clearCapturedVideoFrame];
 }
 - (CVPixelBufferRef)copyVideoFrameForBinding:(NSDictionary *)binding displayTime:(CMTime *)displayTime transform:(CGAffineTransform *)transform {
  if(!NSThread.isMainThread||![binding isEqual:self.externalPresentationBinding]||!_videoOutput)return NULL;

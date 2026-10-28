@@ -76,6 +76,7 @@ RCT_REMAP_METHOD(capture,capture:(NSString *)identifier source:(NSDictionary *)s
  PorticoSnapshotFlight *flight=[PorticoSnapshotFlight new];flight.identifier=identifier;flight.source=@{@"reactTag":source[@"reactTag"],@"engine":@"native",@"lease":[source[@"lease"]copy],@"binding":[binding copy]};flight.resolve=resolve;flight.reject=reject;
  NSMutableDictionary *full=[binding mutableCopy];full[@"lease"]=source[@"lease"];flight.binding=full;flight.controller=PorticoSnapshotController(source[@"reactTag"],source[@"lease"]);
  if(![self current:flight]){reject(@"snapshot_stale",@"snapshot_stale",nil);return;}
+ if(![flight.controller requestVideoFrameForBinding:flight.binding]){reject(@"snapshot_stale",@"snapshot_stale",nil);return;}
  _flight=flight;
  // Pull-based output can first return an old sample after a hidden view has gone idle.
  // Wait for a current decoded frame inside the existing total capture budget, rechecking

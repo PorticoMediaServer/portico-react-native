@@ -12,6 +12,8 @@
 /** Actual decoded current-item frame, independent of the presentation view's bounds.
  * Main queue only. Caller owns the returned buffer. No seek or asset still-image fallback. */
 - (CVPixelBufferRef)copyVideoFrameForBinding:(NSDictionary *)binding displayTime:(CMTime *)displayTime transform:(CGAffineTransform *)transform CF_RETURNS_RETAINED;
+/** Resume an idle pull-output consumer for this exact ready binding. Main queue only. */
+- (BOOL)requestVideoFrameForBinding:(NSDictionary *)binding;
 @property(nonatomic,readonly) NSString *subtitleText;
 @property(nonatomic,readonly) PorticoSubtitleOverlay *subtitleOverlay;
 @property(nonatomic,readonly) NSDictionary *subtitleCue;
