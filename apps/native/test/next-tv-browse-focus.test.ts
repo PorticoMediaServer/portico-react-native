@@ -154,6 +154,7 @@ test('artist Top songs has real vertical exits and Play entry; album geometry an
     '../../../kit/browse/presentation': type, '../../../kit/focus': {FocusRegion: 'FocusRegion'}, '../../../kit/theme': {useTheme: () => theme},
     '../../../tv/layout/TVShelf': {TVShelf: 'TVShelf'}, '../../../tv/layout/TVArtFocus': {TVArtFocus: 'TVArtFocus'},
     './MusicErrorView': {MusicErrorView: 'MusicErrorView'}, './MusicSectionControls': {MusicSectionControls: 'MusicSectionControls', musicNearEnd: () => false}, './MusicFormatBadges': {MusicFormatBadges: 'MusicFormatBadges'},
+    './MusicWindow': {MusicScrollView: 'MusicScrollView', MusicWindow: 'MusicWindow'},
   });
   const song = {id: 'track', kind: 'song', title: 'Track'}, album = {id: 'release', title: 'Release'}, entry = {id: 'entity', kind: 'artist', title: 'Artist'};
   let state: any = {songs: [song], albums: [album], similar: Array.from({length: 12}, (_, index) => ({id: `similar-${index}`, title: 'Similar', kind: 'artist'})),
@@ -176,6 +177,15 @@ test('artist Top songs has real vertical exits and Play entry; album geometry an
   assert.equal(all.find(node => node.type === 'TVShelf').props.items.length, 12);
   const albumActions = all.find(node => node.type?.name === 'ActionBar');
   assert.equal(albumActions.type(albumActions.props).type, 'View', 'artist focus graph must not introduce an edgeless album action boundary');
+  // LR03/LR04 TV: the album's songs mount only the rows in view; Top songs (a declared focus order) stays whole.
+  const albumSongs = all.find(node => node.type?.name === 'TrackList');
+  assert.equal(albumSongs.props.windowed, true);
+  const albumWindow = nodes(albumSongs.type(albumSongs.props)).find(node => node.type === 'MusicWindow');
+  assert.equal(albumWindow.props.itemHeight, 84); assert.equal(albumWindow.props.items.length, 1);
+  state = {...state, albums: [album]};
+  const artistSongs = nodes(TVArtistScreen({controller, entry, runtime, actions, openEntry() {}})).find(node => node.type?.name === 'TrackList');
+  assert.ok(!artistSongs.props.windowed);
+  assert.equal(nodes(artistSongs.type(artistSongs.props)).some(node => node.type === 'MusicWindow'), false);
   const backdrop = all.find(node => node.type?.name === 'Backdrop');
   assert.equal(nodes(backdrop.type(backdrop.props)).find(node => node.type === 'AmbientArt').props.treatment, 'music');
 });

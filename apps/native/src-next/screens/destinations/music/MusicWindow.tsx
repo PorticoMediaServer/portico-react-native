@@ -28,8 +28,11 @@ export function MusicScrollView({children, onNearEnd, ...props}: Omit<ScrollView
   </Animated.ScrollView></Viewport.Provider>;
 }
 
-export function MusicWindow<T extends {id: string}>({items, itemHeight, columns = 1, columnWidth, gap = 0, expanded, renderItem}: {
+export function MusicWindow<T extends {id: string}>({items, itemHeight, columns = 1, columnWidth, gap = 0, expanded, focusedId, renderItem}: {
   items: readonly T[]; itemHeight: number; columns?: number; columnWidth?: number; gap?: number;
+  /** The row that holds focus, from the row's own focus event. A TV View does not hear its
+   * child's focus, so a caller on TV names it; the row then stays mounted however far the list scrolls. */
+  focusedId?: string;
   /** One single-column row drawn taller (the playing chapter); the rows after it move down by `extra`. */
   expanded?: Readonly<{index: number; extra: number}>;
   renderItem: (item: T, index: number) => ReactNode;
@@ -48,7 +51,7 @@ export function MusicWindow<T extends {id: string}>({items, itemHeight, columns 
     if (relative) root.current?.measureLayout(relative, (_x, y) => setTop(y + (viewport?.origin ?? 0)));
   }, [viewport?.content, viewport?.origin]);
   useLayoutEffect(measure, [measure, viewport?.layout, ids, columns, stride]);
-  const pin = focused === undefined ? undefined : ids.indexOf(focused);
+  const held = focusedId ?? focused, pin = held === undefined ? undefined : ids.indexOf(held);
   const taller = columns === 1 && expanded && expanded.index >= 0 && expanded.index < items.length ? expanded : undefined;
   const extra = taller?.extra ?? 0;
   const at = (index: number) => Math.floor(index / columns) * stride + (taller && index > taller.index ? extra : 0);

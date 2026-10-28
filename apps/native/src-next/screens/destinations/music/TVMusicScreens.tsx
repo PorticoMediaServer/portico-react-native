@@ -1,5 +1,5 @@
 import React, {useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {ScrollView, Text, View, type View as NativeView} from 'react-native';
+import {Text, View, type View as NativeView} from 'react-native';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
 import {cardText} from '../../../../../../packages/client-core/src/presentation/kit-model';
@@ -20,8 +20,9 @@ import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeEntryActions} from '../entry-actions';
 import type {NativeTVMusicController, NativeTVMusicSnapshot, MusicAlbumRow} from './model';
 import {MusicErrorView} from './MusicErrorView';
-import {MusicSectionControls, musicNearEnd} from './MusicSectionControls';
+import {MusicSectionControls} from './MusicSectionControls';
 import {MusicFormatBadges} from './MusicFormatBadges';
+import {MusicScrollView, MusicWindow} from './MusicWindow';
 
 type Actions = Pick<NativeEntryActions, 'menu' | 'isMenuOpen'>;
 type DetailRow = Readonly<{id: string; label: string; value: string}>;
@@ -90,7 +91,11 @@ function songRow(entry: ContentEntry, index: number, runtime: NativeShellRuntime
     artwork: artwork ? <Artwork source={artwork} width={56} height={56} style={{borderRadius: 8, overflow: 'hidden'}}/> : undefined});
 }
 
-function TrackList({songs, runtime, controller, actions, selection, group = 'songs', playingId, variant, style, focusPrefix, onTail, onFocusRow, onBlurRow, offset = 0}: {songs: readonly ContentEntry[]; runtime: NativeShellRuntime; controller: NativeTVMusicController; actions: Actions; selection?: NativeSelection; group?: string; playingId?: string; variant: 'album' | 'top-songs'; style?: React.ComponentProps<typeof View>['style']; focusPrefix?: string; onTail?: () => void; onFocusRow?: (entry: ContentEntry) => void; onBlurRow?: (entry: ContentEntry) => void; offset?: number}) {
+/** `windowed` lists mount only the rows in view (LR03/LR04 TV): fixed 84-point rows inside the
+ * page's MusicScrollView, the focused row pinned from its own focus event. A list inside a
+ * region with a declared focus order (Top songs) stays whole, so that order never names an
+ * unmounted row. */
+function TrackList({songs, runtime, controller, actions, selection, group = 'songs', playingId, variant, style, focusPrefix, onTail, onFocusRow, onBlurRow, offset = 0, windowed = false}: {songs: readonly ContentEntry[]; runtime: NativeShellRuntime; controller: NativeTVMusicController; actions: Actions; selection?: NativeSelection; group?: string; playingId?: string; variant: 'album' | 'top-songs'; style?: React.ComponentProps<typeof View>['style']; focusPrefix?: string; onTail?: () => void; onFocusRow?: (entry: ContentEntry) => void; onBlurRow?: (entry: ContentEntry) => void; offset?: number; windowed?: boolean}) {
   useSyncExternalStore(selection?.subscribe ?? (() => () => {}), selection?.getSnapshot ?? (() => 0));
   const [focused, setFocused] = useState<number>();
   const run = (work: Promise<unknown>) => {void work.catch(runtime.reportError);};
@@ -98,12 +103,13 @@ function TrackList({songs, runtime, controller, actions, selection, group = 'son
   const select: TrackSelection = {active: [...states.values()].some(state => state?.active),
     isSelected: id => states.get(id)?.selected === true, onToggle: id => states.get(id)?.onToggle(), onEnter: id => states.get(id)?.onEnter(),
     renderControl: (row, selected) => <SelectionCircle selected={selected} selecting accessibilityLabel={row.text.title} variant="row" interactive={false}/>};
+  const row = (song: ContentEntry, index: number) => <TrackRow key={song.id} row={songRow(song, offset + index, runtime, playingId)} variant={variant}
+    focusId={focusPrefix ? `${focusPrefix}-${song.id}` : `music-${group}-${song.id}`} index={index} previousFocused={focused === index - 1} selection={select}
+    onFocus={() => {setFocused(index); onFocusRow?.(song); if (index >= songs.length - 3) onTail?.();}}
+    onBlur={() => {setFocused(current => current === index ? undefined : current); onBlurRow?.(song);}}
+    onPlay={() => run(controller.play(song.id))} onMore={(_id, anchor) => actions.menu(song, anchor, states.get(song.id)?.onEnter)}/>;
   return <View style={style}>
-    {songs.map((song, index) => <TrackRow key={song.id} row={songRow(song, offset + index, runtime, playingId)} variant={variant}
-      focusId={focusPrefix ? `${focusPrefix}-${song.id}` : `music-${group}-${song.id}`} index={index} previousFocused={focused === index - 1} selection={select}
-      onFocus={() => {setFocused(index); onFocusRow?.(song); if (index >= songs.length - 3) onTail?.();}}
-      onBlur={() => {setFocused(current => current === index ? undefined : current); onBlurRow?.(song);}}
-      onPlay={() => run(controller.play(song.id))} onMore={(_id, anchor) => actions.menu(song, anchor, states.get(song.id)?.onEnter)}/>) }
+    {windowed ? <MusicWindow items={songs} itemHeight={84} focusedId={focused === undefined ? undefined : songs[focused]?.id} renderItem={row}/> : songs.map(row)}
   </View>;
 }
 
@@ -133,7 +139,7 @@ export function TVAlbumScreen({controller, entry, runtime, actions, openEntry, o
   const moreTop=Math.max(896,520+songs.length*84+(discs.length>1?76:0)+100);
   return <View testID="native-tv-album" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <Backdrop runtime={runtime} path={entry.posterUrl ?? entry.backdropUrl}/>
-    <ScrollView onScroll={event=>{if(musicNearEnd(event.nativeEvent))void controller.nextSongs(snapshot.songPage);}} scrollEventThrottle={100} contentContainerStyle={{paddingBottom: 64}} showsVerticalScrollIndicator={false}>
+    <MusicScrollView onNearEnd={()=>{void controller.nextSongs(snapshot.songPage);}} contentContainerStyle={{paddingBottom: 64}} showsVerticalScrollIndicator={false}>
       <View style={{width: 1920, height: Math.max(1320,moreTop+424)}}>
         <View style={{position: 'absolute', left: 200, top: 150, width: 480, height: 480, borderRadius: 18, backgroundColor: theme.colors.raised, zIndex: 2, boxShadow: [{offsetX: 0, offsetY: 60, blurRadius: 120, spreadDistance: -40, color: 'rgba(0,0,0,.9)'}, {offsetX: 0, offsetY: 0, blurRadius: 0, spreadDistance: 1, color: 'rgba(237,245,250,.08)'}]}}><View style={{width: 480, height: 480, borderRadius: 18, overflow: 'hidden'}}>
           {art ? <Artwork source={art} width={480} height={480} priority/> : null}
@@ -150,7 +156,7 @@ export function TVAlbumScreen({controller, entry, runtime, actions, openEntry, o
         <View style={{position: 'absolute', left: 742, top: 520, width: 1082, zIndex: 2}}>
           {discs.length > 1 && <View style={{flexDirection: 'row', gap: 14, marginBottom: 14}}>{discs.map(value => <Chip key={value} focusId={`music-disc-${value}`} selected={chosen === value}
             accessibilityRole="radio" accessibilityState={{checked: chosen === value}} onPress={() => setDisc(value)}>{t('title.disc', {number: defaultI18n.number(value, {useGrouping: false})})}</Chip>)}</View>}
-          <TrackList selection={selection} songs={songs} runtime={runtime} controller={controller} actions={actions} playingId={playingId} variant="album" offset={snapshot.songPage.offset} onFocusRow={entry=>controller.focusSong(entry,snapshot.songPage)} onBlurRow={entry=>controller.blurSong(entry,snapshot.songPage)} onTail={()=>{void controller.nextSongs(snapshot.songPage);}}/>
+          <TrackList windowed selection={selection} songs={songs} runtime={runtime} controller={controller} actions={actions} playingId={playingId} variant="album" offset={snapshot.songPage.offset} onFocusRow={entry=>controller.focusSong(entry,snapshot.songPage)} onBlurRow={entry=>controller.blurSong(entry,snapshot.songPage)} onTail={()=>{void controller.nextSongs(snapshot.songPage);}}/>
           <MusicSectionControls id="album-songs" section={snapshot.songPage} next={()=>{void controller.nextSongs(snapshot.songPage);}} previous={()=>{void controller.previousSongs(snapshot.songPage);}} retry={()=>{void controller.retrySongs(snapshot.songPage);}} refresh={()=>{void controller.refreshSongs(snapshot.songPage);}}/>
         </View>
         <SectionHeading title={t('music.moreLikeThis')} detail={t(snapshot.similarBySound?'music.moreLikeThisBySound':'music.moreLikeThisHint')} left={200} top={moreTop}/>
@@ -161,7 +167,7 @@ export function TVAlbumScreen({controller, entry, runtime, actions, openEntry, o
               caption={factLine(value.artist?.name ?? '')} artwork={runtime.artwork(value.posterUrl)} onNavigate={()=>{if(controller.similarCurrent(snapshot,value))openEntry(value);}} onMore={()=>{if(controller.similarCurrent(snapshot,value))actions.menu(value);}} moreExpanded={controller.similarCurrent(snapshot,value)&&actions.isMenuOpen(value)}/>}/>
         </View>
       </View>
-    </ScrollView>
+    </MusicScrollView>
   </View>;
 }
 
@@ -185,7 +191,7 @@ export function TVArtistScreen({controller, entry, runtime, actions, openEntry, 
   ];
   return <View testID="native-tv-artist" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <Backdrop runtime={runtime} path={snapshot.albums[0]?.posterUrl ?? entry.posterUrl ?? entry.backdropUrl}/>
-    <ScrollView onScroll={event=>{if(musicNearEnd(event.nativeEvent))void controller.nextAllSongs(allSongs);}} scrollEventThrottle={100} contentContainerStyle={{paddingBottom: 64}} showsVerticalScrollIndicator={false}>
+    <MusicScrollView onNearEnd={()=>{void controller.nextAllSongs(allSongs);}} contentContainerStyle={{paddingBottom: 64}} showsVerticalScrollIndicator={false}>
       <View style={{width: 1920, height: Math.max(1040,672+Math.ceil(albums.length/2)*330)}}>
         <View style={{position: 'absolute', left: 1280, top: 150, zIndex: 2}}>
           <ArtistCircle covers={covers} rings={[40, 80]} initials={[...entry.title.trim()][0] ?? ''} alt={entry.title} size={360} visible/>
@@ -254,11 +260,11 @@ export function TVArtistScreen({controller, entry, runtime, actions, openEntry, 
                 accessibilityLabel={t('music.allSongs')}>{t('music.allSongs')}</Button>}
           </View>
           {allSongs.phase === 'loading' && <Text style={[browseType(theme, 22, 600), {color: theme.colors.textSecondary, marginTop: 14}]}>{t('music.loading')}</Text>}
-          {allSongs.songs.length>0 && <TrackList selection={selection} group="all-songs" songs={allSongs.songs} runtime={runtime} controller={controller} actions={actions} playingId={playingId} variant="top-songs" offset={allSongs.offset} onFocusRow={entry=>controller.focusAllSong(entry,allSongs)} onBlurRow={entry=>controller.blurAllSong(entry,allSongs)} onTail={()=>{void controller.nextAllSongs(allSongs);}} style={{marginTop: 12, width: 1118}}/>}
+          {allSongs.songs.length>0 && <TrackList windowed selection={selection} group="all-songs" songs={allSongs.songs} runtime={runtime} controller={controller} actions={actions} playingId={playingId} variant="top-songs" offset={allSongs.offset} onFocusRow={entry=>controller.focusAllSong(entry,allSongs)} onBlurRow={entry=>controller.blurAllSong(entry,allSongs)} onTail={()=>{void controller.nextAllSongs(allSongs);}} style={{marginTop: 12, width: 1118}}/>}
           <MusicSectionControls id="artist-songs" section={allSongs} next={()=>{void controller.nextAllSongs(allSongs);}} previous={()=>{void controller.previousAllSongs(allSongs);}} retry={()=>{void controller.retryAllSongs(allSongs);}} refresh={()=>{void controller.refreshAllSongs(allSongs);}}/>
         </View>
       </FocusRegion>
-    </ScrollView>
+    </MusicScrollView>
   </View>;
 }
 

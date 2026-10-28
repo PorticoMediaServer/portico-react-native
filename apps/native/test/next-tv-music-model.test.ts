@@ -633,6 +633,8 @@ async function tvMusicScreens(){
   '../../../kit/focus':{FocusItem:'FocusItem',FocusRegion:'FocusRegion'},'../../../kit/theme':{useTheme:()=>({colors:{}})},
   '../../../tv/layout/TVArtFocus':{TVArtFocus:'TVArtFocus'},'./MusicErrorView':{MusicErrorView:'MusicErrorView'},'./MusicFormatBadges':{MusicFormatBadges:'MusicFormatBadges'},
   './MusicSectionControls':{MusicSectionControls:'MusicSectionControls',musicNearEnd:()=>true},
+  // Element-tree walks render every row the viewport list would mount.
+  './MusicWindow':{MusicScrollView:({children}:any)=>children,MusicWindow:({items,renderItem}:any)=>items.map(renderItem)},
  });
  return screens;
 }
