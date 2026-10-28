@@ -1,6 +1,6 @@
 import {clonePortableDto} from '../../../../../packages/client-core/src';
 import {liveSourceChoicesService, parseEnvelope, type LiveSourceChoicePage} from '../../../../../packages/client-core/src/administration';
-import {rebaseDraft, sendWithFreshRecord, ALREADY_DONE, type RetryWhenStale} from '../../../../../packages/client-core/src/freshness-actions';
+import {rebaseDraft, sendWithFreshRecord, ALREADY_DONE} from '../../../../../packages/client-core/src/freshness-actions';
 import {lanConfirmationRoots, previewRemoteSource, remoteSourceDraft, withConfirmedLanRoots, type RemoteSourceDraft, type RemoteSourcePreview, type SourceKind} from '../../../../../packages/client-core/src/linear-api';
 import {normalizeHdHomerunLocator} from '../../../../../packages/client-core/src/server-admin/panel-logic';
 import type {LiveSourceInput} from '../../../../../packages/client-core/src/live-source-draft';

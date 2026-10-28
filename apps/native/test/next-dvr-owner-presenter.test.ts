@@ -24,7 +24,7 @@ async function loadPresenter(passive?: Array<()=>void>) {
     '../../kit/controls': {Button: 'Button', Focusable: 'Focusable', Select: 'Select', Switch: 'Switch', TextField: 'TextField'},
     '../../kit/overlays': {Dialog: 'Dialog', Menu: 'Menu'}, '../../kit/states': {StateView: 'StateView'},
     '../../kit/shell/visual': {shellType: () => ({})}, '../../kit/theme': {useTheme: () => createTheme({isTV: true, width: 1280})},
-    './recording-owner-model': model,
+    './recording-owner-model': model, './server/AdvancedSection': {NativeAdvancedSection: 'Advanced'},
   });
 }
 

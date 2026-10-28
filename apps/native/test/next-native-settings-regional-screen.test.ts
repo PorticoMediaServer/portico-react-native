@@ -64,7 +64,7 @@ async function fixture(isTV = false) {
     '../../kit/controls': {Button: 'Button', Focusable: 'Focusable', Select: 'Select', Switch: 'Switch', TextField: 'TextField'},
     '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => ({capture: () => undefined, focus: () => false, entryAddress: () => undefined, subscribe: () => () => {}, getSnapshot: () => 0})},
     '../../kit/Icon': {Icon: 'Icon'},
-    '../../kit/shell': {SettingsRow: 'SettingsRow', SettingsSearchResults: 'SettingsSearchResults', LanguageList: 'LanguageList', ShortcutTiles: 'ShortcutTiles'},
+    '../../kit/shell': {SettingsSheet: 'SettingsSheet', SettingsRow: 'SettingsRow', SettingsSearchResults: 'SettingsSearchResults', LanguageList: 'LanguageList', ShortcutTiles: 'ShortcutTiles'},
     '../../kit/artwork': {ProfileFace: 'ProfileFace'},
     '../../kit/shell/visual': {alpha,shellType: (fontSize: number, fontWeight: number) => ({fontSize, fontWeight})},
     '../../kit/theme': {useTheme: () => theme},
@@ -90,6 +90,10 @@ async function fixture(isTV = false) {
     './server/GeneralPage': {NativeServerGeneral: 'NativeServerGeneral'},
     './server/StreamingPage': {NativeServerStreaming: 'NativeServerStreaming'},
     './server/SegmentsPage': {NativeServerSegments: 'NativeServerSegments'},
+    './server/PeoplePage': {NativeServerPeople: 'NativeServerPeople'},
+    './server/SignInPage': {NativeServerSignIn: 'NativeServerSignIn'},
+    './server/MetadataPage': {NativeServerMetadata: 'NativeServerMetadata'},
+    './server/HistoryPage': {NativeServerHistory: 'NativeServerHistory'},
     './server/PhoneServerPageHeader': {PhoneServerPageHeader: 'PhoneServerPageHeader'},
     '../settings/remote-sources/NativeRemoteSourcesScreen': {NativeRemoteSourcesScreen: 'NativeRemoteSourcesScreen'},
     '../../platform/playback/equalizer': {nativeEqualizer},
@@ -99,7 +103,8 @@ async function fixture(isTV = false) {
     documents: ['profile-server', 'profile-device-class'].map(scope => ({scope, revision: 1, activeRevision: 1, digest: 'd'.repeat(64), values: {}})), effective: {'region.locale': 'en-US'}, effectiveSource: {'region.locale': 'default'}, clampedFields: []});
   const shellSnapshot = {profile: {id: 'profile', name: 'Example', initial: 'E', color: 'blue' as const}, account: {actions: [] as readonly unknown[]}};
   const runtime = {text: {get t() {const prefix = language; return (key: string) => `${prefix}/${key}`;}}, reportError: (error: unknown) => {throw error;}, subscribe: () => () => {}, getSnapshot: () => shellSnapshot};
-  const props = {runtime, ports: {context: {account: {account: {role: 'member'}, canManage: false}, serverName: 'Example', authority: () => ({serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'fence'}), navigation: {subscribe: () => () => {}, getSnapshot: () => ({revision: 0})}}, settingsContext: () => ({owner: false, platform: 'phone', capabilities: {localAccount: true}}), serverName: () => 'Example', renderSettingsPanel: () => null},
+  const settingsRoute = {revision: 0, route: {kind: 'shell', destination: {kind: 'settings'}}};
+  const props = {runtime, ports: {context: {current: () => true, account: {account: {role: 'member'}, canManage: false}, serverName: 'Example', authority: () => ({serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'fence'}), navigation: {subscribe: () => () => {}, getSnapshot: () => settingsRoute, isCurrent: () => true}}, settingsContext: () => ({owner: false, platform: 'phone', capabilities: {localAccount: true}}), serverName: () => 'Example', renderSettingsPanel: () => null},
     controller: {subscribe: () => () => {}, getSnapshot: () => ({preferences, busy: false, saved: 0}), lifetime: {authority: {}, current: () => true}},
     devicePreferences: {subscribe: () => () => {}, read: () => undefined}};
   return {setLanguage: (next: string) => {language = next;},

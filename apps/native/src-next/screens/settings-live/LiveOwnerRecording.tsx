@@ -16,6 +16,7 @@ import {appendRecordingPage, needsRuleOwner, rulePaddingChoice, rulePaddingFromC
 import type {AdminRule, DVRDefaults, DVRDocument, TunerAllocation, TunerView} from './recording-owner-model';
 import type {LiveSource} from './live-owner-model';
 import type {KeepPolicy} from './recording-owner-model';
+import {NativeAdvancedSection} from './server/AdvancedSection';
 
 const paddingChoices = [0, 60, 120, 300, 600, 900];
 const keepModes: readonly DVRDefaults['keepPolicy']['mode'][] = ['keep-all', 'keep-count', 'keep-days'];
@@ -294,10 +295,10 @@ function Permissions({policy, draft, runtime, onChange}: {policy: Readonly<{owne
 }
 
 function Defaults({draft, runtime, onChange}: {document: DVRDocument; draft: DVRDefaults; runtime: NativeShellRuntime; onChange: (value: DVRDefaults) => void}) {
-  const theme = useTheme(), t = runtime.text.t;
+  const theme = useTheme(), t = runtime.text.t, [advanced, setAdvanced] = useState(false);
   const patch = (value: Partial<DVRDefaults>) => onChange({...draft, ...value});
   const minutes = (ms: number | null) => String(Math.round((ms ?? 0) / 60000));
-  return <Section title={t('web.dvrSettings.defaults')} description={t('web.dvrSettings.defaultsLede')}>
+  return <Section title={t('web.dvrSettings.defaults')}>
     <View style={{gap: 12, backgroundColor: theme.colors.raised, borderRadius: 14, padding: 14}}>
       <Select testID="live-owner-padding-before" label={t('web.dvrSettings.startEarly')} description={t('web.dvrSettings.startEarlyHelp')} value={minutes(draft.prePaddingMs)} options={paddingChoices.map(value => ({value: minutes(value), label: value ? t('recordings.minutes', {count: value / 60}) : t('recordings.none')}))} onValueChange={value => patch({prePaddingMs: Number(value) * 60000})}/>
       <Select testID="live-owner-padding-after" label={t('web.dvrSettings.finishLate')} description={t('web.dvrSettings.finishLateHelp')} value={minutes(draft.postPaddingMs)} options={paddingChoices.map(value => ({value: minutes(value), label: value ? t('recordings.minutes', {count: value / 60}) : t('recordings.none')}))} onValueChange={value => patch({postPaddingMs: Number(value) * 60000})}/>
@@ -306,10 +307,13 @@ function Defaults({draft, runtime, onChange}: {document: DVRDocument; draft: DVR
         onValueChange={mode => patch({keepPolicy: {...draft.keepPolicy, mode: mode as DVRDefaults['keepPolicy']['mode']}})}/>
       {draft.keepPolicy.mode === 'keep-count' && <Select testID="live-owner-keep-count" label={t('web.dvrSettings.howMany')} value={String(draft.keepPolicy.keepCount)} options={[1, 3, 5, 10, 20].map(value => ({value: String(value), label: String(value)}))} onValueChange={value => patch({keepPolicy: {...draft.keepPolicy, keepCount: Number(value)}})}/>}
       {draft.keepPolicy.mode === 'keep-days' && <Select testID="live-owner-keep-days" label={t('web.dvrSettings.howManyDays')} value={String(draft.keepPolicy.keepDays)} options={[7, 14, 30, 60, 90].map(value => ({value: String(value), label: String(value)}))} onValueChange={value => patch({keepPolicy: {...draft.keepPolicy, keepDays: Number(value)}})}/>}
-      <Select testID="live-owner-after-recording" label={t('web.dvrSettings.afterRecording')} value={draft.conversion.mode} options={[{value: 'none', label: t('web.dvrSettings.leaveRecorded')}]} onValueChange={mode => patch({conversion: {...draft.conversion, mode}})}/>
-      {draft.folderTemplate ? <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{t('web.dvrSettings.folderShows')}: {draft.folderTemplate}</Text> : null}
-      {draft.movieFolderTemplate ? <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{t('web.dvrSettings.folderMovies')}: {draft.movieFolderTemplate}</Text> : null}
     </View>
+    <NativeAdvancedSection testID="live-owner-recording-advanced" open={advanced} onOpenChange={setAdvanced}>
+      <View style={{gap: 12, backgroundColor: theme.colors.raised, borderRadius: 14, padding: 14}}>
+        <TextField testID="live-owner-folder-shows" label={t('web.dvrSettings.folderShows')} value={draft.folderTemplate} maxLength={400} autoCapitalize="none" autoCorrect={false} onChangeText={folderTemplate => patch({folderTemplate})}/>
+        <TextField testID="live-owner-folder-movies" label={t('web.dvrSettings.folderMovies')} value={draft.movieFolderTemplate} maxLength={400} autoCapitalize="none" autoCorrect={false} onChangeText={movieFolderTemplate => patch({movieFolderTemplate})}/>
+      </View>
+    </NativeAdvancedSection>
   </Section>;
 }
 

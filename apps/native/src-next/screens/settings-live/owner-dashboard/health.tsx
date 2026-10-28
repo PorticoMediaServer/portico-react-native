@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {Text, useWindowDimensions, View} from 'react-native';
+import {Text, View} from 'react-native';
 import Svg, {Path} from 'react-native-svg';
 import {Segmented} from '../../../kit/controls';
 import {BottomSheet} from '../../../kit/overlays';
@@ -15,7 +15,7 @@ import {OWNER_HEALTH_WINDOWS, ownerHealthDetail, ownerHealthTiles, ownerHealthWi
 
 /** Health: the six real load tiles with their own recent history, and one tile opened on a true axis. */
 export function OwnerHealthSection({reading, error, window, onWindow, note, onRetry, t}: {reading?: TelemetryReading; error?: unknown; window: OwnerHealthWindow; onWindow: (window: OwnerHealthWindow) => void; note?: string; onRetry: () => void; t: Translate}) {
-  const theme = useTheme(), screen = useWindowDimensions().width, [opened, setOpened] = useState<string>();
+  const theme = useTheme(), [width, setWidth] = useState(0), [opened, setOpened] = useState<string>();
   const tiles = ownerHealthTiles(reading, t);
   const detail = opened && reading ? ownerHealthDetail(reading, opened as LoadTile['metric'], t) : undefined;
   const selectedTile = tiles.find(tile => tile.id === opened);
@@ -25,7 +25,7 @@ export function OwnerHealthSection({reading, error, window, onWindow, note, onRe
     {error !== undefined && !reading ? <OwnerCalm icon="i-gauge" tone="error" title={t('next.shell.activityError')} action={{label: t('next.shell.tryAgain'), onPress: onRetry}}/> : null}
     {!reading && error === undefined ? <OwnerCalm icon="i-gauge" title={t('next.states.loading')}/> : null}
     {reading && !tiles.length ? <OwnerCalm icon="i-gauge" title={t('server.health.loadNotMeasured')}/> : null}
-    {tiles.length ? <StatTiles testID="owner-health" tiles={tiles} width={screen - 32} mode="health" onTilePress={id => setOpened(id)}/> : null}
+    {tiles.length ? <View onLayout={event => setWidth(event.nativeEvent.layout.width)}>{width > 0 && <StatTiles testID="owner-health" tiles={tiles} width={width} mode="health" onTilePress={id => setOpened(id)}/>}</View> : null}
     {note && tiles.length ? <Text style={[shellType(13, 400, 18.85), {color: theme.colors.textTertiary, marginTop: 10, marginHorizontal: 4}]}>{note}</Text> : null}
     <BottomSheet open={Boolean(detail && selectedTile)} onOpenChange={open => {if (!open) setOpened(undefined);}} title={detail?.label} testID="owner-health-detail" fitContent>
       {detail ? <HealthChart detail={detail} t={t}/> : null}
@@ -34,7 +34,7 @@ export function OwnerHealthSection({reading, error, window, onWindow, note, onRe
 }
 
 function HealthChart({detail, t}: {detail: NonNullable<ReturnType<typeof ownerHealthDetail>>; t: Translate}) {
-  const theme = useTheme(), width = useWindowDimensions().width - 72, height = 170;
+  const theme = useTheme(), [width, setWidth] = useState(0), height = 170;
   const points = detail.points, first = points[0], last = points[points.length - 1];
   const x = (point: {t: number}) => last.t > first.t ? (point.t - first.t) / (last.t - first.t) * width : 0;
   const y = (value: number) => height - Math.max(0, Math.min(1, (value - detail.min) / Math.max(1e-9, detail.max - detail.min))) * height;
@@ -44,7 +44,7 @@ function HealthChart({detail, t}: {detail: NonNullable<ReturnType<typeof ownerHe
   const value = (amount: number) => percent ? `${Math.round(amount)}%` : detail.unit === 'rate' ? `${formatBytes(amount)}/s` : String(Math.round(amount));
   return <>
     <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 6}}><Text style={[shellType(34, 800, 'normal', -.03), {color: theme.colors.text}]}>{detail.value}</Text><Text style={[shellType(13, 600), {color: theme.colors.textTertiary}]}>{t('next.dashboard.nowValue')}</Text></View>
-    <View style={{height: height + 2, marginTop: 14}}>
+    <View onLayout={event => setWidth(event.nativeEvent.layout.width)} style={{height: height + 2, marginTop: 14}}>
       {axis.map((amount, index) => <View key={index} pointerEvents="none" style={{position: 'absolute', left: 0, right: 0, top: index === 0 ? 0 : index === 1 ? height / 2 : height, borderTopWidth: 1, borderTopColor: index === 2 ? theme.colors.line : theme.colors.lineSoft}}>
         <Text style={[shellType(11, 600), {color: theme.colors.textTertiary, position: 'absolute', right: 0, top: -14, backgroundColor: theme.colors.overlaySurface, paddingHorizontal: 3}]}>{value(amount)}</Text>
       </View>)}

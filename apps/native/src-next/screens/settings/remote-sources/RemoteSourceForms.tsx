@@ -1,14 +1,18 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {createContext, useCallback, useContext, useEffect, useRef, useState} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
-import {sourceReadPreset, sourceReadPresetName, type DAVConnectionResult, type RemoteState, type RemoteSource, type SourceReadPreset, type SourceReadSettings, type SourceReadValues} from '../../../../../../packages/client-core/src/remote-sources';
+import {type DAVConnectionResult, type RemoteState, type RemoteSource, type SourceReadPreset, type SourceReadSettings, type SourceReadValues, type SourceAdvancedSettings, type SourceChoiceApplyResult, type SourceChoiceIntent} from '../../../../../../packages/client-core/src/remote-sources';
+import {sourceChoiceAdopt, sourceChoiceCommand, sourceChoiceComparison, sourceChoiceResetDefinition, type SourceChoiceCommand, type SourceChoiceDefinition} from '../../../../../../packages/client-core/src/remote-source-choice';
 import {Button} from '../../../kit/controls/Button';
 import {TextField} from '../../../kit/controls/TextField';
 import {Switch} from '../../../kit/controls/Switch';
-import {Select} from '../../../kit/controls/Select';
 import {useTheme} from '../../../kit/theme';
 import type {NativeRemoteSourcesController} from './controller';
 import {SourceAnalysisConsent} from './SourceAnalysisConsent';
+import {SourceReadingControls} from './SourceReadingControls';
+import {ConnectionTestCard} from './ConnectionTestCard';
+import {connectionTestField} from './reading-presentation';
+import {LibraryGroup, LibraryRow} from '../../settings-live/owner-libraries/controls';
 
 type Translate = typeof defaultI18n.t;
 type Common = {controller: NativeRemoteSourcesController; t: Translate; onCancel: () => void; isCurrent: () => boolean};
@@ -35,15 +39,21 @@ export function useAttempt(parentCurrent: () => boolean) {
   return useCallback(() => live.current && parentCurrent(), [parentCurrent]);
 }
 
-export function Page({title, t, busy, onCancel, children, footer}: {title: string; t: Translate; busy: boolean; onCancel: () => void; children: React.ReactNode; footer: React.ReactNode}) {
-  const theme = useTheme();
+export const SourceWizardContext = createContext<Readonly<{step: number; back: () => void}> | undefined>(undefined);
+
+export function Page({title, t, busy, onCancel, children, footer, wizardStep, scrollable = true}: {title: string; t: Translate; busy: boolean; onCancel: () => void; children: React.ReactNode; footer: React.ReactNode; wizardStep?: number; scrollable?: boolean}) {
+  const theme = useTheme(), wizard = useContext(SourceWizardContext), step = wizardStep ?? wizard?.step;
   return <View style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <View style={{padding: 20, flexDirection: 'row', alignItems: 'center', gap: 16}}>
       <Button variant="text" size="small" disabled={busy} onPress={onCancel}>{t('next.remoteSources.cancel')}</Button>
       <Text accessibilityRole="header" style={[theme.type.bodyStrong, {color: theme.colors.text, flex: 1}]}>{title}</Text>
     </View>
-    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{padding: 20, gap: 16}}>{children}</ScrollView>
-    <View style={{padding: 20, borderTopWidth: 1, borderTopColor: theme.colors.line, gap: 12}}>{footer}</View>
+    {step !== undefined && <View style={{paddingHorizontal: 20, gap: 8}}>
+      <View style={{flexDirection: 'row', gap: 4}}>{[1, 2, 3, 4, 5].map(value => <View key={value} style={{flex: 1, height: 3, borderRadius: 2, backgroundColor: value <= step ? theme.colors.accentStrong : theme.colors.lineSoft}}/>)}</View><Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.stepOf', {step})}</Text></View>}
+    {scrollable ? <ScrollView keyboardShouldPersistTaps="handled" style={{flex: 1}} contentContainerStyle={{padding: 20, gap: 16}}>{children}</ScrollView> : <View style={{flex: 1, minHeight: 0, padding: 20}}>{children}</View>}
+    <View style={{padding: 20, borderTopWidth: 1, borderTopColor: theme.colors.line, gap: 12}}>
+      {wizard && step !== undefined && step > 1 && step < 5 && <Button variant="glass" disabled={busy} onPress={wizard.back}>{t('next.remoteSources.back')}</Button>}{footer}
+    </View>
   </View>;
 }
 
@@ -54,21 +64,21 @@ export function Problem({message}: {message?: string}) {
 
 /** The connection is a local draft. It is never copied into a store, receipt or persisted setting. */
 export function ConnectionEditor({controller, t, source, onCancel, onSaved, isCurrent}: Common & {source?: RemoteSource; onSaved: (source: RemoteSource) => void}) {
-  const theme = useTheme(), current = useAttempt(isCurrent), inFlight = useRef(false), revision = useRef(0), testedRevision = useRef(-1);
+  const theme = useTheme(), wizard = useContext(SourceWizardContext), current = useAttempt(isCurrent), inFlight = useRef(false), revision = useRef(0), testedRevision = useRef(-1);
   const [name, setName] = useState(source?.name ?? ''), [root, setRoot] = useState(''), [username, setUsername] = useState(''), [password, setPassword] = useState('');
   const [insecureLocal, setInsecureLocal] = useState(source?.insecureLocal ?? false), [busy, setBusy] = useState(false);
-  const [tested, setTested] = useState<DAVConnectionResult>(), [error, setError] = useState<string>();
+  const [tested, setTested] = useState<DAVConnectionResult>(), [error, setError] = useState<string>(), [errorField, setErrorField] = useState<'password'>(), [testing, setTesting] = useState(false);
   const changedConnection = !source || !!root || !!username || !!password;
   const input = () => ({name, root, username, password, insecureLocal});
-  const edit = (setter: (value: string) => void) => (value: string) => {revision.current++; setter(value); setTested(undefined); setError(undefined);};
+  const edit = (setter: (value: string) => void) => (value: string) => {revision.current++; setter(value); setTested(undefined); setError(undefined); setErrorField(undefined);};
   const test = async () => {
     if (inFlight.current || !current()) return;
     inFlight.current = true;
     const captured = revision.current, guard = () => current() && revision.current === captured;
-    setBusy(true); setError(undefined); setTested(undefined);
+    setBusy(true); setTesting(true); setError(undefined); setErrorField(undefined); setTested(undefined);
     try {const result = await controller.testConnection(input(), guard); if (guard()) {testedRevision.current = captured; setTested(result);}}
-    catch (problem) {if (guard()) setError(remoteSourceError(t, problem));}
-    finally {inFlight.current = false; if (current()) setBusy(false);}
+    catch (problem) {if (guard()) {const field = connectionTestField(problem); setErrorField(field); setError(field ? 'The storage rejected the sign-in. Check the user name and password.' : remoteSourceError(t, problem));}}
+    finally {inFlight.current = false; if (current()) {setBusy(false); setTesting(false);}}
   };
   const finish = () => {
     const state = controller.getSnapshot().sources;
@@ -95,16 +105,18 @@ export function ConnectionEditor({controller, t, source, onCancel, onSaved, isCu
   const ambiguous = receiptCheckRequired(controller.getSnapshot().sources);
   return <Page title={source?.name ?? t('next.remoteSources.add')} t={t} busy={busy} onCancel={onCancel}
     footer={ambiguous ? <Button onPress={() => {void recover();}} disabled={busy}>{t('next.remoteSources.checkResult')}</Button>
-      : <Button onPress={() => {void save();}} loading={busy} disabled={busy || !name.trim() || changedConnection && !tested}>{t('next.remoteSources.saveAndContinue')}</Button>}>
+      : <Button onPress={() => {void save();}} loading={busy} disabled={busy || !name.trim() || changedConnection && !tested}>{t(wizard ? 'next.remoteSources.continue' : 'next.remoteSources.saveAndContinue')}</Button>}>
+    {tested ? <LibraryGroup><LibraryRow first label={name} help={tested.origin} trailing={<Button variant="text" size="small" disabled={busy || ambiguous} onPress={() => {revision.current++; setTested(undefined); setError(undefined); setErrorField(undefined);}}>{t('web.selection.edit')}</Button>}/></LibraryGroup> : <>
     <TextField label={t('next.remoteSources.name')} value={name} onChangeText={edit(setName)} editable={!busy && !ambiguous} autoCorrect={false}/>
     {!!source?.origin && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{source.origin}</Text>}
     <TextField label={t('next.remoteSources.address')} value={root} onChangeText={edit(setRoot)} editable={!busy && !ambiguous} autoCapitalize="none" autoCorrect={false} keyboardType="url"/>
     <TextField label={t('next.remoteSources.username')} value={username} onChangeText={edit(setUsername)} editable={!busy && !ambiguous} autoCapitalize="none" autoCorrect={false} autoComplete="off"/>
-    <TextField label={t('next.remoteSources.password')} value={password} onChangeText={edit(setPassword)} editable={!busy && !ambiguous} secureTextEntry autoCapitalize="none" autoCorrect={false} autoComplete="off"/>
-    <Switch checked={insecureLocal} onCheckedChange={value => {revision.current++; setInsecureLocal(value); setTested(undefined);}} disabled={busy || ambiguous} variant="phone">{t('next.remoteSources.insecureLocal')}</Switch>
-    <Button variant="glass" onPress={() => {void test();}} disabled={busy || ambiguous || !name.trim() || !root.trim()}>{t(busy ? 'next.remoteSources.testing' : 'next.remoteSources.test')}</Button>
-    {tested && <Text style={[theme.type.body, {color: theme.colors.text}]}>{t(tested.rangeSupport === 'conditional' ? 'next.remoteSources.tested' : 'next.remoteSources.testedLimited', {origin: tested.origin})}</Text>}
-    <Problem message={error}/>
+    <TextField label={t('next.remoteSources.password')} error={errorField === 'password' ? error : undefined} value={password} onChangeText={edit(setPassword)} editable={!busy && !ambiguous} secureTextEntry autoCapitalize="none" autoCorrect={false} autoComplete="off"/>
+    <Switch checked={insecureLocal} onCheckedChange={value => {revision.current++; setInsecureLocal(value); setTested(undefined); setError(undefined); setErrorField(undefined);}} disabled={busy || ambiguous} variant="phone">{t('next.remoteSources.insecureLocal')}</Switch>
+    </>}
+    {!tested && !error && <Button variant="glass" onPress={() => {void test();}} disabled={busy || ambiguous || !name.trim() || !root.trim()}>{testing ? t('next.remoteSources.testing') : t('next.remoteSources.test')}</Button>}
+    <ConnectionTestCard testing={testing} result={tested} error={error} t={t} disabled={busy || ambiguous || !name.trim() || !root.trim()} onTestAgain={() => {void test();}}/>
+
   </Page>;
 }
 
@@ -121,61 +133,91 @@ export function sourceReadPresetLabel(t: Translate, preset: SourceReadPreset): s
   return t(presetLabels[presets.indexOf(preset)]);
 }
 
-export function ReadingEditor({controller, t, source, onCancel, onSaved, isCurrent}: Common & {source: RemoteSource; onSaved: () => void}) {
-  const current = useAttempt(isCurrent), inFlight = useRef(false);
-  const [profile, setProfile] = useState<SourceReadSettings>(), [values, setValues] = useState<SourceReadValues>();
-  const profileOwner = useRef<SourceReadSettings | undefined>(undefined), draftRevision = useRef(0);
-  const renderedRevision = draftRevision.current;
-  const ownsDraft = () => current() && profileOwner.current === profile && draftRevision.current === renderedRevision;
-  const [analysisConsent, setAnalysisConsent] = useState<boolean>(), [consentEdited, setConsentEdited] = useState(false);
-  const [connections, setConnections] = useState(''), [requests, setRequests] = useState(''), [speed, setSpeed] = useState('');
+export function ReadingEditor({controller, t, source, onCancel, onSaved, onAccepted, isCurrent}: Common & {source: RemoteSource; onSaved: (source: RemoteSource) => void; onAccepted?: (source: RemoteSource) => void}) {
+  const current = useAttempt(isCurrent), inFlight = useRef(false), wizard = useContext(SourceWizardContext);
+  const [profile, setProfile] = useState<SourceReadSettings>(), [advanced, setAdvanced] = useState<SourceAdvancedSettings>(), [values, setValues] = useState<SourceReadValues>();
+  const profileOwner = useRef<SourceReadSettings | undefined>(undefined), revision = useRef(0), renderedRevision = revision.current;
+  const owns = () => current() && profileOwner.current === profile && revision.current === renderedRevision;
+  const [consent, setConsent] = useState<boolean>(), [consentDirty, setConsentDirty] = useState(false);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string>();
-  const accept = (next: SourceReadSettings) => {
-    const {allowAdvancedMediaAnalysis, ...reading} = next.values;
-    profileOwner.current = next; draftRevision.current++;
-    setProfile(next); setValues(reading); setAnalysisConsent(allowAdvancedMediaAnalysis); setConsentEdited(false);
-    setConnections(String(reading.connections)); setRequests(String(reading.requestsPerSecond)); setSpeed(String(reading.bytesPerSecond / 1000000));
+  const [unknown, setUnknown] = useState<SourceChoiceIntent>();
+  const [accepted, setAccepted] = useState<{result: Exclude<SourceChoiceApplyResult, {kind: 'unknown'}>; command: SourceChoiceCommand}>();
+  const choiceOpening = useRef<AbortController | undefined>(undefined);
+  useEffect(() => {const opening = new AbortController(); choiceOpening.current = opening; return () => opening.abort();}, []);
+  const accept = (next: SourceReadSettings, nextAdvanced: SourceAdvancedSettings) => {
+    profileOwner.current = next; revision.current++; setProfile(next); setAdvanced(nextAdvanced); setValues(next.values);
+    setConsent(next.values.allowAdvancedMediaAnalysis); setConsentDirty(false);
   };
   const load = async () => {
     if (inFlight.current || !current()) return;
-    inFlight.current = true;
-    setBusy(true); setError(undefined);
-    try {const next = await controller.readProfile(source, current); if (current()) accept(next);}
-    catch (problem) {if (current()) setError(remoteSourceError(t, problem));}
+    inFlight.current = true; setBusy(true); setError(undefined);
+    try {
+      const [next, nextAdvanced] = await Promise.all([controller.readProfile(source, current), controller.readAdvanced(source, current)]);
+      if (current()) accept(next, nextAdvanced);
+    } catch (problem) {if (current()) setError(remoteSourceError(t, problem));}
     finally {inFlight.current = false; if (current()) setBusy(false);}
   };
-  useEffect(() => {void load(); /* one explicit read for this mounted source */
+  useEffect(() => {void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const select = (preset: SourceReadPreset) => {
-    if (inFlight.current || !profile || !ownsDraft()) return;
-    draftRevision.current++;
-    // Presets change reading controls only. The independent consent draft and its
-    // explicit-edit fact survive, so no preset can grant or revoke consent.
-    const next = sourceReadPreset(preset); setValues(next); setConnections(String(next.connections)); setRequests(String(next.requestsPerSecond)); setSpeed(String(next.bytesPerSecond / 1000000));
+  const matchingSource = async (settings: SourceReadSettings) => {
+    await controller.load();
+    if (!current()) return;
+    const state = controller.getSnapshot().sources;
+    return [state.receipt && !state.receipt.removed ? state.receipt.source : undefined, ...state.sources]
+      .find(row => row?.id === settings.sourceId && String(row.generation) === settings.generation);
   };
-  const edit = (setter: (value: string) => void) => (value: string) => {
-    if (inFlight.current || !current() || profileOwner.current !== profile) return;
-    draftRevision.current++; setter(value);
+  const adoptChoice = async (result: SourceChoiceApplyResult, command: SourceChoiceCommand) => {
+    if (!owns()) return;
+    if (result.kind === 'unknown') {setUnknown(result.intent); setError(remoteSourceError(t, result.error)); return;}
+    setUnknown(undefined); setAccepted({result, command});
+    if (result.kind !== 'applied') {setError(t('next.remoteSources.error.refreshFailed')); return;}
+    const nextSource = await matchingSource(result.settings);
+    if (!owns()) return;
+    if (!nextSource) {setError(t('next.remoteSources.error.refreshFailed')); return;}
+    onAccepted?.(nextSource);
   };
-  const changeConsent = (value: boolean) => {
-    if (inFlight.current || !ownsDraft() || typeof analysisConsent !== 'boolean') return;
-    draftRevision.current++; setAnalysisConsent(value); setConsentEdited(true);
+  // Choices write the exact offered Reading/Advanced pair. Dirty independent
+  // consent is resolved only by its explicit Save action below.
+  const select = async (offered: SourceChoiceDefinition) => {
+    if (inFlight.current || !owns() || !profile || !advanced || consentDirty || unknown || accepted || !choiceOpening.current) return;
+    const command = sourceChoiceCommand(profile, advanced, offered);
+    if (!command) return;
+    inFlight.current = true; setBusy(true); setError(undefined);
+    try {await adoptChoice(await controller.saveProfileStartChoice(profile, advanced, offered, {signal: choiceOpening.current.signal, isCurrent: owns, consentDirty: false}), command);}
+    catch (problem) {if (owns()) setError(remoteSourceError(t, problem));}
+    finally {inFlight.current = false; if (current()) setBusy(false);}
   };
-  const parsed = values && {...values, connections: Number(connections), requestsPerSecond: Number(requests), bytesPerSecond: Math.round(Number(speed) * 1000000)};
-  const valid = !!parsed && connections.trim() !== '' && requests.trim() !== '' && speed.trim() !== '' && Number.isSafeInteger(parsed.connections) && parsed.connections > 0 && parsed.connections <= 32
-    && Number.isSafeInteger(parsed.requestsPerSecond) && parsed.requestsPerSecond > 0 && parsed.requestsPerSecond <= 50 && Number.isSafeInteger(Number(speed)) && Number(speed) >= 0 && Number(speed) <= 1000 && Number.isSafeInteger(parsed.bytesPerSecond);
-  const save = async () => {
-    if (inFlight.current || !profile || !parsed || !valid || !ownsDraft()) return;
-    if (consentEdited && typeof analysisConsent !== 'boolean') return;
-    // Omission preserves the source's recorded consent. Only an explicit edit
-    // includes this field, beside the same original profile revision and values.
-    const consent = consentEdited ? analysisConsent : undefined;
-    const command = Object.freeze({...parsed, ...(typeof consent === 'boolean' ? {allowAdvancedMediaAnalysis: consent} : {})});
-    inFlight.current = true;
-    setBusy(true); setError(undefined);
-    try {await controller.saveProfile(profile, command, ownsDraft); if (ownsDraft()) onSaved();}
-    catch (problem) {if (ownsDraft()) setError(remoteSourceError(t, problem));}
+  const recoverChoice = async () => {
+    if (inFlight.current || !owns()) return;
+    inFlight.current = true; setBusy(true); setError(undefined);
+    try {
+      if (unknown) await adoptChoice(await controller.recoverStartChoice(unknown, owns), unknown.command);
+      else if (accepted) {
+        const next = await controller.reconcileChoiceProfile(source.id, owns);
+        if (!sourceChoiceAdopt(next, accepted.command, accepted.result.accepted)) throw {code: 'refresh_failed'};
+        const nextSource = await matchingSource(next);
+        if (owns() && nextSource) onAccepted?.(nextSource); else if (owns()) throw {code: 'refresh_failed'};
+      }
+    } catch (problem) {if (owns()) setError(remoteSourceError(t, problem));}
+    finally {inFlight.current = false; if (current()) setBusy(false);}
+  };
+  const save = async (stay = false) => {
+    if (inFlight.current || !profile || !values || !owns() || unknown || accepted || consentDirty && !stay) return;
+    // The read's own consent fact is dropped again here: an ordinary save omits
+    // the field, so it can neither grant nor revoke the recorded permission.
+    const {scanDepth, wholeFileReads, connections, requestsPerSecond, bytesPerSecond} = values;
+    const command = {scanDepth, wholeFileReads, connections, requestsPerSecond, bytesPerSecond,
+      ...(consentDirty && typeof consent === 'boolean' ? {allowAdvancedMediaAnalysis: consent} : {})};
+    inFlight.current = true; setBusy(true); setError(undefined);
+    try {
+      const next = await controller.saveProfile(profile, command, owns);
+      if (!owns()) return;
+      const nextSource = await matchingSource(next);
+      if (!owns()) return;
+      if (!nextSource) throw {code: 'refresh_failed'};
+      if (stay) onAccepted?.(nextSource); else onSaved(nextSource);
+    } catch (problem) {if (owns()) setError(remoteSourceError(t, problem));}
     finally {inFlight.current = false; if (current()) setBusy(false);}
   };
   const ambiguous = receiptCheckRequired(controller.getSnapshot().sources);
@@ -185,23 +227,25 @@ export function ReadingEditor({controller, t, source, onCancel, onSaved, isCurre
     try {
       await controller.recover();
       const state = controller.getSnapshot().sources;
-      if (state.ambiguous || !state.receipt) throw {code: state.errorCode};
+      if (state.ambiguous || !state.receipt || state.receipt.removed || state.receipt.source.id !== source.id) throw {code: state.errorCode};
       await controller.readProfile(state.receipt.source, current);
-      if (current()) onSaved();
+      if (current()) onAccepted?.(state.receipt.source);
     } catch (problem) {if (current()) setError(remoteSourceError(t, problem));}
     finally {inFlight.current = false; if (current()) setBusy(false);}
   };
+  const comparison = profile && sourceChoiceComparison(profile), reset = profile && sourceChoiceResetDefinition(profile);
+  const blocked = busy || ambiguous || !!unknown || !!accepted;
   return <Page title={t('next.remoteSources.reading')} t={t} busy={busy} onCancel={onCancel}
-    footer={ambiguous ? <Button onPress={() => {void recover();}} disabled={busy}>{t('next.remoteSources.checkResult')}</Button>
-      : <Button onPress={() => {void save();}} disabled={busy || !profile || !valid}>{t('next.remoteSources.save')}</Button>}>
-    {values && <>
-      <Select accessibilityLabel={t('next.remoteSources.readingMode')} value={parsed ? sourceReadPresetName(parsed) ?? 'custom' : 'custom'}
-        options={[...presets.map((value, i) => ({value, label: t(presetLabels[i])})), {value: 'custom', label: t('next.settingsSpec.server.remote-sources.panels.source.tabs.1.groups.0.rows.0.control.options.4.label'), disabled: true}]} disabled={busy}
-        onValueChange={value => {if (presets.includes(value as SourceReadPreset)) select(value as SourceReadPreset);}}/>
-      <SourceAnalysisConsent value={analysisConsent} disabled={busy || ambiguous} onChange={changeConsent} t={t}/>
-      <TextField label={t('next.remoteSources.connections')} value={connections} onChangeText={edit(setConnections)} editable={!busy} keyboardType="number-pad"/>
-      <TextField label={t('next.remoteSources.requestsPerSecond')} value={requests} onChangeText={edit(setRequests)} editable={!busy} keyboardType="number-pad"/>
-      <TextField label={`${t('next.remoteSources.downloadSpeed')} (${t('next.remoteSources.megabytesPerSecond')})`} value={speed} onChangeText={edit(setSpeed)} editable={!busy} keyboardType="number-pad" description={Number(speed) === 0 ? t('next.remoteSources.noLimit') : undefined}/>
+    footer={unknown || accepted ? <Button disabled={busy} onPress={() => {void recoverChoice();}}>{t('next.remoteSources.checkResult')}</Button>
+      : ambiguous ? <Button disabled={busy} onPress={() => {void recover();}}>{t('next.remoteSources.checkResult')}</Button>
+      : <Button disabled={busy || !profile || !values || consentDirty} onPress={() => {void save();}}>{t(wizard ? 'next.remoteSources.continue' : 'next.remoteSources.save')}</Button>}>
+    {profile && values && <>
+      <SourceReadingControls values={values} profile={profile} comparison={comparison} baseline={comparison ? profile.choiceBaseline?.reading : undefined} disabled={blocked} choicesDisabled={blocked || consentDirty || !advanced}
+        onSelect={offered => {void select(offered);}} t={t}
+        onLimit={(field, value) => {if (blocked || !owns()) return; revision.current++; setValues({...values, [field]: value});}}
+        onReset={reset ? () => {void select(reset);} : undefined}/>
+      <SourceAnalysisConsent value={consent} disabled={blocked} t={t} onChange={value => {if (!blocked && owns()) {revision.current++; setConsent(value); setConsentDirty(true);}}}/>
+      {consentDirty && <Button variant="glass" disabled={blocked} onPress={() => {void save(true);}}>Save analysis consent</Button>}
     </>}
     {!profile && !busy && <Button variant="glass" onPress={() => {void load();}}>{t('next.remoteSources.retry')}</Button>}
     <Problem message={error}/>

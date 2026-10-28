@@ -10,14 +10,16 @@ import {TextField} from '../../../kit/controls/TextField';
 import {useTheme} from '../../../kit/theme';
 import {shellType} from '../../../kit/shell/visual';
 import {LibraryGroup, LibraryRow, SectionTitle} from './controls';
-import {FolderExplorer} from './FolderExplorer';
+import {FolderSourcePicker, type LibraryFolderChoice} from './FolderSourcePicker';
+import type {NativeSettingsLivePorts} from '../ports';
+import type {NativeShellRuntime} from '../../../shell/runtime';
 import {ownerLibraryIntervals} from './presentation';
 
 export type FolderInput = Readonly<{path: string; name: string; classification: 'local' | 'network'; followSymlinks: boolean; intervalSeconds: number}>;
 
 /** One folder's own form: path, name, where it lives, links and how often it is checked (frame 21a). */
-export function AddFolderPage({api, serverName, source, expectedRevision, onSave, onCancel, busy, error}: {
-  api: LibraryContentApi; serverName: string; source?: InventorySource; expectedRevision?: number;
+export function AddFolderPage({api, serverName, source, expectedRevision, onSave, onCancel, busy, error, ports, runtime}: {
+  api: LibraryContentApi; serverName: string; ports?: NativeSettingsLivePorts; runtime?: NativeShellRuntime; source?: InventorySource; expectedRevision?: number;
   onSave: (input: SourceSettings) => void; onCancel: () => void; busy: boolean; error?: unknown;
 }) {
   const theme = useTheme(), t = defaultI18n.t;
@@ -25,6 +27,7 @@ export function AddFolderPage({api, serverName, source, expectedRevision, onSave
     [classification, setClassification] = useState<'local' | 'network'>(source?.classification === 'network' ? 'network' : 'local'),
     [follow, setFollow] = useState(source?.followSymlinks ?? false), [interval, setInterval] = useState(source?.intervalSeconds ?? 3600),
     [exploring, setExploring] = useState(false);
+  const [choice, setChoice] = useState<LibraryFolderChoice>({folders: source ? [{path: source.path, name: source.name || source.path}] : []});
   const valid = path.trim().length > 0 && expectedRevision !== undefined;
   return <View style={{flex: 1}}>
     <ScrollView contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 24}}>
@@ -52,9 +55,10 @@ export function AddFolderPage({api, serverName, source, expectedRevision, onSave
     </ScrollView>
     <View style={{flexDirection: 'row', gap: 10, paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderTopColor: theme.colors.lineSoft, backgroundColor: theme.colors.ink}}>
       <Button variant="glass" size="small" disabled={busy} onPress={onCancel}>{t('action.cancel')}</Button>
-      <Button size="small" loading={busy} disabled={!valid || busy} onPress={() => onSave({name: name.trim(), path: path.trim(), classification, followSymlinks: follow, intervalSeconds: interval, expectedRevision: expectedRevision ?? 0, acceptReplacement: false})} style={{flex: 1}}>{t('next.ownerLibraries.save')}</Button>
+      <Button size="small" loading={busy} disabled={!valid || busy} onPress={() => onSave({name: name.trim(), path: path.trim(), classification, followSymlinks: follow, intervalSeconds: interval, ...(choice.source ? {expectedRemoteSource: {sourceId: choice.source.id, generation: choice.source.generation}} : {}), expectedRevision: expectedRevision ?? 0, acceptReplacement: false})} style={{flex: 1}}>{t('next.ownerLibraries.save')}</Button>
     </View>
-    <FolderExplorer open={exploring} onOpenChange={setExploring} api={api} title={t('next.ownerLibraries.explorer.choose')} subtitle={t('next.ownerLibraries.explorer.subtitle', {server: serverName})} multiple={false}
-      chosen={path ? [{path, name: name || path}] : []} onUse={folders => {const folder = folders[0]; if (folder) {setPath(folder.path); if (!name) setName(folder.name);}}}/>
+    <FolderSourcePicker open={exploring} onOpenChange={setExploring} api={api} serverName={serverName} ports={ports} runtime={runtime} multiple={false}
+      chosen={choice} onUse={next => {const folder = next.folders[0]; if (folder) {setChoice(next); setPath(folder.path); if (!name) setName(folder.name); if (next.source) {setClassification('local'); setFollow(false);}}}}/>
+
   </View>;
 }

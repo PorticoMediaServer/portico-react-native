@@ -56,6 +56,12 @@ export type SidePanelProps = SurfaceProps & {
   logicalCanvas?: {width: number; height: number};
 };
 export type BottomSheetProps = SurfaceProps & {
+  /** A shell-root caller can retain the same content in its own window. */
+  host?: 'modal' | 'inline';
+  /** Inline Settings becomes an ordinary pane at wider widths without reparenting its edits. */
+  presentation?: 'sheet' | 'page';
+  /** Called once the closing surface has finished its exit and left the tree. */
+  onExited?: () => void;
   /** Visible heights in points, sorted by the component. The controlled detent is an index. */
   detents?: readonly number[];
   width?: number;

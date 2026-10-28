@@ -1,5 +1,5 @@
-import React, {useEffect, useMemo, useState} from 'react';
-import {Text, View} from 'react-native';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
+import {FlatList, Text, View} from 'react-native';
 import {browseServerFilesystem} from '../../../../../../packages/client-core/src/library-management';
 import type {FilesystemEntry, FilesystemPage} from '../../../../../../packages/client-core/src/administration';
 import type {LibraryContentApi} from '../../../../../../packages/client-core/src/library-content';
@@ -14,7 +14,8 @@ import {useTheme} from '../../../kit/theme';
 import {alpha, shellType} from '../../../kit/shell/visual';
 import {LibraryGroup, LibraryRow} from './controls';
 
-export type ExplorerFolder = Readonly<{path: string; name: string}>;
+import {appendExplorerPage, explorerEntries, toggleExplorerSelection, type ExplorerFolder, type ExplorerSelectionMode} from './folder-explorer-model';
+export type {ExplorerFolder} from './folder-explorer-model';
 
 export type FolderExplorerProps = Readonly<{
   open: boolean;
@@ -25,48 +26,63 @@ export type FolderExplorerProps = Readonly<{
   chosen: readonly ExplorerFolder[];
   onUse: (folders: readonly ExplorerFolder[]) => void;
   multiple?: boolean;
+  selectionMode?: ExplorerSelectionMode;
+  useLabel?: string;
   testID?: string;
 }>;
 
-/** The server's own disks, folders only (§ “the explorer lists only this server’s own disks”). */
-export function FolderExplorer({open, onOpenChange, api, title, subtitle, chosen, onUse, multiple = true, testID}: FolderExplorerProps) {
+/** The server's own disks. Restore may explicitly include readable files. */
+export function FolderExplorer({open, onOpenChange, api, title, subtitle, chosen, onUse, multiple = true, selectionMode = 'folders', useLabel, testID}: FolderExplorerProps) {
   const theme = useTheme(), t = defaultI18n.t;
   const [path, setPath] = useState(''), [page, setPage] = useState<FilesystemPage>(), [error, setError] = useState<unknown>(),
     [loading, setLoading] = useState(false), [hidden, setHidden] = useState(false), [picked, setPicked] = useState<readonly ExplorerFolder[]>(chosen), [editing, setEditing] = useState(false), [typed, setTyped] = useState(''), [retry, setRetry] = useState(0);
 
-  useEffect(() => {if (open) {setPicked(chosen); setPath(''); setError(undefined);}}, [open, chosen]);
+  const chosenRef = useRef(chosen); chosenRef.current = chosen;
+  const request = useRef<AbortController | undefined>(undefined), pending = useRef(false);
+  useEffect(() => {if (open) {setPicked(chosenRef.current); setPath(''); setError(undefined);}}, [open]);
 
   useEffect(() => {
     if (!open) return;
-    let alive = true;
-    setLoading(true); setError(undefined);
-    browseServerFilesystem(api, {path: path || undefined, showHidden: hidden, limit: 200})
-      .then(value => {if (alive) {setPage(value); setLoading(false); setTyped(value.path);}})
-      .catch(reason => {if (alive) {setError(reason); setLoading(false);}});
-    return () => {alive = false;};
-  }, [open, path, hidden, api, retry]);
+    const owned = new AbortController(); request.current = owned; pending.current = true;
+    setLoading(true); setError(undefined); setPage(undefined);
+    browseServerFilesystem(api, {path: path || undefined, showHidden: hidden, includeFiles: selectionMode === 'file-or-folder', limit: 200}, owned.signal)
+      .then(value => {if (!owned.signal.aborted && request.current === owned) {setPage(value); setTyped(value.path);}})
+      .catch(reason => {if (!owned.signal.aborted && request.current === owned) setError(reason);})
+      .finally(() => {if (!owned.signal.aborted && request.current === owned) {pending.current = false; setLoading(false);}});
+    return () => {owned.abort(); if (request.current === owned) request.current = undefined;};
+  }, [open, path, hidden, api, retry, selectionMode]);
 
   const loadMore = () => {
-    const cursor = page?.nextCursor;
-    if (!cursor) return;
-    setLoading(true);
-    browseServerFilesystem(api, {path: path || undefined, showHidden: hidden, cursor, limit: 200})
-      .then(value => setPage(current => current && value.path === current.path ? Object.freeze({...value, entries: Object.freeze([...current.entries, ...value.entries])}) : current), setError)
-      .finally(() => setLoading(false));
+    const owned = request.current, base = page, cursor = base?.nextCursor;
+    if (!owned || owned.signal.aborted || pending.current || !base || !cursor) return;
+    pending.current = true; setLoading(true); setError(undefined);
+    browseServerFilesystem(api, {path: path || undefined, showHidden: hidden, includeFiles: selectionMode === 'file-or-folder', cursor, limit: 200}, owned.signal)
+      .then(value => {
+        if (owned.signal.aborted || request.current !== owned) return;
+        const next = appendExplorerPage(base, value);
+        setPage(current => current === base ? next : current);
+      })
+      .catch(reason => {if (!owned.signal.aborted && request.current === owned) setError(reason);})
+      .finally(() => {if (!owned.signal.aborted && request.current === owned) {pending.current = false; setLoading(false);}});
   };
 
-  const folders = useMemo(() => (page?.entries ?? []).filter(entry => entry.kind === 'directory'), [page]);
+  const folders = useMemo(() => explorerEntries(page, selectionMode), [page, selectionMode]);
   const has = (folder: ExplorerFolder) => picked.some(value => value.path === folder.path);
-  const add = (folder: ExplorerFolder) => setPicked(current => multiple ? (current.some(value => value.path === folder.path) ? current.filter(value => value.path !== folder.path) : [...current, folder]) : [folder]);
+  const add = (folder: ExplorerFolder) => setPicked(current => toggleExplorerSelection(current, folder, multiple));
   const here = page?.path ? {path: page.path, name: page.path.split(page.separator).filter(Boolean).pop() ?? page.path} : undefined;
   const choose = (next: string) => {setEditing(false); setPath(next);};
   const use = () => {onUse(picked); onOpenChange(false);};
 
   return <BottomSheet open={open} onOpenChange={next => onOpenChange(next)} title={title} description={subtitle} testID={testID}
-    detents={[Math.round(theme.width * 1.55) > 760 ? 760 : Math.round(theme.width * 1.55)]} scrollable
+    detents={[Math.round(theme.width * 1.55) > 760 ? 760 : Math.round(theme.width * 1.55)]} scrollable={false}
     footer={<View style={{flexDirection: 'row', gap: 10}}><Button variant="glass" size="small" onPress={() => onOpenChange(false)}>{t('action.cancel')}</Button>
-      <Button size="small" disabled={!picked.length} onPress={use} style={{flex: 1}}>{t(picked.length === 1 ? 'next.ownerLibraries.explorer.useFolder' : 'next.ownerLibraries.explorer.useFolders', {count: picked.length})}</Button></View>}>
-    <View style={{gap: 12, paddingBottom: 8}}>
+      <Button size="small" disabled={!picked.length} onPress={use} style={{flex: 1}}>{useLabel ?? (selectionMode === 'file-or-folder' ? 'Use selected path' : t(picked.length === 1 ? 'next.ownerLibraries.explorer.useFolder' : 'next.ownerLibraries.explorer.useFolders', {count: picked.length}))}</Button></View>}>
+    <FlatList data={folders} keyExtractor={entry => entry.path} extraData={picked}
+      initialNumToRender={16} maxToRenderPerBatch={16} windowSize={7} keyboardShouldPersistTaps="handled"
+      contentContainerStyle={{paddingBottom: 8}}
+      renderItem={({item: entry, index}) => <ExplorerFolderRow entry={entry} first={index === 0} last={index === folders.length - 1}
+        checked={has(entry)} multiple={multiple} onOpen={() => entry.kind === 'directory' ? choose(entry.path) : add(entry)} onCheck={() => add(entry)}/>}
+      ListHeaderComponent={<View style={{gap: 12, paddingBottom: 8}}>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
         <Button variant="icon" size="xs" icon="i-left" accessibilityLabel={t('next.ownerLibraries.explorer.up')} disabled={!page?.parent || page.parent === page.path} onPress={() => page?.parent && choose(page.parent)}/>
         {editing ? <TextField focusId="owner-libraries-explorer-path" value={typed} onChangeText={setTyped} autoFocus returnKeyType="go" onSubmitEditing={() => {if (typed.trim()) choose(typed.trim());}} containerStyle={{flex: 1}} accessibilityLabel={t('next.ownerLibraries.explorer.path')} showSoftInputOnFocus/>
@@ -89,18 +105,15 @@ export function FolderExplorer({open, onOpenChange, api, title, subtitle, chosen
       </LibraryGroup>}
 
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 2}}>
-        <Text style={[shellType(13, 700), {color: theme.colors.textTertiary, flex: 1}]}>{t('next.ownerLibraries.explorer.folders')}</Text>
+        <Text style={[shellType(13, 700), {color: theme.colors.textTertiary, flex: 1}]}>{selectionMode === 'file-or-folder' ? 'Files and folders' : t('next.ownerLibraries.explorer.folders')}</Text>
         <Text style={[shellType(12.5, 600), {color: theme.colors.textTertiary}]}>{t('next.ownerLibraries.explorer.showHidden')}</Text>
         <Switch testID={testID ? `${testID}-hidden` : undefined} checked={hidden} accessibilityLabel={t('next.ownerLibraries.explorer.showHidden')} onCheckedChange={setHidden}/>
       </View>
 
-      <LibraryGroup>
-        {loading && !folders.length && <LibraryRow first label={t('next.ownerLibraries.explorer.reading')} value={undefined}/>}
-        {!loading && !folders.length && page && <LibraryRow first label={t('next.ownerLibraries.explorer.noFolders')}/>}
-        {folders.map((entry, index) => <ExplorerFolderRow key={entry.path} entry={entry} first={index === 0}
-          checked={has(entry)} multiple={multiple} onOpen={() => choose(entry.path)} onCheck={() => add({path: entry.path, name: entry.name})}/>)}
-        {page?.nextCursor ? <LibraryRow label={t('next.ownerLibraries.explorer.more')} first={!folders.length} onPress={loadMore}/> : null}
-      </LibraryGroup>
+      </View>}
+      ListEmptyComponent={page || loading ? <LibraryGroup><LibraryRow first label={loading ? t('next.ownerLibraries.explorer.reading') : selectionMode === 'file-or-folder' ? 'No files or folders here' : t('next.ownerLibraries.explorer.noFolders')}/></LibraryGroup> : null}
+      ListFooterComponent={<View style={{gap: 12, paddingTop: 8}}>
+        {page?.nextCursor ? <LibraryGroup><LibraryRow first label={t(loading ? 'next.ownerLibraries.explorer.reading' : 'next.ownerLibraries.explorer.more')} onPress={loading ? undefined : loadMore}/></LibraryGroup> : null}
 
       {page?.truncated && <Text style={[shellType(12.5, 500, 17.5), {color: theme.colors.textTertiary, paddingHorizontal: 4}]}>{t('next.ownerLibraries.explorer.truncated')}</Text>}
 
@@ -111,8 +124,8 @@ export function FolderExplorer({open, onOpenChange, api, title, subtitle, chosen
           <Icon name="i-folder" size={14}/><Text numberOfLines={1} style={[shellType(12.5, 600), {color: theme.colors.text, flexShrink: 1}]}>{folder.path}</Text><Icon name="i-x" size={12}/>
         </Focusable>)}</View>
       </View>}
-      <Text style={[shellType(12, 500, 17), {color: theme.colors.textTertiary, paddingHorizontal: 4}]}>{t('next.ownerLibraries.explorer.disksOnly')}</Text>
-    </View>
+      {selectionMode === 'folders' && <Text style={[shellType(12, 500, 17), {color: theme.colors.textTertiary, paddingHorizontal: 4}]}>{t('next.ownerLibraries.explorer.disksOnly')}</Text>}
+    </View>}/>
   </BottomSheet>;
 }
 
@@ -123,17 +136,17 @@ function ExplorerCheck({checked, onPress, label}: {checked: boolean; onPress: ()
   </Focusable>;
 }
 
-function ExplorerFolderRow({entry, first, checked, multiple, onOpen, onCheck}: {entry: FilesystemEntry; first: boolean; checked: boolean; multiple: boolean; onOpen: () => void; onCheck: () => void}) {
+function ExplorerFolderRow({entry, first, last, checked, multiple, onOpen, onCheck}: {entry: FilesystemEntry; first: boolean; last: boolean; checked: boolean; multiple: boolean; onOpen: () => void; onCheck: () => void}) {
   const theme = useTheme(), t = defaultI18n.t;
   const tag = entry.hidden ? t('next.ownerLibraries.explorer.hidden') : entry.symlink ? t('next.ownerLibraries.explorer.link') : !entry.readable ? t('next.ownerLibraries.explorer.noAccess') : undefined;
-  return <View style={{flexDirection: 'row', alignItems: 'center', minHeight: 50, paddingRight: 8, borderTopWidth: first ? 0 : 1, borderTopColor: theme.colors.lineSoft, opacity: entry.readable ? 1 : .55}}>
-    {multiple && entry.readable ? <View style={{paddingLeft: 12}}><ExplorerCheck checked={checked} label={entry.name} onPress={onCheck}/></View>
+  return <View style={{flexDirection: 'row', alignItems: 'center', minHeight: 50, paddingRight: 8, borderTopWidth: first ? 0 : 1, borderTopColor: theme.colors.lineSoft, backgroundColor: theme.colors.raised, borderTopLeftRadius: first ? 14 : 0, borderTopRightRadius: first ? 14 : 0, borderBottomLeftRadius: last ? 14 : 0, borderBottomRightRadius: last ? 14 : 0, overflow: 'hidden', opacity: entry.readable ? 1 : .55}}>
+    {(multiple || entry.kind === 'file') && entry.readable ? <View style={{paddingLeft: 12}}><ExplorerCheck checked={checked} label={entry.name} onPress={onCheck}/></View>
       : <View style={{width: 12}}/>}
     <Focusable accessibilityRole={entry.readable ? 'button' : 'text'} accessibilityLabel={entry.name} accessibilityHint={tag} disabled={!entry.readable} onPress={entry.readable ? onOpen : undefined} focusKind="row" focusRadius={8}
       style={{flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 10, paddingRight: 6, minHeight: 50}}>
-      <Icon name={entry.readable ? 'i-folder' : 'i-lock'} size={20} color={theme.colors.textSecondary}/>
+      <Icon name={!entry.readable ? 'i-lock' : entry.kind === 'file' ? 'i-note' : 'i-folder'} size={20} color={theme.colors.textSecondary}/>
       <Text numberOfLines={1} style={[shellType(15, 500), {color: theme.colors.text, flex: 1}]}>{entry.name}{tag ? <Text style={[shellType(11.5, 700), {color: theme.colors.textTertiary}]}>{`  ${tag}`}</Text> : null}</Text>
-      {entry.readable && <Icon name="i-right" size={16} color={theme.colors.lineStrong}/>}
+      {entry.readable && entry.kind === 'directory' && <Icon name="i-right" size={16} color={theme.colors.lineStrong}/>}
     </Focusable>
   </View>;
 }

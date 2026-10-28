@@ -3,12 +3,11 @@
  * A field this client cannot read is refused rather than guessed; the server's
  * own keys are the contract, so extra fields are ignored and never invented.
  */
-import {liveSourceAcquisition, type LiveSourceAcquisition} from '../../../../../packages/client-core/src/administration';
+import {liveSourceAcquisition, parseLiveSourceDocument, parseLiveDefaultsDocument, type LiveSourceAcquisition} from '../../../../../packages/client-core/src/administration';
 
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
 const text = (v: unknown, max = 4096): v is string => typeof v === 'string' && v.length <= max && !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(v);
 const count = (v: unknown, max = Number.MAX_SAFE_INTEGER): v is number => Number.isSafeInteger(v) && Number(v) >= 0 && Number(v) <= max;
-const signed = (v: unknown, min = -Number.MAX_SAFE_INTEGER, max = Number.MAX_SAFE_INTEGER): v is number => Number.isSafeInteger(v) && Number(v) >= min && Number(v) <= max;
 const flag = (v: unknown): v is boolean => typeof v === 'boolean';
 const oneOf = <T extends string>(v: unknown, values: readonly T[]): v is T => typeof v === 'string' && (values as readonly string[]).includes(v);
 const strings = (v: unknown, max: number): v is string[] => Array.isArray(v) && v.length <= max && v.every(item => text(item, 512));
@@ -88,6 +87,7 @@ export function parseLiveSources(v: unknown, serverId: string): LiveSources {
 
 export type FilterRule = Readonly<{mode: 'include' | 'exclude'; values: readonly string[]}>;
 export type LiveDefaults = Readonly<{
+  timeshiftMinutes?: 10 | 30 | 60 | 120;
   importLimits: Readonly<{bytes: number; channels: number; programmes: number}>;
   streamBufferMs: number; retryWindowMs: number; userAgent: string; guideDays: number; logoImport: boolean; discoveryEnabled: boolean;
 }>;
@@ -107,47 +107,12 @@ export type LiveSourceDocument = Readonly<{
   acquisition?: LiveSourceAcquisition;
 }>;
 
-const limits = (v: unknown): Readonly<{bytes: number; channels: number; programmes: number}> => {
-  if (!object(v)) invalid();
-  if (!count(v.bytes, 1 << 30) || !count(v.channels, 100000) || !count(v.programmes, 10000000)) invalid();
-  return Object.freeze({bytes: v.bytes, channels: v.channels, programmes: v.programmes});
-};
-const defaults = (v: unknown): LiveDefaults => {
-  if (!object(v)) invalid();
-  const importLimits = limits(v.importLimits);
-  if ( !count(v.streamBufferMs, 120000) || !count(v.retryWindowMs, 3600000) || !text(v.userAgent, 200) || !count(v.guideDays, 14) || !flag(v.logoImport) || !flag(v.discoveryEnabled)) invalid();
-  return Object.freeze({importLimits, streamBufferMs: v.streamBufferMs, retryWindowMs: v.retryWindowMs, userAgent: v.userAgent, guideDays: v.guideDays, logoImport: v.logoImport, discoveryEnabled: v.discoveryEnabled});
-};
-const filter = (v: unknown): FilterRule => {
-  if (!object(v) || !oneOf(v.mode, ['include', 'exclude'] as const) || !strings(v.values, 200)) invalid();
-  return Object.freeze({mode: v.mode, values: Object.freeze([...v.values])});
-};
-const settings = (v: unknown): LiveSourceSettings => {
-  if (!object(v) || !strings(v.enabledGroups, 2000) || !strings(v.enabledChannels, 2000) || !text(v.kind, 64) || !text(v.userAgent, 200)) invalid();
-  const buffer = v.streamBufferMs === null ? null : count(v.streamBufferMs, 120000) ? v.streamBufferMs : invalid();
-  const retry = v.retryWindowMs === null ? null : count(v.retryWindowMs, 3600000) ? v.retryWindowMs : invalid();
-  if (!object(v.filters) || !object(v.logoImport) || !flag(v.logoImport.enabled) || !flag(v.logoImport.overwriteExisting) || !object(v.channelNumbering) || !oneOf(v.channelNumbering.mode, ['source', 'sequential'] as const)) invalid();
-  if (!count(v.channelNumbering.startAt, 100000) || !count(v.channelNumbering.step, 10000) || !text(v.guideSourceId, 64)) invalid();
-  const own = v.importLimits === null || v.importLimits === undefined ? null : limits(v.importLimits);
-  return Object.freeze({
-    enabledGroups: Object.freeze([...v.enabledGroups]), enabledChannels: Object.freeze([...v.enabledChannels]), kind: v.kind,
-    streamBufferMs: buffer, retryWindowMs: retry, userAgent: v.userAgent,
-    filters: Object.freeze({categories: filter(v.filters.categories), countries: filter(v.filters.countries), keywords: filter(v.filters.keywords)}),
-    logoImport: Object.freeze({enabled: v.logoImport.enabled, overwriteExisting: v.logoImport.overwriteExisting}),
-    channelNumbering: Object.freeze({mode: v.channelNumbering.mode, startAt: v.channelNumbering.startAt, step: v.channelNumbering.step}),
-    guideSourceId: v.guideSourceId, importLimits: own,
-  });
-};
+/** Keep the server envelope check here; all document validation belongs to client-core. */
 export function parseSourceDocument(v: unknown, serverId: string): LiveSourceDocument {
-  const body = adminResult(v, serverId, true);
-  if (!text(body.sourceId, 64) || !text(body.sourceName, 512) || !count(body.revision) || !strings(body.availableKinds, 16) || !count(body.tunerCount, 256)) invalid();
-  const acquisition = liveSourceAcquisition(body.acquisition);
-  return Object.freeze({sourceId: body.sourceId, sourceName: body.sourceName, revision: body.revision, digest: text(body.digest, 128) ? body.digest : '', settings: settings(body.settings), effective: defaults(body.effective), availableKinds: Object.freeze([...body.availableKinds]), tunerCount: body.tunerCount, ...(acquisition ? {acquisition} : {})});
+  return parseLiveSourceDocument(adminResult(v, serverId, true));
 }
 export function parseLiveDefaults(v: unknown, serverId: string): Readonly<{revision: number; settings: LiveDefaults}> {
-  const body = adminResult(v, serverId, true);
-  if (!count(body.revision) || !object(body.settings)) invalid();
-  return Object.freeze({revision: body.revision, settings: defaults(body.settings)});
+  return parseLiveDefaultsDocument(adminResult(v, serverId, true));
 }
 
 export type ChannelMapEntry = Readonly<{channelId: string; name: string; sourceNumber: string; number: string; group: string; guideChannelId: string; hidden: boolean; overridden: boolean; position: number}>;

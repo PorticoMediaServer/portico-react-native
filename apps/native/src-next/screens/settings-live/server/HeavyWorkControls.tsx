@@ -11,10 +11,15 @@ import {useTheme} from '../../../kit/theme';
 import {patchHeavyWork, readHeavyWork, type HeavyWorkRow} from './heavy-work';
 
 /** The revisioned maintenance form owns saving; these rows only edit its heavy-work draft. */
-export function HeavyWorkControls({form, state, t}: {
+export function HeavyWorkControls({form, state, t, placement = 'all', open, onOpenChange, customDraft: parentCustomDraft, onCustomDraftChange}: {
   form: DraftForm<MaintenanceSettings, MaintenanceDocument>;
   state: FormState<MaintenanceSettings, MaintenanceDocument>;
   t: typeof defaultI18n.t;
+  placement?: 'all' | 'main' | 'advanced';
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  customDraft?: MaintenanceSettings;
+  onCustomDraftChange?: (draft: MaintenanceSettings | undefined) => void;
 }) {
   const theme = useTheme();
   const [advanced, setAdvanced] = useState(false), [customDraft, setCustomDraft] = useState<MaintenanceSettings>();
@@ -24,10 +29,11 @@ export function HeavyWorkControls({form, state, t}: {
   if (mode === undefined) return null;
   // Custom is an editing intent as well as a derived mode: enabling an existing
   // overnight-shaped window must allow its actual fields to be edited unchanged.
-  const editingCustom = mode === 'custom' || customDraft === draft;
+  const editingCustom = mode === 'custom' || (onCustomDraftChange ? parentCustomDraft : customDraft) === draft;
   const change = (id: HeavyWorkRow, value: unknown) => {
     form.set(current => patchHeavyWork(current, id, value));
-    setCustomDraft(id === 'general.heavyWork' ? value === 'custom' ? form.getSnapshot().draft : undefined : editingCustom ? form.getSnapshot().draft : undefined);
+    const next = id === 'general.heavyWork' ? value === 'custom' ? form.getSnapshot().draft : undefined : editingCustom ? form.getSnapshot().draft : undefined;
+    setCustomDraft(next); onCustomDraftChange?.(next);
   };
   const select = (id: HeavyWorkRow, value: unknown, disabled = false) => {
     const row = settingsRowIndex.get(id)!.row;
@@ -35,16 +41,16 @@ export function HeavyWorkControls({form, state, t}: {
       value={String(value)} disabled={disabled || state.saving} style={{marginTop: 12}}
       options={(row.control.options ?? []).map(option => ({value: String(option.value), label: t(option.label), description: option.hint ? t(option.hint) : undefined}))}
       onValueChange={next => {
-        if (id === 'general.heavyWork' && next === 'custom') setAdvanced(true);
+        if (id === 'general.heavyWork' && next === 'custom') {setAdvanced(true); onOpenChange?.(true);}
         change(id, next);
       }}/>;
   };
   const dayRow = settingsRowIndex.get('general.heavyDays')!.row;
   const days = readHeavyWork(draft, 'general.heavyDays') as Readonly<Record<string, string>>;
   return <View>
-    {select('general.heavyWork', editingCustom ? 'custom' : mode)}
-    <Button testID="server-general-heavy-advanced" variant="glass" size="compact" style={{marginTop: 12}} trailingIcon={advanced ? 'i-up' : 'i-down'} onPress={() => setAdvanced(value => !value)}>{t('settings.section.advanced')}</Button>
-    {advanced && <>
+    {placement !== 'advanced' && select('general.heavyWork', editingCustom ? 'custom' : mode)}
+    {placement === 'all' && <Button testID="server-general-heavy-advanced" variant="glass" size="compact" style={{marginTop: 12}} trailingIcon={(open ?? advanced) ? 'i-up' : 'i-down'} onPress={() => {setAdvanced(!(open ?? advanced)); onOpenChange?.(!(open ?? advanced));}}>{t('settings.section.advanced')}</Button>}
+    {placement !== 'main' && (placement === 'advanced' || (open ?? advanced)) && <>
       {select('general.heavyStart', readHeavyWork(draft, 'general.heavyStart'), !editingCustom)}
       {select('general.heavyLength', readHeavyWork(draft, 'general.heavyLength'), !editingCustom)}
       <Text style={[shellType(17, 800), {color: theme.colors.text, marginTop: 18}]}>{t(dayRow.label)}</Text>

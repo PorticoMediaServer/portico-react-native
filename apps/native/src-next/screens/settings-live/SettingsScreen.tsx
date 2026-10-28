@@ -22,7 +22,7 @@ import {nextIcons} from '../../../../../packages/design/src/next-icons';
 import {Button, Focusable, Select, Switch, TextField} from '../../kit/controls';
 import {FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {Icon, type IconName} from '../../kit/Icon';
-import {SettingsRow, SettingsSearchResults, LanguageList, ShortcutTiles, type LanguageOption} from '../../kit/shell';
+import {SettingsRow, SettingsSheet, SettingsSearchResults, LanguageList, ShortcutTiles, type LanguageOption} from '../../kit/shell';
 import {ProfileFace} from '../../kit/artwork';
 import {shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
@@ -57,6 +57,10 @@ import {NativeServerGeneral} from './server/GeneralPage';
 import {NativeRemoteAccessPage} from './server/RemoteAccessPage';
 import {NativeServerStreaming} from './server/StreamingPage';
 import {NativeServerSegments} from './server/SegmentsPage';
+import {NativeServerPeople} from './server/PeoplePage';
+import {NativeServerSignIn} from './server/SignInPage';
+import {NativeServerMetadata} from './server/MetadataPage';
+import {NativeServerHistory} from './server/HistoryPage';
 import {PhoneServerPageHeader} from './server/PhoneServerPageHeader';
 import {NativeRemoteSourcesScreen} from '../settings/remote-sources/NativeRemoteSourcesScreen';
 import {NativeDashboardScreen} from './DashboardScreen';
@@ -81,6 +85,20 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const theme = useTheme(), t = runtime.text.t, registry = useFocusRegistry(), insets = useSafeAreaInsets();
   const shell = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  const navigation = ports.context.navigation, route = useSyncExternalStore(navigation.subscribe, navigation.getSnapshot);
+  const opening = useMemo(() => ({retired: false, controller, runtime, context: ports.context, route: route.route, revision: route.revision}), [controller, runtime, ports.context, route.route, route.revision]);
+  const openingRef = useRef(opening);
+  if (openingRef.current !== opening) openingRef.current.retired = true;
+  openingRef.current = opening;
+  useLayoutEffect(() => {opening.retired = false; return () => {opening.retired = true;};}, [opening]);
+  const routeCurrent = useCallback(() => {
+    const owns = () => !opening.retired && openingRef.current === opening && !runtime.retirementSignal?.aborted;
+    if (!owns() || !controller.lifetime.current() || !owns() || !ports.context.current() || !owns() || !navigation.isCurrent() || !owns()) return false;
+    const now = navigation.getSnapshot();
+    // The trusted renderer may also draw Settings as a denied server-page fallback.
+    // Match its actual original route; do not assume every such opening is a shell destination.
+    return owns() && now.route === route.route && now.revision === route.revision && controller.lifetime.current() && owns();
+  }, [controller, runtime, ports.context, navigation, route.route, route.revision, opening]);
   const structure = settingsStructure(ports.settingsContext());
   const accountPages = useMemo(() => structure.headings.find(heading => heading.id === 'account')?.pages ?? [], [structure]);
   const managesServer = ports.context.account.account.role === 'owner';
@@ -136,23 +154,33 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
     const choice = control && (control.type === 'select' || control.type === 'segmented') ? control.options?.find(value => String(value.value) === code) : undefined;
     return choice ? t(choice.label) : undefined;
   }, [awayLimit, t]);
-  // settings.html wins over the structure's group order. Only pages whose real native
-  // renderer is mounted here are listed; the rest land with their owners.
+  // settings.html wins over the structure's group order. Every listed page has
+  // a native renderer. The shared structure predates its Sign-in entry.
   const serverPages = useMemo(() => {
     if (theme.isTV) return [];
-    const pages = (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'dashboard' || value.id === 'libraries' || value.id === 'storage' || value.id === 'troubleshooting' || managesServer && (value.id === 'general' || value.id === 'remote' || value.id === 'live' || value.id === 'integrations' || value.id === 'segments' || value.id === 'remote-sources' || value.id === 'streaming'));
+    const pages = (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'dashboard' || value.id === 'libraries' || value.id === 'storage' || value.id === 'troubleshooting' || managesServer && (value.id === 'general' || value.id === 'history' || value.id === 'metadata' || value.id === 'people' || value.id === 'remote' || value.id === 'live' || value.id === 'integrations' || value.id === 'segments' || value.id === 'remote-sources' || value.id === 'streaming'));
+    const signIn = settingsSpec.find(value => value.scope === 'server' && value.id === 'signin');
+    if (managesServer && ports.context.account.capabilities.manageSignIn && signIn) pages.push({id: 'signin', title: signIn.title, icon: signIn.icon as SettingsPage['icon'], sections: []});
     return [...pages].sort((a, b) => {
       const left = serverPageOrder.indexOf(a.id), right = serverPageOrder.indexOf(b.id);
       return (left < 0 ? serverPageOrder.length : left) - (right < 0 ? serverPageOrder.length : right);
     });
-  }, [structure, theme.isTV, managesServer]);
+  }, [structure, theme.isTV, managesServer, ports]);
   // phone-app 8 omits the profile row because the drawn profile card replaces it.
   const phoneAccountOrder = ['playback', 'reading', 'languages', 'quality', 'music', 'appearance', 'region', 'privacy', 'device'];
   const tabletAccountOrder = ['profile', 'privacy', 'playback', 'reading', 'languages', 'quality', 'music', 'appearance', 'region', 'device'];
   const tabletAccountClusters: readonly (readonly string[])[] = [['profile', 'privacy'], ['playback', 'reading', 'languages', 'quality', 'music'], ['appearance', 'region', 'device']];
-  const tabletServerClusters: readonly (readonly string[])[] = [['general', 'dashboard'], ['libraries', 'remote-sources', 'segments'], ['live', 'remote', 'integrations'], ['streaming', 'storage', 'troubleshooting']];
+  const tabletServerClusters: readonly (readonly string[])[] = [['general', 'dashboard', 'history'], ['libraries', 'remote-sources', 'metadata', 'segments'], ['live', 'people', 'signin', 'remote', 'integrations'], ['streaming', 'storage', 'troubleshooting']];
   const tabletDefaultPage = accountPages.some(value => value.id === 'playback') ? 'playback' : accountPages[0]?.id;
-  const [selected, setSelected] = useState(() => !theme.isTV && !compact ? tabletDefaultPage : accountPages[0]?.id), [query, setQuery] = useState(''), [pushed, setPushed] = useState(false);
+  const [selected, setSelected] = useState(() => !theme.isTV && !compact ? tabletDefaultPage : accountPages[0]?.id), [query, setQuery] = useState(''), [pushed, setPushed] = useState(!theme.isTV && !compact);
+  // Once the wide pane is visible, shrinking keeps that same editor on screen.
+  // Explicit phone Back still returns to the hub and releases its page normally.
+  useLayoutEffect(() => {if (!theme.isTV && !compact) setPushed(true);}, [compact, theme.isTV]);
+  const pageState = useRef({selected, pushed, compact, television: theme.isTV});
+  pageState.current = {selected, pushed, compact, television: theme.isTV};
+  const viewCurrent = useCallback(() => routeCurrent() && pageState.current.selected === selected && pageState.current.pushed === pushed
+    && pageState.current.compact === compact && pageState.current.television === theme.isTV, [routeCurrent, selected, pushed, compact, theme.isTV]);
+  const popPage = () => {if (!viewCurrent()) return; pageState.current = {...pageState.current, pushed: false}; setPushed(false);};
   // tv-more frame 22: the list keeps the spec's three groups, in the drawn order; Reading is not on TV.
   const tvPageOrder = ['profile', 'privacy', 'playback', 'languages', 'quality', 'music', 'appearance', 'region', 'device'];
   const tvPageGroups: readonly (readonly string[])[] = [['profile', 'privacy'], ['playback', 'languages', 'quality', 'music'], ['appearance', 'region', 'device']];
@@ -168,9 +196,9 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
     if (rest.length) groups.push(rest);
     return groups;
   };
-  const pageRow = (value: SettingsPage) => <Focusable key={value.id} focusId={value.id} testID={`settings-page-${value.id}`} accessibilityRole="button" accessibilityLabel={t(value.title)} accessibilityState={{selected: value.id === page.id}} onFocus={theme.isTV ? () => setSelected(value.id) : undefined} onPress={() => choose(value.id)} focusKind="row" focusRadius={14} style={{minHeight: theme.isTV ? 56 : 48, paddingHorizontal: 20, gap: 18, borderRadius: 14, flexDirection: 'row', alignItems: 'center', backgroundColor: value.id === page.id && !compact ? `${theme.colors.accent}29` : 'transparent'}}>
+  const pageRow = (value: SettingsPage) => <Focusable key={value.id} focusId={value.id} testID={`settings-page-${value.id}`} accessibilityRole="button" accessibilityLabel={t(value.title)} accessibilityState={{selected: value.id === page.id}} onFocus={theme.isTV ? () => setSelected(value.id) : undefined} onPress={() => choose(value.id)} focusKind="row" focusRadius={14} style={{minHeight: theme.isTV ? 56 : compact ? 44 : 48, paddingVertical: compact ? 6 : undefined, paddingHorizontal: compact ? 14 : 20, gap: compact ? 12 : 18, borderRadius: 14, flexDirection: 'row', alignItems: 'center', backgroundColor: value.id === page.id && !compact ? `${theme.colors.accent}29` : 'transparent'}}>
     {theme.isTV && value.id === page.id && <View pointerEvents="none" style={{position: 'absolute', left: 0, top: 14, bottom: 14, width: 4, borderRadius: 2, backgroundColor: theme.colors.accent}}/>}
-    <Icon name={nativeSettingsIcon(value.icon)} size={theme.isTV ? 24 : 18} color={theme.isTV ? value.id === page.id ? theme.colors.accentStrong : theme.colors.textTertiary : undefined}/><Text style={[shellType(theme.isTV ? 22 : 15.5), {color: theme.isTV && value.id !== page.id ? theme.colors.textSecondary : theme.colors.text}]}>{t(value.title)}</Text>
+    <View style={compact ? {width: 30, height: 30, borderRadius: 8, backgroundColor: theme.colors.raisedBright, alignItems: 'center', justifyContent: 'center'} : undefined}><Icon name={nativeSettingsIcon(value.icon)} size={theme.isTV ? 24 : 18} color={theme.isTV ? value.id === page.id ? theme.colors.accentStrong : theme.colors.textTertiary : compact ? theme.colors.textSecondary : undefined}/></View><Text style={[shellType(theme.isTV ? 22 : 15.5), {color: theme.isTV && value.id !== page.id ? theme.colors.textSecondary : theme.colors.text, flex: 1}]}>{t(value.title)}</Text>{compact && <Icon name="i-right" size={18} color={theme.colors.lineStrong}/>}
   </Focusable>;
   const [searching, setSearching] = useState(false), [searchRevision, setSearchRevision] = useState(0);
   const trackSearchFocus = theme.isTV && searching;
@@ -204,28 +232,36 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const remoteBack = useRef<(() => boolean) | undefined>(undefined);
   const setRemoteBack = useCallback((handler: (() => boolean) | undefined) => {remoteBack.current = handler;}, []);
   const back = useCallback(() => {
+    if (!viewCurrent()) return false;
     if (remoteSourcesPage) {
       if (remoteBack.current?.()) return true;
-      setPushed(false);
-      if (theme.width >= 600 && accountPages[0]) setSelected(accountPages[0].id);
+      pageState.current = {...pageState.current, pushed: false}; setPushed(false);
+      if (theme.width >= 600 && accountPages[0]) {pageState.current = {...pageState.current, selected: accountPages[0].id}; setSelected(accountPages[0].id);}
       return true;
     }
     if (searching) {setSearching(false); setQuery(''); setRestoreRevision(value => value + 1); return true;}
     if (registry.capture()?.regionId === rows && page) return registry.focus({regionId: column, childId: page.id});
-    if (page && page.id !== accountPages[0]?.id) {setSelected(accountPages[0].id); registry.focus({regionId: column, childId: accountPages[0].id}); return true;}
+    if (page && page.id !== accountPages[0]?.id) {pageState.current = {...pageState.current, selected: accountPages[0].id}; setSelected(accountPages[0].id); registry.focus({regionId: column, childId: accountPages[0].id}); return true;}
     return false;
-  }, [registry, column, rows, page, accountPages, searching, remoteSourcesPage, theme.width]);
+  }, [registry, column, rows, page, accountPages, searching, remoteSourcesPage, theme.width, viewCurrent]);
   const account = ports.context.account.account;
   const signedIn = account.hostedAccountId
     ? t('settings.signedInWithAccount', {server: ports.serverName()})
     : t('settings.signedInAs', {server: ports.serverName(), username: account.username});
   // The drawn sheet heads the profile, then the routes this build can really open.
   const unreadNotifications = shell.unreadNotificationCount ?? 0;
-  const sheetShortcuts = shell.account.actions.filter(action => action.id !== 'settings').map(action =>
-    action.id === 'notifications' && unreadNotifications > 0
-      ? {...action, trailing: <Text style={[shellType(11, 700), {color: theme.colors.ink}]}>{defaultI18n.number(unreadNotifications)}</Text>}
-      : action);
-  const closeSettings = () => {controller.lifetime.assert(); ports.context.navigation.back(ports.context.authority());};
+  const sheetShortcuts = shell.account.actions.filter(action => action.id !== 'settings').map(action => ({...action,
+    onPress: () => {if (viewCurrent()) action.onPress();},
+    ...(action.id === 'notifications' && unreadNotifications > 0 ? {trailing: <Text style={[shellType(11, 700), {color: theme.colors.ink}]}>{defaultI18n.number(unreadNotifications)}</Text>} : {}),
+  }));
+  // The compact sheet leaves through its own exit first; Back follows once it has gone.
+  const [closing, setClosing] = useState(false), closingRef = useRef(false);
+  const closeSettings = () => {
+    if (!viewCurrent() || closingRef.current) return;
+    if (!compact) {navigation.back(ports.context.authority()); return;}
+    closingRef.current = true; setClosing(true);
+  };
+  const finishClose = () => {if (closingRef.current && viewCurrent()) navigation.back(ports.context.authority());};
   // A pushed Server page covers the shell chrome, as the frames draw it; phone only.
   useEffect(() => {
     setNativeScreenChromeHidden('settings-sheet', compact);
@@ -243,26 +279,27 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const generalPage = !theme.isTV && page.id === 'general';
   const streamingPage = !theme.isTV && page.id === 'streaming';
   const segmentsPage = !theme.isTV && page.id === 'segments';
+  const peoplePage = !theme.isTV && page.id === 'people';
+  const signInPage = !theme.isTV && page.id === 'signin';
+  const metadataPage = !theme.isTV && page.id === 'metadata';
+  const historyPage = !theme.isTV && page.id === 'history';
   const remoteAccessPage = !theme.isTV && page.id === 'remote';
   // Medium and expanded Settings draw the owner Dashboard as a Settings page; phone keeps
   // its dedicated pushed Dashboard route.
   const dashboardPage = !theme.isTV && !compact && page.id === 'dashboard' && dashboard !== undefined;
   const dashboardDenied = useCallback(() => {
+    if (!viewCurrent()) return;
     const first = accountPages[0]?.id;
-    if (first) setSelected(first);
-  }, [accountPages]);
-  const leaveServerPage = () => {const first = accountPages[0]?.id; if (first) {setSelected(first); registry.focus({regionId: column, childId: first});}};
-  const choose = (id: string) => {setSelected(id); if (compact) setPushed(true);};
+    if (first) {pageState.current = {...pageState.current, selected: first}; setSelected(first);}
+  }, [accountPages, viewCurrent]);
+  const leaveServerPage = () => {if (!viewCurrent()) return; const first = accountPages[0]?.id; if (first) {pageState.current = {...pageState.current, selected: first}; setSelected(first); registry.focus({regionId: column, childId: first});}};
+  const choose = (id: string) => {if (!viewCurrent()) return; pageState.current = {...pageState.current, selected: id, pushed: !theme.isTV}; setSelected(id); if (!theme.isTV) setPushed(true);};
+  const phoneBack = () => {if (!viewCurrent()) return; if (!remoteSourcesPage || !remoteBack.current?.()) popPage();};
   const viewerRole = ports.context.account.account.role === 'owner' ? 'owner' as const : ports.context.account.canManage ? 'administrator' as const : 'member' as const;
   // Android may report 0 here while the surface still draws under the status bar; StatusBar.currentHeight is the measured fallback.
   const topInset = Math.max(insets.top, Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 0);
-  return <Screen style={!theme.isTV ? {paddingTop: topInset + 14} : undefined}>
-    {/* phone-app 8: the avatar opens Settings as a sheet, with the drawn grabber, title and Done. */}
-    {compact && !pushed && <View testID="settings-sheet-header" style={{height: 52, paddingHorizontal: 10, justifyContent: 'center'}}>
-      <View accessible={false} pointerEvents="none" style={{position: 'absolute', top: 6, alignSelf: 'center', width: 38, height: 5, borderRadius: 3, backgroundColor: theme.colors.lineStrong}}/>
-      <Text accessibilityRole="header" pointerEvents="none" style={[shellType(17, 700), {position: 'absolute', left: 0, right: 0, textAlign: 'center', color: theme.colors.text}]}>{t('next.shell.settings')}</Text>
-      <Button testID="settings-sheet-done" variant="text" size="small" onPress={closeSettings} style={{alignSelf: 'flex-end', minHeight: 38, paddingHorizontal: 6, marginRight: -4}} textStyle={shellType(16, 700)}>{t('action.done')}</Button>
-    </View>}
+  const customPage = dashboardPage || librariesPage || livePage || troubleshootingPage || storagePage || integrationsPage || generalPage || streamingPage || segmentsPage || peoplePage || signInPage || metadataPage || historyPage || remoteSourcesPage || remoteAccessPage;
+  const content = <Screen style={!theme.isTV ? {paddingTop: compact ? 0 : topInset + 14} : undefined}>
     <View style={{flex: 1, flexDirection: 'row', gap: theme.isTV ? 80 : 0}}>
       {(!compact || !pushed) && <View style={{width: compact ? '100%' : theme.isTV ? searching ? 500 : 480 : 280}}>
         {(theme.isTV ? !searching : !compact) && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 30, 800), {color: theme.colors.text, marginBottom: 24, marginHorizontal: 20}]}>{t('next.shell.settings')}</Text>}
@@ -274,11 +311,11 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
           {query.trim().length >= 2 ? <SettingsSearchResults matches={matches} query={query} onNavigate={address => choose(address)}/>
             : <>
               {compact && <>
-                <Focusable testID="settings-profile-card" accessibilityRole="button" accessibilityLabel={shell.profile.name} onPress={() => choose('profile')} focusKind="row" focusRadius={14} style={{marginHorizontal: 16, minHeight: 64, paddingHorizontal: 14, gap: 12, borderRadius: 14, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.raised}}>
-                  <ProfileFace {...shell.profile} size={38} locked={shell.profile.pinRequired} scaleOnFocus={false}/>
+                <Focusable testID="settings-profile-card" accessibilityRole="button" accessibilityLabel={shell.profile.name} onPress={() => choose('profile')} focusKind="row" focusRadius={14} style={{marginHorizontal: 16, minHeight: 78, paddingVertical: 12, paddingHorizontal: 14, gap: 14, borderRadius: 14, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.raised}}>
+                  <ProfileFace {...shell.profile} size={54} locked={shell.profile.pinRequired} scaleOnFocus={false}/>
                   <View style={{flex: 1, minWidth: 0}}>
-                    <Text numberOfLines={1} style={[shellType(16, 700), {color: theme.colors.text}]}>{shell.profile.name}</Text>
-                    <Text numberOfLines={1} style={[shellType(12.5, 400, 17), {color: theme.colors.textTertiary, marginTop: 2}]}>{signedIn}</Text>
+                    <Text numberOfLines={1} style={[shellType(18, 800, 'normal', -.02), {color: theme.colors.text}]}>{shell.profile.name}</Text>
+                    <Text numberOfLines={1} style={[shellType(13, 400, 17), {color: theme.colors.textTertiary, marginTop: 2}]}>{signedIn}</Text>
                   </View>
                   <Icon name="i-right" size={18} color={theme.colors.lineStrong}/>
                 </Focusable>
@@ -291,7 +328,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
                       {index > 0 && <View style={{height: 26}}/>}
                       {group.flatMap(id => orderedPages.filter(value => value.id === id)).map(pageRow)}
                     </React.Fragment>)
-                  : compact ? orderedPages.map(pageRow)
+                  : compact ? <View style={{marginHorizontal: 16, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>{orderedPages.map((value, index) => <View key={value.id}>{pageRow(value)}{index > 0 && <View pointerEvents="none" style={{position: 'absolute', left: 56, right: 0, top: 0, height: 1, backgroundColor: alpha(theme.colors.lineStrong, .45)}}/>}</View>)}</View>
                     : grouped(orderedPages, tabletAccountClusters).map((group, index) => <React.Fragment key={group[0]?.id ?? index}>
                         {index > 0 && <View style={{height: 12}}/>}
                         {group.map(pageRow)}
@@ -306,7 +343,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
             <ServerHeader serverName={ports.serverName()} viewerRole={viewerRole} audience={viewerRole === 'administrator' ? 'administrators' : 'owner'} variant="phone"/>
             {grouped(serverPages, compact ? [] : tabletServerClusters).map((group, index) => <React.Fragment key={group[0]?.id ?? index}>
               {index > 0 && <View style={{height: 10}}/>}
-              {group.map(value => <Focusable key={value.id} focusId={value.id} testID={`settings-page-${value.id}`} accessibilityRole="button" accessibilityLabel={t(value.title)} accessibilityState={{selected: value.id === page.id}} onPress={() => value.id === 'dashboard' ? (dashboard !== undefined && !compact ? choose(value.id) : ports.context.navigation.open({kind: 'server-dashboard'}, ports.context.authority())) : choose(value.id)} focusKind="row" focusRadius={10} style={{minHeight: 48, paddingHorizontal: 14, gap: 12, flexDirection: 'row', alignItems: 'center', backgroundColor: value.id === page.id && !compact ? alpha(theme.colors.accent, .16) : 'transparent'}}>
+              {group.map(value => <Focusable key={value.id} focusId={value.id} testID={`settings-page-${value.id}`} accessibilityRole="button" accessibilityLabel={t(value.title)} accessibilityState={{selected: value.id === page.id}} onPress={() => {if (!viewCurrent()) return; if (value.id === 'dashboard' && (dashboard === undefined || compact)) navigation.open({kind: 'server-dashboard'}, ports.context.authority()); else choose(value.id);}} focusKind="row" focusRadius={10} style={{minHeight: 48, paddingHorizontal: 14, gap: 12, flexDirection: 'row', alignItems: 'center', backgroundColor: value.id === page.id && !compact ? alpha(theme.colors.accent, .16) : 'transparent'}}>
                 <View style={{width: 30, height: 30, borderRadius: 8, backgroundColor: alpha(theme.colors.accent, .16), alignItems: 'center', justifyContent: 'center'}}><Icon name={nativeSettingsIcon(value.icon)} size={18} color={theme.colors.accentStrong}/></View>
                 <Text numberOfLines={1} style={[shellType(15.5), {color: theme.colors.text, flex: 1}]}>{t(value.title)}</Text><Icon name="i-right" size={18} color={theme.colors.lineStrong}/>
               </Focusable>)}
@@ -314,12 +351,12 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
           </View>}
         </ScrollView>}
       </View>}
-      {(!compact || pushed) && <View style={{flex: 1}}>
-        {compact && <PhoneServerPageHeader title={t(page.title)} backLabel={t('next.shell.settings')} onBack={() => {if (!remoteSourcesPage || !remoteBack.current?.()) setPushed(false);}}
+      {(!compact || pushed) && <View style={{flex: 1, ...(!compact && !theme.isTV && !customPage ? {paddingTop: 46, paddingHorizontal: theme.width < 1024 ? 24 : 32, paddingBottom: 40} : {})}}>
+        {compact && <PhoneServerPageHeader title={t(page.title)} backLabel={t('next.shell.settings')} onBack={phoneBack}
           band={serverPage ? <ServerBand viewerRole={viewerRole} audience={viewerRole === 'administrator' ? 'administrators' : 'owner'} height={56} style={{position: 'absolute', inset: 0}}/> : undefined}/>}
-        {!compact && !dashboardPage && !(theme.isTV && searching) && !librariesPage && !livePage && !troubleshootingPage && !storagePage && !integrationsPage && !generalPage && !streamingPage && !remoteSourcesPage && !remoteAccessPage && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 32, 800), {color: theme.colors.text, marginBottom: 28, marginHorizontal: compact ? 20 : 0}]}>{t(page.title)}</Text>}
+        {!compact && !dashboardPage && !(theme.isTV && searching) && !customPage && <Text accessibilityRole="header" style={[shellType(theme.isTV ? 44 : 40, 800), {color: theme.colors.text, marginBottom: 28, marginHorizontal: compact ? 20 : 0}]}>{t(page.title)}</Text>}
         {state.error !== undefined && <StateView {...runtime.error(state.error, () => {void controller.refresh();})}/>}
-        {dashboardPage ? <NativeDashboardScreen controller={dashboard!} ports={ports} runtime={runtime} inline onDenied={dashboardDenied} deniedFallback={null}/> : remoteAccessPage ? <NativeRemoteAccessPage ports={ports} runtime={runtime} compactHeader={compact}/> : segmentsPage ? <NativeServerSegments ports={ports} runtime={runtime}/> : remoteSourcesPage ? <NativeRemoteSourcesScreen ports={ports} runtime={runtime} onBackHandlerChange={setRemoteBack}/> : livePage ? <NativeLiveOwnerScreen controller={liveControllers!.owner} recordings={liveControllers!.recordings} ports={ports} runtime={runtime} onClose={leaveServerPage}/> : librariesPage ? <NativeOwnerLibrariesPanel ports={ports} runtime={runtime}/> : troubleshootingPage ? <NativeServerTroubleshooting ports={ports} runtime={runtime} compactHeader={compact}/> : storagePage ? <NativeServerStorage ports={ports} runtime={runtime} compactHeader={compact}/> : integrationsPage ? <NativeServerIntegrations ports={ports} runtime={runtime} compactHeader={compact}/> : streamingPage ? <NativeServerStreaming ports={ports} runtime={runtime} compactHeader={compact}/> : generalPage ? <NativeServerGeneral ports={ports} runtime={runtime} compactHeader={compact}/> : <ScrollView key={page.id} contentContainerStyle={{paddingHorizontal: compact ? 20 : 0, paddingBottom: 80}}>
+        {historyPage ? <NativeServerHistory ports={ports} runtime={runtime} compactHeader={compact}/> : peoplePage ? <NativeServerPeople ports={ports} runtime={runtime} compactHeader={compact}/> : signInPage ? <NativeServerSignIn ports={ports} runtime={runtime} compactHeader={compact} onOpenPage={choose}/> : metadataPage ? <NativeServerMetadata ports={ports} runtime={runtime} compactHeader={compact} onLibraries={() => choose('libraries')}/> : dashboardPage ? <NativeDashboardScreen controller={dashboard!} ports={ports} runtime={runtime} inline onDenied={dashboardDenied} deniedFallback={null}/> : remoteAccessPage ? <NativeRemoteAccessPage ports={ports} runtime={runtime} compactHeader={compact}/> : segmentsPage ? <NativeServerSegments ports={ports} runtime={runtime}/> : remoteSourcesPage ? <NativeRemoteSourcesScreen ports={ports} runtime={runtime} onBackHandlerChange={setRemoteBack}/> : livePage ? <NativeLiveOwnerScreen controller={liveControllers!.owner} recordings={liveControllers!.recordings} ports={ports} runtime={runtime} onClose={leaveServerPage}/> : librariesPage ? <NativeOwnerLibrariesPanel ports={ports} runtime={runtime}/> : troubleshootingPage ? <NativeServerTroubleshooting ports={ports} runtime={runtime} compactHeader={compact}/> : storagePage ? <NativeServerStorage ports={ports} runtime={runtime} compactHeader={compact} onOpenPage={choose}/> : integrationsPage ? <NativeServerIntegrations ports={ports} runtime={runtime} compactHeader={compact}/> : streamingPage ? <NativeServerStreaming ports={ports} runtime={runtime} compactHeader={compact}/> : generalPage ? <NativeServerGeneral ports={ports} runtime={runtime} compactHeader={compact}/> : <ScrollView key={page.id} contentContainerStyle={{paddingHorizontal: compact ? 20 : 0, paddingBottom: 80}}>
           {theme.isTV && searching ? <>
             {query.trim().length >= 2 && matches.length > 0 && <Text testID="settings-search-count" style={[shellType(20, 600), {color: theme.colors.textTertiary, marginBottom: 18}]}>{t('next.shell.tvSettingsMatchCount', {count: matches.length})}</Text>}
             {query.trim().length >= 2 && !matches.length && <StateView title={t('next.states.noMatches', {query: query.trim()})}/>}
@@ -330,6 +367,18 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
       </View>}
     </View>
   </Screen>;
+  return !theme.isTV ? <SettingsSheet open={!closing} onExited={finishClose} host="inline" presentation={compact ? 'sheet' : 'page'} profile={null} shortcuts={null} scrollable={false} testID="settings-sheet"
+    onOpenChange={(open, reason) => {
+      if (open || !viewCurrent() || closingRef.current) return;
+      if (pushed && (reason === 'back' || reason === 'escape')) {
+        phoneBack();
+        return;
+      }
+      closeSettings();
+    }} headerContent={pushed ? <View/> : <View testID="settings-sheet-header" style={{height: 33, paddingHorizontal: 16, justifyContent: 'center'}}>
+      <Text accessibilityRole="header" pointerEvents="none" style={[shellType(17, 700), {position: 'absolute', left: 64, right: 64, textAlign: 'center', color: theme.colors.text}]}>{t('next.shell.settings')}</Text>
+      <Button testID="settings-sheet-done" variant="text" size="small" onPress={closeSettings} style={{alignSelf: 'flex-end', height: 32, paddingHorizontal: 0}} textStyle={shellType(16, 700)}>{t('action.done')}</Button>
+    </View>}><View style={{flex: 1}} pointerEvents={closing ? 'none' : 'box-none'}>{content}</View></SettingsSheet> : content;
 }
 
 /** playback-info frame 13b draws one hint under each Player choice; the runtime settings

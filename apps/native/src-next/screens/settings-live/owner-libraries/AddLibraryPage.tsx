@@ -10,20 +10,24 @@ import {Focusable} from '../../../kit/controls/Focusable';
 import {TextField} from '../../../kit/controls/TextField';
 import {Select} from '../../../kit/controls/Select';
 import {languageName} from '../../../../../../packages/client-core/src/presentation/language-list';
-import {Icon} from '../../../kit/Icon';
 import {useTheme} from '../../../kit/theme';
-import {alpha, shellType} from '../../../kit/shell/visual';
+import {shellType} from '../../../kit/shell/visual';
 import {LibraryGroup, LibraryRow, SectionTitle} from './controls';
-import {FolderExplorer, type ExplorerFolder} from './FolderExplorer';
-import {ownerLibraryKind, ownerLibraryKinds} from './presentation';
+import {FolderSourcePicker, type LibraryFolderChoice} from './FolderSourcePicker';
+import type {ExpectedRemoteSource} from '../../../../../../packages/client-core/src/remote-source-selection';
+import type {NativeSettingsLivePorts} from '../ports';
+import type {NativeShellRuntime} from '../../../shell/runtime';
+import {LibraryKindTiles} from './LibraryKindTiles';
+import {ownerLibraryKind} from './presentation';
 
-export type AddLibraryInput = Readonly<{name: string; kind: ManagedLibrary['kind']; folders: readonly string[]; metadataAgent?: 'online' | 'local'; metadataLanguage?: string}>;
+export type AddLibraryInput = Readonly<{name: string; kind: ManagedLibrary['kind']; folders: readonly string[]; expectedRemoteSource?: ExpectedRemoteSource; metadataAgent?: 'online' | 'local'; metadataLanguage?: string}>;
 
 /** Settings › Server › Libraries › Add library, as one page (frame 17). */
-export function AddLibraryPage({api, serverName, onCreate, onCancel, busy, error, firstRun = false}: {api: LibraryContentApi; serverName: string; onCreate: (input: AddLibraryInput) => void; onCancel: () => void; busy: boolean; error?: unknown; firstRun?: boolean}) {
+export function AddLibraryPage({api, serverName, onCreate, onCancel, busy, error, firstRun = false, ports, runtime}: {api: LibraryContentApi; serverName: string; onCreate: (input: AddLibraryInput) => void; onCancel: () => void; busy: boolean; error?: unknown; firstRun?: boolean; ports?: NativeSettingsLivePorts; runtime?: NativeShellRuntime}) {
   const theme = useTheme(), t = defaultI18n.t;
   const [kind, setKind] = useState<ManagedLibrary['kind']>('movie'), [name, setName] = useState(defaultI18n.t('next.ownerLibraries.kind.movie')), [touched, setTouched] = useState(false);
-  const [folders, setFolders] = useState<readonly ExplorerFolder[]>([]), [exploring, setExploring] = useState(false);
+  const [choice, setChoice] = useState<LibraryFolderChoice>({folders: []}), [exploring, setExploring] = useState(false);
+  const folders = choice.folders;
   const [agents, setAgents] = useState<readonly MetadataAgentOption[]>([]), [agent, setAgent] = useState('online'), [language, setLanguage] = useState<string>();
 
   useEffect(() => {
@@ -44,25 +48,16 @@ export function AddLibraryPage({api, serverName, onCreate, onCancel, busy, error
       <Text style={[shellType(13.5, 400, 19), {color: theme.colors.textSecondary}]}>{t('web.libraries.addLede')}</Text>
 
       <SectionTitle>{t('web.libraries.type')}</SectionTitle>
-      <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 10}}>
-        {ownerLibraryKinds.filter(option => !firstRun || option.kind !== 'comic').map(option => {
-          const on = option.kind === kind;
-          return <Focusable key={option.kind} accessibilityRole="radio" accessibilityLabel={t(option.label)} accessibilityState={{checked: on}} onPress={() => chooseKind(option.kind)} focusKind="card" focusRadius={14}
-            style={{width: '47%', flexGrow: 1, minHeight: 74, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, borderRadius: 14, backgroundColor: on ? alpha(theme.colors.accent, .16) : theme.colors.raised, borderWidth: 1.5, borderColor: on ? theme.colors.accentStrong : 'transparent'}}>
-            <Icon name={option.icon} size={22} color={on ? theme.colors.accentStrong : theme.colors.textSecondary}/>
-            <Text numberOfLines={1} style={[shellType(14.5, 700), {color: theme.colors.text, flexShrink: 1}]}>{t(option.label)}</Text>
-          </Focusable>;
-        })}
-      </View>
-      <Text style={[shellType(12.5, 500, 17.5), {color: theme.colors.textTertiary, marginTop: 8, paddingHorizontal: 4}]}>{t(ownerLibraryKind(kind).description)}</Text>
+      <LibraryKindTiles kind={kind} onChange={chooseKind} disabled={busy} firstRun={firstRun}/>
 
       <SectionTitle>{t('next.ownerLibraries.nameLabel')}</SectionTitle>
       <TextField focusId="owner-libraries-add-name" value={name} onChangeText={value => {setName(value); setTouched(true);}} maxLength={100} accessibilityLabel={t('next.ownerLibraries.nameLabel')}/>
 
       <SectionTitle>{t('next.ownerLibraries.folders')}</SectionTitle>
       <LibraryGroup>
+        {choice.source && <LibraryRow first icon="i-disk" label={choice.source.name}/>}
         {folders.map((folder, index) => <LibraryRow key={folder.path} first={index === 0} icon="i-folder" label={folder.name} help={folder.path}
-          trailing={<Button variant="icon" size="xs" icon="i-x" accessibilityLabel={t('next.ownerLibraries.explorer.removeChosen')} onPress={() => setFolders(current => current.filter(value => value.path !== folder.path))}/>}/>)}
+          trailing={<Button variant="icon" size="xs" icon="i-x" accessibilityLabel={t('next.ownerLibraries.explorer.removeChosen')} onPress={() => setChoice(current => ({...current, folders: current.folders.filter(value => value.path !== folder.path), remoteFolders: current.remoteFolders?.filter(value => value.path !== folder.path)}))}/>}/>)}
         <LibraryRow first={!folders.length} icon="i-plus" label={t('next.ownerLibraries.explorer.choose')} onPress={() => setExploring(true)}/>
       </LibraryGroup>
       {!folders.length && <Text style={[shellType(12.5, 500, 17.5), {color: theme.colors.textTertiary, marginTop: 8, paddingHorizontal: 4}]}>{t('next.ownerLibraries.addLibrary.foldersHelp')}</Text>}
@@ -83,10 +78,11 @@ export function AddLibraryPage({api, serverName, onCreate, onCancel, busy, error
     </ScrollView>
     <View style={{flexDirection: 'row', gap: 10, paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderTopColor: theme.colors.lineSoft, backgroundColor: theme.colors.ink}}>
       <Button variant="glass" size="small" disabled={busy} onPress={onCancel}>{t(firstRun ? 'web.setup.skip' : 'action.cancel')}</Button>
-      <Button size="small" loading={busy} disabled={!valid || busy} onPress={() => onCreate({name: name.trim(), kind, folders: folders.map(folder => folder.path), ...(!firstRun && agent ? {metadataAgent: agent as 'online' | 'local'} : {}), ...(!firstRun && language ? {metadataLanguage: language} : {})})} style={{flex: 1}}>{t(firstRun ? 'web.setup.addLibraryScan' : 'web.empty.addLibrary')}</Button>
+      <Button size="small" loading={busy} disabled={!valid || busy} onPress={() => onCreate({name: name.trim(), kind, folders: folders.map(folder => folder.path), ...(choice.source ? {expectedRemoteSource: {sourceId: choice.source.id, generation: choice.source.generation}} : {}), ...(!firstRun && agent ? {metadataAgent: agent as 'online' | 'local'} : {}), ...(!firstRun && language ? {metadataLanguage: language} : {})})} style={{flex: 1}}>{t(firstRun ? 'web.setup.addLibraryScan' : 'web.empty.addLibrary')}</Button>
     </View>
-    <FolderExplorer open={exploring} onOpenChange={setExploring} api={api} title={t('next.ownerLibraries.explorer.choose')} subtitle={t('next.ownerLibraries.explorer.subtitle', {server: serverName})}
-      chosen={folders} onUse={setFolders}/>
+    <FolderSourcePicker open={exploring} onOpenChange={setExploring} api={api} serverName={serverName} ports={firstRun ? undefined : ports} runtime={firstRun ? undefined : runtime}
+      chosen={choice} onUse={setChoice}/>
+
   </View>;
 }
 

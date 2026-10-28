@@ -1,9 +1,9 @@
-import React, {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {BackHandler, Dimensions, NativeModules, Platform, Text, View} from 'react-native';
 import {profileArtColors} from '@portico/design';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
-import {ManagedProfilesClient, type ManagedProfile, type ProfileArt, PROFILE_ART} from '../../../../../packages/client-core/src/profile-management';
+import {ManagedProfilesClient, type ManagedProfile, type ProfileArt, type ProfileDeletion, PROFILE_ART} from '../../../../../packages/client-core/src/profile-management';
 import {IdentityClient} from '../../../../../packages/client-core/src/identity-client';
 import type {ProfileRestrictions, RatingSystem} from '../../../../../packages/client-core/src/identity-restrictions';
 import {HttpHostedApi} from '../../../../../packages/client-core/src';
@@ -25,7 +25,7 @@ import {NativeScreenLifetime} from '../settings-live/lifetime';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {nativeShellRoutes, type NativeRouteFactory} from '../../shell/route-registry';
 import {StateLayout, StateView} from '../../kit/states';
-import {ProfilePicker} from '../../kit/artwork';
+import {ProfileFace, ProfilePicker} from '../../kit/artwork';
 import {Button, Focusable, Select, Switch, TextField} from '../../kit/controls';
 import {BottomSheet, Dialog} from '../../kit/overlays';
 import {Icon} from '../../kit/Icon';
@@ -63,6 +63,15 @@ type ProfileLease = Readonly<{
   live: {value: boolean};
   current: () => boolean;
 }>;
+type ProfileManagementOpening = Readonly<{id: string}>;
+type ProfileEditorOpening = Readonly<{
+  kind: 'rename' | 'pin' | 'remove-pin' | 'forget' | 'limits';
+  profile: ManagedProfile;
+  lease: ProfileLease;
+  management?: ProfileManagementOpening;
+}>;
+type ProfileAddOpening = Readonly<{lease: ProfileLease}>;
+type ProfileDeleteOpening = Readonly<{preview: ProfileDeletion; management: ProfileManagementOpening}>;
 
 const profileAbort = () => Object.assign(new Error('profile_command_retired'), {name: 'AbortError'});
 const avatarPick = () => NativeModules.PorticoImagePicker;
@@ -80,19 +89,31 @@ async function pickProfilePicture(lease: ProfileLease): Promise<{bytes: Uint8Arr
   return {bytes: Uint8Array.from(binary, character => character.charCodeAt(0)), contentType: value.contentType};
 }
 
-function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapContext; route: NativeShellRoute; onBack: () => void}) {
+export function ProfileRoute({context, route, onBack, embedded = false}: {context: NativeShellBootstrapContext; route: NativeShellRoute; onBack: () => void; embedded?: boolean}) {
   const theme = useTheme(), [profile, setProfile] = useState<ManagedProfile>(), [pin, setPin] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [forgotPIN, setForgotPIN] = useState(false), [recovery, setRecovery] = useState<{controller: NativeProfileRecovery; id: string; name: string}>();
   const [profiles, setProfiles] = useState<readonly ManagedProfile[]>(context.account.profiles);
+  const [management, setManagement] = useState<ProfileManagementOpening>(), [deletion, setDeletion] = useState<ProfileDeleteOpening>(), [deleteName, setDeleteName] = useState('');
+  const managementRef = useRef<typeof management>(undefined), deletionRef = useRef<typeof deletion>(undefined), deleteNameRef = useRef('');
+  const managedId = management?.id;
+  const setManagedId = (id?: string) => {const next = id ? {id} : undefined; managementRef.current = next; setManagement(next);};
+  const managementCurrent = () => !embedded || !!management && managementRef.current === management;
+  const closeDeletion = () => {deletionRef.current = undefined; deleteNameRef.current = ''; setDeletion(undefined); setDeleteName('');};
   const profileFocus = useRef(new WeakMap<ProfileLease, string>()).current;
-  const [edit, setEdit] = useState<{kind: 'rename' | 'pin'; profile: ManagedProfile}>();
-  const [removePin, setRemovePin] = useState<ManagedProfile>(), [forgetProfile, setForgetProfile] = useState<ManagedProfile>(), [limitsProfile, setLimitsProfile] = useState<ManagedProfile>();
+  const [editor, setEditor] = useState<ProfileEditorOpening>(), editorRef = useRef<ProfileEditorOpening | undefined>(undefined);
+  const edit = editor?.kind === 'rename' || editor?.kind === 'pin' ? editor : undefined;
+  const removePin = editor?.kind === 'remove-pin' ? editor.profile : undefined, forgetProfile = editor?.kind === 'forget' ? editor.profile : undefined;
+  const limitsProfile = editor?.kind === 'limits' ? editor.profile : undefined;
   const [nameDraft, setNameDraft] = useState(''), [pinDraft, setPinDraft] = useState(''), [pinAgain, setPinAgain] = useState('');
-  const [addOpen, setAddOpen] = useState(false), [addName, setAddName] = useState('');
+  const editDraftRef = useRef({name: '', pin: '', again: ''});
+  const [addition, setAddition] = useState<ProfileAddOpening>(), additionRef = useRef<ProfileAddOpening | undefined>(undefined);
+  const [addName, setAddName] = useState(''), addNameRef = useRef('');
   const [addArt, setAddArt] = useState<ProfileArt>('blue'), [artDraft, setArtDraft] = useState<ProfileArt>('blue');
   const [actionBusy, setActionBusy] = useState(false), [problem, setProblem] = useState(''), [notice, setNotice] = useState('');
   const [lease, setLease] = useState<ProfileLease>();
   const activeTicket = useRef<AbortController | undefined>(undefined);
+  const retireEditor = () => {editorRef.current = undefined; setEditor(undefined); editDraftRef.current = {name: '', pin: '', again: ''}; setNameDraft(''); setPinDraft(''); setPinAgain('');};
+  const retireAddition = () => {additionRef.current = undefined; setAddition(undefined); addNameRef.current = ''; setAddName('');};
   const selection = useRef<ReturnType<typeof nativeProfileSelection> | undefined>(undefined), alive = useRef(true), starting = useRef(false);
   useLayoutEffect(() => {
     const session = context.session(), lifetime = new NativeScreenLifetime(context), live = {value: true};
@@ -117,8 +138,7 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
     const stopAuth = context.subscribeAuthority(() => {if (!sameAuthority(authority, context.authority())) retire();});
     return () => {
       stopNav(); stopAuth(); retire(); setLease(current => current === next ? undefined : current);
-      setEdit(undefined); setAddOpen(false); setRemovePin(undefined); setForgetProfile(undefined); setLimitsProfile(undefined);
-      setPinDraft(''); setPinAgain('');
+      retireEditor(); retireAddition(); setManagedId(undefined); closeDeletion();
     };
   }, [context, route]);
   const scopedTransport = useCallback((ticket: {lease: ProfileLease; controller: AbortController}) => ({
@@ -139,7 +159,9 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
     },
   }), [context]);
   const scopedIdentity = useCallback((ticket: {lease: ProfileLease; controller: AbortController}) => new IdentityClient(scopedTransport(ticket), profileAvatarUpload(scopedRaw(ticket))), [scopedRaw, scopedTransport]);
-  const identityForLimits = useCallback((controller: AbortController) => new IdentityClient(scopedTransport({lease: lease!, controller}), profileAvatarUpload(scopedRaw({lease: lease!, controller}))), [lease, scopedRaw, scopedTransport]);
+  const limitsLease = useMemo(() => editor?.kind === 'limits' ? {...editor.lease, current: () => editorRef.current === editor && editor.lease.current()
+    && (!embedded || !!editor.management && managementRef.current === editor.management)} : undefined, [editor, embedded]);
+  const identityForLimits = useCallback((controller: AbortController) => new IdentityClient(scopedTransport({lease: limitsLease!, controller}), profileAvatarUpload(scopedRaw({lease: limitsLease!, controller}))), [limitsLease, scopedRaw, scopedTransport]);
   const [avatars, setAvatars] = useState<readonly ProfileAvatar[]>([]);
   const avatarsLease = useRef<ProfileLease | undefined>(undefined);
   useEffect(() => {
@@ -157,13 +179,30 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
     try {await selection.current!.select(id, code);} catch (failure) {if (alive.current) {setPin(''); setError(failure);}} finally {if (alive.current) setBusy(false);}
   };
   const current = context.session();
-  const active = current ? profiles.find(value => value.id === current.viewer.profileId) : undefined;
-  const manage = context.account.canManage;
-  const runAction = async (work: (clients: {manager: ManagedProfilesClient; identity: IdentityClient}) => Promise<unknown>, message?: string) => {
+  const active = embedded ? profiles.find(value => value.id === managedId) : current ? profiles.find(value => value.id === current.viewer.profileId) : undefined;
+  const manage = context.account.canManage && context.account.capabilities.manageAccount && !context.account.account.disabled
+    && current?.viewer.profileId === context.account.account.primaryProfileId;
+  const editorCurrent = (held: ProfileEditorOpening | undefined = editor): held is ProfileEditorOpening => !!held && editorRef.current === held && manage && held.lease.current()
+    && (!embedded || !!held.management && managementRef.current === held.management);
+  const additionCurrent = (held: ProfileAddOpening | undefined = addition): held is ProfileAddOpening => !!held && additionRef.current === held && manage && held.lease.current();
+  const deletionCurrent = (held: ProfileDeleteOpening | undefined = deletion): held is ProfileDeleteOpening => !!held && deletionRef.current === held && manage && !!lease?.current() && managementRef.current === held.management;
+  const profileActionsCurrent = () => manage && !!lease?.current() && managementCurrent() && !activeTicket.current;
+  const openEditor = (kind: ProfileEditorOpening['kind']) => {
+    if (!active || !lease || !profileActionsCurrent()) return;
+    const next = {kind, profile: active, lease, management};
+    retireEditor(); editorRef.current = next; setEditor(next);
+    editDraftRef.current = {name: active.name, pin: '', again: ''}; setNameDraft(active.name); setArtDraft(active.art); setProblem(''); setNotice('');
+  };
+  const openAddition = () => {
+    if (!manage || !lease?.current() || activeTicket.current || profiles.length >= 8) return;
+    const next = {lease}; retireAddition(); additionRef.current = next; setAddition(next); setAddArt('blue'); setProblem(''); setNotice('');
+  };
+  const closeAddition = () => {if (additionCurrent()) {activeTicket.current?.abort(); retireAddition();}};
+  const closeEdit = () => {if (editorCurrent()) {activeTicket.current?.abort(); retireEditor();}};
+  const runAction = async (work: (clients: {manager: ManagedProfilesClient; identity: IdentityClient}) => Promise<unknown>, message?: string, admitted?: () => boolean) => {
     const captured = lease;
-    if (!captured || !captured.current()) return false;
+    if (!manage || !captured || !captured.current() || activeTicket.current || (admitted ? !admitted() : embedded && !managementCurrent())) return false;
     const controller = new AbortController(), ticket = {lease: captured, controller};
-    activeTicket.current?.abort();
     activeTicket.current = controller;
     const manager = scopedManager(ticket), identity = scopedIdentity(ticket);
     setActionBusy(true); setProblem(''); setNotice('');
@@ -183,7 +222,6 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
       if (alive.current) setActionBusy(false);
     }
   };
-  const closeEdit = () => {activeTicket.current?.abort(); setEdit(undefined); setPinDraft(''); setPinAgain('');};
   useEffect(() => () => {recovery?.controller.dispose();}, [recovery]);
   const startRecovery = async () => {
     const session = context.session(), target = profile;
@@ -229,34 +267,37 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
   };
   const submitRename = () => {
     const target = edit?.kind === 'rename' ? edit.profile : undefined;
-    if (!target || !nameDraft.trim()) return;
-    void runAction(({manager}) => manager.edit(target, {name: nameDraft.trim(), art: artDraft})).then(ok => {if (ok) closeEdit();});
+    const admitted = () => editorCurrent(edit) && editDraftRef.current.name === nameDraft;
+    if (!target || !nameDraft.trim() || !admitted()) return;
+    void runAction(({manager}) => manager.edit(target, {name: nameDraft.trim(), art: artDraft}), undefined, admitted).then(ok => {if (ok) closeEdit();});
   };
   const submitPin = () => {
     const target = edit?.kind === 'pin' ? edit.profile : undefined;
-    if (!target) return;
+    const admitted = () => editorCurrent(edit) && editDraftRef.current.pin === pinDraft && editDraftRef.current.again === pinAgain;
+    if (!target || !admitted()) return;
     if (!/^\d{4}$/.test(pinDraft) || pinDraft !== pinAgain) {setProblem(t('profile.pinMismatch')); return;}
-    void runAction(({manager}) => manager.edit(target, {pin: pinDraft}), t('profile.pinSaved', {name: target.name})).then(ok => {if (ok) closeEdit();});
+    void runAction(({manager}) => manager.edit(target, {pin: pinDraft}), t('profile.pinSaved', {name: target.name}), admitted).then(ok => {if (ok) closeEdit();});
   };
   const removePinAction = () => {
     const target = removePin;
-    if (!target) return;
-    void runAction(({manager}) => manager.edit(target, {pin: ''}), t('profile.pinRemoved', {name: target.name})).then(ok => {if (ok) setRemovePin(undefined);});
+    if (!target || !editorCurrent()) return;
+    void runAction(({manager}) => manager.edit(target, {pin: ''}), t('profile.pinRemoved', {name: target.name}), () => editorCurrent()).then(ok => {if (ok) closeEdit();});
   };
   const submitAdd = () => {
     const name = addName.trim();
-    if (!name) return;
-    void runAction(({manager}) => manager.create(name, addArt), t('profile.added', {name})).then(ok => {if (ok) {setAddOpen(false); setAddName('');}});
+    const admitted = () => additionCurrent() && addNameRef.current === addName;
+    if (!name || !admitted()) return;
+    void runAction(({manager}) => manager.create(name, addArt), t('profile.added', {name}), admitted).then(ok => {if (ok && additionCurrent()) retireAddition();});
   };
   const forgetAction = () => {
     const target = forgetProfile;
-    if (!target) return;
-    void runAction(({manager}) => manager.forgetTrust(target.id), t('profile.devicesForgotten', {name: target.name})).then(ok => {if (ok) setForgetProfile(undefined);});
+    if (!target || !editorCurrent()) return;
+    void runAction(({manager}) => manager.forgetTrust(target.id), t('profile.devicesForgotten', {name: target.name}), () => editorCurrent()).then(ok => {if (ok) closeEdit();});
   };
 
   const backRef = useRef(back), busyRef = useRef(busy);
   backRef.current = back; busyRef.current = busy;
-  useEffect(() => {const subscription = BackHandler.addEventListener('hardwareBackPress', () => {if (!busyRef.current) backRef.current(); return true;}); return () => subscription.remove();}, []);
+  useEffect(() => {if (embedded) return; const subscription = BackHandler.addEventListener('hardwareBackPress', () => {if (!busyRef.current) backRef.current(); return true;}); return () => subscription.remove();}, [embedded]);
   if (recovery) return <PhoneProfileRecovery controller={recovery.controller} profileName={recovery.name} username={context.account.account.username}
     onOpen={value => {const id = recovery.id; recovery.controller.dispose(); setRecovery(undefined); setPin(value); void choose(id, value);}}
     onClose={() => {recovery.controller.dispose(); setRecovery(undefined); setPin('');}}/>;
@@ -267,19 +308,16 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
     code={pin} onCodeChange={setPin} busy={busy} error={error ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{presentError(error, 'profiles').body}</Text> : undefined}
     onSubmit={value => {void choose(profile.id, value);}} onBack={back}
     onForgotPIN={() => {if (!busy) {setPin(''); setError(undefined); setForgotPIN(true);}}}/>;
-  return <>
-    <StateLayout testID="accounts-profile-switch" title={profile ? t('profile.pinTitle', {name: profile.name}) : t('profiles.title')}
-      beforeActions={<View style={{alignSelf: 'stretch', marginBottom: 20}}>{profile ? <><PhonePINEntry value={pin} onChange={setPin} onComplete={value => {void choose(profile.id, value);}} busy={busy} error={!!error}/>
-        <View style={{alignItems: 'center', marginTop: 8}}><Button variant="text" disabled={busy} onPress={() => {void startRecovery();}}>{t('pin.forgot')}</Button></View></> : <>
-        <ProfilePicker focusScope={theme.isTV && lease?.live.value && lease.route === route ? `tv.account.profiles.${JSON.stringify([lease.authority, lease.revision])}` : undefined} focusBusy={busy} profiles={profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy, source: avatarSource(value.id)}))}
-          selectedId={current?.viewer.profileId} preferredProfileId={theme.isTV && lease ? profileFocus.get(lease) : undefined}
-          onFocusChange={id => {if (id && lease) profileFocus.set(lease, id);}} showTitle={false} onSelect={id => {const value = profiles.find(item => item.id === id)!;
-            if (id === current?.viewer.profileId) onBack(); else if (value.pinRequired) {setProfile(value); setPin('');} else void choose(id);}}/>
-        {manage && profiles.length < 8 ? <View style={{flexDirection: 'row', marginTop: 12}}><Button size="compact" variant="glass" icon="i-plus" onPress={() => {setAddName(''); setAddArt('blue'); setProblem(''); setNotice(''); setAddOpen(true);}}>{t('profile.add')}</Button></View> : null}
-        {manage && lease && active ? <View testID="profile-actions" style={{marginTop: 18}}>
-          <Text style={[theme.type.captionStrong, {color: theme.colors.textTertiary, marginBottom: 8}]}>{active.name}{' · '}{t(active.primary ? 'profile.main' : 'profile.current')}</Text>
+  const moveProfile = (target: ManagedProfile, direction: -1 | 1) => {
+    if (!profileActionsCurrent()) return;
+    const index = profiles.indexOf(target), next = index + direction;
+    if (index < 0 || next < 0 || next >= profiles.length) return;
+    const order = [...profiles]; [order[index], order[next]] = [order[next], order[index]];
+    void runAction(({manager}) => manager.order(order));
+  };
+  const managementActions = manage && lease && active ? <View testID="profile-actions" style={{marginTop: 18}}>
+          <Text style={[theme.type.captionStrong, {color: theme.colors.textTertiary, marginBottom: 8}]}>{[active.name, active.primary ? t('profile.main') : active.id === current?.viewer.profileId ? t('profile.current') : ''].filter(Boolean).join(' · ')}</Text>
           <View style={{borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
-            <ProfileActionRow testID="profile-rename" label={t('profile.rename')} onPress={() => {setNameDraft(active.name); setArtDraft(active.art); setProblem(''); setNotice(''); setEdit({kind: 'rename', profile: active});}}/>
             {typeof NativeModules.PorticoImagePicker?.pick === 'function' ? <ProfileActionRow testID="profile-picture" label={t(avatars.some(value => value.profileId === active.id) ? 'profile.changePicture' : 'profile.addPicture')} onPress={() => {
               void runAction(async ({identity}) => {
                 const picked = await pickProfilePicture(lease!);
@@ -292,45 +330,87 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
             {avatars.some(value => value.profileId === active.id) ? <ProfileActionRow testID="profile-remove-picture" label={t('profile.removePicture')} onPress={() => {
               void runAction(async ({identity}) => {await identity.removeAvatar(active.id); const next = await identity.avatars(); if (lease!.current()) setAvatars(next);});
             }}/> : null}
-            <ProfileActionRow testID="profile-pin" label={t(active.pinRequired ? 'profile.changePin' : 'profile.setPin')} onPress={() => {setPinDraft(''); setPinAgain(''); setProblem(''); setNotice(''); setEdit({kind: 'pin', profile: active});}}/>
-            {active.pinRequired ? <ProfileActionRow testID="profile-remove-pin" label={t('profile.removePin')} onPress={() => {setProblem(''); setNotice(''); setRemovePin(active);}}/> : null}
-            <ProfileActionRow testID="profile-limits" label={t('profile.limits')} description={t('profile.limitsHelp')} onPress={() => {setProblem(''); setNotice(''); setLimitsProfile(active);}}/>
-            <ProfileActionRow testID="profile-forget-devices" label={t('profile.forgetDevices')} onPress={() => {setProblem(''); setNotice(''); setForgetProfile(active);}}/>
+            <ProfileActionRow testID="profile-rename" label={t('profile.rename')} onPress={() => openEditor('rename')}/>
+            <ProfileActionRow testID="profile-limits" label={t('profile.limits')} description={t('profile.limitsHelp')} onPress={() => openEditor('limits')}/>
+            <ProfileActionRow testID="profile-pin" label={t(active.pinRequired ? 'profile.changePin' : 'profile.setPin')} onPress={() => openEditor('pin')}/>
+            {active.pinRequired ? <ProfileActionRow testID="profile-remove-pin" label={t('profile.removePin')} onPress={() => openEditor('remove-pin')}/>: null}
+            <ProfileActionRow testID="profile-forget-devices" label={t('profile.forgetDevices')} onPress={() => openEditor('forget')}/>
+            {embedded && profiles.indexOf(active) > 0 && <ProfileActionRow testID="profile-move-up" label={t('web.profile.moveUp')} onPress={() => moveProfile(active, -1)}/>}
+            {embedded && profiles.indexOf(active) < profiles.length - 1 && <ProfileActionRow testID="profile-move-down" label={t('web.profile.moveDown')} onPress={() => moveProfile(active, 1)}/>}
+            {embedded && !active.primary && <Button variant="danger" size="compact" disabled={actionBusy} onPress={() => {
+              if (!management || !profileActionsCurrent()) return;
+              void runAction(async ({manager}) => {const preview = await manager.previewDelete(active); if (lease.current() && managementCurrent()) {const next = {preview, management}; deletionRef.current = next; deleteNameRef.current = ''; setDeletion(next); setDeleteName('');}});
+            }}>{t('profile.delete')}</Button>}
           </View>
           {problem ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginTop: 8}]}>{problem}</Text> : null}
           {notice ? <Text accessibilityLiveRegion="polite" style={[theme.type.caption, {color: theme.colors.textSecondary, marginTop: 8}]}>{notice}</Text> : null}
-        </View> : null}
+        </View> : null;
+  return <>
+    {embedded ? <View testID="settings-profile-management" style={{gap: 8}}>
+      <View style={{borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
+        {profiles.map(value => <Focusable key={value.id} testID={`settings-profile-${value.id}`} accessibilityRole="button" accessibilityLabel={value.name} disabled={!manage || actionBusy} onPress={() => {if (!manage || !lease?.current() || activeTicket.current) return; retireEditor(); closeDeletion(); setManagedId(value.id); setProblem(''); setNotice('');}} focusKind="row" style={{minHeight: 62, paddingHorizontal: 14, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 12}}>
+          <ProfileFace initial={[...value.name][0] ?? ''} color={value.art} size={44} locked={value.pinRequired} source={avatarSource(value.id)} scaleOnFocus={false}/>
+          <View style={{flex: 1}}><Text style={[theme.type.body, {color: theme.colors.text, fontWeight: '700'}]}>{value.name}</Text><Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{[value.primary ? t('profile.main') : '', value.id === current?.viewer.profileId ? t('profile.current') : ''].filter(Boolean).join(' · ')}</Text></View>
+          {manage && <Icon name="i-more" size={20} color={theme.colors.textTertiary}/>}
+        </Focusable>)}
+        {manage && profiles.length < 8 && <ProfileActionRow testID="settings-profile-add" label={t('profile.add')} onPress={openAddition}/>}
+      </View>
+      {problem && !managedId ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{problem}</Text> : null}
+      <BottomSheet open={!!managedId && !!active && manage} onOpenChange={open => {if (!open && !activeTicket.current && managementCurrent()) {retireEditor(); setManagedId(undefined); closeDeletion();}}} title={active?.name} dismissOnBack={!actionBusy} dismissOnGesture={!actionBusy} dismissOnOutsidePress={!actionBusy}>{managementActions}</BottomSheet>
+    </View> : <StateLayout testID="accounts-profile-switch" title={profile ? t('profile.pinTitle', {name: profile.name}) : t('profiles.title')}
+      beforeActions={<View style={{alignSelf: 'stretch', marginBottom: 20}}>{profile ? <><PhonePINEntry value={pin} onChange={setPin} onComplete={value => {void choose(profile.id, value);}} busy={busy} error={!!error}/>
+        <View style={{alignItems: 'center', marginTop: 8}}><Button variant="text" disabled={busy} onPress={() => {void startRecovery();}}>{t('pin.forgot')}</Button></View></> : <>
+        <ProfilePicker focusScope={theme.isTV && lease?.live.value && lease.route === route ? `tv.account.profiles.${JSON.stringify([lease.authority, lease.revision])}` : undefined} focusBusy={busy} profiles={profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy, source: avatarSource(value.id)}))}
+          selectedId={current?.viewer.profileId} preferredProfileId={theme.isTV && lease ? profileFocus.get(lease) : undefined}
+          onFocusChange={id => {if (id && lease) profileFocus.set(lease, id);}} showTitle={false} onSelect={id => {const value = profiles.find(item => item.id === id)!;
+            if (id === current?.viewer.profileId) onBack(); else if (value.pinRequired) {setProfile(value); setPin('');} else void choose(id);}}/>
+        {manage && profiles.length < 8 ? <View style={{flexDirection: 'row', marginTop: 12}}><Button size="compact" variant="glass" icon="i-plus" onPress={openAddition}>{t('profile.add')}</Button></View> : null}
+        {managementActions}
         </>}
         {!!error && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{presentError(error, 'profiles').body}</Text>}</View>}
-      secondaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: back}}/>
-    <Dialog testID="profile-add" open={addOpen} onOpenChange={open => {if (!open) {activeTicket.current?.abort(); setAddOpen(false);}}} title={t('profile.addTitle')}
-      footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={actionBusy} onPress={() => {activeTicket.current?.abort(); setAddOpen(false);}}>{t('action.cancel')}</Button><Button focusId="save" loading={actionBusy} disabled={!addName.trim()} onPress={submitAdd}>{t('action.save')}</Button></View>}>
-      <TextField label={t('profile.name')} value={addName} onChangeText={setAddName} maxLength={120} testID="profile-add-name"/>
-      {!theme.isTV && <ProfileColorPicker value={addArt} onChange={setAddArt} disabled={actionBusy} testID="profile-add-colors"/>}
+      secondaryAction={{id: 'back', label: t('action.back'), disabled: busy, onPress: back}}/>}
+    <Dialog testID="profile-add" open={additionCurrent()} onOpenChange={open => {if (!open) closeAddition();}} title={t('profile.addTitle')}
+      footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={actionBusy} onPress={closeAddition}>{t('action.cancel')}</Button><Button focusId="save" loading={actionBusy} disabled={!addName.trim()} onPress={submitAdd}>{t('action.save')}</Button></View>}>
+      <TextField label={t('profile.name')} value={addName} onChangeText={value => {if (additionCurrent() && !activeTicket.current) {addNameRef.current = value; setAddName(value);}}} maxLength={120} testID="profile-add-name"/>
+      {!theme.isTV && <ProfileColorPicker value={addArt} onChange={value => {if (additionCurrent() && !activeTicket.current) setAddArt(value);}} disabled={actionBusy} testID="profile-add-colors"/>}
     </Dialog>
-    <Dialog testID="profile-rename" open={edit?.kind === 'rename'} onOpenChange={open => {if (!open) closeEdit();}} title={t('profile.renameTitle', {name: edit?.profile.name ?? ''})}
+    <Dialog testID="profile-rename" open={edit?.kind === 'rename' && editorCurrent()} onOpenChange={open => {if (!open) closeEdit();}} title={t('profile.renameTitle', {name: edit?.profile.name ?? ''})}
       footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={actionBusy} onPress={closeEdit}>{t('action.cancel')}</Button><Button focusId="save" loading={actionBusy} disabled={!nameDraft.trim()} onPress={submitRename}>{t('action.save')}</Button></View>}>
-      <TextField label={t('profile.name')} value={nameDraft} onChangeText={setNameDraft} maxLength={120} testID="profile-rename-name"/>
-      {!theme.isTV && <ProfileColorPicker value={artDraft} onChange={setArtDraft} disabled={actionBusy} testID="profile-rename-colors"/>}
+      <TextField label={t('profile.name')} value={nameDraft} onChangeText={value => {if (edit?.kind === 'rename' && editorCurrent() && !activeTicket.current) {editDraftRef.current = {...editDraftRef.current, name: value}; setNameDraft(value);}}} maxLength={120} testID="profile-rename-name"/>
+      {!theme.isTV && <ProfileColorPicker value={artDraft} onChange={value => {if (edit?.kind === 'rename' && editorCurrent() && !activeTicket.current) setArtDraft(value);}} disabled={actionBusy} testID="profile-rename-colors"/>}
     </Dialog>
-    <Dialog testID="profile-pin-edit" open={edit?.kind === 'pin'} onOpenChange={open => {if (!open) closeEdit();}} title={t('profile.pinTitle', {name: edit?.profile.name ?? ''})}
+    <Dialog testID="profile-pin-edit" open={edit?.kind === 'pin' && editorCurrent()} onOpenChange={open => {if (!open) closeEdit();}} title={t('profile.pinTitle', {name: edit?.profile.name ?? ''})}
       footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={actionBusy} onPress={closeEdit}>{t('action.cancel')}</Button><Button focusId="save" loading={actionBusy} disabled={pinDraft.length !== 4 || pinAgain.length !== 4} onPress={submitPin}>{t('action.save')}</Button></View>}>
       {theme.isTV ? <>
-        <TextField label={t('profile.pinChoose')} value={pinDraft} onChangeText={setPinDraft} keyboardType="number-pad" secureTextEntry maxLength={4} testID="profile-pin-new"/>
-        <TextField label={t('profile.pinRepeat')} value={pinAgain} onChangeText={setPinAgain} keyboardType="number-pad" secureTextEntry maxLength={4} testID="profile-pin-again" containerStyle={{marginTop: 12}}/>
+        <TextField label={t('profile.pinChoose')} value={pinDraft} onChangeText={value => {if (edit?.kind === 'pin' && editorCurrent() && !activeTicket.current) {editDraftRef.current = {...editDraftRef.current, pin: value}; setPinDraft(value);}}} keyboardType="number-pad" secureTextEntry maxLength={4} testID="profile-pin-new"/>
+        <TextField label={t('profile.pinRepeat')} value={pinAgain} onChangeText={value => {if (edit?.kind === 'pin' && editorCurrent() && !activeTicket.current) {editDraftRef.current = {...editDraftRef.current, again: value}; setPinAgain(value);}}} keyboardType="number-pad" secureTextEntry maxLength={4} testID="profile-pin-again" containerStyle={{marginTop: 12}}/>
       </> : <View style={{gap: 12}}>
         <Text style={[theme.type.captionStrong, {color: theme.colors.text}]}>{t('profile.pinChoose')}</Text>
-        <PhonePINEntry testID="profile-pin-new" label={t('profile.pinChoose')} value={pinDraft} onChange={setPinDraft} busy={actionBusy}/>
+        <PhonePINEntry testID="profile-pin-new" label={t('profile.pinChoose')} value={pinDraft} onChange={value => {if (edit?.kind === 'pin' && editorCurrent() && !activeTicket.current) {editDraftRef.current = {...editDraftRef.current, pin: value}; setPinDraft(value);}}} busy={actionBusy}/>
         <Text style={[theme.type.captionStrong, {color: theme.colors.text}]}>{t('profile.pinRepeat')}</Text>
-        <PhonePINEntry testID="profile-pin-again" label={t('profile.pinRepeat')} value={pinAgain} onChange={setPinAgain} busy={actionBusy} autoFocus={false}/>
+        <PhonePINEntry testID="profile-pin-again" label={t('profile.pinRepeat')} value={pinAgain} onChange={value => {if (edit?.kind === 'pin' && editorCurrent() && !activeTicket.current) {editDraftRef.current = {...editDraftRef.current, again: value}; setPinAgain(value);}}} busy={actionBusy} autoFocus={false}/>
       </View>}
       {problem ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginTop: 12}]}>{problem}</Text> : null}
     </Dialog>
-    <Dialog testID="profile-remove-pin" open={!!removePin} onOpenChange={open => {if (!open) {activeTicket.current?.abort(); setRemovePin(undefined);}}} title={t('profile.removePinConfirm.title', {name: removePin?.name ?? ''})} description={t('profile.removePinConfirm.body', {name: removePin?.name ?? ''})}
-      footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={actionBusy} onPress={() => setRemovePin(undefined)}>{t('action.cancel')}</Button><Button focusId="remove-pin" loading={actionBusy} onPress={removePinAction}>{t('profile.removePin')}</Button></View>}><View/></Dialog>
-    <Dialog testID="profile-forget-devices" open={!!forgetProfile} onOpenChange={open => {if (!open) {activeTicket.current?.abort(); setForgetProfile(undefined);}}} title={t('profile.forgetDevices')}
-      footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={actionBusy} onPress={() => setForgetProfile(undefined)}>{t('action.cancel')}</Button><Button focusId="forget-devices" loading={actionBusy} onPress={forgetAction}>{t('profile.forgetDevices')}</Button></View>}><View/></Dialog>
-    {limitsProfile && lease ? <ProfileLimitsSheet profile={limitsProfile} lease={lease} identityFor={identityForLimits} onClose={() => setLimitsProfile(undefined)} onSaved={() => {setNotice(t('limits.saved', {name: limitsProfile.name})); setLimitsProfile(undefined);}}/> : null}
+    <Dialog testID="profile-remove-pin" open={!!removePin && editorCurrent()} onOpenChange={open => {if (!open) closeEdit();}} title={t('profile.removePinConfirm.title', {name: removePin?.name ?? ''})} description={t('profile.removePinConfirm.body', {name: removePin?.name ?? ''})}
+      footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={actionBusy} onPress={closeEdit}>{t('action.cancel')}</Button><Button focusId="remove-pin" loading={actionBusy} onPress={removePinAction}>{t('profile.removePin')}</Button></View>}><View/></Dialog>
+    <Dialog testID="profile-forget-devices" open={!!forgetProfile && editorCurrent()} onOpenChange={open => {if (!open) closeEdit();}} title={t('profile.forgetDevices')}
+      footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={actionBusy} onPress={closeEdit}>{t('action.cancel')}</Button><Button focusId="forget-devices" loading={actionBusy} onPress={forgetAction}>{t('profile.forgetDevices')}</Button></View>}><View/></Dialog>
+    <BottomSheet open={deletionCurrent()} title={t('profile.delete')} onOpenChange={open => {if (!open && !activeTicket.current && deletionCurrent()) closeDeletion();}} dismissOnBack={!actionBusy} dismissOnGesture={!actionBusy} dismissOnOutsidePress={!actionBusy}
+      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={actionBusy} onPress={() => {if (deletionCurrent() && !activeTicket.current) closeDeletion();}}>{t('action.cancel')}</Button><Button variant="danger" loading={actionBusy} disabled={!deletionCurrent() || deleteName !== (deletion?.preview.name ?? profiles.find(value => value.id === deletion?.preview.profileId)?.name)} onPress={() => {
+        const captured = deletion;
+        if (!deletionCurrent(captured) || captured.preview.primary || deleteNameRef.current !== deleteName || deleteName !== (captured.preview.name ?? profiles.find(value => value.id === captured.preview.profileId)?.name)) return;
+        void runAction(({manager}) => manager.delete(captured.preview), undefined, () => deletionCurrent(captured)).then(ok => {if (ok && deletionCurrent(captured)) {closeDeletion(); setManagedId(undefined);}});
+      }}>{t('profile.delete')}</Button></View>}>
+      <View style={{gap: 4}}>
+        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('profile.deleteConfirm.body')}</Text>
+        {deletion?.preview.playlists ? <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('profile.deleteConfirm.playlists', {count: deletion.preview.playlists})}</Text> : null}
+        {deletion?.preview.savedResources ? <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{`${deletion.preview.savedResources} saved ${deletion.preview.savedResources === 1 ? 'item' : 'items'} will also be deleted.`}</Text> : null}
+      </View>
+      <TextField label={t('profile.name')} description={deletion?.preview.name ?? profiles.find(value => value.id === deletion?.preview.profileId)?.name} value={deleteName} onChangeText={value => {if (deletionCurrent() && !activeTicket.current) {deleteNameRef.current = value; setDeleteName(value);}}} editable={!actionBusy}/>
+      {problem ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{problem}</Text> : null}
+    </BottomSheet>
+    {limitsProfile && limitsLease && editorCurrent() ? <ProfileLimitsSheet profile={limitsProfile} lease={limitsLease} identityFor={identityForLimits} onClose={closeEdit} onSaved={() => {if (editorCurrent()) {setNotice(t('limits.saved', {name: limitsProfile.name})); closeEdit();}}}/> : null}
   </>;
 }
 
@@ -385,6 +465,7 @@ function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {pr
   const [restrictions, setRestrictions] = useState<ProfileRestrictions>(), [systems, setSystems] = useState<readonly RatingSystem[]>();
   const [draft, setDraft] = useState<ProfileRestrictions>(), [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false);
   const [labelsOpen, setLabelsOpen] = useState(false), [labelsDraft, setLabelsDraft] = useState<readonly string[]>([]), [labelDraft, setLabelDraft] = useState('');
+  const draftRef = useRef<ProfileRestrictions | undefined>(undefined), busyRef = useRef(false);
   const profileId = profile.id, profileRevision = profile.revision;
   const current = (candidate: ProfileLimitsOwner) => candidate === ownerRef.current && !candidate.retired && candidate.profile.id === profileId
     && candidate.profile.revision === profileRevision && candidate.lease.current();
@@ -395,6 +476,7 @@ function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {pr
     next.controller = controller;
     ownerRef.current = next;
     setOwner(next);
+    draftRef.current = undefined; busyRef.current = false;
     setRestrictions(undefined); setSystems(undefined); setDraft(undefined); setError(undefined); setBusy(false); setLabelsOpen(false); setLabelsDraft([]); setLabelDraft('');
     const live = () => next === ownerRef.current && !next.retired && next.profile.id === profileId
       && next.profile.revision === profileRevision && next.lease.current();
@@ -402,6 +484,7 @@ function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {pr
     Promise.all([identity.restrictions(profileId, controller.signal), identity.ratingSystems(controller.signal)]).then(([currentRestrictions, list]) => {
       if (!live() || currentRestrictions.profileId !== next.profile.id) return;
       next.loadedRevision = currentRestrictions.revision;
+      draftRef.current = currentRestrictions;
       setRestrictions(currentRestrictions); setSystems(list); setDraft(currentRestrictions);
     }, failure => {if (live() && !controller.signal.aborted) setError(failure);});
     return () => {
@@ -414,14 +497,19 @@ function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {pr
 
   const system = systems?.find(value => value.id === draft?.ratingSystem);
   const ratingOptions = [{value: '', label: t('limits.noLimit')}, ...(system?.values.map(value => ({value: value.code, label: value.label})) ?? [])];
+  const updateDraft = (change: Partial<ProfileRestrictions>) => {
+    if (!owner || !current(owner) || busyRef.current || !draft || draftRef.current !== draft) return;
+    const next = {...draft, ...change}; draftRef.current = next; setDraft(next);
+  };
+  const close = () => {if (owner && current(owner) && !busyRef.current) onClose();};
   const save = () => {
     const sheet = owner, currentRestrictions = restrictions, chosen = draft;
     if (!sheet || !current(sheet) || !currentRestrictions || !chosen || currentRestrictions.profileId !== sheet.profile.id
-      || currentRestrictions.revision !== sheet.loadedRevision || sheet.profile.revision !== profile.revision) return;
+      || currentRestrictions.revision !== sheet.loadedRevision || sheet.profile.revision !== profile.revision || draftRef.current !== chosen || busyRef.current) return;
     const controller = new AbortController();
     sheet.controller?.abort();
     sheet.controller = controller;
-    setBusy(true); setError(undefined);
+    busyRef.current = true; setBusy(true); setError(undefined);
     const identity = identityFor(controller);
     void identity.saveRestrictions(currentRestrictions, {
       ratingSystem: chosen.ratingSystem, maximumAgeRating: chosen.maximumAgeRating, allowUnrated: chosen.allowUnrated, blockedLabels: chosen.blockedLabels,
@@ -429,20 +517,22 @@ function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {pr
     }).then(next => {
       if (!current(sheet) || controller.signal.aborted || next.profileId !== sheet.profile.id || next.revision <= (sheet.loadedRevision ?? 0)) return;
       sheet.loadedRevision = next.revision;
+      draftRef.current = next; busyRef.current = false;
       setRestrictions(next); setDraft(next); setBusy(false); onSaved();
     }, failure => {
       if (!current(sheet) || controller.signal.aborted) return;
+      busyRef.current = false;
       setError(failure); setBusy(false);
     }).finally(() => {
       if (sheet.controller === controller) sheet.controller = undefined;
     });
   };
-  return <BottomSheet open onOpenChange={open => {if (!open && !busy) onClose();}} title={t('limits.title', {name: profile.name})} description={t('limits.subtitle')}
-    testID="profile-limits" footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={busy} onPress={onClose}>{t('action.cancel')}</Button><Button focusId="save" loading={busy} disabled={!draft || !owner || !current(owner)} onPress={save}>{t('limits.save')}</Button></View>}>
+  return <BottomSheet open onOpenChange={open => {if (!open) close();}} title={t('limits.title', {name: profile.name})} description={t('limits.subtitle')}
+    testID="profile-limits" footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={busy} onPress={close}>{t('action.cancel')}</Button><Button focusId="save" loading={busy} disabled={!draft || !owner || !current(owner)} onPress={save}>{t('limits.save')}</Button></View>}>
     {error ? <StateView title={presentError(error, 'profiles').title} body={presentError(error, 'profiles').body}/> : !draft ? <StateView title={t('status.loading')}/> : <View style={{gap: 14}}>
       {system ? <Select focusId="maximum-age-rating" testID="profile-limits-maximum-age-rating" label={t('limits.highestRating')} description={t('limits.highestRatingHelp')} value={draft.maximumAgeRating} options={ratingOptions}
-        onValueChange={value => setDraft(current => current ? {...current, maximumAgeRating: value} : current)}/> : null}
-      <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}><Switch focusId="allow-unrated" checked={draft.allowUnrated} onCheckedChange={value => setDraft(current => current ? {...current, allowUnrated: value} : current)}/><Text style={[theme.type.body, {color: theme.colors.text}]}>{t('limits.allowUnrated')}</Text></View>
+        onValueChange={value => updateDraft({maximumAgeRating: value})}/> : null}
+      <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}><Switch focusId="allow-unrated" checked={draft.allowUnrated} onCheckedChange={value => updateDraft({allowUnrated: value})}/><Text style={[theme.type.body, {color: theme.colors.text}]}>{t('limits.allowUnrated')}</Text></View>
       <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('limits.allowUnratedHelp')}</Text>
       {theme.isTV ? draft.blockedLabels.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('limits.hiddenLabels', {labels: draft.blockedLabels.join(', ')})}</Text> : null : <ProfileActionRow testID="profile-hidden-labels" label={t('web.limits.hiddenLabels')} description={draft.blockedLabels.join(', ') || t('web.dvr.none')} onPress={() => {
         if (busy || !owner || !current(owner)) return;
@@ -451,12 +541,12 @@ function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {pr
       <Text style={[theme.type.captionStrong, {color: theme.colors.textTertiary, marginTop: 6}]}>{t('limits.features')}</Text>
       {([['allowDownloads', 'limits.feature.downloads'], ['allowLiveTv', 'limits.feature.liveTv'], ['allowDvr', 'limits.feature.dvr'], ['allowWatchTogether', 'limits.feature.watchTogether']] as const).map(([key, label]) =>
         <View key={key} style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12}}><Text style={[theme.type.body, {color: theme.colors.text}]}>{t(label)}</Text>
-          <Switch focusId={`feature:${key}`} checked={draft[key]} onCheckedChange={value => setDraft(current => current ? {...current, [key]: value} : current)}/></View>)}
+          <Switch focusId={`feature:${key}`} checked={draft[key]} onCheckedChange={value => updateDraft({[key]: value})}/></View>)}
 
     </View>}
     <Dialog testID="profile-hidden-labels-picker" open={labelsOpen} onOpenChange={setLabelsOpen} title={t('web.limits.hiddenLabels')} description={t('next.settingsSpec.account.profile.groups.3.rows.2.help')}
       footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" onPress={() => setLabelsOpen(false)}>{t('action.cancel')}</Button>
-        <Button onPress={() => {if (!owner || !current(owner) || busy) return; setDraft(value => value ? {...value, blockedLabels: [...labelsDraft]} : value); setLabelsOpen(false);}}>{t('action.done')}</Button></View>}>
+        <Button onPress={() => {if (!owner || !current(owner) || busy) return; updateDraft({blockedLabels: [...labelsDraft]}); setLabelsOpen(false);}}>{t('action.done')}</Button></View>}>
       <View style={{gap: 10}}>
         {labelsDraft.length ? labelsDraft.map(label => <View key={label.toLowerCase()} style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
           <Text style={[theme.type.body, {color: theme.colors.text, flex: 1}]}>{label}</Text>

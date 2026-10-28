@@ -39,10 +39,10 @@ export function OwnerMoveSheet({session, t, busy, onCancel, onMove}: {
       <Button variant="primary" disabled={busy || !session || span <= 0} loading={busy} onPress={() => onMove(target)}>{t('web.nowPlaying.moveConfirm')}</Button>
     </View>}>
     <View onLayout={event => {width.current = event.nativeEvent.layout.width;}} style={{height: 44, justifyContent: 'center', marginTop: 10}}>
-      <View {...gesture.panHandlers} accessibilityRole="adjustable" accessibilityLabel={t('player.position')}
-        accessibilityValue={{min: 0, max: Math.max(0, span), now: Math.max(0, Math.min(target, span))}}
+      <View {...gesture.panHandlers} accessible accessibilityRole="adjustable" accessibilityLabel={t('player.position')}
+        accessibilityValue={{min: 0, max: Math.max(0, span), now: Math.max(0, Math.min(target, span)), text: t('player.clockOf', {position: positionClock(target), duration: positionClock(span)})}}
         accessibilityActions={[{name: 'increment'}, {name: 'decrement'}]}
-        onAccessibilityAction={event => {if (span <= 0) return; const step = event.nativeEvent.actionName === 'increment' ? 30_000 : -30_000; setTarget(clampToLength(target + step, span));}}
+        onAccessibilityAction={event => {if (span <= 0 || !['increment', 'decrement'].includes(event.nativeEvent.actionName)) return; const step = event.nativeEvent.actionName === 'increment' ? 30_000 : -30_000; setTarget(clampToLength(target + step, span));}}
         testID="owner-move-track" style={{height: 44, justifyContent: 'center'}}>
         <View pointerEvents="none" style={{height: 6, borderRadius: 3, backgroundColor: alpha(theme.colors.text, .16)}}>
           <View style={{height: 6, borderRadius: 3, width: `${Math.round(fraction(target) * 1000) / 10}%`, backgroundColor: theme.colors.text, opacity: .9}}/>

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import type {LocalSession} from '../../../packages/client-core/src';
 import type {PreferenceSnapshot} from '../../../packages/client-core/src/preferences';
 import type {DirectSnapshot} from '../../../packages/client-core/src/profile-management';
 import {settingsStructure} from '../../../packages/client-core/src/presentation/settings-structure';
@@ -16,13 +17,13 @@ const preferences = {
 } as unknown as PreferenceSnapshot;
 
 const account = (role: 'owner' | 'admin' | 'member', hostedAccountId?: string): DirectSnapshot => Object.freeze({
-  authority: 'local', serverId: 'server-1', canManage: role === 'owner' || role === 'admin',
-  capabilities: {manageAccount: role === 'owner' || role === 'admin', managePeople: role !== 'member', manageServer: role !== 'member', manageSignIn: role === 'owner'},
+  authority: 'local', serverId: 'server-1', canManage: true,
+  capabilities: {manageAccount: true, managePeople: role !== 'member', manageServer: role !== 'member', manageSignIn: role === 'owner'},
   account: {id: 'account-1', username: 'justin', primaryProfileId: 'profile-1', role, revision: 1, disabled: false, allowedLibraries: [], ...(hostedAccountId ? {hostedAccountId} : {})},
   profiles: [{id: 'profile-1', name: 'Justin', primary: true, position: 0, art: 'blue' as const, revision: 1, pinRevision: 0, pinRequired: false}],
 });
 
-const source = (role: 'owner' | 'admin' | 'member', hostedAccountId?: string) => ({account: account(role, hostedAccountId), preferences: () => preferences, session: () => undefined});
+const source = (role: 'owner' | 'admin' | 'member', hostedAccountId?: string) => ({account: account(role, hostedAccountId), preferences: () => preferences, session: () => ({sessionFamilyId: 'family-1', accessToken: 'test-only', expiresAt: '2030-01-01T00:00:00Z', tokenGeneration: '1', authorizationHorizon: 'h', viewer: {serverId: 'server-1', accountId: 'account-1', profileId: 'profile-1', role, authority: 'local'}} as LocalSession)});
 
 test('an owner on a local server is the owner, with the server-published preference keys', () => {
   const context = nativeSettingsContext(source('owner'), 'phone');
@@ -32,8 +33,8 @@ test('an owner on a local server is the owner, with the server-published prefere
   assert.deepEqual([...context.capabilities.preferenceKeys ?? []], ['playback.autoplayNext', 'region.locale']);
   assert.equal(context.capabilities.localAccount, true);
   assert.equal(context.capabilities.porticoMember, false);
-  assert.equal(context.capabilities.manageSignIn, false);
-  assert.equal(context.capabilities.manageDevices, false);
+  assert.equal(context.capabilities.manageSignIn, true);
+  assert.equal(context.capabilities.manageDevices, true);
   assert.equal(context.capabilities.downloads, false);
 });
 
@@ -45,6 +46,8 @@ test('a Portico Account member is not a local account and is never made owner', 
   assert.equal(context.capabilities.porticoMember, true);
   assert.equal(context.capabilities.hostedAccount, true);
   assert.equal(context.capabilities.accessTokens, false);
+  assert.equal(context.capabilities.manageSignIn, false, 'Hosted credentials stay with the account-owned security flow');
+  assert.equal(context.capabilities.manageDevices, true, 'a Hosted member manages its main-profile server devices here');
 });
 
 test('an administrator sees only the administrator tier, never the owner pages', () => {
@@ -89,4 +92,29 @@ test('the dashboard route stays the owner and administrator read-only page on te
   assert.equal(member.headings.some(heading => heading.id === 'server'), false);
   const owner = settingsStructure(nativeSettingsContext(source('owner'), 'tv'));
   assert.deepEqual(owner.headings.find(heading => heading.id === 'server')?.pages.map(page => page.id), ['dashboard']);
+});
+
+
+test('main local member can manage password and devices without owner-only Server Sign-in powers', () => {
+  const member = source('member');
+  assert.equal(member.account.capabilities.manageSignIn, false);
+  const context = nativeSettingsContext(member, 'phone');
+  assert.equal(context.capabilities.manageSignIn, true);
+  assert.equal(context.capabilities.manageDevices, true);
+});
+
+test('a missing session, secondary profile, or revoked account-management capability never exposes security panels', () => {
+  const main = source('member'), session = main.session();
+  const denied = [
+    {...main, session: () => undefined},
+    {...main, session: () => ({...session, viewer: {...session.viewer, profileId: 'secondary'}})},
+    {...main, account: {...main.account, canManage: false, capabilities: {...main.account.capabilities, manageAccount: false}}},
+    {...main, account: {...main.account, account: {...main.account.account, disabled: true}}},
+  ];
+  for (const value of denied) {
+    const context = nativeSettingsContext(value, 'phone');
+    assert.equal(context.capabilities.manageSignIn, false); assert.equal(context.capabilities.manageDevices, false);
+    const rows = settingsStructure(context).headings.flatMap(heading => heading.pages).flatMap(page => page.sections).flatMap(section => section.rows);
+    assert.equal(rows.some(row => row.kind === 'custom' && ['password', 'twoStep', 'devices'].includes(row.id)), false);
+  }
 });

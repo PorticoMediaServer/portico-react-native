@@ -62,7 +62,7 @@ export function AccountConfigEditor({controller, t, isCurrent, onCancel, onSaved
   const editable = !busy && !recovery && !state.busy;
   return <Page title={t('next.remoteSources.connectFromConfig')} t={t} busy={busy} onCancel={onCancel}
     footer={recovery ? <Button disabled={busy} onPress={() => {void recover();}}>{t('next.remoteSources.checkResult')}</Button>
-      : <Button disabled={!editable || !selected || !name.trim() || name.length > 100} onPress={() => {void save();}}>{t('next.remoteSources.saveAndContinue')}</Button>}>
+      : <Button disabled={!editable || !selected || !name.trim() || name.length > 100} onPress={() => {void save();}}>{t('next.remoteSources.continue')}</Button>}>
     {view && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.configPath', {path: view.path})}</Text>}
     {view && !view.remotes.length && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t(view.path ? 'next.remoteSources.configEmpty' : 'next.remoteSources.configAbsent')}</Text>}
     {!!view?.remotes.length && <Select label={t('next.remoteSources.configRemotes')} value={remote} disabled={!editable}

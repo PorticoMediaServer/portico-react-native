@@ -52,7 +52,7 @@ async function fixture() {
     './sign-out-downloads': {removeCapturedServerDownloads: async () => {}}, '../../tv/auth': {TVProfilePINForm: 'TVProfilePINForm', TVForgotPINHandoff: 'TVForgotPINHandoff'},
     './account-form-values': values,
   });
-  const context = {account: {profiles, canManage: true, account: {id: 'account', username: 'person'}, serverId: 'server'}, session: () => session,
+  const context = {account: {profiles, canManage: true, capabilities: {manageAccount: true}, account: {id: 'account', username: 'person', primaryProfileId: 'profile'}, serverId: 'server'}, session: () => session,
     authority: () => authority, current: () => true, subscribeAuthority: () => () => {}, api: {baseUrl: 'https://server.example.invalid'},
     navigation: {getSnapshot: () => nav, subscribe: () => () => {}, back() {}}};
   let tree: any;

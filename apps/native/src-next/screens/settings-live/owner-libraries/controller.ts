@@ -1,3 +1,6 @@
+import {encodedRoutePath, routeBody, type RouteResponse} from '../../../../../../packages/contracts/src/routes';
+import {RemoteSourceService, type AnalysisPolicy} from '../../../../../../packages/client-core/src/remote-sources';
+import type {ExpectedRemoteSource} from '../../../../../../packages/client-core/src/remote-source-selection';
 import {LibraryManagementService, type LibraryManagementSnapshot, type ManagedLibrary} from '../../../../../../packages/client-core/src/library-management';
 import {fetchEpisodeIssues, type EpisodeIssue} from '../../../../../../packages/client-core/src/library-management';
 import {LibraryInventoryService, type InventoryConfig, type SourceSettings} from '../../../../../../packages/client-core/src/library-inventory';
@@ -15,6 +18,8 @@ export type NativeOwnerLibrariesSnapshot = Readonly<{
   selectedId?: string;
   selected: LibraryManagementSnapshot['selected'];
   document?: LibraryAdminDocument;
+  strm?: AnalysisPolicy;
+  strmError?: unknown;
   sonic?: LibrarySonicDocument;
   sonicBusy: boolean;
   sonicError?: unknown;
@@ -22,6 +27,11 @@ export type NativeOwnerLibrariesSnapshot = Readonly<{
   sonicNeedsReload: boolean;
   sonicRetryUnavailable: boolean;
   inventory?: InventoryConfig;
+  inventoryLoading?: boolean;
+  inventoryError?: unknown;
+  lyricsJob?: RouteResponse<'post_libraries_id_lyrics_fetch'>;
+  lyricsError?: unknown;
+  lyricsBusy?: boolean;
   metadata?: LibraryMetadataAgent;
   detail: 'idle' | 'loading' | 'ready' | 'error';
   detailError?: unknown;
@@ -54,6 +64,7 @@ const empty: NativeOwnerLibrariesSnapshot = {directory: blankDirectory, selected
  * web console uses, with the screen's own lifetime. No optimistic rows and no replayed commands. */
 export class NativeOwnerLibrariesController {
   private management: LibraryManagementService;
+  private remotePolicy: RemoteSourceService;
   private inventory?: LibraryInventoryService;
   private api: LibraryContentApi;
   private scope: ContentScope;
@@ -64,11 +75,15 @@ export class NativeOwnerLibrariesController {
   private unsubscribe?: () => void;
   private unsubscribeInventory?: () => void;
   private sonicRequest?: AbortController;
+  private strmRead = 0;
+  private lyricsKeys = new Map<string, string>();
+  private lyricsFlight = false;
   private requestId: () => string;
 
   constructor(api: LibraryContentApi, scope: ContentScope, requestId: () => string) {
     this.api = api; this.scope = scope; this.requestId = requestId;
     this.management = new LibraryManagementService({api, scope});
+    this.remotePolicy = new RemoteSourceService(api, scope, async () => `${Date.now()}-${requestId()}`, () => !this.disposed);
     this.unsubscribe = this.management.subscribe(() => this.accept());
   }
 
@@ -92,7 +107,7 @@ export class NativeOwnerLibrariesController {
     this.disposed = true;
     this.unsubscribe?.(); this.unsubscribeInventory?.();
     this.sonicRequest?.abort(); this.sonicRequest = undefined;
-    this.inventory?.dispose(); this.management.dispose(); this.listeners.clear();
+    this.inventory?.dispose(); this.management.dispose(); this.remotePolicy.dispose(); this.listeners.clear();
   }
 
   private command<T>(work: () => Promise<T>): Promise<T | undefined> {
@@ -117,19 +132,50 @@ export class NativeOwnerLibrariesController {
     this.sonicRequest?.abort(); this.sonicRequest = undefined;
     const inventory = new LibraryInventoryService({api: this.api, scope: this.scope, libraryId});
     this.inventory = inventory; this.unsubscribeInventory = inventory.subscribe(() => this.acceptInventory(generation));
-    this.publish({selectedId: libraryId, detail: 'loading', detailError: undefined, skipped: undefined, skippedError: undefined, unmatched: Object.freeze([]), unmatchedCursor: '', sonic: undefined, sonicError: undefined, sonicErrorOperation: undefined, sonicNeedsReload: false, sonicBusy: false, sonicRetryUnavailable: false});
+    this.publish({inventory: undefined, inventoryLoading: true, inventoryError: undefined, document: undefined, lyricsJob: undefined, lyricsError: undefined, lyricsBusy: false, selectedId: libraryId, strm: undefined, strmError: undefined, detail: 'loading', detailError: undefined, skipped: undefined, skippedError: undefined, unmatched: Object.freeze([]), unmatchedCursor: '', sonic: undefined, sonicError: undefined, sonicErrorOperation: undefined, sonicNeedsReload: false, sonicBusy: false, sonicRetryUnavailable: false});
     try {
       await this.management.selectLibrary(libraryId);
       if (this.disposed || generation !== this.generation) return;
-      const [document, , , metadata] = await Promise.all([readLibrarySettings(this.api, libraryId), inventory.refresh().catch(() => {}), this.loadUnmatched(libraryId, '', generation),
+      const [document, , , metadata] = await Promise.all([readLibrarySettings(this.api, libraryId), inventory.refresh(), this.loadUnmatched(libraryId, '', generation),
         this.api.request<unknown>(metadataAgentPath(libraryId)).then(parseMetadataAgent, () => undefined)]);
       if (this.disposed || generation !== this.generation) return;
       this.publish({document, metadata, detail: 'ready'});
       void this.loadSonic(document, generation);
+      void this.loadStrm(document, generation);
       await this.loadSkipped(document, generation);
     } catch (error) {
       if (!this.disposed && generation === this.generation) this.publish({detail: 'error', detailError: error});
     }
+  }
+
+  /** STRM analysis is a separate revisioned resource, never a LibrarySettings field. */
+  private async loadStrm(document: LibraryAdminDocument, generation: number): Promise<void> {
+    if (!['movie', 'tv', 'anime'].includes(document.libraryKind)) return;
+    const read = ++this.strmRead;
+    try {
+      const strm = await this.remotePolicy.policy(document.libraryId);
+      if (!this.disposed && read === this.strmRead && this.generation === generation && this.state.selectedId === document.libraryId) this.publish({strm, strmError: undefined});
+    } catch (error) {
+      if (!this.disposed && read === this.strmRead && this.generation === generation && this.state.selectedId === document.libraryId) this.publish({strmError: error});
+    }
+  }
+
+  async setStrm(enabled: boolean, document: LibraryAdminDocument, policy: AnalysisPolicy, lease: SonicPageLease): Promise<void> {
+    const generation = this.generation;
+    const current = () => !this.disposed && this.generation === generation && this.state.document === document && this.state.strm === policy && lease.isCurrent();
+    if (this.state.busy || this.state.strmError !== undefined || policy.libraryId !== document.libraryId || !current()) return;
+    this.strmRead++;
+    this.publish({busy: true, strmError: undefined});
+    try {
+      const strm = await this.remotePolicy.setPolicy(policy, enabled);
+      if (current()) this.publish({strm});
+      else if (!this.disposed && this.generation === generation && this.state.strm === policy) this.publish({strmError: {code: 'refresh_failed'}});
+    } catch (error) {if (!this.disposed && this.generation === generation && this.state.strm === policy) this.publish({strmError: error});}
+    finally {if (!this.disposed && this.generation === generation) this.publish({busy: false});}
+  }
+
+  reloadStrm(document: LibraryAdminDocument): Promise<void> {
+    return this.state.document === document && !this.disposed && !this.state.busy ? this.loadStrm(document, this.generation) : Promise.resolve();
   }
 
   /** Sonic status is its own original-owner read, separate from the library document and never its permission. */
@@ -153,7 +199,7 @@ export class NativeOwnerLibrariesController {
 
   /** Toggle the library's own Sonic setting at that document's revision; no optimistic state, stale page or stale document. */
   async setSonicEnabled(enabled: boolean, document: LibraryAdminDocument, sonic: LibrarySonicDocument, lease: SonicPageLease): Promise<boolean> {
-    const generation = this.generation, libraryId = document.libraryId;
+    const generation = this.generation;
     if (!this.admitsSonic(document, sonic, generation, lease) || !readLibrarySonicSettingsBinding('libraries.sonicAnalysis', document, sonic)) return false;
     const patch = patchLibrarySonicSettingsBinding('libraries.sonicAnalysis', enabled, document, sonic);
     return this.sonicCommand(document, sonic, generation, lease, signal => saveLibrarySonic(this.api, sonic, patch.enabled, signal), true);
@@ -227,7 +273,35 @@ export class NativeOwnerLibrariesController {
 
   private acceptInventory(generation: number) {
     if (this.disposed || generation !== this.generation || !this.inventory) return;
-    this.publish({inventory: this.inventory.getSnapshot().config ?? undefined});
+    const snapshot = this.inventory.getSnapshot();
+    this.publish({inventory: snapshot.error || snapshot.loading ? undefined : snapshot.config ?? undefined, inventoryLoading: snapshot.loading, inventoryError: snapshot.error ?? undefined});
+  }
+
+  async reloadInventory(): Promise<void> {
+    if (this.disposed || !this.inventory || this.state.inventoryLoading) return;
+    await this.inventory.refresh();
+  }
+
+  /** Keep the operation key after an uncertain answer; a repeat gesture recovers the same job. */
+  async fetchLyrics(document: LibraryAdminDocument, current: () => boolean): Promise<void> {
+    const generation = this.generation;
+    const owns = () => !this.disposed && generation === this.generation && this.state.document === document && this.state.selectedId === document.libraryId && current();
+    if (!owns() || this.lyricsFlight || this.state.busy || document.libraryKind !== 'music' || document.settings.lyricsSource !== 'lrclib' || !document.eligibleControls.includes('libraries.lyrics')) return;
+    const key = this.lyricsKeys.get(document.libraryId) ?? this.requestId();
+    this.lyricsKeys.set(document.libraryId, key); this.lyricsFlight = true;
+    this.publish({lyricsBusy: true, lyricsError: undefined, lyricsJob: undefined});
+    try {
+      if (!owns()) return;
+      const job = await this.api.request<RouteResponse<'post_libraries_id_lyrics_fetch'>>(encodedRoutePath('post_libraries_id_lyrics_fetch', {id: encodeURIComponent(document.libraryId)}), 'POST', routeBody('post_libraries_id_lyrics_fetch', {idempotencyKey: key}));
+      if (!job || typeof job.id !== 'string' || !job.id || typeof job.state !== 'string') throw new Error('Invalid lyrics job response.');
+      this.lyricsKeys.delete(document.libraryId);
+      if (!owns()) return;
+      this.publish({lyricsJob: job});
+      // Reconcile the selected library, without converting an accepted job into a second POST.
+      if (!owns()) return;
+      await this.management.selectLibrary(document.libraryId);
+    } catch (error) {if (owns()) this.publish({lyricsError: error});}
+    finally {this.lyricsFlight = false; if (!this.disposed && generation === this.generation) this.publish({lyricsBusy: false});}
   }
 
   /** The last finished scan's own diagnostics, narrowed by the screen to files Portico cannot play. */
@@ -286,7 +360,7 @@ export class NativeOwnerLibrariesController {
   scanAll(): Promise<void | undefined> {return this.command(() => this.management.scan('full'));}
 
   /** Creates the library from the real form, then opens it so its first scan is visible in place. */
-  async create(input: Readonly<{name: string; kind: ManagedLibrary['kind']; folders: readonly string[]; metadataAgent?: 'online' | 'local'; metadataLanguage?: string}>): Promise<string | undefined> {
+  async create(input: Readonly<{name: string; kind: ManagedLibrary['kind']; folders: readonly string[]; expectedRemoteSource?: ExpectedRemoteSource; metadataAgent?: 'online' | 'local'; metadataLanguage?: string}>): Promise<string | undefined> {
     const done = await this.command(async () => {await this.management.createLibrary(input); return this.management.getSnapshot().selectedLibraryId ?? undefined;});
     if (done) {await this.refresh(); await this.load(done);}
     return done ?? undefined;

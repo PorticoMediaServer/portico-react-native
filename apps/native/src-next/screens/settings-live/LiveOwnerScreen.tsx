@@ -1,9 +1,10 @@
-import React, {useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {importSkipped, liveSourceState} from '../../../../../packages/client-core/src/server-admin/live-words';
 import type {LiveDefaults, LiveSource} from './live-owner-model';
-import {Button, Focusable, Switch, Tabs, TextField} from '../../kit/controls';
+import {liveRewindRow, liveStabilityPatch, liveStabilityRow, liveStabilityValue} from './live-defaults-presentation';
+import {Button, Focusable, Select, Switch, Tabs, TextField} from '../../kit/controls';
 import {Dialog, Menu} from '../../kit/overlays';
 import {ServerHeader} from '../../kit/shell';
 import {StateView} from '../../kit/states';
@@ -19,6 +20,7 @@ import {liveDocumentPicker} from './live-document-picker';
 import {ChannelMapSheet, SourceSettingsSheet} from './LiveOwnerSettingsSheets';
 import {NativeRecordingOwner} from './LiveOwnerRecording';
 import {NativeLibraryChannelsPanel} from './server/LibraryChannelsPanel';
+import {NativeAdvancedSection} from './server/AdvancedSection';
 
 
 /** Settings › Server › Live TV & Channels: the owner's real sources and recordings.
@@ -152,6 +154,7 @@ export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, o
 /** Server-wide defaults and limits, saved as one document with its real revision. */
 function LiveDefaultsSection({controller, runtime}: {controller: NativeLiveOwnerController; runtime: NativeShellRuntime}) {
   const theme = useTheme(), t = runtime.text.t;
+  const [advanced, setAdvanced] = useState(false), [custom, setCustom] = useState(false);
   const [document, setDocument] = useState<Readonly<{revision: number; settings: LiveDefaults}>>(), [draft, setDraft] = useState<LiveDefaults>(), [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false), [saved, setSaved] = useState(false);
   useEffect(() => {
     let active = true;
@@ -167,27 +170,40 @@ function LiveDefaultsSection({controller, runtime}: {controller: NativeLiveOwner
     catch (failure) {setError(failure);}
     finally {setBusy(false);}
   };
+  const guideDayChoices = [...new Set([3, 7, 14, ...(draft && draft.guideDays > 0 ? [draft.guideDays] : [])])].sort((left, right) => left - right);
   return <View style={{gap: 14, paddingHorizontal: 20}}>
     <Text style={[shellType(13, 700), {color: theme.colors.textTertiary}]}>{t('web.dvrSettings.liveDefaults')}</Text>
-    <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{t('web.dvrSettings.liveDefaultsLede')}</Text>
     {error !== undefined && <StateView testID="live-owner-defaults-error" {...runtime.error(error, () => setError(undefined))}/>}
     {!document && error === undefined && <Text style={[shellType(13), {color: theme.colors.textTertiary}]}>{t('web.librarySettings.loading')}</Text>}
     {draft && document && <View style={{gap: 12, backgroundColor: theme.colors.raised, borderRadius: 14, padding: 14}}>
-      <TextField testID="live-owner-defaults-buffer" label={t('web.dvrSettings.buffer')} description={t('web.dvrSettings.bufferHelp')} keyboardType="number-pad" value={String(draft.streamBufferMs / 1000)} onChangeText={value => patch({streamBufferMs: Math.max(0, Math.round(Number(value) || 0)) * 1000})}/>
-      <TextField testID="live-owner-defaults-retry" label={t('web.dvrSettings.retryWindow')} description={t('web.dvrSettings.retryWindowHelp')} keyboardType="number-pad" value={String(draft.retryWindowMs / 1000)} onChangeText={value => patch({retryWindowMs: Math.max(0, Math.round(Number(value) || 0)) * 1000})}/>
-      <TextField testID="live-owner-defaults-days" label={t('web.dvrSettings.guideDays')} description={t('web.dvrSettings.guideDaysHelp')} keyboardType="number-pad" value={String(draft.guideDays)} onChangeText={value => patch({guideDays: Math.max(1, Math.round(Number(value) || 1))})}/>
-      <TextField testID="live-owner-defaults-agent" label={t('web.dvrSettings.userAgent')} description={t('web.dvrSettings.userAgentHelp')} value={draft.userAgent} autoCapitalize="none" autoCorrect={false} onChangeText={userAgent => patch({userAgent})}/>
+      <Select testID="live-owner-defaults-stability" label={t(liveStabilityRow.label)} value={custom ? 'custom' : liveStabilityValue(draft)}
+        options={(liveStabilityRow.control.options ?? []).map(option => ({value: String(option.value), label: t(option.label), description: option.hint ? t(option.hint) : undefined}))}
+        onValueChange={value => {const next = liveStabilityPatch(value); setCustom(value === 'custom'); if (next) patch(next); else if (value === 'custom') setAdvanced(true);}}/>
+      {draft.timeshiftMinutes !== undefined && <Select testID="live-owner-defaults-rewind" label={t(liveRewindRow.label)} description={liveRewindRow.help ? t(liveRewindRow.help) : undefined} value={String(draft.timeshiftMinutes)}
+        options={(liveRewindRow.control.options ?? []).map(option => ({value: String(option.value), label: t(option.label)}))}
+        onValueChange={value => {const minutes = Number(value); if (minutes === 10 || minutes === 30 || minutes === 60 || minutes === 120) patch({timeshiftMinutes: minutes});}}/>}
+      <Select testID="live-owner-defaults-days" label={t('web.dvrSettings.guideDays')} description={t('web.dvrSettings.guideDaysHelp')} value={String(draft.guideDays)}
+        options={guideDayChoices.map(days => ({value: String(days), label: t('server.export.days', {count: days})}))}
+        onValueChange={value => patch({guideDays: Number(value)})}/>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}><Text style={[shellType(15, 600), {color: theme.colors.text, flex: 1}]}>{t('web.dvrSettings.logoImport')}</Text><Switch testID="live-owner-defaults-logos" accessibilityLabel={t('web.dvrSettings.logoImport')} checked={draft.logoImport} onCheckedChange={logoImport => patch({logoImport})}/></View>
-      <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}><View style={{flex: 1}}><Text style={[shellType(15, 600), {color: theme.colors.text}]}>{t('web.dvrSettings.discovery')}</Text><Text style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{t('web.dvrSettings.discoveryHelp')}</Text></View><Switch testID="live-owner-defaults-discovery" accessibilityLabel={t('web.dvrSettings.discovery')} checked={draft.discoveryEnabled} onCheckedChange={discoveryEnabled => patch({discoveryEnabled})}/></View>
     </View>}
     {draft && document && <>
-      <Text style={[shellType(13, 700), {color: theme.colors.textTertiary}]}>{t('server.live.limits')}</Text>
-      <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{t('server.live.limitsLede')}</Text>
-      <View style={{gap: 12, backgroundColor: theme.colors.raised, borderRadius: 14, padding: 14}}>
-        <TextField testID="live-owner-defaults-channels" label={t('server.live.limitChannels')} keyboardType="number-pad" value={String(draft.importLimits.channels)} onChangeText={value => patch({importLimits: {...draft.importLimits, channels: Math.max(1, Math.round(Number(value) || 1))}})}/>
-        <TextField testID="live-owner-defaults-programmes" label={t('server.live.limitProgrammes')} keyboardType="number-pad" value={String(draft.importLimits.programmes)} onChangeText={value => patch({importLimits: {...draft.importLimits, programmes: Math.max(1, Math.round(Number(value) || 1))}})}/>
-        <TextField testID="live-owner-defaults-size" label={`${t('server.live.limitSize')} (${t('settings.unit.mb')})`} keyboardType="number-pad" value={String(Math.round(draft.importLimits.bytes / 1048576))} onChangeText={value => patch({importLimits: {...draft.importLimits, bytes: Math.max(1, Math.round(Number(value) || 1)) * 1048576}})}/>
-      </View>
+      <NativeAdvancedSection testID="live-owner-defaults-advanced" open={advanced} onOpenChange={setAdvanced}>
+        <View style={{gap: 12, backgroundColor: theme.colors.raised, borderRadius: 14, padding: 14}}>
+          <TextField testID="live-owner-defaults-buffer" label={t('web.dvrSettings.buffer')} description={t('web.dvrSettings.bufferHelp')} keyboardType="number-pad" value={String(draft.streamBufferMs / 1000)} onChangeText={value => patch({streamBufferMs: Math.max(0, Math.round(Number(value) || 0)) * 1000})}/>
+          <TextField testID="live-owner-defaults-retry" label={t('web.dvrSettings.retryWindow')} description={t('web.dvrSettings.retryWindowHelp')} keyboardType="number-pad" value={String(draft.retryWindowMs / 1000)} onChangeText={value => patch({retryWindowMs: Math.max(0, Math.round(Number(value) || 0)) * 1000})}/>
+          <TextField testID="live-owner-defaults-agent" label={t('web.dvrSettings.userAgent')} description={t('web.dvrSettings.userAgentHelp')} value={draft.userAgent} autoCapitalize="none" autoCorrect={false} onChangeText={userAgent => patch({userAgent})}/>
+          <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}><View style={{flex: 1}}><Text style={[shellType(15, 600), {color: theme.colors.text}]}>{t('web.dvrSettings.discovery')}</Text><Text style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{t('web.dvrSettings.discoveryHelp')}</Text></View><Switch testID="live-owner-defaults-discovery" accessibilityLabel={t('web.dvrSettings.discovery')} checked={draft.discoveryEnabled} onCheckedChange={discoveryEnabled => patch({discoveryEnabled})}/></View>
+        </View>
+        <View style={{gap: 12}}>
+          <Text style={[shellType(13, 700), {color: theme.colors.textTertiary}]}>{t('server.live.limits')}</Text>
+          <View style={{gap: 12, backgroundColor: theme.colors.raised, borderRadius: 14, padding: 14}}>
+            <TextField testID="live-owner-defaults-channels" label={t('server.live.limitChannels')} keyboardType="number-pad" value={String(draft.importLimits.channels)} onChangeText={value => patch({importLimits: {...draft.importLimits, channels: Math.max(1, Math.round(Number(value) || 1))}})}/>
+            <TextField testID="live-owner-defaults-programmes" label={t('server.live.limitProgrammes')} keyboardType="number-pad" value={String(draft.importLimits.programmes)} onChangeText={value => patch({importLimits: {...draft.importLimits, programmes: Math.max(1, Math.round(Number(value) || 1))}})}/>
+            <TextField testID="live-owner-defaults-size" label={`${t('server.live.limitSize')} (${t('settings.unit.mb')})`} keyboardType="number-pad" value={String(Math.round(draft.importLimits.bytes / 1048576))} onChangeText={value => patch({importLimits: {...draft.importLimits, bytes: Math.max(1, Math.round(Number(value) || 1)) * 1048576}})}/>
+          </View>
+        </View>
+      </NativeAdvancedSection>
       <View style={{flexDirection: 'row', gap: 10, alignItems: 'center'}}>
         <Button testID="live-owner-defaults-save" loading={busy} disabled={!dirty} onPress={() => void save()}>{t('action.save')}</Button>
         {saved && <Text style={[shellType(13), {color: theme.colors.healthy}]}>{t('server.live.saved')}</Text>}

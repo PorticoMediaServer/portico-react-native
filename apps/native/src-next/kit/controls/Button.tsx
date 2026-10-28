@@ -40,9 +40,9 @@ const ButtonContent = forwardRef<View, ButtonContentProps>(function ButtonConten
   const glyphSize = iconSize ?? geometry.icon;
   const recipe = glassRecipe();
   const white = variant === 'primary';
-  const glass = variant === 'glass' || variant === 'icon';
+  const glass = variant === 'glass' || variant === 'icon' || variant === 'danger';
   const androidGlass = glass && recipe.nativeBlur && Platform.OS === 'android';
-  const foreground = white ? theme.colors.ink : variant === 'text' ? theme.platform === 'web' ? theme.colors.textSecondary : theme.colors.accentStrong : theme.colors.text;
+  const foreground = white ? theme.colors.ink : variant === 'danger' ? theme.colors.record : variant === 'text' ? theme.platform === 'web' ? theme.colors.textSecondary : theme.colors.accentStrong : theme.colors.text;
   const glyphColor = iconColor ?? foreground;
   const labelStyle = [theme.type.button, styles.label, {fontSize: geometry.fontSize * theme.textScale, color: foreground}, textStyle];
   const labelId = props.testID ?? props.focusId;

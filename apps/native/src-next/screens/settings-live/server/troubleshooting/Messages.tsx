@@ -1,4 +1,5 @@
-import React, {useEffect, useLayoutEffect, useState, useSyncExternalStore} from 'react';
+import {Menu} from '../../../../kit/overlays';
+import React, {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {AppState, Text, View} from 'react-native';
 import {SettingsMessagesSource} from '../../../../../../../packages/client-core/src/server-admin/messages-source';
 import {LOG_DETAIL_MINUTES, logLevels, logCategories, type LogDetailMinutes, type LogSettings} from '../../../../../../../packages/client-core/src/server-administration';
@@ -10,8 +11,8 @@ import type {NativeSettingsLivePorts} from '../../ports';
 import {NativeScreenLifetime, screenScopeEnded} from '../../lifetime';
 import {nativeStorageOwner} from '../storage/space-source';
 import {useStorageForms, useStorageSet, useFormState, type StorageForms} from '../storage/forms';
-import {Button, Select} from '../../../../kit/controls';
-import {shellType} from '../../../../kit/shell/visual';
+import {Button, Chip, Select, Switch} from '../../../../kit/controls';
+import {alpha, shellType} from '../../../../kit/shell/visual';
 import {useTheme} from '../../../../kit/theme';
 const IDS = ['logs'] as const;
 
@@ -54,22 +55,39 @@ export function NativeMessages({ports, runtime}: {ports: NativeSettingsLivePorts
   useLayoutEffect(() => {const next = createMessages(context,operationId,reportError);setGroup(next);return next.dispose;},[context,operationId,reportError]);
   return forms && group?.context === context ? <Messages key={forms.mount} group={group} forms={forms} runtime={runtime}/> : null;
 }
-function Messages({group, forms, runtime}: {group: Group; forms: StorageForms; runtime: NativeShellRuntime}) {
+export function Messages({group, forms, runtime}: {group: Group; forms: StorageForms; runtime: NativeShellRuntime}) {
   const {source} = group, state = useSyncExternalStore(source.subscribe,source.getSnapshot,source.getSnapshot), failure = useSyncExternalStore(group.subscribeFailure,group.getFailure,group.getFailure), theme = useTheme(), t = runtime.text.t as typeof defaultI18n.t;
   const form = forms.forms.logs, logs = useFormState<LogsDraft, LogSettings>(form), saved = logs.status, draft = logs.draft, saveState = useStorageSet(forms);
-  const [now,setNow] = useState(Date.now);
+  const [now,setNow] = useState(Date.now), [filter, setFilter] = useState<Readonly<{kind: 'level' | 'category'}>>();
+  const filterRef = useRef(filter);
+  const openFilter = (kind: 'level' | 'category') => {if (!group.current() || filterRef.current) return; const next = {kind}; filterRef.current = next; setFilter(next);};
+  const closeFilter = () => {if (!filter || filterRef.current !== filter) return; filterRef.current = undefined; setFilter(undefined);};
   useEffect(() => {void source.load();const timer = setInterval(() => {if (group.current()) setNow(Date.now());},30000);return () => clearInterval(timer);},[source,group]);
   const until = state.settings?.debugWindowUntil, recording = !!until && Date.parse(until) > now;
   const detail = () => {if (!group.current() || source.getSnapshot().changing) return;group.clearFailure();const minutes = saved?.logDetailMinutes;void source.detail(!recording, minutes !== undefined && LOG_DETAIL_MINUTES.includes(minutes) ? minutes : undefined).catch(error => {if (group.current()) group.failure(error);});};
   return <View style={{marginTop:14,gap:12}} testID="server-troubleshooting-messages">
     <Text style={[shellType(17,800),{color:theme.colors.text}]}>{t('web.logs.messages')}</Text><Text style={[shellType(13,400,18),{color:theme.colors.textSecondary}]}>{t('web.logs.messagesLede')}</Text>
     <View style={{padding:14,gap:8,borderRadius:14,backgroundColor:theme.colors.raised}}><Text style={[shellType(15,700),{color:theme.colors.text}]}>{t('settings.server.detailWindow.forMinutes',{minutes:saved?.logDetailMinutes ?? 30})}</Text><Text style={{color:theme.colors.textSecondary}}>{recording && until ? t('settings.server.detailWindow.until',{time:defaultI18n.time(Date.parse(until))}) : t('settings.server.detailWindow.help')}</Text><Button size="compact" loading={state.changing} disabled={state.changing} onPress={detail}>{t(recording ? 'settings.server.detailWindow.stop' : 'settings.server.detailWindow.start')}</Button></View>
-    <View style={{flexDirection:'row',gap:8}}><Button size="compact" variant="glass" onPress={() => {if (group.current()) group.setLive(!source.getSnapshot().live);}}>{t(state.live ? 'next.cards.pause' : 'next.cards.live')}</Button><Button size="compact" variant="glass" disabled={state.phase === 'loading'} onPress={() => {if (group.current()) {group.clearFailure();void source.load();}}}>{t('web.selection.refresh')}</Button></View>
-    <Select label={t('web.logs.level')} value={state.level} options={[{value:'',label:t('web.logs.allLevels')},...logLevels.map(value=>({value,label:value.toUpperCase()}))]} onValueChange={value => {if (group.current() && (value === '' || logLevels.includes(value as typeof logLevels[number]))) void group.select(value as typeof state.level,source.getSnapshot().category);}}/>
-    <Select label={t('feedback.category')} value={state.category} options={[{value:'',label:t('web.logs.everything')},...logCategories.map(value=>({value,label:t(`server.logCategory.${value}` as MessageId)}))]} onValueChange={value=>{if(group.current() && (value === '' || logCategories.includes(value as typeof logCategories[number]))) void group.select(source.getSnapshot().level,value as typeof state.category);}}/>
+    <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8}}>
+      <Chip variant="pill" trailingIcon="i-down" onPress={() => openFilter('level')} accessibilityLabel={t('web.logs.level')}>{state.level ? t(`web.logs.level.${state.level}`) : t('web.logs.allLevels')}</Chip>
+      <Chip variant="pill" trailingIcon="i-down" onPress={() => openFilter('category')} accessibilityLabel={t('feedback.category')}>{state.category ? t(`server.logCategory.${state.category}` as MessageId) : t('web.logs.everything')}</Chip>
+      <Switch checked={state.live} onCheckedChange={value => {if (group.current()) group.setLive(value);}}>{t('next.cards.live')}</Switch>
+      {state.live && <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}><View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.healthy}}/><Text style={[shellType(12.5, 700), {color: theme.colors.healthy}]}>{t('web.logs.following')}</Text></View>}
+      <Button size="small" variant="text" disabled={state.phase === 'loading'} onPress={() => {if (group.current()) {group.clearFailure(); void source.load();}}}>{t('web.selection.refresh')}</Button>
+    </View>
+    <Menu open={!!filter && filterRef.current === filter && group.current()} onOpenChange={open => {if (!open) closeFilter();}} presentation="sheet" title={t(filter?.kind === 'level' ? 'web.logs.level' : 'feedback.category')}
+      items={(filter?.kind === 'level' ? [{value: '', label: t('web.logs.allLevels')}, ...logLevels.map(value => ({value, label: t(`web.logs.level.${value}`)}))]
+        : [{value: '', label: t('web.logs.everything')}, ...logCategories.map(value => ({value, label: t(`server.logCategory.${value}` as MessageId)}))]).map(option => ({id: option.value || 'all', label: option.label, selected: option.value === (filter?.kind === 'level' ? state.level : state.category), onSelect: () => {
+          if (!filter || filterRef.current !== filter || !group.current()) return;
+          closeFilter();
+          if (filter.kind === 'level' && (option.value === '' || logLevels.includes(option.value as typeof logLevels[number]))) void group.select(option.value as typeof state.level, source.getSnapshot().category);
+          else if (filter.kind === 'category' && (option.value === '' || logCategories.includes(option.value as typeof logCategories[number]))) void group.select(source.getSnapshot().level, option.value as typeof state.category);
+        }}))}/>
     {failure && <Text accessibilityRole="alert" style={{color:theme.colors.record}}>{t('error.unavailable')}</Text>}
     {state.phase === 'loading' && !state.lines.length && <Text style={{color:theme.colors.textSecondary}}>{t('web.logs.loadingMessages')}</Text>}{state.phase === 'ready' && !state.lines.length && <Text style={{color:theme.colors.textSecondary}}>{t('web.logs.noMessages')}</Text>}
-    {state.lines.map(row => <View key={row.sequence} style={{padding:12,gap:4,borderRadius:12,backgroundColor:theme.colors.raised}}><Text style={[shellType(11.5,600),{color:theme.colors.textTertiary}]}>{defaultI18n.time(Date.parse(row.at))} · {row.level.toUpperCase()} · {t(`server.logCategory.${row.category}` as MessageId)}</Text><Text style={[shellType(13,400,18),{color:theme.colors.text}]}>{row.message}</Text></View>)}
+    <View style={{borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.messageLog, borderWidth: 1, borderColor: theme.colors.lineSoft}}>
+      {state.lines.map((row, index) => <View key={row.sequence} style={{gap: 3, paddingVertical: 7, paddingHorizontal: 12, backgroundColor: row.level === 'error' ? alpha(theme.colors.danger, .07) : undefined, borderTopWidth: index ? 1 : 0, borderColor: alpha(theme.colors.lineStrong, .35)}}><View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 10}}><Text style={{fontFamily: 'monospace', fontSize: 11.5, color: theme.colors.textTertiary}}>{defaultI18n.time(Date.parse(row.at))}</Text><Text style={{fontFamily: 'monospace', fontSize: 11.5, fontWeight: '700', color: row.level === 'error' ? theme.colors.danger : row.level === 'warn' ? theme.colors.amber : row.level === 'info' ? theme.colors.textSecondary : theme.colors.textTertiary}}>{t(`web.logs.level.${row.level}`)}</Text><Text style={{fontFamily: 'monospace', fontSize: 11.5, color: theme.colors.textTertiary}}>{t(`server.logCategory.${row.category}` as MessageId)}</Text></View><Text selectable style={[shellType(13.5, 500, 19), {color: row.level === 'error' ? theme.colors.text : theme.colors.textSecondary}]}>{row.message}</Text></View>)}
+    </View>
     {draft && <><Select label={t('next.settingsSpec.server.troubleshooting.advanced.groups.0.rows.0.label')} value={draft.logLevel} options={logLevels.map((value,index)=>({value,label:t(`next.settingsSpec.server.troubleshooting.advanced.groups.0.rows.0.control.options.${index}.label` as MessageId)}))} disabled={saveState.saving} onValueChange={value=>{if(group.current() && logLevels.includes(value as typeof logLevels[number]))form.set((old:LogsDraft)=>({...old,logLevel:value as LogsDraft['logLevel']}));}}/>{saved?.logDetailMinutes !== undefined && <Select label={t('next.settingsSpec.server.troubleshooting.advanced.groups.0.rows.1.label')} value={String(draft.logDetailMinutes ?? 30)} options={LOG_DETAIL_MINUTES.map(value=>({value:String(value),label:t('web.dvr.minutes',{count:value})}))} disabled={saveState.saving} onValueChange={value=>{const minutes=Number(value);if(group.current() && LOG_DETAIL_MINUTES.includes(minutes as LogDetailMinutes))form.set((old:LogsDraft)=>({...old,logDetailMinutes:minutes as LogDetailMinutes}));}}/>}{saveState.dirty && <View style={{flexDirection:'row',gap:8}}><Button size="compact" variant="glass" disabled={saveState.saving} onPress={()=>{if(group.current())forms.set.discard();}}>{t('action.discard')}</Button><Button size="compact" disabled={saveState.saving || !!saveState.problem} onPress={()=>{if(group.current())void forms.set.save();}}>{t('action.save')}</Button></View>}</>}
   </View>;
 }

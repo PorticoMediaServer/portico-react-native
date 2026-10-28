@@ -223,14 +223,14 @@ function SourceChoiceSheet({controller, runtime, source, kind, open, onOpenChang
       <View style={{gap: 4}}>
         <LoadingBoundary ready={!loading || items.length > 0 || gone.length > 0} immediate={!loading || items.length > 0 || gone.length > 0} skeleton={<SkeletonBlock height={44} radius={10}/>}>
         <>
-        {items.map(value => <Focusable key={value.id} testID={`live-owner-choice-${value.id}`} focusKind="row" onPress={() => toggle(value.id, !selected.includes(value.id))} style={{flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44, borderRadius: 10, paddingHorizontal: 8}}>
+        {items.map(value => <Focusable key={value.id} testID={`live-owner-choice-${value.id}`} accessible accessibilityRole="switch" accessibilityLabel={value.name || value.id} accessibilityState={{checked: selected.includes(value.id)}} focusKind="row" onPress={() => toggle(value.id, !selected.includes(value.id))} style={{flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44, borderRadius: 10, paddingHorizontal: 8}}>
           <Text style={[shellType(15), {color: theme.colors.text, flex: 1}]} numberOfLines={1}>{value.name || value.id}</Text>
           <Text style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{kind === 'groups' ? t('server.live.channelCount', {count: value.channels}) : value.group}</Text>
-          <Switch testID={`live-owner-choice-switch-${value.id}`} accessibilityLabel={value.name || value.id} checked={selected.includes(value.id)} onCheckedChange={on => toggle(value.id, on)}/>
+          <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants"><Switch testID={`live-owner-choice-switch-${value.id}`} accessible={false} focusable={false} checked={selected.includes(value.id)}/></View>
         </Focusable>)}
-        {gone.map(id => <Focusable key={`gone:${id}`} focusKind="row" onPress={() => toggle(id, false)} style={{flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44, borderRadius: 10, paddingHorizontal: 8}}>
+        {gone.map(id => <Focusable key={`gone:${id}`} accessible accessibilityRole="switch" accessibilityLabel={id} accessibilityState={{checked: true}} focusKind="row" onPress={() => toggle(id, false)} style={{flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44, borderRadius: 10, paddingHorizontal: 8}}>
           <Text style={[shellType(15), {color: theme.colors.text, flex: 1}]} numberOfLines={1}>{id}</Text>
-          <Switch accessibilityLabel={id} checked onCheckedChange={() => toggle(id, false)}/>
+          <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants"><Switch accessible={false} focusable={false} checked/></View>
         </Focusable>)}
         {!loading && !items.length && !gone.length && error === undefined && <Text style={[shellType(13), {color: theme.colors.textTertiary}]}>{t('server.live.noMatches')}</Text>}
         </>

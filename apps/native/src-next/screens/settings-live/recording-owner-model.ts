@@ -1,3 +1,4 @@
+import {parseDVRDocument as parseSharedDVRDocument} from '../../../../../packages/client-core/src/administration';
 import {parseRecordingGrants, parseRecordingOwners, recordingOwnerKey, type RecordingGrant, type RecordingOwner, type RecordingOwnerChoice} from '../../../../../packages/client-core/src/server-admin/recording-policy';
 
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -29,24 +30,9 @@ const keep = (v: unknown, maxCount = 1000): KeepPolicy => {
   if (!object(v) || !oneOf(v.mode, ['keep-all', 'keep-count', 'keep-days'] as const) || !count(v.keepCount, maxCount) || !count(v.keepDays, 3650) || !flag(v.keepUntilWatched)) invalid();
   return Object.freeze({mode: v.mode, keepCount: v.keepCount, keepDays: v.keepDays, keepUntilWatched: v.keepUntilWatched});
 };
-const dvrDefaults = (v: unknown): DVRDefaults => {
-  if (!object(v) || !count(v.prePaddingMs, 1800000) || !count(v.postPaddingMs, 7200000) || !object(v.conversion) || !text(v.conversion.mode, 64) || !text(v.conversion.ladderId ?? '', 128) || !flag(v.conversion.deleteOriginal)) invalid();
-  if (!text(v.folderTemplate, 512) || !text(v.movieFolderTemplate, 512) || !text(v.recordingProfile, 64) || !object(v.sidecars) || !text(v.tunerPreference, 64) || !text(v.liveTunerConflict, 64)) invalid();
-  if (!flag(v.sidecars.nfo) || !flag(v.sidecars.poster) || !flag(v.sidecars.fanart) || !flag(v.sidecars.thumbnail)) invalid();
-  return Object.freeze({
-    prePaddingMs: v.prePaddingMs, postPaddingMs: v.postPaddingMs, keepPolicy: keep(v.keepPolicy),
-    conversion: Object.freeze({mode: v.conversion.mode, ladderId: v.conversion.ladderId ?? '', deleteOriginal: v.conversion.deleteOriginal}),
-    folderTemplate: v.folderTemplate, movieFolderTemplate: v.movieFolderTemplate, recordingProfile: v.recordingProfile,
-    sidecars: Object.freeze({nfo: v.sidecars.nfo, poster: v.sidecars.poster, fanart: v.sidecars.fanart, thumbnail: v.sidecars.thumbnail}),
-    tunerPreference: v.tunerPreference, liveTunerConflict: v.liveTunerConflict,
-  });
-};
+/** The native form retains its fields; client-core validates the complete DVR contract. */
 export function parseDVRDocument(v: unknown, serverId: string): DVRDocument {
-  const value = body(v, serverId);
-  if (!count(value.revision) || !object(value.settings)) invalid();
-  const enumerations: Record<string, readonly string[]> = {};
-  if (object(value.enumerations)) for (const [key, list] of Object.entries(value.enumerations)) if (Array.isArray(list) && list.every(item => text(item, 64))) enumerations[key] = Object.freeze([...list]) as readonly string[];
-  return Object.freeze({revision: value.revision, settings: dvrDefaults(value.settings), enumerations: Object.freeze(enumerations)});
+  return parseSharedDVRDocument(body(v, serverId));
 }
 
 export type TunerAssignment = Readonly<{kind: string; accountName: string; profileName: string; recordingId: string; title: string; state: string; startsAt: string; endsAt: string}>;

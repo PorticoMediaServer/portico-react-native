@@ -1,7 +1,7 @@
 import {buttonSpec, chipSpec, focusSpec, targets, typeScale} from '@portico/design';
 
 export type ControlPlatform = 'phone' | 'tablet' | 'web' | 'tv';
-export type ButtonVariant = 'primary' | 'glass' | 'text' | 'icon';
+export type ButtonVariant = 'primary' | 'glass' | 'text' | 'icon' | 'danger';
 export type ButtonSize = 'hero' | 'compact' | 'small' | 'xs' | 'episode' | 'dock';
 export type FocusKind = 'button' | 'row' | 'chip' | 'card';
 export type ChipVariant = 'default' | 'quick' | 'facet' | 'applied' | 'pill';
