@@ -4,7 +4,7 @@ import Animated, {runOnJS, useAnimatedScrollHandler, useSharedValue} from 'react
 import type {WindowedCollection} from '../../../../../packages/client-core/src/collections/windowed';
 import {useTheme} from '../theme';
 import {useFocusAnchor} from './FocusAnchor';
-import {captureGridAnchor, gridAnchorOffset, gridWindow, type GridAnchor} from './model';
+import {captionItemHeight, captureGridAnchor, gridAnchorOffset, gridWindow, type GridAnchor} from './model';
 import {itemSelection, type LayoutItemContext, type LayoutSelection} from './types';
 import {nativeSlotOwnerKey, projectNativeSlots, type NativeSlotProjection} from '../focus/windowed-slots';
 
@@ -19,6 +19,8 @@ export type WindowedGridProps<T> = {
   renderNativeSlot?: (item: T | undefined, context: NativeGridSlotContext) => ReactNode;
   itemWidth: number;
   itemHeight: number;
+  /** Caption allowance at OS fontScale 1, already including any app text-size preference. */
+  captionHeight?: number;
   gap?: number;
   rowGap?: number;
   gutter?: number;
@@ -42,8 +44,9 @@ export type WindowedGridProps<T> = {
   testID?: string;
 };
 
-function Grid<T>({collection, getKey, renderItem, renderPlaceholder, renderNativeSlot, itemWidth, itemHeight, gap, rowGap, gutter, rightGutter, paddingTop: contentPaddingTop = 0, paddingBottom = 0, stickyOffset: contentStickyOffset = 0, header, stickyHeader, overscanRows = 2, initialIndex = 0, selection, onVisibleRange, onScrollOffset, onItemFocus, onGeometry, style, testID}: WindowedGridProps<T>, ref: React.ForwardedRef<WindowedGridHandle>) {
+function Grid<T>({collection, getKey, renderItem, renderPlaceholder, renderNativeSlot, itemWidth, itemHeight: authoredItemHeight, captionHeight = 0, gap, rowGap, gutter, rightGutter, paddingTop: contentPaddingTop = 0, paddingBottom = 0, stickyOffset: contentStickyOffset = 0, header, stickyHeader, overscanRows = 2, initialIndex = 0, selection, onVisibleRange, onScrollOffset, onItemFocus, onGeometry, style, testID}: WindowedGridProps<T>, ref: React.ForwardedRef<WindowedGridHandle>) {
   const theme = useTheme();
+  const itemHeight = captionItemHeight(authoredItemHeight, captionHeight, theme.fontScale);
   const committedSlots = useRef<NativeSlotProjection | undefined>(undefined);
   const pendingOpening = useRef({});
   const columnGap = gap ?? (theme.isTV ? 28 : 12), verticalGap = rowGap ?? (theme.isTV ? 36 : 22);

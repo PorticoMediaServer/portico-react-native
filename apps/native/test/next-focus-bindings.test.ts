@@ -83,6 +83,32 @@ test('native guide composition uses one shared primitive with native holds and n
   } finally {guideDriver.unmount(); driver.unmount();}
 });
 
+test('a guide sends native destinations only when the remembered host or guide changes', async () => {
+  const {mod, contexts} = await focusModule(), registry = registryModule.createFocusRegistry();
+  contexts[0]!.current = registry;
+  const first = {nativeTag: 101, requestTVFocus() {}}, second = {nativeTag: 102, requestTVFocus() {}};
+  registry.attach({regionId: 'row', childId: 'a'}, first);
+  registry.attach({regionId: 'row', childId: 'b'}, second);
+  let outer: any, native: any;
+  const root = createHookHost(() => {outer = mod.FocusRegion.render({id: 'row', order: ['a', 'b'], children: null}, null);}); root.mount();
+  const host = createHookHost(() => {native = outer.type.render(outer.props, null);}); host.mount();
+  const sent: number[][] = [], replacementSent: number[][] = [];
+  const guide = {nativeTag: 201, requestTVFocus() {}, setDestinations: (handles: number[]) => sent.push(handles)};
+  try {
+    native.props.ref(guide); host.flush();
+    assert.deepEqual(sent, [[101]]);
+    registry.didFocus({regionId: 'row', childId: 'a'}); host.flush();
+    registry.didFocus({regionId: 'row', childId: 'a'}); host.flush();
+    registry.configure({id: 'unrelated', order: ['other']}); host.flush();
+    assert.deepEqual(sent, [[101]], 'unchanged entry and unrelated commits do not cross the native bridge');
+    registry.didFocus({regionId: 'row', childId: 'b'}); host.flush();
+    assert.deepEqual(sent, [[101], [102]]);
+    native.props.ref(null); host.flush();
+    native.props.ref({nativeTag: 202, requestTVFocus() {}, setDestinations: (handles: number[]) => replacementSent.push(handles)}); host.flush();
+    assert.deepEqual(replacementSent, [[102]], 'a newly attached guide receives its remembered destination');
+  } finally {native.props.ref(null); host.unmount(); root.unmount();}
+});
+
 test('F-RAIL-5 and F-RAIL-8 declare native vertical end stops while leaving Right open', async () => {
   const {mod, contexts} = await focusModule(), registry = registryModule.createFocusRegistry();
   contexts[0]!.current = registry;

@@ -271,6 +271,12 @@ export class OfflineDownloads {
   /** Receipts whose signature verified, by their signed content (key, payload, signature), never
    * by receipt id alone: a renewed or replaced receipt under the same id is verified again. */
   private verified = new Set<string>();
+  private receiptIdentities = new Set<string>();
+  private verifying = new Map<string, Promise<boolean>>();
+  private verificationTask?: Promise<void>;
+  private verificationRequested = false;
+  private entriesScheduled = false;
+  private disposed = false;
   private subscriptions: {remove(): void}[] = [];
   private api?: Api; private service?: DownloadsService; private viewer?: Viewer;
   private receiving = new Set<string>();
@@ -305,7 +311,7 @@ export class OfflineDownloads {
 
   getSnapshot = () => this.state;
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
-  private publish(patch: Partial<OfflineSnapshot>) { this.state = Object.freeze({...this.state, ...patch}); this.listeners.forEach(f => f()); }
+  private publish(patch: Partial<OfflineSnapshot>) { if (this.disposed) return; this.state = Object.freeze({...this.state, ...patch}); this.listeners.forEach(f => f()); }
 
   /** Who this download belongs to, or undefined when nothing on the device says.
    *
@@ -327,8 +333,21 @@ export class OfflineDownloads {
     const owner = this.ownerKey();
     return owner ? this.ownedEntries(owner) : [];
   }
-  private publishEntries(next = this.all) {
+  private publishEntries(next = this.all, deferred = false) {
+    if (this.disposed) return;
     this.all = sort(next);
+    this.receiptIdentities = new Set(this.all.flatMap(entry => entry.receipt ? [signedIdentity(entry.receipt)] : []));
+    for (const identity of this.verified) if (!this.receiptIdentities.has(identity)) this.verified.delete(identity);
+    // Native batched metadata writes emit one event per entry. Keep ownership and receipt
+    // currentness synchronous, but publish their combined snapshot once this turn finishes.
+    if (deferred) {
+      if (!this.entriesScheduled) {
+        this.entriesScheduled = true;
+        queueMicrotask(() => { if (this.entriesScheduled) this.publishEntries(); });
+      }
+      return;
+    }
+    this.entriesScheduled = false;
     const owner = this.ownerKey();
     if (!owner) {this.othersSignature = ''; this.othersRevision = 0; this.publish({entries: [], otherBytes: 0, othersRevision: 0}); return;}
     // Other viewers' downloads are never named, only weighed: the space they take is this
@@ -346,7 +365,7 @@ export class OfflineDownloads {
 
   /** Reads what is on the device. Works with no server and no sign-in. */
   open(): Promise<void> {
-    if (!native || !this.state.supported || this.state.ready) return Promise.resolve();
+    if (this.disposed || !native || !this.state.supported || this.state.ready) return Promise.resolve();
     if (!this.opening) this.opening = this.readDevice().finally(() => { this.opening = undefined; });
     return this.opening;
   }
@@ -356,12 +375,36 @@ export class OfflineDownloads {
       const raw = await native.readState();
       this.stored = readStored(raw ? JSON.parse(raw) : {});
     } catch { this.stored = emptyStored(); }
+    if (this.disposed) return;
     const emitter = new NativeEventEmitter(NativeModules.PorticoDownloads);
-    this.subscriptions.push(emitter.addListener('PorticoDownloadChanged', entry => this.accept(entry)));
-    const entries = (await native.list()).map(raw => this.read(raw)).filter((e): e is OfflineEntry => !!e);
-    this.all = sort(entries);
-    this.publish({ready: true, settings: this.stored.settings});
-    this.publishEntries();
+    const pending = new Map<string, any>();
+    let listing = true;
+    const subscription = emitter.addListener('PorticoDownloadChanged', entry => {
+      if (this.disposed) return;
+      if (listing) { if (typeof entry?.id === 'string' && ['removed', 'downloading', 'paused', 'failed', 'ready'].includes(entry.state)) pending.set(entry.id, entry); }
+      else this.accept(entry);
+    });
+    this.subscriptions.push(subscription);
+    try {
+      const listed = await native.list();
+      if (this.disposed) return;
+      const latest = new Map<string, any>();
+      for (const entry of listed) if (typeof entry?.id === 'string') latest.set(entry.id, entry);
+      for (const [id, entry] of pending) {
+        if (entry.state === 'removed') latest.delete(id);
+        else latest.set(id, entry);
+      }
+      pending.clear();
+      const entries = [...latest.values()].map(raw => this.read(raw)).filter((e): e is OfflineEntry => !!e);
+      this.all = sort(entries);
+      listing = false;
+      this.publish({ready: true, settings: this.stored.settings});
+      this.publishEntries();
+    } catch (error) {
+      subscription.remove();
+      this.subscriptions = this.subscriptions.filter(value => value !== subscription);
+      throw error;
+    }
     void this.measure();
     await this.verifyAll();
   }
@@ -372,6 +415,7 @@ export class OfflineDownloads {
    * offline launch restores the saved viewer through this, so the downloads
    * screen shows that viewer's files and only theirs. */
   adopt(viewer: Viewer | undefined) {
+    if (this.disposed) return;
     const next = viewer && offlineOwnerKey(viewer);
     if (next === (this.viewer && offlineOwnerKey(this.viewer))) return;
     // An offline adoption/sign-out also invalidates online work immediately.
@@ -384,6 +428,7 @@ export class OfflineDownloads {
   }
   /** Binds the signed-in server, so receipts can be renewed and offline viewing sent up. */
   connect(api: Api, service: DownloadsService, viewer: Viewer) {
+    if (this.disposed) return;
     this.adopt(viewer);
     const generation = ++this.generation;
     this.api = api; this.service = service;
@@ -411,7 +456,7 @@ export class OfflineDownloads {
   /** Drops the server binding while preserving the saved viewer for authorized
    * offline access. Sign-out clears it explicitly through `adopt(undefined)`. */
   disconnect() { this.generation++; this.unfollow?.(); this.unfollow = undefined; this.api = undefined; this.service = undefined; clearInterval(this.tending); this.tending = undefined; }
-  dispose() { this.disconnect(); clearTimeout(this.enrollTimer); this.enrollTimer = undefined; this.subscriptions.forEach(s => s.remove()); this.subscriptions = []; this.listeners.clear(); clearInterval(this.tending); }
+  dispose() { this.disposed = true; this.entriesScheduled = false; this.verificationRequested = false; this.verified.clear(); this.receiptIdentities.clear(); this.verifying.clear(); this.disconnect(); clearTimeout(this.enrollTimer); this.enrollTimer = undefined; this.subscriptions.forEach(s => s.remove()); this.subscriptions = []; this.listeners.clear(); clearInterval(this.tending); }
 
   private read(raw: any): OfflineEntry | undefined {
     if (!raw || typeof raw.id !== 'string' || !['downloading', 'paused', 'failed', 'ready'].includes(raw.state)) return undefined;
@@ -440,10 +485,11 @@ export class OfflineDownloads {
     return entry;
   }
   private accept(raw: any) {
-    if (raw?.state === 'removed') { this.metas.delete(raw.id); this.dirs.delete(raw.id); this.publishEntries(this.all.filter(e => e.id !== raw.id)); void this.measure(); return; }
+    if (this.disposed) return;
+    if (raw?.state === 'removed') { this.metas.delete(raw.id); this.dirs.delete(raw.id); this.publishEntries(this.all.filter(e => e.id !== raw.id), true); void this.measure(); return; }
     const before = this.all.find(e => e.id === raw?.id);
     const next = this.read(raw); if (!next) return;
-    this.publishEntries([...this.all.filter(e => e.id !== next.id), next]);
+    this.publishEntries([...this.all.filter(e => e.id !== next.id), next], true);
     // A new or renewed receipt is verified by its own signed content (never inherited by id).
     if (next.receipt && (!before?.receipt || signedIdentity(before.receipt) !== signedIdentity(next.receipt))) void this.verifyAll();
     if (next.state === 'ready' && before?.state !== 'ready') {
@@ -1009,16 +1055,44 @@ export class OfflineDownloads {
       if (code === 'feature_restricted' || code === 'downloads_not_allowed') void this.renewReceipts(generation, api, this.ownerKey(), true);
     }
   }
-  private async verifyAll() {
-    for (const entry of this.all) {
-      const receipt = entry.receipt; if (!receipt || this.verified.has(signedIdentity(receipt))) continue;
-      const publicKey = this.stored.keys[receipt.keyId]; if (!publicKey) continue;
+  private verifyAll(): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    this.verificationRequested = true;
+    if (!this.verificationTask) this.verificationTask = Promise.resolve().then(async () => {
+      // A failed signature is attempted once per batch too. New events or key reads may ask
+      // for another sweep while the bridge is busy, without rechecking the same prefix.
+      const attempted = new Map<string, string>();
+      let changed = false;
       try {
-        const {signedBytes, signatureBytes} = decodeDownloadReceipt(receipt);
-        if (await nativeRouteCrypto.verify(base64url(publicKey), signatureBytes, signedBytes)) this.verified.add(signedIdentity(receipt));
-      } catch { /* not verified */ }
-    }
-    this.publishEntries();
+        do {
+          this.verificationRequested = false;
+          for (const entry of this.all) {
+            if (this.disposed) return;
+            const receipt = entry.receipt; if (!receipt) continue;
+            const identity = signedIdentity(receipt), publicKey = this.stored.keys[receipt.keyId];
+            if (!publicKey || this.verified.has(identity) || !this.receiptIdentities.has(identity) || attempted.get(identity) === publicKey) continue;
+            attempted.set(identity, publicKey);
+            let verification = this.verifying.get(identity);
+            if (!verification) {
+              verification = (async () => {
+                try {
+                  const {signedBytes, signatureBytes} = decodeDownloadReceipt(receipt);
+                  return await nativeRouteCrypto.verify(base64url(publicKey), signatureBytes, signedBytes);
+                } catch { return false; /* not verified */ }
+              })();
+              this.verifying.set(identity, verification);
+            }
+            const accepted = await verification;
+            if (this.verifying.get(identity) === verification) this.verifying.delete(identity);
+            if (accepted && !this.disposed && this.receiptIdentities.has(identity) && this.stored.keys[receipt.keyId] === publicKey) {
+              this.verified.add(identity); changed = true;
+            }
+          }
+          if (!this.verificationRequested && changed && !this.disposed) { changed = false; this.publishEntries(); }
+        } while (this.verificationRequested && !this.disposed);
+      } finally { this.verificationTask = undefined; }
+    });
+    return this.verificationTask;
   }
 
   /** Whether this download may be played now, and if not, why. Usable with no connection. */

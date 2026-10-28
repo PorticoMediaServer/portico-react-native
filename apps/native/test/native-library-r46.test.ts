@@ -70,6 +70,28 @@ async function libraryScreen(width: number, isTV = false) {
   return {theme, module, host, registry};
 }
 
+test('Library keeps default poster geometry and reserves both title lines after a live text-size change', async () => {
+  const {module, host, theme} = await libraryScreen(390);
+  const collection = createWindowedCollection({fetchPage: async () => ({items: [], total: 0}), pageSize: 40, maxResidentPages: 4, keyOf: (item: any) => item.id});
+  const source = {library: {id: 'movies', kind: 'movie'}, tab: {id: 'browse', shows: 'titles'}, collection, memory: {firstVisibleIndex: 0}, queryRevision: 0, predicates: [], sort: {field: 'title', direction: 'asc'}, capabilities: {}};
+  const activation = {subscribe: () => () => {}, getSnapshot: () => ({visible: true, intent: 'restore', revision: 1})};
+  const props = {source, destination: {getMemory: () => ({offset: 0}), getSnapshot: () => source}, activation, paneWidth: 390, tablet: false,
+    runtime: {getSnapshot: () => ({authority: {}}), text: {}}, labels: {}, actions: {}, entryRequest() {}, onEntered() {}, onFilters() {}};
+  const renderGrid = () => elements(host.render(() => module.LibraryGrid(props))).find(node => node.type === 'WindowedGrid')!;
+  try {
+    const before = renderGrid();
+    const artHeight = before.props.itemWidth * 1.5;
+    assert.equal(before.props.itemHeight, artHeight + 43);
+    theme.fontScale = 2.5;
+    const after = renderGrid();
+    const titleLines = 2 * (theme.type.cardTitle.lineHeight ?? 28 * theme.textScale);
+    const caption = theme.spec.card.titleMargin[theme.platform] + titleLines + theme.spec.card.subtitleMargin[theme.platform] + (theme.type.caption.lineHeight ?? 24 * theme.textScale);
+    assert.equal(after.props.itemWidth, before.props.itemWidth, 'artwork width is unchanged');
+    assert.ok(after.props.itemHeight >= artHeight + caption * 2.5);
+    assert.equal(after.props.captionHeight, 0, 'the shared grid does not apply the OS scale twice');
+  } finally {collection.dispose();}
+});
+
 test('a library page renders with no selection port and routes the supplied tablet Select action', async () => {
   // The drawn Select entry belongs to the actual library header: medium below 1024 and
   // expanded from 1024 (LibraryScreen.tsx:251,373,375), whatever the theme calls the
@@ -197,7 +219,7 @@ test('the result count has its own 10/20 row on phone and the TV size elsewhere'
 test('the phone sort chip uses the drawn chip geometry and TV keeps its control', async () => {
   const sorts = [{id: 'title', directions: ['asc', 'desc'], defaultDirection: 'asc'}];
   const render = async (width: number, isTV = false) => {
-    const registry = createFocusRegistry(), host = hooks(), theme = createTheme({width, isTV});
+    const host = hooks(), theme = createTheme({width, isTV});
     const module = await screenModule(new URL('../src-next/screens/library/LibrarySortMenu.tsx', import.meta.url), {
       react: host.react, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
       '../../../../../packages/i18n/src': {defaultI18n: {t: (id: string) => id}},

@@ -84,11 +84,12 @@ export type NotificationItemProps = {
   actions: readonly {id: string; label: string; onPress: () => void}[];
   onMenu: () => void;
   menuLabel: string;
+  separator?: boolean;
   style?: StyleProp<ViewStyle>;
 };
-export function NotificationItem({notification, title, body, when, subject, actions, onMenu, menuLabel, style, testID}: NotificationItemProps) {
+export function NotificationItem({notification, title, body, when, subject, actions, onMenu, menuLabel, separator = false, style, testID}: NotificationItemProps) {
   const theme = useTheme();
-  return <View style={[{paddingTop: 14, paddingBottom: 14, paddingLeft: 18, paddingRight: 14, flexDirection: 'row', gap: 12, borderTopWidth: 1, borderTopColor: alpha(theme.colors.lineStrong, .45)}, style]}>
+  return <View style={[{paddingTop: 14, paddingBottom: 14, paddingLeft: 18, paddingRight: 14, flexDirection: 'row', gap: 12, borderTopWidth: separator ? 1 : 0, borderTopColor: alpha(theme.colors.lineStrong, .45)}, style]}>
     {!notification.read && !notification.archived && <View style={{position: 'absolute', left: 7, top: 26, width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.accentStrong}}/>}
     <View style={{width: 32, height: 32, borderRadius: 9, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.raisedBright}}>{subject}</View>
     <View style={{flex: 1, minWidth: 0}}><Text style={[shellType(15, 700), {color: theme.colors.text, paddingRight: 30}]}>{title}</Text><Text style={[shellType(13, 400, 18.85), {color: theme.colors.textSecondary, marginTop: 3}]}>{body}</Text><Text style={[shellType(12), {color: theme.colors.textTertiary, marginTop: 5}]}>{when}</Text>

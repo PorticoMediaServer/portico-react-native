@@ -22,11 +22,12 @@ export function LibraryListRow({entry, width, runtime, actions, selected, disabl
   const theme = useTheme(), menuAnchorRef = useRef<View>(null), title = entry.displayTitle || entry.title;
   const text = homeCardText(entry, false, runtime.text), t = runtime.text.t;
   const square = ['album', 'song', 'book', 'audiobook_file'].includes(entry.kind);
-  return <CardFrame testID={`library-list-${encodeURIComponent(focusId)}`} focusId={focusId} title={title} width={width} disabled={disabled}
+  const height = 70 * (theme.fontScale ?? 1);
+  return <CardFrame testID={`library-list-${encodeURIComponent(focusId)}`} focusId={focusId} title={title} caption={text.caption} detail={text.detail} width={width} disabled={disabled}
     selection={selected} onNavigate={() => actions.open(entry)} onPlay={entry.playback ? () => actions.play(entry) : undefined}
     onMore={() => actions.menu(entry, menuAnchorRef, onSelect)} moreExpanded={actions.isMenuOpen?.(entry)} menuAnchorRef={menuAnchorRef} onFocus={onFocus} onBlur={onBlur}
-    pressableStyle={{height: 70, borderRadius: 10, justifyContent: 'center'}}>
-    {() => <View style={{height: 70, flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 12}}>
+    pressableStyle={{height, borderRadius: 10, justifyContent: 'center'}}>
+    {() => <View style={{height, flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 12}}>
       {selected?.active && <SelectionCircle selected={selected.selected} selecting interactive={false} variant="row" size={24} accessibilityLabel={t('card.select', {title})}/>}
       <MediaArt kind={square ? 'square' : 'poster'} source={runtime.artwork(entry.posterUrl)} width={square ? 54 : 36} height={54} style={{borderRadius: 5}}/>
       <View style={{flex: 1, minWidth: 0, gap: 3}}>

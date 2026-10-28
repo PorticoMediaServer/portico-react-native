@@ -189,3 +189,28 @@ test('retiring the live scrubber keeps its last painted fraction and footprint w
     assert.notEqual(widget.tree.props.gesture, channel.gesture, 'the retired business recogniser is no longer installed');
   } finally {widget.host.unmount();r.close();}
 });
+
+test('listening scrub accessibility actions use the live publication and refuse retired scopes', async () => {
+  const r = await rig(), directions: number[] = [];
+  const channel = {fence, gesture: {}, scope: 7, activeScope: cell(7), ticket: cell(1), drag: cell(null), base: cell(.2), travel: cell(0),
+    adjust: (direction: number) => directions.push(direction)};
+  const off = await r.publishScrubber(channel), widget = r.mountSeek();
+  const action = (name: string) => widget.view().props.onAccessibilityAction({nativeEvent: {actionName: name}});
+  try {
+    assert.equal(widget.view().props.accessible, true);
+    assert.equal(widget.view().props.accessibilityRole, 'adjustable');
+    assert.deepEqual(widget.view().props.accessibilityActions, [{name: 'increment'}, {name: 'decrement'}]);
+    action('increment'); action('decrement'); action('activate');
+    assert.deepEqual(directions, [1, -1]);
+    channel.ticket.value = 0;
+    action('increment');
+    channel.ticket.value = 2; channel.activeScope.value = 8;
+    action('decrement');
+    assert.deepEqual(directions, [1, -1], 'native callbacks queued after scope retirement cannot seek');
+    r.inert(); await off(); widget.host.rerender();
+    assert.equal(widget.view().props.accessible, false);
+    assert.deepEqual(widget.view().props.accessibilityActions, []);
+    action('increment');
+    assert.deepEqual(directions, [1, -1]);
+  } finally {widget.host.unmount(); r.close();}
+});

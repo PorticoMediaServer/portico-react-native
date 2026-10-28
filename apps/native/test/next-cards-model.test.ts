@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {activateCard, cardProgress, holdCard, type CardActions} from '../src-next/kit/cards/model.ts';
+import {activateCard, cardAccessibilityLabel, cardProgress, holdCard, type CardActions} from '../src-next/kit/cards/model.ts';
 
 test('title navigation and server-chosen playback keep independent callback identities', () => {
   const calls: string[] = [];
@@ -52,4 +52,22 @@ test('Q6 an unselected touch card opens More without entering selection', () => 
     active: false, selected: false, onToggle: () => calls.push('toggle'), onEnter: () => calls.push('enter'),
   }}, false);
   assert.deepEqual(calls, ['more']);
+});
+
+
+test('same-title cards retain their own context and watched/new state in spoken identity', () => {
+  const original = cardAccessibilityLabel('The Thing', [{text: '1951'}], [{text: '87 min'}], ['Watched']);
+  const remake = cardAccessibilityLabel('The Thing', [{text: '1982'}], [{text: '109 min'}], ['New']);
+  assert.equal(original, 'The Thing, 1951, 87 min, Watched');
+  assert.equal(remake, 'The Thing, 1982, 109 min, New');
+  assert.notEqual(original, remake);
+});
+
+test('spoken identities preserve track/episode/session facts without blank or repeated values', () => {
+  assert.equal(cardAccessibilityLabel('Song', [{text: 'Artist A'}, {text: 'Album'}], [{text: '4:32'}], ['Playing']), 'Song, Artist A, Album, 4:32, Playing');
+  assert.equal(cardAccessibilityLabel('Song', [{text: 'Artist B'}]), 'Song, Artist B');
+  assert.equal(cardAccessibilityLabel('Pilot', [{text: 'S1 E1'}, {text: 'Show A'}], [], ['32:12']), 'Pilot, S1 E1, Show A, 32:12');
+  assert.equal(cardAccessibilityLabel('Title', [{text: 'Profile'}, {text: 'On Bedroom TV'}], [], ['Paused']), 'Title, Profile, On Bedroom TV, Paused');
+  assert.equal(cardAccessibilityLabel('Title', [{text: ' Title '}], [{text: ''}], [undefined, ' ', 'New', 'New']), 'Title, New');
+  assert.equal(cardAccessibilityLabel('Book', [], [], ['Author']), 'Book, Author');
 });

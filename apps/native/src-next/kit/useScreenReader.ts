@@ -2,8 +2,8 @@ import {useEffect, useState} from 'react';
 import {AccessibilityInfo} from 'react-native';
 
 /** Keep controls available while VoiceOver or TalkBack owns interaction. */
-export function useScreenReader(): boolean {
-  const [enabled, setEnabled] = useState(false);
+export function useScreenReader(pending = false): boolean {
+  const [enabled, setEnabled] = useState(pending);
   useEffect(() => {
     let live = true, changed = false;
     const subscription = AccessibilityInfo.addEventListener('screenReaderChanged', value => {

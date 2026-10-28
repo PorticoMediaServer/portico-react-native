@@ -1,3 +1,4 @@
+import * as layoutModel from '../src-next/kit/layout/model.ts';
 import {createNativeMusicMixes} from '../src-next/screens/destinations/music/mixes';
 import * as errorPresentation from '../../../packages/client-core/src/presentation/errors';
 import * as homeStart from '../src-next/screens/home/home-start';
@@ -55,7 +56,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'Gradient', Rect: 'Rect', Stop: 'Stop'},
     '../../../../../packages/i18n/src': {defaultI18n}, '../Icon': {Icon: 'Icon'}, '../theme': {useTheme: () => theme},
     '../focus': {FocusProvider: 'FocusProvider', FocusItem: 'FocusItem', FocusRegion: 'FocusRegion', focusTestID: () => 'native-card', useOptionalFocusRegistry: () => registry},
-    '../focus/page-boundary': {useRowPageBoundary() {}}, './row-state': rowState, './FocusAnchor': {useFocusAnchor}, './MotionItem': {MotionItem: 'MotionItem'}, './types': {itemSelection: () => undefined},
+    '../focus/page-boundary': {useRowPageBoundary() {}}, './model': layoutModel, './row-state': rowState, './FocusAnchor': {useFocusAnchor}, './MotionItem': {MotionItem: 'MotionItem'}, './types': {itemSelection: () => undefined},
   });
   const recovery = await screenModule(new URL('../src-next/screens/home/useTvHomeRecovery.ts', import.meta.url), {
     react, 'react-native': native, '../../../../../packages/client-core/src/presentation/errors': errorPresentation, '../../shell/model': shellModel,

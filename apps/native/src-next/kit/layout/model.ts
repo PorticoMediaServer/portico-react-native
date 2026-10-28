@@ -1,5 +1,11 @@
 export type VisibleRange = Readonly<{first: number; last: number}>;
 
+/** Grow only the authored caption allowance; artwork keeps its existing aspect and size. */
+export function captionItemHeight(itemHeight: number, captionHeight: number, fontScale = 1): number {
+  const scale = Number.isFinite(fontScale) ? Math.max(1, fontScale) : 1;
+  return itemHeight + Math.max(0, captionHeight) * (scale - 1);
+}
+
 /** All calculations are O(visible), including a collection with an unknown tail. */
 export function gridWindow(total: number, columns: number, rowHeight: number, offset: number, viewport: number, overscan = 2): VisibleRange & {startRow: number; endRow: number; height: number} {
   const count = Math.max(0, Math.floor(total)), cols = Math.max(1, Math.floor(columns));

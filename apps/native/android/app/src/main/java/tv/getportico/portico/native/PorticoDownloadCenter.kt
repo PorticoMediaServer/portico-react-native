@@ -71,11 +71,23 @@ internal object PorticoDownloadCenter {
   /** An entry changed (or was removed: `{id, state: "removed"}`). Called on the bookkeeping thread. */
   var onChanged: ((Map<String, Any?>) -> Unit)? = null
 
-  private class Transfer(val attempt: Double, val digest: String, val bytes: Long,
-      @Volatile var call: Call? = null, @Volatile var stopped: String? = null)
+  private class Transfer(id: String, val attempt: Double, val digest: String, val bytes: Long,
+      @Volatile var call: Call? = null, @Volatile var stopped: String? = null) {
+    val progress = PorticoDownloadProgress(PorticoDownloadCenter::post) { reached ->
+      val entry = PorticoDownloadCenter.accepts(id, this)
+      if (entry != null) {
+        entry["bytesDone"] = reached.toDouble()
+        entry["state"] = "downloading"
+        entry["waiting"] = ""
+        PorticoDownloadCenter.changed(id, false)
+      }
+    }
+  }
 
   private val work = Executors.newSingleThreadExecutor { Thread(it, "portico-downloads") }
   private val transfers = Executors.newFixedThreadPool(2) { Thread(it, "portico-download-transfer") }
+  private val storageWork = Executors.newSingleThreadExecutor { Thread(it, "portico-download-storage") }
+  private val storageReplies = ArrayList<(Result<Map<String, Any?>>) -> Unit>()
   private val fileWork = PorticoDownloadWork(transfers)
   private val entries = HashMap<String, MutableMap<String, Any?>>()
   // Process-local identities only. These never enter `entries` or the manifest.
@@ -230,7 +242,7 @@ internal object PorticoDownloadCenter {
     entry["grantUrl"] = url
     entry["state"] = "downloading"
     entry["waiting"] = ""
-    val transfer = Transfer(++attempts, digest, bytes)
+    val transfer = Transfer(id, ++attempts, digest, bytes)
     entry["taskIdentifier"] = transfer.attempt
     active[id] = transfer
     save()
@@ -541,15 +553,31 @@ internal object PorticoDownloadCenter {
     }
   }
 
-  fun storage(): Map<String, Any?> {
-    var used = 0.0
-    for (entry in entries.values) if (entry["state"] == "ready") used += (entry["bytes"] as? Number)?.toDouble() ?: 0.0
-    val volume = StatFs(root().absolutePath)
-    val measured = PorticoDownloadStorage.measure(root())
-    return mutableMapOf<String, Any?>("freeBytes" to volume.availableBytes.toDouble(), "totalBytes" to volume.totalBytes.toDouble(), "usedBytes" to used).apply {
-      if (measured != null) {
-        put("storedBytes", measured.storedBytes.toDouble())
-        put("allocatedBytes", measured.allocatedBytes.toDouble())
+  /** A single tree walk serves overlapping requests, without holding up pause/remove/list. */
+  fun storage(done: (Result<Map<String, Any?>>) -> Unit) {
+    val folder = root()
+    storageReplies.add(done)
+    if (storageReplies.size > 1) return
+    storageWork.execute {
+      val result = try {
+        val volume = StatFs(folder.absolutePath)
+        val measured = PorticoDownloadStorage.measure(folder)
+        Result.success(mutableMapOf<String, Any?>("freeBytes" to volume.availableBytes.toDouble(), "totalBytes" to volume.totalBytes.toDouble()).apply {
+          if (measured != null) {
+            put("storedBytes", measured.storedBytes.toDouble())
+            put("allocatedBytes", measured.allocatedBytes.toDouble())
+          }
+        })
+      } catch (error: Exception) { Result.failure<MutableMap<String, Any?>>(error) }
+      post {
+        // Only this thread reads mutable entries. Quota bytes are the ready artifacts now;
+        // the separate physical usage is a best-effort sample and may be unknown during writes.
+        var used = 0.0
+        for (entry in entries.values) if (entry["state"] == "ready") used += (entry["bytes"] as? Number)?.toDouble() ?: 0.0
+        val answer = result.map { it.apply { put("usedBytes", used) }.toMap() }
+        val replies = storageReplies.toList()
+        storageReplies.clear()
+        replies.forEach { it(answer) }
       }
     }
   }
@@ -663,14 +691,7 @@ internal object PorticoDownloadCenter {
             if (done + read > size) return "verification_failed"
             out.write(buffer, 0, read)
             done += read
-            val reached = done
-            post {
-              val entry = accepts(id, transfer) ?: return@post
-              entry["bytesDone"] = reached.toDouble()
-              entry["state"] = "downloading"
-              entry["waiting"] = ""
-              changed(id, false)
-            }
+            transfer.progress.offer(done)
             if (transfer.stopped != null) return "stopped"
           }
           // Completion may be published only after the received bytes have

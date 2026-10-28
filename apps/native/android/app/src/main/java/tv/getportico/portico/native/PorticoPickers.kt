@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ImageDecoder
@@ -12,7 +13,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Base64
 import com.facebook.react.bridge.ActivityEventListener
@@ -93,24 +93,36 @@ class PorticoImagePicker(context: ReactApplicationContext) : ReactContextBaseJav
         val longest = Math.max(info.size.width, info.size.height)
         if (longest > 1024) decoder.setTargetSize(Math.max(1, info.size.width * 1024 / longest), Math.max(1, info.size.height * 1024 / longest))
       }
-    } else @Suppress("DEPRECATION") MediaStore.Images.Media.getBitmap(resolver, uri)
-    if (source == null) null else {
-      val longest = Math.max(source.width, source.height)
-      val scale = if (longest > 1024) 1024.0 / longest else 1.0
-      val width = Math.max(1, Math.floor(source.width * scale).toInt())
-      val height = Math.max(1, Math.floor(source.height * scale).toInt())
-      // Opaque, on black: a transparent picture must not become a white or garbage background.
-      val flat = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-      Canvas(flat).apply { drawColor(Color.BLACK); drawBitmap(source, null, Rect(0, 0, width, height), null) }
-      val out = ByteArrayOutputStream()
-      flat.compress(Bitmap.CompressFormat.JPEG, 90, out)
-      source.recycle(); flat.recycle()
-      val bytes = out.toByteArray()
-      Arguments.createMap().apply {
-        putString("base64", Base64.encodeToString(bytes, Base64.NO_WRAP))
-        putString("contentType", "image/jpeg")
-        putInt("bytes", bytes.size)
+    } else {
+      // Read only dimensions first. Older phones must not allocate the original photograph
+      // just to produce a 1024-pixel upload. Reopen the stream for the sampled decode.
+      val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+      resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+      if (bounds.outWidth <= 0 || bounds.outHeight <= 0) null else {
+        val options = BitmapFactory.Options().apply { inSampleSize = imagePickerSampleSize(bounds.outWidth, bounds.outHeight) }
+        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
       }
+    }
+    if (source == null) null else {
+      try {
+        val longest = Math.max(source.width, source.height)
+        val scale = if (longest > 1024) 1024.0 / longest else 1.0
+        val width = Math.max(1, Math.floor(source.width * scale).toInt())
+        val height = Math.max(1, Math.floor(source.height * scale).toInt())
+        // Opaque, on black: a transparent picture must not become a white or garbage background.
+        val flat = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        try {
+          Canvas(flat).apply { drawColor(Color.BLACK); drawBitmap(source, null, Rect(0, 0, width, height), null) }
+          val out = ByteArrayOutputStream()
+          flat.compress(Bitmap.CompressFormat.JPEG, 90, out)
+          val bytes = out.toByteArray()
+          Arguments.createMap().apply {
+            putString("base64", Base64.encodeToString(bytes, Base64.NO_WRAP))
+            putString("contentType", "image/jpeg")
+            putInt("bytes", bytes.size)
+          }
+        } finally { flat.recycle() }
+      } finally { source.recycle() }
     }
   } catch (_: Exception) { null } catch (_: OutOfMemoryError) { null }
 

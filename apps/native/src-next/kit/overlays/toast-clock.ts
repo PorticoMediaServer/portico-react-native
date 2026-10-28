@@ -30,7 +30,7 @@ export function createToastClock(clock: Clock, expire: (id: string) => void) {
     replace(id: string | null, duration: number) {
       stop();
       // A removed toast cannot retain a touch/focus hold over its replacement.
-      for (const reason of holds) if (reason !== 'background') holds.delete(reason);
+      for (const reason of holds) if (reason !== 'background' && reason !== 'screen-reader') holds.delete(reason);
       current = id == null ? undefined : {id, remaining: Math.max(0, duration)};
       resume();
     },

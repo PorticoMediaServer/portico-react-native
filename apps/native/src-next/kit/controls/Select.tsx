@@ -43,6 +43,7 @@ const NativeSelect = forwardRef<View, SelectProps & {rich: boolean}>(function Na
   accessibilityState, testID, rowLabel, ...props
 }, ref) {
   const theme = useTheme();
+  const grow = theme.fontScale > 1 || theme.textScale > 1;
   const trigger = useRef<View>(null);
   const selectedRow = useRef<View>(null);
   const list = useRef<FlatList<SelectOption>>(null);
@@ -51,11 +52,11 @@ const NativeSelect = forwardRef<View, SelectProps & {rich: boolean}>(function Na
   const selected = options.find(option => option.value === current);
   const focusedValue = enabledChoice(options, current);
   const initialIndex = options.findIndex(option => option.value === focusedValue);
-  const rowHeight = theme.isTV ? rich ? 120 : 64 : rich ? 80 : 52;
+  const rowHeight = (theme.isTV ? rich ? 120 : 64 : rich ? 80 : 52) * (theme.fontScale ?? 1);
   const rowPitch = rowHeight + (theme.isTV ? 10 : 0);
   useEffect(() => {
     if (isOpen && initialIndex >= 0) list.current?.scrollToIndex({index: initialIndex, animated: false});
-  }, [isOpen, initialIndex]);
+  }, [isOpen, initialIndex, rowPitch]);
   const setRef = useCallback((node: View | null) => {
     trigger.current = node;
     if (typeof ref === 'function') ref(node); else if (ref) ref.current = node;
@@ -69,19 +70,24 @@ const NativeSelect = forwardRef<View, SelectProps & {rich: boolean}>(function Na
       accessibilityValue={props.accessibilityValue ?? (typeof selected?.label === 'string' ? {text: selected.label} : undefined)}
       testID={testID} disabled={blocked} focusKind="row" focusRadius={theme.isTV ? 14 : 10}
       onPress={event => {if (!blocked) {setOpen(!isOpen); onPress?.(event);}}}
-      style={state => [styles.trigger, {height: theme.isTV ? 64 : 44, borderRadius: theme.isTV ? 14 : 10,
-        paddingHorizontal: theme.isTV ? 20 : 16, gap: theme.isTV ? 20 : 14,
-        borderColor: error ? theme.colors.danger : isOpen ? theme.colors.accent : 'transparent',
-        backgroundColor: theme.colors.raisedBright, opacity: blocked ? .45 : 1}, typeof style === 'function' ? style(state) : style]}>
+      style={state => {
+        const supplied = typeof style === 'function' ? style(state) : style, resolved = StyleSheet.flatten(supplied);
+        const minimum = typeof resolved?.height === 'number' ? resolved.height : theme.isTV ? 64 : 44;
+        return [styles.trigger, {height: theme.isTV ? 64 : 44, borderRadius: theme.isTV ? 14 : 10,
+          paddingHorizontal: theme.isTV ? 20 : 16, gap: theme.isTV ? 20 : 14,
+          borderColor: error ? theme.colors.danger : isOpen ? theme.colors.accent : 'transparent',
+          backgroundColor: theme.colors.raisedBright, opacity: blocked ? .45 : 1}, supplied,
+          grow ? {height: undefined, minHeight: Math.max(minimum, typeof resolved?.minHeight === 'number' ? resolved.minHeight : 0), paddingVertical: resolved?.paddingVertical ?? 4} : undefined];
+      }}>
       {rowLabel !== undefined
-        ? <><Text numberOfLines={1} ellipsizeMode="tail" style={[theme.type.bodyStrong, {fontFamily: fontFamilies[700], color: theme.colors.text, flex: 1, minWidth: 0}, textStyle]}>{rowLabel}</Text>
-          <Text numberOfLines={1} ellipsizeMode="tail" style={[theme.type.bodyStrong, {fontFamily: fontFamilies[700], color: theme.colors.textTertiary, flexShrink: 1}, textStyle]}>{selected?.label ?? placeholder}</Text></>
-        : <Text numberOfLines={1} ellipsizeMode="tail" style={[theme.type.bodyStrong, styles.label, {fontFamily: fontFamilies[700], color: selected ? theme.colors.text : theme.colors.textTertiary}, textStyle]}>{selected?.label ?? placeholder}</Text>}
+        ? <><Text numberOfLines={grow ? undefined : 1} ellipsizeMode="tail" style={[theme.type.bodyStrong, {fontFamily: fontFamilies[700], color: theme.colors.text, flex: 1, minWidth: 0}, textStyle]}>{rowLabel}</Text>
+          <Text numberOfLines={grow ? undefined : 1} ellipsizeMode="tail" style={[theme.type.bodyStrong, {fontFamily: fontFamilies[700], color: theme.colors.textTertiary, flexShrink: 1}, textStyle]}>{selected?.label ?? placeholder}</Text></>
+        : <Text numberOfLines={grow ? undefined : 1} ellipsizeMode="tail" style={[theme.type.bodyStrong, styles.label, {fontFamily: fontFamilies[700], color: selected ? theme.colors.text : theme.colors.textTertiary}, textStyle]}>{selected?.label ?? placeholder}</Text>}
       <Icon name="i-updown" size={theme.isTV ? 26 : 18} color={theme.colors.textTertiary} />
     </Focusable>
     {error !== undefined ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{error}</Text>
       : description !== undefined ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{description}</Text> : null}
-    <Dialog open={isOpen} onOpenChange={next => setOpen(next)} headerContext={pickerContext} title={pickerTitle ?? title} description={pickerDescription}
+    <Dialog open={isOpen} onOpenChange={next => setOpen(next)} headerContext={pickerContext} title={pickerTitle ?? title} description={pickerDescription} scrollable={false}
       footer={pickerFooter ?? (theme.isTV && !blocked ? <PickerHint /> : undefined)} accessibilityLabel={accessibilityLabel}
       placement={theme.isTV ? 'side' : undefined} width={theme.isTV ? 640 : undefined}
       titleTextStyle={theme.isTV ? {...nativeType({size: 46, weight: 800, tracking: -.035, lineHeight: 47.84}, theme.textScale), marginTop: pickerContext == null ? 0 : -4} : undefined}

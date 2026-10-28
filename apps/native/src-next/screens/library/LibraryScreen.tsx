@@ -466,7 +466,7 @@ function LibraryLoading({theme, width, height, tablet, expanded, elapsedMs}: {th
 /** tv-focus 46: the composed empty-library page. Header and pivot strip stay
  * above it; the one action enters first and leads Home. */
 function LibraryEmpty({runtime, regionId, upRegionId, firstCardRegion, onLeave, surface}: {runtime: NativeShellRuntime; regionId: string; upRegionId: string; firstCardRegion?: string; onLeave?: () => void; surface?: NativeLibrarySnapshot['tab']['shows']}) {
-  const theme = useTheme(), ids = nativeDestinationFocusIds(runtime.getSnapshot().authority);
+  const ids = nativeDestinationFocusIds(runtime.getSnapshot().authority);
   return <FocusRegion id={regionId} entry="browse-home" order={['browse-home']} edges={{up: upRegionId, left: ids.rail,
     ...(firstCardRegion ? {down: firstCardRegion, right: firstCardRegion} : {})}} style={{flex: 1, justifyContent: 'center'}}>
     <StateView testID="library-empty" variant="centered"
@@ -557,9 +557,13 @@ export function LibraryGrid({destination, runtime, activation, actions, labels, 
   const genres = source.tab.shows === 'genres', square = source.library.kind === 'music' || source.library.kind === 'audiobook';
   const width = list ? Math.max(0, paneWidth - (tabletGeometry ? 2 * tabletGeometry.gutter : 32)) : theme.isTV ? genres ? 320 : 200 : tabletGeometry ? tabletGeometry.itemWidth : Math.floor((paneWidth - 62) / 3);
   const artHeight = genres ? theme.isTV ? 180 : 84 : width * (square ? 1 : 1.5);
-  const captionSpace = square ? theme.spec.card.titleMargin[theme.platform] + 2 * (theme.type.cardTitle.lineHeight ?? 28 * theme.textScale)
-    + theme.spec.card.subtitleMargin[theme.platform] + (theme.type.caption.lineHeight ?? 24 * theme.textScale) : theme.isTV ? 72 : 43;
-  const itemHeight = genres ? artHeight : artHeight + captionSpace;
+  const captionLines = theme.spec.card.titleMargin[theme.platform] + 2 * (theme.type.cardTitle.lineHeight ?? 28 * theme.textScale)
+    + theme.spec.card.subtitleMargin[theme.platform] + (theme.type.caption.lineHeight ?? 24 * theme.textScale);
+  const captionSpace = square ? captionLines : theme.isTV ? 72 : 43;
+  // LibraryCard allows two title lines. Keep the authored default, but reserve
+  // both lines plus metadata when text grows and long titles wrap. The theme's
+  // line heights already include the TV preference; apply only the OS factor.
+  const itemHeight = genres ? artHeight : artHeight + (theme.fontScale > 1 || theme.textScale > 1 ? Math.max(captionSpace, captionLines) * theme.fontScale : captionSpace);
   const gap = list ? 0 : theme.isTV ? 32 : tabletGeometry ? tabletGeometry.gap : 10;
   const rowGap = list ? 0 : theme.isTV ? 40 : tabletGeometry ? tabletGeometry.rowGap : 22;
   const gutter = theme.isTV ? theme.gutter : tabletGeometry ? tabletGeometry.gutter : 16;
@@ -604,7 +608,7 @@ export function LibraryGrid({destination, runtime, activation, actions, labels, 
     <LibraryGridRegion id={gridRegion} enabled={active.visible} entry={firstAddress?.childId ?? firstKey} grid={theme.isTV ? {columns: measuredColumns, count: state.total} : undefined}
       edges={theme.isTV ? {left: ids.rail, up: applied.length ? appliedRegion : ids.libraryToolbar(source.library.id)} : undefined}
       screenStart={{regionId: ids.libraryToolbar(source.library.id), childId: theme.isTV ? 'sort' : 'filters'}} style={{flex: 1}}>
-    <WindowedGrid key={view.generation} ref={grid} testID={list ? "library-list" : "library-grid"} collection={collection} getKey={nativeLibraryEntryKey} itemWidth={width} itemHeight={list ? 70 : itemHeight}
+    <WindowedGrid key={view.generation} ref={grid} testID={list ? "library-list" : "library-grid"} collection={collection} getKey={nativeLibraryEntryKey} itemWidth={width} itemHeight={list ? 70 : itemHeight} captionHeight={list ? 70 : 0}
       gap={gap} rowGap={rowGap} gutter={gutter} rightGutter={rightGutter} selection={selected}
       onVisibleRange={changedRange} onScrollOffset={changedOffset} onGeometry={theme.isTV ? onGridGeometry : undefined} initialIndex={view.generation ? view.anchor : initialIndex} paddingBottom={28} style={{flex: 1}}
       renderPlaceholder={() => <View style={{width, height: list ? 70 : artHeight, borderRadius: theme.isTV ? 14 : 8, backgroundColor: theme.colors.raised}}/>}

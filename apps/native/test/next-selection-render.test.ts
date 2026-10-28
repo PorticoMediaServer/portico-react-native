@@ -1,3 +1,4 @@
+import * as cardModel from '../src-next/kit/cards/model.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -1088,7 +1089,10 @@ test('Selection footer recipes reach actual buttons without changing other size 
             assert.equal(host.props.testID, button.props.testID);
             assert.equal(host.props.accessibilityRole, 'button');
             assert.equal(!!host.props.disabled, !!button.props.disabled || !!button.props.loading);
-            assert.equal(style.height, phone ? 48 : tv ? 64 : 46);
+            if (state.theme.textScale > 1) {
+              assert.equal(style.height, undefined, 'enlarged labels can grow the footer button');
+              assert.equal(style.minHeight, phone ? 48 : tv ? 64 : 46, 'the authored face remains the minimum');
+            } else assert.equal(style.height, phone ? 48 : tv ? 64 : 46);
             assert.equal(style.paddingHorizontal, phone ? 20 : 26);
             assert.equal(style.borderRadius, phone ? 10 : tv ? 14 : 12);
             const content = host.props.children({pressed: false});
@@ -1386,7 +1390,7 @@ for (const role of ['administrator', 'owner'] as const) test(`TV Dashboard ${rol
     '../../kit/controls': {Button, Focusable}, '../../kit/focus': await import('../src-next/kit/focus/index.ts'),
     '../../kit/shell': await import('../src-next/kit/shell/index.ts'), '../../kit/states': {StateView},
     '../../kit/shell/visual': await import('../src-next/kit/shell/visual.ts'), '../../kit/theme': {useTheme: () => state.theme},
-    '../../kit/artwork': {Artwork: 'Artwork'}, './server/TVServerPageMenu': {TVServerPageMenu: 'TVServerPageMenu'},
+    '../../kit/cards/model': cardModel, '../../kit/artwork': {Artwork: 'Artwork'}, './server/TVServerPageMenu': {TVServerPageMenu: 'TVServerPageMenu'},
     './server/TVDiskUsage': {TVDiskUsage: 'TVDiskUsage'}, '../../shell/tv-focus': await import('../src-next/shell/tv-focus.ts'),
     './Screen': {...await import('../src-next/screens/settings-live/Screen.tsx'), useScreenEntry: () => () => {}},
     './dashboard-presentation': await import('../src-next/screens/settings-live/dashboard-presentation.ts'),

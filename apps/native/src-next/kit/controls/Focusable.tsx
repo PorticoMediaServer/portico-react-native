@@ -26,6 +26,8 @@ export type FocusableProps = Omit<PressableProps, 'children'> & {
   pressScale?: number;
   /** Same context action for touch/Apple long press and Android TV Menu-up. */
   onLongPressAction?: () => void;
+  /** The name and localized label of that same action for assistive technology. */
+  longPressAccessibilityAction?: {name: string; label: string};
 };
 
 type PressableStyleAdapterProps = Omit<PressableProps, 'style'> & {
@@ -54,14 +56,15 @@ const AnimatedPressable = Animated.createAnimatedComponent(PressableStyleAdapter
 export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
   children, style, disabled, focusable, focusableWhenDisabled, onPress, onAccessibilityAction, onAccessibilityTap, onMagicTap, focusId, testID, focusKind = 'button', focusRadius = 10,
   focusInset = false, focusTreatment = 'default', pressDurationMs, pressScale, onFocus, onBlur, onHoverIn, onHoverOut, onPressIn, onPressOut, onLongPress,
-  onLongPressAction, accessibilityState, ...props
+  onLongPressAction, longPressAccessibilityAction, accessibilityActions, accessibilityState, ...props
 }, ref) {
   const {isTV, colors, layers, platform} = useTheme();
   const motion = useMotion(), paint = useOverlayPaintMode();
   const retainDisabledFocus = isTV && focusableWhenDisabled === true && paint.interactive;
   const nativeDisabled = !paint.interactive || disabled && !retainDisabledFocus;
   const {waiting, ...binding} = useFocusTarget({focusId, testID, disabled: nativeDisabled || focusable === false, ref});
-  const observation = useNativeObservation<View>({kind: 'view', semanticId: binding.testID, role: props.accessibilityRole ?? 'button',
+  const accessibilityRole = props.accessibilityRole ?? (onPress ? 'button' : undefined);
+  const observation = useNativeObservation<View>({kind: 'view', semanticId: binding.testID, role: accessibilityRole,
     flattenedStyle: typeof __DEV__ !== 'undefined' && __DEV__ && typeof style !== 'function' ? StyleSheet.flatten(style) : undefined,
     declaredStyleComplete: typeof style !== 'function'}, binding.ref);
   const [focused, setFocused] = useState(false);
@@ -82,7 +85,13 @@ export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
   const offset = focusInset ? 0 : focusSpec.offsetOuter[platform] + focusSpec.ringWidth[platform];
 
   return <AnimatedPressable {...binding} {...props} testID={binding.testID} ref={observation.ref} disabled={nativeDisabled} focusable={nativeDisabled ? false : focusable}
-    onPress={disabled || !paint.interactive ? undefined : onPress} onAccessibilityAction={disabled || !paint.interactive ? undefined : onAccessibilityAction}
+    accessibilityRole={accessibilityRole}
+    accessibilityActions={longPressAccessibilityAction && onLongPressAction
+      ? [...(accessibilityActions ?? []).filter(action => action.name !== longPressAccessibilityAction.name), ...(waiting ? [] : [longPressAccessibilityAction])] : accessibilityActions}
+    onPress={disabled || !paint.interactive ? undefined : onPress} onAccessibilityAction={disabled || !paint.interactive ? undefined : event => {
+      if (longPressAccessibilityAction && onLongPressAction && event.nativeEvent.actionName === longPressAccessibilityAction.name) {if (!waiting) onLongPressAction();}
+      else onAccessibilityAction?.(event);
+    }}
     onAccessibilityTap={disabled || !paint.interactive ? undefined : onAccessibilityTap} onMagicTap={disabled || !paint.interactive ? undefined : onMagicTap}
     accessibilityState={{...accessibilityState, disabled: !!disabled || accessibilityState?.disabled}}
     tvParallaxProperties={{...props.tvParallaxProperties, enabled: false}}

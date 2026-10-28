@@ -36,8 +36,8 @@ export function nativeType(style: TypeStyle, textScale = 1): TextStyle {
   };
 }
 
-export type ThemeOptions = {isTV: boolean; width: number; reduceMotion?: boolean; textScale?: number};
-export function createTheme({isTV, width, reduceMotion = false, textScale = 1}: ThemeOptions) {
+export type ThemeOptions = {isTV: boolean; width: number; reduceMotion?: boolean; textScale?: number; fontScale?: number};
+export function createTheme({isTV, width, reduceMotion = false, textScale = 1, fontScale = 1}: ThemeOptions) {
   // componentSpec names its desktop column web; layoutMode names the actual shell layout.
   const platform: 'phone' | 'tablet' | 'web' | 'tv' = isTV ? 'tv' : width >= layout.breakpoint.desktop ? 'web' : width < layout.breakpoint.phone ? 'phone' : 'tablet';
   const layoutMode: 'phone' | 'desktop' | 'tv' = isTV ? 'tv' : platform === 'web' ? 'desktop' : 'phone';
@@ -51,7 +51,8 @@ export function createTheme({isTV, width, reduceMotion = false, textScale = 1}: 
     platform, layoutMode, width, isTV, colors, space: spacing, type, spec: componentSpec, layout, layers, targets,
     radii: isTV ? platformRadii.tv : platformRadii.phone, baseRadii: radii,
     gutter: isTV ? layout.gutter.tv : layoutMode === 'desktop' ? width >= layout.designWidth.desktop ? layout.gutter.desktop : layout.gutter.desktopNarrow : layout.gutter.phone,
-    motion, reduceMotion, textScale,
+    // Layout consumes the OS scale; Text/TextInput continue to apply it themselves.
+    motion, reduceMotion, textScale, fontScale: Number.isFinite(fontScale) ? Math.max(1, fontScale) : 1,
   };
 }
 export type Theme = ReturnType<typeof createTheme>;
@@ -63,7 +64,8 @@ export function ThemeProvider({children, width: surfaceWidth, reduceMotion = fal
   const isTV = Platform.isTV === true;
   const scale = textScale ?? textScaleFor(textSize, isTV);
   publishedTextScale = scale;
-  const theme = useMemo(() => createTheme({isTV, width, reduceMotion, textScale: scale}), [isTV, width, reduceMotion, scale]);
+  const fontScale = dimensions.fontScale;
+  const theme = useMemo(() => createTheme({isTV, width, reduceMotion, textScale: scale, fontScale}), [isTV, width, reduceMotion, scale, fontScale]);
   return React.createElement(ThemeContext.Provider, {value: theme}, children);
 }
 

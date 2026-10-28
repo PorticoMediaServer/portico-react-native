@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {TVControlLabel} from './TVControlLabel';
-import {Text, View, useTVEventHandler} from 'react-native';
+import {AccessibilityInfo, Text, View, useTVEventHandler} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import Animated, {cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, Path, Rect, Stop, Text as SvgText} from 'react-native-svg';
@@ -18,6 +18,7 @@ import {Icon, type IconName} from '../../kit/Icon';
 import {NativeTVGroupPill} from '../settings-live/GroupPill';
 import {nativeType, useTheme} from '../../kit/theme';
 import {useMotion, useReducedMotion} from '../../kit/useMotion';
+import {useScreenReader} from '../../kit/useScreenReader';
 import {NativeWatchControls, type NativeWatchPanel} from './controls';
 import {NativeWatchTimeline} from './WatchTimeline';
 import {useSkipPromptMotion} from './useSkipPromptMotion';
@@ -141,6 +142,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const t = defaultI18n.t;
   const wallClock = (atMs: number) => new Intl.DateTimeFormat(props.text.locale, {hour: 'numeric', minute: '2-digit'}).format(new Date(atMs));
   const theme = useTheme(), motion = useMotion(), state = useSyncExternalStore(controls.subscribe, controls.getSnapshot);
+  const screenReader = useScreenReader(true);
   // Even a retained timeline/transport callback must consult the actual modal
   // owner at dispatch, rather than its pre-modal render's enabled boolean.
   const playback = useMemo<NativeWatchChromeProps['playback']>(() => {
@@ -236,10 +238,11 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   useEffect(() => {
     if (!notice) return;
     undoLine.value = 1;
+    if (screenReader) return;
     undoLine.value = withTiming(0, {duration: UNDO_SECONDS * 1000, easing: Easing.linear});
     const timer = setTimeout(() => setNotice(undefined), UNDO_SECONDS * 1000);
     return () => {clearTimeout(timer); cancelAnimation(undoLine);};
-  }, [notice, undoLine]);
+  }, [notice, undoLine, screenReader]);
   const undoLineStyle = useAnimatedStyle(() => ({transform: [{scaleX: Math.max(0, Math.min(1, undoLine.value))}]}));
   // tv-player 5 and 6: the closing-credits offer and its countdown come from the
   // queue's own post-play facts; nothing here starts a title by itself.
@@ -261,6 +264,10 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   // Offers remain on the picture with chrome down. Arrival never replaces a focused control.
   const [, refreshPrompt] = useState(0);
   const promptEnabled = current() && source.dock.local?.expanded === true && !state.panel && !liveOverlayOpen;
+  const skipNoticeLabel = notice ? t('player.skipped', {kind: notice.kind}) : undefined;
+  useEffect(() => {
+    if (promptEnabled && skipNoticeLabel) AccessibilityInfo.announceForAccessibility(`${skipNoticeLabel}, ${t('action.undo')}`);
+  }, [promptEnabled, notice, skipNoticeLabel, t]);
   const offered = promptEnabled && !notice ? activeSegment(segments, source.playback.positionSeconds, props.skipModes, dismissed.current) : undefined;
   const prompt = offered && (offered.kind === 'intro' || offered.kind === 'recap' || offered.kind === 'credits') && props.skipModes[offered.kind] === 'ask' ? offered : undefined;
   const visibleOffer = promptEnabled && !notice && offer && nextItem && offer.id !== dismissedOffer.current ? offer : undefined;
@@ -473,7 +480,11 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const skipOfferNode = visibleOffer && nextItem ? <NativeUpNextCard compact={phone} item={nextItem} artwork={props.artwork?.(nextItem.stillUrl ?? nextItem.backdropUrl)} offer={visibleOffer}
     countdown={countdown} countdownTotal={view?.postPlay.countdownSeconds ?? 10} sceneAfter={sceneAfter} onPlayNow={() => {if (controlsCurrent()) {if (theme.isTV) controls.hide(fence); void playback.next(fence).catch(props.reportError);}}}
     onWatchCredits={() => {if (!controlsCurrent()) return; dismissedOffer.current = visibleOffer.id; if (credits) dismissed.current.add(credits.id); refreshPrompt(value => value + 1); if (theme.isTV) controls.hide(fence);}} onSkipCredits={() => {if (credits) skipSegment(credits);}}/> : undefined;
-  const skipNoticeNode = notice ? <View style={{flexDirection: 'row', alignItems: 'center', gap: phone ? 14 : 28, paddingLeft: phone ? 16 : 30, paddingRight: 6, paddingVertical: phone ? 6 : 16,
+  const undoSkip = () => {if (!notice || !controlsCurrent()) return; const from = notice.fromSeconds; setNotice(undefined); if (theme.isTV) controls.hide(fence); if (controlsCurrent()) void playback.seek(fence, from).catch(props.reportError);};
+  const skipNoticeNode = notice ? <View accessible accessibilityLabel={skipNoticeLabel}
+    accessibilityActions={[{name: 'activate', label: t('action.undo')}, {name: 'dismiss', label: t('next.overlays.native.dismissToast')}]}
+    onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'activate') undoSkip(); else if (event.nativeEvent.actionName === 'dismiss') setNotice(undefined);}}
+    style={{flexDirection: 'row', alignItems: 'center', gap: phone ? 14 : 28, paddingLeft: phone ? 16 : 30, paddingRight: 6, paddingVertical: phone ? 6 : 16,
     borderRadius: phone ? 12 : 22, overflow: 'hidden', backgroundColor: phone ? 'rgba(7,16,24,.76)' : 'rgba(9,19,27,.8)',
     boxShadow: `inset 0 0 0 1px rgba(237,245,250,.1), 0 14px 30px -12px rgba(0,0,0,.8)`}}>
     <View style={{gap: 8}}>
@@ -487,7 +498,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     </View>
     <Button focusId="watch-skip-undo" testID="watch-skip-undo" variant={phone ? 'glass' : 'glass'} size={phone ? 'compact' : 'hero'} hasTVPreferredFocus={false} icon="i-back" iconSize={phone ? 18 : undefined}
       style={phone ? {height: 36, paddingHorizontal: 14, borderRadius: 8} : undefined} textStyle={phone ? {fontSize: 14.5, fontWeight: '700'} : undefined}
-      onPress={() => {if (!controlsCurrent()) return; const from = notice.fromSeconds; setNotice(undefined); if (theme.isTV) controls.hide(fence); if (controlsCurrent()) void playback.seek(fence, from).catch(props.reportError);}}>{t('action.undo')}</Button>
+      onPress={undoSkip}>{t('action.undo')}</Button>
     {phone && <Animated.View style={[{position: 'absolute', left: 0, bottom: 0, width: '100%', transformOrigin: 'left center', height: 2, backgroundColor: 'rgba(237,245,250,.45)'}, undoLineStyle]}/>}
   </View> : undefined;
   const paintedPrompt = promptMotion.value;

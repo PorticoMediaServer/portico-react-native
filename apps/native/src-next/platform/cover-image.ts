@@ -35,21 +35,24 @@ export function coverImageMime(bytes: Uint8Array): CoverImageMime | undefined {
   return undefined;
 }
 
-const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-function base64(bytes: Uint8Array): string {
-  // Bounded chunks keep the encoder from building millions of tiny intermediate
-  // strings while never exceeding the bridge's admitted size.
+// Full chunks end on a three-byte boundary, so only the last one needs padding.
+const ENCODE_CHUNK_BYTES = 24 * 1024;
+async function base64(bytes: Uint8Array, lifetime: CoverImageLifetime): Promise<string | undefined> {
+  // The current native bridge requires one base64 string. Bound temporary strings
+  // and yield between chunks while the native byte-staging port is unavailable.
   const chunks: string[] = [];
-  let chunk = '';
-  for (let index = 0; index < bytes.length; index += 3) {
-    const a = bytes[index]!, b = bytes[index + 1], c = bytes[index + 2];
-    chunk += alphabet[a >> 2]!;
-    chunk += alphabet[((a & 3) << 4) | ((b ?? 0) >> 4)]!;
-    chunk += b === undefined ? '=' : alphabet[((b & 15) << 2) | ((c ?? 0) >> 6)]!;
-    chunk += c === undefined ? '=' : alphabet[c & 63]!;
-    if (chunk.length >= 8192) {chunks.push(chunk); chunk = '';}
+  for (let offset = 0; offset < bytes.length; offset += ENCODE_CHUNK_BYTES) {
+    if (lifetime.signal.aborted || !lifetime.isCurrent()) return undefined;
+    const end = Math.min(offset + ENCODE_CHUNK_BYTES, bytes.length);
+    let binary = '';
+    // Keep the call argument count small on Hermes and avoid a string append per byte.
+    for (let at = offset; at < end; at += 1024) binary += String.fromCharCode(...bytes.subarray(at, Math.min(at + 1024, end)));
+    chunks.push(globalThis.btoa(binary));
+    if (end < bytes.length) {
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      if (lifetime.signal.aborted || !lifetime.isCurrent()) return undefined;
+    }
   }
-  if (chunk) chunks.push(chunk);
   return chunks.join('');
 }
 
@@ -62,13 +65,17 @@ export async function stageCoverImage(bytes: Uint8Array, mime: CoverImageMime, l
   if (lifetime.signal.aborted || !lifetime.isCurrent()) return undefined;
   if (coverImageMime(bytes) !== mime) throw failure('unsupported_image');
   if (bytes.length === 0 || bytes.length > MAX_BYTES) throw failure('invalid_image');
-  const encoded = base64(bytes);
+  // The caller's Uint8Array is mutable. Keep the exact admitted page bytes across
+  // event-loop yields, including if the caller later replaces or detaches its buffer.
+  const size = bytes.length;
+  const encoded = await base64(bytes.slice(), lifetime);
+  if (encoded === undefined || lifetime.signal.aborted || !lifetime.isCurrent()) return undefined;
   if (encoded.length === 0 || encoded.length > MAX_BASE64) throw failure('invalid_image');
   const result = await native.writeCoverImage(mime, encoded);
   const value = result as {handle?: unknown; uri?: unknown; size?: unknown};
   const handle = typeof value?.handle === 'string' ? value.handle : undefined;
   if (!handle || typeof value.uri !== 'string' || !/^file:\/\//.test(value.uri)
-    || typeof value.size !== 'number' || value.size !== bytes.length) {
+    || typeof value.size !== 'number' || value.size !== size) {
     // A recognizable handle is still ours even when the rest is malformed.
     if (handle) {try {await native.deleteCoverImage!(handle);} catch { /* teardown retries */ }}
     throw failure('invalid_image');

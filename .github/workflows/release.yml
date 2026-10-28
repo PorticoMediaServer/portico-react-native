@@ -49,13 +49,13 @@ jobs:
       - run: npm ci --no-audit --no-fund --legacy-peer-deps
         working-directory: apps/native
       - name: Release APKs and App Bundle
-        run: ./gradlew --no-daemon assembleRelease bundleRelease
+        run: ./gradlew --no-daemon -PporticoAbiSplits=true assembleRelease bundleRelease
         working-directory: apps/native/android
       - name: Collect
         run: |
           mkdir -p dist
-          find apps/native/android/app/build/outputs/apk/release -name '*.apk' -exec cp {} dist/ \;
-          find apps/native/android/app/build/outputs/bundle/release -name '*.aab' -exec cp {} dist/ \;
+          find apps/native/android/app/build/outputs/apk -path '*/release/*' -name '*.apk' -exec cp {} dist/ \;
+          find apps/native/android/app/build/outputs/bundle -path '*Release/*' -name '*.aab' -exec cp {} dist/ \;
           cp third_party/media-engine/out/android/source/*.tar dist/
           cp third_party/media-engine/out/android/notices/THIRD-PARTY-NOTICES.txt dist/media-engine-android-THIRD-PARTY-NOTICES.txt
           ls dist/*.apk dist/*.aab > /dev/null

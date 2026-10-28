@@ -27,6 +27,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
   placeholderTextColor, cursorColor, selectionColor, nativeID, multiline, focusId, testID, ...props
 }, ref) {
   const theme = useTheme(), paint = useOverlayPaintMode();
+  const grow = theme.fontScale > 1 || theme.textScale > 1;
   const eligible = paint.interactive && editable && focusable !== false;
   const {waiting, ...binding} = useFocusTarget<TextInput>({focusId, testID, disabled: !eligible, ref});
   const [focused, setFocused] = useState(false);
@@ -48,7 +49,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
       gap: search ? fieldSpec.search.gap[theme.platform] : 10,
       backgroundColor: search || focused ? theme.colors.raisedHigh : theme.colors.raised,
       borderWidth: search && !error ? 0 : fieldSpec.borderWidth[theme.platform], borderColor: color,
-      opacity: editable ? 1 : .45}, fieldStyle, selection ? {backgroundColor: suppliedField?.backgroundColor ?? theme.colors.ink, borderWidth: selectionBorder,
+      opacity: editable ? 1 : .45}, fieldStyle, grow ? {height: undefined, minHeight: Math.max(inputHeight, typeof suppliedField?.minHeight === 'number' ? suppliedField.minHeight : 0)} : undefined, selection ? {backgroundColor: suppliedField?.backgroundColor ?? theme.colors.ink, borderWidth: selectionBorder,
         borderColor: error ? theme.colors.danger : focused ? theme.colors.focus : suppliedField?.borderColor ?? theme.colors.line} : undefined]}>
       {leadingIcon ? <Icon name={leadingIcon} size={iconSize ?? (theme.isTV ? 30 : 20)} color={theme.colors.textTertiary} /> : null}
       <TextInput {...binding} {...props} testID={binding.testID} ref={binding.ref} nativeID={nativeID ?? id} editable={editable && paint.interactive} focusable={eligible}

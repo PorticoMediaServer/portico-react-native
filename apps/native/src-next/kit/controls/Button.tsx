@@ -32,6 +32,7 @@ const ButtonContent = forwardRef<View, ButtonContentProps>(function ButtonConten
   disabled, style, textStyle, accessibilityState, hitSlop, progress, remaining, ...props
 }, ref) {
   const theme = useTheme();
+  const grow = !iconOnly && (theme.fontScale > 1 || theme.textScale > 1);
   const geometry = buttonGeometry(size, theme.platform, variant);
   const nativeStyle = StyleSheet.flatten(typeof style === 'function' ? undefined : style);
   const height = typeof nativeStyle?.height === 'number' ? nativeStyle.height : geometry.height;
@@ -56,10 +57,15 @@ const ButtonContent = forwardRef<View, ButtonContentProps>(function ButtonConten
   return <Focusable {...props} ref={ref} disabled={blocked} focusRadius={props.focusRadius ?? radius}
     accessibilityRole={props.accessibilityRole ?? 'button'} accessibilityState={{...accessibilityState, busy: loading}}
     hitSlop={hitSlop ?? {top: slop, bottom: slop, left: slop, right: slop}}
-    style={state => [styles.button, {height, paddingHorizontal: iconOnly ? 0 : geometry.paddingX,
-      width: iconOnly ? height : undefined, borderRadius: radius,
-      opacity: disabled ? buttonSpec.disabledOpacity : 1}, typeof style === 'function' ? style(state) : style,
-      androidGlass ? styles.androidHost : undefined]}>
+    style={state => {
+      const supplied = typeof style === 'function' ? style(state) : style, resolved = StyleSheet.flatten(supplied);
+      const minimum = typeof resolved?.height === 'number' ? resolved.height : height;
+      return [styles.button, {height, paddingHorizontal: iconOnly ? 0 : geometry.paddingX,
+        width: iconOnly ? height : undefined, borderRadius: radius,
+        opacity: disabled ? buttonSpec.disabledOpacity : 1}, supplied,
+        grow ? {height: undefined, minHeight: Math.max(minimum, typeof resolved?.minHeight === 'number' ? resolved.minHeight : 0), paddingVertical: resolved?.paddingVertical ?? 4} : undefined,
+        androidGlass ? styles.androidHost : undefined];
+    }}>
     {state => {
       const suppliedStyle = StyleSheet.flatten(typeof style === 'function' ? style(state) : style);
       const fillStyle = [StyleSheet.absoluteFill, {backgroundColor: white ? state.hovered && !blocked ? theme.colors.white : theme.colors.text : glass ? colorAlpha(theme.colors.text, state.focused && theme.isTV ? buttonSpec.glass.focusedTvAlpha : state.hovered && !blocked ? buttonSpec.glass.hoverAlpha : buttonSpec.glass.alpha) : 'transparent'}];
@@ -69,16 +75,16 @@ const ButtonContent = forwardRef<View, ButtonContentProps>(function ButtonConten
         {icon || loading !== undefined ? <View style={{width: glyphSize, height: glyphSize, alignItems: 'center', justifyContent: 'center'}}>
           {loading ? <ActivityIndicator size={glyphSize} color={glyphColor} /> : icon ? <Icon name={icon} size={glyphSize} color={glyphColor} /> : null}
         </View> : null}
-        {!iconOnly ? <Text {...labelObservation.textProps} numberOfLines={1} ellipsizeMode="tail" style={labelStyle}>{children}</Text> : null}
+        {!iconOnly ? <Text {...labelObservation.textProps} numberOfLines={grow ? undefined : 1} ellipsizeMode="tail" style={labelStyle}>{children}</Text> : null}
         {inline && fraction !== undefined && !iconOnly ? <View style={[styles.inlineTrack, {backgroundColor: colorAlpha(white ? theme.colors.ink : theme.colors.text, .16)}]}><View style={[styles.fill, {width: `${fraction * 100}%`, backgroundColor: white ? theme.colors.accent : theme.colors.accentStrong}]} /></View> : null}
         {remaining !== undefined && !iconOnly ? <>
-          <Text numberOfLines={1} style={[theme.type.button, {fontSize: (theme.isTV ? 22 : geometry.fontSize) * theme.textScale, color: white ? colorAlpha(theme.colors.ink, .66) : theme.colors.textTertiary}, textStyle]}>{remaining}</Text>
+          <Text numberOfLines={grow ? undefined : 1} style={[theme.type.button, {fontSize: (theme.isTV ? 22 : geometry.fontSize) * theme.textScale, color: white ? colorAlpha(theme.colors.ink, .66) : theme.colors.textTertiary, flexShrink: grow ? 1 : undefined}, textStyle]}>{remaining}</Text>
         </> : null}
         {trailingIcon ? <Icon name={trailingIcon} size={glyphSize} color={glyphColor} /> : null}
       </View>;
       const edge = fraction !== undefined && !inline ? <View pointerEvents="none" style={[styles.edgeTrack, {borderBottomLeftRadius: suppliedStyle?.borderRadius ?? radius, borderBottomRightRadius: suppliedStyle?.borderRadius ?? radius, backgroundColor: colorAlpha(white ? theme.colors.ink : theme.colors.text, .14)}]}><View style={[styles.fill, {width: `${fraction * 100}%`, backgroundColor: white ? theme.colors.accent : theme.colors.accentStrong}]} /></View> : null;
       if (androidGlass) {
-        const padding: ViewStyle = {paddingHorizontal: iconOnly ? 0 : geometry.paddingX};
+        const padding: ViewStyle = {paddingHorizontal: iconOnly ? 0 : geometry.paddingX, paddingVertical: grow ? 4 : undefined};
         for (const key of paddingKeys) if (suppliedStyle?.[key] !== undefined) padding[key] = suppliedStyle[key];
         // Android's backdrop capture skips a BlurView and its descendants. Keep the complete
         // face inside that subtree, so its own text, tint and progress cannot feed the blur.

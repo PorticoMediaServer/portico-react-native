@@ -15,7 +15,8 @@ import type {DockRect, PlayerMorphController} from './types';
 
 type Publication = Readonly<{fence: PlaybackFence; source?: ArtworkSource; controller: PlayerMorphController; scope: object | undefined; opening: object; pageOpen: boolean; current: () => boolean; subscribe?: (listener: () => void) => () => void}>;
 export type ListeningScrubber = Readonly<{fence: PlaybackFence; gesture: PanGesture; scope: number;
-  activeScope: SharedValue<number>; ticket: SharedValue<number>; drag: SharedValue<number | null>; base: SharedValue<number>; travel: SharedValue<number>}>;
+  activeScope: SharedValue<number>; ticket: SharedValue<number>; drag: SharedValue<number | null>; base: SharedValue<number>; travel: SharedValue<number>;
+  adjust: (direction: -1 | 1) => void}>;
 type Slot = 'full' | 'mini';
 type Frame = Readonly<{fence: PlaybackFence; scope: object | undefined; opening: object; revision: number; bounds: DockRect}>;
 type ContextValue = Readonly<{canvas: RefObject<View | null>; revision: number; binding?: Publication; full?: Frame; mini?: Frame; decoded: boolean; active: boolean; pageAlpha: SharedValue<number>; pageHeight: SharedValue<number>; reportPageHeight: (height: number) => void; groups: readonly SharedValue<number>[]; pageOwner?: Readonly<{fence: PlaybackFence}>; holdPage: (owner: Readonly<{fence: PlaybackFence}>) => () => void;
@@ -292,8 +293,8 @@ export function useListeningScrubberPublication(value: ListeningScrubber | undef
   useLayoutEffect(() => {if (publish && value) return publish(value);}, [publish, value]);
   return !!publish;
 }
-export function ListeningSeekPaint({fence, fraction, span, seconds, label, testID, fallbackGesture}: {
-  fence: PlaybackFence; fraction: number; span: number; seconds: number; label: string; testID?: string; fallbackGesture?: PanGesture;
+export function ListeningSeekPaint({fence, fraction, span, seconds, label, testID, fallbackGesture, fallbackAdjust}: {
+  fence: PlaybackFence; fraction: number; span: number; seconds: number; label: string; testID?: string; fallbackGesture?: PanGesture; fallbackAdjust?: (direction: -1 | 1) => void;
 }) {
   const context = useContext(Context), mode = useOverlayPaintMode(), theme = useTheme();
   const published = useContext(ScrubberValue);
@@ -311,8 +312,17 @@ export function ListeningSeekPaint({fence, fraction, span, seconds, label, testI
   const fill = useAnimatedStyle(() => ({transform: [{translateX: -(1 - at.value) * width.value / 2}, {scaleX: at.value}]}));
   const disabled = useMemo(() => Gesture.Pan().enabled(false), []);
   const gesture = live ? channel?.gesture ?? fallbackGesture ?? disabled : disabled;
-  return <GestureDetector gesture={gesture}><View testID={testID} accessibilityRole="adjustable" accessibilityLabel={label}
+  const adjustable = live && span > 0 && !!(channel?.adjust ?? fallbackAdjust);
+  return <GestureDetector gesture={gesture}><View testID={testID} accessible={live} accessibilityRole="adjustable" accessibilityLabel={label}
+    accessibilityState={{disabled: !adjustable}}
     accessibilityValue={{min: 0, max: Math.round(span), now: Math.round(Math.max(0, Math.min(span, seconds)))}}
+    accessibilityActions={adjustable ? [{name: 'increment'}, {name: 'decrement'}] : []}
+    onAccessibilityAction={event => {
+      if (!adjustable || channel && (active?.value !== owner || (ticket?.value ?? 0) <= 0)) return;
+      const adjust = channel?.adjust ?? fallbackAdjust;
+      if (event.nativeEvent.actionName === 'increment') adjust?.(1);
+      else if (event.nativeEvent.actionName === 'decrement') adjust?.(-1);
+    }}
     onLayout={event => {
       const next = event.nativeEvent.layout.width;
       width.value = Number.isFinite(next) && next > 0 ? next : 0;

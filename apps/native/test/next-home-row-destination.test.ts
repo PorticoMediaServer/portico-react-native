@@ -11,6 +11,7 @@ import {nativeHomeEntryLifetime} from '../src-next/screens/home/entry-lifetime';
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'home-fence'};
 
 const rowModule = (isTV = false) => screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {
+    '../../kit/useScreenReader': {useScreenReader: () => false},
     react: {...React, default: React}, '../../../../../packages/client-core/src/recommendation-feedback': {}, '../../../../../packages/i18n/src': {}, '../../kit/overlays': {}, '../../kit/controls': {}, 'react-native': {Platform: {isTV}, View: 'View'}, '../../kit/focus': {},
     './HomeSeeAll': {}, './HomeRowFilters': {},
     './row-controller': {NativeHomeRowController}, '../../platform/server-connections': {}, '../../shell/routes': {titleRoute, nativeEntryRoute, nativeEntryRouteSupported},

@@ -1,6 +1,8 @@
 import React from 'react';
 import {Text, View} from 'react-native';
 import {generatedCoverTint} from '@portico/design';
+import {defaultI18n} from '../../../../../packages/i18n/src';
+import {cardAccessibilityLabel} from '../../kit/cards/model';
 import {GeneratedCover, MediaArt} from '../../kit/artwork';
 import type {ArtworkSource} from '../../kit/artwork';
 import {Focusable} from '../../kit/controls';
@@ -32,8 +34,8 @@ export function PhoneReadingBookCard({testID, title, author, width, artwork, per
   onOpen: () => void; onDownload?: () => void;
 }>) {
   const theme = useTheme(), height = periodical ? width * 4 / 3 : width * 3 / 2;
-  return <Focusable testID={testID} accessibilityRole="button" accessibilityLabel={title} focusKind="row"
-    onPress={onOpen} onLongPressAction={onDownload} style={{width}}>
+  return <Focusable testID={testID} accessibilityRole="button" accessibilityLabel={cardAccessibilityLabel(title, [], [], [author])} focusKind="row"
+    onPress={onOpen} onLongPressAction={onDownload} longPressAccessibilityAction={onDownload ? {name: 'download', label: defaultI18n.t('next.cards.download')} : undefined} style={{width}}>
     <View accessible={false} importantForAccessibility="no-hide-descendants" style={{width, height, borderRadius: 10, overflow: 'hidden'}}>
       <PhoneReadingBookCover title={title} author={author} width={width} height={height} artwork={artwork} periodical={periodical}/>
     </View>

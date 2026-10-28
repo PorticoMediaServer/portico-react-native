@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {createHookHost} from './hook-driver.ts';
-import {sameFence, playbackFence} from '../../../packages/player-core/src/index.ts';
+import {playbackFence} from '../../../packages/player-core/src/index.ts';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import * as registryModule from '../src-next/kit/focus/registry.ts';
 import * as hostRefModule from '../src-next/kit/focus/useHostRef.ts';
@@ -20,7 +20,7 @@ let isTV = true;
 const motion = {duration: () => 180, timing: () => ({duration: 0})};
 const chromeModules = {
   '../../kit/dock/PlayerMorphBridge': {useInitialPlayerPaint: () => undefined, usePublishedPlayerMorph: () => undefined},
-  react: {...React, default: React}, 'react-native': {View: 'View', Text: 'Text', useTVEventHandler: (handler: typeof event) => {event = handler;}},
+  react: {...React, default: React}, 'react-native': {View: 'View', Text: 'Text', AccessibilityInfo: {announceForAccessibility() {}}, useTVEventHandler: (handler: typeof event) => {event = handler;}},
   'react-native-reanimated': {Easing: {linear: (value: number) => value}, default: {View: 'Animated'}, cancelAnimation() {}, useAnimatedStyle: (value: () => unknown) => value(), useSharedValue: (value: unknown) => React.useRef({value}).current, withTiming: (value: unknown) => value},
   'react-native-gesture-handler': {Gesture: {Pan: gesture}, GestureDetector: 'GestureDetector'},
   '../../../../../packages/client-core/src/up-next': upNext, '../../../../../packages/client-core/src/playback/linear-protocol': {channelSeconds},
@@ -38,6 +38,7 @@ const chromeModules = {
   '../../kit/controls': {Button: 'Button', Focusable: 'Focusable'}, '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => focusRegistry}, '../../kit/Icon': {Icon: 'Icon'},
   '../../kit/theme': {nativeType: () => ({}), useTheme: () => ({isTV, colors: {}, type: {body: {}, bodyStrong: {}, caption: {}}})},
   '../../kit/useMotion': {useMotion: () => motion, useReducedMotion: () => true}, './controls': {NativeWatchControls}, './WatchTimeline': {NativeWatchTimeline: 'Timeline'},
+  '../../kit/useScreenReader': {useScreenReader: () => false},
 };
 const {NativeWatchChrome} = await screenModule(new URL('../src-next/screens/watch/WatchChrome.tsx', import.meta.url), chromeModules);
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 'server', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane', authority: 'local'}, run: 1}, sessionId: 'session', itemId: 'item', sourceId: 'version', entryId: 'entry', generation: 1});
@@ -200,4 +201,40 @@ test('a slow first frame never bypasses ordinary timer and toggle hiding after t
     const toggled = all(tree).find(node => node.type === 'Animated' && node.props.pointerEvents === 'none' && node.props.importantForAccessibility === 'no-hide-descendants');
     assert.equal(toggled.props.style.at(-1).opacity, 0);
   } finally {host.unmount(); controls.dispose(); isTV = previousTV;}
+});
+
+for (const screenReader of [false, true]) test(`auto-skip Undo ${screenReader ? 'persists and announces for AT' : 'keeps its authored six-second deadline'}`, async t => {
+  t.mock.timers.enable({apis: ['setTimeout']});
+  const previousTV = isTV; isTV = false;
+  const spoken: string[] = [], seeks: unknown[] = [];
+  const {NativeWatchChrome: Chrome} = await screenModule(new URL('../src-next/screens/watch/WatchChrome.tsx', import.meta.url), {
+    ...chromeModules,
+    '../../kit/useScreenReader': {useScreenReader: () => screenReader},
+    'react-native': {...chromeModules['react-native'], AccessibilityInfo: {announceForAccessibility: (text: string) => spoken.push(text)}},
+  });
+  const controls = new NativeWatchControls(false);
+  const source = {fence, retired: false, dock: {local: {expanded: true}}, queue: {},
+    options: {itemId: 'item', versions: [], markers: [{id: 'intro', type: 'intro', startMs: 10_000, endMs: 20_000, automaticSafe: true}]},
+    capabilities: {play: true, pause: true, seek: true}, playback: {intent: 'playing', positionSeconds: 12, duration: 100}};
+  const playback = {getSnapshot: () => source, seek: async (expected: unknown, seconds: number) => {seeks.push([expected, seconds]);}};
+  controls.source(fence, {expanded: true, autoHide: false, hiddenByPanel: false, paused: false, scrubbing: false, focusHeld: screenReader});
+  let tree: any;
+  const host = createHookHost(() => {tree = Chrome({source, controls, playback, text: {t: defaultI18n.t}, quality: 'Original', width: 390, height: 844, compact: true,
+    skipBackSeconds: 10, skipForwardSeconds: 30, skipModes: {intro: 'auto', recap: 'ask', credits: 'ask'}, onMinimize() {}, reportError: assert.fail});});
+  host.mount();
+  try {
+    source.playback.positionSeconds = 20; host.rerender(); host.flush();
+    assert.deepEqual(spoken, [`${defaultI18n.t('player.skipped', {kind: 'intro'})}, ${defaultI18n.t('action.undo')}`]);
+    const undo = () => descendants(tree).find(node => node.props.testID === 'watch-skip-undo');
+    assert.ok(undo());
+    t.mock.timers.tick(5999); host.flush(); assert.ok(undo());
+    t.mock.timers.tick(screenReader ? 60_000 : 1); host.flush();
+    if (screenReader) {
+      assert.ok(undo());
+      const notice = descendants(tree).find(node => node.props.accessibilityActions?.some((action: any) => action.name === 'dismiss'));
+      notice.props.onAccessibilityAction({nativeEvent: {actionName: 'activate'}}); host.flush();
+      assert.deepEqual(seeks, [[fence, 12]], 'Undo keeps the original playback fence and pre-skip position');
+      assert.equal(undo(), undefined);
+    } else assert.equal(undo(), undefined);
+  } finally {host.unmount(); controls.dispose(); isTV = previousTV; t.mock.timers.reset();}
 });

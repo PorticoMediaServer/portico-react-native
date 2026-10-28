@@ -1,6 +1,6 @@
 import {OverlayPaintDescendants, useOverlayPaintMode} from './OverlayPaintContext';
 import React, {useEffect, useRef, useState} from 'react';
-import {Modal, Pressable, StyleSheet, Text, View, useWindowDimensions, type StyleProp, type ViewStyle} from 'react-native';
+import {Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions, type StyleProp, type ViewStyle} from 'react-native';
 import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, RadialGradient, Rect, Stop} from 'react-native-svg';
 import {tvCanvasFrame} from '../../platform/layout/tv-canvas';
@@ -70,7 +70,7 @@ export function SurfaceHeader({title, description, action, side = false, inset =
   </View>;
 }
 
-function CenteredDialog({open, onOpenChange, title, headerContext, description, children, footer, initialFocusRef, returnFocusRef, restoreFocus = true, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, width: suppliedWidth, size = 'md', dismissOnOutsidePress = true, dismissOnBack = true, showClose = true, faceColor, scrimColor, footerMarginTop}: DialogProps) {
+function CenteredDialog({open, onOpenChange, title, headerContext, description, children, footer, initialFocusRef, returnFocusRef, restoreFocus = true, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, width: suppliedWidth, size = 'md', dismissOnOutsidePress = true, dismissOnBack = true, showClose = true, faceColor, scrimColor, footerMarginTop, scrollable = true}: DialogProps) {
   const theme = useTheme(), paint = useOverlayPaintMode();
   const animation = useSurfaceMotion(open, 'dialog');
   const closeRef = useRef<View>(null);
@@ -85,10 +85,11 @@ function CenteredDialog({open, onOpenChange, title, headerContext, description, 
       <Pressable accessible={false} focusable={false} style={StyleSheet.absoluteFill} onPress={() => {if (dismissOnOutsidePress) dismiss('outside');}}/>
       <Animated.View testID={testID} accessibilityLabel={accessibilityLabel} style={[{width: width || '100%', maxWidth: '92%', maxHeight: `${theme.spec.overlay.maxHeight[theme.platform] * 100}%`, borderRadius: theme.isTV ? 26 : 20, paddingTop: theme.isTV ? 48 : 26, paddingHorizontal: theme.isTV ? 52 : 26, paddingBottom: theme.isTV ? 44 : 22, backgroundColor: faceColor ?? theme.colors.raised, borderWidth: 1, borderColor: alpha(theme.colors.text, 0.09)}, animation.style, style]}>
         {faceColor ? null : <DialogBackground radius={theme.isTV ? 26 : 20}/>}
-        <FocusBoundary modal testID={testID}>
+        <FocusBoundary modal testID={testID} style={{flexShrink: 1, minHeight: 0}}>
           {headerContext}
           <SurfaceHeader dialog inset={false} title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle}/>
-          <View style={contentStyle}>{children}</View>
+          {scrollable ? <ScrollView style={{flexGrow: 0, flexShrink: 1, minHeight: 0}} contentContainerStyle={contentStyle} keyboardShouldPersistTaps="handled">{children}</ScrollView>
+            : <View style={[{flexShrink: 1, minHeight: 0}, contentStyle]}>{children}</View>}
           {footer != null && <View style={{marginTop: footerMarginTop ?? (theme.isTV ? 40 : 22), gap: theme.isTV ? 18 : 10}}>{footer}</View>}
         </FocusBoundary>
         {showClose && !theme.isTV && <Focusable testID={testID ? `${testID}-close` : undefined} focusId="close" ref={closeRef} focusRadius={18} accessibilityRole="button" accessibilityLabel={defaultI18n.t('action.close')} hitSlop={4} onPress={() => dismiss('close-button')} style={{position: 'absolute', top: 16, right: 16, width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-close" size={20} color={theme.colors.textTertiary}/></Focusable>}
@@ -98,7 +99,7 @@ function CenteredDialog({open, onOpenChange, title, headerContext, description, 
 }
 export function Dialog(props: DialogProps) {
   const theme = useTheme();
-  return theme.platform === 'phone' || props.placement === 'side' ? <BottomSheet {...props} fitContent scrollable={false} /> : <CenteredDialog {...props}/>;
+  return theme.platform === 'phone' || props.placement === 'side' ? <BottomSheet {...props} fitContent scrollable={props.scrollable ?? true} /> : <CenteredDialog {...props}/>;
 }
 function useScrimStyle(progress: {value: number}) {
   return useAnimatedStyle(() => ({opacity: progress.value}));

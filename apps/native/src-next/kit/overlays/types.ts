@@ -30,6 +30,8 @@ export type SurfaceProps = {
   backdropOpacity?: number;
 };
 export type DialogProps = SurfaceProps & {
+  /** Disable only when the body owns its scrolling container (for example Select's FlatList). */
+  scrollable?: boolean;
   size?: 'sm' | 'md' | 'lg';
   width?: number;
   placement?: 'center' | 'side';

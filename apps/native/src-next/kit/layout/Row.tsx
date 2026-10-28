@@ -1,4 +1,4 @@
-import React, {useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode} from 'react';
+import React, {useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode} from 'react';
 import {Pressable, Text, View, type StyleProp, type TextStyle, type ViewStyle} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import Animated, {runOnJS, useAnimatedScrollHandler, useSharedValue} from 'react-native-reanimated';
@@ -9,6 +9,7 @@ import {FocusItem, FocusProvider, FocusRegion, focusTestID, useOptionalFocusRegi
 import {reconcileRowSlots, indexRowSlots, visibleRowSlots, rowNeedsPage, type RowPage} from './row-state';
 import {useRowPageBoundary} from '../focus/page-boundary';
 import {useFocusAnchor} from './FocusAnchor';
+import {captionItemHeight} from './model';
 import {MotionItem} from './MotionItem';
 import {itemSelection, type LayoutItemContext, type LayoutSelection} from './types';
 
@@ -30,6 +31,8 @@ export type RowProps<T> = {
   renderItem: (item: T, context: LayoutItemContext) => ReactNode;
   itemWidth: number;
   itemHeight: number;
+  /** Caption allowance at OS fontScale 1; artwork remains unscaled. */
+  captionHeight?: number;
   gap?: number;
   gutter?: number;
   rightGutter?: number;
@@ -61,14 +64,16 @@ export function Row<T>(props: RowProps<T>) {
   return <FocusProvider><RowContent {...props} /></FocusProvider>;
 }
 
-function RowContent<T>({title, showHeading = true, headingStyle, subtitle, items, getKey, getFocusId = getKey, isFocusable, renderItem, itemWidth, itemHeight, gap, gutter, rightGutter, onSeeAll, selection, onVisibleRange, onVisibleKeys, onItemFocus, onRepeatingChange, style, testID, focus, paging, initialViewportWidth = 0}: RowProps<T>) {
+function RowContent<T>({title, showHeading = true, headingStyle, subtitle, items, getKey, getFocusId = getKey, isFocusable, renderItem, itemWidth, itemHeight: authoredItemHeight, captionHeight = 0, gap, gutter, rightGutter, onSeeAll, selection, onVisibleRange, onVisibleKeys, onItemFocus, onRepeatingChange, style, testID, focus, paging, initialViewportWidth = 0}: RowProps<T>) {
   const theme = useTheme();
+  const itemHeight = captionItemHeight(authoredItemHeight, captionHeight, theme.fontScale);
   const [width, setWidth] = useState(initialViewportWidth), [offset, setOffset] = useState(0), [hovered, setHovered] = useState(false), [focused, setFocused] = useState<string>();
   const registry = useOptionalFocusRegistry();
-  const subscribe = registry?.subscribe ?? noopSubscribe, getSnapshot = registry?.getSnapshot ?? zeroSnapshot;
+  const regionId = focus?.id;
+  const subscribe = useCallback((listener: () => void) => regionId && registry ? registry.subscribeRegion(regionId, listener) : () => {}, [regionId, registry]);
+  const getSnapshot = useCallback(() => regionId && registry ? registry.regionSnapshot(regionId) : 0, [regionId, registry]);
   useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const owned = focus ? !!registry?.isRegionActive(focus.id) : focused !== undefined;
-  const regionId = focus?.id;
   const previous = useRef<{regionId?: string; index: ReturnType<typeof indexRowSlots<T>>} | undefined>(undefined);
   const fulfilledId = paging?.fulfilled?.waitingId, fulfilledItem = paging?.fulfilled?.firstItemId;
   const waitingId = paging?.waitingId, waitingItem = paging?.waitingItem, hasMore = paging?.hasMore, failed = paging?.failed;
@@ -201,7 +206,5 @@ function RowRegion({focus, order, entry, enabled, children}: {focus?: RowProps<u
   return focus ? <FocusRegion {...focus} orientation="horizontal" order={order} entry={entry ?? order[0]} {...(enabled === false ? {enabled: false} : {})}>{children}</FocusRegion> : <>{children}</>;
 }
 const noop = () => {};
-const noopSubscribe = () => () => {};
-const zeroSnapshot = () => 0;
 export type {RowPage} from './row-state';
 export {Row as Shelf};

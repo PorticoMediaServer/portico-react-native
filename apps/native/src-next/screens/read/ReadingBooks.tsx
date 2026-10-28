@@ -13,6 +13,7 @@ import {Button, Chip, Focusable} from '../../kit/controls';
 import {MediaArt} from '../../kit/artwork';
 import {PosterCard} from '../../kit/cards';
 import {Parts} from '../../kit/cards/primitives';
+import {cardAccessibilityLabel} from '../../kit/cards/model';
 import {AlphabetRail, WindowedGrid, type WindowedGridHandle} from '../../kit/layout';
 import {StateView} from '../../kit/states';
 import {browseType} from '../../kit/browse/presentation';
@@ -197,7 +198,7 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
           : <StateView testID="reading-books-empty" variant="inline" title={defaultI18n.t('library.emptyLibrary')} body={defaultI18n.t('library.emptyLibraryBody')} style={{flex: 1}}/>)
           : <View style={{flex: 1}}>
             <WindowedGrid ref={grid} testID={list ? 'reading-books-list' : 'reading-books-grid'} collection={collection} getKey={nativeLibraryEntryKey}
-              itemWidth={list ? rowWidth : cardWidth} itemHeight={list ? 70 : cardHeight}
+              itemWidth={list ? rowWidth : cardWidth} itemHeight={list ? 70 : cardHeight} captionHeight={list ? 70 : 48}
               gap={list ? 0 : gap} rowGap={list ? 0 : rowGap} gutter={left} rightGutter={right} style={{flex: 1}} initialIndex={state.memory.firstVisibleIndex}
               onVisibleRange={changedRange}
               renderPlaceholder={() => list ? <View style={{width: rowWidth, height: 70, backgroundColor: theme.colors.raised}}/>
@@ -231,8 +232,9 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
  * browse page itself carries it, so nothing here is inferred from the file. */
 function ReadingListRow({entry, width, runtime, onOpen, onDownload, phone}: {entry: ContentEntry; width: number; runtime: NativeShellRuntime; onOpen: () => void; onDownload?: () => void; phone?: boolean}) {
   const theme = useTheme(), text = homeCardText(entry, false, runtime.text), title = entry.displayTitle || text.title;
-  return <Focusable accessibilityRole="button" accessibilityLabel={title} focusKind="row" onPress={onOpen} onLongPressAction={onDownload} testID={`reading-list-${entry.id}`}
-    style={{width, height: 70, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 12}}>
+  return <Focusable accessibilityRole="button" accessibilityLabel={cardAccessibilityLabel(title, text.caption, text.detail)} focusKind="row" onPress={onOpen} onLongPressAction={onDownload}
+    longPressAccessibilityAction={onDownload ? {name: 'download', label: defaultI18n.t('next.cards.download')} : undefined} testID={`reading-list-${entry.id}`}
+    style={{width, height: 70 * (theme.fontScale ?? 1), flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 12}}>
     {phone ? <View style={{borderRadius: 5, overflow: 'hidden'}}><PhoneReadingBookCover title={title} author={entry.author} artwork={runtime.artwork(entry.posterUrl)} width={36} height={54}/></View>
       : <MediaArt kind="poster" source={runtime.artwork(entry.posterUrl)} width={36} height={54} style={{borderRadius: 5}}/>}
     <View style={{flex: 1, minWidth: 0, gap: phone ? 2 : 3}}>

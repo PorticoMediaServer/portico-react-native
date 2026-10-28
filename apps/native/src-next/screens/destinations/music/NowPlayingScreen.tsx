@@ -1,7 +1,7 @@
 import React, {createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {BackHandler, ScrollView, Text, View} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
-import Animated, {runOnJS, useAnimatedStyle, useSharedValue} from 'react-native-reanimated';
+import Animated, {runOnJS, useSharedValue} from 'react-native-reanimated';
 import type {QueuePlaybackView} from '../../../../../../packages/client-core/src/queue-controller';
 import type {V1QueueEditIntent, V1QueuePolicyIntent} from '../../../../../../packages/client-core/src/playback-v1/v1-queue-player';
 import type {PlaybackFence} from '../../../../../../packages/player-core/src';
@@ -197,6 +197,16 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
     if (command) bound.onAction(command);
   };
   const discardBound = (ticket: number, run: number) => {seekScope.discard(ticket, run);};
+  const adjustSeek = (direction: -1 | 1) => {
+    if (!inputActive || !bounds || activeScope.value !== drawnScope || dragArmed.value) return;
+    const step = direction < 0 ? p.skipBackSeconds : p.skipForwardSeconds ?? p.skipBackSeconds;
+    if (!(step > 0) || !Number.isFinite(step)) return;
+    // Accessibility uses the same begin/claim and paint-lifetime fence as a pan.
+    // A retained callback cannot borrow the successor's activated seek scope.
+    const ticket = scopeTicket.value, run = ++dragRun.value;
+    bindSeek(true, ticket, run);
+    commitSeek((position + direction * step - bounds.start) / span, true, ticket, run);
+  };
   const scrub = Gesture.Pan().enabled(inputActive).minDistance(0)
     .onBegin(event => {
       if (activeScope.value !== drawnScope) return;
@@ -218,9 +228,8 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
       runOnJS(commitSeek)(Math.min(1, Math.max(0, event.x / travel.value)), true, dragTicket.value, dragRun.value);
     })
     .onFinalize(() => {if (activeScope.value !== drawnScope) return; dragArmed.value = false; dragFraction.value = null; runOnJS(discardBound)(dragTicket.value, dragRun.value);});
-  const scrubber = useMemo(() => inputActive ? {fence: playback.fence, gesture: scrub, scope: drawnScope, activeScope,
-    ticket: scopeTicket, drag: dragFraction, base: paintFraction, travel} : undefined,
-    [inputActive, playback.fence, scrub, drawnScope, activeScope, scopeTicket, dragFraction, paintFraction, travel]);
+  const scrubber = inputActive ? {fence: playback.fence, gesture: scrub, scope: drawnScope, activeScope,
+    ticket: scopeTicket, drag: dragFraction, base: paintFraction, travel, adjust: adjustSeek} : undefined;
   const hostedScrubber = useListeningScrubberPublication(scrubber);
   const favoritePaint = song ? listeningSongFavorite(song.token, song.pending) : undefined;
   const facts = p.identity.subtitle.map(part => part.text).filter(Boolean).join(' · ');
@@ -241,7 +250,7 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
       {theme.isTV ? <MusicFocusRegion id={`${focus}.progress`} entry="seek" edges={{up: signal ? `${focus}.signal` : undefined, down: `${focus}.transport`}}>
         <TVMusicSeek occupant={occupant} onAction={onAction} enabled={!panel} testID={`${testID}-scrubber`}/>
       </MusicFocusRegion> : <ListeningSeekPaint fence={playback.fence} fraction={fraction} span={span} seconds={position - (bounds?.start ?? 0)}
-        label={t('player.queue')} testID={`${testID}-scrubber`} fallbackGesture={hostedScrubber ? undefined : scrub}/>}
+        label={t('player.position')} testID={`${testID}-scrubber`} fallbackGesture={hostedScrubber ? undefined : scrub} fallbackAdjust={hostedScrubber || !inputActive ? undefined : adjustSeek}/>}
       <View style={{flexDirection: 'row', justifyContent: 'space-between', marginTop: 2}}>
         <Text style={[browseType(theme, 12.5, 600), {color: theme.colors.textSecondary, fontVariant: ['tabular-nums']}]}>{clockText(Math.max(0, position - (bounds?.start ?? 0)))}</Text>
         <Text style={[browseType(theme, 12.5, 600), {color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{clockText(span || p.durationSeconds)}</Text>

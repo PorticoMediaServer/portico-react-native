@@ -13,6 +13,7 @@ import {StateView} from '../../kit/states';
 import {shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
 import {Artwork} from '../../kit/artwork';
+import {cardAccessibilityLabel} from '../../kit/cards/model';
 import {TVServerPageMenu} from './server/TVServerPageMenu';
 import {TVDiskUsage} from './server/TVDiskUsage';
 import type {NativeShellRuntime} from '../../shell/runtime';
@@ -72,7 +73,7 @@ export function NativeDashboardScreen({controller, ports, runtime, deniedFallbac
             const delivery = sessionFacts.find(fact => fact.id === 'delivery');
             const art = session.item?.art.find(value => value.role === 'backdrop') ?? session.item?.art[0];
             const source = art && runtime.artwork(`/v1/items/${encodeURIComponent(art.id)}/art/${encodeURIComponent(art.kind)}`);
-            return <Focusable key={session.id} focusId={session.id} testID={`dashboard-session-${session.id}`} onFocus={() => {const window = state.sessionWindow; if (window) {lease = controller.focusSession(session.id, window); if (index >= state.sessions.length - 2 && window.error === undefined) void controller.nextSessions(window);}}} onBlur={() => {if (state.sessionWindow && lease) controller.blurSession(session.id, lease, state.sessionWindow);}} accessibilityRole="text" accessibilityLabel={identity.title} focusKind="row" style={{minHeight: theme.isTV ? 120 : 150, flexDirection: 'row', gap: 22, alignItems: 'center', padding: theme.isTV ? 16 : 12, marginBottom: 8, borderRadius: 18, backgroundColor: theme.colors.raised}}>
+            return <Focusable key={session.id} focusId={session.id} testID={`dashboard-session-${session.id}`} onFocus={() => {const window = state.sessionWindow; if (window) {lease = controller.focusSession(session.id, window); if (index >= state.sessions.length - 2 && window.error === undefined) void controller.nextSessions(window);}}} onBlur={() => {if (state.sessionWindow && lease) controller.blurSession(session.id, lease, state.sessionWindow);}} accessibilityRole="text" accessibilityLabel={cardAccessibilityLabel(identity.title, sessionFacts, [], identity.secondary)} focusKind="row" style={{minHeight: theme.isTV ? 120 : 150, flexDirection: 'row', gap: 22, alignItems: 'center', padding: theme.isTV ? 16 : 12, marginBottom: 8, borderRadius: 18, backgroundColor: theme.colors.raised}}>
               {source && <View style={{width: theme.isTV ? 130 : 110, height: theme.isTV ? 76 : 70, borderRadius: 10, overflow: 'hidden'}}><Artwork source={source}/></View>}
               <View style={{flex: 1, gap: theme.isTV ? 8 : 10}}><Text numberOfLines={1} style={[shellType(theme.isTV ? 26 : 20, 700), {color: theme.colors.text}]}>{identity.title}</Text>
                 {identity.secondary.length > 0 && <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 16}}>{identity.secondary.map((value, index) => <Text numberOfLines={1} key={index} style={[shellType(theme.isTV ? 20 : 14), {color: theme.colors.textSecondary, flexShrink: 1}]}>{value}</Text>)}</View>}

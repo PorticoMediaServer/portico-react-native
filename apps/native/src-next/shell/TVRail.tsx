@@ -1,4 +1,4 @@
-import React, {useCallback, useRef, useSyncExternalStore} from 'react';
+import React, {useCallback, useMemo, useRef, useSyncExternalStore} from 'react';
 import {motionRules} from '@portico/design';
 import {findNodeHandle, Image, ScrollView, Text, View} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop, Path} from 'react-native-svg';
@@ -6,7 +6,7 @@ import Animated, {useAnimatedStyle, useSharedValue, withDelay, withTiming} from 
 import {defaultI18n} from '../../../../packages/i18n/src';
 import type {Library} from '../../../../packages/client-core/src';
 import {Focusable} from '../kit/controls';
-import {FocusRegion, focusTestID, useFocusRegistry, type FocusAddress} from '../kit/focus';
+import {FocusRegion, focusTestID, useFocusRegistry, type FocusAddress, type FocusHost} from '../kit/focus';
 import {sameDestination, tvFocusIds} from './tv-focus';
 import {ProfileFace, type ProfileOption} from '../kit/artwork';
 import {Icon, type IconName} from '../kit/Icon';
@@ -24,11 +24,28 @@ export function TVRail({libraries, hasLiveTV, destination, profile, unread = fal
 }) {
   const theme = useTheme(), motion = useMotion(), spec = theme.spec.navigation.tv;
   const registry = useFocusRegistry();
-  useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
   const ids = tvFocusIds(authority);
-  const returnEnabled = !returnTo || registry.config(returnTo.regionId)?.enabled !== false;
+  const returnRegionId = returnTo?.regionId, returnChildId = returnTo?.childId;
+  const getReturnSnapshot = useMemo(() => {
+    let previous: Readonly<{enabled: boolean; host?: FocusHost}> | undefined;
+    return () => {
+      const enabled = returnRegionId === undefined || registry.config(returnRegionId)?.enabled !== false;
+      const host = enabled && returnRegionId !== undefined && returnChildId !== undefined ? registry.child({regionId: returnRegionId, childId: returnChildId}) : undefined;
+      if (previous && previous.enabled === enabled && previous.host === host) return previous;
+      return previous = {enabled, host};
+    };
+  }, [registry, returnChildId, returnRegionId]);
+  const subscribeReturn = useCallback((listener: () => void) => {
+    if (returnRegionId === undefined) return () => {};
+    let previous = getReturnSnapshot();
+    return registry.subscribeRegion(returnRegionId, () => {
+      const next = getReturnSnapshot();
+      if (next === previous) return;
+      previous = next; listener();
+    });
+  }, [getReturnSnapshot, registry, returnRegionId]);
+  const {enabled: returnEnabled, host: returnHost} = useSyncExternalStore(subscribeReturn, getReturnSnapshot, getReturnSnapshot);
   const returnRegion = returnTo ? returnEnabled ? returnTo.regionId : undefined : ids.spotlight;
-  const returnHost = returnTo && returnEnabled ? registry.child(returnTo) : undefined;
   const returnHandle = returnHost ? findNodeHandle(returnHost as View) : null;
   // The native engine handles Right directly, including the remembered child.
   // Without its live host, keep the region guide's normal memory/fallback path.

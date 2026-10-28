@@ -108,7 +108,7 @@ function HomeSeeAllReady({controller, runtime, active, onBack, onPlay, onOpen, o
       {data.error ? <StateView {...runtime.error(data.error, () => controller.collection.ensureRange(0, 0))} variant="centered"/> :
         <WindowedGrid header={tv ? undefined : header} stickyHeader={tv ? undefined : toolbar}
           onScrollOffset={tv ? undefined : offset => setCollapsed(headerHeight > 0 && offset >= headerHeight)} collection={controller.collection} getKey={item => item.membershipId} selection={selection}
-          itemWidth={list ? window.width - 32 : width} itemHeight={list ? 70 : width * 1.5 + (tv ? 74 : 48)}
+          itemWidth={list ? window.width - 32 : width} itemHeight={list ? 70 : width * 1.5 + (tv ? 74 : 48)} captionHeight={list ? 70 : tv ? 74 : 48}
           gap={list ? 0 : tv ? 32 : 12} rowGap={list ? 0 : tv ? 40 : 22} gutter={list ? 16 : gutter} rightGutter={list ? 16 : tv ? 96 : theme.gutter}
           paddingBottom={40} style={{flex: 1}} testID={list ? 'home-see-all-list' : 'home-see-all-grid'}
           renderPlaceholder={index => {
@@ -150,10 +150,11 @@ function HomeListRow({entry, runtime, width, onOpen, onPlay, onMenu, onFocus, on
   onOpen: () => void; onPlay?: () => void; onMenu?: (anchor: RefObject<View | null>) => void; onFocus: () => void; onBlur: () => void}) {
   const anchor = useRef<View>(null), theme = useTheme(), text = homeCardText(entry, false, runtime.text), title = text.title;
   const square = ['album', 'song', 'book', 'audiobook_file'].includes(entry.kind);
-  return <CardFrame testID={`home-see-all-list-${encodeURIComponent(entry.id)}`} title={title} width={width} onNavigate={onOpen} onPlay={onPlay}
+  const height = 70 * (theme.fontScale ?? 1);
+  return <CardFrame testID={`home-see-all-list-${encodeURIComponent(entry.id)}`} title={title} caption={text.caption} detail={text.detail} width={width} onNavigate={onOpen} onPlay={onPlay}
     onMore={onMenu ? () => onMenu(anchor) : undefined} menuAnchorRef={anchor} onFocus={onFocus} onBlur={onBlur}
-    pressableStyle={{height: 70, borderRadius: 10, justifyContent: 'center'}}>
-    {() => <View style={{height: 70, flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 12}}>
+    pressableStyle={{height, borderRadius: 10, justifyContent: 'center'}}>
+    {() => <View style={{height, flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 12}}>
       <MediaArt kind={square ? 'square' : 'poster'} source={runtime.artwork(entry.posterUrl)} width={square ? 54 : 36} height={54} style={{borderRadius: 5}}/>
       <View style={{flex: 1, minWidth: 0, gap: 3}}>
         <Text numberOfLines={1} style={[browseType(theme, 15, 600), {color: theme.colors.text}]}>{title}</Text>

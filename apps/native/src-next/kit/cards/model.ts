@@ -29,3 +29,10 @@ export function holdCard(actions: CardActions, isTV: boolean): void {
 export function cardProgress(value: number | undefined): number | undefined {
   return value === undefined || !Number.isFinite(value) ? undefined : Math.max(0, Math.min(1, value));
 }
+
+/** The same localized presentation facts as the face, without repeated facts or a synopsis. */
+export function cardAccessibilityLabel(title: string, caption: readonly {text: string}[] = [], detail: readonly {text: string}[] = [], states: readonly (string | undefined)[] = []): string {
+  const parts = [title, ...caption.map(part => part.text), ...detail.map(part => part.text), ...states]
+    .map(part => part?.trim()).filter((part): part is string => !!part);
+  return [...new Set(parts)].join(', ');
+}

@@ -4,6 +4,23 @@ import java.util.concurrent.Executor
 import java.io.File
 import java.io.FileOutputStream
 
+/** Only the newest progress waits in the bookkeeping queue, at most one drain per transfer. */
+internal class PorticoDownloadProgress(private val post: (() -> Unit) -> Unit, private val publish: (Long) -> Unit) {
+  private var latest = 0L
+  private var queued = false
+
+  fun offer(bytes: Long) {
+    val enqueue = synchronized(this) {
+      latest = bytes
+      if (queued) false else { queued = true; true }
+    }
+    if (enqueue) post {
+      val reached = synchronized(this) { queued = false; latest }
+      publish(reached)
+    }
+  }
+}
+
 /** File work for one download stays in order; unrelated downloads may run together. */
 internal class PorticoDownloadWork(private val executor: Executor) {
   private val pending = HashMap<String, ArrayDeque<() -> Unit>>()

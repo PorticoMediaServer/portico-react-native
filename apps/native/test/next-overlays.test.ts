@@ -98,3 +98,31 @@ test('Back and Escape reach only the top surface and a lower close cannot steal 
   assert.equal(closePanel(), true);
   assert.equal(stack.dismiss('back'), false);
 });
+
+test('screen-reader Undo stays persistent across replacement and resumes the authored remainder only when released', () => {
+  let now = 0, next = 0;
+  const jobs = new Map<number, {at: number; run: () => void}>(), expired: string[] = [];
+  const clock = createToastClock({now: () => now, schedule: (run, delay) => {const id = ++next; jobs.set(id, {at: now + delay, run}); return id;}, cancel: handle => jobs.delete(handle as number)}, id => expired.push(id));
+  const advance = (ms: number) => {now += ms; for (const [id, job] of [...jobs]) if (job.at <= now) {jobs.delete(id); job.run();}};
+  clock.replace('first-undo', 6000);
+  advance(1000);
+  clock.pause('screen-reader', true);
+  advance(60_000);
+  assert.deepEqual(expired, []);
+  assert.equal(jobs.size, 0);
+  clock.pause('screen-reader', false);
+  advance(4999);
+  assert.deepEqual(expired, []);
+  advance(1);
+  assert.deepEqual(expired, ['first-undo']);
+  clock.pause('screen-reader', true);
+  clock.replace('second-undo', 8000);
+  clock.replace('replacement-undo', 6000);
+  advance(60_000);
+  assert.deepEqual(expired, ['first-undo'], 'replacement cannot silently discard the AT hold');
+  clock.replace(null, 0);
+  clock.pause('screen-reader', false);
+  advance(60_000);
+  assert.deepEqual(expired, ['first-undo'], 'explicit removal cannot be followed by a stale expiry');
+  clock.dispose();
+});

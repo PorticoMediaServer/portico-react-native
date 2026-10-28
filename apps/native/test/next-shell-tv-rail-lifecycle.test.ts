@@ -39,8 +39,10 @@ test(`${adapter}: the real TV shell retains its page opener and retires Menu bef
   const useEffect: typeof React.useEffect = (setup, deps) => React.useEffect(() => {
     activeSetup = setup;
     try {return setup();} finally {activeSetup = undefined;}
+    // This fixture forwards the production effect's dependency list verbatim.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
-  let railBack: (() => boolean) | undefined, tree: any, root: any;
+  let railBack: (() => boolean) | undefined, tree: any, root: any, sessionRenders = 0;
   let snapshot: any = {authority, destination: {kind: 'home'}, libraries: [], hasLiveTV: false, profile: {}, account: {actions: []}, selectionActive: false,
     homeVisible: true, homeObscured: false, mediaExpanded: false};
   const navigations: unknown[] = [], tops: unknown[] = [], menuCapture: boolean[] = [];
@@ -84,9 +86,15 @@ test(`${adapter}: the real TV shell retains its page opener and retires Menu bef
   try {
     rootHost.mount();
     const session = nodes(root).find(node => node.type?.name === 'ShellSession');
-    sessionHost = createHookHost(() => {tree = session.type({runtime, snapshot});});
+    sessionHost = createHookHost(() => {sessionRenders++; tree = session.type({runtime, snapshot});});
     await act(() => {sessionHost!.mount();});
     const rail = () => nodes(tree).find(node => node.type === 'TVRail');
+    const beforeUnrelated = sessionRenders;
+    await act(() => {
+      registry.configure({id: 'unrelated-mounted-region', order: ['unrelated-action']});
+      registry.attach({regionId: 'unrelated-mounted-region', childId: 'unrelated-action'}, {requestTVFocus() {}});
+    });
+    assert.equal(sessionRenders, beforeUnrelated, 'unrelated host/config commits do not rerender the entire shell');
     await act(() => {registry.didFocus(row); registry.didFocus({regionId: ids.rail, childId: 'home'}); rail().props.onExpandedChange(true);});
     assert.equal(registry.isRegionActive(row.regionId), true, 'rail retains the exact row opener, including its physical slot');
     assert.equal(railBack!(), true);
@@ -232,8 +240,9 @@ test('the real rail declares current-page entry and semantic Right return; nativ
   registry.configure({id: returnTo.regionId, entry: 'first-card', order: ['first-card', returnTo.childId]});
   registry.attach(returnTo, nativeCard);
   const theme = createTheme({isTV: true, width: 1920});
+  let subscribeReturn!: (listener: () => void) => () => void;
   const {TVRail} = await screenModule(new URL('../src-next/shell/TVRail.tsx', import.meta.url), {
-    react: h.react, '@portico/design': {motionRules}, 'react-native': {Image: 'Image', ScrollView: 'ScrollView', Text: 'Text', View: 'View', findNodeHandle: (host: unknown) => host === nativeCard ? 719 : 720},
+    react: {...h.react, useSyncExternalStore: (subscribe: typeof subscribeReturn, get: () => unknown) => {subscribeReturn = subscribe; return get();}}, '@portico/design': {motionRules}, 'react-native': {Image: 'Image', ScrollView: 'ScrollView', Text: 'Text', View: 'View', findNodeHandle: (host: unknown) => host === nativeCard ? 719 : 720},
     'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'Gradient', Rect: 'Rect', Stop: 'Stop', Path: 'Path'},
     'react-native-reanimated': {default: {View: 'AnimatedView', Text: 'AnimatedText'}, useAnimatedStyle: (fn: () => unknown) => fn(), useSharedValue: (value: number) => ({value}), withTiming: (value: unknown) => value, withDelay: (_delay: unknown, value: unknown) => value},
     '../../../../packages/i18n/src': {defaultI18n}, '../kit/controls': {Focusable: 'Focusable'},
@@ -252,19 +261,31 @@ test('the real rail declares current-page entry and semantic Right return; nativ
   const search = nodes(tree).find(node => node.type === 'Focusable' && node.props.focusId === 'search');
   const controls = (value: unknown) => nodes(value).filter(node => node.type === 'Focusable');
   assert.ok(controls(tree).every(node => node.props.nextFocusRight === 719), 'all rail entries, including Profile, target the exact live card rather than its region entry');
-  registry.attach(returnTo, null);
-  assert.ok(controls(render()).every(node => node.props.nextFocusRight === undefined), 'a removed host leaves native region fallback intact');
-  registry.attach(returnTo, {requestTVFocus() {}});
-  assert.ok(controls(render()).every(node => node.props.nextFocusRight === 720), 'a reattached card replaces the old native handle');
-  registry.configure({id: returnTo.regionId, enabled: false});
-  const hidden = render();
-  assert.ok(controls(hidden).every(node => node.props.nextFocusRight === undefined), 'a hidden destination cannot be a native return target');
-  assert.equal(nodes(hidden).find(node => node.type === 'FocusRegion').props.edges.right, undefined,
-    'the region guide must also release the hidden page, rather than routing native Right to its disabled guide');
-  registry.configure({id: returnTo.regionId, enabled: true});
-  const restored = render();
-  assert.equal(nodes(restored).find(node => node.type === 'FocusRegion').props.edges.right, returnTo.regionId);
-  assert.ok(controls(restored).every(node => node.props.nextFocusRight === 720), 'reactivation restores the current real native host');
+  let returnChanges = 0;
+  const releaseReturn = subscribeReturn(() => {returnChanges++;});
+  try {
+    registry.configure({id: 'unrelated-rail-neighbor', order: ['action']});
+    registry.attach({regionId: 'unrelated-rail-neighbor', childId: 'action'}, {requestTVFocus() {}});
+    registry.didFocus(returnTo);
+    assert.equal(returnChanges, 0, 'only the exact return host/enabled state can rerender the rail');
+    registry.attach(returnTo, null);
+    assert.equal(returnChanges, 1);
+    assert.ok(controls(render()).every(node => node.props.nextFocusRight === undefined), 'a removed host leaves native region fallback intact');
+    registry.attach(returnTo, {requestTVFocus() {}});
+    assert.equal(returnChanges, 2);
+    assert.ok(controls(render()).every(node => node.props.nextFocusRight === 720), 'a reattached card replaces the old native handle');
+    registry.configure({id: returnTo.regionId, enabled: false});
+    assert.equal(returnChanges, 3);
+    const hidden = render();
+    assert.ok(controls(hidden).every(node => node.props.nextFocusRight === undefined), 'a hidden destination cannot be a native return target');
+    assert.equal(nodes(hidden).find(node => node.type === 'FocusRegion').props.edges.right, undefined,
+      'the region guide must also release the hidden page, rather than routing native Right to its disabled guide');
+    registry.configure({id: returnTo.regionId, enabled: true});
+    assert.equal(returnChanges, 4);
+    const restored = render();
+    assert.equal(nodes(restored).find(node => node.type === 'FocusRegion').props.edges.right, returnTo.regionId);
+    assert.ok(controls(restored).every(node => node.props.nextFocusRight === 720), 'reactivation restores the current real native host');
+  } finally {releaseReturn();}
   region.props.onFocusChange(true);
   assert.deepEqual(changes, [true]); assert.deepEqual(navigations, []);
   assert.equal(search.props.onFocus, undefined, 'Up/Down has no application navigation handler');

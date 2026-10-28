@@ -475,7 +475,11 @@ internal class PorticoPlaybackController(private val context: Context) {
     val http = OkHttpDataSource.Factory(mediaClient)
     val load = DefaultLoadControl.Builder()
     // A high-bitrate stream must not take memory the interface needs on a small device.
-    if (lowMemory(context)) load.setBufferDurationsMs(15_000, 30_000, 2_500, 5_000)
+    if (lowMemory(context)) {
+      // Honour the allocator's byte target even while below the duration minimum.
+      load.setBufferDurationsMs(15_000, 30_000, 2_500, 5_000)
+          .setPrioritizeTimeOverSizeThresholds(false)
+    }
     // A transport stream is searched further for the time asked for, so a seek in one lands.
     // MP3 and ADTS files whose seek index has been read are placed by it (PorticoSeekIndex).
     val extractors = PorticoSeekIndex.Factory(DefaultExtractorsFactory().setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE))

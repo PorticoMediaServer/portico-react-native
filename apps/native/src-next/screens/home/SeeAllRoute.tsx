@@ -1,8 +1,8 @@
 import React, {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
-import {Platform, Text, View, useWindowDimensions} from 'react-native';
+import {AccessibilityInfo, Platform, Text, View, useWindowDimensions} from 'react-native';
 import {useFocusRegistry, type FocusSnapshot} from '../../kit/focus';
 import {isRecommendationRow, notInterestedTarget, setNotInterested} from '../../../../../packages/client-core/src/recommendation-feedback';
-import {Menu, type MenuEntry} from '../../kit/overlays';
+import {Menu} from '../../kit/overlays';
 import {Button} from '../../kit/controls';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {HomeSeeAll} from './HomeSeeAll';
@@ -15,6 +15,7 @@ import {nativeEntryRoute, nativeEntryRouteSupported, type NativeShellRoute} from
 import {nativeShellRoutes, type NativeRouteRenderer} from '../../shell/route-registry';
 import {shellLayout} from '../../shell/model';
 import {useTheme} from '../../kit/theme';
+import {useScreenReader} from '../../kit/useScreenReader';
 import {authorityKey} from '../../shell/model';
 import {hiddenReadingLibraryOnTV} from '../read/platform';
 import {openNativeReadingBookEntry} from '../read/reading-books-open';
@@ -155,8 +156,21 @@ function RetainedHomeRow({source, runtime, active, onBack, onPlay, onOpen, onPla
   const recommendation = !!row && isRecommendationRow({id: row.id, kind: row.kind});
   const [chosen, setChosen] = useState<{entry: ContentEntry; anchor: React.RefObject<View | null>}>();
   const [undo, setUndo] = useState<ContentEntry>();
-  const undoTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => {if (undoTimer.current) clearTimeout(undoTimer.current);}, []);
+  const screenReader = useScreenReader(true);
+  useEffect(() => {
+    if (!undo || screenReader) return;
+    const timer = setTimeout(() => setUndo(undefined), 6000);
+    return () => clearTimeout(timer);
+  }, [undo, screenReader]);
+  const undoLabel = undo ? defaultI18n.t('entry.notInterestedDone', {title: undo.displayTitle ?? undo.title}) : undefined;
+  useEffect(() => {
+    if (active && undoLabel) AccessibilityInfo.announceForAccessibility(`${undoLabel}, ${defaultI18n.t('action.undo')}`);
+  }, [active, undo, undoLabel]);
+  const undoNotInterested = () => {
+    if (!undo) return;
+    const entry = undo; setUndo(undefined);
+    void onNotInterested(entry, false).then(ok => {if (!ok) runtime.reportError(Object.assign(new Error(defaultI18n.t('entry.notInterestedUndoFailed', {title: entry.displayTitle ?? entry.title})), {code: 'not_interested_undo_failed'}));});
+  };
   const [filters, setFilters] = useState(false);
   useEffect(() => {if (!active) return; const remember = () => {const value = registry.capture(); if (value?.regionId.startsWith('home-see-all:')) opener.current = value;};
     remember(); return registry.subscribe(remember);
@@ -179,16 +193,14 @@ function RetainedHomeRow({source, runtime, active, onBack, onPlay, onOpen, onPla
     {active && filters && <HomeRowFilters controller={source.controller} runtime={runtime} onClose={() => setFilters(false)}/>}
     {active && recommendation && chosen && <Menu testID={`home-see-all:${authorityKey(runtime.getSnapshot().authority)}:${source.controller.rowId}.recommendation-menu`} open items={[{id: 'not-interested', label: defaultI18n.t('entry.notInterested'), icon: 'i-eyeoff' as const,
       onSelect: () => {const entry = chosen.entry; setChosen(undefined);
-        void onNotInterested(entry, true).then(ok => {if (!ok) return; setUndo(entry);
-          if (undoTimer.current) clearTimeout(undoTimer.current);
-          undoTimer.current = setTimeout(() => setUndo(undefined), 6000);});}}]} title={chosen.entry.displayTitle ?? chosen.entry.title}
+        void onNotInterested(entry, true).then(ok => {if (ok) setUndo(entry);});}}]} title={chosen.entry.displayTitle ?? chosen.entry.title}
       anchorRef={chosen.anchor} onOpenChange={open => {if (!open) setChosen(undefined);}}/>}
     {active && undo && <View testID="home-see-all-not-interested" style={{position: 'absolute', left: 0, right: 0, bottom: 120, alignItems: 'center'}}>
-      <View style={{flexDirection: 'row', alignItems: 'center', gap: 16, paddingLeft: 18, paddingRight: 8, paddingVertical: 8, borderRadius: 14, backgroundColor: 'rgba(7,16,24,.92)'}}>
+      <View accessible accessibilityLabel={undoLabel} accessibilityActions={[{name: 'activate', label: defaultI18n.t('action.undo')}, {name: 'dismiss', label: defaultI18n.t('next.overlays.native.dismissToast')}]}
+        onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'activate') undoNotInterested(); else if (event.nativeEvent.actionName === 'dismiss') setUndo(undefined);}}
+        style={{flexDirection: 'row', alignItems: 'center', gap: 16, paddingLeft: 18, paddingRight: 8, paddingVertical: 8, borderRadius: 14, backgroundColor: 'rgba(7,16,24,.92)'}}>
         <Text style={{color: '#edf5fa', fontFamily: 'Manrope-SemiBold', fontSize: 15, fontWeight: '600'}}>{defaultI18n.t('entry.notInterestedDone', {title: undo.displayTitle ?? undo.title})}</Text>
-        <Button variant="glass" size="compact" icon="i-undo" onPress={() => {const entry = undo; setUndo(undefined);
-          if (undoTimer.current) clearTimeout(undoTimer.current);
-          void onNotInterested(entry, false).then(ok => {if (!ok) runtime.reportError(Object.assign(new Error(defaultI18n.t('entry.notInterestedUndoFailed', {title: entry.displayTitle ?? entry.title})), {code: 'not_interested_undo_failed'}));});}}>{defaultI18n.t('action.undo')}</Button>
+        <Button variant="glass" size="compact" icon="i-undo" onPress={undoNotInterested}>{defaultI18n.t('action.undo')}</Button>
       </View>
     </View>}
   </View>;

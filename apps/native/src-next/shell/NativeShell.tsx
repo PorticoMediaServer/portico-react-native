@@ -44,7 +44,6 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   /** The sidebar's own breakpoint, captured so the hook reads a plain value. */
   const wideSidebar = dimensions.width >= 1024;
   const destination = snapshot.destination, registry = useFocusRegistry(), ids = useMemo(() => tvFocusIds(snapshot.authority), [snapshot.authority]);
-  useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
   const [tvListeningPresent, setTVListeningPresent] = useState(false);
   const pageFocus = useRef<FocusSnapshot | undefined>(undefined), pageFocusDestination = useRef<string | undefined>(undefined);
   const railRelease = useRef<(() => void) | undefined>(undefined);
@@ -81,22 +80,41 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const holdRailDim = useCallback((lease: Readonly<{retired: boolean}>) => setRailDim(lease), []);
   const releaseRailDim = useCallback((lease: Readonly<{retired: boolean}>) => setRailDim(current => current === lease ? undefined : current), []);
   const [homeScrolled, setHomeScrolled] = useState(false);
-  const focused = registry.capture();
-  let homeStart = false;
-  if (theme.isTV && destination.kind === 'home' && snapshot.homeVisible && !snapshot.mediaExpanded && !tvListeningPresent
-    && snapshot.contentVisible !== false && !runtime.retirementSignal?.aborted) {
-    const document = runtime.home.getSnapshot().document, mixes = runtime.mixes?.getSnapshot();
-    const start = resolveTVHomeStart(registry, homeStartModel(document, snapshot.authority, {
-      readLibraryIds: new Set(snapshot.libraries.filter(library => library.kind === 'books').map(library => library.id)),
-      mixesReady: mixes?.phase === 'ready' && mixes.rows.length > 0, playbackAvailable: !!runtime.playback,
-    }));
-    homeStart = canYieldTVHomeMenu(start, focused, {home: true, visible: snapshot.homeVisible, obscured: snapshot.homeObscured,
-      expanded: snapshot.mediaExpanded, listening: tvListeningPresent, scrolled: homeScrolled, account: accountOpen,
-      rail: railExpanded || focused?.regionId === ids.rail, chromeHidden, contentVisible: true,
-      // The existing return lease is reactive and lasts through actual overlay exit.
-      // Keyboard/overlay Menu-capture leases retain their independent precedence.
-      overlay: !!snapshot.selectionActive || registry.hasRetainedFocus()});
-  }
+  const getFocusSnapshot = useMemo(() => {
+    let previous: Readonly<{regionId?: string; childId?: string; homeStart: boolean}> | undefined;
+    return () => {
+      if (runtime.retirementSignal?.aborted) return previous ??= {homeStart: false};
+      const focused = theme.isTV ? registry.capture() : undefined;
+      let homeStart = false;
+      if (theme.isTV && snapshot.destination.kind === 'home' && snapshot.homeVisible && !snapshot.mediaExpanded && !tvListeningPresent
+        && snapshot.contentVisible !== false) {
+        const document = runtime.home.getSnapshot().document, mixes = runtime.mixes?.getSnapshot();
+        const start = resolveTVHomeStart(registry, homeStartModel(document, snapshot.authority, {
+          readLibraryIds: new Set(snapshot.libraries.filter(library => library.kind === 'books').map(library => library.id)),
+          mixesReady: mixes?.phase === 'ready' && mixes.rows.length > 0, playbackAvailable: !!runtime.playback,
+        }));
+        homeStart = canYieldTVHomeMenu(start, focused, {home: true, visible: snapshot.homeVisible, obscured: snapshot.homeObscured,
+          expanded: snapshot.mediaExpanded, listening: tvListeningPresent, scrolled: homeScrolled, account: accountOpen,
+          rail: railExpanded || focused?.regionId === ids.rail, chromeHidden, contentVisible: true,
+          // The existing return lease is reactive and lasts through actual overlay exit.
+          // Keyboard/overlay Menu-capture leases retain their independent precedence.
+          overlay: !!snapshot.selectionActive || registry.hasRetainedFocus()});
+      }
+      if (previous && previous.regionId === focused?.regionId && previous.childId === focused?.childId && previous.homeStart === homeStart) return previous;
+      return previous = {regionId: focused?.regionId, childId: focused?.childId, homeStart};
+    };
+  }, [accountOpen, chromeHidden, homeScrolled, ids.rail, railExpanded, registry, runtime, snapshot, theme.isTV, tvListeningPresent]);
+  const subscribeFocus = useCallback((listener: () => void) => {
+    let previous = getFocusSnapshot();
+    return registry.subscribe(() => {
+      const next = getFocusSnapshot();
+      if (next === previous) return;
+      previous = next; listener();
+    });
+  }, [getFocusSnapshot, registry]);
+  // Exact page focus still updates the rail opener; unrelated host/config changes do not render
+  // the entire shell. Menu yield remains reactive to actual start readiness and retained overlays.
+  const {homeStart} = useSyncExternalStore(subscribeFocus, getFocusSnapshot, getFocusSnapshot);
   useTVMenuCapture(theme.isTV && !homeStart);
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const sidebarRevision = useRef(0);

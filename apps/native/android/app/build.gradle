@@ -14,7 +14,7 @@ react {
     autolinkLibrariesWithApp()
 }
 
-def enableProguardInReleaseBuilds = false
+def enableProguardInReleaseBuilds = true
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
 // A store upload names its own signing key and version code when it is built; neither is in this
@@ -122,6 +122,8 @@ android {
             // not a store signing identity.
             signingConfig uploadSigning ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
+            shrinkResources enableProguardInReleaseBuilds
+            // No R8 optimisation pass until a shrunk release has been verified on devices.
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
             buildConfigField "boolean", "PORTICO_EMBEDDED_JAVASCRIPT", "true"
         }

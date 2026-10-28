@@ -213,10 +213,10 @@ export function NativeNotificationsScreen({context, route, runtime, profileServi
         textStyle={shellType(16, 600)}>{backLabel}</Button>
       <Text accessibilityRole="header" pointerEvents="none" style={[shellType(17, 700), {position: 'absolute', left: 96, right: 96, textAlign: 'center', color: theme.colors.text}]}>{t('next.shell.notifications')}</Text>
       {view !== 'archived' && unread > 0 ? <Button testID="notifications-mark-all" variant="text" size="small" disabled={busy} onPress={markAll}
-        style={{minHeight: 38, paddingHorizontal: 6, marginRight: -4}} textStyle={shellType(14, 700)}>{t('notifications.markAllRead')}</Button> : <View/>}
+        style={{minHeight: 38, paddingHorizontal: 6, marginRight: -4}} textStyle={shellType(15, 700)}>{t('notifications.markAllRead')}</Button> : <View/>}
     </View>
     <Tabs testID="notifications-views" value={view} onValueChange={changeView} items={[
-      {value: 'unread', label: unread > 0 ? `${t('notifications.view.unread')} ${defaultI18n.number(unread)}` : t('notifications.view.unread')},
+      {value: 'unread', label: t('notifications.view.unread'), count: unread > 0 ? defaultI18n.number(unread) : undefined},
       {value: 'all', label: t('notifications.view.all')},
       {value: 'archived', label: t('notifications.view.archived')},
     ]}/>
@@ -231,12 +231,13 @@ export function NativeNotificationsScreen({context, route, runtime, profileServi
           {section.tag && <Text style={[shellType(12, 700), {color: theme.colors.textTertiary}]}>{section.tag}</Text>}
         </View>
         <View style={{marginHorizontal: 16, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
-          {section.state.items.map(notice => {
+          {section.state.items.map((notice, index) => {
             const message = words(notice);
-            return <NotificationItem key={notice.id} testID={`notification-${notice.id}`} notification={notice} title={message.title} body={message.body} when={defaultI18n.relativeTime(notice.createdAt)}
+            return <NotificationItem key={notice.id} testID={`notification-${notice.id}`} separator={index > 0} notification={notice} title={message.title} body={message.body} when={defaultI18n.relativeTime(notice.createdAt)}
               subject={<Icon name={sourceIcon(notice.source)} size={18} color={notice.severity === 'critical' ? theme.colors.record : notice.severity === 'warning' ? theme.colors.amber : theme.colors.textSecondary}/>}
               actions={actionsFor(notice, view)} menuLabel={t('next.shell.native.moreOptions')} onMenu={() => {const service = serviceFor(notice); if (!noticeLive(service, view, notice)) return; setChosen(notice);}} style={{opacity: notice.read && view !== 'archived' ? .7 : 1}}/>;
           })}
+          {section.id === 'admin' && <View pointerEvents="none" accessible={false} style={{position: 'absolute', inset: 0, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(92,179,226,.28)'}}/>}
         </View>
         {section.state.more && <View style={{alignItems: 'center', marginTop: 10}}><Button testID={`notifications-more-${section.id}`} variant="glass" size="small" loading={section.state.busy} onPress={() => {if (!viewLive(section.service, view)) return; void section.service.more().catch(runtime.reportError);}}>{t('notifications.loadMore')}</Button></View>}
       </View>)}

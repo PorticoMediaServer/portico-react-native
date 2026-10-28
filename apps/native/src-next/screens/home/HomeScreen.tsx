@@ -41,6 +41,10 @@ import {useTvHomeRecovery} from './useTvHomeRecovery';
 type HomeCandidate = HeroCandidate & {entry: ContentEntry; target?: ContentEntry; primaryLabel?: string};
 const noMixesSubscription = () => () => {};
 const noMixesSnapshot = () => undefined;
+type HomeCardModel = ReturnType<typeof homeRowPresentation>['cards'][number];
+const homeCardKey = (item: HomeCardModel) => item.entry.id;
+const homeChannelKey = (item: HomeChannel) => JSON.stringify([item.channel.sourceId, item.channel.id]);
+const homeChannelFocusId = (item: HomeChannel) => JSON.stringify(['channel', item.channel.sourceId, item.channel.id]);
 
 /**
  * Phone Home measurements the drawn frame states outside the shared kit:
@@ -104,8 +108,8 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   holdRailDim?: (lease: Readonly<{retired: boolean}>) => void; releaseRailDim?: (lease: Readonly<{retired: boolean}>) => void;
 }) {
   const registry = useFocusRegistry();
-  const focusRevision = useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
   const ids = useMemo(() => tvFocusIds(authority), [authority]);
+  const homeCardFocusId = useCallback((item: HomeCardModel) => ids.entry(item.entry), [ids]);
   const theme = useTheme(), dimensions = useWindowDimensions(), t = runtime.text.t;
   const labels = useMemo(() => ({t, has: defaultI18n.has}), [t]);
   const desktop = theme.layoutMode === 'desktop', medium = theme.platform === 'tablet' && !theme.isTV;
@@ -129,6 +133,11 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     || errorFacts.category === 'timeout' || errorFacts.category === 'busy');
   const retainable = theme.isTV || errorFacts === undefined || transportFailure;
   const document = retainable ? authorizedHome(snapshot.document, authority) : undefined;
+  const ownershipIds = useMemo(() => [ids.spotlight, ...(document?.rows ?? []).map(row => ids.row(row.id))], [document, ids]);
+  const ownershipSnapshot = useCallback(() => JSON.stringify(ownershipIds.filter(id => registry.isRegionActive(id))), [ownershipIds, registry]);
+  // Home needs ownership transitions for row ordering. A child-to-child move is
+  // already delivered by the focused card's preview callback, not every registry revision.
+  useSyncExternalStore(registry.subscribe, ownershipSnapshot, ownershipSnapshot);
   const cachedAtMount = useRef(!!document);
   const [foreground, setForeground] = useState(AppState.currentState === 'active'), [loadingElapsed, setLoadingElapsed] = useState(0);
   // The recovery session lives here, at the screen's stable scope, so the service clearing
@@ -248,10 +257,21 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   })) : [], [document, runtime.text, labels, t]);
   useEffect(() => {
     if (!theme.isTV) return;
-    const start = resolveStart();
-    initialEntry.request({active: heroActive && foreground && !railExpanded && !recovery.visible && current() && start.kind === 'ready',
-      primary: start.address?.regionId ?? ids.spotlight});
-  }, [initialEntry, heroActive, foreground, railExpanded, recovery.visible, current, ids.spotlight, focusRevision, resolveStart, theme.isTV]);
+    const request = () => {
+      const start = resolveStart();
+      return initialEntry.request({active: heroActive && foreground && !railExpanded && !recovery.visible && current() && start.kind === 'ready',
+        primary: start.address?.regionId ?? ids.spotlight});
+    };
+    if (request() !== 'waiting') return;
+    let live = true, pending = false;
+    const off = registry.subscribe(() => {
+      if (pending) return;
+      pending = true;
+      // Registration may run during a layout commit; land only after it settles.
+      queueMicrotask(() => {pending = false; if (live && request() !== 'waiting') off();});
+    });
+    return () => {live = false; off();};
+  }, [initialEntry, heroActive, foreground, railExpanded, recovery.visible, current, ids.spotlight, registry, resolveStart, theme.isTV]);
 
   const renderArtwork = (candidate: HomeCandidate, context: ArtworkRenderContext) => {
     const art = <AmbientArt source={runtime.ambient(candidate.entry.backdropUrl ?? candidate.entry.posterUrl)}
@@ -359,10 +379,10 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
         {row.live ? <HomeLiveRow row={row} runtime={runtime} visible={shown} itemWidth={theme.isTV ? 400 : desktop ? theme.spec.card.live.width.web : theme.spec.card.live.width.phone} onRange={range} onVisibleKeys={visibleKeys} onItemFocus={item => onRowFocus(row, JSON.stringify([item.channel.sourceId, item.channel.id]))} current={current} focus={theme.isTV ? regionMap.rows.get(row.id) : undefined} viewportWidth={viewportWidth} tabletMedium={tabletMedium}/>
           : row.collection ? <HomeRegion focus={theme.isTV ? {...regionMap.rows.get(row.id)!, orientation: 'horizontal', order: [ids.collection(row.collection)]} : undefined}><FocusItem focusId={ids.collection(row.collection)}><View style={{paddingHorizontal: theme.gutter}}><HomeCollectionCard row={row} runtime={runtime}
             width={viewportWidth - theme.gutter - (theme.isTV ? 96 : theme.gutter)} visible={shown} current={current} onFocus={() => onRowFocus(row, row.collection!.collection.id)}/></View></FocusItem></HomeRegion>
-          : <Row title={title} subtitle={rowSubtitle} items={presentation.cards} getKey={item => item.entry.id} getFocusId={item => ids.entry(item.entry)} focus={theme.isTV ? regionMap.rows.get(row.id) : undefined} initialViewportWidth={viewportWidth} testID={theme.isTV ? ids.row(row.id) : undefined} itemWidth={width} itemHeight={height}
+          : <Row title={title} subtitle={rowSubtitle} items={presentation.cards} getKey={homeCardKey} getFocusId={homeCardFocusId} focus={theme.isTV ? regionMap.rows.get(row.id) : undefined} initialViewportWidth={viewportWidth} testID={theme.isTV ? ids.row(row.id) : undefined} itemWidth={width} itemHeight={height} captionHeight={wide ? 0 : theme.isTV ? 80 : square ? 54 : 48}
             gutter={medium ? mediumGutter : theme.gutter} rightGutter={medium ? mediumGutter : theme.isTV ? 96 : theme.gutter} gap={medium ? 14 : undefined} headingStyle={medium ? mediumHeadingStyle : undefined} selection={runtime.selection(row.id)} paging={paging} onVisibleRange={range} onVisibleKeys={visibleKeys}
             onSeeAll={row.seeAll ? () => guarded(() => runtime.actions.seeAll(row.seeAll!)) : undefined} onRepeatingChange={setRepeating}
-            onItemFocus={item => onRowFocus(row, item.entry.id)} renderItem={(item, context) => <View style={{width, height}}><LoadingPaint ready={!context.waiting} immediate={!context.waiting} skeleton={<View style={{backgroundColor: theme.colors.ink}}><SkeletonBlock width={width} height={height}/></View>}><HomeCard runtime={runtime} row={row} entry={item.entry} rank={item.rank} context={context}
+            onItemFocus={item => onRowFocus(row, item.entry.id)} renderItem={(item, context) => <View style={theme.fontScale > 1 || theme.textScale > 1 ? {width, minHeight: height} : {width, height}}><LoadingPaint ready={!context.waiting} immediate={!context.waiting} skeleton={<View style={{backgroundColor: theme.colors.ink}}><SkeletonBlock width={width} height={height}/></View>}><HomeCard runtime={runtime} row={row} entry={item.entry} rank={item.rank} context={context}
               width={width} rowIndex={rowIndex} visible={shown} preferred={false}
               current={current}/></LoadingPaint></View>}/>}
       </View></HomeWindow>;
@@ -470,7 +490,7 @@ function HomeLiveRow({row, runtime, visible, itemWidth, onRange, onVisibleKeys, 
   const rowSubtitle = subtitle && theme.layoutMode === 'phone' && theme.platform === 'phone'
     ? <Text numberOfLines={1} style={[homeRowSubtitle(theme), {color: theme.colors.textTertiary, includeFontPadding: false}]}>{subtitle}</Text>
     : undefined;
-  return <Row title={serverTextLabel(labels, row.titleText, row.title)} subtitle={rowSubtitle} items={live.channels} getKey={item => JSON.stringify([item.channel.sourceId, item.channel.id])} getFocusId={item => JSON.stringify(['channel', item.channel.sourceId, item.channel.id])} focus={focus} initialViewportWidth={viewportWidth}
+  return <Row title={serverTextLabel(labels, row.titleText, row.title)} subtitle={rowSubtitle} items={live.channels} getKey={homeChannelKey} getFocusId={homeChannelFocusId} focus={focus} initialViewportWidth={viewportWidth}
     itemWidth={itemWidth} itemHeight={theme.isTV ? 225 : theme.layoutMode === 'desktop' ? theme.spec.card.live.height.web : theme.spec.card.live.height.phone} selection={runtime.selection(row.id)} onVisibleRange={onRange} onVisibleKeys={onVisibleKeys} onItemFocus={onItemFocus}
     gutter={medium ? mediumGutter : undefined} rightGutter={medium ? mediumGutter : undefined} gap={medium ? 14 : undefined} headingStyle={medium ? mediumHeadingStyle : undefined}
     onSeeAll={row.seeAll ? () => {if (current()) runtime.actions.seeAll(row.seeAll!);} : undefined}

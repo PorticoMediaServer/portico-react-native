@@ -145,7 +145,15 @@ class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(co
   }
 
   @ReactMethod
-  fun storage(promise: Promise) = PorticoDownloadCenter.post { promise.resolve(Arguments.makeNativeMap(PorticoDownloadCenter.storage())) }
+  fun storage(promise: Promise) = PorticoDownloadCenter.post {
+    PorticoDownloadCenter.storage { result ->
+      // A result belongs to the module that requested it, even if a new bridge opened meanwhile.
+      if (invalidated) promise.reject("cancelled", "cancelled")
+      else result.fold(
+          onSuccess = { promise.resolve(Arguments.makeNativeMap(it)) },
+          onFailure = { promise.reject("storage_unavailable", "Download storage could not be measured.") })
+    }
+  }
 
   @ReactMethod
   fun setCellular(allowed: Boolean, promise: Promise) = PorticoDownloadCenter.post { PorticoDownloadCenter.setCellular(allowed); promise.resolve(null) }

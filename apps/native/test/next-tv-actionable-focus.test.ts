@@ -1,3 +1,4 @@
+import * as layoutModel from '../src-next/kit/layout/model.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
@@ -24,6 +25,7 @@ async function bindings() {
   const flatten = (value: any): any => Array.isArray(value) ? Object.assign({}, ...value.map(flatten)) : value ?? {};
   const listeners = new Set<(event: any) => void>();
   const native = {Platform: {OS: 'android', isTV: true}, View: 'View', Text: 'Text', Pressable: 'Pressable', ScrollView: 'ScrollView', TVFocusGuideView: 'Guide',
+    AccessibilityInfo: {announceForAccessibility() {}},
     BackHandler: {addEventListener: () => ({remove() {}})}, useWindowDimensions: () => ({width: 1920, height: 1080}),
     TVEventHandler: {addListener: (listener: (event: any) => void) => {listeners.add(listener); return {remove: () => listeners.delete(listener)};}},
     findNodeHandle: (host: any) => host.nativeTag, StyleSheet: {create: (value: any) => value, flatten, absoluteFill: {position: 'absolute'}}};
@@ -101,7 +103,7 @@ async function rowComposition(b: Awaited<ReturnType<typeof bindings>>) {
   const page = await screenModule(new URL('../src-next/kit/focus/page-boundary.ts', import.meta.url), {react: b.react, 'react-native': b.native});
   const row = await screenModule(new URL('../src-next/kit/layout/Row.tsx', import.meta.url), {react: b.react, 'react-native': b.native,
     'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'Gradient', Rect: 'Rect', Stop: 'Stop'}, 'react-native-reanimated': b.animation,
-    '../../../../../packages/i18n/src': {defaultI18n}, '../Icon': {Icon: 'Icon'}, '../theme': {useTheme: () => b.theme}, '../focus': b.focus, './row-state': rowState,
+    '../../../../../packages/i18n/src': {defaultI18n}, '../Icon': {Icon: 'Icon'}, '../theme': {useTheme: () => b.theme}, '../focus': b.focus, './model': layoutModel, './row-state': rowState,
     '../focus/page-boundary': page, './FocusAnchor': {useFocusAnchor: () => ({anchor() {}, repeating: false, offset: {value: 0}, scrollRef: {current: null}, stop() {}, move() {}})},
     './MotionItem': {MotionItem: 'MotionItem'}, './types': layoutTypes});
   const shelf = await screenModule(new URL('../src-next/tv/layout/TVShelf.tsx', import.meta.url), {react: b.react, '../../kit/layout/Row': row});
@@ -506,6 +508,7 @@ test('retained Home recommendation menu names the original controller row and ru
     subscribe = () => () => {}; getSnapshot = () => ({row: {id: this.rowId, kind: 'recommendation'}}); dispose() {}
   }
   const mod = await screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {react: b.react, 'react-native': b.native, '../../kit/focus': b.focus,
+    '../../kit/useScreenReader': {useScreenReader: () => false},
     '../../../../../packages/client-core/src/recommendation-feedback': {isRecommendationRow: () => true}, '../../kit/overlays': o.menu, '../../kit/controls': {Button: o.Button},
     '../../../../../packages/i18n/src': {defaultI18n}, './HomeSeeAll': {HomeSeeAll: 'HomeSeeAll'}, './HomeRowFilters': {HomeRowFilters: 'Filters'}, './row-controller': {NativeHomeRowController: Controller},
     '../../platform/server-connections': {}, '../../shell/routes': {}, '../../shell/route-registry': {nativeShellRoutes: {registerRoute() {}}}, '../../shell/model': {shellLayout() {}, authorityKey},
@@ -522,6 +525,60 @@ test('retained Home recommendation menu names the original controller row and ru
     assert.equal(menu.props.anchorRef, opener);
     const mounted = await mountActualMenu(b, o, () => menu.props); assert.ok(mounted.targets[0]!.props.testID); mounted.dispose();
   } finally {source.unmount(); rows.dispose(); b.dispose();}
+});
+
+for (const screenReader of [false, true]) test(`retained Home Undo announces its action and ${screenReader ? 'stays available to a screen reader' : 'expires at the authored deadline'}`, async t => {
+  t.mock.timers.enable({apis: ['setTimeout']});
+  const b = await bindings(), {authorityKey} = await import('../src-next/shell/model');
+  const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
+  const route = {kind: 'home-see-all', destination: {type: 'row', rowId: 'recommendations'}};
+  const spoken: string[] = [], commands: boolean[] = [];
+  class Controller {
+    rowId: string; constructor(options: any) {this.rowId = options.rowId;}
+    subscribe = () => () => {}; getSnapshot = () => ({row: {id: this.rowId, kind: 'recommendation'}}); dispose() {}
+  }
+  const mod = await screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {
+    react: b.react, 'react-native': {...b.native, AccessibilityInfo: {announceForAccessibility: (message: string) => spoken.push(message)}}, '../../kit/focus': b.focus,
+    '../../kit/useScreenReader': {useScreenReader: () => screenReader},
+    '../../../../../packages/client-core/src/recommendation-feedback': {isRecommendationRow: () => true}, '../../kit/overlays': {Menu: 'Menu'}, '../../kit/controls': {Button: 'Button'},
+    '../../../../../packages/i18n/src': {defaultI18n}, './HomeSeeAll': {HomeSeeAll: 'HomeSeeAll'}, './HomeRowFilters': {HomeRowFilters: 'Filters'}, './row-controller': {NativeHomeRowController: Controller},
+    '../../platform/server-connections': {}, '../../shell/routes': {}, '../../shell/route-registry': {nativeShellRoutes: {registerRoute() {}}}, '../../shell/model': {shellLayout() {}, authorityKey},
+    '../../kit/theme': {useTheme: () => b.theme}, '../read/platform': {hiddenReadingLibraryOnTV: () => false}, '../read/reading-books-open': {}, './entry-lifetime': {},
+  });
+  const context: any = {current: () => true, authority: () => authority, libraries: () => [], api: {}, navigation: {retainedRoutes: () => [], getSnapshot: () => ({route})}};
+  const rows = mod.createNativeHomeRows(context, () => {}); rows.reconcile();
+  const runtime = {getSnapshot: () => ({authority}), reportError: (error: unknown) => {throw error;}}, retained = nodes(rows.render(runtime))[0];
+  const entry = {id: 'entry', kind: 'movie', title: 'Original title'}, anchor = {current: null};
+  let tree: any, active = true;
+  const source = createHookHost(() => {tree = retained.type({...retained.props, active, onNotInterested: async (target: unknown, value: boolean) => {assert.equal(target, entry); commands.push(value); return true;}});}); source.mount();
+  const notice = () => nodes(tree).find(node => node.props.testID === 'home-see-all-not-interested');
+  const actions = () => nodes(notice()).find(node => node.props.accessibilityActions)?.props;
+  const remove = async () => {
+    nodes(tree).find(node => node.type === 'HomeSeeAll').props.onMenu(entry, anchor); source.rerender();
+    nodes(tree).find(node => node.type === 'Menu').props.items[0].onSelect(); await flush();
+  };
+  try {
+    await remove();
+    assert.deepEqual(spoken, [`${defaultI18n.t('entry.notInterestedDone', {title: entry.title})}, ${defaultI18n.t('action.undo')}`]);
+    assert.deepEqual(actions().accessibilityActions.map((action: any) => action.name), ['activate', 'dismiss']);
+    actions().onAccessibilityAction({nativeEvent: {actionName: 'unknown'}}); source.rerender();
+    assert.ok(notice(), 'an unknown action does not dismiss the notice');
+    t.mock.timers.tick(5999); source.flush(); assert.ok(notice());
+    t.mock.timers.tick(1); source.flush();
+    if (screenReader) {
+      assert.ok(notice()); t.mock.timers.tick(60_000); source.flush(); assert.ok(notice());
+      actions().onAccessibilityAction({nativeEvent: {actionName: 'activate'}}); await flush();
+      assert.deepEqual(commands, [true, false], 'the accessible Undo uses the same original entry command');
+      assert.equal(notice(), undefined);
+      await remove(); actions().onAccessibilityAction({nativeEvent: {actionName: 'dismiss'}}); await flush();
+      assert.deepEqual(commands, [true, false, true], 'Dismiss does not invoke Undo'); assert.equal(notice(), undefined);
+    } else assert.equal(notice(), undefined);
+    const count = spoken.length;
+    // A result that settles while the retained row is hidden cannot announce.
+    nodes(tree).find(node => node.type === 'HomeSeeAll').props.onMenu(entry, anchor); source.rerender();
+    nodes(tree).find(node => node.type === 'Menu').props.items[0].onSelect(); active = false; source.rerender(); await flush();
+    assert.equal(notice(), undefined); assert.equal(spoken.length, count);
+  } finally {source.unmount(); rows.dispose(); b.dispose(); t.mock.timers.reset();}
 });
 
 test('Home filters footer has an actual named Button host and preserves apply-then-close', async () => {

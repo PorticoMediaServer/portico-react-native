@@ -9,6 +9,7 @@ import {Button} from '../controls/Button';
 import {Icon} from '../Icon';
 import {nativeType, useTheme} from '../theme';
 import {useMotion} from '../useMotion';
+import {useScreenReader} from '../useScreenReader';
 import {dismissToastGesture} from './geometry';
 import {toastClearance} from './toast-clearance';
 import {createToastClock} from './toast-clock';
@@ -46,8 +47,8 @@ export function Toast({id, message, accessibilityLabel, icon, leading, action, o
   const drag = useAnimatedStyle(() => ({opacity: opacity.value, transform: [{translateX: x.value}, {translateY: y.value}]}));
   return <GestureDetector gesture={pan}><Animated.View testID={testID} accessible focusable={false} accessibilityLabel={accessibilityLabel ?? (typeof message === 'string' ? message : undefined)} accessibilityLiveRegion="polite" style={[{flexDirection: 'row', alignItems: 'center', gap: 14, borderRadius: theme.isTV ? 20 : 14, overflow: 'hidden', padding: theme.isTV ? 20 : 10, paddingLeft: theme.isTV ? 28 : 18, backgroundColor: alpha(theme.colors.raisedBright, 0.95), borderColor: alpha(theme.colors.text, 0.1), borderWidth: 1, maxWidth: theme.isTV ? 900 : 560}, drag]}
     onTouchStart={() => pause(true, 'touch')} onTouchEnd={() => pause(false, 'touch')} onTouchCancel={() => pause(false, 'touch')}
-    accessibilityActions={[{name: 'dismiss', label: defaultI18n.t('next.overlays.native.dismissToast')}, ...(action && !theme.isTV ? [{name: 'activate', label: action.label}] : [])]}
-    onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'activate' && action) {action.onPress(); onDismiss(id, 'action');} else onDismiss(id, 'accessibility');}}>
+    accessibilityActions={[{name: 'dismiss', label: defaultI18n.t('next.overlays.native.dismissToast')}, ...(action ? [{name: 'activate', label: action.label}] : [])]}
+    onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'activate' && action) {action.onPress(); onDismiss(id, 'action');} else if (event.nativeEvent.actionName === 'dismiss') onDismiss(id, 'accessibility');}}>
     {recipe.nativeBlur && <BlurView pointerEvents="none" style={StyleSheet.absoluteFill} blurType="dark" blurAmount={24} reducedTransparencyFallbackColor={theme.colors.raisedBright}/>}
     {leading}{icon && <Icon name={icon} size={theme.isTV ? 28 : 20} color={theme.colors.accentStrong}/>}
     <Text accessibilityLabel={accessibilityLabel} numberOfLines={1} style={[theme.isTV ? theme.type.body : nativeType({size: 14.5, lineHeight: 'normal', weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textSecondary, flexShrink: 1}]}>{message}</Text>
@@ -58,6 +59,8 @@ export function Toast({id, message, accessibilityLabel, icon, leading, action, o
 export function ToastHost({toast, onDismiss, bottomOffset = 84, obstructionTop, topOffset = 80, testID}: ToastHostProps) {
   const theme = useTheme();
   const motion = useMotion();
+  // Do not spend an Undo deadline before the OS answers the initial AT query.
+  const screenReader = useScreenReader(true);
   const insets = useSafeAreaInsets();
   const [displayed, setDisplayed] = useState<ToastMessage | null>(toast);
 
@@ -93,11 +96,14 @@ export function ToastHost({toast, onDismiss, bottomOffset = 84, obstructionTop, 
   dismissRef.current = dismiss;
   const [clock] = useState(() => createToastClock({now: Date.now, schedule: (run, delay) => setTimeout(run, delay), cancel: handle => clearTimeout(handle as ReturnType<typeof setTimeout>)}, id => dismissRef.current(id, 'timeout')));
   const hasAction = Boolean(displayed?.action && !theme.isTV);
+  const accessibleAction = Boolean(displayed?.action);
+  useEffect(() => {clock.pause('screen-reader', accessibleAction && screenReader);}, [clock, accessibleAction, screenReader]);
   useEffect(() => {
     dismissed.current = null;
     clock.replace(displayed?.id ?? null, displayed?.durationMs ?? (hasAction ? theme.spec.feedback.toast.durationWithActionMs : theme.spec.feedback.toast.durationMs));
   }, [displayed?.id, displayed?.durationMs, hasAction, theme.spec.feedback.toast, clock]);
-  const spokenLabel = displayed?.accessibilityLabel ?? (typeof displayed?.message === 'string' ? displayed.message : undefined);
+  const spokenMessage = displayed?.accessibilityLabel ?? (typeof displayed?.message === 'string' ? displayed.message : undefined);
+  const spokenLabel = spokenMessage ? [spokenMessage, displayed?.action?.label].filter(Boolean).join(', ') : undefined;
   useEffect(() => {
     if (!displayedId) return;
     opacity.value = withTiming(1, motion.timing('standard'));
