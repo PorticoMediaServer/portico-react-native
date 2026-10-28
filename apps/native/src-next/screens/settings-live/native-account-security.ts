@@ -15,11 +15,27 @@ export function nativeAccountSecurityAllowed(source: AccountSource, kind: Native
     && (kind === 'devices' || !account.hostedAccountId);
 }
 
+/** Personal access tokens are a member's own, on a local account; a Hosted account keeps its credentials on the account site. */
+export function nativeAccessTokensAllowed(source: AccountSource): boolean {
+  const snapshot = source.account, account = snapshot.account, session = source.session();
+  return !!session && !account.disabled && !account.hostedAccountId
+    && session.viewer.serverId === snapshot.serverId && session.viewer.accountId === account.id;
+}
+
 const retired = () => Object.assign(new Error('native_account_security_retired'), {name: 'AbortError'});
 
 /** One original Settings opening. No Hosted port or latest-session fallback is available here. */
 export function createNativeAccountSecurityScope(context: NativeShellBootstrapContext, lifetime: NativeScreenLifetime, kind: NativeAccountSecurityKind) {
-  if (!lifetime.current() || !context.current() || !nativeAccountSecurityAllowed(context, kind)) throw retired();
+  return createSettingsAccountScope(context, lifetime, () => nativeAccountSecurityAllowed(context, kind));
+}
+
+/** The same opening discipline for the signed-in member's own access tokens. */
+export function createNativeAccessTokenScope(context: NativeShellBootstrapContext, lifetime: NativeScreenLifetime) {
+  return createSettingsAccountScope(context, lifetime, () => nativeAccessTokensAllowed(context));
+}
+
+function createSettingsAccountScope(context: NativeShellBootstrapContext, lifetime: NativeScreenLifetime, capable: () => boolean) {
+  if (!lifetime.current() || !context.current() || !capable()) throw retired();
   const session = context.session()!, navigation = context.navigation.getSnapshot();
   if (navigation.route.kind !== 'shell' || navigation.route.destination.kind !== 'settings') throw retired();
   const serverId = session.viewer.serverId, accountId = session.viewer.accountId, profileId = session.viewer.profileId, familyId = session.sessionFamilyId;
@@ -29,7 +45,7 @@ export function createNativeAccountSecurityScope(context: NativeShellBootstrapCo
     if (!active || abort.signal.aborted || lifetime.signal.aborted || !lifetime.current() || !context.current()) return false;
     const now = context.session();
     if (!now || now.sessionFamilyId !== familyId || now.viewer.serverId !== serverId || now.viewer.accountId !== accountId || now.viewer.profileId !== profileId
-      || !nativeAccountSecurityAllowed(context, kind)) return false;
+      || !capable()) return false;
     const route = context.navigation.getSnapshot();
     return active && route.revision === navigation.revision && route.route === navigation.route;
   };
@@ -57,3 +73,4 @@ export function createNativeAccountSecurityScope(context: NativeShellBootstrapCo
   return Object.freeze({current, dispose, request, signal: abort.signal, serverId, familyId, installationId: session.installationId});
 }
 export type NativeAccountSecurityScope = ReturnType<typeof createNativeAccountSecurityScope>;
+export type NativeAccessTokenScope = ReturnType<typeof createNativeAccessTokenScope>;

@@ -6,7 +6,7 @@ import {playerSettingsSupport} from '../../platform/playback/native-listening-ki
 import {nativeEqualizer} from '../../platform/playback/equalizer';
 import {installationIdentity} from '../../../../../packages/client-core/src/installation';
 import {NativeModules, Platform} from 'react-native';
-import {nativeAccountSecurityAllowed} from './native-account-security';
+import {nativeAccountSecurityAllowed, nativeAccessTokensAllowed} from './native-account-security';
 
 export type NativeSettingsContextSource = Readonly<{
   account: DirectSnapshot;
@@ -18,8 +18,8 @@ export type NativeSettingsContextSource = Readonly<{
  * The Settings structure's capabilities, from this viewer's real account and the server's
  * published preference keys. A capability is present only where this build draws the genuine
  * surface for it. Local credentials and server devices require the main profile's
- * account-management grant; member tokens remain unavailable. Downloads storage
- * is wired through the read-only device summary port.
+ * account-management grant; a member's own access tokens need a signed-in local
+ * account. Downloads storage is wired through the read-only device summary port.
  */
 export function nativeSettingsContext(source: NativeSettingsContextSource, platform: SettingsPlatform = 'phone', downloads = false): SettingsContext {
   const account = source.account.account;
@@ -36,7 +36,7 @@ export function nativeSettingsContext(source: NativeSettingsContextSource, platf
       hostedAccount: hosted,
       manageSignIn: nativeAccountSecurityAllowed(source, 'password'),
       manageDevices: nativeAccountSecurityAllowed(source, 'devices'),
-      accessTokens: false,
+      accessTokens: nativeAccessTokensAllowed(source),
       deviceName: !!installationIdentity()?.name,
       downloads,
       playbackSpeed: playerSettingsSupport.playbackSpeed,
@@ -49,7 +49,7 @@ export function nativeSettingsContext(source: NativeSettingsContextSource, platf
 }
 
 /** The account pages' custom rows this build draws, each from its own real reader or route. */
-export const nativeAccountPanelIds: readonly SettingsCustomId[] = Object.freeze(['identity', 'profiles', 'password', 'twoStep', 'devices', 'servers', 'porticoAccount', 'about', 'privacyNote', 'remoteControls', 'deviceName', 'downloadsStorage']);
+export const nativeAccountPanelIds: readonly SettingsCustomId[] = Object.freeze(['identity', 'profiles', 'password', 'twoStep', 'devices', 'servers', 'porticoAccount', 'accessTokens', 'about', 'privacyNote', 'remoteControls', 'deviceName', 'downloadsStorage']);
 
 /** Drawn rows whose genuine native surface is not built yet; their capability stays off. */
-export const nativeSettingsUnavailablePanelIds: readonly SettingsCustomId[] = Object.freeze(['accessTokens', 'subtitlePreview']);
+export const nativeSettingsUnavailablePanelIds: readonly SettingsCustomId[] = Object.freeze(['subtitlePreview']);

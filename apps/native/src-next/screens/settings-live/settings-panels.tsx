@@ -1,5 +1,5 @@
 import {ProfileRoute} from '../accounts/AccountRoutes';
-import {NativeAccountSecurityPanel} from './NativeAccountSecurityPanels';
+import {NativeAccessTokensPanel, NativeAccountSecurityPanel} from './NativeAccountSecurityPanels';
 import {DeviceAboutPanel} from './DeviceAboutPanel';
 import {IntroCreditsReview} from './owner-libraries/IntroCreditsReview';
 import React, {useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore} from 'react';
@@ -198,6 +198,7 @@ export function renderNativeSettingsPanel(id: SettingsCustomId, deps: NativeSett
     case 'identity': return <IdentityPanel {...deps}/>;
     case 'profiles': return <ProfilesPanel {...deps}/>;
     case 'password': case 'twoStep': case 'devices': return <NativeAccountSecurityPanel {...deps} kind={id} runtime={_runtime}/>;
+    case 'accessTokens': return <NativeAccessTokensPanel {...deps} runtime={_runtime}/>;
     case 'servers': return <ServersPanel {...deps}/>;
     case 'porticoAccount': return <PorticoAccountPanel {...deps}/>;
     case 'about': return <DeviceAboutPanel {...deps} runtime={_runtime}/>;

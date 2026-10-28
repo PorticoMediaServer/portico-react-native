@@ -45,8 +45,12 @@ async function fixture(kind: security.NativeAccountSecurityKind, enabled = false
   const {NativeAccountSecurityPanel} = await screenModule(new URL('../src-next/screens/settings-live/NativeAccountSecurityPanels.tsx', import.meta.url), {
     react: host.react, 'react-native': {Text: 'Text', View: 'View', ScrollView: 'ScrollView', useWindowDimensions: () => ({width: 390, height: 844})}, 'react-native-qrcode-svg': {default: 'QRCode'},
     '../../../../../packages/client-core/src/identity-client': {IdentityClient}, '../../../../../packages/client-core/src/password-strength': {passwordStrength},
+    '../../../../../packages/client-core/src/api-access': {apiScopes: ['read', 'playback', 'library', 'admin'], createAccessToken: async () => undefined, getApiAccessOptions: async () => undefined, listAccessTokens: async () => undefined, revokeAccessToken: async () => undefined},
+    '../../../../../packages/client-core/src/playback-v1/http': {idempotencyKey: () => 'fixture-operation'},
+    '../../../../../packages/client-core/src/server-admin/api-words': {EXPIRY_DAYS: [0], chosenScopes: () => [], credentialWorks: () => false, expiryInstant: () => undefined, expiryLabel: () => ''},
+    '../../../../../packages/client-core/src/server-admin/server-forms': {createOperationIds: () => ({forPayload: () => 'fixture-operation', release: () => {}})},
     '../../../../../packages/i18n/src': {defaultI18n: {date: (value: string) => value}}, '../../platform/accounts': {nativeAccounts: {signOutServer: async (...values: string[]) => {signedOut.push(values);}}}, '../../platform/clipboard': {copyText: async (value: string) => {copied.push(value);}},
-    '../../kit/controls': {Button: 'Button', TextField: 'TextField'}, '../../kit/overlays': {Dialog: 'Dialog', BottomSheet: 'BottomSheet'}, '../../kit/shell': {SettingsRow: 'SettingsRow'}, '../../kit/states': {StateView: 'StateView'},
+    '../../kit/controls': {Button: 'Button', TextField: 'TextField', Select: 'Select', Switch: 'Switch'}, '../../kit/overlays': {Dialog: 'Dialog', BottomSheet: 'BottomSheet'}, '../../kit/shell': {SettingsRow: 'SettingsRow'}, '../../kit/states': {StateView: 'StateView'},
     '../../kit/shell/visual': {shellType: () => ({})}, '../../kit/theme': {useTheme: () => theme}, './native-account-security': security,
   });
   let tree: any;
