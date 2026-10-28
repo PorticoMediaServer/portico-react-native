@@ -14,13 +14,15 @@ export function nativeSelectionUnavailableActions(actions: readonly SelectionAct
     if (action.disabled && action.reason) return action;
     const reason = action.id === 'play' ? summary?.unavailableActions?.play
       : ['queue', 'playNext', 'playLater'].includes(action.id) ? summary?.unavailableActions?.queue
-        : action.id === 'edit' ? summary?.unavailableActions?.metadataPreview : undefined;
+        : action.id === 'playlist' ? summary?.unavailableActions?.playlist
+          : action.id === 'edit' ? summary?.unavailableActions?.metadataPreview : undefined;
     return reason ? {...action, ...(action.id === 'queue' ? {} : {disabled: true}), reason: nativeSelectionUnavailableReason(reason)} : action;
   });
 }
 
 /** The retained callback must refuse too, before obtaining a transport. */
-export function nativeSelectionActionUnavailable(summary: Summary | undefined, action: 'play' | 'playNext' | 'playLater' | 'edit'): boolean {
+export function nativeSelectionActionUnavailable(summary: Summary | undefined, action: 'play' | 'playNext' | 'playLater' | 'edit' | 'playlist'): boolean {
   return !!(action === 'play' ? summary?.unavailableActions?.play
-    : action === 'edit' ? summary?.unavailableActions?.metadataPreview : summary?.unavailableActions?.queue);
+    : action === 'playlist' ? summary?.unavailableActions?.playlist
+      : action === 'edit' ? summary?.unavailableActions?.metadataPreview : summary?.unavailableActions?.queue);
 }

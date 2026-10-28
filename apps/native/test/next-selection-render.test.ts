@@ -74,7 +74,7 @@ const {PlaylistPicker} = await import('../src-next/kit/selection/Picker.tsx');
 const {BulkEditor} = await import('../src-next/kit/selection/BulkEditor.tsx');
 const {DeleteMediaDialog} = await import('../src-next/kit/selection/DeleteMediaDialog.tsx');
 const {MixedEditExplainer} = await import('../src-next/kit/selection/MixedEditExplainer.tsx');
-const {SelectionBar} = await import('../src-next/kit/selection/SelectionBar.tsx');
+const {SelectionBar, SelectionPhoneActionBar} = await import('../src-next/kit/selection/SelectionBar.tsx');
 const {Icon} = await import('../src-next/kit/Icon.tsx');
 const {SelectionActionRow} = await import('../src-next/kit/selection/SelectionActionRow.tsx');
 const {StateLayout} = await import('../src-next/kit/states/StateLayout.tsx');
@@ -1464,13 +1464,20 @@ test('phone and TV selection actions retain disabled sort reasons and Queue expl
     for (const isTV of [false, true]) {
       state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
       const props: SelectionBarProps = {count: 201, onCancel() {}, menu: 'queue', onMenuChange() {}, onAction: id => calls.push(id), actions: [
-        {id: 'play', disabled: true, reason}, {id: 'queue', reason}, {id: 'playNext', disabled: true, reason}, {id: 'playLater', disabled: true, reason},
+        {id: 'play', disabled: true, reason}, {id: 'playlist', disabled: true, reason}, {id: 'queue', reason}, {id: 'playNext', disabled: true, reason}, {id: 'playLater', disabled: true, reason},
       ]};
       const bar = await mount(SelectionBar, props);
       try {
         if (isTV) {
-          const play = elements(bar.tree).find(element => element.props.accessibilityHint === reason && element.props.disabled);
-          assert.ok(play);play.props.onPress();assert.deepEqual(calls, []);
+          const controls = elements(bar.tree).filter(element => element.props.accessibilityHint === reason && element.props.disabled);
+          assert.equal(controls.length, 2);for (const control of controls) control.props.onPress();assert.deepEqual(calls, []);
+        }
+        if (!isTV) {
+          const phone = await mount(SelectionPhoneActionBar, props);
+          try {
+            const controls = elements(phone.tree).filter(element => element.props.accessibilityHint === reason && element.props.disabled);
+            assert.equal(controls.length, 2);for (const control of controls) control.props.onPress();assert.deepEqual(calls, []);
+          } finally {await phone.host.unmount();}
         }
         const node = elements(bar.tree).find(element => element.props.menu === 'queue' && element.type !== SelectionBar)!;
         const menu = await mount(node.type, node.props);

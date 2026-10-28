@@ -33,3 +33,17 @@ test('shared native offers keep unsupported Queue as an explanation menu while a
   for (const name of ['play-next', 'play-later']) rules[name] = {state: 'disabled', reason: 'not-permitted'} as never;
   assert.equal(nativeSelectionOffers(rules as never, value => value).find(action => action.id === 'queue')?.disabled, true);
 });
+test('Playlist exclusion uses the existing sort reason only for an offered action and blocks retained dispatch', async () => {
+  const summary = {every: {playlist: true}, unavailableActions: {playlist: 'unsupported-sort'}} as const;
+  const actions = nativeSelectionUnavailableActions([{id: 'playlist'}], summary as never);
+  assert.deepEqual(actions, [{id: 'playlist', disabled: true, reason: 'Unavailable with this sort order.'}]);
+  assert.equal(nativeSelectionActionUnavailable(summary as never, 'playlist'), true);
+  assert.deepEqual(nativeSelectionUnavailableActions([], summary as never), []);
+  assert.deepEqual(nativeSelectionUnavailableActions([{id: 'playlist', disabled: true, reason: 'Permission required'}], summary as never), [{id: 'playlist', disabled: true, reason: 'Permission required'}]);
+  assert.deepEqual(nativeSelectionUnavailableActions([{id: 'playlist'}], {every: summary.every} as never), [{id: 'playlist'}]);
+  assert.equal(nativeSelectionActionUnavailable({every: summary.every} as never, 'playlist'), false);
+  const {nativeSelectionOffers} = await import('../src-next/shell/selection-actions');
+  const names = ['play', 'play-next', 'play-later', 'playlist', 'my-list', 'mark-watched', 'mark-unwatched', 'collection', 'favorite', 'remove-my-list', 'edit', 'download', 'refresh', 'delete'];
+  const rules = Object.fromEntries(names.map(name => [name, {state: 'hidden'}]));rules.playlist = {state: 'disabled', reason: 'unsupported-sort'} as never;
+  assert.deepEqual(nativeSelectionOffers(rules as never, () => nativeSelectionUnavailableReason('unsupported-sort')), [{id: 'playlist', disabled: true, reason: 'Unavailable with this sort order.'}]);
+});
