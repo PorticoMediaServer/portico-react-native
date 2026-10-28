@@ -123,3 +123,26 @@ test('omitting the optional prefix preserves the existing unfocused control geom
     assert.deepEqual(unscoped.calls.at(-1), ['change', 'genre', {kind: 'values', mode: 'any', included: ['same/value'], excluded: []}]);
   } finally {await before.dispose(); await after.dispose();}
 });
+
+test('retained selected chips keep their native focus hosts while loading and after refresh errors', async () => {
+  const mod=await fixture(true),registry=registryModule.createFocusRegistry(),prefix='retained/library/filters',data=props(prefix);
+  const host=await fabricHost({publicInstance:(tag:number)=>({tag,requestTVFocus(){},focus(){},setDestinations(){}})});
+  const nodes=():Node[]=>{const result:Node[]=[];const collect=(node:any):Node|string=>{if(node.type==='RCTRawText')return node.props.text;const value:Node={type:node.type,props:node.props,children:node.children.map(collect)};result.push(value);return value;};host.root.forEach(collect);return result;};
+  const render=async(status?:'loading'|'error')=>host.render(React.createElement(mod.FocusProvider,{registry},React.createElement(mod.FocusRegion,{id:prefix},React.createElement(mod.FilterBuilder,{...data.value,fields:{...data.value.fields,genre:{...data.value.fields.genre,included:['same/value'],status,statusLabel:status==='loading'?'Loading values':status==='error'?'Refresh failed':undefined}}}))));
+  try{
+    await render();
+    const original=nodes().find(node=>node.type==='Pressable'&&node.props.accessibilityRole==='checkbox'&&text(node).startsWith('Shared value'))!;
+    const childId=registry.order(prefix).find(id=>{const [owner,...identity]=JSON.parse(id);return registryModule.focusTestID(owner,JSON.stringify(identity))===original.props.testID;})!;
+    assert.ok(childId);const address={regionId:prefix,childId},originalHost=registry.child(address)!.host;
+    for(const status of ['loading','error'] as const){
+      await render(status);
+      const tree=nodes(),chip=tree.find(node=>node.props.testID===original.props.testID)!;
+      assert.ok(chip,'refresh removed a retained chip');assert.equal(chip.props.accessibilityState.checked,true);
+      assert.equal(registry.child(address)!.host,originalHost,'refresh remounted the native focus host');
+      assert.ok(tree.some(node=>text(node).includes(status==='loading'?'Loading values':'Refresh failed')));
+      if(status==='error')assert.ok(tree.some(node=>text(node)==='Try again'));
+    }
+    nodes().find(node=>node.props.testID===original.props.testID)!.props.onPress({defaultPrevented:false});
+    assert.deepEqual(data.calls.at(-1),['change','genre',{kind:'values',mode:'any',included:[],excluded:[]}]);
+  }finally{await host.unmount();}
+});
