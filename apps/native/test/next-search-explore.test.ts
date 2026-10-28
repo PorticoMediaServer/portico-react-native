@@ -14,7 +14,7 @@ type Request = SearchGenreRequest & {preview?: 'covers' | 'backdrop'};
 const api: LibraryContentApi = {request: async () => {throw new Error('native adapter must use shared reader');}};
 async function adapters(read: (api: LibraryContentApi, request: Request, signal: AbortSignal) => Promise<Page>) {
   return await screenModule(new URL('../src-next/screens/search/explore.ts', import.meta.url), {
-    react: {default: {}}, '../../../../../packages/client-core/src/search-genres': {readSearchGenres: read},
+    react: {default: {}}, '../../../../../packages/client-core/src/search-genres': {readSearchGenres: read,releaseSearchGenres:()=>{},searchGenresReadMetadata:()=>undefined},
   }) as typeof import('../src-next/screens/search/explore.ts');
 }
 const options = {api, current: () => true, openGenre() {}};
@@ -24,7 +24,7 @@ test('phone requests two bounded slot previews and preserves each independent se
   const covers = ['z', 'a', 'c', 'd', 'e', 'f'].map(id => genre(id));
   const backdrops = ['b', 'z', 'q', 'a'].map(id => genre(id));
   const {NativeSearchExplore} = await adapters(async (_api, request) => {
-    requests.push(request); return {revision: 'opaque', hasGenres: true, genres: request.preview === 'covers' ? covers : backdrops};
+    requests.push(request); return {queryId:'fixture_query',revision: 'opaque', hasGenres: true, genres: request.preview === 'covers' ? covers : backdrops};
   });
   const controller = new NativeSearchExplore({...options, surface: 'phone', openGenre: value => opened.push(value)});
   try {
@@ -47,7 +47,7 @@ test('phone requests two bounded slot previews and preserves each independent se
 test('TV requests one four-backdrop preview, and zero drawable tiles retains hasGenres without walking the directory', async () => {
   const requests: Request[] = [];
   const {NativeSearchExplore} = await adapters(async (_api, request) => {
-    requests.push(request); return {revision: 'opaque', genres: [], hasGenres: true};
+    requests.push(request); return {queryId:'fixture_query',revision: 'opaque', genres: [], hasGenres: true};
   });
   for (const surface of ['tv', 'phone'] as const) {
     const controller = new NativeSearchExplore({...options, surface});
@@ -57,12 +57,13 @@ test('TV requests one four-backdrop preview, and zero drawable tiles retains has
   assert.deepEqual(requests, [{preview: 'backdrop', limit: 4}, {preview: 'covers', limit: 6}, {preview: 'backdrop', limit: 4}]);
 });
 
-test('slot revision mismatch remains an explicit error without directory fallback', async () => {
+test('independent slot previews accept separately disclosed complete bases during content churn', async () => {
   let calls = 0;
-  const {NativeSearchExplore} = await adapters(async () => ({revision: String(++calls), genres: [genre('a')]}));
+  const {NativeSearchExplore} = await adapters(async () => ({queryId:'fixture_query',revision: String(++calls), genres: [genre('a')]}));
   const controller = new NativeSearchExplore({...options, surface: 'phone'});
-  await controller.load(); assert.equal(calls, 2); assert.equal(controller.getSnapshot().phase, 'error');
-  assert.deepEqual(controller.getSnapshot().genres, []); controller.dispose();
+  await controller.load(); assert.equal(calls, 2); assert.equal(controller.getSnapshot().phase, 'ready');
+  assert.equal(controller.getSnapshot().revision,'1');assert.equal(controller.getSnapshot().backdropRevision,'2');
+  assert.equal(controller.getSnapshot().genres[0].id,'a');controller.dispose();
 });
 
 test('preview retirement, hiding and background cancellation discard late responses and suppress old actions', async () => {
@@ -73,24 +74,24 @@ test('preview retirement, hiding and background cancellation discard late respon
   });
   const controller = new NativeSearchExplore({...options, current: () => current, surface: 'tv', openGenre: () => {opens++;}});
   const loading = controller.load(); await entered; controller.setActive(false); assert.ok(signal?.aborted);
-  finish({revision: 'late', genres: [genre('late')]}); await loading;
+  finish({queryId:'fixture_query',revision: 'late', genres: [genre('late')]}); await loading;
   assert.equal(controller.getSnapshot().phase, 'idle'); assert.deepEqual(controller.getSnapshot().genres, []);
   entered = new Promise<void>(resolve => {started = resolve;}); controller.setActive(true); await entered;
-  const resumed = controller.load(); finish({revision: 'live', genres: [genre('live')]}); await resumed;
+  const resumed = controller.load(); finish({queryId:'fixture_query',revision: 'live', genres: [genre('live')]}); await resumed;
   const live = controller.getSnapshot().genres[0]; assert.ok(live);
   controller.setActive(false); controller.openGenre(live); assert.equal(opens, 0);
   current = false; const retired = controller.getSnapshot(); controller.openGenre(live);
   assert.deepEqual(retired.genres, []); assert.equal(opens, 0); assert.equal(controller.getSnapshot(), retired);
 });
 
-const page = (number: number): Page => ({revision: 'basis', genres: Array.from({length: 50}, (_, index) => ({value: `${number}:${index}`, label: `Genre ${number}:${index}`, count: 10, covers: []})),
+const page = (number: number): Page => ({queryId:'fixture_query',revision: 'basis', genres: Array.from({length: 50}, (_, index) => ({value: `${number}:${index}`, label: `Genre ${number}:${index}`, count: 10, covers: []})),
   ...(number < 8 ? {nextCursor: `after:${number}`} : {}), ...(number ? {previousCursor: `before:${number}`} : {}), reloadCursor: `at:${number}`});
 const pageNumber = (cursor?: string) => cursor?.startsWith('after:') ? Number(cursor.slice(6)) + 1 : cursor?.startsWith('before:') ? Number(cursor.slice(7)) - 1 : cursor ? Number(cursor.slice(3)) : 0;
 
 test('All genres is an independent ordinary list preserving every artless row/count and bounded reversible windows', async () => {
   const requests: Request[] = [], opened: unknown[] = [];
   const {NativeSearchExplore, NativeSearchGenreList} = await adapters(async (_api, request) => {
-    requests.push(request); return request.preview ? {revision: 'basis', genres: [], hasGenres: true} : page(pageNumber(request.cursor));
+    requests.push(request); return request.preview ? {queryId:'fixture_query',revision: 'basis', genres: [], hasGenres: true} : page(pageNumber(request.cursor));
   });
   const preview = new NativeSearchExplore({...options, surface: 'phone'});
   const list = new NativeSearchGenreList({...options, openGenre: value => opened.push(value)});
@@ -136,7 +137,7 @@ test('All genres refuses mixed revisions, retries the failed edge, and cancels h
   const {NativeSearchGenreList} = await adapters(async (_api, request, actualSignal) => {
     requests.push(request); signal = actualSignal;
     if (request.cursor === 'after:1') return new Promise(resolve => {pending = resolve;});
-    return {...page(pageNumber(request.cursor)), ...(request.cursor && changed ? {revision: 'changed'} : {})};
+    return {...page(pageNumber(request.cursor)), ...(request.cursor && changed ? {queryId:'fixture_query',revision: 'changed'} : {})};
   });
   const list = new NativeSearchGenreList(options);
   try {
@@ -185,7 +186,7 @@ test('ordinary list keeps its FlatList mounted for paging errors, uses scroll ed
 
 test('All genres detects resident cursor cycles without retaining lifetime cursor or ID history', async () => {
   let reads = 0;
-  const {NativeSearchGenreList} = await adapters(async () => ({revision: 'basis', genres: [], nextCursor: ++reads === 2 ? 'b' : 'a'}));
+  const {NativeSearchGenreList} = await adapters(async () => ({queryId:'fixture_query',revision: 'basis', genres: [], nextCursor: ++reads === 2 ? 'b' : 'a'}));
   const list = new NativeSearchGenreList(options);
   try {
     await list.load(); await list.next(); await list.next(); await list.next();

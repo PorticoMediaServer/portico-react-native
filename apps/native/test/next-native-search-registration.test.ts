@@ -33,7 +33,7 @@ test('real App Search keeps separate eligible previews and an artless All genres
       genreReads++;
       const preview = url.searchParams.get('preview');
       const rows = preview === 'covers' ? genres.slice(1) : preview === 'backdrop' ? [{value: 'backdrop-only', label: 'Backdrop prefix first', count: 8, covers: [], backdrop: art('other', 'backdrop')}, genres[1]] : genres;
-      return {status: 200, body: {revision: 'actual-genre-read', hasGenres: true, genres: rows}};
+      return {status: 200, body: {queryId:'genre_query',revision: 'actual-genre-read', hasGenres: true, genres: rows}};
     }
     if (url.pathname === '/v1/browse-capabilities') {assert.equal(url.searchParams.get('pivot'), 'video-titles'); return {status: 200, body: capabilities};}
     if (url.pathname === '/v1/browse' && request.method === 'POST') {

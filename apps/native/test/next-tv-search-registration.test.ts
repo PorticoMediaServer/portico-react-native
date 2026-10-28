@@ -73,7 +73,7 @@ async function setup() {
     api: new HttpLocalApi('https://fixture.invalid', '', async (input, init) => {
       const url = new URL(String(input)); paths.push(url.pathname + url.search);
       const data = url.pathname === '/v1/search' ? searchPage(url) : url.pathname.includes('/history') ? history
-        : {revision: 'opaque', hasGenres: true, genres: [{value: 'drama', label: 'Drama', count: 20, covers: [], backdrop: art('drama')}]};
+        : {queryId:'genre_query',revision: 'opaque', hasGenres: true, genres: [{value: 'drama', label: 'Drama', count: 20, covers: [], backdrop: art('drama')}]};
       assert.equal(init?.method ?? 'GET', 'GET');
       return new Response(JSON.stringify(data), {status: 200, headers: {'Content-Type': 'application/json'}});
     }),
