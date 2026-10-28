@@ -3,7 +3,7 @@
  * A field this client cannot read is refused rather than guessed; the server's
  * own keys are the contract, so extra fields are ignored and never invented.
  */
-import {liveSourceAcquisition, parseLiveSourceDocument, parseLiveDefaultsDocument, type LiveSourceAcquisition} from '../../../../../packages/client-core/src/administration';
+import {liveSourceAcquisition, parseLiveSourceDocument, parseLiveDefaultsDocument, parseChannelMapPage as parseCoreChannelMapPage, type ChannelMapEntry as CoreChannelMapEntry, type ChannelMapPage as CoreChannelMapPage, type LiveSourceAcquisition} from '../../../../../packages/client-core/src/administration';
 
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
 const text = (v: unknown, max = 4096): v is string => typeof v === 'string' && v.length <= max && !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(v);
@@ -115,16 +115,11 @@ export function parseLiveDefaults(v: unknown, serverId: string): Readonly<{revis
   return parseLiveDefaultsDocument(adminResult(v, serverId, true));
 }
 
-export type ChannelMapEntry = Readonly<{channelId: string; name: string; sourceNumber: string; number: string; group: string; guideChannelId: string; hidden: boolean; overridden: boolean; position: number}>;
-export type ChannelMapPage = Readonly<{sourceId: string; generation: string; items: readonly ChannelMapEntry[]; nextCursor: string}>;
+export type ChannelMapEntry = CoreChannelMapEntry;
+export type ChannelMapPage = CoreChannelMapPage;
 export type ChannelMapEdit = Readonly<{number: string; guideChannelId: string; hidden: boolean}>;
 export function parseChannelMapPage(v: unknown, serverId: string): ChannelMapPage {
-  const body = adminResult(v, serverId, true);
-  if (!text(body.sourceId, 64) || !Array.isArray(body.items) || !text(body.nextCursor ?? '', 512)) invalid();
-  return Object.freeze({sourceId: body.sourceId, generation: text(body.generation, 128) ? body.generation : '', nextCursor: body.nextCursor ?? '', items: Object.freeze(body.items.map(raw => {
-    if (!object(raw) || !text(raw.channelId, 128) || !text(raw.name, 512) || !text(raw.sourceNumber ?? '', 32) || !text(raw.number ?? '', 32) || !text(raw.group ?? '', 256) || !text(raw.guideChannelId ?? '', 256) || !flag(raw.hidden) || !flag(raw.overridden) || !count(raw.position, 10000000)) invalid();
-    return Object.freeze({channelId: raw.channelId, name: raw.name, sourceNumber: raw.sourceNumber ?? '', number: raw.number ?? '', group: raw.group ?? '', guideChannelId: raw.guideChannelId ?? '', hidden: raw.hidden, overridden: raw.overridden, position: raw.position});
-  }))});
+  return parseCoreChannelMapPage(adminResult(v, serverId, true));
 }
 
 export type TunerDevice = Readonly<{deviceId: string; model: string; friendlyName: string; address: string; baseUrl: string; tunerCount: number; configured: boolean}>;

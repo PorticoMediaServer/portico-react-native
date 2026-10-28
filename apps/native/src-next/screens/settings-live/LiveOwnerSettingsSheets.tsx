@@ -5,6 +5,8 @@ import {liveSavedSettingsId} from '../../../../../packages/client-core/src/serve
 import type {MessageId} from '../../../../../packages/i18n/src';
 import {Button, Focusable, Segmented, Select, Switch, TextField} from '../../kit/controls';
 import {Dialog} from '../../kit/overlays';
+import {ChannelMark} from '../../kit/artwork';
+import {Icon} from '../../kit/Icon';
 import {LoadingBoundary, SkeletonBlock, StateView} from '../../kit/states';
 import {shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
@@ -296,6 +298,9 @@ export function ChannelMapSheet({controller, runtime, source, open, onOpenChange
           const current = value(entry.channelId, entry), touched = edits[entry.channelId] !== undefined;
           return <View key={entry.channelId} testID={`live-owner-channel-${entry.channelId}`} style={{gap: 8, padding: 12, borderRadius: 12, backgroundColor: theme.colors.raisedHigh, borderWidth: touched ? 1.5 : 0, borderColor: theme.colors.accent, opacity: current.hidden ? .6 : 1}}>
             <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+              <View style={{width: 28, height: 28, borderRadius: 6, overflow: 'hidden', backgroundColor: theme.colors.raisedHigh, alignItems: 'center', justifyContent: 'center'}}>
+                {entry.mark ? <ChannelMark mark={{sourceId: page?.sourceId ?? '', id: entry.channelId, ...entry.mark}} size={28}/> : <Icon name="i-tv" size={18} color={theme.colors.textSecondary}/>}
+              </View>
               <View style={{flex: 1}}>
                 <Text style={[shellType(15, 700), {color: theme.colors.text}]} numberOfLines={1}>{entry.name}</Text>
                 <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, rowGap: 3}}>{[`${t('server.live.map.fromSource')} ${entry.sourceNumber || '—'}`, entry.group].filter(Boolean).map((part, index) => <Text key={index} style={[shellType(12.5), {color: theme.colors.textTertiary}]} numberOfLines={1}>{part}</Text>)}</View>

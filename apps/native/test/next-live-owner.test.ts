@@ -41,9 +41,11 @@ test('one source document keeps null overrides distinct from zero and refuses un
 });
 
 test('channel map pages and tuner discovery read only named fields', () => {
-  const map = parseChannelMapPage({protocolVersion: '1.0', serverId: 'server', result: {sourceId: 's1', generation: 'g1', nextCursor: 'c2', items: [{channelId: 'c1', name: 'Northwind News', sourceNumber: '101', number: '12', group: 'News', guideChannelId: '', hidden: true, position: 3, overridden: true}]}}, 'server');
+  const map = parseChannelMapPage({protocolVersion: '1.0', serverId: 'server', result: {sourceId: 's1', generation: 'g1', nextCursor: 'c2', items: [{mark: {text: 'NN 12', seed: 's1:c1'}, channelId: 'c1', name: 'Northwind News', sourceNumber: '101', number: '12', group: 'News', guideChannelId: '', hidden: true, position: 3, overridden: true}]}}, 'server');
   assert.equal(map.items[0]!.number, '12');
   assert.equal(map.items[0]!.hidden, true);
+  assert.deepEqual(map.items[0]!.mark, {text: 'NN 12', seed: 's1:c1'});
+  assert.ok(Object.isFrozen(map.items[0]!.mark));
   const discovery = parseTunerDiscovery({protocolVersion: '1.0', serverId: 'server', result: {devices: [{deviceId: 'd', model: 'Prime', friendlyName: '', address: '192.168.1.50', baseUrl: 'http://192.168.1.50', tunerCount: 3, configured: false}], searchedFor: '', discoveryEnabled: true}}, 'server');
   assert.equal(discovery.devices[0]!.tunerCount, 3);
 });
