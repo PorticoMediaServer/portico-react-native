@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {NativeModules, Platform} from './react-native-stub.mjs';
+const pickerModules = NativeModules as typeof NativeModules & {PorticoImagePicker?: {pick: () => Promise<unknown>}};
 import * as profileAvatars from '../src-next/platform/profile-avatars.ts';
 import {IdentityClient} from '../../../packages/client-core/src/identity-client.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
@@ -169,9 +170,9 @@ class PictureClient extends MemberProfilesClient {
 const avatar = (version = 2) => ({profileId: 'alex', version, updatedAt: '2026-10-28T12:00:00Z', sourceMime: 'image/jpeg', url: `/v1/admin/access/members/member/profiles/alex/avatar?v=${version}`});
 const photo = {base64: '/9j/AA==', bytes: 4, contentType: 'image/jpeg'};
 function picker(t: any, pick: () => Promise<unknown>) {
-  const old = NativeModules.PorticoImagePicker, oldTV = Platform.isTV;
-  NativeModules.PorticoImagePicker = {pick}; Platform.isTV = false;
-  t.after(() => {NativeModules.PorticoImagePicker = old; Platform.isTV = oldTV;});
+  const old = pickerModules.PorticoImagePicker, oldTV = Platform.isTV;
+  pickerModules.PorticoImagePicker = {pick}; Platform.isTV = false;
+  t.after(() => {pickerModules.PorticoImagePicker = old; Platform.isTV = oldTV;});
 }
 
 test('picture upload and removal publish server read-back and carry the current revision and cancellation signal', async t => {
@@ -195,7 +196,7 @@ test('late picker results cannot upload after person, caller authority or screen
   const f = await fixture('owner', 'member', PictureClient); const row = await f.load(); f.source.manage(row);
   const choosing = f.source.choosePicture(row); f.switchPerson(); pick.resolve(photo);
   assert.equal(await choosing, false); assert.equal(f.requests.length, 2); f.source.dispose();
-  const other = deferred(); NativeModules.PorticoImagePicker = {pick: () => other.promise};
+  const other = deferred(); pickerModules.PorticoImagePicker = {pick: () => other.promise};
   const g = await fixture('owner', 'member', PictureClient); const managed = await g.load(); g.source.manage(managed);
   const pending = g.source.choosePicture(managed); g.context.account.account.role = 'member'; other.resolve(photo);
   assert.equal(await pending, false); assert.equal(g.requests.length, 2); assert.equal(g.source.getSnapshot().error, undefined); g.source.dispose();

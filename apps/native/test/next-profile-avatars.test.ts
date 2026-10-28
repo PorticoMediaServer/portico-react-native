@@ -9,6 +9,7 @@ import {pickProfilePicture, profileAvatarUpload, profilePicturePickerAvailable, 
 import {nativeNetworkFetch} from '../src-next/platform/server-connections.ts';
 import {profileAPI} from '../src-next/platform/profile-transport.ts';
 import {NativeModules, Platform} from './react-native-stub.mjs';
+const pickerModules = NativeModules as typeof NativeModules & {PorticoImagePicker?: {pick: () => Promise<unknown>}};
 import {createFabricHookHost, act} from './helpers/fabric-hooks.mjs';
 
 const logical = 'https://logical.test', lan = 'https://192.168.1.20:32500';
@@ -144,10 +145,10 @@ test('managed avatar uploads use the same verified transport, renewal and bounde
 });
 
 test('one-photo picker accepts bounded JPEG/PNG only and drops a result when its opening retires', async t => {
-  const original = NativeModules.PorticoImagePicker, originalTV = Platform.isTV;
-  t.after(() => {NativeModules.PorticoImagePicker = original; Platform.isTV = originalTV;});
+  const original = pickerModules.PorticoImagePicker, originalTV = Platform.isTV;
+  t.after(() => {pickerModules.PorticoImagePicker = original; Platform.isTV = originalTV;});
   let current = true, count = 0, result: unknown = {base64: 'AAH/', contentType: 'image/jpeg', bytes: 3};
-  NativeModules.PorticoImagePicker = {pick: async () => {count++; return result;}}; Platform.isTV = false;
+  pickerModules.PorticoImagePicker = {pick: async () => {count++; return result;}}; Platform.isTV = false;
   assert.equal(profilePicturePickerAvailable(), true);
   const picked = await pickProfilePicture({current: () => current}); assert.deepEqual(picked?.bytes, new Uint8Array([0, 1, 255]));
   assert.equal(picked?.contentType, 'image/jpeg');
@@ -156,11 +157,11 @@ test('one-photo picker accepts bounded JPEG/PNG only and drops a result when its
     result = invalid; assert.equal(await pickProfilePicture({current: () => current}), undefined);
   }
   let finish!: (value: unknown) => void;
-  NativeModules.PorticoImagePicker = {pick: () => new Promise(resolve => {finish = resolve;})};
+  pickerModules.PorticoImagePicker = {pick: () => new Promise(resolve => {finish = resolve;})};
   const pending = pickProfilePicture({current: () => current}); current = false; finish({base64: 'AAH/', contentType: 'image/jpeg', bytes: 3});
   assert.equal(await pending, undefined);
   current = true; Platform.isTV = true; assert.equal(profilePicturePickerAvailable(), false);
   assert.equal(await pickProfilePicture({current: () => current}), undefined);
-  Platform.isTV = false; NativeModules.PorticoImagePicker = undefined; assert.equal(profilePicturePickerAvailable(), false);
+  Platform.isTV = false; pickerModules.PorticoImagePicker = undefined; assert.equal(profilePicturePickerAvailable(), false);
   assert.equal(await pickProfilePicture({current: () => current}), undefined); assert.equal(count, 8);
 });
