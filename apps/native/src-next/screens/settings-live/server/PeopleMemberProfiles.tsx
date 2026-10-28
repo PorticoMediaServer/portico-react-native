@@ -77,7 +77,7 @@ export function MemberProfileEditor({source, profile, runtime}: {source: NativeM
       </View>}
       {action?.kind === 'rename' && <TextField testID="people-profile-name" label={t('profile.name')} value={name} maxLength={120} editable={!state.busy} onChangeText={value => {if (current()) setName(value);}}/>}
       {action?.kind === 'colour' && <ProfileColorPicker testID="people-profile-colours" value={art} disabled={state.busy} onChange={value => {if (current()) setArt(value);}}/>}
-      {action?.kind === 'limits' && <ProfileRestrictionsFields draft={draft} systems={state.systems} disabled={state.busy} current={current} onChange={patch => {if (current()) setDraft(value => ({...value, ...patch}));}}/>}
+      {action?.kind === 'limits' && <ProfileRestrictionsFields draft={draft} systems={state.systems} disabled={state.busy} recordingLocked={source.context.account.account.role !== 'owner' && !profile.restrictions.allowDvr} current={current} onChange={patch => {if (current()) setDraft(value => ({...value, ...patch}));}}/>}
       {state.changed && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('error.changed')}</Text>}
       {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {void source.load();})}/>}
     </BottomSheet>

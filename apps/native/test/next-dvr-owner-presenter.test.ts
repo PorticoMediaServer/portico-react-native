@@ -11,7 +11,7 @@ import {createTheme} from '../src-next/kit/theme';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children), ...nodes(node.props.footer), ...nodes(node.props.pickerContext), ...nodes(node.props.action)] : [];
 const deferred = <T,>() => {let resolve!: (value: T) => void; const promise = new Promise<T>(done => {resolve = done;}); return {promise, resolve};};
-const owner = (id: string) => ({owner: {authority: 'local' as const, accountId: 'a', profileId: id}, accountName: 'A', profileName: id});
+const owner = (id: string) => ({owner: {authority: 'local' as const, accountId: 'a', profileId: id}, accountName: 'A', profileName: id, canRecord: true, revision: 1});
 
 async function loadPresenter(passive?: Array<()=>void>) {
   const effect=passive?{useEffect:(create:()=>void|(()=>void),deps?:readonly unknown[])=>React.useEffect(()=>{
@@ -32,7 +32,8 @@ async function loadPresenter(passive?: Array<()=>void>) {
 async function presenter() {
   const {NewRuleSheet} = await loadPresenter();
   const pending = deferred<any>(); const calls: string[] = [];
-  const first = {owners: Array.from({length:200},(_,i)=>owner(`p${i+1}`)), grants: [{owner:owner('p1').owner,enabled:true,inheritProfiles:true,revision:1}], nextCursor: 'c1'};
+  // Each profile records by its own switch; nothing is inherited from the account.
+  const first = {owners: Array.from({length:200},(_,i)=>owner(`p${i+1}`)), grants: Array.from({length:400},(_,i)=>({owner:owner(`p${i+1}`).owner,enabled:true,revision:1})), nextCursor: 'c1'};
   const controller = {current:()=>true,lifetime: {current: () => true,signal:new AbortController().signal}, policy: async (cursor = '') => {calls.push(cursor); return cursor ? pending.promise : first;}, load: async () => {}, getSnapshot: () => ({list: {sources: []}}), guideSeries: async () => [], createRule: async () => {}};
   const runtime = {navigation: {getSnapshot: () => ({revision: 7})}, getSnapshot: () => ({contentVisible: true}), text: {t: (key: string) => key}, error: () => ({})};
   let props: any = {controller, runtime, open: true, onOpenChange: () => {}, onSaved: () => {}}; let tree: any;
@@ -60,7 +61,7 @@ test('owner and rule presenters follow their own three-page cursors and retry th
   const rules = (n: number) => ({id: `r${n}`, revision: 1, owner: owner('p1').owner, status: '', kind: 'series', name: `Rule ${n}`, match: `m${n}`, sourceId: 's', enabled: false, options: {prePaddingMs: 0, postPaddingMs: 0, keepPolicy: null, newEpisodesOnly: false, priority: 0, folderTemplate: ''}});
   let fail = true;
   const controller = {current:()=>true,lifetime: {current: () => true,signal:new AbortController().signal}, tuners: async () => ({sources: [], upcomingWindowHours: 0}),
-    policy: async (cursor = '') => {calls.push(`o:${cursor}`); if (refreshed && cursor === '') return {owners: [owner('new')], grants: [{owner: owner('new').owner, enabled: false, inheritProfiles: false, revision: 2}], nextCursor: 'fresh-owner'}; if (cursor === 'o2' && fail) {fail = false; throw Error('temporary');} return {owners: Array.from({length:cursor==='o2'?1:200},(_,i)=>owner(`p${(cursor===''?0:cursor==='o1'?200:400)+i+1}`)), grants: [], nextCursor: cursor === '' ? 'o1' : cursor === 'o1' ? 'o2' : ''};},
+    policy: async (cursor = '') => {calls.push(`o:${cursor}`); if (refreshed && cursor === '') return {owners: [owner('new')], grants: [{owner: owner('new').owner, enabled: false, revision: 2}], nextCursor: 'fresh-owner'}; if (cursor === 'o2' && fail) {fail = false; throw Error('temporary');} return {owners: Array.from({length:cursor==='o2'?1:200},(_,i)=>owner(`p${(cursor===''?0:cursor==='o1'?200:400)+i+1}`)), grants: [], nextCursor: cursor === '' ? 'o1' : cursor === 'o1' ? 'o2' : ''};},
     rules: async (cursor = '') => {calls.push(`r:${cursor}`); if (refreshed && cursor === '') return {items: [rules(10)], nextCursor: 'fresh-rule'}; return {items: Array.from({length:cursor==='r2'?1:100},(_,i)=>rules((cursor===''?0:cursor==='r1'?100:200)+i+1)), nextCursor: cursor === '' ? 'r1' : cursor === 'r1' ? 'r2' : ''};},
     dvrSettings: async () => ({revision: 1, settings: {}, enumerations: {}})};
   const recordings = {storage: async () => ({policy: {}, measurement: {usedBytes: 0, freeBytes: 0, reservedBytes: 0, writeHealthy: true}, forecastHours: 0})};
@@ -94,7 +95,7 @@ test('owner and rule presenters follow their own three-page cursors and retry th
 test('actual sheet Select submits one minute and an old Save cannot settle a reopened sheet', async () => {
   const {NewRuleSheet} = await loadPresenter();
   const pending = deferred<void>(); const bodies: any[] = []; let saved = 0;
-  const selected = owner('p1'), grants = [{owner: selected.owner, enabled: true, inheritProfiles: false, revision: 1}];
+  const selected = owner('p1'), grants = [{owner: selected.owner, enabled: true, revision: 1}];
   const {NativeLiveOwnerController} = await import('../src-next/screens/settings-live/live-owner-controller');
   const {NativeScreenLifetime} = await import('../src-next/screens/settings-live/lifetime');
   const authority = {authority: () => ({serverId: 'server', accountId: 'a', profileId: 'p1', epoch: 'e', viewerFence: 'v'}), current: () => true, subscribeAuthority: () => () => {}};
@@ -176,7 +177,7 @@ async function pageFixture(){
  const {NativeRecordingOwner,NewRuleSheet}=await loadPresenter();let generation=1,revision=7,visible=true,live=true,failRule=false;
  const life=new AbortController(),calls:string[]=[],holds=new Map<string,ReturnType<typeof deferred<any>>>();
  const key=(kind:string,cursor:string,gen=generation)=>`${kind}:${gen}:${cursor}`;
- const owners=(cursor:string,gen=generation)=>({owners:Array.from({length:cursor?200:200},(_,i)=>owner(`p${(gen-1)*1000+(cursor?200:0)+i+1}`)),grants:[{owner:owner('p1').owner,enabled:gen===1,inheritProfiles:gen===1,revision:gen}],nextCursor:cursor?'':gen===1?'o1':'new-o1'});
+ const owners=(cursor:string,gen=generation)=>({owners:Array.from({length:cursor?200:200},(_,i)=>owner(`p${(gen-1)*1000+(cursor?200:0)+i+1}`)),grants:gen===1?Array.from({length:400},(_,i)=>({owner:owner(`p${i+1}`).owner,enabled:true,revision:gen})):[{owner:owner('p1').owner,enabled:false,revision:gen}],nextCursor:cursor?'':gen===1?'o1':'new-o1'});
  const rules=(cursor:string,gen=generation)=>({items:Array.from({length:100},(_,i)=>ruleRow((gen-1)*1000+(cursor?100:0)+i+1)),nextCursor:cursor?'':gen===1?'r1':'new-r1'});
  let controller={current:()=>live&&!life.signal.aborted,lifetime:{current:()=>live,signal:life.signal},tuners:async()=>({sources:[],upcomingWindowHours:0}),
   policy:async(cursor='')=>{const k=key('owners',cursor);calls.push(k);return holds.get(k)?.promise??owners(cursor);},
@@ -228,7 +229,7 @@ test('actual permission/default/storage drafts block current and retained More w
  for(const type of ['permission','defaults','storage'] as const){const f=await pageFixture();try{
   const old=f.find('live-owner-owners-more').props.onPress;
   const section=nodes(f.tree()).find(node=>node.props.draft&&(type==='permission'?node.props.policy:type==='defaults'?node.props.document:node.props.storage));assert(section);
-  const draft=type==='permission'?{enabled:false,inheritProfiles:false}:{...section.props.draft,...(type==='defaults'?{prePaddingMs:60000}:{reserveBytes:123})};
+  const draft=type==='permission'?{enabled:false}:{...section.props.draft,...(type==='defaults'?{prePaddingMs:60000}:{reserveBytes:123})};
   await act(()=>type==='permission'?section.props.onChange(owner('p1').owner,draft):section.props.onChange(draft));
   assert.equal(f.find('live-owner-owners-more').props.disabled,true);const count=f.calls.length;await act(()=>{old();f.find('live-owner-owners-more').props.onPress();});assert.equal(f.calls.length,count);
   const retained=nodes(f.tree()).find(node=>node.props.draft&&(type==='permission'?node.props.policy:type==='defaults'?node.props.document:node.props.storage));
@@ -251,7 +252,7 @@ test('committed guide B withholds guide A before passive cleanup and only B can 
  const life=new AbortController(),selected=owner('p1');
  const controller={current:()=>true,lifetime:{current:()=>true,signal:life.signal},guideSeries:async(_day:string,sourceId:string)=>{reads.push(sourceId);return sourceId==='a'?a.promise:[choice('b')];}};
  const runtime={navigation:{getSnapshot:()=>({revision:7})},getSnapshot:()=>({contentVisible:true}),text:{t:(key:string)=>key},error:()=>({})};
- const props={controller,runtime,policy:{owners:[selected],grants:[{owner:selected.owner,enabled:true,inheritProfiles:false,revision:1}]},sources:[{id:'a',name:'A'},{id:'b',name:'B'}],open:true,onOpenChange:()=>{},onSaved:()=>{}};
+ const props={controller,runtime,policy:{owners:[selected],grants:[{owner:selected.owner,enabled:true,revision:1}]},sources:[{id:'a',name:'A'},{id:'b',name:'B'}],open:true,onOpenChange:()=>{},onSaved:()=>{}};
  let tree:any;const host=createFabricHookHost(()=>{tree=NewRuleSheet(props);});const find=(id:string)=>nodes(tree).find(node=>node.props.testID===id);
  try{
   await act(()=>host.mount());await flushPassive(passive);assert.deepEqual(reads,['a']);
@@ -317,7 +318,7 @@ async function actualControllerGuardFixture(sheet: boolean) {
   const lifetime = new NativeScreenLifetime({authority: () => ({serverId: 'server', accountId: 'a', profileId: 'p1', epoch: 'e', viewerFence: 'v'}), current: () => true, subscribeAuthority: () => () => {}});
   const requests: Array<{path: string; method?: string}> = [];
   const controller = new NativeLiveOwnerController(lifetime, {request: async <T,>(path: string, method?: string) => {requests.push({path, method}); return {} as T;}}, () => 'original-remove');
-  const choice = owner('p1'), offeredPolicy = {owners: [choice], grants: [{owner: choice.owner, enabled: true, inheritProfiles: false, revision: 1}], nextCursor: ''};
+  const choice = owner('p1'), offeredPolicy = {owners: [choice], grants: [{owner: choice.owner, enabled: true, revision: 1}], nextCursor: ''};
   // Only read data is supplied here. The controller's real current/dispose,
   // borrowed lifetime and DELETE command remain in use.
   Object.assign(controller, {tuners: async () => ({sources: [], upcomingWindowHours: 0}), policy: async () => offeredPolicy,

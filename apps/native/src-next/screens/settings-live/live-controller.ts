@@ -68,7 +68,7 @@ export class NativeLiveController extends NativeScreenStore<NativeLiveSnapshot> 
     const state = this.getSnapshot(); this.remember(state.options, {view}); this.publish({...state, view}); this.persist(state.options, {view});
   }
   setViewport(viewport: GuideViewport): void {if (this.disposed || !this.lifetime.current()) return; this.viewport = viewport; if (this.memoryReady) this.store.setViewport(viewport);}
-  select(change: Partial<Pick<LegacyGuideOptions, 'kind' | 'sourceId' | 'group' | 'favorites' | 'sort'>>): void {
+  select(change: Partial<Pick<LegacyGuideOptions, 'kind' | 'sourceId' | 'group' | 'favorites' | 'sort' | 'includeServerHidden'>>): void {
     this.lifetime.assert();
     if (this.disposed) return;
     this.store.dispose();
@@ -87,7 +87,7 @@ export class NativeLiveController extends NativeScreenStore<NativeLiveSnapshot> 
     return this.refreshSources = (async () => {
       try {
         await this.prepareMemory(); this.lifetime.assert(); if (this.disposed) return;
-        const result = await fetchGuideSourceSummaries(this.api, this.lifetime.authority.serverId, this.getSnapshot().options.timezone, this.lifetime.signal);
+        const result = await fetchGuideSourceSummaries(this.api, this.lifetime.authority.serverId, this.getSnapshot().options.timezone, this.lifetime.signal, this.getSnapshot().options.includeServerHidden);
         if (!this.disposed && this.lifetime.current()) this.publish({...this.getSnapshot(), sources: result.sources, loading: false, error: undefined});
       } catch (error) {if (!this.disposed && this.lifetime.current()) this.publish({...this.getSnapshot(), loading: false, error});}
     })().finally(() => {this.refreshSources = undefined;});

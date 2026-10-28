@@ -41,9 +41,11 @@ test('one source document keeps null overrides distinct from zero and refuses un
 });
 
 test('channel map pages and tuner discovery read only named fields', () => {
-  const map = parseChannelMapPage({protocolVersion: '1.0', serverId: 'server', result: {sourceId: 's1', generation: 'g1', nextCursor: 'c2', items: [{channelId: 'c1', name: 'Northwind News', sourceNumber: '101', number: '12', group: 'News', guideChannelId: '', hidden: true, position: 3, overridden: true}]}}, 'server');
+  const map = parseChannelMapPage({protocolVersion: '1.0', serverId: 'server', result: {sourceId: 's1', generation: 'g1', nextCursor: 'c2', items: [{mark: {text: 'NN 12', seed: 's1:c1'}, channelId: 'c1', name: 'Northwind News', sourceNumber: '101', number: '12', group: 'News', guideChannelId: '', hidden: true, position: 3, overridden: true}]}}, 'server');
   assert.equal(map.items[0]!.number, '12');
   assert.equal(map.items[0]!.hidden, true);
+  assert.deepEqual(map.items[0]!.mark, {text: 'NN 12', seed: 's1:c1'});
+  assert.ok(Object.isFrozen(map.items[0]!.mark));
   const discovery = parseTunerDiscovery({protocolVersion: '1.0', serverId: 'server', result: {devices: [{deviceId: 'd', model: 'Prime', friendlyName: '', address: '192.168.1.50', baseUrl: 'http://192.168.1.50', tunerCount: 3, configured: false}], searchedFor: '', discoveryEnabled: true}}, 'server');
   assert.equal(discovery.devices[0]!.tunerCount, 3);
 });
@@ -156,7 +158,7 @@ test('rule toggle adopts only its exact advanced receipt', async () => {
   const owner = {authority: 'local' as const, accountId: 'a', profileId: 'p'};
   const row = {id: 'r', revision: 3, owner, status: 'disabled', kind: 'title', name: 'Title', match: 'Title', sourceId: 's', enabled: false, options: {prePaddingMs: 60000, postPaddingMs: 0, keepPolicy: null, newEpisodesOnly: false, priority: 0, folderTemplate: ''}};
   const rule = parseAdminRules({serverId: 'server', result: {items: [row]}}, 'server')[0]!;
-  const grants = [{owner, enabled: true, inheritProfiles: false, revision: 1}];
+  const grants = [{owner, enabled: true, revision: 1}];
   let receipt = {...row, revision: 4, enabled: true};
   const calls: string[] = [];
   const api = {request: async <T,>(path: string) => {
@@ -172,7 +174,7 @@ test('rule toggle adopts only its exact advanced receipt', async () => {
 });
 
 test('new rule accepts only its actual command receipt and never refreshes a shared source',async()=>{
- const owner={authority:'local' as const,accountId:'a',profileId:'p'},grants=[{owner,enabled:true,inheritProfiles:false,revision:1}];
+ const owner={authority:'local' as const,accountId:'a',profileId:'p'},grants=[{owner,enabled:true,revision:1}];
  const draft={owner,anchor:{sourceId:'s',channelId:'c',generation:'g',programmeId:'programme'},kind:'title',name:'Actual title',match:'Actual title',sourceId:'s',enabled:false,
   options:{prePaddingMs:60000,postPaddingMs:null,keepPolicy:null,newEpisodesOnly:false,priority:500,folderTemplate:''}};
  const row={id:'generated',revision:7,owner,status:'disabled',kind:draft.kind,name:draft.name,match:draft.match,sourceId:'s',enabled:false,
@@ -193,7 +195,7 @@ test('new rule accepts only its actual command receipt and never refreshes a sha
 test('original create/toggle caller retirement during POST/PUT never refreshes or adopts under a successor',async()=>{
  for(const command of ['create','toggle'] as const){
   let answer!:(value:unknown)=>void,live=true;const calls:{method?:string;signal?:AbortSignal}[]=[];
-  const owner={authority:'local' as const,accountId:'a',profileId:'p'},grants=[{owner,enabled:true,inheritProfiles:false,revision:1}];
+  const owner={authority:'local' as const,accountId:'a',profileId:'p'},grants=[{owner,enabled:true,revision:1}];
   const row={id:'original',revision:3,owner,status:'disabled',kind:'title',name:'Title',match:'Title',sourceId:'s',enabled:false,options:{prePaddingMs:60000,postPaddingMs:0,keepPolicy:null,newEpisodesOnly:false,priority:0,folderTemplate:''}};
   const rule=parseAdminRules({serverId:'server',result:{items:[row]}},'server')[0]!;
   const lifetime=new NativeScreenLifetime(authority()),caller=new AbortController();
@@ -215,7 +217,7 @@ test('last original owner predicate aborting a command caller inside the real li
  }
  const original=authority();const lifetime=new ObservedLifetime({...original,current:()=>{if(armed)caller.abort();return original.current();}});
  const controller=new NativeLiveOwnerController(lifetime,{request:async<T>()=>{requests++;return {} as T;}},()=> 'original-pre-io');
- const owner={authority:'local' as const,accountId:'a',profileId:'p'},grants=[{owner,enabled:true,inheritProfiles:false,revision:1}];
+ const owner={authority:'local' as const,accountId:'a',profileId:'p'},grants=[{owner,enabled:true,revision:1}];
  try{
   await assert.rejects(controller.createRule({owner,anchor:{sourceId:'s',channelId:'c',generation:'g',programmeId:'programme'},kind:'title',name:'Title',match:'Title',sourceId:'s',enabled:false,
    options:{prePaddingMs:60000,postPaddingMs:0,keepPolicy:null,newEpisodesOnly:false,priority:0,folderTemplate:''}},grants,
@@ -252,3 +254,14 @@ test('native DVR defaults refuse deleting the only original and unknown conversi
   assert.throws(() => parseDVRDocument({...document(result.settings.conversion), serverId: 'other'}, 'server'), /invalid_response/);
 });
 
+
+test('native source editor reads persisted rows and sends write-only changes with one revision',async()=>{
+ const owner=authority(),calls:any[]=[];
+ const remote={kind:'xtream',guideUrl:'https://guide.example/guide.xml',guideUrlRedacted:false,refreshMs:21600000,ownerLimit:2,useDiscoveredCapacity:false};
+ const stored={sourceId:'s1',sourceName:'Source',revision:7,digest:'digest',tunerCount:2,effectiveLogoImport:{enabled:true,overwriteExisting:false},availableKinds:['playlist'],settings:{...settings,enabled:true,viewerAccess:'server-members',remote},effective:defaults};
+ const api={async request<T>(path:string,method='GET',body?:any){calls.push({path,method,body});if(path==='/v1/admin/live-sources')return {serverId:'server',sources:[source],refresh:[]} as T;return {serverId:'server',result:stored} as T;}};
+ const controller=new NativeLiveOwnerController(new NativeScreenLifetime(owner),api,()=> 'operation');
+ const doc=await controller.document('s1');assert.equal(doc.settings.viewerAccess,'server-members');assert.equal(doc.settings.remote?.ownerLimit,2);assert.equal(doc.settings.remote?.password,undefined);
+ await controller.saveDocument(doc,{...doc.settings,enabled:false,viewerAccess:'owner-only',remote:{...doc.settings.remote!,refreshMs:43200000,ownerLimit:4,password:'replacement',username:''}});
+ const put=calls.find(value=>value.method==='PUT');assert.equal(put.body.expectedRevision,7);assert.equal(put.body.settings.enabled,false);assert.equal(put.body.settings.remote.password,'replacement');assert.equal(put.body.settings.remote.username,'');assert.equal(put.body.settings.remote.refreshMs,43200000);controller.dispose();
+});

@@ -57,6 +57,7 @@ function createComposition(context: NativeShellBootstrapContext) {
         const allowed = admission();
         const fallback = <NativeSettingsScreen ports={ports} controller={settings} runtime={runtime} devicePreferences={devicePreferences} dashboard={dashboard}/>;
         if (allowed === 'denied') return fallback;
+        if (!Platform.isTV && allowed === 'owner' && route.page === 'live') return <NativeSettingsScreen key={route.channelId ?? 'live'} ports={ports} controller={settings} runtime={runtime} devicePreferences={devicePreferences} dashboard={dashboard} initialPage="live" initialChannelId={route.channelId}/>;
         if (!Platform.isTV) return <NativeDashboardScreen ports={ports} controller={dashboard} runtime={runtime} deniedFallback={fallback}/>;
         const requested = isTVServerPage(route.page) ? route.page : undefined;
         const page = allowed === 'owner' ? requested ?? 'general' : requested === 'people' ? 'people' : 'dashboard';

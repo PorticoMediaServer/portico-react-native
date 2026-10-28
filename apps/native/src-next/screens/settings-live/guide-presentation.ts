@@ -46,12 +46,16 @@ export function nativeGuideDate(locale: string, timeZone: string, options: Pick<
   return at => Number.isFinite(at) && Number.isFinite(new Date(at).getTime()) ? formatter.format(at) : '';
 }
 
-export type NativeChannelMenuEntry = Readonly<{id: 'favorite' | 'hidden'; label: string; icon: 'i-star' | 'i-star-f' | 'i-eye' | 'i-eyeoff'}>;
+export type NativeChannelMenuEntry = Readonly<{id: 'favorite' | 'hidden' | 'edit'; label: string; icon: 'i-star' | 'i-star-f' | 'i-eye' | 'i-eyeoff' | 'i-edit'}>;
 /** The guide's channel menu (long press on phone, hold OK on TV): Add to Favorites for everyone;
- * an owner may also hide a channel from their guide, or show one they hid. */
-export function nativeChannelMenuEntries(channel: Readonly<{favorite: boolean}>, hidden: boolean, owner: boolean, t: Pick<I18n, 't'>['t']): readonly NativeChannelMenuEntry[] {
+ * an owner may also hide a channel for everyone, or show one they hid. */
+export function nativeChannelMenuEntries(channel: Readonly<{favorite: boolean; kind?: string}>, hidden: boolean, owner: boolean, t: Pick<I18n, 't'>['t'], isTV = false): readonly NativeChannelMenuEntry[] {
   return [
     {id: 'favorite', label: t(channel.favorite ? 'channels.removeFavorite' : 'channels.addFavorite'), icon: channel.favorite ? 'i-star-f' : 'i-star'},
-    ...(owner ? [{id: 'hidden' as const, label: t(hidden ? 'channels.unhide' : 'channels.hide'), icon: hidden ? 'i-eye' as const : 'i-eyeoff' as const}] : []),
+    ...(owner && channel.kind !== 'library' ? [{id: 'hidden' as const, label: t(hidden ? 'channels.unhide' : 'channels.hide'), icon: hidden ? 'i-eye' as const : 'i-eyeoff' as const}] : []),
+    ...(owner && channel.kind === 'library' && !isTV ? [{id: 'edit' as const, label: t('channels.editChannel'), icon: 'i-edit' as const}] : []),
   ];
 }
+
+/** Phone-only Library Channel editing uses the existing Settings stack. */
+export const nativeLibraryChannelEditorRoute = (channelId: string) => ({kind: 'server-settings', page: 'live', channelId} as const);

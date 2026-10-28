@@ -1,3 +1,4 @@
+import {setServerChannelHidden} from '../../../../../packages/client-core/src/server-channel-visibility';
 import {clonePortableDto} from '../../../../../packages/client-core/src';
 import {liveSourceChoicesService, parseEnvelope, type LiveSourceChoicePage} from '../../../../../packages/client-core/src/administration';
 import {rebaseDraft, sendWithFreshRecord, ALREADY_DONE} from '../../../../../packages/client-core/src/freshness-actions';
@@ -72,6 +73,11 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
       return undefined;
     });
   }
+  channelHidden = async (sourceId: string, channelId: string, hidden: boolean, caller: NativeRecordingCommandLifetime, expected?: Readonly<{revision: number; hidden: boolean}>) => {
+    const current = () => this.current() && caller.isCurrent() && !caller.signal.aborted;
+    const api = {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => this.lifetime.request(next => this.api.request<T>(path, method, body, next), signal)};
+    return setServerChannelHidden(api, this.lifetime.authority.serverId, sourceId, channelId, hidden, this.operationId, caller.signal, current, expected);
+  };
   nextId = (): string => this.operationId();
   private row = (id: string) => this.getSnapshot().list?.sources.find(value => value.id === id);
   private freshRow = async (id: string) => {
@@ -107,6 +113,7 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
     let current = mark;
     try { await put(current.revision, draft); }
     catch (error) {
+      if(JSON.stringify(current.settings.remote)!==JSON.stringify(draft.remote))throw error;
       const fresh = await this.document(current.sourceId).catch(() => {throw error;});
       const rebased = rebaseDraft(current.settings, draft, fresh.settings);
       if (rebased.conflict) throw error;
@@ -169,8 +176,8 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
     const [owners, grants] = await Promise.all([this.request<unknown>('/v1/admin/dvr/recording-owners?' + new URLSearchParams({limit: '200', cursor})), this.request<unknown>('/v1/admin/dvr/recording-permissions')]);
     return parseRecordingPolicy(owners, grants, this.lifetime.authority.serverId);
   };
-  setPermission = async (owner: RecordingOwner, enabled: boolean, inheritProfiles: boolean, revision: number) => {
-    await this.request('/v1/admin/dvr/recording-permissions', 'PUT', {owner, enabled, inheritProfiles, revision});
+  setPermission = async (owner: RecordingOwner, enabled: boolean, revision: number) => {
+    await this.request('/v1/admin/dvr/recording-permissions', 'PUT', {owner, enabled, revision});
   };
   rules = async (cursor = '') => parseAdminRulePage(await this.request<unknown>('/v1/admin/dvr/recording-groups?' + new URLSearchParams({limit: '100', cursor})), this.lifetime.authority.serverId);
   private async recordingMutation(draft: Parameters<typeof recordingRulePayload>[0], grants: readonly RecordingGrant[], caller?: NativeRecordingCommandLifetime): Promise<AdminRule> {
