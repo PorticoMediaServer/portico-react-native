@@ -18,7 +18,7 @@ import {HeavyWorkControls} from './HeavyWorkControls';
 import {NativeAdvancedSection} from './AdvancedSection';
 import {NativeSettingControl} from './SettingControl';
 import {NativeBroadcastSheet} from './BroadcastSheet';
-import {settingsSummary, withheldServerRows} from './settings-values';
+import {settingsSummary} from './settings-values';
 import {SettingsRow} from '../../../kit/shell';
 import {TextField} from '../../../kit/controls/TextField';
 import {BottomSheet} from '../../../kit/overlays/BottomSheet';
@@ -34,7 +34,6 @@ import {settingsPageHeading, settingsPageInset} from './page-layout';
 type Translate = typeof defaultI18n.t;
 type ViewerRole = 'owner' | 'administrator' | 'member';
 const IDS = ['runtime', 'maintenance', 'alerts'] as const;
-const WITHHELD_ROWS = withheldServerRows;
 
 /** Settings › Server › General on the phone (slots server-general group 1–2 and the drawn background/restart rows). */
 export function NativeServerGeneral({ports, runtime, compactHeader = false}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean}) {
@@ -79,7 +78,6 @@ function General({ports, runtime, compactHeader = false, group}: {ports: NativeS
     if (row.id === 'general.updateChecks') setCustomUpdate(false);
   };
   const renderRow = (row: SpecRow) => {
-    if (WITHHELD_ROWS.has(row.id)) return null;
     const value = fact(row); if (!value) return null;
     const custom = row.id === 'general.updateChecks' && customUpdate;
     return <NativeSettingControl key={row.id} row={row} value={custom ? 'custom' : value.current} t={t} disabled={state.saving || row.id === 'general.updateFeed' && !(customUpdate || fact(settingsRowIndex.get('general.updateChecks')!.row)?.current === 'custom')}
@@ -139,7 +137,7 @@ function General({ports, runtime, compactHeader = false, group}: {ports: NativeS
       <Text style={[shellType(12.5, 400, 17), {color: theme.colors.textTertiary, marginTop: 2}]}>{t('server.restart.body')}</Text>
       <View style={{flexDirection: 'row', marginTop: 10}}><Button size="compact" variant="danger" disabled={busy} onPress={() => setRestarting(true)}>{t('web.maintenance.serverRestart')}</Button></View>
       <NativeAdvancedSection testID="server-general-advanced" open={advanced} onOpenChange={setAdvanced}
-        summary={runtimeState.loading || maintenanceState.loading || alertsState.loading ? t('status.loading') : settingsSummary((section?.advanced?.groups?.flatMap(group => group.rows) ?? []).filter(row => !WITHHELD_ROWS.has(row.id)), fact, t)}>
+        summary={runtimeState.loading || maintenanceState.loading || alertsState.loading ? t('status.loading') : settingsSummary(section?.advanced?.groups?.flatMap(group => group.rows) ?? [], fact, t)}>
         {section?.advanced?.groups?.map((group, index) => {
           if (group.rows.some(row => row.id === 'general.heavyDays')) return null;
           const rows = group.rows.some(row => row.id === 'general.heavyStart')

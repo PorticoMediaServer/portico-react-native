@@ -24,6 +24,7 @@ import {NativeScreenLifetime} from '../lifetime';
 import type {NativeSettingsLivePorts} from '../ports';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import {settingsPageHeading, settingsPageInset} from './page-layout';
+import {hardwareSelectionChoices} from '../../../../../../packages/client-core/src/presentation/hardware-selection';
 import {transcodeLocationChoice, transcodeLocationTarget, type TranscodeLocation} from '../../../../../../packages/client-core/src/presentation/transcode-location';
 
 /** Phone Streaming borrows checked revisioned runtime/connectivity documents, never delivery policy state. */
@@ -84,8 +85,6 @@ export function NativeServerStreaming({ports, runtime, compactHeader = false}: {
   };
   const read = (id: string): unknown => {
     if (id === 'streaming.awayQuality' && customAway) return 'custom';
-    // The owner's own hardware choice, never the backend the server fell back to.
-    if (id === 'streaming.hardware') return capacity?.hardware.configured;
     const binding = settingsBinding(id); return binding ? readSettingsBinding(binding, sources, id)?.current : undefined;
   };
   const renderRow = (row: SpecRow): React.ReactNode => {
@@ -104,6 +103,19 @@ export function NativeServerStreaming({ports, runtime, compactHeader = false}: {
         {choice === 'folder' && row.children?.map(renderRow)}</React.Fragment>;
     }
     const value = fact(row);
+    if (row.id === 'streaming.hardware' && value) {
+      // The adapters come from the hardware report, by their opaque ids; a saved adapter that
+      // is gone stays drawn as the current choice.
+      const choices = hardwareSelectionChoices(capacity?.hardware.devices ?? [], value.current, t);
+      const options = choices.map(choice => ({value: choice.value, label: choice.label as never, locked: choice.locked, ...(choice.hint ? {hint: choice.hint as never} : {})}));
+      // The choices are already in words (an adapter's name is the driver's own), so only the
+      // row's own copy goes through the catalogue.
+      const words = new Set(choices.flatMap(choice => [choice.label, choice.hint ?? '']));
+      const translate = ((id: string) => words.has(id) ? id : t(id as never)) as typeof t;
+      return <React.Fragment key={row.id}><NativeSettingControl key={`${row.id}:${discardRevision}`} row={{...row, control: {...row.control, options}}} value={value.current} t={translate}
+        disabled={state.saving || !settingEnabled(row, read)} onChange={next => change(row, next)}/>
+        {row.children?.map(renderRow)}</React.Fragment>;
+    }
     // A drawn parent the page cannot paint (it has no binding of its own) still carries
     // dependent rows that do: paint those instead of hiding the whole branch.
     if (!value) return row.children?.length ? <React.Fragment key={row.id}>{row.children.map(renderRow)}</React.Fragment> : null;

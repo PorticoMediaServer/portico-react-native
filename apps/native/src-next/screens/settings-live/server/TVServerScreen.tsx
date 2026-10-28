@@ -18,7 +18,7 @@ import {TVServerPageMenu, tvServerPageDefinition, type TVServerPage} from './TVS
 import {TVServerReadOnlyPanel} from './TVServerReadOnlyPanel';
 import {TVServerSettingsPage} from './TVServerSettingsPage';
 import {TVMetadataPanel} from './TVMetadataPanel';
-import {TVLiveDefaults} from './TVLiveDefaults';
+import {TVLiveDefaults, TVRecordingDefaults} from './TVLiveDefaults';
 import {NativeDashboardScreen} from '../DashboardScreen';
 import type {NativeDashboardController} from '../dashboard-controller';
 import {createTVServerReader, nativeServerAdmission} from './tv-server-reader';
@@ -76,7 +76,7 @@ export function NativeTVServerScreen({ports, runtime, initialPage = 'general', d
           {page === 'people' ? <><TVPeoplePanel ports={ports} runtime={runtime} lifetime={lifetime}/>{editing && <TVServerSettingsPage page="people" ports={ports} runtime={runtime}/>}</>
           : page === 'remote' ? editing ? <><TVRemoteAccessPanel ports={ports} runtime={runtime} lifetime={lifetime} statusOnly/><TVServerSettingsPage page="remote" ports={ports} runtime={runtime}/></> : <TVRemoteAccessPanel ports={ports} runtime={runtime} lifetime={lifetime}/>
           : editing && page === 'metadata' ? <TVMetadataPanel ports={ports} runtime={runtime}/>
-          : editing && page === 'live' ? <><TVServerReadOnlyPanel page="live" ports={ports} runtime={runtime} lifetime={lifetime}/><TVLiveDefaults ports={ports} runtime={runtime}/></>
+          : editing && page === 'live' ? <><TVServerReadOnlyPanel page="live" ports={ports} runtime={runtime} lifetime={lifetime}/><TVLiveDefaults ports={ports} runtime={runtime}/><TVRecordingDefaults ports={ports} runtime={runtime}/></>
           : editing && (page === 'segments' || page === 'streaming') ? <TVServerSettingsPage page={page} ports={ports} runtime={runtime}/>
           : editing && (page === 'general' || page === 'storage' || page === 'history' || page === 'integrations') ? <><TVServerReadOnlyPanel page={page} ports={ports} runtime={runtime} lifetime={lifetime} statusOnly/><TVServerSettingsPage page={page} ports={ports} runtime={runtime}/></>
           : page !== 'libraries' ? <TVServerReadOnlyPanel page={page} ports={ports} runtime={runtime} lifetime={lifetime}/> : <>

@@ -16,6 +16,9 @@ import {useSettingsRequestScope} from '../use-settings-request-scope';
 import {settingsSummary} from './settings-values';
 import {useFormState, useStorageForms, useStorageSet, type StorageForms} from './storage/forms';
 import {TVChoiceRow, TVEntryRow, TVSwitchRow, type TVChoice} from './TVSettingRows';
+import {TVFolderRow} from './TVFolderPicker';
+import {parseTranscodeCapacity, type TranscodeCapacity} from '../../../../../../packages/client-core/src/telemetry';
+import {transcodeLocationTarget} from '../../../../../../packages/client-core/src/presentation/transcode-location';
 import {tvCustomChoiceValue, tvPageForms, tvServerSettingFact, tvServerSettingGroups, tvServerSettingsSources, type TVChoiceModel, type TVEditablePage, type TVServerSettingsState, type TVSettingGroup, type TVSettingItem} from './tv-server-settings-model';
 
 type FormView = Readonly<{draft?: Readonly<Record<string, unknown>>; loading: boolean; loadError?: unknown}>;
@@ -51,17 +54,40 @@ function Page({page, group, ports, runtime}: {page: TVEditablePage; group: Stora
     void api.request(routePath('get_settings_configuration')).then(parseSettingsConfiguration).then(value => {if (lifetime.current()) {setConfiguration(value); setConfigurationError(undefined);}}, error => {if (lifetime.current()) setConfigurationError(error);});
   }, [api, lifetime]);
   useEffect(loadConfiguration, [loadConfiguration]);
+  // Streaming's Location and Device rows answer from the capacity read: the conversion directory
+  // and the adapters the hardware report found. Without it they are absent, never guessed.
+  const [capacity, setCapacity] = useState<TranscodeCapacity>();
+  useEffect(() => {
+    if (page !== 'streaming' || !lifetime.current()) return;
+    const read = new AbortController();
+    void api.request(routePath('get_admin_transcode_capacity'), 'GET', undefined, read.signal).then(parseTranscodeCapacity)
+      .then(value => {if (!read.signal.aborted && lifetime.current()) setCapacity(value);}, () => {/* the rows stay absent */});
+    return () => read.abort();
+  }, [api, lifetime, page]);
   const section = settingsSpec.find(value => value.scope === 'server' && value.id === page);
   const drafts = Object.fromEntries(ids.map(id => [id, views[id]?.draft]));
   const certificate = drafts.certificate;
   const linked = page === 'remote' && !!ports.context.account.account.hostedAccountId && certificate?.claimed === true;
-  const state: TVServerSettingsState = {page, configuration, drafts, custom, secure: linked ? certificate?.enabled === true : undefined};
+  const state: TVServerSettingsState = {page, configuration, drafts, custom, secure: linked ? certificate?.enabled === true : undefined, capacity};
   const busy = saving.saving;
   const commit = () => {void set.save().catch(() => {/* kept in saveError and drawn below */});};
   const change = (row: SpecRow, value: unknown) => {
     if (!lifetime.current() || busy) return;
     setCustom(previous => {if (!previous.has(row.id)) return previous; const next = new Set(previous); next.delete(row.id); return next;});
     if (row.id === 'remote.secure') {forms.certificate.set(current => ({...current, enabled: value === true})); commit(); return;}
+    if (row.id === 'streaming.transcodeLocation') {
+      // "A folder" writes nothing until a folder is picked; the other choice writes its directory.
+      if (value === 'folder') {setCustom(previous => new Set(previous).add(row.id)); return;}
+      const target = value === 'separate' ? transcodeLocationTarget('separate', capacity?.temporaryDirectory) : undefined;
+      if (target === undefined) return;
+      forms.runtime.set((current: Readonly<Record<string, unknown>>) => ({...current, temporaryDirectory: target})); commit(); return;
+    }
+    if (row.id === 'streaming.transcodeFolder') {
+      if (typeof value !== 'string' || !value) return;
+      forms.runtime.set((current: Readonly<Record<string, unknown>>) => ({...current, temporaryDirectory: value})); commit();
+      setCustom(previous => {if (!previous.has('streaming.transcodeLocation')) return previous; const next = new Set(previous); next.delete('streaming.transcodeLocation'); return next;});
+      return;
+    }
     const binding = settingsBinding(row.id);
     if (!binding) return;
     let patch;
@@ -76,7 +102,7 @@ function Page({page, group, ports, runtime}: {page: TVEditablePage; group: Stora
     if (stored !== undefined) change(row, stored);
     setCustom(previous => new Set(previous).add(row.id)); setAdvanced(true);
   };
-  const choices = (options: readonly TVChoiceModel[]): TVChoice[] => options.map(option => ({value: option.value, label: option.label === option.value ? option.value : t(option.label as MessageId), description: option.hint ? t(option.hint) : undefined, disabled: option.disabled}));
+  const choices = (options: readonly TVChoiceModel[]): TVChoice[] => options.map(option => ({value: option.value, label: option.plain || option.label === option.value ? option.label : t(option.label as MessageId), description: option.hint ? t(option.hint as MessageId) : undefined, disabled: option.disabled}));
   const renderItem = (item: TVSettingItem): React.ReactNode => {
     const {row} = item, label = t(row.label), description = row.help ? t(row.help) : undefined;
     const copy = {testID: item.id, label, description, dependent: item.dependent};
@@ -86,10 +112,12 @@ function Page({page, group, ports, runtime}: {page: TVEditablePage; group: Stora
         if (next === 'custom') {chooseCustom(row); return;}
         const option = row.control.options?.find(option => String(option.value) === next);
         if (option && !option.locked) change(row, option.value);
+        else if (row.id === 'streaming.hardware' && item.options.some(choice => choice.value === next && !choice.disabled)) change(row, next);
       }}/>;
       case 'number': return <TVEntryRow key={item.id} {...copy} kind="number" value={item.value} control={row.control} t={t} onSave={next => change(row, next)}/>;
       case 'text': return <TVEntryRow key={item.id} {...copy} kind="text" value={item.value} maxLength={row.id === 'general.name' ? 100 : undefined} t={t} onSave={next => change(row, next)}/>;
       case 'secret': return <TVEntryRow key={item.id} {...copy} kind="secret" configured={item.configured} t={t} onSave={next => {if (next) change(row, next);}}/>;
+      case 'folder': return <TVFolderRow key={item.id} {...copy} value={item.value} api={api} disabled={busy} t={t} onChoose={next => change(row, next)}/>;
       case 'matrix': return <View key={item.id}>
         <Text style={[shellType(20, 700), {color: theme.colors.textTertiary, marginLeft: 24, marginTop: 14, marginBottom: 6}]}>{label}</Text>
         {item.items.map(entry => <TVChoiceRow key={entry.id} testID={`${item.id}.${entry.id}`} label={t(entry.label)} value={entry.value} options={choices(item.columns)} dependent

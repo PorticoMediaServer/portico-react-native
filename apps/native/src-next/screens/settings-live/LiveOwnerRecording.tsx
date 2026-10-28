@@ -12,7 +12,7 @@ import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeLiveOwnerController} from './live-owner-controller';
 import type {NativeRecordingsController} from './recordings-controller';
-import {appendRecordingPage, needsRuleOwner, rulePaddingChoice, rulePaddingFromChoice} from './recording-owner-model';
+import {appendRecordingPage, keepPolicyFor, needsRuleOwner, rulePaddingChoice, rulePaddingFromChoice} from './recording-owner-model';
 import type {AdminRule, DVRDefaults, DVRDocument, TunerAllocation, TunerView} from './recording-owner-model';
 import type {LiveSource} from './live-owner-model';
 import type {KeepPolicy} from './recording-owner-model';
@@ -304,7 +304,7 @@ function Defaults({draft, runtime, onChange}: {document: DVRDocument; draft: DVR
       <Select testID="live-owner-padding-after" label={t('web.dvrSettings.finishLate')} description={t('web.dvrSettings.finishLateHelp')} value={minutes(draft.postPaddingMs)} options={paddingChoices.map(value => ({value: minutes(value), label: value ? t('recordings.minutes', {count: value / 60}) : t('recordings.none')}))} onValueChange={value => patch({postPaddingMs: Number(value) * 60000})}/>
       <Select testID="live-owner-tuner-conflict" label={t('server.live.tunerConflict')} description={t('server.live.tunerConflictHelp')} value={draft.liveTunerConflict} options={[{value: 'keep-watching', label: t('server.live.tunerConflict.keep')}, {value: 'stop-watching', label: t('server.live.tunerConflict.stop')}]} onValueChange={liveTunerConflict => patch({liveTunerConflict})}/>
       <Select testID="live-owner-keep-mode" label={t('recordings.keepLabel')} value={draft.keepPolicy.mode} options={keepModes.map(mode => ({value: mode, label: t(mode === 'keep-all' ? 'web.logs.everything' : mode === 'keep-count' ? 'web.dvrSettings.keepNewest' : 'web.dvrSettings.keepDays')}))}
-        onValueChange={mode => patch({keepPolicy: {...draft.keepPolicy, mode: mode as DVRDefaults['keepPolicy']['mode']}})}/>
+        onValueChange={mode => patch({keepPolicy: keepPolicyFor(draft.keepPolicy, mode as DVRDefaults['keepPolicy']['mode'])})}/>
       {draft.keepPolicy.mode === 'keep-count' && <Select testID="live-owner-keep-count" label={t('web.dvrSettings.howMany')} value={String(draft.keepPolicy.keepCount)} options={[1, 3, 5, 10, 20].map(value => ({value: String(value), label: String(value)}))} onValueChange={value => patch({keepPolicy: {...draft.keepPolicy, keepCount: Number(value)}})}/>}
       {draft.keepPolicy.mode === 'keep-days' && <Select testID="live-owner-keep-days" label={t('web.dvrSettings.howManyDays')} value={String(draft.keepPolicy.keepDays)} options={[7, 14, 30, 60, 90].map(value => ({value: String(value), label: String(value)}))} onValueChange={value => patch({keepPolicy: {...draft.keepPolicy, keepDays: Number(value)}})}/>}
     </View>
