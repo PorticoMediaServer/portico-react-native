@@ -186,6 +186,8 @@ export class NativeLibraryDestination {
     const totalsKey = JSON.stringify([this.options.scope, this.options.library.id, tab.id, tab.pivot]);
     const session: BrowseSession<ContentEntry> = new BrowseSession<ContentEntry>({query: this.query(capabilities, tab, predicates, sort),
       request: (path, method, body, signal) => this.request(path, method, body, signal),
+      ...(this.options.api.requestRaw ? {requestRaw: this.options.api.requestRaw.bind(this.options.api)} : {}),
+      onPreparationError: error => this.publish({error}),
       current: () => this.current() && this.session === session && this.state.phase === 'ready',
       item: entry => entry,
       onRevision: revision => this.publish({revision}),
@@ -227,7 +229,7 @@ export class NativeLibraryDestination {
   createFilters = (mode: Readonly<{live?: boolean}> = {}): NativeLibraryFilterDraft => {
     const source = this.getSnapshot();
     if (!this.current() || !source.capabilities || !source.tab.pivot || !source.sort || !source.collection) throw new Error('native_library_filter_source_required');
-    const draft = new NativeLibraryFilterDraft({api: {request: this.request}, capabilities: source.capabilities, pivot: source.tab.pivot, sort: source.sort,
+    const draft = new NativeLibraryFilterDraft({api: {request: this.request, ...(this.options.api.requestRaw ? {requestRaw: this.options.api.requestRaw.bind(this.options.api)} : {})}, capabilities: source.capabilities, pivot: source.tab.pivot, sort: source.sort,
       predicates: source.predicates, fixed: (source.tab.fixedFilter ?? []) as readonly BrowseNode[],
       current: () => this.current() && this.state.capabilities === source.capabilities
         && (mode.live === true || this.state.predicates === source.predicates) && this.state.sort === source.sort,
