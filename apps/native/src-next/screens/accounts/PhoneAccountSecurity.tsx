@@ -24,8 +24,6 @@ export function PhoneAccountSecurity({workspace, security}: {workspace: NativeAc
   const theme = useTheme(), t = defaultI18n.t;
   const [source, setSource] = useState<NativeAccountSecurity>();
   const [unavailable, setUnavailable] = useState<string>();
-  const [password, setPassword] = useState(''), [factor, setFactor] = useState(''), [newPassword, setNewPassword] = useState('');
-  const [email, setEmail] = useState(''), [code, setCode] = useState(''), [confirmation, setConfirmation] = useState(''), [copyFailure, setCopyFailure] = useState(false);
   useLayoutEffect(() => {
     if (!workspace.current()) return;
     let controller: NativeAccountSecurity;
@@ -35,9 +33,7 @@ export function PhoneAccountSecurity({workspace, security}: {workspace: NativeAc
   }, [workspace, security]);
   const state = useSyncExternalStore(source?.subscribe ?? noSubscribe, source?.getSnapshot ?? idleSnapshot);
   const current = () => !!source?.current() && source.getSnapshot() === state;
-  const clear = () => {setPassword(''); setFactor(''); setNewPassword(''); setEmail(''); setCode(''); setConfirmation(''); setCopyFailure(false);};
-  const open = (kind: NativeAccountSecurityKind) => {if (!current()) return; clear(); source!.open(kind);};
-  const close = () => {if (!current() || state.busy) return; const refresh = state.step !== 'form'; clear(); source!.close(); if (refresh) void workspace.open('security');};
+  const open = (kind: NativeAccountSecurityKind) => {if (current()) source!.open(kind);};
   const text = (value: string, secondary = false, key?: string) => <Text key={key} style={[theme.type.body, {color: secondary ? theme.colors.textSecondary : theme.colors.text}]}>{value}</Text>;
   const group = (name: string, children: React.ReactNode) => <View style={{gap: 10}}><Text accessibilityRole="header" style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{name}</Text>
     <View style={{borderRadius: 14, backgroundColor: theme.colors.raised, padding: 14, gap: 14}}>{children}</View></View>;
@@ -45,19 +41,7 @@ export function PhoneAccountSecurity({workspace, security}: {workspace: NativeAc
   const row = (name: string, detail: string, control?: React.ReactNode) => <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12}}>
     <View style={{flex: 1, minWidth: 150, gap: 4}}>{text(name)}{text(detail, true)}</View>{control}
   </View>;
-  const credentials = state.kind && !['export', 'delete'].includes(state.kind) && state.step === 'form';
-  // Root §70: a Google- or Apple-only account confirms credential changes with that provider.
-  const bridge = NativeModules.PorticoAccountAuth;
-  const providerProof = !security.hasPassword && security.providers.length > 0 && (bridge?.canOpenBrowser === true || bridge?.canSignInApple === true);
-  const credentialLocked = !security.hasPassword && !providerProof;
-  const providerForm = credentials && !security.hasPassword;
-  const providerInput = state.kind === 'password' ? !!newPassword : state.kind === 'email' ? !!email.trim() : true;
-  const editable = !state.busy && !state.locked;
-  const complete = state.step === 'codes' || state.step === 'done' || state.step === 'export';
-  const submitDisabled = state.step === 'deletion' ? !state.preview?.canDelete || !confirmation.trim()
-    : state.step === 'email' || state.step === 'mfa' || state.step === 'factor' ? !code.trim()
-      : credentials ? !password || security.mfaEnabled && !factor.trim()
-        || state.kind === 'password' && !newPassword || state.kind === 'email' && !email.trim() : false;
+  const {providerProof, credentialLocked} = accountSecurityAvailability(security, NativeModules.PorticoAccountAuth);
   return <>
     {unavailable && <Text accessibilityRole="alert" style={[theme.type.body, {color: theme.colors.danger}]}>{unavailable}</Text>}
     {group(t('web.hostedSecurity.signingIn'), <>
@@ -75,6 +59,43 @@ export function PhoneAccountSecurity({workspace, security}: {workspace: NativeAc
       {text(t('web.deleteAccount.help'), true)}
       <Button testID="account-security-delete" variant="glass" style={{backgroundColor: `${theme.colors.danger}24`}} textStyle={{color: theme.colors.danger}} disabled={!source} onPress={() => open('delete')}>{t('web.deleteAccount.action')}</Button>
     </View>
+    <AccountSecuritySheet security={security} source={source} onFinished={() => {void workspace.open('security');}}/>
+  </>;
+}
+
+/** Pure availability shared by the account workspace and server Settings. */
+export function accountSecurityAvailability(security: Pick<SecurityState, 'hasPassword' | 'providers'>,
+  bridge: Readonly<{canOpenBrowser?: boolean; canSignInApple?: boolean}> | undefined) {
+  // Root §70: a Google- or Apple-only account confirms credential changes with that provider.
+  const providerProof = !security.hasPassword && security.providers.length > 0 && (bridge?.canOpenBrowser === true || bridge?.canSignInApple === true);
+  return {providerProof, credentialLocked: !security.hasPassword && !providerProof};
+}
+
+/** The canonical account-owned task, including provider confirmation and its factor step. */
+export function AccountSecuritySheet({security, source, onFinished}: {
+  security: SecurityState; source?: NativeAccountSecurity; onFinished: () => void;
+}) {
+  const theme = useTheme(), t = defaultI18n.t;
+  const [password, setPassword] = useState(''), [factor, setFactor] = useState(''), [newPassword, setNewPassword] = useState('');
+  const [email, setEmail] = useState(''), [code, setCode] = useState(''), [confirmation, setConfirmation] = useState(''), [copyFailure, setCopyFailure] = useState(false);
+  const state = useSyncExternalStore(source?.subscribe ?? noSubscribe, source?.getSnapshot ?? idleSnapshot);
+  const current = () => !!source?.current() && source.getSnapshot() === state;
+  const clear = () => {setPassword(''); setFactor(''); setNewPassword(''); setEmail(''); setCode(''); setConfirmation(''); setCopyFailure(false);};
+  useLayoutEffect(() => {
+    setPassword(''); setFactor(''); setNewPassword(''); setEmail(''); setCode(''); setConfirmation(''); setCopyFailure(false);
+  }, [source, state.kind]);
+  const close = () => {if (!current() || state.busy) return; const refresh = state.step !== 'form'; clear(); source!.close(); if (refresh) onFinished();};
+  const text = (value: string, secondary = false, key?: string) => <Text key={key} style={[theme.type.body, {color: secondary ? theme.colors.textSecondary : theme.colors.text}]}>{value}</Text>;
+  const credentials = state.kind && !['export', 'delete'].includes(state.kind) && state.step === 'form';
+  const providerForm = credentials && !security.hasPassword;
+  const providerInput = state.kind === 'password' ? !!newPassword : state.kind === 'email' ? !!email.trim() : true;
+  const editable = !state.busy && !state.locked;
+  const complete = state.step === 'codes' || state.step === 'done' || state.step === 'export';
+  const submitDisabled = state.step === 'deletion' ? !state.preview?.canDelete || !confirmation.trim()
+    : state.step === 'email' || state.step === 'mfa' || state.step === 'factor' ? !code.trim()
+      : credentials ? !password || security.mfaEnabled && !factor.trim()
+        || state.kind === 'password' && !newPassword || state.kind === 'email' && !email.trim() : false;
+  return (
     <BottomSheet testID="account-security-sheet" open={!!state.kind} onOpenChange={value => {if (!value) close();}} title={state.kind ? t(state.kind === 'password' && !security.hasPassword ? 'account.setPassword' : titles[state.kind]) : ''}
       footer={<View style={{gap: 10}}>
         {complete ? <Button onPress={close}>{t('action.done')}</Button> : providerForm ? null : <Button loading={state.busy} disabled={submitDisabled}
@@ -132,5 +153,5 @@ export function PhoneAccountSecurity({workspace, security}: {workspace: NativeAc
         {state.step === 'done' && text(t('settings.save.saved'))}
       </View>
     </BottomSheet>
-  </>;
+  );
 }

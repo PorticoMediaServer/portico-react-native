@@ -20,13 +20,14 @@ import {shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeSettingsPanelDeps} from './settings-panels';
+import {NativeHostedSignInPanel} from './NativeHostedSignInPanel';
 import {createNativeAccessTokenScope, createNativeAccountSecurityScope, nativeAccessTokensAllowed, nativeAccountSecurityAllowed, type NativeAccessTokenScope, type NativeAccountSecurityKind, type NativeAccountSecurityScope} from './native-account-security';
 
 type Opening = Readonly<{scope: NativeAccountSecurityScope; client: IdentityClient}>;
 type Mode = 'main' | 'disable' | 'confirm-disable' | 'replace' | 'confirm-remove' | 'confirm-all';
 
 /** Local account credentials and this server's devices. Hosted credential changes retain their account-owned flow. */
-export function NativeAccountSecurityPanel({kind, context, lifetime, t, runtime}: NativeSettingsPanelDeps & {kind: NativeAccountSecurityKind; runtime: NativeShellRuntime}) {
+export function NativeAccountSecurityPanel({kind, context, lifetime, t, runtime, openRoute}: NativeSettingsPanelDeps & {kind: NativeAccountSecurityKind; runtime: NativeShellRuntime}) {
   const theme = useTheme(), dimensions = useWindowDimensions(), navigation = useSyncExternalStore(context.navigation.subscribe, context.navigation.getSnapshot);
   const [opening, setOpening] = useState<Opening>(), openingRef = useRef<Opening | undefined>(undefined);
   const mounted = useRef(false), busyRef = useRef(false), copyRef = useRef(false), shownCodes = useRef<readonly string[] | undefined>(undefined);
@@ -46,7 +47,8 @@ export function NativeAccountSecurityPanel({kind, context, lifetime, t, runtime}
     mounted.current = true; clear(); setNotice(''); setOpening(undefined);
     return () => {mounted.current = false; openingRef.current?.scope.dispose(); openingRef.current = undefined; busyRef.current = false; copyRef.current = false; shownCodes.current = undefined;};
   }, [context, lifetime, kind, navigation.revision, navigation.route]); // Clear plaintext on a different Settings opening.
-  const current = (held: Opening | undefined): held is Opening => !!held && mounted.current && openingRef.current === held && !runtime.retirementSignal?.aborted && held.scope.current();
+  const current = (held: Opening | undefined): held is Opening => !!held && mounted.current && openingRef.current === held && !runtime.retirementSignal?.aborted && held.scope.current()
+    && (kind === 'devices' || !context.account.account.hostedAccountId);
   const run = async <T,>(held: Opening | undefined, work: (client: IdentityClient, scope: NativeAccountSecurityScope) => Promise<T>, accepted: (value: T) => void) => {
     if (!current(held) || busyRef.current) return;
     busyRef.current = true; setBusy(true); setError(undefined);
@@ -59,6 +61,7 @@ export function NativeAccountSecurityPanel({kind, context, lifetime, t, runtime}
     else void run(held, (client, source) => client.twoFactor(source.signal), setFactor);
   };
   const open = () => {
+    if (kind !== 'devices' && context.account.account.hostedAccountId) return;
     if (openingRef.current || !mounted.current || !lifetime.current() || !context.current() || !nativeAccountSecurityAllowed(context, kind)) return;
     const now = context.navigation.getSnapshot();
     if (now.revision !== navigation.revision || now.route !== navigation.route || now.route.kind !== 'shell' || now.route.destination.kind !== 'settings') return;
@@ -90,6 +93,7 @@ export function NativeAccountSecurityPanel({kind, context, lifetime, t, runtime}
     finally {if (openingRef.current === held) copyRef.current = false;}
   };
   if (!lifetime.current() || !context.current() || !nativeAccountSecurityAllowed(context, kind) || theme.isTV && kind !== 'devices') return null;
+  if (kind !== 'devices' && context.account.account.hostedAccountId) return <NativeHostedSignInPanel kind={kind} context={context} lifetime={lifetime} t={t} runtime={runtime} openRoute={openRoute}/>;
   const label = t(kind === 'password' ? 'settings.row.password' : kind === 'twoStep' ? 'settings.row.twoStep' : 'settings.section.devices');
   const strength = passwordStrength(nextPassword), matching = !confirmation || confirmation === nextPassword;
   const bodyText = (value: string) => <Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary}]}>{value}</Text>;

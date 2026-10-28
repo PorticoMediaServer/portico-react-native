@@ -46,7 +46,7 @@ test('a Portico Account member is not a local account and is never made owner', 
   assert.equal(context.capabilities.porticoMember, true);
   assert.equal(context.capabilities.hostedAccount, true);
   assert.equal(context.capabilities.accessTokens, false);
-  assert.equal(context.capabilities.manageSignIn, false, 'Hosted credentials stay with the account-owned security flow');
+  assert.equal(context.capabilities.manageSignIn, true, 'Hosted credentials use the account-owned security flow in Settings');
   assert.equal(context.capabilities.manageDevices, true, 'a Hosted member manages its main-profile server devices here');
 });
 
