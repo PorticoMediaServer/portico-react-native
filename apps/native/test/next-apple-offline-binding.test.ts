@@ -58,6 +58,7 @@ async function factory({tv = false, supported = true, bridge = {localFile() {}},
 test('Apple installs the same existing offline device and exact runtime forwarder without opening, adopting or connecting it', async () => {
   const x = await factory();
   assert.strictEqual(x.captured.offlineDevice, x.device);
+  assert.equal(x.captured.nativeLocalSubtitleTiming, true);
   assert.strictEqual(x.adapter.runtime, x.runtime);
   assert.strictEqual(x.adapter.startOffline, x.runtime.startOffline);
   assert.deepEqual(x.deviceCalls, ['snapshot']);
