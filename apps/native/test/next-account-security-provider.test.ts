@@ -5,8 +5,8 @@ import {screenModule} from './helpers/screen-harness.mjs';
 const deferred = () => {let resolve!: (value?: unknown) => void; const promise = new Promise(resolveValue => {resolve = resolveValue;}); return {promise, resolve};};
 const scope = {accountId: 'account', familyId: 'family'}, hostedUrl = 'https://accounts.example.invalid';
 const initialSecurity = {...scope, contactAddress: 'person@example.invalid', hasPassword: false, mfaEnabled: false, privateEmail: false,
-  recoveryCodesRemaining: 5, providers: [{id: 'google-link', provider: 'google'}, {id: 'apple-link', provider: 'apple'}]};
-class ApiError extends Error {readonly status: number; constructor(status: number, message: string) {super(message); this.status = status;}}
+  recoveryCodesRemaining: 5, providers: [{id: 'google-link', provider: 'google', revision: '4'}, {id: 'apple-link', provider: 'apple', revision: '7'}]};
+class ApiError extends Error {readonly status: number; readonly code: string; constructor(status: number, message: string, code = 'request_failed') {super(message); this.status = status; this.code = code;}}
 const control = () => ({held: undefined as Promise<unknown> | undefined, errors: [] as unknown[], entered: deferred()});
 
 async function fixture(security = initialSecurity) {
@@ -74,7 +74,7 @@ test('Google-only password change uses the opening client, provider intent and p
   for (const name of ['client', 'options', 'reconfirm', 'provider-proof', 'action']) assert.equal(f.events(name).length, 1, `${name} must run once`);
   const [reconfirm] = f.events('reconfirm'), [proof] = f.events('provider-proof'), [action] = f.events('action');
   assert.equal(reconfirm[1], f.client);
-  assert.deepEqual(reconfirm[2], {provider: 'google', intent: {purpose: 'password_set_or_change', target: '', operationId: 'operation-0000000000000001'}, nativeApple: false, accountOrigin: hostedUrl});
+  assert.deepEqual(reconfirm[2], {provider: 'google', intent: {purpose: 'password_set_or_change', target: '', operationId: 'operation-0000000000000001'}, nativeApple: false, accountOrigin: hostedUrl, expectedIdentity: {id: 'google-link', revision: '4'}});
   assert.equal(reconfirm[3], 'fixture-token'); assert.equal(reconfirm[4].signInApple, undefined);
   assert.equal(f.events('options')[0][1], reconfirm[5]); assert.equal(reconfirm[5].aborted, false);
   assert.equal(proof[1], f.client); assert.deepEqual(proof[2], {transactionId: 'fixture-transaction', provider: 'google', intent: reconfirm[2].intent, completionCode: 'fixture-completion'});
@@ -99,20 +99,57 @@ test('two-step waits at factor and submits the entered code before the action', 
   assert.equal(f.events('action')[0][3], 'fixture-new'); assert.equal(f.service.getSnapshot().step, 'done'); assert.equal(f.events('password-proof').length, 0);
 });
 
-test('a refused factor drops the spent confirmation and creates a fresh provider operation', async t => {
+test('a wrong factor retries the same provider confirmation and original intent', async t => {
   const f = await fixture({...initialSecurity, mfaEnabled: true}); t.after(() => f.service.dispose());
   f.service.open('password'); await f.service.confirmWithProvider('google-link', {newPassword: 'first-password'});
   const original = f.events('reconfirm')[0][2].intent;
-  f.proof.errors.push(new ApiError(400, 'factor refused')); await f.service.submit({code: 'wrong'});
-  assert.equal(f.service.getSnapshot().step, 'form'); assert.equal(f.service.getSnapshot().failure, 'factor refused');
-  assert.equal(f.service.getSnapshot().locked, false); assert.equal(f.events('action').length, 0);
-  await f.service.confirmWithProvider('google-link', {newPassword: 'corrected-password'});
-  assert.equal(f.events('reconfirm').length, 2); assert.notEqual(f.events('reconfirm')[1][2].intent.operationId, original.operationId);
-  assert.equal(f.service.getSnapshot().step, 'factor'); assert.equal(f.service.getSnapshot().failure, undefined);
-  await f.service.submit({code: '123456'});
+  f.proof.errors.push(new ApiError(400, 'factor refused', 'challenge_invalid')); await f.service.submit({code: 'wrong'});
+  assert.equal(f.service.getSnapshot().step, 'factor'); assert.equal(f.service.getSnapshot().failure, 'factor refused');
+  assert.equal(f.service.getSnapshot().locked, true); assert.equal(f.events('action').length, 0);
+  await f.service.submit({code: '123456', newPassword: 'ignored-password'});
+  assert.equal(f.events('reconfirm').length, 1);
+  assert.equal(f.events('provider-proof')[0][2], f.events('provider-proof')[1][2]);
+  assert.equal(f.events('provider-proof')[1][2].completionCode, 'fixture-completion');
   assert.equal(f.events('provider-proof').length, 2); assert.equal(f.events('action').length, 1);
-  assert.equal(f.events('action')[0][3], 'corrected-password'); assert.equal(f.service.getSnapshot().step, 'done');
+  assert.deepEqual(f.events('action')[0][1], original);
+  assert.equal(f.events('action')[0][3], 'first-password'); assert.equal(f.service.getSnapshot().step, 'done');
 });
+
+test('a stale provider completion still restarts from the form', async t => {
+  const f = await fixture({...initialSecurity, mfaEnabled: true}); t.after(() => f.service.dispose());
+  f.service.open('password'); await f.service.confirmWithProvider('google-link', {newPassword: 'first-password'});
+  f.proof.errors.push(new ApiError(401, 'session retired', 'credentials_invalid'));
+  await f.service.submit({code: '123456'});
+  assert.equal(f.service.getSnapshot().step, 'form'); assert.equal(f.service.getSnapshot().locked, false);
+  await f.service.confirmWithProvider('google-link', {newPassword: 'second-password'});
+  assert.equal(f.events('reconfirm').length, 2);
+  assert.notEqual(f.events('reconfirm')[0][2].intent.operationId, f.events('reconfirm')[1][2].intent.operationId);
+});
+
+test('a selected provider without a revision cannot fall back to another identity', async t => {
+  const f = await fixture({...initialSecurity, providers: [{id: 'google-link', provider: 'google', revision: ''}]}); t.after(() => f.service.dispose());
+  f.service.open('password'); await f.service.confirmWithProvider('google-link', {newPassword: 'fixture-new'});
+  assert.match(f.service.getSnapshot().failure, /provider_unavailable/);
+  assert.equal(f.events('reconfirm').length, 0); assert.equal(f.events('provider-proof').length, 0);
+});
+
+for (const mfaEnabled of [false, true]) {
+  test(`lost proof answer keeps the transaction and callback code with two-step ${mfaEnabled}`, async t => {
+    const f = await fixture({...initialSecurity, mfaEnabled}); t.after(() => f.service.dispose());
+    f.proof.errors.push(new Error('proof answer lost'));
+    f.service.open('password'); await f.service.confirmWithProvider('google-link', {newPassword: 'original-password'});
+    if (mfaEnabled) await f.service.submit({code: '123456'});
+    assert.equal(f.service.getSnapshot().failure, 'proof answer lost');
+    if (mfaEnabled) await f.service.submit({code: '123456'});
+    else await f.service.confirmWithProvider('google-link');
+    assert.equal(f.events('reconfirm').length, 1);
+    assert.equal(f.events('provider-proof').length, 2);
+    assert.equal(f.events('provider-proof')[0][2], f.events('provider-proof')[1][2]);
+    assert.equal(f.events('provider-proof')[1][2].completionCode, 'fixture-completion');
+    assert.equal(f.service.getSnapshot().step, 'done');
+    assert.equal(f.events('action')[0][3], 'original-password');
+  });
+}
 
 for (const mfaEnabled of [false, true]) {
   test(`lost action answer reuses the same proof and intent with two-step ${mfaEnabled ? 'on' : 'off'}`, async t => {
