@@ -91,7 +91,11 @@ static const char *otherDocument = "{\"version\":1,\"timeDomain\":\"source-relat
                    item:nil source:@"https://subtitles.test/v1/media/GRANT/file.m3u8"];
 }
 - (void)show {[self.selection tick:CMTimeMake(1000000, 1000000)];}
-- (BOOL)settle:(NSUInteger)count {return waitFor(^BOOL {return requests.count >= count && answers.count == 0;}) && (drain(), YES);}
+- (BOOL)settle:(NSUInteger)count {
+  // NSURLProtocol consuming an answer does not mean URLSession has delivered it. Wait for
+  // the owner's completion too, before showing a cue or replacing the scripted HTTP fixture.
+  return waitFor(^BOOL {return requests.count >= count && answers.count == 0 && !self.selection.requestPending;});
+}
 @end
 
 int main(void) {@autoreleasepool {

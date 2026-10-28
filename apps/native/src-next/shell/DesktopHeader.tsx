@@ -1,3 +1,4 @@
+import {headerWordmark} from '../kit/shell/brand';
 import React, {useRef, useState} from 'react';
 import {Image, Text, View} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
@@ -31,7 +32,7 @@ export function DesktopHeader({snapshot, avatarRef, scrolled, onNavigate, onProf
     backgroundColor: scrolled ? `${theme.colors.ink}E0` : undefined}}>
     {scrolled ? <BlurView pointerEvents="none" style={{position: 'absolute', inset: 0}} blurType="dark" blurAmount={spec.solidBlur} reducedTransparencyFallbackColor={theme.colors.ink}/>
       : <Svg pointerEvents="none" accessible={false} width="100%" height="100%" style={{position: 'absolute', inset: 0}}><Defs><LinearGradient id="native-desktop-header" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={spec.overArtAlpha}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={0}/></LinearGradient></Defs><Rect width="100%" height="100%" fill="url(#native-desktop-header)"/></Svg>}
-    <Image accessible accessibilityLabel={defaultI18n.t('next.platform.appName')} source={require('../../assets/wordmark.png')} resizeMode="contain" style={{width: 86, height: spec.markHeight}}/>
+    <Image accessible accessibilityLabel={defaultI18n.t('next.platform.appName')} source={require('../../assets/wordmark.png')} resizeMode="contain" style={{...headerWordmark.desktop, flexShrink: 0}}/>
     <View style={{flexDirection: 'row', alignItems: 'center', gap: spec.linkGap, flex: 1, minWidth: 0}}>
       {link('home', defaultI18n.t('web.shell.home'), {kind: 'home'})}
       {libraries.map(library => link(library.id, library.name, {kind: 'library', libraryId: library.id}))}
