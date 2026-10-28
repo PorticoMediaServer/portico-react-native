@@ -1,3 +1,4 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -5,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {registerHooks} from 'node:module';
 import React, {type ReactElement, type ReactNode} from 'react';
 import {transformSync} from 'rolldown/utils';
-import {createHookHost} from './hook-driver.ts';
+import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {createTheme, fontFamilies, nativeType} from '../src-next/kit/theme.ts';
 import type {DockOccupant} from '../src-next/kit/dock/types.ts';
 import type {QueuePlaybackFence, QueueScope} from '../../../packages/player-core/src/index.ts';
@@ -85,23 +86,23 @@ function elements(node: ReactNode): Element[] {
   return [node, ...elements(node.props.children)];
 }
 const ofType = (node: ReactNode, type: unknown) => elements(node).filter(element => element.type === type);
-function mount(component: any, props: any) {
+async function mount(component: any, props: any) {
   let tree: ReactNode;
-  const host = createHookHost(() => {tree = typeof component === 'function' ? component(props) : component.render(props, props.ref ?? null);});
-  host.mount();
-  return {get tree() {return tree;}, update(next: any) {props = next; host.rerender();}, host};
+  const host = createFabricHookHost(() => {tree = typeof component === 'function' ? component(props) : component.render(props, props.ref ?? null);});
+  await host.mount();
+  return {get tree() {return tree;}, async update(next: any) {props = next; await host.rerender();}, host};
 }
-function nativeControlID(element: Element): string | undefined {
-  const mounted: ReturnType<typeof mount>[] = [];
+async function nativeControlID(element: Element): Promise<string | undefined> {
+  const mounted: Awaited<ReturnType<typeof mount>>[] = [];
   try {
     let current = element;
     while (typeof current.type !== 'string') {
-      const instance = mount(current.type, current.props); mounted.push(instance);
+      const instance = await mount(current.type, current.props); mounted.push(instance);
       current = instance.tree as Element;
     }
     assert.equal(current.type, 'Pressable');
     return current.props.testID;
-  } finally {for (const instance of mounted.reverse()) instance.host.unmount();}
+  } finally {for (const instance of mounted.reverse()) await instance.host.unmount();}
 }
 
 
@@ -109,14 +110,14 @@ function nativeControlID(element: Element): string | undefined {
 const {AuthorSeriesScreen} = await import('../src-next/screens/destinations/audiobooks/AuthorSeriesScreen.tsx');
 const {AudiobookErrorState} = await import('../src-next/screens/destinations/audiobooks/BookScreen.tsx');
 
-test('author and series failures expose actual state retry and TV focus identity', () => {
+test('author and series failures expose actual state retry and TV focus identity', async () => {
   for (const kind of ['author', 'book_series']) for (const tv of [false, true]) {
     state.theme = createTheme({isTV: tv, width: tv ? 1920 : 390});
     let retries = 0, backs = 0;
     const entry = {id: 'author-1', kind, libraryId: 'books', title: 'Author'};
-    const controller = {getSnapshot: () => ({phase: 'error', error: {code: 'request_failed'}, sections: [], finished: false}),
+    const controller = {getSnapshot: (() => {const snapshot = {phase: 'error', error: {code: 'request_failed'}, sections: [], finished: false}; return () => snapshot;})(),
       subscribe: () => () => {}, load: async () => {retries++;}};
-    const screen = mount(AuthorSeriesScreen, {controller, entry, runtime: {artwork: () => undefined, ambient: () => undefined},
+    const screen = await mount(AuthorSeriesScreen, {controller, entry, runtime: {artwork: () => undefined, ambient: () => undefined},
       actions: {menu() {}}, openEntry() {}, onBack: () => {backs++;}});
     try {
       const errorElement = ofType(screen.tree, AudiobookErrorState)[0]!;
@@ -126,55 +127,56 @@ test('author and series failures expose actual state retry and TV focus identity
         const back = ofType(screen.tree, Button).find(button => button.props.accessibilityLabel === defaultI18n.t('action.back'))!;
         back.props.onPress(); assert.equal(backs, 1);
       }
-      const error = mount(AudiobookErrorState, errorElement.props);
+      const error = await mount(AudiobookErrorState, errorElement.props);
       try {
-        const stateView = mount(StateView, (error.tree as Element).props);
+        const stateView = await mount(StateView, (error.tree as Element).props);
         try {
-          const action = mount(StateActionButton, ofType(stateView.tree, StateActionButton)[0]!.props);
+          const action = await mount(StateActionButton, ofType(stateView.tree, StateActionButton)[0]!.props);
           try {
-            assert.equal(nativeControlID(action.tree as Element), 'audiobook-author-1.retry');
+            assert.equal(await nativeControlID(action.tree as Element), 'audiobook-author-1.retry');
             (action.tree as Element).props.onPress(); assert.equal(retries, 1);
-          } finally {action.host.unmount();}
-        } finally {stateView.host.unmount();}
-      } finally {error.host.unmount();}
-    } finally {screen.host.unmount();}
+          } finally {await action.host.unmount();}
+        } finally {await stateView.host.unmount();}
+      } finally {await error.host.unmount();}
+    } finally {await screen.host.unmount();}
   }
 });
 
 test('actual author and series retry controls attach inside their real region and recover', async () => {
   const {FocusProvider} = await import('../src-next/kit/focus/FocusRegion.tsx');
-  function mountWithContexts(component: any, props: any, contexts: [any, unknown][]) {
+  async function mountWithContexts(component: any, props: any, contexts: [any, unknown][]) {
     let tree: ReactNode;
-    const host = createHookHost(() => {
-      const previous = contexts.map(([context, value]) => {const prior = context._currentValue; context._currentValue = value; return [context, prior];});
+    const host = createFabricHookHost(() => {
+      const previous = contexts.map(([context, value]) => {const prior = context._currentValue2; context._currentValue2 = value; return [context, prior];});
       try {tree = typeof component === 'function' ? component(props) : component.render(props, props.ref ?? null);}
-      finally {for (const [context, value] of previous) context._currentValue = value;}
+      finally {for (const [context, value] of previous) context._currentValue2 = value;}
     });
-    host.mount(); return {host, get tree() {return tree;}};
+    await host.mount(); return {host, get tree() {return tree;}};
   }
   for (const kind of ['author', 'book_series']) {
     state.theme = createTheme({isTV: true, width: 1920});
     let phase = 'error', retries = 0;
+    let snapshot = {phase, error: {code: 'request_failed'}, sections: [], finished: false};
     const entry = {id: 'author-1', kind, libraryId: 'books', title: 'Author'};
-    const controller = {getSnapshot: () => ({phase, error: {code: 'request_failed'}, sections: [], finished: false}),
+    const controller = {getSnapshot: () => snapshot.phase === phase ? snapshot : (snapshot = {...snapshot, phase}),
       subscribe: () => () => {}, load: async () => {retries++; phase = 'ready';}};
     const props = {controller, entry, runtime: {artwork: () => undefined, ambient: () => undefined}, actions: {menu() {}}, openEntry() {}, onBack() {}};
-    const screen = mount(AuthorSeriesScreen, props), regionElement = ofType(screen.tree, FocusRegion)[0]!;
-    const error = mount(AudiobookErrorState, ofType(screen.tree, AudiobookErrorState)[0]!.props);
-    const view = mount(StateView, (error.tree as Element).props), action = mount(StateActionButton, ofType(view.tree, StateActionButton)[0]!.props);
-    const provider = mount(FocusProvider, {children: null}), providerElement = provider.tree as Element;
+    const screen = await mount(AuthorSeriesScreen, props), regionElement = ofType(screen.tree, FocusRegion)[0]!;
+    const error = await mount(AudiobookErrorState, ofType(screen.tree, AudiobookErrorState)[0]!.props);
+    const view = await mount(StateView, (error.tree as Element).props), action = await mount(StateActionButton, ofType(view.tree, StateActionButton)[0]!.props);
+    const provider = await mount(FocusProvider, {children: null}), providerElement = provider.tree as Element;
     const registryContext: [any, unknown] = [providerElement.type, providerElement.props.value];
-    const outer = mountWithContexts(FocusRegion, regionElement.props, [registryContext]);
-    const region = mountWithContexts((outer.tree as Element).type, (outer.tree as Element).props, [registryContext]);
+    const outer = await mountWithContexts(FocusRegion, regionElement.props, [registryContext]);
+    const region = await mountWithContexts((outer.tree as Element).type, (outer.tree as Element).props, [registryContext]);
     const guide = region.tree as Element, regionContext: [any, unknown] = [(guide.props.children as Element).type, regionElement.props.id];
     const contexts: [any, unknown][] = [registryContext, regionContext];
-    const mounted: ReturnType<typeof mountWithContexts>[] = [];
+    const mounted: Awaited<ReturnType<typeof mountWithContexts>>[] = [];
     try {
       const registry = providerElement.props.value;
       guide.props.ref({nativeTag: 101, setDestinations() {}, requestTVFocus() {}});
       let node = action.tree as Element;
       while (typeof node.type !== 'string') {
-        const child = mountWithContexts(node.type, node.props, contexts); mounted.push(child); node = child.tree as Element;
+        const child = await mountWithContexts(node.type, node.props, contexts); mounted.push(child); node = child.tree as Element;
       }
       assert.equal(node.type, 'Pressable');
       const retryHost = {nativeTag: 102, requestTVFocus() {}};
@@ -182,10 +184,10 @@ test('actual author and series retry controls attach inside their real region an
       assert.equal(registry.child({regionId: regionElement.props.id, childId: regionElement.props.entry}), retryHost);
       assert.equal(registry.entryTarget(regionElement.props.id), retryHost);
       node.props.onPress(); assert.equal(retries, 1);
-      screen.update(props); assert.equal(ofType(screen.tree, AudiobookErrorState).length, 0);
+      await screen.update(props); assert.equal(ofType(screen.tree, AudiobookErrorState).length, 0);
     } finally {
-      for (const child of mounted.reverse()) child.host.unmount();
-      region.host.unmount(); outer.host.unmount(); provider.host.unmount(); action.host.unmount(); view.host.unmount(); error.host.unmount(); screen.host.unmount();
+      for (const child of mounted.reverse()) await child.host.unmount();
+      await region.host.unmount(); await outer.host.unmount(); await provider.host.unmount(); await action.host.unmount(); await view.host.unmount(); await error.host.unmount(); await screen.host.unmount();
     }
   }
 });
@@ -224,11 +226,11 @@ test('actual Book and Author Resume buttons stay admitted during tail loading an
     const facade = {getSnapshot: value.getSnapshot, subscribe: value.subscribe, load: () => value.load(lease),
       resume: () => value.resume(lease), startOver: () => value.startOver(lease), resumeBook: (book: any) => value.resumeBook(lease, book),
       next: (section: string) => value.next(section, lease), recover: () => value.recover(lease)};
-    const screen = mount(kind === 'book' ? BookScreen : AuthorSeriesScreen, {controller: facade, entry,
+    const screen = await mount(kind === 'book' ? BookScreen : AuthorSeriesScreen, {controller: facade, entry,
       runtime: {artwork: () => undefined, ambient: () => undefined, reportError() {}}, actions: {menu() {}}, openEntry() {}, onBack() {}});
     try {
       const pending = value.next(sectionId, lease);
-      screen.update({controller: facade, entry, runtime: {artwork: () => undefined, ambient: () => undefined, reportError() {}}, actions: {menu() {}}, openEntry() {}, onBack() {}});
+      await screen.update({controller: facade, entry, runtime: {artwork: () => undefined, ambient: () => undefined, reportError() {}}, actions: {menu() {}}, openEntry() {}, onBack() {}});
       const button = ofType(screen.tree, Button).find(button => button.props.focusId === `${kind === 'book' ? 'book' : 'audiobook'}-${id}.resume`)!;
       assert.ok(button); assert.notEqual(button.props.disabled, true); button.props.onPress();
       await Promise.resolve(); assert.equal(starts.length, 1);
@@ -239,6 +241,6 @@ test('actual Book and Author Resume buttons stay admitted during tail loading an
       snapshot = {...snapshot, phase: 'ready', pagination: {cursor: null}, projection: {entity: {...entry}, listening: {...listening}, sections: [section]}, appended: [section]};
       await value.load(lease);
       assert.equal(starts[0].lifetime.isCurrent(), false, 'an explicit replacement retires the old offer');
-    } finally {screen.host.unmount(); value.dispose();}
+    } finally {await screen.host.unmount(); value.dispose();}
   }
 });

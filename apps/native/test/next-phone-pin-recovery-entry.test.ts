@@ -1,3 +1,4 @@
+// @fabric-react
 import * as accountWork from '../src-next/platform/account-work';
 import * as tvApprovalCredentials from '../src-next/screens/accounts/tv-approval-credentials';
 import * as tvApprovalFinalization from '../src-next/screens/accounts/tv-approval-finalization';
@@ -13,7 +14,7 @@ import * as React from 'react';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {routeOrigin} from '../../../packages/client-core/src/route-identity';
 import {createTheme} from '../src-next/kit/theme';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const profile = {id: 'locked', name: 'Actual locked profile', art: 'mint', primary: false, pinRequired: true};
@@ -78,7 +79,7 @@ test('the phone sign-in picker offers the account recovery, keeps its own operat
     './directory-chooser': {directoryRows: () => [], directoryFailure: () => 'other', directoryOfflineBody: () => ({key: 'web.chooser.unreachableBodyNever'})},
   });
   let tree: any;
-  const host = createHookHost(() => {tree = AccountEntry({onComplete: () => {complete++;}});});
+  const host = createFabricHookHost(() => {tree = AccountEntry({onComplete: () => {complete++;}});});
   await act(() => host.mount());
   try {
     await act(() => tree.props.onLocal());
@@ -146,10 +147,10 @@ test('the phone sign-in picker offers the account recovery, keeps its own operat
     assert.equal(complete, 1);
     const unmounted = tree.props;
     controllers.at(-1).phase = 'done';
-    host.unmount();
+    await host.unmount();
     await act(() => {unmounted.onOpen('1234'); unmounted.onClose();});
     assert.equal(complete, 1, 'unmounted recovery cannot select');
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });
 
 test('a wrong profile PIN uses the profile error context and clears the boxes', async () => {
@@ -202,7 +203,7 @@ test('a wrong profile PIN uses the profile error context and clears the boxes', 
     './directory-chooser': {directoryRows: () => [], directoryFailure: () => 'other', directoryOfflineBody: () => ({key: 'web.chooser.unreachableBodyNever'})},
   });
   let tree: any;
-  const host = createHookHost(() => {tree = AccountEntry({onComplete() {}});});
+  const host = createFabricHookHost(() => {tree = AccountEntry({onComplete() {}});});
   await act(() => host.mount());
   try {
     await act(() => tree.props.onLocal());
@@ -217,5 +218,5 @@ test('a wrong profile PIN uses the profile error context and clears the boxes', 
     assert.ok(nodes(tree.props.beforeActions).some(n => n.type === 'Text' && n.props.children === 'profiles failure'));
     assert.equal(nodes(tree.props.beforeActions).find(n => n.type === 'PhonePIN').props.value, '');
     assert.equal(nodes(tree.props.beforeActions).find(n => n.type === 'PhonePIN').props.error, true);
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });

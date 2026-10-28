@@ -1,3 +1,4 @@
+// @fabric-react
 import {dockFence} from './helpers/dock-fence.ts';
 /** Authored UNRUN source vectors. Actual presenter hooks with controlled shared
  * values and manually supplied child hooks; no reconciler, native image, frame
@@ -5,7 +6,7 @@ import {dockFence} from './helpers/dock-fence.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
-import {createHookHost, act} from './hook-driver.ts';
+import {createFabricHookHost, act} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {sameDockFence} from '../src-next/kit/dock/model.ts';
 import {freezeOverlayPaint} from '../src-next/kit/overlays/overlay-paint-model.ts';
@@ -51,23 +52,23 @@ async function rig() {
       words: React.createElement('Text', {}, label), controls: React.createElement('View', {}, React.createElement('Input', {onPress})),
       expanded: false, containerStyle: {}, textStyle: {}, artWidth: width, openerGap: 12, rowGap: 12});
   }
-  const host = createHookHost(() => {tree = DockHandover(props);});
+  const host = createFabricHookHost(() => {tree = DockHandover(props);});
   const phase = () => tree.props.children[1].props.value;
   const retiring = () => tree.props.children[0] as any[];
   return {row, allowed, phase, retiring, cells,
-    async mount(next: any) {props = {...next, allowedTypes: allowed}; host.mount(); await act(() => {});},
-    async update(next: any) {props = {...props, ...next}; host.rerender(); await act(() => {});},
-    async reduce() {motion = policy(true); host.rerender(); await act(() => {});},
-    mountRetiring(element: any) {let output: any; const child = createHookHost(() => {output = element.type(element.props);}); child.mount();
+    async mount(next: any) {props = {...next, allowedTypes: allowed}; await host.mount(); await act(() => {});},
+    async update(next: any) {props = {...props, ...next}; await host.rerender(); await act(() => {});},
+    async reduce() {motion = policy(true); await host.rerender(); await act(() => {});},
+    async mountRetiring(element: any) {let output: any; const child = createFabricHookHost(() => {output = element.type(element.props);}); await child.mount();
       return {host: child, get tree() {return output;}, phase: () => output.props.children.props.children.props.value};},
-    close() {host.unmount();}};
+    async close() {await host.unmount();}};
 }
 
 test('an interrupted live copy retires from its actual pose while earlier exits keep their own clocks', async () => {
   const r = await rig(); let commands = 0;
   await r.mount({occupant: occupant('a'), row: r.row('A', 80, () => commands++)});
   await r.update({occupant: occupant('b'), row: r.row('B', 44)});
-  const first = r.retiring()[0], outgoing = r.mountRetiring(first);
+  const first = r.retiring()[0], outgoing = await r.mountRetiring(first);
   try {
     const frozen = first.props.entry.node;
     frozen.props.opener.props.onPress(); assert.equal(commands, 0);
@@ -85,18 +86,18 @@ test('an interrupted live copy retires from its actual pose while earlier exits 
     assert.equal(outgoing.phase().alpha.value, .7);
     assert.equal(r.phase().alpha.running.from, 0);
     assert.equal(r.phase().alpha.running.config.duration, 180);
-  } finally {outgoing.host.unmount(); r.close();}
+  } finally {await outgoing.host.unmount(); await r.close();}
 });
 
 test('reduction retargets partial opacity at160 without retaining hidden spatial motion', async () => {
   const r = await rig();
   await r.mount({occupant: occupant('a'), row: r.row('A', 80)});
   await r.update({occupant: occupant('b'), row: r.row('B', 44)});
-  const outgoing = r.mountRetiring(r.retiring()[0]);
+  const outgoing = await r.mountRetiring(r.retiring()[0]);
   try {
     r.phase().alpha.running.tick(.42); outgoing.phase().alpha.running.tick(.6);
     const retired = outgoing.phase().alpha.running;
-    await r.reduce(); outgoing.host.rerender(); await act(() => {});
+    await r.reduce(); await outgoing.host.rerender(); await act(() => {});
     assert.equal(r.phase().alpha.running.from, .42);
     assert.equal(r.phase().alpha.running.config.duration, 160);
     assert.equal(r.phase().alpha.running.config.easing, 'linear');
@@ -106,7 +107,7 @@ test('reduction retargets partial opacity at160 without retaining hidden spatial
     retired.retire();
     assert.equal(r.retiring().length, 1, 'a stopped completion removes no active layer');
     assert.equal(outgoing.phase().alpha.running.stopped, false);
-  } finally {outgoing.host.unmount(); r.close();}
+  } finally {await outgoing.host.unmount(); await r.close();}
 });
 
 test('receiver sequence-only observations update live facts without replaying a content handover', async () => {
@@ -117,7 +118,7 @@ test('receiver sequence-only observations update live facts without replaying a 
     assert.equal(r.retiring().length, 0);
     assert.equal(r.phase().alpha.value, 1);
     assert.equal(r.phase().alpha.running, undefined);
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 test('only an offered original video file is painted, and retirement disposes that exact resource', async () => {
@@ -128,7 +129,7 @@ test('only an offered original video file is painted, and retirement disposes th
     signal: life.signal, paintCurrent: () => current, subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};}, release: async () => {releases++;}};
   await r.mount({occupant: occupant('video', 'video'), row: r.row('Video', 80), takeVideoExit: (original: any) => {claims.push(original); return video;}});
   await r.update({occupant: occupant('audio'), row: r.row('Audio', 44)});
-  const entry = r.retiring()[0], outgoing = r.mountRetiring(entry);
+  const entry = r.retiring()[0], outgoing = await r.mountRetiring(entry);
   try {
     assert.deepEqual(claims, [originalFence]);
     assert.equal(entry.props.entry.video, video);
@@ -142,7 +143,7 @@ test('only an offered original video file is painted, and retirement disposes th
     await act(() => {current = false; for (const notify of [...listeners]) notify();});
     assert.equal(outgoing.tree, null);
     assert.equal(r.retiring().length, 0);
-  } finally {outgoing.host.unmount(); r.close(); await Promise.resolve();}
+  } finally {await outgoing.host.unmount(); await r.close(); await Promise.resolve();}
   assert.equal(releases, 1);
 });
 
@@ -151,12 +152,12 @@ test('missing original video permission skips old picture pixels while retaining
   const r = await rig();
   await r.mount({occupant: occupant('video', 'video'), row: r.row('Video', 80)});
   await r.update({occupant: occupant('audio'), row: r.row('Audio', 44)});
-  const entry = r.retiring()[0], outgoing = r.mountRetiring(entry);
+  const entry = r.retiring()[0], outgoing = await r.mountRetiring(entry);
   try {
     assert.equal(entry.props.entry.video, undefined);
     assert.equal(entry.props.entry.skipArt, true);
     assert.equal(outgoing.phase().hideArt, true);
     assert.equal(entry.props.entry.node.props.words.props.children, 'Video');
     assert.equal(outgoing.tree.props.mode, INERT);
-  } finally {outgoing.host.unmount(); r.close();}
+  } finally {await outgoing.host.unmount(); await r.close();}
 });

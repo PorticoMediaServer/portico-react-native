@@ -1,3 +1,4 @@
+// @fabric-react
 import {DockVideoExitImages} from '../src-next/kit/dock/video-exit-paint.ts';
 import {dockHandoverFixture} from './helpers/screen-harness.mjs';
 import {listeningCoverFixture} from './helpers/screen-harness.mjs';
@@ -16,7 +17,7 @@ import {playerPostureCrossFadeMs} from '../src-next/platform/layout/player-prese
 import * as watchSlotLayout from '../src-next/shell/watch-slot-layout.ts';
 import {focusTestID} from '../src-next/kit/focus/registry.ts';
 import {tvFocusIds} from '../src-next/shell/tv-focus.ts';
-import {act, createHookHost} from './hook-driver.ts';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule as transformModule} from './helpers/screen-harness.mjs';
 import {useListeningSong} from '../src-next/shell/use-listening-song.ts';
 
@@ -143,30 +144,30 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
     shellReads++;return {selectionActive: false, homeObscured: false};
   }, reportError: (error: any) => {throw error;}, text: {}, artwork() {}, ambient() {}};
   let tree: any, hostTree: any, barTree: any, pictureTree: any, hostProps: any, barProps: any, pictureProps: any;
-  let barHost: ReturnType<typeof createHookHost> | undefined, closed = false;
+  let barHost: Awaited<ReturnType<typeof createFabricHookHost>> | undefined, closed = false;
   let extraPicture: any = {}, extraBar: any = {};
-  const layerHost = createHookHost(() => {parentRenders++; tree = NativePlaybackLayer({adapter, runtime, authority});
+  const layerHost = createFabricHookHost(() => {parentRenders++; tree = NativePlaybackLayer({adapter, runtime, authority});
     elements(tree).find(node => node.props.testID === 'native-persistent-playback').props.ref.current = {measureInWindow: (cb: any) => cb(0, 0)};
   });
-  const dockHost = createHookHost(() => {hostTree = DockHost(hostProps);});
+  const dockHost = createFabricHookHost(() => {hostTree = DockHost(hostProps);});
   const onPresentationChange = (state: any) => {presentations.push(state); pictureProps.onPresentationChange?.(state);};
-  const pictureHost = createHookHost(() => {pictureTree = PlayerMorph({...pictureProps, ...extraPicture, onPresentationChange});});
-  layerHost.mount();
-  hostProps = elements(tree).find(node => node.type === DockHost).props; dockHost.mount();
-  pictureProps = elements(tree).find(node => node.type === PlayerMorph).props; pictureHost.mount();
+  const pictureHost = createFabricHookHost(() => {pictureTree = PlayerMorph({...pictureProps, ...extraPicture, onPresentationChange});});
+  await layerHost.mount();
+  hostProps = elements(tree).find(node => node.type === DockHost).props; await dockHost.mount();
+  pictureProps = elements(tree).find(node => node.type === PlayerMorph).props; await pictureHost.mount();
   async function sync() {
     flushUI();
     await act(() => {});
     if (closed) return;
-    hostProps = elements(tree).find(node => node.type === DockHost).props; dockHost.rerender();
-    pictureProps = elements(tree).find(node => node.type === PlayerMorph).props; pictureHost.rerender();
+    hostProps = elements(tree).find(node => node.type === DockHost).props; await dockHost.rerender();
+    pictureProps = elements(tree).find(node => node.type === PlayerMorph).props; await pictureHost.rerender();
     await act(() => {});
     const bar = elements(hostTree).find(node => node.type === MediaBar);
     if (bar) {
       barProps = bar.props;
-      if (!barHost) {barHost = createHookHost(() => {barTree = MediaBar({...barProps, ...extraBar});}); barHost.mount();} else barHost.rerender();
+      if (!barHost) {barHost = createFabricHookHost(() => {barTree = MediaBar({...barProps, ...extraBar});}); await barHost.mount();} else await barHost.rerender();
       await act(() => {});
-    } else {barHost?.unmount(); barHost = undefined; barTree = undefined;}
+    } else {await barHost?.unmount(); barHost = undefined; barTree = undefined;}
   }
   await sync();
   const controller = () => elements(tree).find(node => node.type === PlayerMorph).props.controller;
@@ -205,19 +206,19 @@ async function rig({reduced = false, docked = false, kind = 'video', os = 'andro
     get shellReads() {return shellReads;}, retireRuntime() {runtimeLife.abort();},
     get parentRenders() {return parentRenders;},
     get tree() {return tree;}, get hostTree() {return hostTree;}, get barTree() {return barTree;}, get pictureTree() {return pictureTree;},
-    async render() {refresh(); layerHost.rerender(); await sync();},
-    async refreshMotion() {motion = {...motion}; layerHost.rerender(); await sync();},
+    async render() {refresh(); await layerHost.rerender(); await sync();},
+    async refreshMotion() {motion = {...motion}; await layerHost.rerender(); await sync();},
     async replace(render = true) {
       const replacement = playback.kind === 'live'
         ? {...playback, fence: {...playback.fence, sourceId: 'replacement', generation: 2}}
         : {...playback, fence: {...playback.fence, sourceId: 'replacement', generation: 2}};
-      dock.start({...replacement, expanded: !docked}); refresh(); if (render) {layerHost.rerender(); await sync();}
+      dock.start({...replacement, expanded: !docked}); refresh(); if (render) {await layerHost.rerender(); await sync();}
     },
-    async media(extra: any) {extraBar = extra; barHost!.rerender(); await act(() => {});},
-    async picture(extra: any) {extraPicture = extra; pictureHost.rerender(); await act(() => {});},
+    async media(extra: any) {extraBar = extra; await barHost!.rerender(); await act(() => {});},
+    async picture(extra: any) {extraPicture = extra; await pictureHost.rerender(); await act(() => {});},
     async layout() {const slot = elements(barTree).find(node => node.props.collapsable === false); slot.props.ref.current = {measureInWindow: (cb: any) => {measurements.push(true); cb(24, 700, 80, 45);}}; slot.props.onLayout(); await sync();},
     time(value: number) {now = value;},
-    close() {if (closed) return; closed = true; barHost?.unmount(); pictureHost.unmount(); dockHost.unmount(); layerHost.unmount(); clock?.mock.restore();},
+    async close() {if (closed) return; closed = true; await barHost?.unmount(); await pictureHost.unmount(); await dockHost.unmount(); await layerHost.unmount(); clock?.mock.restore();},
   };
 }
 const vertical = {translationY: 600, velocityY: 1000}, horizontal = {translationX: 300, velocityX: 1000};
@@ -237,26 +238,26 @@ test('queued real morph release cannot collapse/expand replacement B in the same
       pan.callbacks.onBegin(); pan.callbacks.onUpdate(event); pan.callbacks.onEnd(event, true);
       await r.replace(render); await r.flushJS();
       assert.equal(r.dock.getSnapshot().local?.expanded, !docked); assert.equal(r.transitions.length, 0);
-    } finally {r.close();}
+    } finally {await r.close();}
   }
 });
 test('successful current release dispatches once, while transition replacement and unmount retire queued release', async () => {
   const r = await rig();
   try {const pan = r.fullPan(); pan.callbacks.onBegin(); pan.callbacks.onUpdate(vertical); pan.callbacks.onEnd(vertical, true); await r.flushJS();
     assert.equal(r.dock.getSnapshot().local?.expanded, false); assert.equal(r.transitions.length, 1);
-  } finally {r.close();}
+  } finally {await r.close();}
   for (const stop of ['unmount', 'transition', 'new-pan']) {const r = await rig();
     try {const pan = r.fullPan(); pan.callbacks.onBegin(); pan.callbacks.onUpdate(vertical); pan.callbacks.onEnd(vertical, true);
-      if (stop === 'unmount') r.close(); else if (stop === 'new-pan') pan.callbacks.onBegin(); else {r.dock.collapse(fence); await r.render();}
+      if (stop === 'unmount') await r.close(); else if (stop === 'new-pan') pan.callbacks.onBegin(); else {r.dock.collapse(fence); await r.render();}
       await r.flushJS(); assert.equal(r.transitions.length, 0, stop);
-    } finally {r.close();}
+    } finally {await r.close();}
   }
 });
 test('ACTIVE unsuccessful vertical pan restores its goal without releasing, including reduced motion', async () => {
   for (const reduced of [false, true]) {const r = await rig({reduced});
     try {const pan = r.fullPan(); pan.callbacks.onBegin(); pan.callbacks.onUpdate(vertical); pan.callbacks.onEnd(vertical, false); pan.callbacks.onFinalize(vertical, false); await r.flushJS();
       assert.equal(r.transitions.length, 0); assert.equal(r.dock.getSnapshot().local?.expanded, true); assert.equal(r.controller().dragging.value, false); assert.equal(r.animations.at(-1)!.to, 0, 'cancel returns to the current expanded goal');
-    } finally {r.close();}
+    } finally {await r.close();}
   }
 });
 for (const success of [true, false]) test(`reduced vertical ${success ? 'release' : 'ACTIVE cancel'} uses the current memoized timing policy`, async () => {
@@ -278,7 +279,7 @@ for (const success of [true, false]) test(`reduced vertical ${success ? 'release
       assert.equal(animation.config.easing(.25), .25, 'reduced progress uses linear easing');
       assert.equal(typeof animation.complete, 'function', 'timing keeps the guarded completion');
       await r.flushJS(); assert.equal(r.transitions.length, success ? 1 : 0);
-    } finally {r.close();}
+    } finally {await r.close();}
   }
 });
 test('unsuccessful aside cancels x AND fade; late completion cannot close in normal or reduced motion', async () => {
@@ -287,7 +288,7 @@ test('unsuccessful aside cancels x AND fade; late completion cannot close in nor
       for (const animation of [...r.animations]) await r.complete(animation);
       await r.flushJS(); assert.deepEqual(r.actions, []);
       assert.ok(r.cancelled.includes(r.controller().dockX)); assert.ok(r.cancelled.includes(r.controller().dockFade));
-    } finally {r.close();}
+    } finally {await r.close();}
   }
 });
 test('old aside dismiss completions and queued callbacks are retired on source, visibility and unmount', async () => {
@@ -300,9 +301,9 @@ test('old aside dismiss completions and queued callbacks are retired on source, 
       if (stop === 'source') await r.replace();
       else if (stop === 'visibility') {r.dock.expand(fence); await r.render();}
       else if (stop === 'new-pan') pan.callbacks.onBegin();
-      else r.close();
+      else await r.close();
       await r.complete(finish, true); await r.flushJS(); assert.deepEqual(r.actions, [], `${reduced}/${stop}`);
-    } finally {r.close();}
+    } finally {await r.close();}
   }
 });
 test('expanding outgoing DockHost keeps distinct physical detector gesture identities', async () => {
@@ -312,7 +313,7 @@ test('expanding outgoing DockHost keeps distinct physical detector gesture ident
     assert.ok(r.barTree, 'outgoing presence still mounted');
     assert.ok(!dock.gestures.includes(full), 'one PanGesture must never be attached in both detectors');
     assert.equal(dock.gestures[1].config.enabled, false, 'outgoing dock pan has no input ownership');
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 test('horizontal drag/fade transforms the actual common ancestor of chrome, Surface and retained preview', async () => {
   const r = await rig({docked: true, reduced: true});
@@ -331,7 +332,7 @@ test('horizontal drag/fade transforms the actual common ancestor of chrome, Surf
     pan.callbacks.onEnd(horizontal, true); const fade = r.animations.filter(value => value.to === 0 && value.complete).at(-1)!;
     fade.apply?.(); assert.equal(read().opacity, 0);
     assert.strictEqual(elements(r.pictureTree).find(node => node.type === r.Surface).type, surface.type);
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 test('steady reduced snapshot/fullFrame object churn never restarts the picture fade; actual transition fades once', async () => {
   const r = await rig({reduced: true});
@@ -342,7 +343,7 @@ test('steady reduced snapshot/fullFrame object churn never restarts the picture 
     await r.render(); assert.equal(r.animations.length, after);
     r.controller().progress.value = 1; r.controller().velocity.value = 0; await r.tickPicture(); await r.tickPicture();
     assert.equal(r.animations.length, after, 'settlement reaction does not replay the reduced transition fade');
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 for (const reduced of [false, true]) test(`actual live channel collapse hosts horizontal x/fade once around the same Surface and chrome (reduced=${reduced})`, async () => {
   const r = await rig({kind: 'live', reduced});
@@ -369,7 +370,7 @@ for (const reduced of [false, true]) test(`actual live channel collapse hosts ho
       assert.strictEqual(movingHost().type, originalHostType);
       assert.strictEqual(elements(r.pictureTree).find(node => node.type === r.Surface).type, surface.type);
       await r.complete(dismiss); assert.equal(r.actions.length, 1); assert.ok(sameFence(r.actions[0].fence, channelFence));
-    } finally {r.close();}
+    } finally {await r.close();}
 });
 // Apple composes through ancestor opacity. Android's retained-image fade is
 // exercised below; a SurfaceView cannot use this live-layer opacity contract.
@@ -396,7 +397,7 @@ for (const docked of [false, true]) for (const snapshotDuringProgress of [false,
       progress.apply?.(); r.controller().velocity.value = 0; await r.tickPicture(); await r.tickPicture(); await r.render();
       assert.equal(fadeCount(), count, 'the final reaction and later snapshots cannot consume a second fade');
       assert.equal(fade.owner.value, .65); await r.complete(fade); assert.equal(fade.owner.value, 1);
-    } finally {r.close();}
+    } finally {await r.close();}
 });
 test('Apple reduced drag and ACTIVE cancel returning to the same goal each fade once after transition consumption', async () => {
   for (const success of [false, true]) {const r = await rig({reduced: true, docked: true, os: 'ios'});
@@ -419,7 +420,7 @@ test('Apple reduced drag and ACTIVE cancel returning to the same goal each fade 
         await r.complete(fades.at(-1)!);
         assert.equal(r.dock.getSnapshot().local?.expanded, false);
       }
-    } finally {r.close();}
+    } finally {await r.close();}
   }
 });
 test('Apple reduced drag during its goal timing remains a new fade run, including ACTIVE cancel', async () => {
@@ -439,7 +440,7 @@ test('Apple reduced drag during its goal timing remains a new fade run, includin
       const fades = r.animations.filter(value => value.owner === fade.owner);
       assert.equal(fades.length, count + 1, `success=${success}: a drag interrupting goal progress is a genuine new run`);
       assert.equal(r.dock.getSnapshot().local?.expanded, true);
-    } finally {r.close();}
+    } finally {await r.close();}
   }
 });
 
@@ -499,7 +500,7 @@ for (const ordering of ['completion-before-derivative', 'derivative-before-compl
     assert.ok(!elements(r.pictureTree).some(node => node.props.children === 'paused-current-frame'), 'retire the retained image after its one outgoing fade');
     assert.equal(r.parentRenders, parentRenders, 'no layer sync/render or playback fact update rescued settlement');
     assert.equal(r.transitions.length, 0); assert.deepEqual(r.actions, []);
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 test('obsolete progress completion cannot settle a newer drag, source, goal, retarget or unmounted picture', async () => {
   for (const stop of ['new-drag', 'source', 'goal', 'retarget', 'unmount']) {
@@ -512,7 +513,7 @@ test('obsolete progress completion cannot settle a newer drag, source, goal, ret
       } else if (stop === 'source') await r.replace();
       else if (stop === 'goal') {r.dock.expand(fence); await r.render();}
       else if (stop === 'retarget') {r.controller().request(true); await r.motionTick(184);}
-      else r.close();
+      else await r.close();
       const current = r.animations.filter(value => value.owner === r.controller().progress).at(-1)!;
       if (stop !== 'unmount') {current.sample?.(1); await r.motionTick(192);}
       const velocity = r.controller().velocity.value, count = fades().length, states = r.presentations.length;
@@ -532,7 +533,7 @@ test('obsolete progress completion cannot settle a newer drag, source, goal, ret
         assert.equal(r.presentations.at(-1).moving, false);
       }
       assert.equal(r.transitions.length, 0); assert.deepEqual(r.actions, []);
-    } finally {r.close();}
+    } finally {await r.close();}
   }
 });
 test('actual 500ms local hold requests policy-respecting selection haptic once and opens its menu', async () => {
@@ -542,18 +543,18 @@ test('actual 500ms local hold requests policy-respecting selection haptic once a
       r.time(500); hold.onLongPressAction(); hold.onLongPressAction(); await r.flushJS();
       assert.deepEqual(r.requests, [500]); assert.equal(elements(r.barTree).find(node => node.type === 'Popover').props.open, true);
       hold.onPressOut(); hold.onPressIn(); r.time(1000); hold.onLongPressAction(); await r.flushJS(); assert.deepEqual(r.requests, [500, 1000]);
-    } finally {r.close();}
+    } finally {await r.close();}
   }
 });
 test('stale/unmounted/invisible holds do not request feedback; platform haptic policy remains authoritative', async () => {
   for (const stop of ['source', 'source-before-render', 'visibility', 'unmount', 'release']) {const r = await rig({docked: true});
     try {const hold = r.opener(); hold.onPressIn();
-      if (stop === 'source') await r.replace(); else if (stop === 'source-before-render') await r.replace(false); else if (stop === 'visibility') {r.dock.expand(fence); await r.render();} else if (stop === 'release') hold.onPressOut(); else r.close();
+      if (stop === 'source') await r.replace(); else if (stop === 'source-before-render') await r.replace(false); else if (stop === 'visibility') {r.dock.expand(fence); await r.render();} else if (stop === 'release') hold.onPressOut(); else await r.close();
       hold.onLongPressAction(); await r.flushJS(); assert.deepEqual(r.requests, [], stop);
-    } finally {r.close();}
+    } finally {await r.close();}
   }
   const r = await rig({docked: true, os: 'web'});
-  try {const hold = r.opener(); hold.onPressIn(); hold.onLongPressAction(); await r.flushJS(); assert.deepEqual(r.requests, []);} finally {r.close();}
+  try {const hold = r.opener(); hold.onPressIn(); hold.onLongPressAction(); await r.flushJS(); assert.deepEqual(r.requests, []);} finally {await r.close();}
 });
 
 // Positive completion matters: ownership checks must preserve a current dismiss.
@@ -563,7 +564,7 @@ test('successful current aside completion closes exactly once in normal and redu
       const finish = r.animations.filter(value => value.complete).at(-1)!;
       await r.complete(finish); await r.complete(finish, true);
       assert.equal(r.actions.length, 1); assert.equal(r.actions[0].type, 'close'); assert.ok(sameFence(r.actions[0].fence, fence));
-    } finally {r.close();}
+    } finally {await r.close();}
   }
 });
 test('interrupted vertical source callbacks cannot move replacement progress or release it', async () => {
@@ -571,7 +572,7 @@ test('interrupted vertical source callbacks cannot move replacement progress or 
   try {const pan = r.fullPan(); pan.callbacks.onBegin(); pan.callbacks.onUpdate(vertical); await r.replace();
     const progress = r.controller().progress.value; pan.callbacks.onUpdate({translationY: 800, velocityY: 2000}); pan.callbacks.onEnd(vertical, true); pan.callbacks.onFinalize(vertical, false); await r.flushJS();
     assert.equal(r.controller().progress.value, progress); assert.equal(r.transitions.length, 0);
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 test('a standalone morph consumer keeps local bar movement without a hosted picture ancestor', async () => {
@@ -580,7 +581,7 @@ test('a standalone morph consumer keeps local bar movement without a hosted pict
     const pan = r.aside(); pan.callbacks.onBegin(); pan.callbacks.onUpdate(horizontal);
     const chrome = elements(r.barTree).find(node => node.type === 'AnimatedView').props.style.find((style: any) => style?.read).read();
     assert.equal(chrome.transform[0].translateX, 300);
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 const picturePropsOf = (r: any) => elements(r.tree).find(node => node.type?.name === 'PlayerMorph').props;
 const surfaceIn = (r: any) => elements(r.pictureTree).find(node => node.type === r.Surface);
@@ -598,7 +599,7 @@ test('audio playback paints no picture or full-window gesture while the same mou
       assert.equal(surface.props.expandedBounds, undefined);
       assert.equal(surface.props.surfaceActive, false, 'audio never receives a producer composition');
       assert.ok(!elements(r.tree).some(node => node.type === 'GestureDetector'), 'audio never owns the full-window picture drag');
-    } finally {r.close();}
+    } finally {await r.close();}
   }
 });
 test('video → audio → video keeps one Surface and paints only the current video at its measured slot', async () => {
@@ -623,7 +624,7 @@ test('video → audio → video keeps one Surface and paints only the current vi
     assert.ok(sameFence(picturePropsOf(r).fence, fence), 'the returning video paints again');
     assert.strictEqual(surfaceIn(r).type, r.Surface, 'one Surface component throughout');
     assert.deepEqual(picturePropsOf(r).dockFrame, {x: 24, y: 700, width: 80, height: 45}, 'the returning video reuses its current fence slot');
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 test('docked video needs a current-fence measured slot, and expansion only ever uses the current video', async () => {
   const r = await rig({docked: true, kind: 'video', reduced: true});
@@ -646,7 +647,7 @@ test('docked video needs a current-fence measured slot, and expansion only ever 
     }
     await r.layout();
     assert.ok(sameFence(picturePropsOf(r).fence, current.fence), 'the replacement measures its own dock slot');
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 // Authored UI-worklet boundary evidence; no physical picture capture claim.
@@ -664,7 +665,7 @@ test('local video and chrome use actual travel opacity through an interrupted as
     assert.equal(r.controller().dockTravelFade.value, .25, 'interrupting at the current offset cannot brighten the paint');
     pan.callbacks.onUpdate({translationX: -93.5, velocityX: 0}); await r.tick();
     assert.equal(r.controller().dockTravelFade.value, .5);
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 
@@ -681,7 +682,7 @@ test('playback Back refuses the original retired shell before any accessor even 
       const transitions = r.transitions.length;r.retireRuntime();assert.equal(r.activeBackListeners, 0);
       assert.equal(queued(), false, 'already-queued delivery also refuses the original aborted owner');
       assert.equal(r.shellReads, 1);assert.equal(r.transitions.length, transitions);
-    } finally {r.close();}
+    } finally {await r.close();}
   }
 });
 
@@ -699,7 +700,7 @@ test('retired passive chrome gate refuses queued begin/update/release and finali
     assert.equal(r.controller().dragging.value, false);
     assert.equal(r.animations.at(-1)!.to, 0);
     pan.callbacks.onBegin(); assert.equal(r.controller().dragging.value, false, 'a queued old begin cannot re-arm retired paint');
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 
@@ -715,5 +716,5 @@ for (const retirement of ['target', 'page'] as const) test(`queued chrome releas
     assert.equal(r.dock.getSnapshot().local?.expanded, true);
     assert.equal(r.controller().dragging.value, false);
     assert.equal(r.animations.at(-1)!.to, 0, 'original expanded UI state is restored instead of leaving a rejected mini pose');
-  } finally {r.close();}
+  } finally {await r.close();}
 });

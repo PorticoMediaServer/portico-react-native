@@ -1,10 +1,11 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {defaultI18n} from '../../../packages/i18n/src';
 import * as sessions from '../../../packages/client-core/src/account-sessions';
 import {createTheme} from '../src-next/kit/theme';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
@@ -39,7 +40,7 @@ async function mount(state: Record<string, unknown>) {
   });
   let tree: any;
   const createSource = () => source;
-  const host = createHookHost(() => {tree = PhoneAccountWorkspace({createSource, username: 'dana', onDone() {}, onFind() {}, onJoin() {}, onSignOut() {}});});
+  const host = createFabricHookHost(() => {tree = PhoneAccountWorkspace({createSource, username: 'dana', onDone() {}, onFind() {}, onJoin() {}, onSignOut() {}});});
   await act(() => host.mount());
   return {calls, tree: () => tree, host, set: async (next: Record<string, unknown>) => {snapshot = {...snapshot, ...next}; await act(() => listeners.forEach(listener => listener()));}};
 }
@@ -61,7 +62,7 @@ test('the Devices list names each sign-in from its reported facts and leaves unk
     // This device signs out from the menu; its row offers no Sign out, as drawn.
     assert.equal(button(app.tree(), 'account-device-sign-out-here'), undefined);
     assert.ok(button(app.tree(), 'account-device-sign-out-tv'));
-  } finally {app.host.unmount();}
+  } finally {await app.host.unmount();}
 });
 
 test('Sign out all other devices asks first, then makes the one request', async () => {
@@ -74,7 +75,7 @@ test('Sign out all other devices asks first, then makes the one request', async 
     assert.deepEqual(app.calls, []);
     await act(() => button(sheet(app.tree()).props.footer, 'account-workspace-confirm-action').props.onPress());
     assert.deepEqual(app.calls, ['others']);
-  } finally {app.host.unmount();}
+  } finally {await app.host.unmount();}
 });
 
 test('while Sign out all other devices is unconfirmed, only its Try again acts', async () => {
@@ -85,7 +86,7 @@ test('while Sign out all other devices is unconfirmed, only its Try again acts',
     const retry = nodes(app.tree()).find(node => node.type === 'Button' && node.props.children === t('action.tryAgain'));
     await act(() => retry.props.onPress());
     assert.deepEqual(app.calls, ['others']);
-  } finally {app.host.unmount();}
+  } finally {await app.host.unmount();}
 });
 
 test('Sign out all other devices is off when no other sign-in is listed or follows', async () => {
@@ -94,5 +95,5 @@ test('Sign out all other devices is off when no other sign-in is listed or follo
     assert.equal(button(app.tree(), 'account-devices-sign-out-others').props.disabled, true);
     await app.set({sessionsNext: true});
     assert.equal(button(app.tree(), 'account-devices-sign-out-others').props.disabled, false);
-  } finally {app.host.unmount();}
+  } finally {await app.host.unmount();}
 });

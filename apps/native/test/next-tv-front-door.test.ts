@@ -1,10 +1,11 @@
+// @fabric-react
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {createTheme, nativeType} from '../src-next/kit/theme';
 import {shellLayout} from '../src-next/shell/model';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {createNativeMeasurementRegistry} from '../src-next/dev/layout-dump/registry';
 import * as entryRevision from '../src-next/tv/auth/entry-revision';
@@ -23,7 +24,7 @@ test('the TV front door renders its wordmark and only actual authority-choice ca
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'require'), previousDev = Object.getOwnPropertyDescriptor(globalThis, '__DEV__');
   Object.defineProperty(globalThis, '__DEV__', {configurable: true, value: false});
   Object.defineProperty(globalThis, 'require', {configurable: true, value: (path: string) => {assert.equal(path, '../../../assets/wordmark.png'); return 'wordmark';}});
-  let host: ReturnType<typeof createHookHost> | undefined;
+  let host: Awaited<ReturnType<typeof createFabricHookHost>> | undefined;
   try {
     const calls: string[] = [], entries: any[] = [], theme = createTheme({isTV: true, width: 1920});
     let dimensions = {width: 1920, height: 1080}, tree: any, flattenCalls = 0;
@@ -36,7 +37,7 @@ test('the TV front door renders its wordmark and only actual authority-choice ca
       './entry-revision': entryRevision,
     });
     const props = {busy: false, onPortico: () => calls.push('portico'), onLocal: () => calls.push('local')};
-    host = createHookHost(() => {const provider = TVFrontDoor(props); assert.equal(provider.type, 'Provider'); const child = provider.props.children; tree = child.type(child.props);});
+    host = createFabricHookHost(() => {const provider = TVFrontDoor(props); assert.equal(provider.type, 'Provider'); const child = provider.props.children; tree = child.type(child.props);});
     await act(() => host!.mount());
     assert.deepEqual(calls, [], 'mounting does not contact Portico Services or a media server');
     assert.equal(flattenCalls, 0, 'production does not evaluate diagnostic style flattening');
@@ -67,7 +68,7 @@ test('the TV front door renders its wordmark and only actual authority-choice ca
     assert.equal(entries.at(-1).activation.visible, false);
     assert.equal(flattenCalls, 0, 'production rerenders preserve the zero-evaluation diagnostic boundary');
   } finally {
-    host?.unmount();
+    await host?.unmount();
     if (previous) Object.defineProperty(globalThis, 'require', previous); else delete (globalThis as {require?: unknown}).require;
     if (previousDev) Object.defineProperty(globalThis, '__DEV__', previousDev); else delete (globalThis as {__DEV__?: unknown}).__DEV__;
   }
@@ -84,7 +85,7 @@ test('DEV TV heading records only native text events, invalidates changed layout
     assert.ok(path === '../../dev/layout-dump/index' || path === '../dev/layout-dump/index');
     return {registerNativeHost: registry.register};
   }});
-  let host: ReturnType<typeof createHookHost> | undefined;
+  let host: Awaited<ReturnType<typeof createFabricHookHost>> | undefined;
   try {
     let dimensions = {width: 1920, height: 1080}, theme = createTheme({isTV: true, width: 1920}), tree: any;
     const {TVFrontDoor} = await screenModule(new URL('../src-next/tv/auth/TVFrontDoor.tsx', import.meta.url), {
@@ -97,7 +98,7 @@ test('DEV TV heading records only native text events, invalidates changed layout
       './entry-revision': entryRevision,
     });
     const props = {busy: false, onPortico: () => {throw new Error('unexpected sign-in');}, onLocal: () => {throw new Error('unexpected local sign-in');}};
-    host = createHookHost(() => {const provider = TVFrontDoor(props); const child = provider.props.children; tree = child.type(child.props);});
+    host = createFabricHookHost(() => {const provider = TVFrontDoor(props); const child = provider.props.children; tree = child.type(child.props);});
     await act(() => host!.mount());
     const heading = () => nodes(tree).find(node => node.props.accessibilityRole === 'header');
     const image = () => nodes(tree).find(node => node.type === 'Image');
@@ -170,7 +171,7 @@ test('DEV TV heading records only native text events, invalidates changed layout
     assert.ok(requires.includes('../../dev/layout-dump/index'));
     assert.ok(requires.includes('../dev/layout-dump/index'));
   } finally {
-    host?.unmount();
+    await host?.unmount();
     if (beforeRequire) Object.defineProperty(globalThis, 'require', beforeRequire); else delete (globalThis as {require?: unknown}).require;
     if (beforeDev) Object.defineProperty(globalThis, '__DEV__', beforeDev); else delete (globalThis as {__DEV__?: unknown}).__DEV__;
   }

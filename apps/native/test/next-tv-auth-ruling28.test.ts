@@ -1,7 +1,8 @@
+// @fabric-react
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import {createFocusRegistry} from '../src-next/kit/focus/registry.ts';
 import {createInitialRegionEntry} from '../src-next/kit/focus/initial-entry.ts';
@@ -50,12 +51,12 @@ for (const kind of ['portico', 'local'] as const) test(`${kind} credentials use 
   const props = {kind, serverName: 'Actual local server', username: 'actual-user', password: 'in-memory-only', busy: false,
     usernamePlaceholder: 'auth.email', onUsernameChange() {}, onPasswordChange() {}, onSubmit: () => events.push('submit'), onBack: () => events.push('back')};
   let tree: any, username: any, password: any;
-  const root = createHookHost(() => {tree = inScope(TVCredentialForm, props);});
+  const root = createFabricHookHost(() => {tree = inScope(TVCredentialForm, props);});
   await act(() => root.mount());
   let fields = nodes(tree).filter(node => typeof node.type === 'function');
-  const usernameHost = createHookHost(() => {username = fields[0].type(fields[0].props);});
-  const passwordHost = createHookHost(() => {password = fields[1].type(fields[1].props);});
-  await act(() => {usernameHost.mount(); passwordHost.mount();});
+  const usernameHost = createFabricHookHost(() => {username = fields[0].type(fields[0].props);});
+  const passwordHost = createFabricHookHost(() => {password = fields[1].type(fields[1].props);});
+  await act(async () => {await usernameHost.mount(); await passwordHost.mount();});
   try {
     const field = (node: unknown) => nodes(node).find(value => value.type === 'Field');
     assert.equal(field(username).props.focusId, 'username');
@@ -87,11 +88,11 @@ for (const kind of ['portico', 'local'] as const) test(`${kind} credentials use 
     props.busy = true;
     await act(() => root.rerender());
     fields = nodes(tree).filter(node => typeof node.type === 'function');
-    await act(() => {usernameHost.rerender(); passwordHost.rerender();});
+    await act(async () => {await usernameHost.rerender(); await passwordHost.rerender();});
     assert.equal(field(password).props.editable, false, 'busy disables the direct field');
     nodes(tree).find(node => node.type === 'Button' && node.props.focusId === 'submit').props.onPress();
     assert.deepEqual(events, ['submit', 'back']);
-  } finally {passwordHost.unmount(); usernameHost.unmount(); root.unmount();}
+  } finally {await passwordHost.unmount(); await usernameHost.unmount(); await root.unmount();}
 });
 
 test('both actual TV code modes expose the drawn credential route without starting a transaction', async () => {
@@ -127,27 +128,27 @@ test('sixth MFA digit submits once, rejected controlled state can retry, and Pla
     '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'}, '../../kit/Icon': {Icon: 'Icon'},
     './TVNumericPad': numeric,
   });
-  const host = createHookHost(() => {tree = inScope(TVVerificationForm, props);});
+  const host = createFabricHookHost(() => {tree = inScope(TVVerificationForm, props);});
   const press = (digit: string) => nodes(numeric.TVNumericPad(tree.props.aside.props)).find(node => node.props.testID === `tv.auth.local.factor-pad-${digit}`).props.onPress();
   try {
     await act(() => host.mount());
-    for (const digit of '123456') await act(() => {press(digit); host.rerender();});
+    for (const digit of '123456') await act(async () => {press(digit); await host.rerender();});
     assert.deepEqual(submitted, ['123456']);
-    await act(() => {press('6'); host.rerender();});
+    await act(async () => {press('6'); await host.rerender();});
     assert.deepEqual(submitted, ['123456']);
-    await act(() => {props.code = ''; host.rerender();});
-    for (const digit of '123456') await act(() => {press(digit); host.rerender();});
+    await act(async () => {props.code = ''; await host.rerender();});
+    for (const digit of '123456') await act(async () => {press(digit); await host.rerender();});
     assert.deepEqual(submitted, ['123456', '123456']);
-    await act(() => {remote({eventType: 'playPause', eventKeyAction: 0}); host.rerender();});
+    await act(async () => {remote({eventType: 'playPause', eventKeyAction: 0}); await host.rerender();});
     assert.equal(props.code, '12345');
     remote({eventType: 'playPause', eventKeyAction: 1});
     assert.equal(props.code, '12345', 'key release does not delete twice');
-    await act(() => {remote({eventType: 'playPause', eventKeyAction: 1}); host.rerender();});
+    await act(async () => {remote({eventType: 'playPause', eventKeyAction: 1}); await host.rerender();});
     assert.equal(props.code, '1234', 'a release-only native tap deletes one digit');
-    await act(() => {props.busy = true; host.rerender(); remote({eventType: 'playPause', eventKeyAction: 0}); press('9');});
+    await act(async () => {props.busy = true; await host.rerender(); remote({eventType: 'playPause', eventKeyAction: 0}); press('9');});
     assert.equal(props.code, '1234');
     assert.ok(!nodes(tree).some(node => node.type === 'TextInput'));
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });
 
 test('recovery uses the authored uppercase/digit/dash keyboard and submits the exact controlled value', async () => {
@@ -178,7 +179,7 @@ test('profile PIN shares the actual pad, submits four digits once and exposes on
   const profile = {id: 'actual-profile', name: 'Actual name', initial: 'A', color: 'blue'};
   const props = {profile, code: '', busy: false, onCodeChange: (value: string) => {props.code = value;},
     onSubmit: (value: string) => submitted.push(value), onBack: () => actions.push('back'), onForgotPIN: () => actions.push('forgot')};
-  const host = createHookHost(() => {tree = inScope(TVProfilePINForm, props);});
+  const host = createFabricHookHost(() => {tree = inScope(TVProfilePINForm, props);});
   const pad = () => numeric.TVNumericPad(tree.props.pad.props);
   const press = (value: string) => nodes(pad()).find(node => node.type === 'Focusable' && node.props.focusId === value).props.onPress();
   try {
@@ -189,21 +190,21 @@ test('profile PIN shares the actual pad, submits four digits once and exposes on
       defaultI18n.t('next.auth.tv.playPause'), defaultI18n.t('next.auth.tv.deleteDigit'), defaultI18n.t('action.back'), defaultI18n.t('web.direct.otherProfiles'),
     ]);
     assert.ok(!hints.some(node => node.type === 'TextInput' || node.type === 'Button' || node.type === 'Focusable'), 'remote hints add no controls or native-input path');
-    for (const digit of '1234') await act(() => {press(digit); host.rerender();});
-    await act(() => {press('5'); host.rerender();});
+    for (const digit of '1234') await act(async () => {press(digit); await host.rerender();});
+    await act(async () => {press('5'); await host.rerender();});
     assert.deepEqual(submitted, ['1234']);
     const boxes = nodes(tree).find(node => node.type === numeric.TVCodeBoxes);
     assert.equal(boxes.props.length, 4); assert.equal(boxes.props.masked, true);
     assert.equal(nodes(numeric.TVCodeBoxes(boxes.props)).filter(node => node.type === 'Text').length, 0, 'entered PIN characters are never drawn as text');
-    await act(() => {remote({eventType: 'playPause', eventKeyAction: 0}); host.rerender();});
+    await act(async () => {remote({eventType: 'playPause', eventKeyAction: 0}); await host.rerender();});
     assert.equal(props.code, '123');
-    await act(() => {props.code = ''; host.rerender();});
-    for (const digit of '1234') await act(() => {press(digit); host.rerender();});
+    await act(async () => {props.code = ''; await host.rerender();});
+    for (const digit of '1234') await act(async () => {press(digit); await host.rerender();});
     assert.deepEqual(submitted, ['1234', '1234'], 'a rejected/reset controlled PIN can be retried');
     nodes(pad()).find(node => node.type === 'Button').props.onPress(); tree.props.onBack();
     assert.deepEqual(actions, ['forgot', 'back']);
-    await act(() => {props.busy = true; host.rerender(); remote({eventType: 'playPause', eventKeyAction: 0}); press('9');});
+    await act(async () => {props.busy = true; await host.rerender(); remote({eventType: 'playPause', eventKeyAction: 0}); press('9');});
     assert.equal(props.code, '1234');
     assert.ok(!nodes(tree).some(node => node.type === 'TextInput'));
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });

@@ -8,8 +8,26 @@ import {NativeShellNavigation, type NativeShellRoute} from '../src-next/shell/ro
 import {nativeReadingSettingsPreferences, nativeReadingSettingsSection} from '../src-next/screens/settings/reading-preferences';
 import {openNativeReadingSettings} from '../src-next/screens/settings/reading-entry';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
-import * as React from 'react';
-import {act, createHookHost} from './hook-driver.ts';
+import {fabricHost, React} from './helpers/fabric-host.mjs';
+
+type HostNode = {tag: number; type: unknown; props: Record<string, any>; children: HostNode[]};
+// The retained scene runs on the installed Fabric renderer, so React owns keyed
+// identity, commit order, layout-effect cleanup and unmount. Native hosts and
+// WebView pixels remain controlled.
+async function mountRetained(element: any) {
+  const host = await fabricHost();
+  let current = element, scene: any = null;
+  // The scene the retained renderer offers, committed by React itself.
+  const Scene = () => {scene = current ? current.type(current.props) : null; return scene;};
+  const render = async (next: any) => {current = next; await host.render(React.createElement(Scene));};
+  await render(element);
+  /** The committed native guests the retained scene shows, in order. */
+  const rows = () => host.root.filter(node => node.type === 'TrustedReadHost') as HostNode[];
+  /** The keys the scene offers for those guests. */
+  const keys = () => (scene?.props?.children ? (Array.isArray(scene.props.children) ? scene.props.children : [scene.props.children]) : [])
+    .filter((value: any) => value?.type === 'TrustedReadHost').map((value: any) => value.key);
+  return {host, rows, keys, update: render, act: async (work: () => void) => {work(); await host.settle();}, unmount: () => host.unmount()};
+}
 
 function authorityContext() {
   const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'a'.repeat(64)};
@@ -59,17 +77,17 @@ test('Read registration retains the original occurrence across Reading Settings 
   const library: NativeShellRoute = {kind: 'shell', destination: {kind: 'library', libraryId: 'actual-library'}};
   const read: NativeShellRoute = {kind: 'read', itemId: 'actual-item', sourceId: 'actual-source'};
   f.context.navigation.open(library, f.context.authority()); f.context.navigation.open(read, f.context.authority());
-  renderer.render(read, {}); let element = renderer.renderRetained({}), tree: any;
-  const residence = createHookHost(() => {tree = element.type(element.props);});
-  await act(() => residence.mount());
-  const child = () => {const children = tree.props.children; return (Array.isArray(children) ? children : [children]).find((value: any) => value?.type === 'TrustedReadHost');};
+  renderer.render(read, {}); let element = renderer.renderRetained({});
+  const residence = await mountRetained(element);
+  const child = () => residence.rows()[0]!, firstKey = residence.keys()[0];
   const first = child(); assert.equal(first.props.target, read); assert.equal(first.props.active, true);
   assert.equal(first.props.preferences.getSnapshot(), source.getPreferenceSnapshot());
-  first.props.onOpenSettings(); element = renderer.renderRetained({}); await act(() => residence.rerender());
-  assert.equal(child().props.active, false); assert.equal(child().props.target, read); assert.equal(child().key, first.key);
-  assert.equal(f.context.navigation.back(f.context.authority()), true); element = renderer.renderRetained({}); await act(() => residence.rerender());
+  first.props.onOpenSettings(); await residence.update(renderer.renderRetained({}));
+  assert.equal(child().props.active, false); assert.equal(child().props.target, read); assert.equal(child().tag, first.tag);
+  assert.deepEqual(residence.keys(), [firstKey], 'the original occurrence keeps its own committed key and host');
+  assert.equal(f.context.navigation.back(f.context.authority()), true); await residence.update(renderer.renderRetained({}));
   assert.equal(child().props.active, true); child().props.onBack(); assert.equal(f.context.navigation.getSnapshot().route, library);
-  assert.equal(renderer.renderRetained({}), null); residence.unmount(); renderer.dispose();
+  assert.equal(renderer.renderRetained({}), null); await residence.unmount(); renderer.dispose();
   assert.equal(source.current(), true); assert.equal(f.requests, 0); f.close(); assert.equal(source.current(), false);
 });
 
@@ -97,24 +115,24 @@ test('twenty visited Reading occurrences project at most two guest slots while p
   });
   const renderer = createNativeReadRenderer(f.context, {getSnapshot: () => f.snapshot, subscribe: () => () => {}}, () => {});
   const original: NativeShellRoute[] = [];
-  let element: any, tree: any, residence: ReturnType<typeof createHookHost> | undefined;
-  const children = () => {const values = tree.props.children; return (Array.isArray(values) ? values : [values]).filter((value: any) => value?.type === 'TrustedReadHost');};
+  let element: any, residence: Awaited<ReturnType<typeof mountRetained>> | undefined;
+  const children = () => residence!.rows();
   for (let index = 0; index < 20; index++) {
     if (index) {f.context.navigation.open({kind: 'search-reading', query: `book ${index}`}, f.context.authority()); renderer.renderRetained();}
     const route: NativeShellRoute = {kind: 'read', itemId: `item-${index}`, sourceId: `source-${index}`}; original.push(route);
     f.context.navigation.open(route, f.context.authority()); renderer.render(route); element = renderer.renderRetained();
-    if (!residence) {residence = createHookHost(() => {tree = element.type(element.props);}); await act(() => residence!.mount());}
-    else await act(() => residence!.rerender());
+    if (!residence) residence = await mountRetained(element);
+    else await residence.update(element);
     const rows = children(); assert.equal(rows.length, index + 1);
     assert.ok(rows.filter((row: any) => row.props.resident).length <= 2);
     assert.equal(rows.filter((row: any) => row.props.active).length, 1);
-    assert.equal(rows.at(-1).props.target, route);
+    assert.equal(rows.at(-1)!.props.target, route);
   }
   for (let index = 19; index >= 0; index--) {
     assert.equal(f.context.navigation.getSnapshot().route, original[index]);
     if (index) {assert.equal(f.context.navigation.back(f.context.authority()), true); assert.equal(f.context.navigation.back(f.context.authority()), true);}
   }
-  residence?.unmount(); renderer.dispose(); f.close();
+  await residence?.unmount(); renderer.dispose(); f.close();
 });
 
 test('a third guest waits for the exact evicted incarnation teardown', async () => {
@@ -125,21 +143,21 @@ test('a third guest waits for the exact evicted incarnation teardown', async () 
   });
   const renderer = createNativeReadRenderer(f.context, {getSnapshot: () => f.snapshot, subscribe: () => () => {}}, () => {});
   const routes = [0, 1, 2].map(index => ({kind: 'read', itemId: `item-${index}`, sourceId: `source-${index}`} as const));
-  let element: any, tree: any;
+  let element: any;
   f.context.navigation.open(routes[0]!, f.context.authority()); renderer.render(routes[0]!); element = renderer.renderRetained();
-  const residence = createHookHost(() => {tree = element.type(element.props);}); await act(() => residence.mount());
-  const rows = () => {const values = tree.props.children; return (Array.isArray(values) ? values : [values]).filter((value: any) => value?.type === 'TrustedReadHost');};
-  const first = rows()[0], firstTicket = {}; first.props.onGuestState(true, firstTicket);
+  const residence = await mountRetained(element);
+  const rows = () => residence.rows();
+  const first = rows()[0]!, firstTicket = {}; first.props.onGuestState(true, firstTicket);
   f.context.navigation.open({kind: 'search-reading', query: 'second'}, f.context.authority()); renderer.renderRetained();
-  f.context.navigation.open(routes[1]!, f.context.authority()); renderer.render(routes[1]!); element = renderer.renderRetained(); await act(() => residence.rerender());
-  const second = rows()[1], secondTicket = {}; second.props.onGuestState(true, secondTicket);
+  f.context.navigation.open(routes[1]!, f.context.authority()); renderer.render(routes[1]!); await residence.update(renderer.renderRetained());
+  const second = rows()[1]!, secondTicket = {}; second.props.onGuestState(true, secondTicket);
   f.context.navigation.open({kind: 'search-reading', query: 'third'}, f.context.authority()); renderer.renderRetained();
-  f.context.navigation.open(routes[2]!, f.context.authority()); renderer.render(routes[2]!); element = renderer.renderRetained(); await act(() => residence.rerender());
-  assert.equal(rows()[0].props.resident, false); assert.equal(rows()[2].props.resident, false, 'successor waits for the original guest teardown');
-  await act(() => first.props.onGuestState(false, {})); assert.equal(rows()[2].props.resident, false, 'a different ticket cannot acknowledge eviction');
-  await act(() => first.props.onGuestState(false, firstTicket)); assert.equal(rows()[2].props.resident, true);
+  f.context.navigation.open(routes[2]!, f.context.authority()); renderer.render(routes[2]!); await residence.update(renderer.renderRetained());
+  assert.equal(rows()[0]!.props.resident, false); assert.equal(rows()[2]!.props.resident, false, 'successor waits for the original guest teardown');
+  await residence.act(() => first.props.onGuestState(false, {})); assert.equal(rows()[2]!.props.resident, false, 'a different ticket cannot acknowledge eviction');
+  await residence.act(() => first.props.onGuestState(false, firstTicket)); assert.equal(rows()[2]!.props.resident, true);
   assert.ok(rows().filter((row: any) => row.props.resident).length <= 2);
-  residence.unmount(); renderer.dispose(); f.close();
+  await residence.unmount(); renderer.dispose(); f.close();
 });
 
 test('repeated openings of the same route object retain distinct presentation owners', async () => {
@@ -150,17 +168,17 @@ test('repeated openings of the same route object retain distinct presentation ow
   });
   const renderer = createNativeReadRenderer(f.context, {getSnapshot: () => f.snapshot, subscribe: () => () => {}}, () => {});
   const route: NativeShellRoute = {kind: 'read', itemId: 'same-item', sourceId: 'same-source'};
-  f.context.navigation.open(route, f.context.authority()); renderer.render(route); let element = renderer.renderRetained(), tree: any;
-  const residence = createHookHost(() => {tree = element.type(element.props);}); await act(() => residence.mount());
-  const rows = () => {const values = tree.props.children; return (Array.isArray(values) ? values : [values]).filter((value: any) => value?.type === 'TrustedReadHost');};
-  const originalKey = rows()[0].key;
+  f.context.navigation.open(route, f.context.authority()); renderer.render(route); let element = renderer.renderRetained();
+  const residence = await mountRetained(element);
+  const rows = () => residence.rows();
+  const originalKey = residence.keys()[0];
   f.context.navigation.open({kind: 'search-reading', query: 'same'}, f.context.authority()); renderer.renderRetained();
-  f.context.navigation.open(route, f.context.authority()); renderer.render(route); element = renderer.renderRetained(); await act(() => residence.rerender());
-  assert.equal(rows().length, 2); assert.equal(rows()[0].props.target, route); assert.equal(rows()[1].props.target, route);
-  assert.equal(rows()[0].key, originalKey); assert.notEqual(rows()[1].key, originalKey);
-  assert.equal(rows().filter((row: any) => row.props.active).length, 1); assert.equal(rows()[1].props.active, true);
+  f.context.navigation.open(route, f.context.authority()); renderer.render(route); await residence.update(renderer.renderRetained());
+  assert.equal(rows().length, 2); assert.equal(rows()[0]!.props.target, route); assert.equal(rows()[1]!.props.target, route);
+  assert.equal(residence.keys()[0], originalKey); assert.notEqual(residence.keys()[1], originalKey);
+  assert.equal(rows().filter(row => row.props.active).length, 1); assert.equal(rows()[1]!.props.active, true);
   f.context.navigation.back(f.context.authority()); f.context.navigation.back(f.context.authority());
-  element = renderer.renderRetained(); await act(() => residence.rerender());
-  assert.equal(rows().length, 1); assert.equal(rows()[0].key, originalKey); assert.equal(rows()[0].props.active, true);
-  residence.unmount(); renderer.dispose(); f.close();
+  await residence.update(renderer.renderRetained());
+  assert.equal(rows().length, 1); assert.equal(residence.keys()[0], originalKey); assert.equal(rows()[0]!.props.active, true);
+  await residence.unmount(); renderer.dispose(); f.close();
 });

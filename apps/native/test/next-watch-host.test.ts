@@ -1,8 +1,9 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
-import {act, createHookHost} from './hook-driver.ts';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {playbackFence, sameFence} from '../../../packages/player-core/src/index.ts';
 import {sameAuthority} from '../src-next/shell/model.ts';
 import {NativeWatchOutlet} from '../src-next/shell/watch-outlet.ts';
@@ -24,7 +25,7 @@ const {NativeWatchHost} = await screenModule(new URL('../src-next/screens/watch/
   '../../platform/platformPosture': {usePlatformPosture: () => posture},
   './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},
   './HandheldMiniGuide': {NativeHandheldMiniGuide: 'HandheldMiniGuide'},
-  './live-guide': {noLiveGuideSubscription: () => () => {}, emptyLiveGuide: () => ({open: false, rows: []})},
+  './live-guide': {noLiveGuideSubscription: () => () => {}, emptyLiveGuide: (() => {const snapshot = {open: false, rows: []}; return () => snapshot;})()},
   '../../kit/overlays/TVPanelMotion': {TVPanelTransition: 'Transition', TVPanelSlide: 'Slide', TVPanelScrim: 'Scrim', useTVPanelPresence: (value: unknown) => ({value, open: value !== undefined})},
   './tv-presentation': {nativeWatchTVPresentation},
   'react-native-reanimated': {default: {View: 'AnimatedView'}, useSharedValue: (value: any) => React.useRef({value}).current, useAnimatedStyle: (run: any) => run(),
@@ -45,7 +46,7 @@ const child = (tree: any, id: string): any => {
   }
   return undefined;
 };
-function fixture(isTV = false, failed?: (...args: any[]) => unknown) {
+async function fixture(isTV = false, failed?: (...args: any[]) => unknown) {
   window = {width: 890, height: 626}; posture = {status: 'unavailable', window: null, folds: []};
   let source: any = {authority, fence, retired: false, dock: {local: {fence, expanded: true, kind: 'video'}}, playback: {intent: 'playing'}};
   const listeners = new Set<() => void>(), calls: string[] = [], reveals: number[] = [];
@@ -59,36 +60,36 @@ function fixture(isTV = false, failed?: (...args: any[]) => unknown) {
   const bindings = {chrome: () => ({quality: 'actual selected quality', onMinimize: () => {minimizes++;}}), panel: () => null, content: () => null, failed};
   let tree: any;
   const current = () => authority;
-  const host = createHookHost(() => {tree = NativeWatchHost({authority, current, playback, outlet, runtime: {text: {}}, controls, bindings, setPresentation, isTV});});
-  host.mount();
+  const host = createFabricHookHost(() => {tree = NativeWatchHost({authority, current, playback, outlet, runtime: {text: {}}, controls, bindings, setPresentation, isTV});});
+  await host.mount();
   return {host, controls, outlet, calls, reveals, minimizes: () => minimizes, tree: () => tree,
     source: (change: any) => {source = {...source, ...change}; for (const listener of listeners) listener();},
-    dispose: () => {host.unmount(); controls.dispose(); outlet.dispose();}};
+    dispose: async () => {await host.unmount(); controls.dispose(); outlet.dispose();}};
 }
 test('root uses the actual canonical outlet and full measured pane across book geometry', async () => {
-  const d = fixture(); let measured: any; const measurements: ((x: number, y: number, w: number, h: number) => void)[] = [];
+  const d = await fixture(); let measured: any; const measurements: ((x: number, y: number, w: number, h: number) => void)[] = [];
   const view = {measureInWindow: (callback: typeof measurements[number]) => {measurements.push(callback);}};
   const picture = () => d.tree().props.children[0];
-  const measurementHost = createHookHost(() => {measured = NativeWatchPicture(picture().props); measured.props.ref.current = view;});
+  const measurementHost = createFabricHookHost(() => {measured = NativeWatchPicture(picture().props); measured.props.ref.current = view;});
   try {
     await act(() => {});
     assert.deepEqual(picture().props.style, {position: 'absolute', left: 0, top: 0, width: 890, height: 626});
-    measurementHost.mount(); measurements.at(-1)!(0, 0, 890, 626);
+    await measurementHost.mount(); measurements.at(-1)!(0, 0, 890, 626);
     assert.deepEqual(d.outlet.getSnapshot()?.frameInWindow, {x: 0, y: 0, width: 890, height: 626});
     const revision = d.outlet.getSnapshot()!.layoutRevision;
     posture = {status: 'available', window, folds: [{bounds: {left: 445, right: 445, top: 0, bottom: 626}, orientation: 'vertical', state: 'half-opened'}]};
     await act(() => d.host.rerender());
-    measurementHost.rerender(); measured.props.onLayout(); measurements.at(-1)!(0, 0, 445, 250.3125);
+    await measurementHost.rerender(); measured.props.onLayout(); measurements.at(-1)!(0, 0, 445, 250.3125);
     assert.ok(d.outlet.getSnapshot()!.layoutRevision > revision);
     assert.deepEqual(d.outlet.getSnapshot()?.frameInWindow, {x: 0, y: 0, width: 445, height: 250.3125});
     assert.equal(child(d.tree(), 'watch-controls-pane').props.children.props.edgeInsets.right, 16);
     assert.equal(d.reveals.length, 1); assert.deepEqual(d.calls.slice(-2), ['presentation', 'reveal']);
-  } finally {measurementHost.unmount(); d.dispose();}
+  } finally {await measurementHost.unmount(); await d.dispose();}
 });
 test('TV uses one logical canvas while its actual native pane remains whole and unscaled beneath Options and Info', async () => {
-  const d = fixture(true);
+  const d = await fixture(true);
   try {
-    await act(() => {window = {width: 960, height: 540}; d.host.rerender();});
+    await act(async () => {window = {width: 960, height: 540}; await d.host.rerender();});
     const picture = d.tree().props.children[0];
     assert.deepEqual(picture.props.style, {position: 'absolute', left: 0, top: 0, width: 960, height: 540});
     const canvas = child(d.tree(), 'watch-tv-canvas');
@@ -102,17 +103,17 @@ test('TV uses one logical canvas while its actual native pane remains whole and 
       assert.equal(d.tree().props.children[0].type, picture.type);
       assert.deepEqual(d.tree().props.children[0].props.style, picture.props.style);
     }
-  } finally {d.dispose();}
+  } finally {await d.dispose();}
 });
 test('panel state suppresses fold reveal, closing alone does not reveal, docked/pending output has no slot', async () => {
-  const d = fixture();
+  const d = await fixture();
   try {
     await act(() => {});
     await act(() => {d.controls.open('audio', fence);});
     assert.equal(d.controls.getSnapshot().visible, false);
     assert.equal(child(d.tree(), 'watch-panel-pane').props.style.width, 356);
     assert.equal(d.tree().props.children[0].props.style.width, 890);
-    await act(() => {window = {width: 1000, height: 626}; d.host.rerender();});
+    await act(async () => {window = {width: 1000, height: 626}; await d.host.rerender();});
     assert.equal(d.reveals.length, 0);
     await act(() => {d.controls.closePanel(fence);});
     assert.equal(d.reveals.length, 0);
@@ -120,12 +121,12 @@ test('panel state suppresses fold reveal, closing alone does not reveal, docked/
     assert.equal(d.tree(), null); assert.equal(d.outlet.getSnapshot(), undefined);
     await act(() => {d.source({fence: undefined, dock: {}});});
     assert.equal(d.tree(), null);
-  } finally {d.dispose();}
+  } finally {await d.dispose();}
 });
 
 
 test('handheld failed fence is presented only while its panel does not own the space', async () => {
-  const failures: any[] = [], d = fixture(false, (_host, failure) => {failures.push(failure); return 'failure';});
+  const failures: any[] = [], d = await fixture(false, (_host, failure) => {failures.push(failure); return 'failure';});
   try {
     await act(() => d.source({playback: {intent: 'playing', phase: 'error', positionSeconds: 42}, capabilities: {retry: true}}));
     assert.ok(child(d.tree(), 'watch-failed-pane'));
@@ -134,7 +135,7 @@ test('handheld failed fence is presented only while its panel does not own the s
     assert.equal(child(d.tree(), 'watch-failed-pane'), undefined);
     await act(() => {d.controls.closePanel(fence);});
     assert.ok(child(d.tree(), 'watch-failed-pane'));
-  } finally {d.dispose();}
+  } finally {await d.dispose();}
 });
 
 
@@ -144,9 +145,9 @@ for (const scenario of [
   {name: 'book fold', width: 890, height: 626, folds: [{bounds: {left: 445, right: 445, top: 0, bottom: 626}, orientation: 'vertical', state: 'half-opened'}]},
   {name: 'tabletop fold', width: 626, height: 890, folds: [{bounds: {left: 0, right: 626, top: 445, bottom: 445}, orientation: 'horizontal', state: 'half-opened'}]},
 ] as const) test(`${scenario.name} failure is confined to the measured picture and leaves chrome mounted`, async () => {
-  const d = fixture(false, () => 'failure');
+  const d = await fixture(false, () => 'failure');
   try {
-    await act(() => {window = {width: scenario.width, height: scenario.height}; posture = {status: 'available', window, folds: scenario.folds}; d.host.rerender();});
+    await act(async () => {window = {width: scenario.width, height: scenario.height}; posture = {status: 'available', window, folds: scenario.folds}; await d.host.rerender();});
     await act(() => d.source({playback: {intent: 'playing', phase: 'error', positionSeconds: 42}, capabilities: {retry: true}}));
     const pane = child(d.tree(), 'watch-failed-pane'), picture = d.tree().props.children[0];
     assert.deepEqual(pane.props.style, picture.props.style);
@@ -155,5 +156,5 @@ for (const scenario of [
     chrome.props.children.props.onMinimize(fence); assert.equal(d.minimizes(), 1);
     await act(() => {d.controls.open('audio', fence);});
     assert.equal(child(d.tree(), 'watch-failed-pane'), undefined);
-  } finally {d.dispose();}
+  } finally {await d.dispose();}
 });

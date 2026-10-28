@@ -1,3 +1,4 @@
+// @fabric-react
 import test, {after} from 'node:test';
 import assert from 'node:assert/strict';
 import {HttpLocalApi, createReadingHost, connectReadingHost} from '../../../packages/client-core/src';
@@ -6,7 +7,7 @@ import {routeBase64} from '../../../packages/client-core/src/route-identity';
 import {nativeReadingSettingsSection} from '../src-next/screens/settings/reading-preferences';
 import {closeReadingResource, createReadingSessionOwner} from '../src-next/screens/read/reading-session-owner';
 import {NativeShellNavigation} from '../src-next/shell/routes';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import * as React from 'react';
 
@@ -130,15 +131,15 @@ test(`actual live host with its presentation binding fences original close on ${
     './annotation-authoring': {NATIVE_OFFLINE_ANNOTATION_AUTHORING: false},
   });
   let tree: unknown; const source = {getSnapshot: () => preferences, subscribe: () => () => {}};
-  const host = createHookHost(() => {tree = ReadNativeHost({context, target: route, binding, active: true,
+  const host = createFabricHookHost(() => {tree = ReadNativeHost({context, target: route, binding, active: true,
     preferences: source, onBack() {}, onOpenSettings() {}});});
   try {
-    await act(async () => {host.mount(); for (let i = 0; i < 4; i++) await new Promise<void>(resolve => setImmediate(resolve));});
+    await act(async () => {await host.mount(); for (let i = 0; i < 4; i++) await new Promise<void>(resolve => setImmediate(resolve));});
     assert.equal((tree as {type?: unknown} | undefined)?.type, 'NativeReadingGuestHost', 'the original accepted session reached the ready guest outlet');
     assert.equal(calls.filter(method => method === 'POST').length, 1);
     if (removal === 'route') navigation.back(authority);
     else {valid = false; for (const listener of [...listeners]) listener();}
     await act(async () => {for (let i = 0; i < 3; i++) await new Promise<void>(resolve => setImmediate(resolve));});
     assert.equal(calls.filter(method => method === 'DELETE').length, removal === 'route' ? 1 : 0);
-  } finally {host.unmount(); binding!.dispose(); navigation.dispose();}
+  } finally {await host.unmount(); binding!.dispose(); navigation.dispose();}
 });

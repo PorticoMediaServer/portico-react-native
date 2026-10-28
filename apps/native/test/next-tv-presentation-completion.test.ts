@@ -1,7 +1,8 @@
+// @fabric-react
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
-import {createHookHost} from './hook-driver.ts';
+import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const animations: ((done: boolean) => void)[] = [], queued: (() => void)[] = [];
@@ -15,26 +16,26 @@ const {TVPanelTransition} = await screenModule(new URL('../src-next/kit/overlays
   }, '../useMotion': {useMotion: () => motion},
 });
 
-test('queued old panel completions cannot admit or remove a reversed/replayed presentation', () => {
+test('queued old panel completions cannot admit or remove a reversed/replayed presentation', async () => {
   let open = true, exits = 0, tree: any;
-  const host = createHookHost(() => {tree = TVPanelTransition({open, onExited: () => {exits++;}, children: null});});
-  host.mount();
+  const host = createFabricHookHost(() => {tree = TVPanelTransition({open, onExited: () => {exits++;}, children: null});});
+  await host.mount();
   try {
     animations.at(-1)!(true); // Opening completion is queued behind the next render.
-    open = false; host.rerender(); host.flush();
-    queued.shift()!(); host.flush();
+    open = false; await host.rerender(); await host.flush();
+    queued.shift()!(); await host.flush();
     assert.equal(tree.props.value.interactive, false);
     animations.at(-1)!(true); // Closing completion is queued behind a reversal.
-    open = true; host.rerender(); host.flush();
-    queued.shift()!(); host.flush();
+    open = true; await host.rerender(); await host.flush();
+    queued.shift()!(); await host.flush();
     assert.equal(exits, 0); assert.equal(tree.props.value.interactive, false);
-    animations.at(-1)!(true); queued.shift()!(); host.flush();
+    animations.at(-1)!(true); queued.shift()!(); await host.flush();
     assert.equal(tree.props.value.interactive, true);
-    open = false; host.rerender(); host.flush();
-    animations.at(-1)!(true); queued.shift()!(); host.flush();
+    open = false; await host.rerender(); await host.flush();
+    animations.at(-1)!(true); queued.shift()!(); await host.flush();
     assert.equal(exits, 1);
-    open = true; host.rerender(); animations.at(-1)!(true);
-  } finally {host.unmount();}
+    open = true; await host.rerender(); animations.at(-1)!(true);
+  } finally {await host.unmount();}
   queued.shift()!();
   assert.equal(exits, 1, 'unmount invalidates queued completion ownership');
 });

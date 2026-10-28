@@ -1,7 +1,8 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
-import {act, createHookHost} from './hook-driver.ts';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {clonePortableDto} from '../../../packages/client-core/src/clone-portable-dto.ts';
 const nodes=(value:any):any[]=>Array.isArray(value)?value.flatMap(nodes):value?.props?[value,...nodes(value.props.children),...nodes(value.props.footer)]:[];
@@ -18,7 +19,7 @@ test('actual Hours editor opens and edits a detached original block without glob
  const block=Object.freeze({id:'b1',weekdays:Object.freeze([1]),startMinute:60,endMinute:120,priority:0,ruleId:'r1',fallbackRuleId:'r1',anchor:'channel-cursor',overrun:'finish'});
  const config={defaultRuleId:'r1',rules:[{id:'r1',name:'Original'}],blocks:[block]};let submitted:any,tree:any;
  const presetState={items:[],busy:false},presets={subscribe:()=>()=>{},getSnapshot:()=>presetState};
- const host=createHookHost(()=>{tree=NativeChannelHours({config,presets,locked:false,isCurrent:()=>true,onChange:(update:any)=>{submitted=update(config);return true;},onEditing:()=>{},t:(key:string)=>key});});
+ const host=createFabricHookHost(()=>{tree=NativeChannelHours({config,presets,locked:false,isCurrent:()=>true,onChange:(update:any)=>{submitted=update(config);return true;},onEditing:()=>{},t:(key:string)=>key});});
  try{
   await act(()=>host.mount());await act(()=>nodes(tree).find(node=>node.type==='Button'&&node.props.onPress).props.onPress());
   const sheet=nodes(tree).find(node=>node.type==='BottomSheet');assert(sheet.props.open);
@@ -26,7 +27,7 @@ test('actual Hours editor opens and edits a detached original block without glob
   await act(()=>start.props.onChangeText('02:00'));await act(()=>button(tree,'action.done').props.onPress());
   assert(submitted);assert.equal(submitted.blocks[0].startMinute,120);assert.equal(block.startMinute,60);
   assert.notEqual(submitted.blocks[0],block);assert.notEqual(submitted.blocks[0].weekdays,block.weekdays);assert.deepEqual(block.weekdays,[1]);
- }finally{host.unmount();}
+ }finally{await host.unmount();}
 }));
 
 test('actual preset editor clones nested definition without a global and refuses an old form save after replacement',()=>withoutGlobal(async()=>{
@@ -38,7 +39,7 @@ test('actual preset editor clones nested definition without a global and refuses
  const record={id:'preset',name:'Original',revision:3,body};const state={items:[record],loaded:true,busy:false,reconcile:false};let saves=0,sent:any,tree:any;
  const source={subscribe:()=>()=>{},getSnapshot:()=>state,load:async()=>{},save:async(original:any,_name:string,value:any)=>{assert.equal(original,record);saves++;sent=value;return true;}};
  const group={presets:source,current:()=>true,api:{},libraries:[{id:'library',name:'Movies'}],failure:assert.fail};
- const host=createHookHost(()=>{tree=NativeBlockPresets({group,isCurrent:()=>true,onEditing:()=>{}});});
+ const host=createFabricHookHost(()=>{tree=NativeBlockPresets({group,isCurrent:()=>true,onEditing:()=>{}});});
  try{
   await act(()=>host.mount());await act(()=>button(tree,'web.selection.edit').props.onPress());
   const draft=nodes(tree).find(node=>node.props.draft)?.props.draft;assert(draft);assert.notEqual(draft.body,body);assert.notEqual(draft.body.criteria[0].values,body.criteria[0].values);
@@ -47,5 +48,5 @@ test('actual preset editor clones nested definition without a global and refuses
   await act(()=>button(tree,'action.cancel').props.onPress());await act(()=>button(tree,'web.selection.edit').props.onPress());
   await act(()=>oldSave());assert.equal(saves,0,'old original form cannot save or close a successor');
   await act(()=>button(tree,'builder.preset.save').props.onPress());assert.equal(saves,1);assert.equal(sent.description,'Original');assert.equal(body.description,'Original');assert.notEqual(sent.criteria[0].values,body.criteria[0].values);
- }finally{host.unmount();}
+ }finally{await host.unmount();}
 }));

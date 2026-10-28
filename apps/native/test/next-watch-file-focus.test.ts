@@ -1,8 +1,9 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {surfacePaintFixture, screenModule} from './helpers/screen-harness.mjs';
-import {createHookHost} from './hook-driver.ts';
+import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import {deletionAllowed} from '../../../packages/client-core/src/administration.ts';
 import {mergeExplanation} from '../../../packages/client-core/src/title-identity.ts';
@@ -44,14 +45,14 @@ function targets(value: any): any[] {
 }
 const entry = {id: 'actual-title', kind: 'movie', title: 'Actual title', libraryId: 'actual-library'}, other = {...entry, id: 'other-title'};
 const model = {files: [], owner: {heading: 'Manage files', locations: [{id: 'asset', actions: [{id: 'delete-version', label: 'Delete'}]}], actions: [{id: 'split-title', label: 'Split'}, {id: 'merge-title', label: 'Merge'}]}};
-for (const phase of ['file-info', 'delete', 'split-pick', 'split', 'merge-search', 'merge-confirm']) test(`real ${phase} controls mount the strict TV focus hook using stable member/action identities`, () => {
+for (const phase of ['file-info', 'delete', 'split-pick', 'split', 'merge-search', 'merge-confirm']) test(`real ${phase} controls mount the strict TV focus hook using stable member/action identities`, async () => {
   const value = {phase: phase.startsWith('merge') ? 'merge' : phase, capture: {entry}, busy: false, candidates: [other], confirmation: '', keep: entry.id,
     ...(phase === 'merge-confirm' ? {other} : {}), owner: {info: {model, files: [], groups: [{members: [{id: 'asset', available: true}]}]}},
     content: NativeFileInfoContent({model, onManage() {}})};
   const presenters = {subscribe: () => () => {}, getSnapshot: () => value, current: () => true, overlayCurrent: () => true, close() {}, backToInfo() {}, search: async () => {}};
   let buttons: any[] = [];
-  const host = createHookHost(() => {buttons = targets(React.createElement(NativeWatchOverlays, {presenters, runtime: {}, common: {}}));});
-  host.mount();
+  const host = createFabricHookHost(() => {buttons = targets(React.createElement(NativeWatchOverlays, {presenters, runtime: {}, common: {}}));});
+  await host.mount();
   try {
     assert.ok(buttons.length >= 2);
     const ids = buttons.map(node => node.props.focusId ?? node.props.testID);
@@ -59,10 +60,10 @@ for (const phase of ['file-info', 'delete', 'split-pick', 'split', 'merge-search
     const region = registry.createFocusRegistry(); region.configure({id: 'watch-file-manage', orientation: 'vertical'});
     contexts[0]!.current = region; contexts[1]!.current = 'watch-file-manage';
     for (const button of buttons) {
-      const mounted = createHookHost(() => {focus.useFocusTarget({focusId: button.props.focusId, testID: button.props.testID, disabled: button.props.disabled});});
-      mounted.mount(); mounted.unmount();
+      const mounted = createFabricHookHost(() => {focus.useFocusTarget({focusId: button.props.focusId, testID: button.props.testID, disabled: button.props.disabled});});
+      await mounted.mount(); await mounted.unmount();
     }
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });
 
 test('File info draws the real version cards, the informational note and the owner part', () => {

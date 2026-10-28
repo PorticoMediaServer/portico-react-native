@@ -1,7 +1,8 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import * as policy from '../../../packages/client-core/src/server-admin/recording-policy';
 import * as model from '../src-next/screens/settings-live/recording-owner-model';
@@ -35,7 +36,7 @@ async function presenter() {
   const controller = {current:()=>true,lifetime: {current: () => true,signal:new AbortController().signal}, policy: async (cursor = '') => {calls.push(cursor); return cursor ? pending.promise : first;}, load: async () => {}, getSnapshot: () => ({list: {sources: []}}), guideSeries: async () => [], createRule: async () => {}};
   const runtime = {navigation: {getSnapshot: () => ({revision: 7})}, getSnapshot: () => ({contentVisible: true}), text: {t: (key: string) => key}, error: () => ({})};
   let props: any = {controller, runtime, open: true, onOpenChange: () => {}, onSaved: () => {}}; let tree: any;
-  const host = createHookHost(() => {tree = NewRuleSheet(props);});
+  const host = createFabricHookHost(() => {tree = NewRuleSheet(props);});
   await act(() => host.mount());
   const select = () => nodes(tree).find(row => row.props.testID === 'live-owner-new-rule-owner');
   const change = async (next: any) => {props = {...props, ...next}; await act(() => host.rerender());};
@@ -51,7 +52,7 @@ test('cached owner picker retires old More across close and reopen', async () =>
     await act(() => {oldMore();}); assert.deepEqual(f.calls, ['', 'c1']);
     await act(() => {f.pending.resolve({owners: [owner('old')], grants: [], nextCursor: ''});});
     assert.equal(f.select().props.options.some((option: any) => String(option.value).includes('old')), false);
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });
 
 test('owner and rule presenters follow their own three-page cursors and retry the failed cursor', async () => {
@@ -64,7 +65,7 @@ test('owner and rule presenters follow their own three-page cursors and retry th
     dvrSettings: async () => ({revision: 1, settings: {}, enumerations: {}})};
   const recordings = {storage: async () => ({policy: {}, measurement: {usedBytes: 0, freeBytes: 0, reservedBytes: 0, writeHealthy: true}, forecastHours: 0})};
   const runtime = {navigation: {getSnapshot: () => ({revision: 7})}, getSnapshot: () => ({contentVisible: true}), text: {t: (key: string) => key}, error: () => ({})};
-  let tree: any; const host = createHookHost(() => {tree = NativeRecordingOwner({controller, recordings, runtime, sources: []});});
+  let tree: any; const host = createFabricHookHost(() => {tree = NativeRecordingOwner({controller, recordings, runtime, sources: []});});
   const find = (id: string) => nodes(tree).find(row => row.props.testID === id);
   try {
     await act(() => host.mount());
@@ -87,7 +88,7 @@ test('owner and rule presenters follow their own three-page cursors and retry th
     assert.equal(nodes(tree).some(row => row.props.policy?.owners?.some((choice: any) => choice.owner.profileId === 'p201')), false);
     await act(() => {find('live-owner-rules-more').props.onPress();});
     assert.ok(calls.includes('r:fresh-rule'));
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });
 
 test('actual sheet Select submits one minute and an old Save cannot settle a reopened sheet', async () => {
@@ -105,7 +106,7 @@ test('actual sheet Select submits one minute and an old Save cannot settle a reo
   const controller = new NativeLiveOwnerController(new NativeScreenLifetime(authority), api, () => 'op1');
   const runtime = {navigation: {getSnapshot: () => ({revision: 7})}, getSnapshot: () => ({contentVisible: true}), text: {t: (key: string) => key}, error: () => ({})};
   let props: any = {controller, runtime, policy: {owners: [selected], grants}, sources: [{id: 's', name: 'Source'}], open: true, onOpenChange: () => {}, onSaved: () => {saved++;}}; let tree: any;
-  const host = createHookHost(() => {tree = NewRuleSheet(props);});
+  const host = createFabricHookHost(() => {tree = NewRuleSheet(props);});
   const find = (id: string) => nodes(tree).find(row => row.props.testID === id);
   try {
     await act(() => host.mount());
@@ -118,7 +119,7 @@ test('actual sheet Select submits one minute and an old Save cannot settle a reo
     props = {...props, open: true}; await act(() => host.rerender());
     await act(() => {save();}); assert.equal(bodies.length, 1);
     await act(() => {pending.resolve();}); assert.equal(saved, 0);
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });
 
 test('owner picker continuation registers in a strict focus region', async () => {
@@ -135,10 +136,10 @@ test('owner picker continuation registers in a strict focus region', async () =>
     const button = f.select().props.pickerContext;
     const focusRegistry = registry.createFocusRegistry(); focusRegistry.configure({id: 'dvr-picker', orientation: 'vertical'});
     contexts[0]!.current = focusRegistry; contexts[1]!.current = 'dvr-picker';
-    const target = createHookHost(() => {focus.useFocusTarget({focusId: button.props.focusId, testID: button.props.testID, disabled: button.props.disabled});});
-    target.mount(); target.unmount();
+    const target = createFabricHookHost(() => {focus.useFocusTarget({focusId: button.props.focusId, testID: button.props.testID, disabled: button.props.disabled});});
+    await target.mount(); await target.unmount();
     assert.equal(button.props.focusId, 'live-owner-picker-more');
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });
 
 test('cached picker retires More on unmount even while its controller remains live', async () => {
@@ -146,7 +147,7 @@ test('cached picker retires More on unmount even while its controller remains li
   await f.change({open: false}); await f.change({open: true});
   const more = f.select().props.pickerContext.props.onPress;
   await act(() => {more();}); assert.deepEqual(f.calls, ['', 'c1']);
-  f.host.unmount();
+  await f.host.unmount();
   await act(() => {more(); f.pending.resolve({owners: [owner('old')], grants: [], nextCursor: ''});});
   assert.deepEqual(f.calls, ['', 'c1']);
 });
@@ -159,7 +160,7 @@ test('old page handler cannot send its cursor through a replacement controller',
   let controller = make('a'); const replacement = make('b');
   const recordings = {storage: async () => ({policy: {}, measurement: {usedBytes: 0, freeBytes: 0, reservedBytes: 0, writeHealthy: true}, forecastHours: 0})};
   const runtime = {navigation: {getSnapshot: () => ({revision: 7})}, getSnapshot: () => ({contentVisible: true}), text: {t: (key: string) => key}, error: () => ({})};
-  let tree: any; const host = createHookHost(() => {tree = NativeRecordingOwner({controller, recordings, runtime, sources: []});});
+  let tree: any; const host = createFabricHookHost(() => {tree = NativeRecordingOwner({controller, recordings, runtime, sources: []});});
   try {
     await act(() => host.mount());
     const old = nodes(tree).find(row => row.props.testID === 'live-owner-owners-more').props.onPress;
@@ -167,7 +168,7 @@ test('old page handler cannot send its cursor through a replacement controller',
     await act(() => {old();});
     assert.deepEqual(calls, ['a:', 'b:']);
     assert.ok(nodes(tree).some(row => row.props.policy?.owners?.some((choice: any) => choice.owner.profileId === 'b')));
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });
 
 const ruleRow=(n:number)=>({id:`r${n}`,revision:1,owner:owner('p1').owner,status:'disabled',kind:'series',name:`Rule ${n}`,match:`m${n}`,sourceId:'s',enabled:false,options:{prePaddingMs:0,postPaddingMs:0,keepPolicy:null,newEpisodesOnly:false,priority:0,folderTemplate:''}});
@@ -183,7 +184,7 @@ async function pageFixture(){
   dvrSettings:async()=>({revision:1,settings:{prePaddingMs:0,postPaddingMs:0},enumerations:{}}),load:async()=>{},getSnapshot:()=>({list:{sources:[]}})};
  let recordings={storage:async()=>({policy:{reserveBytes:0},measurement:{usedBytes:0,freeBytes:0,reservedBytes:0,writeHealthy:true},forecastHours:0})};
  const runtime={navigation:{getSnapshot:()=>({revision})},getSnapshot:()=>({contentVisible:visible}),text:{t:(k:string)=>k},error:(_e:unknown,retry:()=>void)=>({primaryAction:{onPress:retry}})};
- let tree:any;const host=createHookHost(()=>{tree=NativeRecordingOwner({controller,recordings,runtime,sources:[]});});await act(()=>host.mount());
+ let tree:any;const host=createFabricHookHost(()=>{tree=NativeRecordingOwner({controller,recordings,runtime,sources:[]});});await act(()=>host.mount());
  const find=(id:string)=>nodes(tree).find(node=>node.props.testID===id);
  return {host,calls,controller,tree:()=>tree,find,owners,rules,
   hold:(kind:string,cursor:string,gen=generation)=>{const pending=deferred<any>();holds.set(key(kind,cursor,gen),pending);return pending;},
@@ -191,7 +192,7 @@ async function pageFixture(){
   refresh:async()=>{await act(()=>find('live-owner-new-rule').props.onPress());const sheet=nodes(tree).find(node=>node.type===NewRuleSheet);generation++;await act(()=>sheet.props.onSaved());},
   replaceRecordings:async()=>{recordings={...recordings};await act(()=>host.rerender());},
   retire:async(kind:'route'|'authority'|'controller')=>{if(kind==='route')revision++;else if(kind==='authority'){live=false;life.abort();}else{controller={...controller};generation++;}await act(()=>host.rerender());},
-  dispose:()=>{host.unmount();life.abort();}};
+  dispose:async ()=>{await host.unmount();life.abort();}};
 }
 
 test('saved owners/rules More and failed Retry cannot borrow a freshly accepted head',async()=>{
@@ -202,7 +203,7 @@ test('saved owners/rules More and failed Retry cannot borrow a freshly accepted 
   const count=f.calls.length;await act(()=>{oldOwners();oldRules();oldRetry();});assert.equal(f.calls.length,count);
   await act(()=>f.find('live-owner-owners-more').props.onPress());await act(()=>f.find('live-owner-rules-more').props.onPress());
   assert(f.calls.includes('owners:2:new-o1'));assert(f.calls.includes('rules:2:new-r1'));assert(f.find('live-owner-rule-r1200'));
- }finally{f.dispose();}
+ }finally{await f.dispose();}
 });
 for(const kind of ['owners','rules'] as const)for(const retirement of ['route','authority','controller'] as const)test(`pending ${kind} continuation cannot append after ${retirement} retirement`,async()=>{
  const f=await pageFixture(),cursor=kind==='owners'?'o1':'r1',pending=f.hold(kind,cursor);try{
@@ -210,7 +211,7 @@ for(const kind of ['owners','rules'] as const)for(const retirement of ['route','
   await act(()=>pending.resolve(kind==='owners'?f.owners(cursor,1):f.rules(cursor,1)));
   assert(!f.find('live-owner-rule-r101'));assert(!nodes(f.tree()).some(node=>node.props.policy?.owners?.some((row:any)=>row.owner.profileId==='p201')));
   if(retirement==='controller')assert(f.find('live-owner-rule-r1001'),'same controller with new recordings gets its fresh head');
- }finally{f.dispose();}
+ }finally{await f.dispose();}
 });
 for(const order of ['old-first','head-first'] as const)test(`fresh head owns pending chain completion in ${order} order`,async()=>{
  const f=await pageFixture(),tail=f.hold('owners','o1');try{
@@ -220,7 +221,7 @@ for(const order of ['old-first','head-first'] as const)test(`fresh head owns pen
   if(order==='old-first'){await act(old);await act(fresh);}else{await act(fresh);await act(old);}
   const policy=nodes(f.tree()).find(node=>node.props.policy?.owners)?.props.policy;assert(policy);assert.equal(policy.owners.length,200);assert.equal(policy.grants[0].enabled,false);
   assert(policy.owners.every((row:any)=>Number(row.owner.profileId.slice(1))>1000));assert(f.find('live-owner-rule-r1001'));assert(!f.find('live-owner-rule-r1'));
- }finally{f.dispose();}
+ }finally{await f.dispose();}
 });
 
 test('actual permission/default/storage drafts block current and retained More without clearing a draft',async()=>{
@@ -232,7 +233,7 @@ test('actual permission/default/storage drafts block current and retained More w
   assert.equal(f.find('live-owner-owners-more').props.disabled,true);const count=f.calls.length;await act(()=>{old();f.find('live-owner-owners-more').props.onPress();});assert.equal(f.calls.length,count);
   const retained=nodes(f.tree()).find(node=>node.props.draft&&(type==='permission'?node.props.policy:type==='defaults'?node.props.document:node.props.storage));
   assert.deepEqual(type==='permission'?retained.props.draft[policy.recordingOwnerKey(owner('p1').owner)]:retained.props.draft,draft);
- }finally{f.dispose();}}
+ }finally{await f.dispose();}}
 });
 
 test('actual rule-page failure retains its full hundred-row head and Retry uses the same offered cursor',async()=>{
@@ -240,7 +241,7 @@ test('actual rule-page failure retains its full hundred-row head and Retry uses 
   f.failRule();await act(()=>f.find('live-owner-rules-more').props.onPress());assert.equal(nodes(f.tree()).filter(node=>node.type==='Focusable'&&String(node.props.testID).startsWith('live-owner-rule-r')).length,100);
   await act(()=>f.find('live-owner-page-retry').props.onPress());assert(f.find('live-owner-rule-r200'));
   assert.deepEqual(f.calls.filter(call=>call.startsWith('rules:')),['rules:1:','rules:1:r1','rules:1:r1']);
- }finally{f.dispose();}
+ }finally{await f.dispose();}
 });
 
 async function flushPassive(queue:Array<()=>void>){for(let pass=0;queue.length&&pass<20;pass++){const ready=queue.splice(0);await act(()=>ready.forEach(run=>run()));}assert.equal(queue.length,0);}
@@ -251,7 +252,7 @@ test('committed guide B withholds guide A before passive cleanup and only B can 
  const controller={current:()=>true,lifetime:{current:()=>true,signal:life.signal},guideSeries:async(_day:string,sourceId:string)=>{reads.push(sourceId);return sourceId==='a'?a.promise:[choice('b')];}};
  const runtime={navigation:{getSnapshot:()=>({revision:7})},getSnapshot:()=>({contentVisible:true}),text:{t:(key:string)=>key},error:()=>({})};
  const props={controller,runtime,policy:{owners:[selected],grants:[{owner:selected.owner,enabled:true,inheritProfiles:false,revision:1}]},sources:[{id:'a',name:'A'},{id:'b',name:'B'}],open:true,onOpenChange:()=>{},onSaved:()=>{}};
- let tree:any;const host=createHookHost(()=>{tree=NewRuleSheet(props);});const find=(id:string)=>nodes(tree).find(node=>node.props.testID===id);
+ let tree:any;const host=createFabricHookHost(()=>{tree=NewRuleSheet(props);});const find=(id:string)=>nodes(tree).find(node=>node.props.testID===id);
  try{
   await act(()=>host.mount());await flushPassive(passive);assert.deepEqual(reads,['a']);
   const oldSelect=find('live-owner-new-rule-series').props.onValueChange;
@@ -263,7 +264,7 @@ test('committed guide B withholds guide A before passive cleanup and only B can 
   await act(()=>oldSelect('a-entry'));assert.notEqual(find('live-owner-new-rule-series').props.value,'a-entry');assert.deepEqual(reads,['a']);
   await flushPassive(passive);assert.deepEqual(reads,['a','b']);assert(find('live-owner-new-rule-series').props.options.some((row:any)=>row.value==='b-entry'));
   await act(()=>find('live-owner-new-rule-series').props.onValueChange('b-entry'));assert.equal(find('live-owner-new-rule-series').props.value,'b-entry');
- }finally{host.unmount();await flushPassive(passive);life.abort();}
+ }finally{await host.unmount();await flushPassive(passive);life.abort();}
 });
 
 test('original actual controller disposal inside runtime getter refuses page and sheet IO while shared lifetime stays live',async()=>{
@@ -276,9 +277,9 @@ test('original actual controller disposal inside runtime getter refuses page and
   // One recordings controller, as the live route supplies it: a fresh identity each render would
   // be a new admission and not the disposal this test is about.
   const recordings={storage:async()=>{requests++;throw Error('retired page');}};
-  let tree:any;const host=createHookHost(()=>{tree=sheet?NewRuleSheet({controller,runtime,open:true,onOpenChange:()=>{},onSaved:()=>{}}):NativeRecordingOwner({controller,runtime,recordings,sources:[]});});
+  let tree:any;const host=createFabricHookHost(()=>{tree=sheet?NewRuleSheet({controller,runtime,open:true,onOpenChange:()=>{},onSaved:()=>{}}):NativeRecordingOwner({controller,runtime,recordings,sources:[]});});
   try{await act(()=>host.mount());assert(reads>0);assert.equal(controller.current(),false);assert.equal(lifetime.current(),true);assert.equal(requests,0);assert.equal(tree,null);}
-  finally{host.unmount();lifetime.dispose();}
+  finally{await host.unmount();lifetime.dispose();}
  }
 });
 
@@ -291,8 +292,8 @@ test('real owner Select retains its chosen row and original opener through a gen
  const f=await presenter();let props=f.select().props,outer:any,tree:any;
  // Preserve the actual Select/NativeSelect hook hosts and native opener across
  // the changed offered options. Only platform endpoints and Dialog are inert.
- const outerHost=createHookHost(()=>{outer=Select.render(props,null);});outerHost.mount();const NativeSelect=outer.type;
- const innerHost=createHookHost(()=>{tree=NativeSelect.render(outer.props,null);});innerHost.mount();
+ const outerHost=createFabricHookHost(()=>{outer=Select.render(props,null);});await outerHost.mount();const NativeSelect=outer.type;
+ const innerHost=createFabricHookHost(()=>{tree=NativeSelect.render(outer.props,null);});await innerHost.mount();
  const rerender=async()=>{props=f.select().props;await act(()=>outerHost.rerender());await act(()=>innerHost.rerender());};
  try{
   const trigger=nodes(tree).find(node=>node.type==='Focusable'),nativeOpener={requestTVFocus(){}};trigger.props.ref(nativeOpener);
@@ -306,7 +307,7 @@ test('real owner Select retains its chosen row and original opener through a gen
   dialog=nodes(tree).find(node=>node.type==='Dialog');assert.equal(dialog.props.open,true);assert.equal(dialog.props.returnFocusRef,originalReturn);assert.equal(originalReturn.current,nativeOpener);assert.equal(dialog.props.initialFocusRef,originalSelected);
   assert.equal(f.select().props.value,target.value);const appended=nodes(tree).find(node=>node.type==='FlatList');assert(appended.props.data.some((option:any)=>option.value===policy.recordingOwnerKey(owner('p201').owner)));
   const selectedRow=appended.props.renderItem({item:target,index:appended.props.data.findIndex((option:any)=>option.value===target.value)});assert.equal(selectedRow.props.accessibilityState.checked,true);
- }finally{innerHost.unmount();outerHost.unmount();f.host.unmount();}
+ }finally{await innerHost.unmount();await outerHost.unmount();await f.host.unmount();}
 });
 
 async function actualControllerGuardFixture(sheet: boolean) {
@@ -329,12 +330,12 @@ async function actualControllerGuardFixture(sheet: boolean) {
   // One recordings controller, as the live route supplies it: a fresh identity each render would
   // re-admit the owner page, which is not what this fixture is proving.
   const recordings = {storage: async () => ({policy: {}, measurement: {usedBytes: 0, freeBytes: 0, reservedBytes: 0, writeHealthy: true}, forecastHours: 0})};
-  const host = createHookHost(() => {tree = sheet ? NewRuleSheet({controller, runtime, policy: offeredPolicy, sources: [], open: true, onOpenChange: () => {closes++;}, onSaved: () => {}})
+  const host = createFabricHookHost(() => {tree = sheet ? NewRuleSheet({controller, runtime, policy: offeredPolicy, sources: [], open: true, onOpenChange: () => {closes++;}, onSaved: () => {}})
     : NativeRecordingOwner({controller, runtime, recordings, sources: []});});
   await act(() => host.mount());
   return {host, controller, lifetime, requests, tree: () => tree, find: (id: string) => nodes(tree).find(node => node.props.testID === id),
     counts: () => ({navigationReads, runtimeReads, closes}), disposeOnNavigation: () => {disposeOnNavigation = true;}, refuseReads: () => {refuseReads = true;},
-    dispose: () => {host.unmount(); controller.dispose(); lifetime.dispose();}};
+    dispose: async () => {await host.unmount(); controller.dispose(); lifetime.dispose();}};
 }
 
 for (const sheet of [false, true]) test(`actual ${sheet ? 'sheet' : 'page'} navigation getter disposal refuses before the next runtime read`, async () => {
@@ -348,7 +349,7 @@ for (const sheet of [false, true]) test(`actual ${sheet ? 'sheet' : 'page'} navi
     assert.equal(f.counts().closes, 0); assert.equal(f.requests.length, 0);
     assert.equal(f.controller.current(), false); assert.equal(f.lifetime.current(), true);
     if (!sheet) assert.equal(nodes(f.tree()).find(node => node.props.onSaved)?.props.open, false);
-  } finally {f.dispose();}
+  } finally {await f.dispose();}
 });
 
 for (const retired of [true, false]) test(`actual removal confirmation ${retired ? 'refuses guarded reads after original disposal' : 'dispatches for its live original controller'}`, async () => {
@@ -364,5 +365,5 @@ for (const retired of [true, false]) test(`actual removal confirmation ${retired
     assert.equal(f.lifetime.current(), true);
     if (retired) {assert.deepEqual(f.counts(), before); assert.equal(f.requests.length, 0);}
     else {assert.equal(f.requests.length, 1); assert.equal(f.requests[0].method, 'DELETE'); assert.match(f.requests[0].path, /r1\?expectedRevision=1&operationId=original-remove$/);}
-  } finally {f.dispose();}
+  } finally {await f.dispose();}
 });

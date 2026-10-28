@@ -1,3 +1,4 @@
+// @fabric-react
 import test, {after} from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -9,7 +10,7 @@ import {appleReaderEntry, readerAssetEntry, readerNavigationAllowed, readerDeliv
 import {createReadingSessionOwner} from '../src-next/screens/read/reading-session-owner';
 import {NativeShellNavigation} from '../src-next/shell/routes';
 import {readRouteBack} from '../src-next/screens/read/read-route-back';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const previousDev = Object.getOwnPropertyDescriptor(globalThis, '__DEV__');
@@ -51,8 +52,8 @@ test('twenty original sessions can evict and restore real guest components witho
     './read-route-back': {readRouteBack},
   });
   let opens = 0, closes = 0, resolveLate: ((value: Uint8Array) => void) | undefined;
-  let pendingOutcome: Promise<boolean> | undefined; const sessions: any[] = [], progresses: any[] = [], owners: ReturnType<typeof createReadingSessionOwner>[] = [];
-  const mounted = new Map<number, {host: ReturnType<typeof createHookHost>; tree: () => unknown; view: Node; connection: ReturnType<typeof connectReadingHost>; guest: Awaited<ReturnType<typeof connectReadingHost>['ready']>; setActive: (value: boolean) => void}>();
+  let pendingOutcome: Promise<boolean> | undefined; const sessions: any[] = [], progresses: any[] = [], owners: Awaited<ReturnType<typeof createReadingSessionOwner>>[] = [];
+  const mounted = new Map<number, {host: Awaited<ReturnType<typeof createFabricHookHost>>; tree: () => unknown; view: Node; connection: Awaited<ReturnType<typeof connectReadingHost>>; guest: Awaited<ReturnType<typeof connectReadingHost>['ready']>; setActive: (value: boolean) => void}>();
   const evicted = new Map<number, Node>();
   const rowsSpec = [...(nativeReadingSettingsSection.groups ?? []), ...(nativeReadingSettingsSection.advanced?.groups ?? [])].flatMap(group => group.rows);
   const fields = rowsSpec.map(row => ({key: row.key!, type: typeof row.control.default === 'boolean' ? 'boolean' : typeof row.control.default === 'number' ? 'integer' : 'string',
@@ -64,11 +65,11 @@ test('twenty original sessions can evict and restore real guest components witho
     effective: Object.fromEntries(fields.map(field => [field.key, field.default])), effectiveSource: Object.fromEntries(fields.map(field => [field.key, 'default'])), clampedFields: []});
   const preferences = {getSnapshot: () => snapshot, subscribe: () => () => {}};
   const renderer = createNativeReadRenderer(context, preferences, () => {});
-  let residenceElement: any, residenceTree: any, residence: ReturnType<typeof createHookHost> | undefined;
+  let residenceElement: any, residenceTree: any, residence: Awaited<ReturnType<typeof createFabricHookHost>> | undefined;
   const rows = () => {const children = residenceTree.props.children; return (Array.isArray(children) ? children : [children]).filter((value: any) => value?.type === 'LogicalReadHost');};
   const mount = async (index: number, active: boolean, onGuestState: (present: boolean, incarnation: object) => void) => {
-    let tree: unknown, isActive = active; const host = createHookHost(() => {tree = NativeReadingGuestHost({owner: owners[index], active: isActive, preferences, onBack() {}, onSettings() {}, onGuestState});});
-    await act(async () => {host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
+    let tree: unknown, isActive = active; const host = createFabricHookHost(() => {tree = NativeReadingGuestHost({owner: owners[index], active: isActive, preferences, onBack() {}, onSettings() {}, onGuestState});});
+    await act(async () => {await host.mount(); await new Promise<void>(resolve => setImmediate(resolve));});
     const boundary = find(tree, ReadingGuestView); assert.ok(boundary);
     const webview = ReadingGuestView(boundary!.props); assert.equal(webview.type, 'WebView');
     let input: ((message: string) => void) | undefined;
@@ -81,15 +82,15 @@ test('twenty original sessions can evict and restore real guest components witho
       subscribe: listener => {input = listener; return () => {input = undefined;};}});
     const guest = await connection.ready;
     assert.equal(guest.session.manifest.itemId, `item-${index}`);
-    mounted.set(index, {host, tree: () => tree, view: webview, connection, guest, setActive: value => {isActive = value; host.rerender();}}); return webview;
+    mounted.set(index, {host, tree: () => tree, view: webview, connection, guest, setActive: async value => {isActive = value; await host.rerender();}}); return webview;
   };
   const sync = async () => {
     residenceElement = renderer.renderRetained(); assert.ok(residenceElement);
-    if (!residence) {residence = createHookHost(() => {residenceTree = residenceElement.type(residenceElement.props);}); await act(() => residence!.mount());}
+    if (!residence) {residence = createFabricHookHost(() => {residenceTree = residenceElement.type(residenceElement.props);}); await act(() => residence!.mount());}
     else await act(() => residence!.rerender());
-    await act(() => {for (const [index, item] of [...mounted]) {
+    await act(async () => {for (const [index, item] of [...mounted]) {
       const row = rows().find((value: any) => value.props.target.itemId === `item-${index}`);
-      if (!row?.props.resident) {evicted.set(index, item.view); item.host.unmount(); assert.equal(item.guest.session.signal.aborted, true); item.connection.dispose(); mounted.delete(index);}
+      if (!row?.props.resident) {evicted.set(index, item.view); await item.host.unmount(); assert.equal(item.guest.session.signal.aborted, true); item.connection.dispose(); mounted.delete(index);}
     }});
     for (const row of rows()) if (row.props.resident) {
       const index = Number(row.props.target.itemId.slice(5)), existing = mounted.get(index);
@@ -134,7 +135,7 @@ test('twenty original sessions can evict and restore real guest components witho
       if (index) {assert.equal(navigation.back(authority), true); await sync(); assert.equal(navigation.back(authority), true); await sync();}
     }
   } finally {
-    for (const item of mounted.values()) {item.host.unmount(); item.connection.dispose();} residence?.unmount(); renderer.dispose(); navigation.dispose();
+    for (const item of mounted.values()) {await item.host.unmount(); item.connection.dispose();} await residence?.unmount(); renderer.dispose(); navigation.dispose();
     await Promise.all(owners.map(owner => owner.dispose()));
   }
   assert.equal(closes, 20);

@@ -1,10 +1,11 @@
+// @fabric-react
 import {canReturnToPage} from '../src-next/shell/page-focus-return.ts';
 import * as homeStart from '../src-next/screens/home/home-start';
 import {listeningCoverFixture} from './helpers/screen-harness.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {surfacePaintFixture, screenModule} from './helpers/screen-harness.mjs';
 import {createFocusRegistry} from '../src-next/kit/focus/registry';
 import {createTheme} from '../src-next/kit/theme';
@@ -85,13 +86,13 @@ test(`${adapter}: the real TV shell retains its page opener and retires Menu bef
   const previousFrame = globalThis.requestAnimationFrame, previousCancel = globalThis.cancelAnimationFrame;
   globalThis.requestAnimationFrame = fn => {frames.set(++sequence, fn); return sequence;};
   globalThis.cancelAnimationFrame = id => {frames.delete(id);};
-  const rootHost = createHookHost(() => {root = NativeShell({runtime});});
-  let sessionHost: ReturnType<typeof createHookHost> | undefined;
+  const rootHost = createFabricHookHost(() => {root = NativeShell({runtime});});
+  let sessionHost: Awaited<ReturnType<typeof createFabricHookHost>> | undefined;
   try {
-    rootHost.mount();
+    await rootHost.mount();
     const session = nodes(root).find(node => node.type?.name === 'ShellSession');
-    sessionHost = createHookHost(() => {sessionRenders++; tree = session.type({runtime, snapshot});});
-    await act(() => {sessionHost!.mount();});
+    sessionHost = createFabricHookHost(() => {sessionRenders++; tree = session.type({runtime, snapshot});});
+    await act(async () => {await sessionHost!.mount();});
     const rail = () => nodes(tree).find(node => node.type === 'TVRail');
     const beforeUnrelated = sessionRenders;
     await act(() => {
@@ -111,22 +112,22 @@ test(`${adapter}: the real TV shell retains its page opener and retires Menu bef
     assert.deepEqual(navigations, [{kind: 'saved'}]);
     for (const patch of [{mediaExpanded: true}, {homeVisible: false}]) {
       registry.didFocus(row);
-      await act(() => {snapshot = {...snapshot, ...patch}; sessionHost!.rerender();});
+      await act(async () => {snapshot = {...snapshot, ...patch}; await sessionHost!.rerender();});
       assert.equal(registry.isRegionActive(row.regionId), true);
       registry.didBlur(row); await Promise.resolve();
-      await act(() => {snapshot = {...snapshot, homeVisible: true, mediaExpanded: false}; sessionHost!.rerender();});
+      await act(async () => {snapshot = {...snapshot, homeVisible: true, mediaExpanded: false}; await sessionHost!.rerender();});
       for (const [id, fn] of [...frames]) {frames.delete(id); fn(0);}
       assert.equal(requests.at(-1), 'card');
       assert.equal(registry.capture()?.childId, row.childId);
     }
     // A logical full-listening close keeps the existing sole return owner until actual paint exits.
     registry.didFocus(row);
-    await act(() => {snapshot = {...snapshot, mediaExpanded: true}; sessionHost!.rerender();});
+    await act(async () => {snapshot = {...snapshot, mediaExpanded: true}; await sessionHost!.rerender();});
     const listening = () => nodes(tree).find(node => node.type === 'PlaybackLayer');
     await act(() => listening().props.onTVListeningPresenceChange(true));
     registry.didBlur(row); await Promise.resolve();
     const beforeExit = requests.length;
-    await act(() => {snapshot = {...snapshot, mediaExpanded: false}; sessionHost!.rerender();});
+    await act(async () => {snapshot = {...snapshot, mediaExpanded: false}; await sessionHost!.rerender();});
     for (const [id, fn] of [...frames]) {frames.delete(id); fn(0);}
     assert.equal(requests.length, beforeExit, 'logical close does not restore beneath retained listening paint');
     await act(() => listening().props.onTVListeningPresenceChange(false));
@@ -135,22 +136,22 @@ test(`${adapter}: the real TV shell retains its page opener and retires Menu bef
     const library = {regionId: 'actual-library-region', childId: 'actual-library-card'};
     registry.configure({id: library.regionId, entry: library.childId, order: [library.childId]});
     registry.attach(library, {requestTVFocus() {requests.push('library-card'); registry.didFocus(library);}});
-    await act(() => {snapshot = {...snapshot, destination: {kind: 'saved'}, homeVisible: false}; sessionHost!.rerender(); registry.didFocus(library);
+    await act(async () => {snapshot = {...snapshot, destination: {kind: 'saved'}, homeVisible: false}; await sessionHost!.rerender(); registry.didFocus(library);
       registry.didFocus({regionId: ids.rail, childId: 'saved'}); rail().props.onExpandedChange(true);});
     assert.equal(railBack!(), true);
     assert.equal(requests.at(-1), 'library-card', 'rail return memory follows the actual destination page, not a former Home address');
-    await act(() => {snapshot = {...snapshot, destination: {kind: 'library', libraryId: 'movies'}, railDestination: {kind: 'library', libraryId: 'movies'},
-      libraries: [{id: 'movies'}]}; sessionHost!.rerender();});
+    await act(async () => {snapshot = {...snapshot, destination: {kind: 'library', libraryId: 'movies'}, railDestination: {kind: 'library', libraryId: 'movies'},
+      libraries: [{id: 'movies'}]}; await sessionHost!.rerender();});
     assert.deepEqual(rail().props.destination, {kind: 'library', libraryId: 'movies'}, 'the rail follows the actual title-highlighted page');
     const topsBefore = tops.length, navigationsBefore = navigations.length;
     // cb0ef443: a pushed destination hides the shell chrome. The rail is then absent,
     // so there is no retained hidden origin to act on; hiding alone navigates and
     // scrolls nothing.
-    await act(() => {snapshot = {...snapshot, contentVisible: false}; sessionHost!.rerender();});
+    await act(async () => {snapshot = {...snapshot, contentVisible: false}; await sessionHost!.rerender();});
     assert.equal(nodes(tree).some(node => node.type === 'TVRail'), false, 'a pushed destination hides the rail');
     assert.equal(navigations.length, navigationsBefore, 'hiding the chrome by itself navigates nowhere');
     assert.equal(tops.length, topsBefore, 'hiding the chrome never scrolls the hidden origin');
-    await act(() => {snapshot = {...snapshot, destination: {kind: 'home'}, contentVisible: true, homeVisible: true, homeObscured: false, mediaExpanded: false}; sessionHost!.rerender(); registry.didFocus(ids.start);});
+    await act(async () => {snapshot = {...snapshot, destination: {kind: 'home'}, contentVisible: true, homeVisible: true, homeObscured: false, mediaExpanded: false}; await sessionHost!.rerender(); registry.didFocus(ids.start);});
     assert.equal(menuCapture.at(-1), false, 'Menu at the real Home opening focus returns to tvOS');
     registry.attachRegion(ids.rail, {requestTVFocus() {requests.push('rail'); registry.didFocus({regionId: ids.rail, childId: 'home'});}});
     const menuCalls: string[] = [];
@@ -171,33 +172,33 @@ test(`${adapter}: the real TV shell retains its page opener and retires Menu bef
     assert.equal(requests.length, beforeOpenRail, 'context Menu consumes an already open rail');
     await act(() => {registry.didFocus(row);});
     assert.equal(menuCapture.at(-1), true, 'a focus move below Home captures Menu before Back returns to the top');
-    await act(() => {snapshot = {...snapshot, mediaExpanded: true}; sessionHost!.rerender();});
+    await act(async () => {snapshot = {...snapshot, mediaExpanded: true}; await sessionHost!.rerender();});
     assert.equal(menuCapture.at(-1), true, 'playback retains Menu even if Home had the starting focus');
     const beforePlayer = requests.length;
     await act(() => menuFallback!());
     assert.equal(requests.length, beforePlayer, 'full player context Menu does nothing');
     // Actual ShellSession uses the shared resolved start; it must not keep the
     // former hardcoded Play yield when the real Home has no such action.
-    await act(() => {
+    await act(async () => {
       rail().props.onExpandedChange(false);
       snapshot = {...snapshot, mediaExpanded: false};
       homeDocument = {...authority, rows: [], spotlight: []};
       registry.attach(ids.start, null);
-      registry.didFocus(row); sessionHost!.rerender();
+      registry.didFocus(row); await sessionHost!.rerender();
     });
     assert.equal(menuCapture.at(-1), false, 'admitted empty Home yields with retained prior row focus and no invented Customize');
     assert.equal(registry.config(ids.customize), undefined);
     const releaseOverlay = registry.retain(row);
     try {
-      await act(() => {sessionHost!.rerender();});
+      await act(async () => {await sessionHost!.rerender();});
       assert.equal(menuCapture.at(-1), true, 'the original overlay return lease keeps Menu while Home retains focus');
     } finally {await act(() => releaseOverlay());}
     assert.equal(menuCapture.at(-1), false, 'actual return-lease removal reopens Home yield without a second owner');
-    await act(() => {homeDocument = undefined; sessionHost!.rerender();});
+    await act(async () => {homeDocument = undefined; await sessionHost!.rerender();});
     assert.equal(menuCapture.at(-1), true, 'loading cannot infer an empty Home or release Menu');
-    await act(() => {homeDocument = {...authority, rows: [{id: 'deferred', title: 'Deferred', kind: 'ordinary', artworkShape: 'poster', entries: [], deferred: true}], spotlight: []}; sessionHost!.rerender();});
+    await act(async () => {homeDocument = {...authority, rows: [{id: 'deferred', title: 'Deferred', kind: 'ordinary', artworkShape: 'poster', entries: [], deferred: true}], spotlight: []}; await sessionHost!.rerender();});
     assert.equal(menuCapture.at(-1), true, 'admitted deferred-only Home is still waiting');
-    await act(() => {homeDocument = {...authority, rows: [], spotlight: []}; sessionHost!.rerender();});
+    await act(async () => {homeDocument = {...authority, rows: [], spotlight: []}; await sessionHost!.rerender();});
     assert.equal(menuCapture.at(-1), false);
     await act(() => {registry.didFocus({regionId: ids.rail, childId: 'home'}); rail().props.onExpandedChange(true);});
     assert.equal(menuCapture.at(-1), true, 'an open rail keeps its own Back step');
@@ -220,14 +221,14 @@ test(`${adapter}: the real TV shell retains its page opener and retires Menu bef
       assert.equal(retainedSetup(), undefined, 'an already-retired original never registers a Menu observer');
       assert.equal(registrations, beforeSetup);
       reentrantCleanup?.();
-      sessionHost!.unmount(); sessionHost = undefined;
+      await sessionHost!.unmount(); sessionHost = undefined;
       assert.equal(dispatch(), successorFirst, 'old passive cleanup cannot erase the successor');
       assert.equal(successorCalls, successorFirst ? 2 : 0);
       assert.equal(retiredReads, 0); assert.equal(requests.length, beforeRetirement);
     } finally {successorOff?.();}
 
   } finally {
-    sessionHost?.unmount(); rootHost.unmount();
+    await sessionHost?.unmount(); await rootHost.unmount();
     globalThis.requestAnimationFrame = previousFrame; globalThis.cancelAnimationFrame = previousCancel;
   }
   assert.equal(railBack, undefined);

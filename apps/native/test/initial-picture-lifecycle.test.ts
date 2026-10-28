@@ -1,10 +1,11 @@
+// @fabric-react
 /** Authored UNRUN source. Actual presenter hooks/effects with controlled image
  * callbacks, UI shared values and animator completions; no native host, decoder,
  * RNGH scheduling, SurfaceView composition or device acceptance. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
-import {act, createHookHost} from './hook-driver.ts';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import * as model from '../src-next/kit/dock/initial-picture-model.ts';
 
@@ -72,8 +73,8 @@ async function fixture(t: any) {
   const controller = {progress: new Value(0), velocity: new Value(0), dragging: new Value(false), presentationGoal: new Value(0)};
   const host = {current: {measureInWindow: (callback: any) => callback(0, 0, 400, 800)}};
   const props = {offer, host, controller, full: {x: 0, y: 0, width: 400, height: 225}, dock: {x: 20, y: 650, width: 80, height: 45}, docked: false, firstFrame: true, travel: 800};
-  const driver = createHookHost(() => {tree = InitialPicturePresentation(props);});
-  t.after(() => {driver.unmount(); globalThis.requestAnimationFrame = oldFrame; globalThis.cancelAnimationFrame = oldCancel;});
+  const driver = createFabricHookHost(() => {tree = InitialPicturePresentation(props);});
+  t.after(async () => {await driver.unmount(); globalThis.requestAnimationFrame = oldFrame; globalThis.cancelAnimationFrame = oldCancel;});
   await act(() => driver.mount());
   await act(() => {nodes(tree).find(node => node.type === 'Artwork').props.onReady(offer.artwork);});
   const activeSpring = () => animations.findLast(animation => animation.kind === 'spring' && !animation.stopped);

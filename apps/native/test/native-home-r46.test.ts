@@ -1,3 +1,4 @@
+// @fabric-react
 import * as homeWindow from '../src-next/screens/home/home-window';
 import {createInitialRegionEntry} from '../src-next/kit/focus/initial-entry.ts';
 import test from 'node:test';
@@ -18,7 +19,7 @@ import {NativeHomePaging} from '../src-next/shell/home-paging';
 import {tvHomeRows} from '../src-next/screens/home/tv-presentation';
 import * as homeStart from '../src-next/screens/home/home-start';
 import {authorityKey} from '../src-next/shell/model';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import * as pageBack from '../src-next/screens/destinations/tv-page-back';
 import * as homeModel from '../src-next/screens/home/model';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
@@ -345,7 +346,7 @@ async function homeBackFixture(initial: any, prior?: {regionId: string; childId:
     react: {...React, default: React}, '../../kit/focus': {useFocusRegistry: () => registry}, './tv-page-back': pageBack});
   const {HomeScreen} = await homeModule(tvTheme, [], {...React, default: React}, registry, {
     './model': homeModel, '../destinations/useTVPageBack': hook, '../../kit/layout/FocusAnchor': {useFocusAnchor: () => vertical}});
-  const host = createHookHost(() => {tree = HomeScreen({runtime, authority, onScrolledChange: (value: boolean) => scrolled.push(value)});});
+  const host = createFabricHookHost(() => {tree = HomeScreen({runtime, authority, onScrolledChange: (value: boolean) => scrolled.push(value)});});
   await act(() => host.mount());
   return {registry, runtime, host, snapshot, callbacks, scrolled, authority, vertical,
     tree: () => tree, counts: () => ({moves, requests}), back: () => [...backs].at(-1)!(),
@@ -365,7 +366,7 @@ for (const prior of [undefined, {regionId: 'removed.row', childId: 'old'}]) test
     f.attach({regionId: 'late.removed', childId: 'host'}); f.registry.configure({id: 'late.removed', order: ['host']});
     assert.deepEqual(f.counts(), {moves: 0, requests: 0}, 'registry notifications expose no hidden pending jump');
     assert.equal(f.registry.host(tvFocusIds(f.authority).customize), undefined);
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });
 
 test('actual Home retires a deferred Back jump on admitted-empty transition, clearing prior scroll without a focus/scroll command', async () => {
@@ -382,7 +383,7 @@ test('actual Home retires a deferred Back jump on admitted-empty transition, cle
     for (let index = 0; index < 8; index++) assert.equal(f.back(), false);
     assert.deepEqual(f.scrolled, [true, false]);
     f.attach({regionId: 'pending', childId: 'late'}); assert.deepEqual(f.counts(), {moves: 1, requests: 0});
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });
 
 test('an actionless Home keeps the original independent mixes reader mounted and returns to its real offered row', async () => {
@@ -399,5 +400,5 @@ test('an actionless Home keeps the original independent mixes reader mounted and
     const offered = descendants(f.tree()).find(node => node.type === 'MusicMixesRow'); assert.equal(offered.props.port, port);
     assert.equal(offered.props.focus.id, tvFocusIds(f.authority).row(homeStart.homeMixesFocusRow));
     assert.equal(descendants(f.tree()).some(node => node.type === 'Button' && node.props.focusId === 'customize'), true, 'real nonempty content retains its existing footer');
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });

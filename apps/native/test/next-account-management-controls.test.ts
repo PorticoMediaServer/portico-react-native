@@ -1,8 +1,10 @@
+// @fabric-react
 import {profileEditorFields} from './helpers/profile-editor-fields.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
+import {fabricHost, React as FabricReact} from './helpers/fabric-host.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import * as values from '../src-next/screens/accounts/account-form-values.ts';
 
@@ -58,7 +60,7 @@ async function fixture() {
     authority: () => authority, current: () => true, subscribeAuthority: () => () => {}, api: {baseUrl: 'https://server.example.invalid'},
     navigation: {getSnapshot: () => nav, subscribe: () => () => {}, back() {}}};
   let tree: any;
-  const host = createHookHost(() => {const child = AccountRoute({context, route}); tree = child.type(child.props);});
+  const host = createFabricHookHost(() => {const child = AccountRoute({context, route}); tree = child.type(child.props);});
   return {AccountRoute, ServersRoute, context, calls, host, tree: () => tree, factories, nav};
 }
 
@@ -77,7 +79,7 @@ test('profile Add and Rename submit the chosen color and preselect the current c
     const dialog = nodes(f.tree()).find(value => value.type === 'Dialog' && value.props.testID === 'profile-rename');
     await act(() => button(dialog, 'action.save').props.onPress());
     assert.deepEqual(f.calls.find(call => call[0] === 'edit')?.[2], {name: 'Profile', art: 'gold'});
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });
 
 test('PIN editor has New and Repeat cell rows and keeps the mismatch guard', async () => {
@@ -94,31 +96,37 @@ test('PIN editor has New and Repeat cell rows and keeps the mismatch guard', asy
     await act(() => byID(f.tree(), 'profile-pin-again').props.onChange('1234'));
     await act(() => button(byID(f.tree(), 'profile-pin-edit'), 'action.save').props.onPress());
     assert.deepEqual(f.calls.find(call => call[0] === 'edit')?.[2], {pin: '1234'});
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });
 
 test('Hidden labels picker saves the chosen labels with the original restriction revision and feature flags', async () => {
   const f = await fixture(); await act(() => f.host.mount()); let sheet: any;
   await act(() => byID(f.tree(), 'profile-limits').props.onPress());
   const element = nodes(f.tree()).find(value => typeof value.type === 'function' && value.type.name === 'ProfileLimitsSheet');
-  const host = createHookHost(() => {
+  // The sheet draws ProfileRestrictionsFields once its draft has loaded. Mount the fields as their
+  // own child component (their hooks are theirs), and read the sheet with the fields' drawn tree.
+  let fieldsTree: any;
+  const Fields = ({fields}: {fields: any}) => {fieldsTree = fields.type(fields.props); return null;};
+  const Sheet = () => {
     sheet = element.type(element.props);
     const fields = nodes(sheet).find(value => typeof value.type === 'function' && value.type.name === 'ProfileRestrictionsFields');
-    if (fields) sheet = {...sheet, props: {...sheet.props, children: [sheet.props.children, fields.type(fields.props)]}};
-  }); await act(() => host.mount());
+    return fields ? FabricReact.createElement(Fields, {fields}) : null;
+  };
+  const view = () => ({...sheet, props: {...sheet.props, children: [sheet.props.children, fieldsTree]}});
+  const host = await fabricHost(); await act(() => host.render(FabricReact.createElement(Sheet)));
   try {
-    assert.equal(byID(sheet, 'profile-hidden-labels').props.description, 'web.dvr.none');
-    await act(() => byID(sheet, 'profile-hidden-labels').props.onPress());
-    const input = () => nodes(byID(sheet, 'profile-hidden-labels-picker')).find(value => value.type === 'TextField');
+    assert.equal(byID(view(), 'profile-hidden-labels').props.description, 'web.dvr.none');
+    await act(() => byID(view(), 'profile-hidden-labels').props.onPress());
+    const input = () => nodes(byID(view(), 'profile-hidden-labels-picker')).find(value => value.type === 'TextField');
     await act(() => input().props.onChangeText('Horror'));
-    await act(() => button(byID(sheet, 'profile-hidden-labels-picker'), 'web.metadata.addLabelChip').props.onPress());
-    await act(() => button(byID(sheet, 'profile-hidden-labels-picker'), 'action.done').props.onPress());
-    assert.equal(byID(sheet, 'profile-hidden-labels').props.description, 'Horror');
-    await act(() => button(sheet.props.footer, 'limits.save').props.onPress());
+    await act(() => button(byID(view(), 'profile-hidden-labels-picker'), 'web.metadata.addLabelChip').props.onPress());
+    await act(() => button(byID(view(), 'profile-hidden-labels-picker'), 'action.done').props.onPress());
+    assert.equal(byID(view(), 'profile-hidden-labels').props.description, 'Horror');
+    await act(() => button(view().props.footer, 'limits.save').props.onPress());
     const saved = f.calls.find(call => call[0] === 'restrictions');
     assert.equal(saved?.[1].revision, 1);
     assert.deepEqual(saved?.[2], {ratingSystem: 'ratings', maximumAgeRating: '', allowUnrated: true, blockedLabels: ['Horror'], allowDownloads: true, allowLiveTv: false, allowDvr: false, allowWatchTogether: true});
-  } finally {host.unmount(); f.host.unmount();}
+  } finally {await host.unmount(); await f.host.unmount();}
 });
 
 test('Play on link intent starts at approval choice, normalizes entry and gates review', async () => {
@@ -126,7 +134,7 @@ test('Play on link intent starts at approval choice, normalizes entry and gates 
   const route = f.AccountRoute({context: f.context, route: {kind: 'servers', initialPanel: 'consent-kind'}});
   assert.equal(route.props.initialPanel, 'consent-kind');
   let tree: any;
-  const host = createHookHost(() => {tree = f.ServersRoute(route.props);}); await act(() => host.mount());
+  const host = createFabricHookHost(() => {tree = f.ServersRoute(route.props);}); await act(() => host.mount());
   try {
     assert.equal(tree.props.title, 'settings.linkTV');
     await act(() => button(tree, 'account.portico').props.onPress());
@@ -139,7 +147,7 @@ test('Play on link intent starts at approval choice, normalizes entry and gates 
     assert.equal(tree.props.primaryAction.disabled, false);
     await act(() => tree.props.primaryAction.onPress());
     assert.deepEqual(f.calls.find(call => call[0] === 'review'), ['review', 'ABCD-EFGH']);
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });
 
 test('each committed account route opening gets its own component key', async () => {
@@ -153,12 +161,12 @@ test('each committed account route opening gets its own component key', async ()
 
 test('touch server chooser receives the existing certificate store and confirmation presenter', async () => {
   const f = await fixture(); let tree: any;
-  const host = createHookHost(() => {tree = f.ServersRoute({context: f.context});}); await act(() => host.mount());
+  const host = createFabricHookHost(() => {tree = f.ServersRoute({context: f.context});}); await act(() => host.mount());
   try {
     const chooser = nodes(tree).find(value => value.type === 'PhoneServerChooser');
     assert.equal(chooser.props.certificates.type, 'TVTrustedCertificates');
     assert.equal(chooser.props.certificates.props.context, f.context);
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });
 
 test('PIN cell presenter can edit New or Repeat without submitting and keeps the numeric native input', async () => {
@@ -168,7 +176,7 @@ test('PIN cell presenter can edit New or Repeat without submitting and keeps the
     '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}}, '../../kit/theme': {useTheme: () => theme},
   });
   let tree: any;
-  const host = createHookHost(() => {const [value, setValue] = React.useState(''); tree = PhonePINEntry({value, onChange: setValue, label: 'Repeat PIN', autoFocus: false, testID: 'repeat'});});
+  const host = createFabricHookHost(() => {const [value, setValue] = React.useState(''); tree = PhonePINEntry({value, onChange: setValue, label: 'Repeat PIN', autoFocus: false, testID: 'repeat'});});
   await act(() => host.mount());
   try {
     let input = nodes(tree).find(value => value.type === 'TextInput');
@@ -176,5 +184,5 @@ test('PIN cell presenter can edit New or Repeat without submitting and keeps the
     await act(() => input.props.onChangeText('12a345'));
     input = nodes(tree).find(value => value.type === 'TextInput'); assert.equal(input.props.value, '1234');
     assert.equal(nodes(tree).filter(value => value.props.testID?.startsWith('repeat-box-')).length, 4);
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });

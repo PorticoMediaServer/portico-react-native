@@ -1,3 +1,4 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -5,7 +6,7 @@ import {defaultI18n} from '../../../packages/i18n/src';
 import * as card from '../../../packages/client-core/src/invitation-card';
 import * as issuer from '../../../packages/client-core/src/invitation-short-code-issuer';
 import {createTheme} from '../src-next/kit/theme';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children), ...nodes(node.props.footer)] : [];
@@ -49,7 +50,7 @@ async function mount(ready: 'created' | 'shared', options: {save?: boolean} = {}
   });
   const runtime = {text: {t}, error: (error: unknown) => ({title: String(error)})};
   let tree: any;
-  const host = createHookHost(() => {tree = InvitationReadySheet({source, opening, runtime, serverName: 'Portico demo', signIn: 'local'});});
+  const host = createFabricHookHost(() => {tree = InvitationReadySheet({source, opening, runtime, serverName: 'Portico demo', signIn: 'local'});});
   await act(() => host.mount());
   await act(async () => {await new Promise(resolve => setTimeout(resolve, 0));});
   return {calls, shared, copied, saved, tree: () => tree, host};
@@ -63,7 +64,7 @@ test('a new invitation\'s card shows the server, what they get, the QR of the lo
     for (const expected of ['Portico demo', 'Movies', t('accounts.invitation.to'), t('accounts.invitation.scanHelp'), t('accounts.invitation.orEnterCode'), '7QK2-9MXP-ABCD-1234', LINK, t('accounts.invitation.copyAgainHelp')]) assert.ok(shown.includes(expected), expected);
     assert.equal(shown.some(text => text.includes('private')), false, 'private notes never reach the card');
     assert.equal(nodes(app.tree()).find(node => node.type === 'QR')?.props.value, LINK);
-  } finally {app.host.unmount();}
+  } finally {await app.host.unmount();}
 });
 
 test('Share, Copy link and Save picture act on the link this card read', async () => {
@@ -74,7 +75,7 @@ test('Share, Copy link and Save picture act on the link this card read', async (
     assert.deepEqual(app.shared, [{message: LINK}]);
     assert.deepEqual(app.copied, [LINK]);
     assert.equal(button(app.tree(), 'invitation-save-picture'), undefined, 'no Save picture where the app has nowhere to save');
-  } finally {app.host.unmount();}
+  } finally {await app.host.unmount();}
 });
 
 test('a waiting invitation opened to share issues no code until asked, and New code is a fresh operation', async () => {
@@ -87,5 +88,5 @@ test('a waiting invitation opened to share issues no code until asked, and New c
     await act(() => button(app.tree(), 'invitation-new-code').props.onPress());
     await act(async () => {await new Promise(resolve => setTimeout(resolve, 0));});
     assert.deepEqual(app.calls.filter(call => call.startsWith('code:')), ['code:op-1', 'code:op-2']);
-  } finally {app.host.unmount();}
+  } finally {await app.host.unmount();}
 });

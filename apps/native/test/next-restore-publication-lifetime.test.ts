@@ -1,3 +1,4 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -7,7 +8,7 @@ import {createTheme} from '../src-next/kit/theme';
 import * as serverConnections from '../src-next/platform/server-connections';
 import * as secureRecords from '../src-next/platform/secure-records';
 import * as startupRecovery from '../src-next/shell/startup-recovery';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 type Deferred = {promise: Promise<undefined>; resolve: () => void};
@@ -71,7 +72,7 @@ test('a storage hint before the entry completes does not unmount a settled entry
     reads: async () => stored, hints: listener => {hint = listener; return () => {};}, restores, deferred: false,
   }));
   let tree: any;
-  const host = createHookHost(() => {tree = RestoredShell({}).props.children;});
+  const host = createFabricHookHost(() => {tree = RestoredShell({}).props.children;});
   await act(() => host.mount());
   try {
     assert.equal(tree.type, 'AccountEntry');
@@ -82,7 +83,7 @@ test('a storage hint before the entry completes does not unmount a settled entry
     const restoresBefore = restores.length;
     await act(() => tree.props.onComplete());
     assert.equal(restores.length, restoresBefore + 1, 'the entry completion starts the one restore');
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });
 
 test('a storage hint while a restore is pending still fences and restarts it', async () => {
@@ -92,7 +93,7 @@ test('a storage hint while a restore is pending still fences and restarts it', a
     reads: async () => stored, hints: listener => {hint = listener; return () => {};}, restores, deferred: true,
   }));
   let tree: any;
-  const host = createHookHost(() => {tree = RestoredShell({}).props.children;});
+  const host = createFabricHookHost(() => {tree = RestoredShell({}).props.children;});
   await act(() => host.mount());
   try {
     assert.equal(restores.length, 1, 'the first restore is pending');
@@ -101,7 +102,7 @@ test('a storage hint while a restore is pending still fences and restarts it', a
     assert.equal(restores.length, 2, 'a pending restore is fenced and restarted');
     await act(() => restores.forEach(item => item.resolve()));
     assert.equal(tree.type, 'AccountEntry');
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });
 
 /** The key service's own refusal: the records are there and their key is not. */
@@ -116,12 +117,12 @@ test('a restore that reports the saved-records key lost opens the real recovery,
     failure, onFallback: () => {fallbacks++;},
   }));
   let tree: any;
-  const host = createHookHost(() => {tree = RestoredShell({}).props.children;});
+  const host = createFabricHookHost(() => {tree = RestoredShell({}).props.children;});
   await act(() => host.mount());
   try {
     assert.equal(tree.type, 'SecureRecordsRecovery', 'the real classifier reads the key-loss code');
     assert.equal(fallbacks, 0, 'a lost key does not start the ordinary downloads fallback');
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });
 
 test('an unexpected restore failure is never misread as a lost saved-records key', async () => {
@@ -134,11 +135,11 @@ test('an unexpected restore failure is never misread as a lost saved-records key
     failure, onFallback: () => {fallbacks++;},
   }));
   let tree: any;
-  const host = createHookHost(() => {tree = RestoredShell({}).props.children;});
+  const host = createFabricHookHost(() => {tree = RestoredShell({}).props.children;});
   await act(() => host.mount());
   try {
     assert.notEqual(tree.type, 'SecureRecordsRecovery', 'an ordinary failure never opens the records recovery');
     assert.equal(tree.type, 'StateView', 'the ordinary restore recovery is drawn instead');
     assert.equal(fallbacks, 1, 'the ordinary failure keeps its downloads fallback');
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });

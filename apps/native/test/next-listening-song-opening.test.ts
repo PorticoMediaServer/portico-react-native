@@ -1,7 +1,10 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
-import {act, createHookHost} from './hook-driver.ts';
+import {act as fabricAct, createFabricHookHost} from './helpers/fabric-hooks.mjs';
+import {act as driverAct, createHookHost} from './hook-driver.ts';
+const act = async (work: () => void | Promise<void>) => {await driverAct(work); await fabricAct(() => {});};
 import {playbackFence, playbackIdentity, type QueuePlaybackFence, type QueueScope} from '../../../packages/player-core/src';
 import {useListeningSong, type NativeListeningSongState} from '../src-next/shell/use-listening-song.ts';
 import type {NativeListeningSong, NativeListeningSongDetail} from '../src-next/shell/listening-song-detail.ts';
@@ -49,11 +52,11 @@ function detail() {
   return {port: port as unknown as NativeListeningSongDetail, reads, favorites};
 }
 
-function opening(fenceA: ReturnType<typeof fence>) {
+function opening(fenceA: ReturnType<typeof fence>, createHost: (body: () => void) => any = createFabricHookHost) {
   const d = detail(), life = lifetime();
   const props = {detail: d.port, fence: fenceA, lifetime: life, current: () => true};
   let state: NativeListeningSongState, favoriteRef: NativeListeningSongState['favorite'], armed = false, token: NativeListeningSong | undefined;
-  const host = createHookHost(() => {
+  const host = createHost(() => {
     const key = JSON.stringify(props.fence);
     // The other component's layout setup in this same commit. It is declared before the
     // listening opening so its setup runs first under a setup-time retirement.
@@ -68,7 +71,7 @@ function opening(fenceA: ReturnType<typeof fence>) {
 test('a same-content progress tick keeps the original fence and does not reopen the read', async () => {
   const x = opening(fence('entry-1'));
   try {
-    x.host.mount();
+    await x.host.mount();
     await act(async () => {});
     const original = x.state().song;
     assert.ok(original);
@@ -76,20 +79,20 @@ test('a same-content progress tick keeps the original fence and does not reopen 
     assert.equal(x.d.reads[0], x.admitted, 'the opening holds the fence from the render that admitted it');
 
     x.props.fence = fence('entry-1');
-    x.host.rerender();
+    await x.host.rerender();
     await act(async () => {});
     assert.equal(x.d.reads.length, 1, 'the same content under a new object identity is the same opening');
     assert.equal(x.state().song, original, 'the drawn song token is retained');
     assert.equal(x.d.reads[0], x.admitted, 'the opening keeps its original fence object');
   } finally {
-    x.host.unmount();
+    await x.host.unmount();
   }
 });
 
 test('a retained favorite attempted in another layout setup during a fence change refuses', async () => {
   const x = opening(fence('entry-1'));
   try {
-    x.host.mount();
+    await x.host.mount();
     await act(async () => {});
     const original = x.state().song!;
     x.arm(original);
@@ -97,7 +100,7 @@ test('a retained favorite attempted in another layout setup during a fence chang
     const nextFence = fence('entry-2');
     x.props.fence = nextFence;
     // One render: the other layout setup runs in the same commit as the listening transition.
-    x.host.rerender();
+    await x.host.rerender();
     await act(async () => {});
 
     assert.deepEqual(x.d.favorites, [], 'the retired opening cannot borrow the new one');
@@ -113,40 +116,42 @@ test('a retained favorite attempted in another layout setup during a fence chang
     await act(async () => {});
     assert.deepEqual(x.d.favorites, [accepted], 'only the current opening token is accepted');
   } finally {
-    x.host.unmount();
+    await x.host.unmount();
   }
 });
 
 test('a real content change retires the opening before the next layout setup', async () => {
   const x = opening(fence('entry-1'));
   try {
-    x.host.mount();
+    await x.host.mount();
     await act(async () => {});
     const original = x.state().song!;
     x.props.fence = fence('entry-2');
-    x.host.rerender();
+    await x.host.rerender();
     await act(async () => {});
     x.favorite()(original, true);
     await act(async () => {});
     assert.deepEqual(x.d.favorites, []);
   } finally {
-    x.host.unmount();
+    await x.host.unmount();
   }
 });
 
 test('an actual unmount retires the opening and refuses its retained token', async () => {
   const x = opening(fence('entry-1'));
-  x.host.mount();
+  await x.host.mount();
   await act(async () => {});
   const original = x.state().song!;
-  x.host.unmount();
+  await x.host.unmount();
   x.favorite()(original, true);
   await act(async () => {});
   assert.deepEqual(x.d.favorites, []);
 });
 
+// The production renderer has no development-only effect replay. Preserve the
+// original manual callback vector; it is not React StrictMode evidence.
 test('a StrictMode effect replay retires the original opening and opens the same admission once more', async () => {
-  const x = opening(fence('entry-1'));
+  const x = opening(fence('entry-1'), createHookHost);
   try {
     x.host.mount();
     await act(async () => {});
@@ -170,3 +175,5 @@ test('a StrictMode effect replay retires the original opening and opens the same
     x.host.unmount();
   }
 });
+
+test.todo('Fabric StrictMode replay: TypeError: x.host.replay is not a function');

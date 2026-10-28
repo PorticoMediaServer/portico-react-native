@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import * as React from 'react';
+import {fabricHost, React} from './helpers/fabric-host.mjs';
 import * as focus from '../src-next/kit/focus/registry.ts';
 import * as geometry from '../src-next/kit/overlays/geometry.ts';
 import * as overlayStack from '../src-next/kit/overlays/overlay-stack.ts';
-import {createHookHost} from './hook-driver.ts';
 import {liveOverlayPaint, screenModule} from './helpers/screen-harness.mjs';
 
 async function overlayHost(isTV: boolean) {
@@ -25,6 +24,16 @@ async function overlayHost(isTV: boolean) {
     './geometry': geometry, './overlay-stack': overlayStack,
   });
   return {mod, backHandlers, keyHandlers};
+}
+
+/** The real lifecycle hook mounted as a component on the installed Fabric
+ * renderer, so React owns layout-effect setup, cleanup on close and unmount. */
+async function mountHook(body: () => void) {
+  const host = await fabricHost();
+  const Hook = () => {body(); return null;};
+  const render = () => host.render(React.createElement(Hook));
+  await render();
+  return {rerender: render, unmount: () => host.unmount()};
 }
 
 test('the shared native request reports missing targets and retains registry restoration policy', () => {
@@ -61,9 +70,8 @@ for (const isTV of [false, true]) {
     const opener = {requestTVFocus() {calls.push('opener');}, focus() {calls.push('generic-opener');}};
     const reasons: string[] = [];
     let open = true;
-    const driver = createHookHost(() => mod.useOverlayLifecycle(open, true, (reason: string) => reasons.push(reason),
+    const session = await mountHook(() => mod.useOverlayLifecycle(open, true, (reason: string) => reasons.push(reason),
       {current: safe}, {current: opener}));
-    driver.mount();
     try {
       assert.deepEqual(calls, [], 'focus waits for the mounted surface');
       t.mock.timers.tick(0);
@@ -73,10 +81,10 @@ for (const isTV of [false, true]) {
       assert.deepEqual(reasons, []);
       assert.equal([...backHandlers][0]!(), true);
       assert.deepEqual(reasons, ['back']);
-      open = false; driver.rerender();
+      open = false; await session.rerender();
       assert.deepEqual(calls, ['cancel', 'opener']);
       assert.equal(backHandlers.size, 0); assert.equal(keyHandlers.size, 0);
       t.mock.timers.tick(0); assert.deepEqual(calls, ['cancel', 'opener']);
-    } finally {driver.unmount(); t.mock.timers.reset();}
+    } finally {await session.unmount(); t.mock.timers.reset();}
   });
 }

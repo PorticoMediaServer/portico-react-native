@@ -1,3 +1,4 @@
+// @fabric-react
 import * as accountWork from '../src-next/platform/account-work';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -17,7 +18,7 @@ import {defaultI18n} from '../../../packages/i18n/src';
 import {createTheme, nativeType} from '../src-next/kit/theme';
 import {createTVCodeOpening, type TVCodeOpening, type TVCodeKind} from '../src-next/screens/accounts/tv-code-opening';
 import {useTVBusyEntryRevision} from '../src-next/tv/auth/entry-revision';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import * as tvCodeOpening from '../src-next/screens/accounts/tv-code-opening';
 import * as passwordPolicy from '../../../packages/client-core/src/password-strength';
@@ -104,7 +105,7 @@ function fixture() {
   };
 }
 
-async function presenter(f: ReturnType<typeof fixture>, kind: TVCodeKind) {
+async function presenter(f: Awaited<ReturnType<typeof fixture>>, kind: TVCodeKind) {
   const entries: unknown[] = [];
   const {TVCodePresenter} = await screenModule(new URL('../src-next/tv/auth/TVCodePresenter.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': {Text: 'Text', View: 'View'}, 'react-native-qrcode-svg': {default: 'QR'},
@@ -115,7 +116,7 @@ async function presenter(f: ReturnType<typeof fixture>, kind: TVCodeKind) {
     './entry-revision': {useTVBusyEntryRevision}, './TVAuthLayout': {TVAuthLayout: 'Layout'},
   });
   let tree: any;
-  const host = createHookHost(() => {
+  const host = createFabricHookHost(() => {
     const {opening, state} = f.view();
     const terminal = state.phase === 'denied' || state.phase === 'error' || f.error();
     const wrapped = TVCodePresenter({mode: kind, serverName: 'Fixture server', body: 'Fixture consent', ...state, busy: f.busy(),
@@ -128,7 +129,7 @@ async function presenter(f: ReturnType<typeof fixture>, kind: TVCodeKind) {
     refresh: () => act(() => host.rerender())};
 }
 
-async function accountEntry(f: ReturnType<typeof fixture>, prepare: () => Promise<Record<string, unknown>> = async () => ({}), approvedAccounts?: unknown) {
+async function accountEntry(f: Awaited<ReturnType<typeof fixture>>, prepare: () => Promise<Record<string, unknown>> = async () => ({}), approvedAccounts?: unknown) {
   let tree: any, completed = 0;
   const back = new Set<() => boolean>(); let appStateChange: (value: string) => void = () => {};
   // Observe actual hook references/state publications without relying on hook
@@ -185,7 +186,7 @@ async function accountEntry(f: ReturnType<typeof fixture>, prepare: () => Promis
     get: (_, name: string) => function unexpectedBoundary() {throw new Error(`Unvisited fixture boundary: ${module}:${name}`);},
   })});
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), strict);
-  const host = createHookHost(() => {tree = AccountEntry({onComplete: () => {completed++;}});});
+  const host = createFabricHookHost(() => {tree = AccountEntry({onComplete: () => {completed++;}});});
   await act(() => host.mount());
   return {host, background: () => appStateChange('background'), tree: () => tree, completed: () => completed, back, accounts, refs, writes, AuthSource,
     async enter(kind: TVCodeKind) {
@@ -213,7 +214,7 @@ test('Portico TV credential prepare publishes readiness only for its own prepare
     assert.equal(entry.tree().type, 'Credentials'); assert.equal(entry.tree().props.busy, false);
     assert.equal([...entry.refs].filter(ref => ref.current === source).length, 2, 'account and readiness name the same original source');
     assert.equal(entry.writes.filter(value => value === available).length, 1);
-  } finally {entry.host.unmount(); f.cleanup();}
+  } finally {await entry.host.unmount(); f.cleanup();}
 });
 
 for (const refusal of [false, true]) {
@@ -238,7 +239,7 @@ for (const refusal of [false, true]) {
       assert.equal([...entry.refs].filter(ref => ref.current === successor).length, 2);
       assert.equal([...entry.refs].filter(ref => ref.current === original).length, 0);
       assert.ok(!entry.writes.includes(staleOptions));
-    } finally {entry.host.unmount(); f.cleanup();}
+    } finally {await entry.host.unmount(); f.cleanup();}
   });
 }
 
@@ -268,7 +269,7 @@ test('Portico TV prepare requires source identity as well as original opening; r
     assert.equal(entry.tree().props.busy, false, 'the still-current TV opening settles its own transition');
     assert.equal(account.current, successor); assert.equal(marker.current, successor);
     assert.equal(successor.disposed, 0); assert.equal(pending.disposed, 0); assert.ok(!entry.writes.includes(staleOptions));
-  } finally {entry.host.unmount(); f.cleanup();}
+  } finally {await entry.host.unmount(); f.cleanup();}
 });
 
 test('Portico TV current prepare refusal leaves readiness unready and settlement with its opening', async t => {
@@ -282,7 +283,7 @@ test('Portico TV current prepare refusal leaves readiness unready and settlement
     assert.equal(entry.tree().type, 'Code'); assert.equal(entry.tree().props.busy, false);
     assert.equal([...entry.refs].filter(ref => ref.current === source).length, 1, 'failed preparation has no readiness marker');
     assert.equal(source.disposed, 0); assert.ok(entry.tree().props.onNewCode, 'original helper presents explicit recovery');
-  } finally {entry.host.unmount(); f.cleanup();}
+  } finally {await entry.host.unmount(); f.cleanup();}
 });
 
 for (const kind of ['local', 'portico'] as const) {
@@ -296,7 +297,7 @@ for (const kind of ['local', 'portico'] as const) {
       const successor = entry.tree().props; assert.equal(successor.busy, false);
       hold.reject(new Error('late original initial storage')); await settle();
       assert.equal(entry.tree().props, successor); assert.equal(entry.completed(), 0);
-    } finally {entry.host.unmount(); f.cleanup();}
+    } finally {await entry.host.unmount(); f.cleanup();}
   });
 
   test(`${kind}: actual AccountEntry action/subscription stay with their rendered opening through Back and successor`, async t => {
@@ -316,9 +317,9 @@ for (const kind of ['local', 'portico'] as const) {
       assert.equal(entry.tree().props, successor, 'retained handlers do not set busy/error, close or replace successor');
       f.services[0].service.getSnapshot = () => {throw new Error('old AccountEntry source read');};
       f.services[0].callbacks[0](); assert.equal(entry.completed(), 0);
-      entry.host.unmount(); const last = f.services.at(-1)!;
+      await entry.host.unmount(); const last = f.services.at(-1)!;
       last.service.getSnapshot = () => {throw new Error('unmounted AccountEntry source read');}; last.callbacks[0]();
-    } finally {entry.host.unmount(); f.cleanup();}
+    } finally {await entry.host.unmount(); f.cleanup();}
   });
 
   test(`${kind}: denied service stays stopped until rendered New code; one cancellation/replacement and fresh QR/poll`, async t => {
@@ -344,7 +345,7 @@ for (const kind of ['local', 'portico'] as const) {
       f.services[0].service.getSnapshot = () => {throw new Error('retired source must not be read');};
       for (const oldCallback of f.services[0].callbacks) oldCallback(); assert.deepEqual(f.calls, before);
       f.poll('pending'); t.mock.timers.tick(5000); await settle(); assert.equal(f.calls.poll, 2, 'replacement really resumes polling');
-    } finally {p?.host.unmount(); f.cleanup();}
+    } finally {await p?.host.unmount(); f.cleanup();}
   });
 
   test(`${kind}: initial durable error offers explicit New code; failed cancellation does not auto-retry`, async t => {
@@ -359,7 +360,7 @@ for (const kind of ['local', 'portico'] as const) {
       await p.refresh(); p.button('new-code').props.onPress(); await settle(); t.mock.timers.tick(0); await settle();
       assert.equal(f.services[0].cancels, 2, 'only a second explicit press retries failed durable cancellation');
       assert.equal(f.services.length, 2); assert.equal(f.calls.create, 1); assert.equal(f.view().state.phase, 'waiting');
-    } finally {p?.host.unmount(); f.cleanup();}
+    } finally {await p?.host.unmount(); f.cleanup();}
   });
 
   test(`${kind}: Back during cancellation retires synchronously; late storage refusal cannot alter other-mode successor`, async t => {
@@ -375,7 +376,7 @@ for (const kind of ['local', 'portico'] as const) {
       assert.equal(f.view(), successor); assert.equal(f.error(), undefined); assert.equal(f.busy(), false); assert.equal(f.stage(), 'tv');
       assert.deepEqual(f.calls, before); assert.equal(f.services[0].cancels, 1, 'Back does not cancel an in-flight original twice');
       f.services[0].service.getSnapshot = () => {throw new Error('old callback source');}; f.services[0].callbacks[0]();
-    } finally {p?.host.unmount(); f.cleanup();}
+    } finally {await p?.host.unmount(); f.cleanup();}
   });
 
   test(`${kind}: source replacement and credentials/unmount refuse retained subscription before read/adopt`, async t => {
@@ -434,11 +435,11 @@ async function approvalPresenter(entry: Awaited<ReturnType<typeof accountEntry>>
     '../../kit/theme': {useTheme: () => createTheme({isTV: true, width: 1920}), nativeType}, '../../screens/destinations/useEntryFocus': {useDestinationEntryFocus() {}},
     '../../platform/native-blur': {glassRecipe: () => ({nativeBlur: false}), BlurView: 'Blur'}, './entry-revision': {useTVBusyEntryRevision}, './TVAuthLayout': {TVAuthLayout: 'Layout'},
   });
-  let tree: any; const host = createHookHost(() => {const wrapped = TVCodePresenter(entry.tree().props); tree = wrapped.props.children.type(wrapped.props.children.props);});
+  let tree: any; const host = createFabricHookHost(() => {const wrapped = TVCodePresenter(entry.tree().props); tree = wrapped.props.children.type(wrapped.props.children.props);});
   await act(() => host.mount());
   return {host, region: () => nodes(tree).find(node => node.type === 'Region'), refresh: () => act(() => host.rerender()), button: (id: string) => nodes(tree).find(node => node.type === 'Button' && node.props.focusId === id)};
 }
-async function approveAccount(t: any, f: ReturnType<typeof fixture>, entry: Awaited<ReturnType<typeof accountEntry>>) {
+async function approveAccount(t: any, f: Awaited<ReturnType<typeof fixture>>, entry: Awaited<ReturnType<typeof accountEntry>>) {
   await entry.enter('portico'); t.mock.timers.tick(0); await settle();
   f.poll('approved'); t.mock.timers.tick(5000); await settle();
 }
@@ -456,7 +457,7 @@ test('FX213 actual AccountEntry/Presenter retries an original approval through a
     assert.equal(accounts.credentials.getSnapshot().session?.familyId, 'family'); assert.equal(f.calls.create, 1); assert.equal(f.calls.poll, 1);
     assert.deepEqual(accounts.calls, ['admit', 'verify', 'admit', 'verify']); assert.notEqual(entry.tree().type, 'Code');
     retained.onRetry(); retained.onTypeCredentials(); retained.onBack(); await settle(); assert.notEqual(entry.tree().type, 'Code');
-  } finally {presenter?.host.unmount(); entry.host.unmount(); f.cleanup();}
+  } finally {await presenter?.host.unmount(); await entry.host.unmount(); f.cleanup();}
 });
 for (const uncertain of [false, true]) test(`FX213 actual entry retries journal only after ${uncertain ? 'uncertain' : 'successful'} adoption`, async t => {
   t.mock.timers.enable({apis: ['Date', 'setTimeout']});
@@ -467,7 +468,7 @@ for (const uncertain of [false, true]) test(`FX213 actual entry retries journal 
     const old = entry.tree().props; old.onTypeCredentials(); await settle(); assert.equal(entry.tree().type, 'Code'); assert.equal(entry.accounts.length, 0);
     await act(() => {old.onRetry();}); await settle();
     assert.deepEqual(accounts.calls, ['admit', 'verify']); assert.equal(f.calls.cancel, 0); assert.notEqual(entry.tree().type, 'Code');
-  } finally {entry.host.unmount(); f.cleanup();}
+  } finally {await entry.host.unmount(); f.cleanup();}
 });
 for (const during of ['adoption', 'journal']) test(`FX213 actual background during ${during} retires original UI without successor navigation or adopted-family cancellation`, async t => {
   t.mock.timers.enable({apis: ['Date', 'setTimeout']});
@@ -481,7 +482,7 @@ for (const during of ['adoption', 'journal']) test(`FX213 actual background duri
     if (during === 'journal') {assert.equal(accounts.credentials.getSnapshot().session?.familyId, 'family'); assert.ok(!accounts.calls.includes('revoke:family'));}
     else assert.equal(accounts.credentials.getSnapshot().session, undefined);
     assert.equal(f.calls.create, 1); assert.equal(successor.type, 'Front');
-  } finally {entry.host.unmount(); f.cleanup();}
+  } finally {await entry.host.unmount(); f.cleanup();}
 });
 test('FX213 complete=false retires actual entry without a directory transition or new consent', async t => {
   t.mock.timers.enable({apis: ['Date', 'setTimeout']});
@@ -491,7 +492,7 @@ test('FX213 complete=false retires actual entry without a directory transition o
     t.mock.timers.tick(0); await settle(); f.poll('approved'); t.mock.timers.tick(5000); await settle();
     assert.equal(entry.tree().type, 'Front'); assert.equal(f.calls.create, 1); assert.equal(f.calls.cancel, 0);
     assert.equal(accounts.credentials.getSnapshot().session?.familyId, 'family');
-  } finally {entry.host.unmount(); f.cleanup();}
+  } finally {await entry.host.unmount(); f.cleanup();}
 });
 test('FX213 actual Retry button honours 429 deadline with no automatic approval request', async t => {
   t.mock.timers.enable({apis: ['Date', 'setTimeout']});
@@ -503,7 +504,7 @@ test('FX213 actual Retry button honours 429 deadline with no automatic approval 
     accounts.fail(undefined); retry(); await settle(); assert.deepEqual(accounts.calls, ['admit', 'verify']);
     t.mock.timers.tick(10000); await settle(); await presenter.refresh(); assert.equal(presenter.button('retry-approval').props.disabled, false);
     assert.deepEqual(accounts.calls, ['admit', 'verify']); await act(() => retry()); await settle(); assert.equal(accounts.calls.filter(value => value === 'admit').length, 2);
-  } finally {presenter?.host.unmount(); entry.host.unmount(); f.cleanup();}
+  } finally {await presenter?.host.unmount(); await entry.host.unmount(); f.cleanup();}
 });
 
 test('FX213 adopted journal failure refuses direct credentials/New-code and Back preserves the exact canonical family', async t => {
@@ -517,7 +518,7 @@ test('FX213 adopted journal failure refuses direct credentials/New-code and Back
     await act(() => entry.tree().props.onBack()); await settle();
     assert.equal(entry.tree().type, 'Front'); assert.equal(f.calls.cancel, 0); assert.equal(accounts.credentials.getSnapshot().session?.familyId, 'family');
     assert.ok(!accounts.calls.includes('revoke:family'));
-  } finally {entry.host.unmount(); f.cleanup();}
+  } finally {await entry.host.unmount(); f.cleanup();}
 });
 
 test('FX213 a foreign canonical family adopted and logged out spends retained Retry before render', async t => {
@@ -533,7 +534,7 @@ test('FX213 a foreign canonical family adopted and logged out spends retained Re
     const before = [...accounts.calls]; accounts.fail(undefined); retained.onRetry(); retained.onTypeCredentials(); retained.onBack();
     assert.deepEqual(accounts.calls, before, 'old UI makes no /me/admit/revoke call after foreign family retirement');
     assert.equal(completions, 0); await settle(); assert.equal(entry.tree().type, 'Front'); assert.equal(f.calls.cancel, 0);
-  } finally {entry.host.unmount(); f.cleanup();}
+  } finally {await entry.host.unmount(); f.cleanup();}
 });
 
 const grantMutations: Record<string, (grant: HostedSession) => void> = {
@@ -557,7 +558,7 @@ for (const [field, mutate] of Object.entries(grantMutations)) test(`FX213 held a
     assert.equal(accounts.credentials.getSnapshot().session, undefined); assert.equal(completions, 0); assert.equal(accounts.activeWrites.length, 0);
     assert.deepEqual(accounts.tokens, ['fixture-access']); assert.ok(!accounts.calls.includes('revoke:replacement-family'));
     assert.equal(f.calls.cancel, 0); assert.equal(entry.tree().type, 'Front');
-  } finally {entry.host.unmount(); f.cleanup();}
+  } finally {await entry.host.unmount(); f.cleanup();}
 });
 for (const [field, mutate] of Object.entries(grantMutations)) test(`actual NativeAccounts independently captures immutable ${field} before /me`, async () => {
   const accounts = await approvedAccounts(), original = approvedGrant(), hold = accounts.hold();
@@ -583,7 +584,7 @@ for (const code of ['invalid_grant', 'cancelled']) for (const committed of [true
     if (committed) {assert.notEqual(entry.tree().type, 'Code'); assert.equal(accounts.credentials.getSnapshot().session?.familyId, 'family');}
     else {assert.equal(entry.tree().type, 'Code'); assert.ok(entry.tree().props.onNewCode); assert.equal(entry.tree().props.onRetry, undefined); assert.equal(entry.tree().props.credentialsDisabled, false);}
     assert.equal(f.calls.cancel, 0);
-  } finally {entry.host.unmount(); f.cleanup();}
+  } finally {await entry.host.unmount(); f.cleanup();}
 });
 
 test('FX213 a grant mutated between failed verification and Retry cannot re-enter admission', async t => {
@@ -594,7 +595,7 @@ test('FX213 a grant mutated between failed verification and Retry cannot re-ente
     const retry = entry.tree().props.onRetry, grant = f.services[0].service.getSnapshot().grant!;
     grant.refreshToken = 'replacement-refresh'; accounts.fail(undefined); await act(() => retry()); await settle();
     assert.deepEqual(accounts.calls, ['admit', 'verify']); assert.equal(accounts.activeWrites.length, 0); assert.equal(f.calls.cancel, 0); assert.equal(entry.tree().type, 'Front');
-  } finally {entry.host.unmount(); f.cleanup();}
+  } finally {await entry.host.unmount(); f.cleanup();}
 });
 test('FX213 a grant mutated after adoption cannot journal-complete on retained Retry', async t => {
   t.mock.timers.enable({apis: ['Date', 'setTimeout']});
@@ -605,13 +606,13 @@ test('FX213 a grant mutated after adoption cannot journal-complete on retained R
     service.complete = async () => {completions++; return true;}; service.getSnapshot().grant!.familyId = 'replacement-family';
     await act(() => retry()); await settle(); assert.equal(completions, 0); assert.equal(f.calls.cancel, 0);
     assert.equal(accounts.credentials.getSnapshot().session?.familyId, 'family'); assert.equal(entry.tree().type, 'Front');
-  } finally {entry.host.unmount(); f.cleanup();}
+  } finally {await entry.host.unmount(); f.cleanup();}
 });
 
 test('FX213 real Retry Button/Focusable/registry retains its entry host through a 429 deadline and INERT wins', async t => {
   t.mock.timers.enable({apis: ['Date', 'setTimeout']});
   const f = fixture(), accounts = await approvedAccounts(), entry = await accountEntry(f, undefined, accounts.native);
-  let presenter: Awaited<ReturnType<typeof approvalPresenter>> | undefined, driver: ReturnType<typeof createHookHost> | undefined;
+  let presenter: Awaited<ReturnType<typeof approvalPresenter>> | undefined, driver: Awaited<ReturnType<typeof createFabricHookHost>> | undefined;
   try {
     accounts.fail(new ApiError(429, 'rate_limited', 'Wait', true, 10)); await approveAccount(t, f, entry); presenter = await approvalPresenter(entry);
     const contexts: {current: any}[] = [], registry = focusRegistry.createFocusRegistry(), theme = createTheme({isTV: true, width: 1920});
@@ -640,14 +641,14 @@ test('FX213 real Retry Button/Focusable/registry retains its entry host through 
       '../../platform/native-blur': {glassRecipe: () => ({nativeBlur: false}), BlurView: 'Blur'}, '../theme': {useTheme: () => theme}, '../Icon': {Icon: 'Icon'}, '../dev-observation': observation,
     });
     let pressable: any, focused = 0;
-    driver = createHookHost(() => {
+    driver = createFabricHookHost(() => {
       const button = Button.render(presenter!.button('retry-approval').props, null);
       const content = button.type.render(button.props, null), bound = Focusable.render(content.props, null);
       pressable = bound.type.render(bound.props, bound.props.ref);
     });
     await act(() => driver!.mount());
     const host = {nativeTag: 91, requestTVFocus() {focused++;}}, ref = pressable.props.ref;
-    ref(host); await act(() => {driver!.flush();});
+    ref(host); await act(async () => {await driver!.flush();});
     assert.equal(actualRegion.entry, 'retry-approval'); assert.equal(registry.child({regionId: actualRegion.id, childId: actualRegion.entry}), host);
     assert.equal(registry.entryTarget(actualRegion.id), host); assert.equal(registry.focusRegion(actualRegion.id), true); assert.equal(focused, 1);
     assert.equal(pressable.props.disabled, false, 'disabled command remains a native read-only focus stop');
@@ -661,5 +662,5 @@ test('FX213 real Retry Button/Focusable/registry retains its entry host through 
     paint.OverlayPaintModeContext.current = paint.OVERLAY_PAINT_LIVE; await act(() => driver!.rerender());
     assert.equal(registry.entryTarget(actualRegion.id), host); assert.equal(pressable.props.ref, ref);
     await act(() => pressable.props.onPress()); await settle(); assert.equal(accounts.calls.filter(value => value === 'admit').length, 2);
-  } finally {driver?.unmount(); presenter?.host.unmount(); entry.host.unmount(); f.cleanup();}
+  } finally {await driver?.unmount(); await presenter?.host.unmount(); await entry.host.unmount(); f.cleanup();}
 });

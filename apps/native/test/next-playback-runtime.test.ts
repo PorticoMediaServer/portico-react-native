@@ -1,3 +1,4 @@
+// @fabric-react
 import test from 'node:test';
 import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
@@ -2867,7 +2868,7 @@ test('reentrant channel admission cannot publish an old fence over its replaceme
 
 for (const cold of [false, true]) test(`real ${cold ? 'cold-ordered-join' : 'warm-before-return'} channel route consumes once and cleanup leaves its original channel running`, async t => {
   if (cold) t.mock.timers.enable({apis: ['setTimeout']});
-  const {createHookHost, act} = await import('./hook-driver.ts');
+  const {createFabricHookHost, act} = await import('./helpers/fabric-hooks.mjs');
   const {NativeWatchChannelRoute} = await screenModule(new URL('../src-next/screens/watch/ChannelRoute.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': {Platform: {isTV: false}, View: 'View'}, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0})},
     '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}}, '../../../../../packages/player-core/src': await import('../../../packages/player-core/src/index.ts'), '../../kit/controls': {Button: 'Button'},
@@ -2891,7 +2892,7 @@ for (const cold of [false, true]) test(`real ${cold ? 'cold-ordered-join' : 'war
       await opening.promise; startReturned = true;
     },
   }}};
-  let tree: any; const host = createHookHost(() => {tree = NativeWatchChannelRoute({context, route, title: {renderError: assert.fail}});});
+  let tree: any; const host = createFabricHookHost(() => {tree = NativeWatchChannelRoute({context, route, title: {renderError: assert.fail}});});
   let pops = 0; const off = navigation.subscribe(() => {if (navigation.getSnapshot().route === original) pops++;});
   try {
     assertUnconnectedChannelObserver(preStartObserver);
@@ -2909,13 +2910,13 @@ for (const cold of [false, true]) test(`real ${cold ? 'cold-ordered-join' : 'war
     if (cold) {assertOriginalChannelJoin(d, accepted.sessionId); t.mock.timers.tick(2000); await settle(80); assert.equal(pops, 1);}
     assert.equal(d.requests.filter(request => request.method === 'POST' && request.path === routePath('start_playback_session')).length, 1);
     const deleted = () => d.requests.filter(request => request.method === 'DELETE').length, before = deleted();
-    host.unmount(); await settle(); assert.deepEqual(d.runtime.getSnapshot().fence, accepted); assert.equal(deleted(), before, 'route cleanup does not DELETE adopted output');
+    await host.unmount(); await settle(); assert.deepEqual(d.runtime.getSnapshot().fence, accepted); assert.equal(deleted(), before, 'route cleanup does not DELETE adopted output');
     await d.runtime.collapse(accepted); assert.deepEqual(d.runtime.getSnapshot().fence, accepted); assert.equal(d.runtime.getSnapshot().dock.local?.expanded, false); assert.equal(navigation.getSnapshot().route, original);
     d.runtime.open(accepted); await d.runtime.onTransition(d.runtime.dock.collapse(accepted)); assert.deepEqual(d.runtime.getSnapshot().fence, accepted); assert.equal(deleted(), before);
     await d.runtime.stop(accepted); assert.equal(navigation.getSnapshot().route, original); assert.equal(pops, 1);
     assert.equal(d.requests.filter(request => request.method === 'POST' && request.path === routePath('start_playback_session')).length, 1);
   } finally {
-    host.unmount(); off(); navigation.dispose(); d.runtime.dispose();
+    await host.unmount(); off(); navigation.dispose(); d.runtime.dispose();
     try {await joinChannelCleanup(opening); assert.equal(d.engine.subscriptions, 0); assert.equal(d.engine.listener, undefined);} finally {if (cold) t.mock.timers.reset();}
   }
 });

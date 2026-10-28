@@ -1,9 +1,10 @@
+// @fabric-react
 import {tvEpisodeRegionMap} from '../src-next/screens/watch/tv-title-focus.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
-import {createHookHost} from './hook-driver.ts';
+import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import {cardText, episodeLabel} from '../../../packages/client-core/src/presentation/kit-model/index.ts';
 import {durationText} from '../../../packages/client-core/src/presentation/kit-model/text.ts';
@@ -30,17 +31,17 @@ const open = {phase: 'ready', entry: episodes[1], data: {item: {...episodes[1], 
   facts: {contentRating: 'TV-MA'}, metadata: {credits: [{id: 'c1', name: 'Mark Margolis', role: 'Hector Salamanca', department: 'acting', provider: 'tmdb'},
     {id: 'c2', name: 'Terry McDonough', role: 'Director', department: 'directing', provider: 'tmdb'}]}}} as any;
 
-test('TV episodes draw the season side list, the next-up tile and its focus band', () => {
+test('TV episodes draw the season side list, the next-up tile and its focus band', async () => {
   const calls: string[] = [];
   let tree: any;
-  const host = createHookHost(() => {tree = TVEpisodeBrowser({seasons, selectedSeasonId: 's2', episodes, nextUp: episodes[1], show: {title: 'Breaking Bad'},
+  const host = createFabricHookHost(() => {tree = TVEpisodeBrowser({seasons, selectedSeasonId: 's2', episodes, nextUp: episodes[1], show: {title: 'Breaking Bad'},
     open, text: {t: defaultI18n.t}, artwork: () => undefined, more: (() => {calls.push('more');}) as any,
     onSeasonFocus: () => calls.push('season-focus'), onEpisodeFocus: (value: any) => calls.push(`episode-focus:${value.id}`),
     onSelectSeason: (id: string) => calls.push(`select:${id}`), onPlayEpisode: (value: any) => calls.push(`play:${value.id}`),
     onPlaySeason: (id: string) => calls.push(`play-season:${id}`), onMarkSeason: (id: string, watched: boolean) => calls.push(`mark:${id}:${watched}`),
     onMoreSeasons: () => calls.push('more-seasons'), onMoreEpisodes: () => calls.push('more-episodes'), onRetryEpisode: () => calls.push('retry'),
     renderError: (() => null) as any});});
-  host.mount();
+  await host.mount();
   try {
     const nodes = descendants(tree);
     const rows = nodes.filter(node => node.props.testID?.startsWith('tv-season-'));
@@ -65,14 +66,14 @@ test('TV episodes draw the season side list, the next-up tile and its focus band
     assert.ok(bandNodes.some(node => node.type === 'Text' && node.props.children === defaultI18n.t('title.directedBy', {names: 'Terry McDonough'})));
     rows[0].props.onFocus(); assert.deepEqual(calls.filter(value => value.startsWith('select:')), ['select:s1'], 'season request is immediate on focus');
     rows[0].props.onPress(); assert.equal(calls.filter(value => value.startsWith('select:')).length, 1, 'OK adds no second request');
-    host.rerender();
+    await host.rerender();
     assert.equal(descendants(tree).find(node => node.type === 'TVShelf').props.focus.enabled, false);
     tiles[0].props.onPlay(); assert.equal(calls.some(value => value.startsWith('play:')), false, 'an outgoing season tile cannot play');
-    rows[0].props.onLongPressAction(); host.rerender();
+    rows[0].props.onLongPressAction(); await host.rerender();
     const menu = descendants(tree).find(node => node.type === 'Menu');
     assert.deepEqual(menu.props.items.map((item: any) => item.id), ['play-season', 'mark-season']);
     menu.props.items[0].onSelect(); assert.ok(calls.includes('play-season:s1'));
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });
 
 test('each season has an independent native row identity and next-up is only a first-visit entry', () => {

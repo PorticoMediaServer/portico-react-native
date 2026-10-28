@@ -1,9 +1,10 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {porticoPublicLinks} from '../../../packages/client-core/src/public-links';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props
@@ -58,7 +59,7 @@ async function securityFixture(context: import('node:test').TestContext) {
     '../../kit/theme': {useTheme: () => ({type: {body: {}, captionStrong: {}}, colors: {danger: '#f00'}})},
     '../../platform/clipboard': {copyText: async () => {}}, './PasswordStrengthMeter': {PasswordStrengthMeter: 'PasswordStrengthMeter'},
   });
-  const host = createHookHost(() => {tree = PhoneAccountSecurity({workspace, security});});
+  const host = createFabricHookHost(() => {tree = PhoneAccountSecurity({workspace, security});});
   context.after(() => host.unmount()); await act(() => host.mount());
   return {tree: () => tree, failure, presented,
     recover: async () => {rejection = undefined; workspace = {...workspace}; await act(() => host.rerender());},

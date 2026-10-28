@@ -1,10 +1,11 @@
+// @fabric-react
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {createTheme, nativeType} from '../src-next/kit/theme';
 import {shellLayout} from '../src-next/shell/model';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import * as entryRevision from '../src-next/tv/auth/entry-revision';
 
@@ -20,7 +21,7 @@ test('the TV front door title declares connect40 .tvl h1 shadow and no other Tex
     assert.equal(path, '../../../assets/wordmark.png', 'only the drawn wordmark asset is required');
     return 'wordmark';
   }});
-  let host: ReturnType<typeof createHookHost> | undefined;
+  let host: Awaited<ReturnType<typeof createFabricHookHost>> | undefined;
   try {
     let tree: any, dimensions = {width: 1920, height: 1080}, theme = createTheme({isTV: true, width: 1920});
     const flatten = (value: any): any => Array.isArray(value) ? Object.assign({}, ...value.map(flatten)) : value;
@@ -33,7 +34,7 @@ test('the TV front door title declares connect40 .tvl h1 shadow and no other Tex
       './entry-revision': entryRevision,
     });
     const props = {busy: false, onPortico: () => {}, onLocal: () => {}};
-    host = createHookHost(() => {const provider = TVFrontDoor(props); const child = provider.props.children; tree = child.type(child.props);});
+    host = createFabricHookHost(() => {const provider = TVFrontDoor(props); const child = provider.props.children; tree = child.type(child.props);});
     await act(() => host!.mount());
     const texts = () => nodes(tree).filter(node => node.type === 'Text');
     assert.equal(texts().length, 1, 'the front door has one public heading and no other Text node');
@@ -53,7 +54,7 @@ test('the TV front door title declares connect40 .tvl h1 shadow and no other Tex
     assert.deepEqual(scaled.textShadowOffset, {width: 0, height: 2});
     assert.equal(scaled.textShadowRadius, 30);
   } finally {
-    host?.unmount();
+    await host?.unmount();
     if (previous) Object.defineProperty(globalThis, '__DEV__', previous); else delete (globalThis as {__DEV__?: unknown}).__DEV__;
     if (previousRequire) Object.defineProperty(globalThis, 'require', previousRequire); else delete (globalThis as {require?: unknown}).require;
   }

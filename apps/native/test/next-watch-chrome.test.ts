@@ -1,3 +1,4 @@
+// @fabric-react
 import {createTVKeyAdapter, type TVKeyEvent} from '../src-next/platform/tv-key-adapter.ts';
 import * as playerCore from '../../../packages/player-core/src/index.ts';
 import {channelSeconds} from '../../../packages/client-core/src/playback/linear-protocol.ts';
@@ -6,7 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
-import {createHookHost} from './hook-driver.ts';
+import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {playbackFence} from '../../../packages/player-core/src/index.ts';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import * as registryModule from '../src-next/kit/focus/registry.ts';
@@ -27,8 +28,8 @@ const chromeModules = {
   '../../../../../packages/client-core/src/playback/linear-protocol': {channelSeconds},
   './useSkipPromptMotion': {useSkipPromptMotion: (value: unknown) => ({value, interactive: !!value, bodyStyle: {}, positionStyle: {}})},
   './TVControlLabel': {TVControlLabel: 'TVControlLabel'}, '../settings-live/GroupPill': {NativeTVGroupPill: 'GroupPill'},
-  './live-guide': {noLiveGuideSubscription: () => () => {}, emptyLiveGuide: () => ({})},
-  './live-actions': {noLiveActionsSubscription: () => () => {}, emptyLiveActions: () => ({})},
+  './live-guide': {noLiveGuideSubscription: () => () => {}, emptyLiveGuide: (() => {const snapshot = {}; return () => snapshot;})()},
+  './live-actions': {noLiveActionsSubscription: () => () => {}, emptyLiveActions: (() => {const snapshot = {}; return () => snapshot;})()},
   '../../../../../packages/client-core/src/guide/now-next': {nowNext: () => ({})},
   '../../../../../packages/client-core/src/playback-messages': {playbackUserMessage: String},
   './TVMiniGuide': {NativeMiniGuide: 'MiniGuide'}, './TVLiveActions': {TVLiveActions: 'LiveActions'},
@@ -44,24 +45,24 @@ const chromeModules = {
 const {NativeWatchChrome} = await screenModule(new URL('../src-next/screens/watch/WatchChrome.tsx', import.meta.url), chromeModules);
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 'server', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane', authority: 'local'}, run: 1}, sessionId: 'session', itemId: 'item', sourceId: 'version', entryId: 'entry', generation: 1});
 
-test('TV first Select event plus its genuine picture press only reveals; second press toggles playback', () => {
+test('TV first Select event plus its genuine picture press only reveals; second press toggles playback', async () => {
   const controls = new NativeWatchControls(true), commands: string[] = [];
   const source = {fence, retired: false, dock: {local: {expanded: true}}, queue: {}, capabilities: {play: true, pause: true, seek: true}, playback: {intent: 'playing', positionSeconds: 17, duration: 100}};
   const playback = {getSnapshot: () => source, toggle: async () => {commands.push('toggle');}};
   let tree: any;
   controls.source(fence, {expanded: true, autoHide: true, hiddenByPanel: false, paused: false, scrubbing: false, focusHeld: false});
-  const host = createHookHost(() => {tree = NativeWatchChrome({source, controls, playback, text: {t: defaultI18n.t}, quality: 'Original', width: 1920, height: 1080, compact: false, skipBackSeconds: 10, skipForwardSeconds: 30, onMinimize() {}, onPanel() {}, reportError(error: unknown) {throw error;}});});
-  host.mount();
+  const host = createFabricHookHost(() => {tree = NativeWatchChrome({source, controls, playback, text: {t: defaultI18n.t}, quality: 'Original', width: 1920, height: 1080, compact: false, skipBackSeconds: 10, skipForwardSeconds: 30, onMinimize() {}, onPanel() {}, reportError(error: unknown) {throw error;}});});
+  await host.mount();
   try {
     const all = (node: any): any[] => Array.isArray(node) ? node.flatMap(all) : React.isValidElement(node) ? [node, ...all((node as any).props.children)] : [];
     const picture = all(tree).find(node => node.props.testID === 'watch-picture');
     event!({eventType: 'select', eventKeyAction: 1}); picture.props.onPress();
     assert.equal(controls.getSnapshot().visible, true); assert.equal(controls.getSnapshot().focus, 'toggle'); assert.deepEqual(commands, []);
-    host.flush();
+    await host.flush();
     const descendants = (node: any): any[] => Array.isArray(node) ? node.flatMap(descendants) : React.isValidElement(node) ? [node, ...descendants((node as any).props.children)] : [];
     const toggle = descendants(tree).find(node => node.props.testID === 'watch-toggle');
     toggle.props.onPress(); assert.deepEqual(commands, ['toggle']);
-  } finally {host.unmount(); controls.dispose();}
+  } finally {await host.unmount(); controls.dispose();}
 });
 
 test('every genuine chrome child mounts the strict focus target hook with unique stable semantic caller IDs', async () => {
@@ -78,9 +79,9 @@ test('every genuine chrome child mounts the strict focus target hook with unique
     const playback = {getSnapshot: () => source, toggle: async () => {}, skip: async () => {}, previous: async () => {}, next: async () => {}};
     controls.source(currentFence, {expanded: true, autoHide: true, hiddenByPanel: false, paused: false, scrubbing: false, focusHeld: false}); controls.reveal(currentFence);
     let tree: any;
-    const host = createHookHost(() => {tree = NativeWatchChrome({source, controls, playback, text: {t: defaultI18n.t}, quality: 'Original', width: 1920, height: 1080, compact, skipBackSeconds: 10, skipForwardSeconds: 30,
+    const host = createFabricHookHost(() => {tree = NativeWatchChrome({source, controls, playback, text: {t: defaultI18n.t}, quality: 'Original', width: 1920, height: 1080, compact, skipBackSeconds: 10, skipForwardSeconds: 30,
       onMinimize() {}, onPictureInPicture() {}, onCast() {}, onFullWindow() {}, reportError: assert.fail});});
-    host.mount();
+    await host.mount();
     try {
       const region = descendants(tree).find(node => node.type === 'FocusRegion' && node.props.id === 'watch-controls'); assert.equal(region.props.id, 'watch-controls');
       const targets = descendants(region).filter(node => node.type === 'Button' || node.type === 'Focusable');
@@ -91,17 +92,17 @@ test('every genuine chrome child mounts the strict focus target hook with unique
       contexts[0]!.current = registry; contexts[1]!.current = 'watch-controls';
       for (const target of targets) {
         let binding: any;
-        const mounted = createHookHost(() => {binding = focus.useFocusTarget({focusId: target.props.focusId, testID: target.props.testID, disabled: target.props.disabled});});
-        mounted.mount(); try {assert.equal(binding.testID, target.props.testID);} finally {mounted.unmount();}
+        const mounted = createFabricHookHost(() => {binding = focus.useFocusTarget({focusId: target.props.focusId, testID: target.props.testID, disabled: target.props.disabled});});
+        await mounted.mount(); try {assert.equal(binding.testID, target.props.testID);} finally {await mounted.unmount();}
       }
-    } finally {host.unmount(); controls.dispose();}
+    } finally {await host.unmount(); controls.dispose();}
   }
   isTV = true;
 });
 
 const descendants = (node: any): any[] => Array.isArray(node) ? node.flatMap(descendants) : React.isValidElement(node) ? [node, ...descendants((node as any).props.children)] : [];
 
-for (const kind of ['skip', 'undo', 'up-next']) for (const visible of [false, true]) test(`a ${kind} arrival with controls ${visible ? 'up preserves Quality' : 'hidden owns focus and Back stays in playback'}`, () => {
+for (const kind of ['skip', 'undo', 'up-next']) for (const visible of [false, true]) test(`a ${kind} arrival with controls ${visible ? 'up preserves Quality' : 'hidden owns focus and Back stays in playback'}`, async () => {
   isTV = true;
   const entry = kind === 'skip' ? 'watch-skip-action' : kind === 'undo' ? 'watch-skip-undo' : 'watch-up-next-play';
   const controls = new NativeWatchControls(true), requested: string[] = [];
@@ -122,12 +123,12 @@ for (const kind of ['skip', 'undo', 'up-next']) for (const visible of [false, tr
     requested.push('skip'); focusRegistry.didFocus({regionId: 'watch-skip', childId: entry});
   }});
   let tree: any;
-  const host = createHookHost(() => {tree = NativeWatchChrome({source, controls, playback, text: {t: defaultI18n.t}, quality: 'Original', width: 1920, height: 1080, compact: false,
+  const host = createFabricHookHost(() => {tree = NativeWatchChrome({source, controls, playback, text: {t: defaultI18n.t}, quality: 'Original', width: 1920, height: 1080, compact: false,
     skipBackSeconds: 10, skipForwardSeconds: 30, onMinimize() {}, reportError: assert.fail});});
-  host.mount();
+  await host.mount();
   try {
     focusRegistry.didFocus({regionId: visible ? 'watch-controls' : 'watch-surface', childId: visible ? 'watch-option-quality' : 'watch-picture'});
-    source.playback.positionSeconds = kind === 'up-next' ? 80 : 17; updatePolicy();host.rerender(); for (let pass = 0; pass < 6 && host.flush(); pass++) {}
+    source.playback.positionSeconds = kind === 'up-next' ? 80 : 17; updatePolicy();await host.rerender(); for (let pass = 0; pass < 6 && await host.flush(); pass++) {}
     const prompt = descendants(tree).find(node => node.props.testID === entry || kind === 'up-next' && node.type === 'UpNextCard');
     assert.ok(prompt); if (kind !== 'up-next') assert.equal(prompt.props.hasTVPreferredFocus, false);
     if (visible) {
@@ -137,17 +138,17 @@ for (const kind of ['skip', 'undo', 'up-next']) for (const visible of [false, tr
     } else {
       assert.ok(requested.length > 0); assert.equal(controls.getSnapshot().visible, false);
       event!({eventType: 'select', eventKeyAction: 1}); assert.equal(controls.getSnapshot().visible, false);
-      assert.equal(controls.back(fence), 'controls'); host.flush();
+      assert.equal(controls.back(fence), 'controls'); await host.flush();
       assert.equal(controls.getSnapshot().visible, false);
       assert.equal(descendants(tree).some(node => node.props.testID === entry || kind === 'up-next' && node.type === 'UpNextCard'), false);
       assert.equal(controls.back(fence), 'player');
-      source.playback.positionSeconds += 1; updatePolicy();host.rerender();
+      source.playback.positionSeconds += 1; updatePolicy();await host.rerender();
       assert.equal(descendants(tree).some(node => node.props.testID === entry || kind === 'up-next' && node.type === 'UpNextCard'), false);
     }
-  } finally {host.unmount(); focusRegistry.attach({regionId: 'watch-skip', childId: entry}, null); release(); controls.dispose();}
+  } finally {await host.unmount(); focusRegistry.attach({regionId: 'watch-skip', childId: entry}, null); release(); controls.dispose();}
 });
 
-test('seek preview keeps transport native targets mounted for a guide-based Down return', () => {
+test('seek preview keeps transport native targets mounted for a guide-based Down return', async () => {
   isTV = true;
   const controls = new NativeWatchControls(true);
   const source = {fence, retired: false, dock: {local: {expanded: true}}, queue: {}, capabilities: {play: true, pause: true, seek: true}, playback: {intent: 'paused', positionSeconds: 17, duration: 100}};
@@ -155,13 +156,13 @@ test('seek preview keeps transport native targets mounted for a guide-based Down
   controls.source(fence, {expanded: true, autoHide: true, hiddenByPanel: false, paused: false, scrubbing: false, focusHeld: false}); controls.reveal(fence);
   focusRegistry.didFocus({regionId: 'watch-seek-region', childId: 'watch-seek'});
   let tree: any;
-  const host = createHookHost(() => {tree = NativeWatchChrome({source, controls, playback, text: {t: defaultI18n.t}, quality: 'Original', width: 1920, height: 1080, compact: false,
+  const host = createFabricHookHost(() => {tree = NativeWatchChrome({source, controls, playback, text: {t: defaultI18n.t}, quality: 'Original', width: 1920, height: 1080, compact: false,
     skipBackSeconds: 10, skipForwardSeconds: 30, onMinimize() {}, reportError: assert.fail});});
-  host.mount();
+  await host.mount();
   try {
     const find = (id: string) => descendants(tree).find(node => node.props.id === id);
     const timeline = descendants(tree).find(node => node.type === 'Timeline' && node.props.tv && node.props.enabled);
-    timeline.props.onPreview(25); host.flush();
+    timeline.props.onPreview(25); await host.flush();
     const hidden = find('watch-transport');
     assert.equal(hidden.props.style.opacity, 0);
     assert.ok(descendants(hidden).some(node => node.props.focusId === 'watch-option-quality'));
@@ -170,10 +171,10 @@ test('seek preview keeps transport native targets mounted for a guide-based Down
     assert.equal(find('watch-group').props.edges.down, 'watch-seek-region');
     assert.equal(timeline.props.nextFocusUp, undefined);
     assert.equal(timeline.props.onExitPreview, undefined, 'no delayed JS focus mover');
-    focusRegistry.didFocus({regionId: 'watch-transport', childId: 'watch-option-quality'}); host.flush();
+    focusRegistry.didFocus({regionId: 'watch-transport', childId: 'watch-option-quality'}); await host.flush();
     assert.equal(find('watch-transport').props.style.opacity, 1);
     assert.equal(focusRegistry.capture()?.childId, 'watch-option-quality');
-  } finally {host.unmount(); controls.dispose();}
+  } finally {await host.unmount(); controls.dispose();}
 });
 
 /** Authored UNRUN source: actual chrome/controller with controlled paint driver,
@@ -194,20 +195,20 @@ test('a slow first frame never bypasses ordinary timer and toggle hiding after t
   const playback = {getSnapshot: () => source, toggle: async () => {}};
   controls.source(fence, {expanded: true, autoHide: true, hiddenByPanel: false, paused: false, scrubbing: false, focusHeld: false});
   let tree: any;
-  const host = createHookHost(() => {tree = Chrome({source, controls, playback, text: {t: defaultI18n.t}, quality: 'Original', width: 390, height: 844, compact: true, skipBackSeconds: 10, skipForwardSeconds: 30, onMinimize() {}, reportError: assert.fail});});
+  const host = createFabricHookHost(() => {tree = Chrome({source, controls, playback, text: {t: defaultI18n.t}, quality: 'Original', width: 390, height: 844, compact: true, skipBackSeconds: 10, skipForwardSeconds: 30, onMinimize() {}, reportError: assert.fail});});
   const all = (node: any): any[] => Array.isArray(node) ? node.flatMap(all) : React.isValidElement(node) ? [node, ...all((node as any).props.children)] : [];
   try {
-    host.mount(); host.flush(); now += 5000;
+    await host.mount(); await host.flush(); now += 5000;
     for (const [id, timer] of [...timers]) if (timer.at <= now) {timers.delete(id); timer.callback();}
-    host.flush();
+    await host.flush();
     assert.equal(controls.getSnapshot().visible, false);
     const hidden = all(tree).find(node => node.type === 'Animated' && node.props.pointerEvents === 'none' && node.props.importantForAccessibility === 'no-hide-descendants');
     assert.ok(hidden); assert.equal(hidden.props.style.at(-1).opacity, 0);
     assert.equal(paint.controls.value, 1, 'the initial presentation is still present and its entrance is already complete');
-    controls.reveal(fence); host.flush(); controls.toggleVisibility(fence); host.flush();
+    controls.reveal(fence); await host.flush(); controls.toggleVisibility(fence); await host.flush();
     const toggled = all(tree).find(node => node.type === 'Animated' && node.props.pointerEvents === 'none' && node.props.importantForAccessibility === 'no-hide-descendants');
     assert.equal(toggled.props.style.at(-1).opacity, 0);
-  } finally {host.unmount(); controls.dispose(); isTV = previousTV;}
+  } finally {await host.unmount(); controls.dispose(); isTV = previousTV;}
 });
 
 // JUSTIN-ANSWERS #29 over the shared PlaybackPolicy: the policy owns Undo's six-second window;
@@ -229,20 +230,20 @@ for (const screenReader of [false, true]) test(`auto-skip Undo ${screenReader ? 
     policyUndo: async (expected: unknown) => {undos.push(expected);}};
   controls.source(fence, {expanded: true, autoHide: false, hiddenByPanel: false, paused: false, scrubbing: false, focusHeld: screenReader});
   let tree: any;
-  const host = createHookHost(() => {tree = Chrome({source, controls, playback, text: {t: defaultI18n.t}, quality: 'Original', width: 390, height: 844, compact: true,
+  const host = createFabricHookHost(() => {tree = Chrome({source, controls, playback, text: {t: defaultI18n.t}, quality: 'Original', width: 390, height: 844, compact: true,
     skipBackSeconds: 10, skipForwardSeconds: 30, onMinimize() {}, reportError: assert.fail});});
-  host.mount();
+  await host.mount();
   try {
-    host.flush();
+    await host.flush();
     assert.deepEqual(spoken, [`${defaultI18n.t('player.skipped', {kind: 'intro'})}, ${defaultI18n.t('action.undo')}`]);
     const undo = () => descendants(tree).find(node => node.props.testID === 'watch-skip-undo');
     assert.ok(undo());
     // The policy's window closes.
-    source.policy = {...source.policy, undo: null}; host.rerender(); host.flush();
+    source.policy = {...source.policy, undo: null}; await host.rerender(); await host.flush();
     if (screenReader) {
       assert.ok(undo(), 'the note stays for a screen reader');
       const notice = descendants(tree).find(node => node.props.accessibilityActions?.some((action: any) => action.name === 'dismiss'));
-      notice.props.onAccessibilityAction({nativeEvent: {actionName: 'activate'}}); host.flush();
+      notice.props.onAccessibilityAction({nativeEvent: {actionName: 'activate'}}); await host.flush();
       assert.deepEqual(undos, [], 'the expired policy Undo is not called');
       assert.deepEqual(seeks, [[fence, 10]], 'Undo keeps the playback fence and returns to where the segment began');
       assert.equal(undo(), undefined);
@@ -250,7 +251,7 @@ for (const screenReader of [false, true]) test(`auto-skip Undo ${screenReader ? 
       assert.equal(undo(), undefined);
       assert.deepEqual(seeks, []);
     }
-  } finally {host.unmount(); controls.dispose(); isTV = previousTV;}
+  } finally {await host.unmount(); controls.dispose(); isTV = previousTV;}
 });
 
 test('auto-skip Undo inside the policy window uses the policy, with or without a screen reader', async () => {
@@ -268,12 +269,12 @@ test('auto-skip Undo inside the policy window uses the policy, with or without a
   const playback = {getSnapshot: () => source, seek: async (_expected: unknown, seconds: number) => {seeks.push(seconds);}, policyUndo: async (expected: unknown) => {undos.push(expected);}};
   controls.source(fence, {expanded: true, autoHide: false, hiddenByPanel: false, paused: false, scrubbing: false, focusHeld: true});
   let tree: any;
-  const host = createHookHost(() => {tree = Chrome({source, controls, playback, text: {t: defaultI18n.t}, quality: 'Original', width: 390, height: 844, compact: true,
+  const host = createFabricHookHost(() => {tree = Chrome({source, controls, playback, text: {t: defaultI18n.t}, quality: 'Original', width: 390, height: 844, compact: true,
     skipBackSeconds: 10, skipForwardSeconds: 30, onMinimize() {}, reportError: assert.fail});});
-  host.mount();
+  await host.mount();
   try {
-    host.flush();
-    descendants(tree).find(node => node.props.testID === 'watch-skip-undo').props.onPress(); host.flush();
+    await host.flush();
+    descendants(tree).find(node => node.props.testID === 'watch-skip-undo').props.onPress(); await host.flush();
     assert.deepEqual(undos, [fence]); assert.deepEqual(seeks, []);
-  } finally {host.unmount(); controls.dispose(); isTV = previousTV;}
+  } finally {await host.unmount(); controls.dispose(); isTV = previousTV;}
 });

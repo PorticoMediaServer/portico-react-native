@@ -1,3 +1,4 @@
+// @fabric-react
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
@@ -12,7 +13,7 @@ import * as rowState from '../src-next/kit/layout/row-state';
 import * as layoutModel from '../src-next/kit/layout/model';
 import * as registryModule from '../src-next/kit/focus/registry';
 import * as hostRefModule from '../src-next/kit/focus/useHostRef';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {createTVKeyAdapter} from '../src-next/platform/tv-key-adapter';
 
@@ -109,32 +110,32 @@ async function rig({count = 3, tv = true, reduced = false, initialWidth = 1920}:
     renderItem: (item: Item, context: any) => React.createElement('Card', {item, context}), itemWidth: 400, itemHeight: 225, gap: 28,
     gutter: 200, rightGutter: 96, initialViewportWidth: initialWidth, focus: {id: 'row', edges: {left: 'rail'}},
     onItemFocus: (item: Item) => {focused.push(item.id);}, onVisibleKeys: (keys: string[]) => {ranges.push([...keys]);}};
-  const host = createHookHost(() => {renders++; const content = Row(props).props.children; tree = content.type(content.props);});
-  const guideHost = createHookHost(() => {
+  const host = createFabricHookHost(() => {renders++; const content = Row(props).props.children; tree = content.type(content.props);});
+  const guideHost = createFabricHookHost(() => {
     if (!tv) {guide = {props: {ref() {}}}; return;}
     const region = nodes(tree).find(node => node.type?.name === 'RowRegion');
     const outer = region.type(region.props), inner = outer.type.render(outer.props, null);
     guide = inner.type.render(inner.props, null);
   });
-  function syncTargets() {
+  async function syncTargets() {
     const cards = nodes(tree).filter(node => node.type === focus.FocusItem);
-    for (const [id, target] of targets) if (!cards.some(node => node.props.focusId === id)) {target.bound.ref(null); target.host.unmount(); targets.delete(id);}
+    for (const [id, target] of targets) if (!cards.some(node => node.props.focusId === id)) {target.bound.ref(null); await target.host.unmount(); targets.delete(id);}
     for (const card of cards) {
       const id = card.props.focusId;
       let target = targets.get(id);
       if (!target) {
         target = {card, native: {nativeTag: nextTag++, requestTVFocus() {requests.push(id);}}, bound: undefined};
         const current = target;
-        current.host = createHookHost(() => {contexts[1].current = 'row'; contexts[2].current = current.card.props; current.bound = focus.useFocusTarget({});});
-        targets.set(id, current); current.host.mount(); current.bound.ref(current.native);
-      } else {target.card = card; target.host.rerender();}
+        current.host = createFabricHookHost(() => {contexts[1].current = 'row'; contexts[2].current = current.card.props; current.bound = focus.useFocusTarget({});});
+        targets.set(id, current); await current.host.mount(); current.bound.ref(current.native);
+      } else {target.card = card; await target.host.rerender();}
     }
   }
   async function settle() {
     for (let pass = 0; pass < 12; pass++) {
       const before = renders;
       await act(() => {while (js.length) js.shift()!();});
-      guideHost.rerender(); syncTargets();
+      await guideHost.rerender(); await syncTargets();
       await act(() => {});
       if (renders === before) return;
     }
@@ -143,7 +144,7 @@ async function rig({count = 3, tv = true, reduced = false, initialWidth = 1920}:
   function frame() {
     for (const reaction of reactions) {const next = reaction.read(); reaction.callback(next, reaction.previous); reaction.previous = next;}
   }
-  host.mount(); guideHost.mount(); guide.props.ref({nativeTag: 901, requestTVFocus() {requests.push('guide');}, setDestinations() {}}); syncTargets(); await settle();
+  await host.mount(); await guideHost.mount(); guide.props.ref({nativeTag: 901, requestTVFocus() {requests.push('guide');}, setDestinations() {}}); await syncTargets(); await settle();
   return {
     animations, commands, requests, focused, ranges, targets, registry,
     get tree() {return tree;}, get guide() {return guide;}, get offset() {return offset;}, get extent() {return extent();}, get renders() {return renders;},
@@ -159,12 +160,12 @@ async function rig({count = 3, tv = true, reduced = false, initialWidth = 1920}:
     async finish() {for (const animation of animations) if (!animation.cancelled && animation.cell) animation.cell.sample(animation.to); frame(); await settle();},
     async sample(value: number) {const animation = animations.filter(candidate => !candidate.cancelled && candidate.cell).at(-1); assert.ok(animation); animation.cell.sample(value); frame(); await settle();},
     async layout(value: number) {measuredWidth = value; scroll().props.onLayout({nativeEvent: {layout: {width: value}}}); await settle();},
-    async update(next: any) {props = {...props, ...next}; host.rerender(); await settle();},
-    async reduce() {theme = {...theme, reduceMotion: true}; host.rerender(); await settle(); frame(); await settle();},
+    async update(next: any) {props = {...props, ...next}; await host.rerender(); await settle();},
+    async reduce() {theme = {...theme, reduceMotion: true}; await host.rerender(); await settle(); frame(); await settle();},
     async drag() {scroll().props.onScrollBeginDrag(); frame(); await settle();},
     async scroll(value: number) {offset = value; scroll().props.onScroll({contentOffset: {x: value, y: 0}}); await settle();},
     frame,
-    close() {if (closed) return; closed = true; for (const target of targets.values()) {target.bound.ref(null); target.host.unmount();} guideHost.unmount(); host.unmount();},
+    async close() {if (closed) return; closed = true; for (const target of targets.values()) {target.bound.ref(null); await target.host.unmount();} await guideHost.unmount(); await host.unmount();},
   };
 }
 
@@ -188,13 +189,13 @@ for (const count of [1, 3, 12]) test(`actual TV Row of ${count}: first/middle/la
     for (let index = count - 2; index >= 0; index--) {
       await row.focus(`item-${index}`); await row.finish(); assert.equal(row.position(`item-${index}`), 200);
     }
-  } finally {row.close();}
+  } finally {await row.close();}
 });
 
 test('native onLayout and focus flush the actual component without a manual parent render', async () => {
   const row = await rig({initialWidth: 0});
   try {await row.focus('item-1'); assert.equal(row.animations.length, 0); await row.layout(1920); await row.finish(); assert.equal(row.position('item-1'), 200);}
-  finally {row.close();}
+  finally {await row.close();}
 });
 
 test('actual row cancels/retargets from the sampled scroll offset; repeats use slow linear and release restores in-out', async () => {
@@ -210,7 +211,7 @@ test('actual row cancels/retargets from the sampled scroll offset; repeats use s
     row.key('longRight', 1); row.key('left'); await row.focus('item-1');
     assert.deepEqual(row.animations.at(-1)?.config, {duration: 320, curve: 'inOut'});
     await row.finish(); assert.deepEqual(row.requests, []);
-  } finally {row.close();}
+  } finally {await row.close();}
 });
 
 test('release-only short Right reaches useFocusAnchor and anchors the native focus target', async () => {
@@ -224,7 +225,7 @@ test('release-only short Right reaches useFocusAnchor and anchors the native foc
     assert.deepEqual(row.animations.at(-1)?.config, {duration: 320, curve: 'linear'}, 'the second release-only tap reaches the anchor repeat policy');
     await row.finish(); assert.equal(row.position('item-2'), 200); assert.equal(row.offset, 856);
     assert.deepEqual(row.requests, [], 'native focus owns the target; the hook owns only its scroll');
-  } finally {row.close();}
+  } finally {await row.close();}
 });
 
 test('reduced motion settles the fixed slot immediately, including a preference change mid-scroll', async () => {
@@ -236,7 +237,7 @@ test('reduced motion settles the fixed slot immediately, including a preference 
     assert.deepEqual(row.animations.map(animation => animation.config),
       [{duration: reducedMotion.durationMs, curve: 'linear'}], 'reduced motion fades the surface rather than animating the slot');
   }
-  finally {row.close();}
+  finally {await row.close();}
   const changing = await rig();
   try {
     await changing.focus('item-1'); await changing.sample(100); await changing.reduce();
@@ -245,7 +246,7 @@ test('reduced motion settles the fixed slot immediately, including a preference 
     assert.equal(changing.animations.at(-2)?.cancelled, true, 'the mid-scroll transform is cancelled');
     assert.deepEqual(envelope.config, {duration: reducedMotion.durationMs, curve: 'linear'});
   }
-  finally {changing.close();}
+  finally {await changing.close();}
 });
 
 test('native drag, blur and unmount cancel outstanding scroll ownership; remembered re-entry finishes its slot', async () => {
@@ -255,8 +256,8 @@ test('native drag, blur and unmount cancel outstanding scroll ownership; remembe
     await row.finish(); assert.equal(row.commands.length, commands); assert.equal(row.offset, 100);
     await row.blur(); await row.focus('item-1'); await row.finish(); assert.equal(row.offset, 428);
     await row.focus('item-2'); await row.sample(500); await row.blur(); assert.equal(row.animations.at(-1)?.cancelled, true);
-    await row.focus('item-2'); const animation = row.animations.at(-1)!; row.close(); assert.equal(animation.cancelled, true);
-  } finally {row.close();}
+    await row.focus('item-2'); const animation = row.animations.at(-1)!; await row.close(); assert.equal(animation.cancelled, true);
+  } finally {await row.close();}
 });
 
 test('genuine updates/removals retain focused geometry and native refs; paging fills the same cursor host', async () => {
@@ -272,7 +273,7 @@ test('genuine updates/removals retain focused geometry and native refs; paging f
     await row.update({items: [{id: 'item-3'}]});
     assert.deepEqual(row.requests, ['item-3'], 'only genuine native host removal invokes existing registry recovery');
     await row.focus('item-3'); await row.finish(); assert.equal(row.position('item-3'), 200);
-  } finally {row.close();}
+  } finally {await row.close();}
   const paging = await rig({count: 2});
   try {
     const page = {waitingId: 'cursor-a', waitingItem: {id: 'placeholder'}, hasMore: true, loading: true, requestNext() {}};
@@ -284,7 +285,7 @@ test('genuine updates/removals retain focused geometry and native refs; paging f
     assert.equal(paging.targets.get('cursor-a').card.props.waiting, false); assert.equal(paging.position('cursor-a'), 200);
     assert.equal(paging.animations.length, before); assert.equal(paging.registry.capture()?.childId, 'cursor-a'); assert.deepEqual(paging.requests, []);
     assert.ok(paging.ranges.at(-1)?.includes('item-2')); assert.ok(!paging.ranges.at(-1)?.includes('cursor-b'));
-  } finally {paging.close();}
+  } finally {await paging.close();}
 });
 
 test('actual scroll worklet publishes intersecting keys only; overscan/focus pins do not enter visible admission', async () => {
@@ -293,11 +294,11 @@ test('actual scroll worklet publishes intersecting keys only; overscan/focus pin
     await row.focus('item-0'); await row.scroll(20 * 428); assert.ok(row.targets.has('item-0'), 'actual focused host is pinned');
     const keys = row.ranges.at(-1)!; assert.ok(keys.length <= 6 && keys.length > 0); assert.ok(!keys.includes('item-0')); assert.ok(!keys.includes('item-18'));
     assert.ok(row.targets.size < 16); assert.ok(keys.length <= 32); assert.equal(row.registry.capture()?.childId, 'item-0');
-  } finally {row.close();}
+  } finally {await row.close();}
 });
 
 test('phone retains natural extent and visibility-only focus scrolling', async () => {
   const row = await rig({tv: false});
   try {assert.equal(row.extent, 1552); await row.focus('item-2'); await row.finish(); assert.equal(row.offset, 0); assert.equal(row.position('item-2'), 1056);}
-  finally {row.close();}
+  finally {await row.close();}
 });

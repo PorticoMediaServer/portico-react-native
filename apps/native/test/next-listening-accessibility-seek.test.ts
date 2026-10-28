@@ -1,10 +1,11 @@
+// @fabric-react
 import * as audiobookControls from '../src-next/screens/destinations/music/audiobook-controls.ts';
 /** Actual touch component callbacks with controlled hook/native ports. These
  * tests prove command custody and values, not native gesture or AT delivery. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
-import {createHookHost} from './hook-driver.ts';
+import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {listeningCoverFixture, liveOverlayPaint, screenModule} from './helpers/screen-harness.mjs';
 import {dockFence} from './helpers/dock-fence.ts';
 import {defaultI18n} from '../../../packages/i18n/src';
@@ -67,7 +68,7 @@ async function fixture(hosted = true) {
     './NowPlayingLyrics': {NowPlayingLyrics: 'Lyrics'}, './ListeningPanePaint': {ListeningQueuePaint: 'QueuePaint', ListeningLyricsPaint: 'LyricsPaint'},
     '../../../kit/overlays/TVPanelMotion': {useTVPanelPresence: () => ({})},
   });
-  const host = createHookHost(() => {
+  const host = createFabricHookHost(() => {
     const props: NowPlayingScreenProps = {occupant, width: 390, height: 844, onAction: command => commands.push(command), onClose() {}};
     // Follow the exported wrapper's actual touch branch without exporting or
     // copying its private implementation just to make a test seam.
@@ -75,23 +76,23 @@ async function fixture(hosted = true) {
     assert.equal(typeof touch.type, 'function');
     tree = touch.type(touch.props);
   });
-  host.mount();
+  await host.mount();
   const live = () => {assert.ok(scrubber, 'the actual component published an enabled scrubber'); return scrubber;};
   return {host, commands, fence, live, get occupant() {return occupant;},
     seekPaint: () => {const node = nodes(tree).find(value => value.type === 'ListeningSeekPaint'); assert.ok(node); return node;},
-    position(seconds: number) {occupant = {...occupant, playback: {...occupant.playback, positionSeconds: seconds}}; host.rerender();},
-    presentation(change: Partial<DockOccupant['presentation']>) {occupant = {...occupant, presentation: {...occupant.presentation, ...change}}; host.rerender();},
-    replace() {const next = dockFence('successor'); occupant = {...occupant, playback: {...occupant.playback, kind: 'music', queue: null, fence: next}, presentation: {...occupant.presentation, fence: next}}; host.rerender(); return next;},
-    active(value: boolean) {pageActive = value; host.rerender();},
+    async position(seconds: number) {occupant = {...occupant, playback: {...occupant.playback, positionSeconds: seconds}}; await host.rerender();},
+    async presentation(change: Partial<DockOccupant['presentation']>) {occupant = {...occupant, presentation: {...occupant.presentation, ...change}}; await host.rerender();},
+    async replace() {const next = dockFence('successor'); occupant = {...occupant, playback: {...occupant.playback, kind: 'music', queue: null, fence: next}, presentation: {...occupant.presentation, fence: next}}; await host.rerender(); return next;},
+    async active(value: boolean) {pageActive = value; await host.rerender();},
     retirePaint() {paintCurrent = false;},
-    panel(open: boolean) {
+    async panel(open: boolean) {
       // Compact Now Playing offers Equalizer from its More menu; wide layouts draw a button.
       const control = nodes(tree).find(value => open ? value.props.testID === 'now-playing-equalizer' || value.props.items?.some?.((item: any) => item.id === 'equalizer') : value.type === 'Equalizer');
       assert.ok(control);
       if (!open) control.props.onBack(); else (control.props.onPress ?? control.props.items.find((item: any) => item.id === 'equalizer').onSelect)();
-      host.flush();
+      await host.flush();
     },
-    close() {host.unmount();},
+    async close() {await host.unmount();},
   };
 }
 
@@ -102,28 +103,28 @@ test('the actual listening accessibility callback uses configured skips, seek bo
     f.seekPaint().props.fallbackAdjust(-1);
     f.seekPaint().props.fallbackAdjust(1);
     assert.deepEqual(f.commands, [{type: 'seek', fence: f.fence, positionSeconds: 140}, {type: 'seek', fence: f.fence, positionSeconds: 180}]);
-    f.position(197); f.live().adjust(1);
-    f.position(103); f.live().adjust(-1);
+    await f.position(197); f.live().adjust(1);
+    await f.position(103); f.live().adjust(-1);
     assert.deepEqual(f.commands.slice(2), [{type: 'seek', fence: f.fence, positionSeconds: 200}, {type: 'seek', fence: f.fence, positionSeconds: 100}],
       'the real seek command clamps to the retained seek window, not the full duration');
-    f.position(150); f.presentation({skipForwardSeconds: undefined}); f.live().adjust(1);
+    await f.position(150); await f.presentation({skipForwardSeconds: undefined}); f.live().adjust(1);
     assert.equal(f.commands.at(-1)?.positionSeconds, 160, 'forward falls back to the configured backward step');
-    f.position(160); f.live().adjust(1);
+    await f.position(160); f.live().adjust(1);
     assert.equal(f.commands.at(-1)?.positionSeconds, 170, 'a new playback observation refreshes the callback position');
-  } finally {f.close();}
+  } finally {await f.close();}
 });
 
 test('a retained accessibility callback cannot borrow a successor seek scope or changed window', async () => {
   const f = await fixture();
   try {
-    const original = f.live().adjust, successor = f.replace();
+    const original = f.live().adjust, successor = await f.replace();
     original(1); assert.deepEqual(f.commands, []);
     const previousWindow = f.live().adjust;
-    f.presentation({seekWindow: {start: 120, end: 190}});
+    await f.presentation({seekWindow: {start: 120, end: 190}});
     previousWindow(-1); original(-1); assert.deepEqual(f.commands, []);
     f.live().adjust(1);
     assert.deepEqual(f.commands, [{type: 'seek', fence: successor, positionSeconds: 180}]);
-  } finally {f.close();}
+  } finally {await f.close();}
 });
 
 test('retiring the listening paint rejects an already captured accessibility callback before rerender', async () => {
@@ -132,22 +133,22 @@ test('retiring the listening paint rejects an already captured accessibility cal
     const retained = f.live().adjust;
     f.retirePaint(); retained(1); retained(-1);
     assert.deepEqual(f.commands, [], 'the actual commit checks the paint permit at dispatch');
-  } finally {f.close();}
+  } finally {await f.close();}
 });
 
 test('inactive pages, an open panel and unmount retire the original accessibility seek scope', async () => {
   const f = await fixture();
   try {
     const original = f.live().adjust;
-    f.active(false); original(1); assert.deepEqual(f.commands, []);
-    f.active(true); original(1); assert.deepEqual(f.commands, [], 'reactivation cannot revive the old scope');
+    await f.active(false); original(1); assert.deepEqual(f.commands, []);
+    await f.active(true); original(1); assert.deepEqual(f.commands, [], 'reactivation cannot revive the old scope');
     const beforePanel = f.live().adjust;
-    f.panel(true); beforePanel(1); assert.deepEqual(f.commands, []);
-    f.panel(false); beforePanel(-1); assert.deepEqual(f.commands, [], 'closing the panel creates its own scope');
+    await f.panel(true); beforePanel(1); assert.deepEqual(f.commands, []);
+    await f.panel(false); beforePanel(-1); assert.deepEqual(f.commands, [], 'closing the panel creates its own scope');
     const current = f.live().adjust;
     current(-1); assert.deepEqual(f.commands, [{type: 'seek', fence: f.fence, positionSeconds: 140}]);
-    f.close(); current(1); assert.equal(f.commands.length, 1);
-  } finally {f.close();}
+    await f.close(); current(1); assert.equal(f.commands.length, 1);
+  } finally {await f.close();}
 });
 
 test('an armed pan blocks accessibility adjustment without stealing the pan binding', async () => {
@@ -164,16 +165,16 @@ test('an armed pan blocks accessibility adjustment without stealing the pan bind
     gesture.callbacks.onFinalize();
     scrubber.adjust(-1);
     assert.deepEqual(f.commands.at(-1), {type: 'seek', fence: f.fence, positionSeconds: 140});
-  } finally {f.close();}
+  } finally {await f.close();}
 });
 
 test('invalid configured accessibility steps never dispatch a seek', async () => {
   const f = await fixture();
   try {
     for (const step of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
-      f.presentation({skipBackSeconds: step, skipForwardSeconds: step});
+      await f.presentation({skipBackSeconds: step, skipForwardSeconds: step});
       f.live().adjust(-1); f.live().adjust(1);
     }
     assert.deepEqual(f.commands, []);
-  } finally {f.close();}
+  } finally {await f.close();}
 });

@@ -1,8 +1,9 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import * as startupRecovery from '../src-next/shell/startup-recovery.ts';
-import {act, createHookHost} from './hook-driver.ts';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 type RestoreCall = {signal: AbortSignal; installationOwner: object; onAuthorityEnded: (error?: unknown) => void; onSessionRenewed: () => void};
@@ -48,7 +49,7 @@ async function shell(read: (call: RestoreCall, index: number) => Promise<unknown
     '../screens/downloads/presentation': {downloadEntryIdentity: () => ''},
   });
   let tree: any;
-  const host = createHookHost(() => {tree = RestoredShell();});
+  const host = createFabricHookHost(() => {tree = RestoredShell();});
   await act(() => host.mount());
   return {host, calls, errors, focus, tree: () => tree, content: () => tree.props.children, fallbacks: () => fallbacks,
     network(value: boolean | undefined) {online = value; for (const listener of [...paths]) listener(value);},
@@ -79,7 +80,7 @@ test('the real root keeps initial failures behind Boot, retries its captured ins
     assert.equal(f.calls.length, calls); assert.equal(f.content().type, 'ServersRoute'); assert.deepEqual(f.focus, [7], 'the covered recovery cannot reclaim accessibility focus');
     await act(() => f.content().props.onBack()); assert.equal(f.calls.length, calls + 1); assert.equal(f.tree().props.active, false);
     assert.ok(f.errors.every(error => error === failure), 'the real errors are retained for diagnostics');
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
   assert.equal(f.listenerCount(), 0);
 });
 
@@ -96,7 +97,7 @@ test('a changed stored viewer retires its old read, rejects late publication and
     await act(() => {resolves[1]!(current);}); assert.equal(f.content().type, 'NativeSettingsAppearance'); assert.equal(f.content().props.source, current);
     await act(() => {original.onAuthorityEnded(failure); original.onSessionRenewed();});
     assert.equal(f.calls.length, 2); assert.equal(f.content().props.source, current);
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
   assert.equal(disposed.filter(value => value === 'current').length, 1); assert.equal(f.listenerCount(), 0);
 });
 
@@ -117,7 +118,7 @@ test(`a paused ${entry} owns selection publication until its own ${exit}`, async
     assert.equal(f.content().type, page.type);
     await act(() => exit === 'complete' ? page.props.onComplete() : page.props.onBack());
     assert.equal(f.calls.length, calls + 1); assert.notEqual(f.calls.at(-1)!.installationOwner, installation, 'the old captured viewer is never resumed');
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });
 
 for (const terminal of ['sign-in', 'identity', 'lost-records'] as const)
@@ -132,5 +133,5 @@ test(`${terminal} failures bypass quiet network retry and preserve their specifi
     await act(() => {f.network(false); f.network(true); f.foreground('background'); f.foreground('active'); t.mock.timers.tick(180_000);});
     assert.equal(f.calls.length, 1);
     if (terminal === 'lost-records') assert.equal(f.fallbacks(), 0, 'lost records never open an ordinary downloads fallback');
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });

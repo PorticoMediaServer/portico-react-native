@@ -1,8 +1,9 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
-import {createHookHost} from './hook-driver.ts';
+import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {NativeShellNavigation} from '../src-next/shell/routes.ts';
 import {authorityKey, sameAuthority} from '../src-next/shell/model.ts';
 import {nativeDestinationLifetime} from '../src-next/screens/destinations/lifetime.ts';
@@ -13,7 +14,8 @@ test('actual collection presenter sends its current member through the fenced pr
   let entries: any[] = [song]; const listeners = new Set<() => void>(), starts: any[] = [];
   class Controller {
     subscribe = (fn: () => void) => {listeners.add(fn); return () => listeners.delete(fn);};
-    getSnapshot = () => ({entries}); open = async () => {}; dispose() {};
+    snapshot = {entries};
+    getSnapshot = () => this.snapshot.entries === entries ? this.snapshot : (this.snapshot = {entries}); open = async () => {}; dispose() {};
     contains = (entry: unknown) => entries.includes(entry); resident = () => ({entries, positions: entries.map((_, index) => index)});
   }
   const {createNativeEntryActions} = await screenModule(new URL('../src-next/screens/destinations/entry-actions.ts', import.meta.url), {
@@ -37,16 +39,16 @@ test('actual collection presenter sends its current member through the fenced pr
   // nothing and the retained outlet draws the real host.
   const renderer = createNativeCollectionRenderer(context), runtime = {reportError: assert.fail};
   assert.equal(renderer.render(route, runtime), null);
-  let tree: any; const host = createHookHost(() => {
+  let tree: any; const host = createFabricHookHost(() => {
     const outlet = renderer.renderRetained(runtime), pages = outlet.type(outlet.props);
     const page = React.Children.toArray(pages.props.children)[0] as any, view = page.type(page.props);
     assert.equal(page.props.active, true);
     tree = view.props.children.type(view.props.children.props);
-  }); host.mount();
+  }); await host.mount();
   try {
     tree.props.onOpen(song); assert.equal(starts.length, 1); assert.equal(starts[0].target, song.playback);
     entries = []; for (const notify of listeners) notify();
     assert.equal(starts[0].lifetime.signal.aborted, true);
     tree.props.onOpen(song); assert.equal(starts.length, 1);
-  } finally {resolve(); host.unmount(); navigation.dispose();}
+  } finally {resolve(); await host.unmount(); navigation.dispose();}
 });

@@ -1,10 +1,11 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {HttpLocalApi} from '../../../packages/client-core/src/index.ts';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
-import {createHookHost} from './hook-driver.ts';
+import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {NativeCollectionController} from '../src-next/screens/collections/controller.ts';
 import {createWindowedCollection} from '../../../packages/client-core/src/collections/windowed.ts';
 
@@ -68,16 +69,16 @@ test('the collection controller reads the real collection view and its own sorts
   } finally {controller.dispose();}
 });
 
-test('TV collection draws the name, film facts, Play all, Shuffle and the real member row', () => {
+test('TV collection draws the name, film facts, Play all, Shuffle and the real member row', async () => {
   const calls: string[] = [], back: (() => boolean)[] = [];
   const state = {phase: 'ready' as const, title: 'Toy Story Collection', collection: window(), complete: members, first: members[0],
     totalCount: 2, sorts: [{id: 'custom', labelKey: 'sort.custom', directions: ['asc'] as const}, {id: 'title', labelKey: 'sort.title', directions: ['asc', 'desc'] as const}], sort: 'custom'};
   const runtime = {ambient: () => undefined, artwork: () => undefined, registerTVPageBack: (handler: () => boolean) => {back.push(handler); return () => {};}, error: () => ({})} as any;
   let tree: any;
-  const host = createHookHost(() => {tree = NativeCollectionScreen({state, runtime,
+  const host = createFabricHookHost(() => {tree = NativeCollectionScreen({state, runtime,
     onPlay: () => calls.push('play'), onShuffle: () => calls.push('shuffle'), onSort: () => calls.push('sort'),
     onOpen: () => calls.push('open'), onBack: () => calls.push('back'), onRetry: () => calls.push('retry')});});
-  host.mount();
+  await host.mount();
   try {
     const nodes = descendants(tree);
     assert.ok(nodes.some(node => node.type === 'Text' && node.props.children === 'Toy Story Collection'));
@@ -95,7 +96,7 @@ test('TV collection draws the name, film facts, Play all, Shuffle and the real m
     assert.equal(card.props.entry, members[0]);
     assert.equal(nodes.find(node => node.props.testID === 'collection-sort') !== undefined, true);
     assert.equal(back.length, 1); assert.equal(back[0](), true); assert.ok(calls.includes('back'));
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });
 
 test('a long collection keeps a bounded window and reads evicted pages again by index', async () => {

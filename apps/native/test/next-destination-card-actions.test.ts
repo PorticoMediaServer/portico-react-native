@@ -1,10 +1,11 @@
+// @fabric-react
 import {defaultI18n} from '../../../packages/i18n/src';
 import {presentError} from '../../../packages/client-core/src/presentation/errors';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
-import {createHookHost} from './hook-driver.ts';
+import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {createTheme} from '../src-next/kit/theme.ts';
 import * as focusRegistry from '../src-next/kit/focus/registry.ts';
 import * as focusHostRef from '../src-next/kit/focus/useHostRef.ts';
@@ -26,10 +27,10 @@ const selection = (calls: string[], active = false) => ({active, selected: false
  * dispatcher runs the module's effects, so layout effects commit and unmount runs
  * every cleanup and store release. No reconciler draws the tree: the test calls
  * the exported component as a function and inspects its elements. */
-function mount(component: (props: any) => any, props: any) {
+async function mount(component: (props: any) => any, props: any) {
   let tree: any;
-  const host = createHookHost(() => {tree = component(props);});
-  host.mount();
+  const host = createFabricHookHost(() => {tree = component(props);});
+  await host.mount();
   return {host, get tree() {return tree;}};
 }
 
@@ -72,7 +73,7 @@ async function searchFixture(group = 'all') {
     './SearchGridCard': {SearchGridCard}, './TVSearchScreen': {TVSearchScreen: 'TVSearchScreen'},
   });
   const tree = host.render(() => SearchScreen({destination: {subscribe() {}, getSnapshot: () => snapshot, setText() {}}, runtime,
-    explore: {subscribe() {}, getSnapshot: () => ({genres: []})}, actions, activation: {subscribe() {}, getSnapshot: () => ({visible: true, intent: 'enter', revision: 1})},
+    explore: {subscribe() {}, getSnapshot: (() => {const snapshot = {genres: []}; return () => snapshot;})()}, actions, activation: {subscribe() {}, getSnapshot: (() => {const snapshot = {visible: true, intent: 'enter', revision: 1}; return () => snapshot;})()},
     selection: {item: () => selected, render: () => 'real-selection-toolbar'}}));
   return {host, tree, entry, actions, selected, calls};
 }
@@ -133,22 +134,22 @@ test('Saved preview cards preserve inactive selection and the actual native menu
     '../downloads/playback': {openNativeSavedDownload},
     '../../../../../packages/client-core/src/presentation/errors': {presentError},
   });
-  const screen = mount(SavedScreen, {destination: {subscribe() {}, getSnapshot: () => state, load: async () => {}}, runtime: {...runtime, registerScrollToTop() {}},
-    device: {subscribe() {}, getSnapshot: () => ({entries: []}), open: async () => {}},
-    actions, activation: {subscribe() {}, getSnapshot: () => ({visible: false, intent: 'restore', revision: 2})}, selection: {register: () => {registered++; return () => {retired++;};}, item: () => selected, render: () => 'actual-toolbar'}});
+  const screen = await mount(SavedScreen, {destination: {subscribe() {}, getSnapshot: () => state, load: async () => {}}, runtime: {...runtime, registerScrollToTop() {}},
+    device: {subscribe() {}, getSnapshot: (() => {const snapshot = {entries: []}; return () => snapshot;})(), open: async () => {}},
+    actions, activation: {subscribe() {}, getSnapshot: (() => {const snapshot = {visible: false, intent: 'restore', revision: 2}; return () => snapshot;})()}, selection: {register: () => {registered++; return () => {retired++;};}, item: () => selected, render: () => 'actual-toolbar'}});
   try {
     const tree = screen.tree;
     assert.equal(registered, 1, 'the committed screen effect registered the actual selection port');
     assert.equal(tree.props.pointerEvents, 'none'); assert.equal(tree.props.accessibilityElementsHidden, true, 'a retained hidden Saved screen has no active pointer or accessibility targets');
     const child = elements(tree).find(node => node.type?.name === 'SavedMyListCard')!;
-    const cardScreen = mount(child.type, child.props);
+    const cardScreen = await mount(child.type, child.props);
     try {
       const card = cardScreen.tree;
       assert.equal(card.props.selection, selected); assert.equal(card.props.moreExpanded, true);
       const actualCard = {actual: 'native-saved-card'}; card.props.menuAnchorRef.current = actualCard; card.props.onMore();
       assert.deepEqual(calls, [[entry, card.props.menuAnchorRef, selected.onEnter]]); assert.equal(calls[0][1].current, actualCard);
       selected.active = true; holdCard(card.props, false); assert.equal(calls.at(-1), 'toggle');
-    } finally {cardScreen.host.unmount();}
-  } finally {screen.host.unmount();}
+    } finally {await cardScreen.host.unmount();}
+  } finally {await screen.host.unmount();}
   assert.equal(retired, 1, 'unmount runs the registered selection cleanup');
 });

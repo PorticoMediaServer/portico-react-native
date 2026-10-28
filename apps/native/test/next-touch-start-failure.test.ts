@@ -1,10 +1,11 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {playbackUserMessage} from '../../../packages/client-core/src/playback-messages';
 import {createTheme} from '../src-next/kit/theme';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
@@ -32,12 +33,12 @@ async function fixture(input: any, width = 390) {
     '../kit/theme': {useTheme: () => createTheme({isTV: false, width})},
   });
   const runtime = {text: defaultI18n, getSnapshot: () => ({serverName: 'Original server'})};
-  const host = createHookHost(() => {tree = TouchStartFailure({...props, runtime});});
+  const host = createFabricHookHost(() => {tree = TouchStartFailure({...props, runtime});});
   await act(() => host.mount());
   return {tree: () => tree,
     button: (id: string) => nodes(tree.props.footer).find(node => node.props.testID === id),
     list: () => nodes(tree.props.children).find(node => node.type === 'List'),
-    set: async (next: any) => {await act(() => {props = next; host.rerender();});},
+    set: async (next: any) => {await act(async () => {props = next; await host.rerender();});},
     close: () => host.unmount()};
 }
 
@@ -54,7 +55,7 @@ for (const width of [390, 1024]) test(`touch account-capacity sheet at ${width} 
     await act(() => stop.props.onPress());
     assert.equal(f.calls.stopped[0], f.row, 'the exact scoped offered object reaches Stop');
     assert.equal(f.calls.retry, 0);
-  } finally {d.close();}
+  } finally {await d.close();}
 });
 
 test('server capacity keeps only the original manual retry, without reading another account list', async () => {
@@ -65,7 +66,7 @@ test('server capacity keeps only the original manual retry, without reading anot
     assert.equal(f.calls.retry, 1);
     await d.set({});
     assert.equal(f.calls.cancel, 0, 'intentional successful retry cleared its original port before new output');
-  } finally {d.close();}
+  } finally {await d.close();}
 });
 
 test('retained Back and Stop callbacks cannot operate on a replacement opening', async () => {
@@ -77,7 +78,7 @@ test('retained Back and Stop callbacks cannot operate on a replacement opening',
     await d.set({failure: next.port});
     await act(() => {back(false, 'back'); stop.props.onPress();});
     assert.equal(next.calls.cancel, 0); assert.equal(next.calls.stopped.length, 0); assert.equal(old.calls.stopped.length, 0);
-  } finally {d.close();}
+  } finally {await d.close();}
 });
 
 test('a controls refresh invalidates a previously drawn Stop without guessing capacity from row count', async () => {
@@ -88,15 +89,15 @@ test('a controls refresh invalidates a previously drawn Stop without guessing ca
     await act(() => stop.props.onPress());
     assert.equal(f.calls.stopped.length, 0);
     assert.equal(d.tree().props.title, defaultI18n.t('next.states.streamLimit', {count: 3}));
-  } finally {d.close();}
+  } finally {await d.close();}
 });
 
 test('Back and unmount cancel a live original wait, while an admitted output is left alone', async () => {
   const f = failure(), d = await fixture({failure: f.port});
   await act(() => d.tree().props.onOpenChange(false, 'back'));
-  assert.equal(f.calls.cancel, 1); d.close(); assert.equal(f.calls.cancel, 1);
+  assert.equal(f.calls.cancel, 1); await d.close(); assert.equal(f.calls.cancel, 1);
   const accepted = failure(), a = await fixture({failure: accepted.port});
-  accepted.retire(); await a.set({}); a.close(); assert.equal(accepted.calls.cancel, 0);
+  accepted.retire(); await a.set({}); await a.close(); assert.equal(accepted.calls.cancel, 0);
 });
 
 test('conversion countdown invokes only the offered retryNow and cancellation ports', async () => {
@@ -110,7 +111,7 @@ test('conversion countdown invokes only the offered retryNow and cancellation po
     await act(() => d.button('touch-start-retry').props.onPress());
     assert.equal(retries, 1);
     await act(() => d.button('touch-start-back').props.onPress()); assert.equal(cancelled, 1);
-  } finally {d.close();}
+  } finally {await d.close();}
 });
 
 test('an exhausted account wait exposes its original explicit retry without a new server event or read', async t => {
@@ -132,5 +133,5 @@ test('an exhausted account wait exposes its original explicit retry without a ne
     assert.ok(d.button('touch-start-retry'), 'explicit Stop does not replenish the automatic recovery budget');
     await act(() => d.button('touch-start-retry').props.onPress());
     assert.equal(f.calls.retry, 1);assert.equal(f.calls.cancel, 0);
-  } finally {d.close();t.mock.timers.reset();}
+  } finally {await d.close();t.mock.timers.reset();}
 });

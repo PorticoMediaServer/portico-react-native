@@ -1,3 +1,4 @@
+// @fabric-react
 import * as accountWork from '../src-next/platform/account-work';
 import {presentError} from '../../../packages/client-core/src/presentation/errors';
 import * as joinLink from '../../../packages/client-core/src/join-link';
@@ -10,7 +11,7 @@ import assert from 'node:assert/strict';
 import * as React from 'react';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {createTheme} from '../src-next/kit/theme';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import * as directoryChooser from '../src-next/screens/accounts/directory-chooser';
 
@@ -57,7 +58,7 @@ test('phone Portico sign-in offers account help and returns to its form', async 
     './PhonePINEntry': {PhonePINEntry: 'PhonePIN'}, './PhoneAccountMoveNotice': {PhoneAccountMoveNotice: 'MoveNotice'}, './PhoneMovePassword': {PhoneMovePassword: 'MovePassword'}, './PhoneMoveCode': {PhoneMoveCode: 'MoveCode'}, './PhoneProfileRecovery': {PhoneProfileRecovery: 'Recovery'}, '../../tv/auth/TVIdentityCodeForm': {TVIdentityCodeForm: 'IdentityCode'}, './DirectoryAccessRefused': {DirectoryAccessRefused: 'Refused'}, '../../platform/hosted-sign-in-unavailable': {HostedSignInUnavailable: class extends Error {}}, './directory-refusal': {directoryAccessRefused: () => false, directoryClockSkew: () => false, directoryIdentityUnconfirmed: () => false}, './PhoneAccountWorkspace': {PhoneAccountWorkspace: 'PhoneAccountWorkspace'}, '../../platform/account-workspace': {NativeAccountWorkspace: class {constructor() {throw new Error('unexpected_account_workspace');}}}, './PhoneNoServers': {PhoneNoServers: 'PhoneNoServers'}, './TVNoServers': {TVNoServers: 'TVNoServers'}, './EndedMoveCodeAction': {EndedMoveCodeAction: 'EndedMoveCodeAction'}, './TVOfflineServers': {TVOfflineServers: 'TVOfflineServers'}, './PhoneFrontDoor': {PhoneFrontDoor: 'PhoneFrontDoor'}, 'react-native-qrcode-svg': {default: 'QR'},
   });
   let tree: any;
-  const host = createHookHost(() => {tree = AccountEntry({onComplete: () => {}});});
+  const host = createFabricHookHost(() => {tree = AccountEntry({onComplete: () => {}});});
   await act(() => host.mount());
   try {
     assert.equal(tree.type, 'PhoneFrontDoor'); await act(() => tree.props.onPortico());
@@ -79,5 +80,5 @@ test('phone Portico sign-in offers account help and returns to its form', async 
     assert.equal(tree.type, 'PhoneAccountSignIn'); assert.equal(tree.props.recovery, true);
     await act(() => tree.props.onLocal());
     assert.equal(tree.props.title, defaultI18n.t('accounts.signIn.local'));
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });

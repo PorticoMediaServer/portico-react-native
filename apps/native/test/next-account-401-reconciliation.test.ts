@@ -1,3 +1,4 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -23,7 +24,7 @@ import {NativeAccountWorkspace} from '../src-next/platform/account-workspace';
 import {hostedUrl} from '../src-next/platform/account-authority';
 import {NativeModules} from './react-native-stub.mjs';
 import {createTheme} from '../src-next/kit/theme';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const deferred = <T,>() => {let resolve!: (value: T) => void; const promise = new Promise<T>(yes => {resolve = yes;}); return {promise, resolve};};
@@ -35,7 +36,7 @@ const grant = (familyId = 'family', accountId = 'account', accessToken = 'old-ac
  * native transport consumes synthetic HTTP responses below; no native secure store or live Hosted. */
 const storageHold = () => ({...deferred<void>(), entered: deferred<void>()});
 async function fixture() {
-  let record: CredentialRecord<string> | undefined, holdLoad: ReturnType<typeof storageHold> | undefined;
+  let record: CredentialRecord<string> | undefined, holdLoad: Awaited<ReturnType<typeof storageHold>> | undefined;
   let renewal: () => Promise<core.HostedSession> = async () => grant('family', 'account', 'renewed-access');
   const renewals: string[] = [], revocations: string[] = [];
   const owner = new CredentialSessionService({authorityFromSession: value => value.refreshToken!,
@@ -107,7 +108,7 @@ for (const kind of ['routes', 'workspace'] as const) {
       const view = workspace(f), abort = new AbortController();
       const pending = kind === 'routes' ? source(f).request('/v1/servers/server/routes', abort.signal) : view.open('notifications');
       const settled = Promise.allSettled([pending]); await arrived.promise;
-      let storage: ReturnType<typeof storageHold> | undefined;
+      let storage: Awaited<ReturnType<typeof storageHold>> | undefined;
       if (replacement === 'unmount') {abort.abort(); view.dispose();}
       else if (replacement === 'storage-await') {
         storage = f.holdLoad(); release.resolve();
@@ -162,7 +163,7 @@ async function entry(t: any, f: F) {
     {get: (all, name: string) => all[name] ?? new Proxy({}, {get: (_, key) => () => {throw new Error('Unvisited entry port ' + name + ':' + String(key));}})}));
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'require'); Object.defineProperty(globalThis, 'require', {configurable: true, value: () => 'wordmark'});
   t.after(() => {if (previous) Object.defineProperty(globalThis, 'require', previous); else Reflect.deleteProperty(globalThis, 'require');});
-  const host = createHookHost(() => {tree = AccountEntry({onComplete: () => {throw new Error('Unexpected navigation');}, onStageChange: (stage: string) => {stages.push(stage);}});});
+  const host = createFabricHookHost(() => {tree = AccountEntry({onComplete: () => {throw new Error('Unexpected navigation');}, onStageChange: (stage: string) => {stages.push(stage);}});});
   t.after(() => host.unmount()); await act(() => host.mount());
   assert.equal(tree.type, 'FrontDoor'); await act(() => tree.props.onPortico());
   return {host, stages, tree: () => tree, settle: async () => {for (let i = 0; i < 8; i++) await act(() => {});}};
@@ -194,7 +195,7 @@ for (const replacement of ['same-account', 'other-account', 'ABA', 'unmount', 's
     const f = await fixture(), arrived = deferred<void>(), release = deferred<void>(); let calls = 0;
     transport(t, async () => {if (++calls === 1) {arrived.resolve(); await release.promise; return response(401);} return response(200, {items: []});});
     const app = await entry(t, f); await arrived.promise;
-    if (replacement === 'unmount') app.host.unmount();
+    if (replacement === 'unmount') await app.host.unmount();
     else if (replacement === 'storage-await') {
       const read = f.holdLoad(); release.resolve(); await read.entered.promise;
       assert.equal(f.renewals.length, 0); f.external(grant('new-family', 'account', 'successor-access')); read.resolve();

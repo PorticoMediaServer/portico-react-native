@@ -1,3 +1,4 @@
+// @fabric-react
 import {createTVMenuPolicy} from '../src-next/platform/tv-menu-policy';
 import * as accountWork from '../src-next/platform/account-work';
 import * as tvCodeOpening from '../src-next/screens/accounts/tv-code-opening';
@@ -21,7 +22,7 @@ import * as React from 'react';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {routeOrigin} from '../../../packages/client-core/src/route-identity';
 import {createTheme} from '../src-next/kit/theme';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const profile = {id: 'locked', name: 'Actual locked profile', art: 'mint', primary: false, pinRequired: true};
@@ -31,7 +32,7 @@ function backOwner() {
   const listeners = new Set<() => boolean>();
   return {listeners, api: {addEventListener: (_: string, handler: () => boolean) => {listeners.add(handler); return {remove: () => listeners.delete(handler)};}}};
 }
-const shared = (back: ReturnType<typeof backOwner>) => ({
+const shared = (back: Awaited<ReturnType<typeof backOwner>>) => ({
   react: {...React, default: React},
   'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, BackHandler: back.api, Platform: {OS: 'ios', isTV: true}, Dimensions: {get: () => ({width: 1920, height: 1080})}, NativeModules: {}, TVEventControl: {enableTVMenuKey: () => menuCalls.push('enable'), disableTVMenuKey: () => menuCalls.push('disable')}, View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
   '../../../../../packages/i18n/src': {defaultI18n},
@@ -90,7 +91,7 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
     './directory-chooser': {directoryRows: () => [], directoryFailure: () => 'other', directoryOfflineBody: () => ({key: 'web.chooser.unreachableBodyNever'})},
   });
   let tree: any;
-  const host = createHookHost(() => {tree = AccountEntry({onComplete: () => {calls.push('complete');}});});
+  const host = createFabricHookHost(() => {tree = AccountEntry({onComplete: () => {calls.push('complete');}});});
   await act(() => host.mount());
   try {
     assert.deepEqual(menuCalls, ['disable'], 'the root front door permits the native Menu exit');
@@ -114,7 +115,7 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
     assert.equal(picker.props.focusScope, 'tv.auth.profiles.server', 'the TV picker opens its explicit profile region');
     assert.equal(picker.props.profiles[0].id, profile.id, 'the fixed entry resolves to the server\'s first offered profile');
     assert.equal(picker.props.preferredProfileId, undefined, 'no remembered face exists before this operation focuses one');
-    await act(() => {picker.props.onFocusChange(profile.id); host.rerender();});
+    await act(async () => {picker.props.onFocusChange(profile.id); await host.rerender();});
     const focused = nodes(tree.props.beforeActions).find(n => n.type === 'Picker');
     assert.equal(focused.props.preferredProfileId, profile.id, 'the original operation remembers the face it actually focused');
     await act(() => focused.props.onSelect(profile.id));
@@ -133,7 +134,7 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
     await act(() => {assert.equal([...back.listeners][0]!(), true);});
     assert.equal(tree.type, 'PIN'); assert.equal(tree.props.code, '');
     assert.deepEqual(calls, baseline);
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
   assert.equal(calls.filter(c => c === 'dispose').length, 1, 'the operation retires only at actual entry unmount');
   assert.equal(menuCalls.at(-1), 'disable', 'unmount returns Menu delivery to the next owner');
 });
@@ -179,7 +180,7 @@ test('TV profile-switch hand-off preserves its current family, selection control
   // ProfileRoute's fragment renders its destination first and sheets/dialogs after it.
   const screen = (node: any): any => Array.isArray(node) ? screen(node[0])
     : node?.type === React.Fragment ? screen(node.props.children) : node;
-  const host = createHookHost(() => {const opened = AccountRoute({route, context}); tree = screen(opened.type(opened.props));});
+  const host = createFabricHookHost(() => {const opened = AccountRoute({route, context}); tree = screen(opened.type(opened.props));});
   await act(() => host.mount());
   try {
     await act(() => nodes(tree.props.beforeActions).find(n => n.type === 'Picker').props.onSelect(profile.id));
@@ -197,6 +198,6 @@ test('TV profile-switch hand-off preserves its current family, selection control
     assert.deepEqual(attempts, [[profile.id, '1234']], 'public hand-off neither selects a profile nor retries/resets server attempts');
     await act(() => tree.props.onSubmit('5678'));
     assert.deepEqual(attempts, [[profile.id, '1234'], [profile.id, '5678']]);
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
   assert.equal(disposed, 1);
 });

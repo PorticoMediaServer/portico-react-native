@@ -1,3 +1,4 @@
+// @fabric-react
 import {dockHandoverFixture} from './helpers/screen-harness.mjs';
 import {listeningCoverFixture} from './helpers/screen-harness.mjs';
 import test from 'node:test';
@@ -7,7 +8,7 @@ import {PlaybackDock, sameFence, type DockPlayback, type QueuePlaybackFence, typ
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import * as model from '../src-next/kit/dock/model.ts';
 import type {DockHostProps, DockPresentation, DockRect} from '../src-next/kit/dock/types.ts';
-import {act, createHookHost} from './hook-driver.ts';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 // Actual DockHost, useDockPresence and MediaBar run under the existing React
@@ -76,7 +77,7 @@ async function rig(reduced = false) {
   const dock = new PlaybackDock(scope);
   let props: DockHostProps = {dock, snapshot: dock.getSnapshot(), presentation: {local: presentation}, onAction() {}, onVideoSlot: (rect, proof) => {deliveries.push(rect); if (proof) proofs.push(proof);}};
   let closed = false;
-  let tree: any, barTree: any, barProps: any, barHost: ReturnType<typeof createHookHost> | undefined;
+  let tree: any, barTree: any, barProps: any, barHost: Awaited<ReturnType<typeof createFabricHookHost>> | undefined;
   let layout = {x: 24, y: 699.5, width: 80, height: 45};
   const translatedY = () => {
     // The dim layer is a separate AnimatedView. Native slot coordinates inherit the
@@ -92,25 +93,25 @@ async function rig(reduced = false) {
     const rect = {...layout, y: layout.y + translatedY()};
     measurements.push({rect, deliver: (value = rect) => callback(value.x, value.y, value.width, value.height)});
   }};
-  const host = createHookHost(() => {tree = DockHost(props);});
-  host.mount();
+  const host = createFabricHookHost(() => {tree = DockHost(props);});
+  await host.mount();
   async function sync() {
     await act(() => {});
     if (closed) return;
     const bar = elements(tree).find(node => node.type === MediaBar);
-    if (!bar) {barHost?.unmount(); barHost = undefined; return;}
+    if (!bar) {await barHost?.unmount(); barHost = undefined; return;}
     barProps = bar.props;
     if (!barHost) {
-      barHost = createHookHost(() => {
+      barHost = createFabricHookHost(() => {
         barTree = MediaBar(barProps);
         elements(barTree).find(node => node.props.collapsable === false).props.ref.current = artNode;
       });
-      barHost.mount();
-    } else barHost.rerender();
+      await barHost.mount();
+    } else await barHost.rerender();
     await act(() => {});
   }
   async function render(next: Partial<DockHostProps> = {}) {
-    props = {...props, snapshot: dock.getSnapshot(), ...next}; host.rerender(); await sync();
+    props = {...props, snapshot: dock.getSnapshot(), ...next}; await host.rerender(); await sync();
   }
   async function start() {dock.start(video); await render();}
   async function complete(timing = timings.filter(timing => !!timing.complete).at(-1)!, finished = true) {
@@ -122,7 +123,7 @@ async function rig(reduced = false) {
     artNode, get tree() {return tree;}, get barTree() {return barTree;},
     layout(value: typeof layout) {layout = value;},
     async reduce(value: boolean) {motion = {...motion, transforms: !value}; await render();},
-    close() {closed = true; barHost?.unmount(); host.unmount();},
+    async close() {closed = true; await barHost?.unmount(); await host.unmount();},
   };
 }
 
@@ -142,7 +143,7 @@ test('actual presence completion remeasures the same art slot without another la
     r.measurements.at(-1)!.deliver();
     assert.deepEqual(r.deliveries, [{x: 24, y: 699.5, width: 80, height: 45}]);
     assert.equal(elements(r.barTree).filter(element => element.props.collapsable === false).length, 1);
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 test('reduced motion admits real layout immediately without waiting for the opacity callback', async () => {
@@ -152,7 +153,7 @@ test('reduced motion admits real layout immediately without waiting for the opac
     assert.equal(r.translatedY(), 0);
     r.measurements.at(-1)!.deliver();
     assert.deepEqual(r.deliveries, [{x: 24, y: 699.5, width: 80, height: 45}]);
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 test('interrupted entry, exit and return reject old completion and measurement ownership', async () => {
@@ -169,7 +170,7 @@ test('interrupted entry, exit and return reject old completion and measurement o
     await r.complete(entry); r.layoutEvent(); const pending = r.measurements.at(-1)!;
     await r.render({visible: false}); pending.deliver();
     assert.deepEqual(r.deliveries, [], 'the outgoing chrome is not measurement authority');
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 test('a new native layout supersedes earlier replies and the measured ref must still be the same', async () => {
@@ -182,7 +183,7 @@ test('a new native layout supersedes earlier replies and the measured ref must s
     r.layoutEvent(); const oldRef = r.measurements.at(-1)!;
     elements(r.barTree).find(element => element.props.collapsable === false).props.ref.current = {};
     oldRef.deliver(); assert.equal(r.deliveries.length, 1);
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 test('live core changes reject a late measure even before DockHost rerenders', async () => {
@@ -195,7 +196,7 @@ test('live core changes reject a late measure even before DockHost rerenders', a
       if (change === 'expanded') r.dock.expand(fence);
       if (change === 'remote') r.dock.beginRemote({id: 'receiver', kind: 'cast', sequence: '1', phase: 'connecting', playback: video, positionSeconds: 75}, 0);
       pending.deliver(); assert.deepEqual(r.deliveries, [], change);
-    } finally {r.close();}
+    } finally {await r.close();}
   }
 });
 
@@ -211,7 +212,7 @@ test('source and authority replacement require a new settlement and discard prio
     assert.deepEqual(r.deliveries, []);
     await r.complete(nextEntry); r.measurements.at(-1)!.deliver();
     assert.equal(r.deliveries.length, 1);
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 test('position updates preserve a current entry instead of continually restarting its completion', async () => {
@@ -222,7 +223,7 @@ test('position updates preserve a current entry instead of continually restartin
     assert.equal(r.timings.length, count, 'new playback facts are not a new presence intent');
     await r.complete(entry); r.measurements.at(-1)!.deliver();
     assert.equal(r.deliveries.length, 1);
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 test('callback replacement, invalid native geometry and unmount cannot apply an old reply', async () => {
@@ -235,11 +236,11 @@ test('callback replacement, invalid native geometry and unmount cannot apply an 
     r.layoutEvent(); r.measurements.at(-1)!.deliver({x: 24, y: 699.5, width: 0, height: 45});
     assert.deepEqual(newer, []);
     r.layoutEvent(); const pending = r.measurements.at(-1)!;
-    r.close(); pending.deliver();
+    await r.close(); pending.deliver();
     for (const timing of r.timings) await r.complete(timing);
     assert.deepEqual(r.deliveries, []); assert.deepEqual(newer, []);
     assert.ok(r.cancelled.length > 0);
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 test('a motion-policy change immediately retires the prior admission and remeasures without a transform', async () => {
@@ -253,7 +254,7 @@ test('a motion-policy change immediately retires the prior admission and remeasu
     assert.deepEqual(r.deliveries, [{x: 24, y: 699.5, width: 80, height: 45}]);
     await r.complete(entry); pending.deliver();
     assert.equal(r.deliveries.length, 1, 'late old animation and native callbacks stay retired');
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 // Authored source vector, UNRUN: this hook/native-prop fixture does not measure
@@ -279,7 +280,7 @@ test('a touch occupant handover keeps settled glass in place and admits only the
     r.measurements.at(-1)!.deliver();
     assert.equal(r.deliveries.length, before + 1);
     assert.equal(r.translatedY(), 0);
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 
@@ -300,5 +301,5 @@ test('an admitted mini proof survives ordinary facts but not native relayout or 
     assert.equal(original(), false, 'the old proof never adopts the new layout');
     r.dock.start({...video, fence: {...fence, generation: 2}});
     assert.equal(next(), false, 'a source change retires the witness even before React rerenders');
-  } finally {r.close();}
+  } finally {await r.close();}
 });

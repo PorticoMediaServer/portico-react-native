@@ -1,3 +1,4 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -9,7 +10,7 @@ import {useControlValue} from '../src-next/kit/controls/useControlValue.ts';
 import * as presentation from '../src-next/kit/browse/presentation.ts';
 import * as registryModule from '../src-next/kit/focus/registry.ts';
 import {useHostRef} from '../src-next/kit/focus/useHostRef.ts';
-import {createHookHost} from './hook-driver.ts';
+import {fabricHost} from './helpers/fabric-host.mjs';
 import {liveOverlayPaint, screenModule} from './helpers/screen-harness.mjs';
 
 type Node = {type: string; props: Record<string, any>; children: (Node | string | number)[]};
@@ -19,7 +20,7 @@ const text = (node: Node | string | number): string => typeof node === 'object' 
 // Only native hosts/animation/blur/theme are replaced; no D-pad/layout claim.
 async function fixture(isTV: boolean) {
   const theme = createTheme({isTV, width: isTV ? 1920 : 390});
-  const react = {...React, default: React}, native = {View: 'View', Text: 'Text', ScrollView: 'ScrollView', Pressable: 'Pressable', TextInput: 'TextInput', TVFocusGuideView: 'TVFocusGuideView',
+  const react = {...React, default: React}, native = {View: 'View', Text: 'Text', ScrollView: 'ScrollView', Pressable: React.forwardRef(({children, ...props}: any, ref: any) => React.createElement('Pressable', {...props, ref}, typeof children === 'function' ? children({pressed: false, hovered: false}) : children)), TextInput: 'TextInput', TVFocusGuideView: 'TVFocusGuideView',
     ActivityIndicator: 'ActivityIndicator', Platform: {OS: 'android', isTV}, findNodeHandle: (host: any) => host?.tag ?? null,
     StyleSheet: {create: (value: any) => value, flatten: (value: any): any => Array.isArray(value) ? Object.assign({}, ...value.map(native.StyleSheet.flatten)) : value ?? {}, absoluteFill: {position: 'absolute', inset: 0}}};
   const themeModule = {useTheme: () => theme, fontFamilies};
@@ -48,34 +49,21 @@ async function fixture(isTV: boolean) {
   return {FilterBuilder, ...focusModule};
 }
 
-function mountTree(root: React.ReactNode) {
-  const drivers: ReturnType<typeof createHookHost>[] = [], refs: (() => void)[] = [], native: Node[] = [];
-  let nextTag = 0;
-  const walk = (node: any): (Node | string | number)[] => {
-    if (Array.isArray(node)) return node.flatMap(walk);
-    if (node === null || node === undefined || typeof node === 'boolean') return [];
-    if (typeof node === 'string' || typeof node === 'number') return [node];
-    const {type, props} = node;
-    if (type === React.Fragment) return walk(props.children);
-    if (type?.$$typeof === Symbol.for('react.context')) {
-      const previous = type._currentValue; type._currentValue = props.value;
-      try {return walk(props.children);} finally {type._currentValue = previous;}
-    }
-    if (typeof type === 'function' || type?.$$typeof === Symbol.for('react.forward_ref')) {
-      let child: any;
-      const driver = createHookHost(() => {child = typeof type === 'function' ? type(props) : type.render(props, props.ref ?? null);});
-      drivers.push(driver); driver.mount(); return walk(child);
-    }
-    assert.equal(typeof type, 'string', 'the test must resolve every actual component');
-    const host = {tag: ++nextTag, requestTVFocus() {}, focus() {}, setDestinations() {}};
-    if (typeof props.ref === 'function') {const cleanup = props.ref(host); refs.push(typeof cleanup === 'function' ? cleanup : () => props.ref(null));}
-    else if (props.ref) {props.ref.current = host; refs.push(() => {props.ref.current = null;});}
-    const record: Node = {type, props, children: []}; native.push(record);
-    record.children = walk(typeof props.children === 'function' ? props.children({pressed: false, hovered: false}) : props.children);
-    return [record];
+async function mountTree(root: React.ReactNode) {
+  // React owns the complete provider/component tree and native ref attachment.
+  // Only the commands on the native public-instance boundary are controlled.
+  const host = await fabricHost({publicInstance: (tag: number) => ({tag, requestTVFocus() {}, focus() {}, setDestinations() {}})});
+  try {await host.render(root);} catch (error) {try {await host.unmount();} catch {} throw error;}
+  const native: Node[] = [];
+  const collect = (node: any): Node | string => {
+    assert.equal(typeof node.type, 'string', 'the test must resolve every actual component');
+    if (node.type === 'RCTRawText') return node.props.text;
+    const record: Node = {type: node.type, props: node.props, children: node.children.map(collect)};
+    native.push(record);
+    return record;
   };
-  try {walk(root);} catch (error) {for (const cleanup of refs.reverse()) cleanup(); for (const driver of drivers.reverse()) driver.unmount(); throw error;}
-  return {controls: native.filter(node => node.type === 'Pressable' || node.type === 'TextInput'), dispose() {for (const cleanup of refs.reverse()) cleanup(); for (const driver of drivers.reverse()) driver.unmount();}};
+  host.root.forEach(collect);
+  return {controls: native.filter(node => node.type === 'Pressable' || node.type === 'TextInput'), dispose: () => host.unmount()};
 }
 
 function props(prefix?: string, reverse = false) {
@@ -99,7 +87,7 @@ function props(prefix?: string, reverse = false) {
 
 for (const isTV of [true, false]) test(`${isTV ? 'TV' : 'phone'} real FilterBuilder controls register distinct semantic IDs under a real FocusRegion`, async () => {
   const mod = await fixture(isTV), registry = registryModule.createFocusRegistry(), prefix = 'actual-authority/library-id/filters';
-  const data = props(prefix), tree = mountTree(React.createElement(mod.FocusProvider, {registry}, React.createElement(mod.FocusRegion, {id: prefix}, React.createElement(mod.FilterBuilder, data.value))));
+  const data = props(prefix), tree = await mountTree(React.createElement(mod.FocusProvider, {registry}, React.createElement(mod.FocusRegion, {id: prefix}, React.createElement(mod.FilterBuilder, data.value))));
   let ids: string[];
   try {
     assert.ok(tree.controls.length > 16, 'all field control kinds and nested rare fields must mount');
@@ -116,16 +104,16 @@ for (const isTV of [true, false]) test(`${isTV ? 'TV' : 'phone'} real FilterBuil
     tree.controls.find(node => text(node) === 'All genres')!.props.onPress({defaultPrevented: false}); assert.deepEqual(data.calls.at(-1), ['all', 'genre']);
     const input = tree.controls.find(node => node.type === 'TextInput' && node.props.accessibilityLabel === 'query')!;
     input.props.onChangeText('real field value'); assert.deepEqual(data.calls.at(-1), ['change', 'query', {kind: 'text', value: 'real field value'}]);
-  } finally {tree.dispose();}
+  } finally {await tree.dispose();}
   assert.deepEqual(registry.order(prefix), [], 'actual host/region cleanup removes registrations');
-  const reordered = mountTree(React.createElement(mod.FocusProvider, {registry}, React.createElement(mod.FocusRegion, {id: prefix}, React.createElement(mod.FilterBuilder, props(prefix, true).value))));
+  const reordered = await mountTree(React.createElement(mod.FocusProvider, {registry}, React.createElement(mod.FocusRegion, {id: prefix}, React.createElement(mod.FilterBuilder, props(prefix, true).value))));
   try {assert.deepEqual(reordered.controls.map(node => node.props.testID).sort(), ids!.sort(), 'field/facet order changes cannot change the semantic IDs');}
-  finally {reordered.dispose();}
+  finally {await reordered.dispose();}
 });
 
 test('omitting the optional prefix preserves the existing unfocused control geometry and callbacks', async () => {
   const mod = await fixture(false), unscoped = props(), scoped = props('actual-library/filters');
-  const before = mountTree(React.createElement(mod.FilterBuilder, unscoped.value)), after = mountTree(React.createElement(mod.FilterBuilder, scoped.value));
+  const before = await mountTree(React.createElement(mod.FilterBuilder, unscoped.value)), after = await mountTree(React.createElement(mod.FilterBuilder, scoped.value));
   const project = (node: Node) => ({type: node.type, text: text(node), disabled: node.props.disabled, role: node.props.accessibilityRole, state: node.props.accessibilityState,
     style: typeof node.props.style === 'function' ? node.props.style({pressed: false, hovered: false}) : node.props.style});
   try {
@@ -133,5 +121,5 @@ test('omitting the optional prefix preserves the existing unfocused control geom
     assert.deepEqual(after.controls.map(project), before.controls.map(project), 'the additive API changes identity only');
     before.controls.find(node => node.props.accessibilityRole === 'checkbox' && text(node).startsWith('Shared value'))!.props.onPress({defaultPrevented: false});
     assert.deepEqual(unscoped.calls.at(-1), ['change', 'genre', {kind: 'values', mode: 'any', included: ['same/value'], excluded: []}]);
-  } finally {before.dispose(); after.dispose();}
+  } finally {await before.dispose(); await after.dispose();}
 });

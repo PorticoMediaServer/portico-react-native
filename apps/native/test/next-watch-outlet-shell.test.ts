@@ -1,10 +1,11 @@
+// @fabric-react
 import {canReturnToPage} from '../src-next/shell/page-focus-return.ts';
 import * as homeStart from '../src-next/screens/home/home-start';
 import {listeningCoverFixture} from './helpers/screen-harness.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {surfacePaintFixture, screenModule} from './helpers/screen-harness.mjs';
 import {createFocusRegistry} from '../src-next/kit/focus/registry';
 import {createTheme} from '../src-next/kit/theme';
@@ -37,13 +38,13 @@ test('the real shell mounts one persistent player and a separate box-none watch 
     './PhoneTabBar': {}, './MediumRail': {MediumRail: 'MediumRail'}, './chrome': {nativeScreenChromeHidden: () => false, subscribeNativeScreenChrome: () => () => {}}, './PhoneHomeHeader': {}, './TVRail': {TVRail: 'TVRail'}, './TVProfileMenu': {TVProfileMenu: 'ProfileMenu'},
     './NativePlaybackLayer': {NativePlaybackLayer: 'PersistentPlaybackLayer'}, './DesktopHeader': {},
   });
-  const rootHost = createHookHost(() => {root = NativeShell({runtime});});
-  let sessionHost: ReturnType<typeof createHookHost> | undefined;
+  const rootHost = createFabricHookHost(() => {root = NativeShell({runtime});});
+  let sessionHost: Awaited<ReturnType<typeof createFabricHookHost>> | undefined;
   try {
-    await act(() => {rootHost.mount();});
+    await act(async () => {await rootHost.mount();});
     const session = nodes(root).find(node => node.type?.name === 'ShellSession');
-    sessionHost = createHookHost(() => {tree = session.type({runtime, snapshot});});
-    await act(() => {sessionHost!.mount();});
+    sessionHost = createFabricHookHost(() => {tree = session.type({runtime, snapshot});});
+    await act(async () => {await sessionHost!.mount();});
     const rendered = nodes(tree), player = rendered.filter(node => node.type === 'PersistentPlaybackLayer');
     assert.equal(player.length, 1);
     assert.strictEqual(player[0].props.adapter, runtime.playback);
@@ -57,16 +58,16 @@ test('the real shell mounts one persistent player and a separate box-none watch 
     assert.equal(base().props.accessibilityElementsHidden, false);
     assert.equal(base().props.importantForAccessibility, 'auto');
     snapshot.contentVisible = false;
-    await act(() => {sessionHost!.rerender();});
+    await act(async () => {await sessionHost!.rerender();});
     assert.equal(base().props.accessibilityElementsHidden, true);
     assert.equal(base().props.importantForAccessibility, 'no-hide-descendants');
     snapshot.contentVisible = true; snapshot.mediaExpanded = true;
-    await act(() => {sessionHost!.rerender();});
+    await act(async () => {await sessionHost!.rerender();});
     assert.equal(base().props.accessibilityElementsHidden, true);
     const watch = nodes(tree).find(node => node.type === 'View' && node.props.children?.type === 'WatchChrome');
     assert.notEqual(watch.props.importantForAccessibility, 'no-hide-descendants', 'visible split watch panes stay exposed in their separate outlet');
     snapshot.mediaExpanded = false;
-    await act(() => {sessionHost!.rerender();});
+    await act(async () => {await sessionHost!.rerender();});
     assert.equal(base().props.accessibilityElementsHidden, false, 'a collapsed dock leaves the destination accessible');
-  } finally {sessionHost?.unmount(); rootHost.unmount();}
+  } finally {await sessionHost?.unmount(); await rootHost.unmount();}
 });

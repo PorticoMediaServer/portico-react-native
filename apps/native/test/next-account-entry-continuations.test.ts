@@ -1,3 +1,4 @@
+// @fabric-react
 import * as accountWork from '../src-next/platform/account-work';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,7 +14,7 @@ import * as tvOpening from '../src-next/screens/accounts/tv-code-opening';
 import * as outcome from '../src-next/platform/setup-outcome';
 import * as chooser from '../src-next/screens/accounts/directory-chooser';
 import {createTheme, nativeType} from '../src-next/kit/theme';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 const t=defaultI18n.t;
 const nodes=(node:any):any[]=>Array.isArray(node)?node.flatMap(nodes):node?.props?[node,...nodes(node.props.children)]:[];
@@ -87,10 +88,10 @@ async function fixture(context:import('node:test').TestContext,wrongAccount=fals
   context.after(()=>{if(previous)Object.defineProperty(globalThis,'require',previous);else Reflect.deleteProperty(globalThis,'require');});
   const listeners=new Set<()=>void>();let active=true;
   let incoming:any={raw:entry.raw,current:()=>active,onRetired:(fn:()=>void)=>{listeners.add(fn);return()=>listeners.delete(fn);}};
-  let tree:any,phoneTree:any,child:ReturnType<typeof createHookHost>|undefined;
-  const host=createHookHost(()=>{tree=AccountEntry({incomingInvitation:incoming,onComplete:()=>{calls.complete++;}});});
-  context.after(()=>{child?.unmount();host.unmount();});await act(()=>host.mount());
-  const phoneRender=async()=>{assert.equal(tree.type,phone.PhoneAccountSignIn);child?.unmount();const props=tree.props;child=createHookHost(()=>{phoneTree=phone.PhoneAccountSignIn(props);});await act(()=>child!.mount());return phoneTree;};
+  let tree:any,phoneTree:any,child:Awaited<ReturnType<typeof createFabricHookHost>>|undefined;
+  const host=createFabricHookHost(()=>{tree=AccountEntry({incomingInvitation:incoming,onComplete:()=>{calls.complete++;}});});
+  context.after(async ()=>{await child?.unmount();await host.unmount();});await act(()=>host.mount());
+  const phoneRender=async()=>{assert.equal(tree.type,phone.PhoneAccountSignIn);await child?.unmount();const props=tree.props;child=createFabricHookHost(()=>{phoneTree=phone.PhoneAccountSignIn(props);});await act(()=>child!.mount());return phoneTree;};
   return {calls,host,back,tree:()=>tree,phone:phoneRender,
     read:(work:()=>Promise<any>)=>{read=work;},options:(work:()=>Promise<any>)=>{options=work;},verify:(work:typeof verify)=>{verify=work;},
     retire:()=>{active=false;for(const fn of listeners)fn();},
@@ -159,7 +160,7 @@ test('AccountEntry supplies exact provider-only capabilities and old drawn phone
 
 test('a late preparation after unmount cannot publish offered controls or launch a provider',async context=>{
   const f=await fixture(context),pending=deferred<any>();await f.preview();f.options(()=>pending.promise);
-  await act(()=>f.tree().props.primaryAction.onPress());const before=f.tree();f.host.unmount();
+  await act(()=>f.tree().props.primaryAction.onPress());const before=f.tree();await f.host.unmount();
   await act(()=>pending.resolve(offered));assert.equal(f.tree(),before);assert.equal(f.calls.provider,0);assert.equal(f.calls.login,0);
 });
 

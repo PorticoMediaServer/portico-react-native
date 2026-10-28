@@ -1,3 +1,4 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -5,7 +6,7 @@ import {defaultI18n} from '../../../packages/i18n/src';
 import {downloadEntryIdentity, downloadGroups, downloadRequestLines, downloadRowText, downloadStorageSegments, downloadTransferProgress, type NativeDownloadsCopy} from '../src-next/screens/downloads/presentation';
 import type {OfflineEntry} from '../src-next/platform/offline-downloads';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
-import {createHookHost} from './hook-driver.ts';
+import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import * as downloadInventory from '../src-next/screens/downloads/inventory.ts';
 import {createTheme} from '../src-next/kit/theme';
 import {holdCard} from '../src-next/kit/cards/model';
@@ -15,10 +16,10 @@ import {holdCard} from '../src-next/kit/cards/model';
  * every cleanup and store release. No reconciler draws the tree: the test calls
  * the exported component as a function and inspects its elements, as the other
  * shallow screen fixtures do. */
-function mount(component: (props: any) => any, props: any) {
+async function mount(component: (props: any) => any, props: any) {
   let tree: any;
-  const host = createHookHost(() => {tree = component(props);});
-  host.mount();
+  const host = createFabricHookHost(() => {tree = component(props);});
+  await host.mount();
   return {host, get tree() {return tree;}};
 }
 
@@ -109,7 +110,8 @@ test('Downloads rows use the shared hold/menu boundary with their actual native 
   const theme = createTheme({width: 390, isTV: false});
   const current = entry(), calls: unknown[] = [];
   let opened = 0;
-  const device = {getSnapshot: () => ({supported: true, ready: true, entries: [current], settings: {}, usedBytes: 1, freeBytes: 100, otherBytes: 0}), subscribe() {}, open: async () => {opened++;},
+  const snapshot = {supported: true, ready: true, entries: [current], settings: {}, usedBytes: 1, freeBytes: 100, otherBytes: 0};
+  const device = {getSnapshot: () => snapshot, subscribe: () => () => {}, open: async () => {opened++;},
     playabilityReason: () => null};
   const {DownloadsScreen} = await screenModule(new URL('../src-next/screens/downloads/DownloadsScreen.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 390})},
@@ -130,15 +132,15 @@ test('Downloads rows use the shared hold/menu boundary with their actual native 
     if (Array.isArray(node)) return node.flatMap(nodes);
     return node && typeof node === 'object' && 'props' in node ? [node, ...nodes(node.props.children)] : [];
   }
-  const screen = mount(DownloadsScreen, {device, runtime: {text}, copy, back() {}, openTitle() {}});
+  const screen = await mount(DownloadsScreen, {device, runtime: {text}, copy, back() {}, openTitle() {}});
   try {
     assert.equal(opened, 1, 'the committed screen effect opened the actual device port');
     const window = nodes(screen.tree).find(node => node.type?.type?.name === 'DownloadInventoryWindow');
-    const windowScreen = mount(window.type.type, window.props);
+    const windowScreen = await mount(window.type.type, window.props);
     const live = nodes(windowScreen.tree).find(node => node.type?.type?.name === 'LiveDownloadRow');
-    const liveScreen = mount(live.type.type, live.props);
+    const liveScreen = await mount(live.type.type, live.props);
     const row = nodes(liveScreen.tree).find(node => node.type?.name === 'DownloadRow');
-    const rowScreen = mount(row.type, {...row.props, menuOpen: true, onMenu: (value: unknown) => calls.push(value), onPlay: () => calls.push('local-play')});
+    const rowScreen = await mount(row.type, {...row.props, menuOpen: true, onMenu: (value: unknown) => calls.push(value), onPlay: () => calls.push('local-play')});
     try {
       const card = nodes(rowScreen.tree).find(node => node.type === 'CardFrame');
       assert.equal(card.props.moreExpanded, true);
@@ -146,8 +148,8 @@ test('Downloads rows use the shared hold/menu boundary with their actual native 
       holdCard(card.props, false); assert.equal(calls[0], card.props.menuAnchorRef); assert.equal((calls[0] as any).current, nativeHost);
       card.props.onNavigate(); assert.equal(calls[1], 'local-play');
       assert.equal(card.props.onLongPressAction, undefined); assert.equal(card.props.selection, undefined, 'Downloads has no invented selection action');
-    } finally {rowScreen.host.unmount(); liveScreen.host.unmount(); windowScreen.host.unmount();}
-  } finally {screen.host.unmount();}
+    } finally {await rowScreen.host.unmount(); await liveScreen.host.unmount(); await windowScreen.host.unmount();}
+  } finally {await screen.host.unmount();}
 });
 
 test('a whole-container request reports capturing, ready-of-total and failed members in drawn words', () => {

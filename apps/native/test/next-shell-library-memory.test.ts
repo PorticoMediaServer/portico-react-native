@@ -1,10 +1,11 @@
+// @fabric-react
 import {canReturnToPage} from '../src-next/shell/page-focus-return.ts';
 import * as homeStart from '../src-next/screens/home/home-start';
 import {listeningCoverFixture} from './helpers/screen-harness.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {surfacePaintFixture, screenModule} from './helpers/screen-harness.mjs';
 import {createFocusRegistry} from '../src-next/kit/focus/registry';
 import {createTheme} from '../src-next/kit/theme';
@@ -39,17 +40,17 @@ test('a real screen-owned Library destination is remembered and a late initial r
     './PhoneTabBar': {PhoneTabBar: 'PhoneTabBar'}, './MediumRail': {MediumRail: 'MediumRail'}, './chrome': {nativeScreenChromeHidden: () => false, subscribeNativeScreenChrome: () => () => {}}, './PhoneHomeHeader': {PhoneHomeHeader: 'PhoneHomeHeader'}, './TVRail': {}, './TVProfileMenu': {}, './NativePlaybackLayer': {}, './DesktopHeader': {},
   });
   let root: any, tree: any;
-  const rootHost = createHookHost(() => {root = NativeShell({runtime});}); rootHost.mount();
+  const rootHost = createFabricHookHost(() => {root = NativeShell({runtime});}); await rootHost.mount();
   const session = nodes(root).find(node => node.type?.name === 'ShellSession');
-  const page = createHookHost(() => {tree = session.type({runtime, snapshot});});
+  const page = createFabricHookHost(() => {tree = session.type({runtime, snapshot});});
   try {
     await act(() => page.mount());
-    await act(() => {snapshot = {...snapshot, contentVisible: false}; page.rerender();});
+    await act(async () => {snapshot = {...snapshot, contentVisible: false}; await page.rerender();});
     assert.equal(nodes(tree).some(node => node.type === 'PhoneTabBar'), false, 'a full-screen account route draws no tab bar underneath');
-    await act(() => {snapshot = {...snapshot, contentVisible: true, destination: {kind: 'library', libraryId: 'new'}}; page.rerender();});
+    await act(async () => {snapshot = {...snapshot, contentVisible: true, destination: {kind: 'library', libraryId: 'new'}}; await page.rerender();});
     assert.deepEqual(writes, ['new']);
-    await act(() => {snapshot = {...snapshot, destination: {kind: 'home'}}; page.rerender(); finish('old');});
+    await act(async () => {snapshot = {...snapshot, destination: {kind: 'home'}}; await page.rerender(); finish('old');});
     await act(() => nodes(tree).find(node => node.type === 'PhoneTabBar').props.onSelect('libraries'));
     assert.deepEqual(navigations.at(-1), {kind: 'library', libraryId: 'new'});
-  } finally {await act(() => {page.unmount(); rootHost.unmount();});}
+  } finally {await act(async () => {await page.unmount(); await rootHost.unmount();});}
 });

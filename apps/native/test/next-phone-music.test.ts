@@ -1,3 +1,4 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {screenModule} from './helpers/screen-harness.mjs';
@@ -48,7 +49,7 @@ test('the phone album and artist pages keep the drawn frame values', async () =>
 // the track/release area. These are render sources for the reviewer, not a
 // rendered exercise of the device.
 import * as React from 'react';
-import {createHookHost} from './hook-driver.ts';
+import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 
 type Element = {type: unknown; props: Record<string, any>};
 function* elementNodes(value: unknown): Generator<Element> {
@@ -94,9 +95,9 @@ async function tabletMusic(kind: 'album' | 'artist', phase: 'loading' | 'ready' 
   const Screen = kind === 'album' ? PhoneAlbumScreen : PhoneArtistScreen;
   const entry = kind === 'album' ? {id: 'album-1', libraryId: 'music', kind: 'album', title: 'Album'} : {id: 'artist-1', libraryId: 'music', kind: 'artist', title: 'Artist'};
   let tree: unknown;
-  const host = createHookHost(() => {tree = Screen({controller, entry, runtime, actions: {menu() {}}, openEntry() {}, onBack: () => {backs++;},
+  const host = createFabricHookHost(() => {tree = Screen({controller, entry, runtime, actions: {menu() {}}, openEntry() {}, onBack: () => {backs++;},
     ...(kind === 'album' ? {onPlaylist() {}} : {})});});
-  host.mount();
+  await host.mount();
   return {get tree() {return tree;}, host, loads, get backs() {return backs;}};
 }
 
@@ -117,7 +118,7 @@ for (const kind of ['album', 'artist'] as const) {
       errors[0].props.onRetry();
       assert.deepEqual(view.loads, ['load'], 'Retry asks the guarded controller to load again, once');
     } else assert.equal(errors.length, 0, 'a non-error phase does not draw the recovery view');
-    view.host.unmount();
+    await view.host.unmount();
   });
 }
 
@@ -144,29 +145,29 @@ test('phone keeps its single header Back and no tablet floating control', async 
     './MusicFormatBadges': {MusicFormatBadges: 'MusicFormatBadges'},
   });
   let backs = 0, tree: unknown;
-  const controller = {subscribe: () => () => {}, getSnapshot: () => ({phase: 'ready', songs: [], albums: [], similar: [], favorite: false, error: undefined,songPage:{phase:'ready',items:[],offset:0,nextCursor:'',canNext:false,canPrevious:false},releases:{phase:'ready',items:[],offset:0,nextCursor:'',canNext:false,canPrevious:false}}),
+  const controller = {subscribe: () => () => {}, getSnapshot: (() => {const snapshot = {phase: 'ready', songs: [], albums: [], similar: [], favorite: false, error: undefined,songPage:{phase:'ready',items:[],offset:0,nextCursor:'',canNext:false,canPrevious:false},releases:{phase:'ready',items:[],offset:0,nextCursor:'',canNext:false,canPrevious:false}}; return () => snapshot;})(),
     load: () => Promise.resolve(), play: async () => {}, toggleFavorite: async () => {}};
-  const host = createHookHost(() => {tree = PhoneAlbumScreen({controller, entry: {id: 'a', libraryId: 'music', kind: 'album', title: 'Album'},
+  const host = createFabricHookHost(() => {tree = PhoneAlbumScreen({controller, entry: {id: 'a', libraryId: 'music', kind: 'album', title: 'Album'},
     runtime: {artwork: () => undefined, ambient: () => undefined, text: {locale: 'en-US'}, reportError() {}}, actions: {menu() {}}, openEntry() {},
     onBack: () => {backs++;}});});
-  host.mount();
+  await host.mount();
   // PhoneHeader is a real child component, so the shallow element walk cannot
   // see its Button leaf; mount that actual child with the same supported hooks.
-  let headerHost: ReturnType<typeof createHookHost> | undefined;
+  let headerHost: Awaited<ReturnType<typeof createFabricHookHost>> | undefined;
   try {
     const header = [...elementNodes(tree)].find(node => typeof node.type === 'function' && (node.type as Function).name === 'PhoneHeader');
     assert.ok(header, 'the phone body returns the real PhoneHeader');
     let headerTree: unknown;
-    headerHost = createHookHost(() => {headerTree = (header!.type as Function)(header!.props);});
-    headerHost.mount();
+    headerHost = createFabricHookHost(() => {headerTree = (header!.type as Function)(header!.props);});
+    await headerHost.mount();
     assert.equal(backButtons(headerTree).length, 1, 'the phone header owns the only Back');
     assert.equal(typed(tree, 'Button').some(node => String(node.props.testID ?? '').startsWith('native-tablet-')), false);
     backButtons(headerTree)[0].props.onPress();
     assert.equal(backs, 1);
   } finally {
     // Release both hosts even when an assertion above fails.
-    headerHost?.unmount();
-    host.unmount();
-    view.host.unmount();
+    await headerHost?.unmount();
+    await host.unmount();
+    await view.host.unmount();
   }
 });

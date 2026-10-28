@@ -1,3 +1,4 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -5,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {registerHooks} from 'node:module';
 import React, {type ReactElement, type ReactNode} from 'react';
 import {transformSync} from 'rolldown/utils';
-import {createHookHost} from './hook-driver.ts';
+import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {createTheme, fontFamilies, nativeType} from '../src-next/kit/theme.ts';
 import type {DockOccupant} from '../src-next/kit/dock/types.ts';
 import type {QueuePlaybackFence, QueueScope} from '../../../packages/player-core/src/index.ts';
@@ -79,23 +80,23 @@ function elements(node: ReactNode): Element[] {
   return [node, ...elements(node.props.children)];
 }
 const ofType = (node: ReactNode, type: unknown) => elements(node).filter(element => element.type === type);
-function mount(component: any, props: any) {
+async function mount(component: any, props: any) {
   let tree: ReactNode;
-  const host = createHookHost(() => {tree = typeof component === 'function' ? component(props) : component.render(props, props.ref ?? null);});
-  host.mount();
-  return {get tree() {return tree;}, update(next: any) {props = next; host.rerender();}, host};
+  const host = createFabricHookHost(() => {tree = typeof component === 'function' ? component(props) : component.render(props, props.ref ?? null);});
+  await host.mount();
+  return {get tree() {return tree;}, async update(next: any) {props = next; await host.rerender();}, host};
 }
-function nativeControlID(element: Element): string | undefined {
-  const mounted: ReturnType<typeof mount>[] = [];
+async function nativeControlID(element: Element): Promise<string | undefined> {
+  const mounted: Awaited<ReturnType<typeof mount>>[] = [];
   try {
     let current = element;
     while (typeof current.type !== 'string') {
-      const instance = mount(current.type, current.props); mounted.push(instance);
+      const instance = await mount(current.type, current.props); mounted.push(instance);
       current = instance.tree as Element;
     }
     assert.equal(current.type, 'Pressable');
     return current.props.testID;
-  } finally {for (const instance of mounted.reverse()) instance.host.unmount();}
+  } finally {for (const instance of mounted.reverse()) await instance.host.unmount();}
 }
 
 
@@ -105,58 +106,58 @@ const {MusicSectionControls}=await import('../src-next/screens/destinations/musi
 const {createFocusRegistry}=await import('../src-next/kit/focus/registry.ts');
 const {FocusProvider}=await import('../src-next/kit/focus/FocusRegion.tsx');
 
-function nativeChain(element:Element){
- const chain:ReturnType<typeof mount>[]=[];let node=element;
- while(typeof node.type!=='string'){const instance=mount(node.type,node.props);chain.push(instance);node=instance.tree as Element;}
- return {node,chain,close(){for(const instance of chain.reverse())instance.host.unmount();}};
+async function nativeChain(element:Element){
+ const chain:Awaited<ReturnType<typeof mount>>[]=[];let node=element;
+ while(typeof node.type!=='string'){const instance=await mount(node.type,node.props);chain.push(instance);node=instance.tree as Element;}
+ return {node,chain,async close(){for(const instance of chain.reverse())await instance.host.unmount();}};
 }
 
-function realRegion(){
- const registry=createFocusRegistry(),provider=mount(FocusProvider,{registry,children:null});
- const context=(provider.tree as Element).type as unknown as {_currentValue:unknown},original=context._currentValue;
- context._currentValue=(provider.tree as Element).props.value;
- const outer=mount(FocusRegion,{id:'music-list',order:['music-next-artist-all'],children:null});
- const region=mount((outer.tree as Element).type,(outer.tree as Element).props);
+async function realRegion(){
+ const registry=createFocusRegistry(),provider=await mount(FocusProvider,{registry,children:null});
+ const context=(provider.tree as Element).type as unknown as {_currentValue2:unknown},original=context._currentValue2;
+ context._currentValue2=(provider.tree as Element).props.value;
+ const outer=await mount(FocusRegion,{id:'music-list',order:['music-next-artist-all'],children:null});
+ const region=await mount((outer.tree as Element).type,(outer.tree as Element).props);
  const nested=elements(region.tree).find(element=>element.props.value==='music-list')!;
- const regionContext=nested.type as unknown as {_currentValue:unknown},prior=regionContext._currentValue;
- regionContext._currentValue=nested.props.value;
- return {registry,close(){regionContext._currentValue=prior;region.host.unmount();outer.host.unmount();context._currentValue=original;provider.host.unmount();}};
+ const regionContext=nested.type as unknown as {_currentValue2:unknown},prior=regionContext._currentValue2;
+ regionContext._currentValue2=nested.props.value;
+ return {registry,async close(){regionContext._currentValue2=prior;await region.host.unmount();await outer.host.unmount();context._currentValue2=original;await provider.host.unmount();}};
 }
 
-test('music paging Next retains its real Focusable host in loading and becomes Retry in place after failure',()=>{
+test('music paging Next retains its real Focusable host in loading and becomes Retry in place after failure',async ()=>{
  const section={phase:'ready',items:[{id:'song'}],offset:0,nextCursor:'real-cursor',canNext:true,canPrevious:true};
  let commands=0;const props={section,id:'artist-all',next:()=>{commands++;},previous:()=>{},retry:()=>{commands++;},refresh:()=>{}};
- const bound=realRegion();const controls=mount(MusicSectionControls,props);let next:ReturnType<typeof nativeChain>|undefined;
+ const bound=await realRegion();const controls=await mount(MusicSectionControls,props);let next:Awaited<ReturnType<typeof nativeChain>>|undefined;
  try{
   let button=ofType(controls.tree,Button).find(node=>node.props.testID==='music-next-artist-all')!;
-  assert(button);next=nativeChain(button);assert.equal(next.node.type,'Pressable');assert.equal(next.node.props.onPress,props.next);
+  assert(button);next=await nativeChain(button);assert.equal(next.node.type,'Pressable');assert.equal(next.node.props.onPress,props.next);
   const host={requestTVFocus(){}};next.node.props.ref(host);next.node.props.onFocus({nativeEvent:{}});assert.equal(bound.registry.child({regionId:'music-list',childId:'music-next-artist-all'}),host);
   // Keep the same Button/Focusable hook hosts across publication, just as React
   // does for their stable element type/key. Only the native endpoint is stubbed.
-  controls.update({...props,section:{...section,phase:'loading'}});
+  await controls.update({...props,section:{...section,phase:'loading'}});
   button=ofType(controls.tree,Button).find(node=>node.props.testID==='music-next-artist-all')!;
   assert.equal(button.props.focusableWhenDisabled,true);assert.equal(button.props.disabled,true);
-  let current=button;for(const instance of next.chain){instance.update(current.props);current=instance.tree as Element;}
+  let current=button;for(const instance of next.chain){await instance.update(current.props);current=instance.tree as Element;}
   assert.equal(current.props.disabled,false);assert.notEqual(current.props.focusable,false);assert.equal(current.props.onPress,undefined);assert.equal(current.props.testID,next.node.props.testID);assert.equal(bound.registry.child({regionId:'music-list',childId:'music-next-artist-all'}),host);
-  controls.update({...props,section:{...section,phase:'error',canNext:false,error:Object.assign(new Error('busy'),{code:'server_busy',status:503,retryable:true})}});
+  await controls.update({...props,section:{...section,phase:'error',canNext:false,error:Object.assign(new Error('busy'),{code:'server_busy',status:503,retryable:true})}});
   button=ofType(controls.tree,Button).find(node=>node.props.testID==='music-next-artist-all')!;
   assert.equal(button.props.onPress,props.retry);button.props.onPress();assert.equal(commands,1);
-  current=button;for(const instance of next.chain){instance.update(current.props);current=instance.tree as Element;}assert.equal(bound.registry.child({regionId:'music-list',childId:'music-next-artist-all'}),host);assert.equal(bound.registry.capture()?.childId,'music-next-artist-all');
+  current=button;for(const instance of next.chain){await instance.update(current.props);current=instance.tree as Element;}assert.equal(bound.registry.child({regionId:'music-list',childId:'music-next-artist-all'}),host);assert.equal(bound.registry.capture()?.childId,'music-next-artist-all');
   const error=ofType(controls.tree,MusicErrorView)[0]!;assert.equal(error.props.testID,'music-error-artist-all');assert.equal(error.props.retryAction,false);
-  controls.update({...props,section:{...section,phase:'error',canNext:false,error:Object.assign(new Error('denied'),{status:403,code:'forbidden'})}});
-  button=ofType(controls.tree,Button).find(node=>node.props.testID==='music-next-artist-all')!;assert.equal(button.props.disabled,true);assert.equal(button.props.focusableWhenDisabled,true);current=button;for(const instance of next.chain){instance.update(current.props);current=instance.tree as Element;}assert.equal(current.props.onPress,undefined);assert.equal(bound.registry.child({regionId:'music-list',childId:'music-next-artist-all'}),host);
- }finally{next?.close();controls.host.unmount();bound.close();}
+  await controls.update({...props,section:{...section,phase:'error',canNext:false,error:Object.assign(new Error('denied'),{status:403,code:'forbidden'})}});
+  button=ofType(controls.tree,Button).find(node=>node.props.testID==='music-next-artist-all')!;assert.equal(button.props.disabled,true);assert.equal(button.props.focusableWhenDisabled,true);current=button;for(const instance of next.chain){await instance.update(current.props);current=instance.tree as Element;}assert.equal(current.props.onPress,undefined);assert.equal(bound.registry.child({regionId:'music-list',childId:'music-next-artist-all'}),host);
+ }finally{await next?.close();await controls.host.unmount();await bound.close();}
 });
 
-test('simultaneous music section and Similar errors yield different real StateView action host identities',()=>{
+test('simultaneous music section and Similar errors yield different real StateView action host identities',async ()=>{
  const failure=Object.assign(new Error('busy'),{status:503,code:'server_busy',retryable:true});
  const ids:string[]=[];
  for(const testID of ['music-error-album-songs','music-error-artist-songs','music-error-artist-releases','music-similar-artist-error']){
-  const error=mount(MusicErrorView,{testID,error:failure,onRetry:()=>{}});
-  try{const viewElement=ofType(error.tree,StateView)[0]!;const view=mount(StateView,viewElement.props);
-   try{const action=ofType(view.tree,StateActionButton)[0]!;assert(action);const chain=nativeChain(action);try{ids.push(chain.node.props.testID);}finally{chain.close();}}
-   finally{view.host.unmount();}
-  }finally{error.host.unmount();}
+  const error=await mount(MusicErrorView,{testID,error:failure,onRetry:()=>{}});
+  try{const viewElement=ofType(error.tree,StateView)[0]!;const view=await mount(StateView,viewElement.props);
+   try{const action=ofType(view.tree,StateActionButton)[0]!;assert(action);const chain=await nativeChain(action);try{ids.push(chain.node.props.testID);}finally{await chain.close();}}
+   finally{await view.host.unmount();}
+  }finally{await error.host.unmount();}
  }
  assert.equal(new Set(ids).size,4);
 });
@@ -165,9 +166,9 @@ test('a real focused row host prevents section eviction until focus transfers to
  const {MusicSectionPager}=await import('../src-next/screens/destinations/music/paging.ts');let calls=0;
  const pager=new MusicSectionPager<{id:string}>({current:()=>true,publish:()=>{},read:async cursor=>{calls++;const n=Number(cursor||0);return {items:[{id:String(n)}],nextCursor:n<4?String(n+1):'',offset:n,total:5,revision:'r'};}});
  await pager.load();await pager.next(pager.getSnapshot());await pager.next(pager.getSnapshot());const original=pager.getSnapshot(),row=original.items[0];
- const bound=realRegion(),rowHost={requestTVFocus(){}},nextHost={requestTVFocus(){}};
- const rendered=nativeChain(React.createElement(Focusable,{focusId:'original-song',onFocus:()=>pager.focus(row,original),onBlur:()=>pager.blur(row,original),onPress:()=>{}}) as Element);
- const next=nativeChain(React.createElement(Button,{focusId:'music-next-artist-all',onPress:()=>{void pager.next(pager.getSnapshot());}},'Next') as Element);
+ const bound=await realRegion(),rowHost={requestTVFocus(){}},nextHost={requestTVFocus(){}};
+ const rendered=await nativeChain(React.createElement(Focusable,{focusId:'original-song',onFocus:()=>pager.focus(row,original),onBlur:()=>pager.blur(row,original),onPress:()=>{}}) as Element);
+ const next=await nativeChain(React.createElement(Button,{focusId:'music-next-artist-all',onPress:()=>{void pager.next(pager.getSnapshot());}},'Next') as Element);
  try{
   rendered.node.props.ref(rowHost);rendered.node.props.onFocus({nativeEvent:{}});
   assert.equal(bound.registry.child({regionId:'music-list',childId:'original-song'}),rowHost);assert.equal(bound.registry.capture()?.childId,'original-song');
@@ -175,5 +176,5 @@ test('a real focused row host prevents section eviction until focus transfers to
   rendered.node.props.onBlur({nativeEvent:{}});next.node.props.ref(nextHost);next.node.props.onFocus({nativeEvent:{}});next.node.props.onPress();for(let i=0;i<10;i++)await Promise.resolve();
   assert.equal(calls,4);assert.equal(pager.getSnapshot().items.includes(row),false);assert.equal(bound.registry.capture()?.childId,'music-next-artist-all');assert.equal(bound.registry.child({regionId:'music-list',childId:'music-next-artist-all'}),nextHost);
   await pager.previous(pager.getSnapshot());assert.equal(pager.getSnapshot().offset,0);assert.equal(bound.registry.capture()?.childId,'music-next-artist-all');
- }finally{rendered.close();next.close();bound.close();pager.dispose();}
+ }finally{await rendered.close();await next.close();await bound.close();pager.dispose();}
 });

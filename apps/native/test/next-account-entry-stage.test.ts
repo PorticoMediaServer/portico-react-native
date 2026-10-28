@@ -1,3 +1,4 @@
+// @fabric-react
 import * as accountWork from '../src-next/platform/account-work';
 import {presentError} from '../../../packages/client-core/src/presentation/errors';
 import {routeOrigin} from '../../../packages/client-core/src/route-identity';
@@ -14,7 +15,7 @@ import assert from 'node:assert/strict';
 import * as React from 'react';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {createTheme} from '../src-next/kit/theme';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import * as directoryChooser from '../src-next/screens/accounts/directory-chooser';
 import * as qrScanner from '../src-next/platform/qr-scanner';
@@ -86,10 +87,10 @@ async function fixture(initialStage: 'welcome' | 'address' = 'welcome', options:
     assert.equal(phase, 'layout'); assert.equal(args.length, 1, 'the observer receives only the stage, never fields or authority');
     stages.push(args[0]!); events.push('stage:' + args[0]);
   };
-  const host = createHookHost(() => {tree = AccountEntry({initialStage, onComplete: () => {complete++;}, onStageChange: observed ? onStageChange : undefined});});
+  const host = createFabricHookHost(() => {tree = AccountEntry({initialStage, onComplete: () => {complete++;}, onStageChange: observed ? onStageChange : undefined});});
   await act(() => host.mount());
   return {host, stages, events, back, tree: () => tree, complete: () => complete, providerCalls: () => providerCalls, prepareCalls: () => prepareCalls, finishes,
-    omitObserver: () => {observed = false; host.rerender();}};
+    omitObserver: async () => {observed = false; await host.rerender();}};
 }
 
 test('AccountEntry reports initial/current stages in layout before discovery, preserving real commands and reporting Back without reopening policy', async () => {
@@ -109,17 +110,17 @@ test('AccountEntry reports initial/current stages in layout before discovery, pr
     await act(() => {assert.equal([...f.back][0]!(), true);});
     assert.deepEqual(f.stages, ['welcome', 'address', 'local', 'welcome'], 'the observer reports genuine Back; the public-launch gate owns its monotonic retirement');
     assert.equal(f.complete(), 0); assert.equal(f.prepareCalls(), 0, 'local entry and Back never contact Services');
-    f.omitObserver(); await act(() => f.tree().props.onLocal());
+    await f.omitObserver(); await act(() => f.tree().props.onLocal());
     assert.deepEqual(f.stages, ['welcome', 'address', 'local', 'welcome'], 'the optional observer does not alter navigation when absent');
     assert.equal(f.tree().type, 'Layout');
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
   assert.equal(f.back.size, 0);
 });
 
 test('an entry starting at address reports address only, never a synthetic welcome', async () => {
   const f = await fixture('address');
   try {assert.deepEqual(f.stages, ['address']); assert.ok(f.events.indexOf('stage:address') < f.events.indexOf('discovery'));}
-  finally {f.host.unmount();}
+  finally {await f.host.unmount();}
 });
 
 const providerFields = (tree: any) => nodes(tree.props.beforeActions).filter((node: any) => node.type === 'Field');
@@ -140,10 +141,10 @@ test('actual AccountEntry seeds the committed provider name once and a newer dra
     // A newer draft render must leave the opening's once-per-transaction seed alone, even cleared.
     await act(() => fieldByLabel(f.tree(), name).props.onChangeText(''));
     assert.equal(fieldByLabel(f.tree(), name).props.value, '');
-    f.host.rerender();
+    await f.host.rerender();
     assert.equal(fieldByLabel(f.tree(), name).props.value, '', 'a later render never borrows its newer draft back into the original opening');
     assert.equal(f.providerCalls(), 1);
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });
 
 test('actual AccountEntry resumes the drawn setup opening once through its own guarded runner and catch stage', async () => {
@@ -158,11 +159,11 @@ test('actual AccountEntry resumes the drawn setup opening once through its own g
     assert.equal(f.stages.at(-1), 'setup-hosted');
     assert.equal(f.finishes.length, 1, 'the drawn opening resumes exactly once through the commit that drew it');
     // A newer commit (its runner now captures busy) must not run the original completion again.
-    f.host.rerender();
+    await f.host.rerender();
     assert.equal(f.finishes.length, 1);
     await act(() => f.finishes[0]!.reject(new Error('setup refused')));
     assert.equal(f.stages.at(-1), 'setup-hosted', 'the original run reports at the stage it captured');
     assert.ok(nodes(f.tree().props.beforeActions).some((node: any) => node.props.accessibilityRole === 'alert'), 'the original catch publishes its refusal');
     assert.equal(f.finishes.length, 1);
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });

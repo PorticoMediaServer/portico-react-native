@@ -1,3 +1,4 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -8,7 +9,7 @@ import {profileAvatarUpload, profilePictureSource, useAvatarRoute} from '../src-
 import {nativeNetworkFetch} from '../src-next/platform/server-connections.ts';
 import {profileAPI} from '../src-next/platform/profile-transport.ts';
 import {NativeModules} from './react-native-stub.mjs';
-import {createHookHost, act} from './hook-driver.ts';
+import {createFabricHookHost, act} from './helpers/fabric-hooks.mjs';
 
 const logical = 'https://logical.test', lan = 'https://192.168.1.20:32500';
 const path = '/v1/direct/profiles/p1/avatar';
@@ -93,8 +94,8 @@ test('picture sources follow a changed verified route and stay absent during its
     return {};
   });
   let source: unknown;
-  const host = createHookHost(() => { useAvatarRoute(api); source = profilePictureSource(api, 'token', avatar, 160); });
-  t.after(() => host.unmount()); host.mount(); assert.equal(source, undefined);
+  const host = createFabricHookHost(() => { useAvatarRoute(api); source = profilePictureSource(api, 'token', avatar, 160); });
+  t.after(() => host.unmount()); await host.mount(); assert.equal(source, undefined);
   await act(async () => { await connection.resolve(); });
   assert.deepEqual(source, {uri: lan + avatar.url + '&size=160', headers: {Authorization: 'Bearer token'}});
   assert.equal(profilePictureSource(api, 'token', {...avatar, url: 'https://elsewhere.test/picture'}, 160), undefined);

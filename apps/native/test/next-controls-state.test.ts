@@ -1,6 +1,7 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {act, createHookHost} from './hook-driver.ts';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {useControlValue} from '../src-next/kit/controls/useControlValue.ts';
 import {enabledChoice, minimumHitSlop, progressFraction, buttonGeometry, chipGeometry, switchDragFraction, switchReleaseValue} from '../src-next/kit/controls/control-model.ts';
 
@@ -8,19 +9,19 @@ test('an uncontrolled control retains real input and reports only value changes'
   let value = false;
   let change: (next: boolean) => void = () => {throw new Error('Control not mounted.');};
   const calls: boolean[] = [];
-  const host = createHookHost(() => {[value, change] = useControlValue(undefined, false, next => calls.push(next));});
-  host.mount();
+  const host = createFabricHookHost(() => {[value, change] = useControlValue(undefined, false, next => calls.push(next));});
+  await host.mount();
   assert.equal(value, false);
   await act(() => change(true));
   assert.equal(value, true);
   await act(() => change(true));
   assert.deepEqual(calls, [true]);
-  host.rerender();
+  await host.rerender();
   assert.equal(value, true);
   await act(() => change(false));
   assert.equal(value, false);
   assert.deepEqual(calls, [true, false]);
-  host.unmount();
+  await host.unmount();
 });
 
 test('controlled input requests a change without overriding the caller and reads its new callback', async () => {
@@ -29,20 +30,20 @@ test('controlled input requests a change without overriding the caller and reads
   let request: (next: string) => void = () => {throw new Error('Control not mounted.');};
   const oldCalls: string[] = [], newCalls: string[] = [];
   let callback = (next: string) => oldCalls.push(next);
-  const host = createHookHost(() => {[current, request] = useControlValue(authoritative, 'auto', callback);});
-  host.mount();
+  const host = createFabricHookHost(() => {[current, request] = useControlValue(authoritative, 'auto', callback);});
+  await host.mount();
   await act(() => request('auto'));
   assert.equal(current, 'original');
   assert.deepEqual(oldCalls, ['auto']);
   authoritative = 'auto';
   callback = next => newCalls.push(next);
-  host.rerender();
+  await host.rerender();
   assert.equal(current, 'auto');
   await act(() => request('auto'));
   await act(() => request('720'));
   assert.deepEqual(newCalls, ['720']);
   assert.deepEqual(oldCalls, ['auto']);
-  host.unmount();
+  await host.unmount();
 });
 
 test('native picker initial focus retains an enabled selection and falls back around disabled or missing values', () => {

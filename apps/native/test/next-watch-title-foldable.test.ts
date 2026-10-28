@@ -1,3 +1,4 @@
+// @fabric-react
 import {presentError} from '../../../packages/client-core/src/presentation/errors.ts';
 import {tvTitleRegionMap, tvTitleFocusSection} from '../src-next/screens/watch/tv-title-focus.ts';
 import {tvFocusIds} from '../src-next/shell/tv-focus.ts';
@@ -5,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
-import {createHookHost} from './hook-driver.ts';
+import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import {cardText, episodeLabel, playbackIdentity, titleFactParts} from '../../../packages/client-core/src/presentation/kit-model/index.ts';
 import {durationText} from '../../../packages/client-core/src/presentation/kit-model/text.ts';
@@ -42,15 +43,15 @@ const snapshot = {retired: false, entry: {id: 'show', kind: 'show', title: 'The 
     selected: {seasonId: 's1'}, groups: [], settings: {hideSeasons: false, ranges: false, absoluteNumbering: false, newestFirst: false}, nextUp: episode,
     episodes: {sections: [{entries: [episode]}]}}}};
 const controller = {pageLease: () => undefined, getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place},
-  episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}},
+  episode: {subscribe: () => () => {}, getSnapshot: (() => {const snapshot = {phase: 'idle'}; return () => snapshot;})(), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}},
   open: async () => {}, play: async () => {}, personal: async () => {}, season: async () => {}, moreSeasons: async () => {}, moreEpisodes: async () => {}, hideWatched: async () => {}, group: async () => {}};
 
-test('a folded sideways title page divides on the hinge while the upright one stays one column', () => {
+test('a folded sideways title page divides on the hinge while the upright one stays one column', async () => {
   let tree: any;
-  const host = createHookHost(() => {tree = NativeTitleScreen({controller, text: {t: defaultI18n.t}, artwork: () => undefined, ambient: () => undefined,
+  const host = createFabricHookHost(() => {tree = NativeTitleScreen({controller, text: {t: defaultI18n.t}, artwork: () => undefined, ambient: () => undefined,
     back: assert.fail, navigate: assert.fail, more: assert.fail, reportError: assert.fail, renderError: assert.fail, aboutLabel: 'About'});
   });
-  host.mount();
+  await host.mount();
   try {
     const nodes = descendants(tree);
     const left = nodes.find(node => node.type === 'ScrollView' && node.props.style?.width === 361);
@@ -61,8 +62,8 @@ test('a folded sideways title page divides on the hinge while the upright one st
     assert.equal(nodes.filter(node => node.type === 'Text' && node.props.children === 'The Last of Us').length, 1);
     width = 626; height = 890;
     posture = {status: 'available', window: {width: 626, height: 890}, folds: [{bounds: {left: 313, top: 0, right: 313, bottom: 890}, orientation: 'vertical', state: 'flat', isSeparating: false, occlusion: 'none'}]};
-    host.rerender();
+    await host.rerender();
     assert.equal(descendants(tree).some(node => node.type === 'ScrollView' && node.props.style?.width === 229), false, 'upright medium is one column, not two panes');
     assert.equal(descendants(tree).filter(node => node.type === 'Tabs').length, 1);
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });

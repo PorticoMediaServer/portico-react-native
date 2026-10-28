@@ -1,10 +1,11 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {porticoPublicLinks} from '../../../packages/client-core/src/public-links';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {createTheme, nativeType} from '../src-next/kit/theme';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
@@ -16,7 +17,7 @@ test('phone account presenter exposes only its offered password and provider cap
   Object.defineProperty(globalThis, 'require', {configurable: true, value: (path: string) => {
     assert.equal(path, '../../../assets/wordmark.png'); return 'existing-wordmark';
   }});
-  let host: ReturnType<typeof createHookHost> | undefined;
+  let host: Awaited<ReturnType<typeof createFabricHookHost>> | undefined;
   try {
     const links: string[] = []; let linkFailure = false;
     const legal = await screenModule(new URL('../src-next/screens/accounts/LegalAgreement.tsx', import.meta.url), {
@@ -33,7 +34,7 @@ test('phone account presenter exposes only its offered password and provider cap
     });
     let tree: any, passwordEnabled = false, registration = true, recovery = true;
     const providers = [{id: 'google', enabled: true, native: false, nativeClientIds: []}], calls: string[] = [];
-    host = createHookHost(() => {tree = PhoneAccountSignIn({busy: false, providers, passwordEnabled, registration, recovery,
+    host = createFabricHookHost(() => {tree = PhoneAccountSignIn({busy: false, providers, passwordEnabled, registration, recovery,
       username: 'account', password: 'password', onUsernameChange: () => {}, onPasswordChange: () => {},
       onContinue: () => calls.push('password'), onProvider: (id: string) => calls.push(id),
       onForgot: () => calls.push('forgot'), onCreate: () => calls.push('create'), onLocal: () => calls.push('local')});});
@@ -54,7 +55,7 @@ test('phone account presenter exposes only its offered password and provider cap
     registration = false; recovery = false; await act(() => host!.rerender());
     assert.equal(byID('accounts-auth-create'), undefined); assert.equal(byID('accounts-auth-forgot'), undefined);
   } finally {
-    host?.unmount();
+    await host?.unmount();
     if (previousRequire) Object.defineProperty(globalThis, 'require', previousRequire); else Reflect.deleteProperty(globalThis, 'require');
   }
 });

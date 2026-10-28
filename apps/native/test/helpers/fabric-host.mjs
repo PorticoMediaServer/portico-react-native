@@ -8,7 +8,7 @@ export const React = require(join(dirname(require.resolve('react')), 'cjs/react.
 // The installed production Fabric reconciler, as in fabric-playback-harness.
 // Only the native host boundary is controlled. Node tags identify committed
 // native-host fibers; they are not claims about an OS View, Modal, IME or focus.
-export async function fabricHost() {
+export async function fabricHost({publicInstance = tag => ({tag})} = {}) {
   const errors = [], commits = [];
   let root = [], mounted = false;
   const attributes = props => Object.fromEntries(Object.entries(props).filter(([key]) => key !== 'children' && key !== 'ref'));
@@ -16,7 +16,7 @@ export async function fabricHost() {
     ReactNativeViewConfigRegistry: {get: name => ({uiViewClassName: name, validAttributes: {}})},
     createAttributePayload: attributes,
     diffAttributePayloads: (oldProps, props) => Object.keys({...oldProps, ...props}).some(key => !Object.is(oldProps[key], props[key])) ? attributes(props) : null,
-    createPublicRootInstance: () => ({}), createPublicInstance: tag => ({tag}), createPublicTextInstance: tag => ({tag}),
+    createPublicRootInstance: () => ({}), createPublicInstance: publicInstance, createPublicTextInstance: tag => ({tag}),
     RawEventEmitter: {emit() {}}, ReactFiberErrorDialog: {showErrorDialog: () => true},
   };
   const fabric = {

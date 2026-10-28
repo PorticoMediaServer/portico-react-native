@@ -1,10 +1,11 @@
+// @fabric-react
 import * as homeWindow from '../src-next/screens/home/home-window';
 import {homeActionDiagnostics} from '../src-next/platform/home-action-diagnostics.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
 import {pathToFileURL} from 'node:url';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {heroSpec} from '@portico/design';
 import {presentError} from '../../../packages/client-core/src/presentation/errors';
@@ -85,32 +86,32 @@ async function fixture() {
     './HomeHeroFacts': {}, './model': homeModel,
   });
   let props: any = {}, tree: any, guide: any, target: any, requests = 0;
-  const host = createHookHost(() => {tree = HomeScreen({runtime, authority, ...props});}); host.mount();
-  const childHosts: ReturnType<typeof createHookHost>[] = [], cleanups: (() => void)[] = [], destinations: number[][] = [];
+  const host = createFabricHookHost(() => {tree = HomeScreen({runtime, authority, ...props});}); await host.mount();
+  const childHosts: Awaited<ReturnType<typeof createFabricHookHost>>[] = [], cleanups: (() => void)[] = [], destinations: number[][] = [];
   return {
     registry, ids, get tree() {return tree;}, get guide() {return guide;}, get requests() {return requests;}, destinations,
     async publish(value = document()) {await act(async () => {await Promise.resolve(); snapshot = {phase: 'ready', document: value}; for (const listener of listeners) listener();});},
-    async update(value: any) {await act(() => {props = {...props, ...value}; host.rerender();});},
-    async foreign() {await act(() => {currentAuthority = {...authority, epoch: 'different'}; host.rerender();});},
-    async selection(value: boolean) {await act(() => {selectionActive = value; host.rerender();});},
-    mountGuide() {
+    async update(value: any) {await act(async () => {props = {...props, ...value}; await host.rerender();});},
+    async foreign() {await act(async () => {currentAuthority = {...authority, epoch: 'different'}; await host.rerender();});},
+    async selection(value: boolean) {await act(async () => {selectionActive = value; await host.rerender();});},
+    async mountGuide() {
       const hero = nodes(tree).find(node => node.type === 'Hero');
       const candidate = hero.props.candidates[0];
       assert.equal(candidate.overview, entry.overview, 'genuine server overview reaches Hero unchanged');
       assert.notEqual(hero.props.showOverview, false, 'Home never suppresses the available overview');
       const wrapper = hero.props.renderActions(candidate), region = wrapper.type(wrapper.props);
       let outer: any;
-      const outerHost = createHookHost(() => {outer = focus.FocusRegion.render(region.props, null);}); outerHost.mount(); childHosts.push(outerHost);
-      const guideHost = createHookHost(() => {guide = outer.type.render(outer.props, null);}); guideHost.mount(); childHosts.push(guideHost);
+      const outerHost = createFabricHookHost(() => {outer = focus.FocusRegion.render(region.props, null);}); await outerHost.mount(); childHosts.push(outerHost);
+      const guideHost = createFabricHookHost(() => {guide = outer.type.render(outer.props, null);}); await guideHost.mount(); childHosts.push(guideHost);
       const cleanup = guide.props.ref({nativeTag: 101, requestTVFocus() {}, setDestinations: (values: number[]) => destinations.push(values)});
       cleanups.push(cleanup);
       return region;
     },
-    mountPlay() {
-      const targetHost = createHookHost(() => {target = targetFocus.useFocusTarget({focusId: 'play'});}); targetHost.mount(); childHosts.push(targetHost);
+    async mountPlay() {
+      const targetHost = createFabricHookHost(() => {target = targetFocus.useFocusTarget({focusId: 'play'});}); await targetHost.mount(); childHosts.push(targetHost);
       cleanups.push(target.ref({nativeTag: 102, requestTVFocus() {requests++; target.onFocus();}}));
     },
-    dispose() {host.unmount(); cleanups.reverse().forEach(cleanup => cleanup?.()); childHosts.reverse().forEach(child => child.unmount());},
+    async dispose() {await host.unmount(); cleanups.reverse().forEach(cleanup => cleanup?.()); for (const child of childHosts.reverse()) await child.unmount();},
   };
 }
 
@@ -119,21 +120,21 @@ test('async empty Home acquires Play exactly once only after both real guide and
   try {
     assert.equal(f.tree.type, 'LoadingPaint'); assert.equal(f.tree.props.skeleton.type, 'HomeSkeleton'); assert.equal(f.requests, 0);
     await f.publish(); assert.equal(f.requests, 0, 'document arrival is not a focus request');
-    const region = f.mountGuide(); await act(() => {});
+    const region = await f.mountGuide(); await act(() => {});
     assert.equal(f.requests, 0, 'guide alone cannot focus an unmounted target');
     assert.equal(f.guide.type, 'TVFocusGuideView'); assert.equal(f.guide.props.autoFocus, true);
     assert.equal(f.guide.props.trapFocusRight, true); assert.equal(f.guide.props.trapFocusLeft ?? false, false);
     assert.equal(f.guide.props.style.flexDirection, 'row'); assert.equal(f.guide.props.style.gap, 18);
     assert.equal(f.guide.props.testID, `portico.region.${encodeURIComponent(f.ids.spotlight)}`);
     assert.deepEqual(region.props.order, ['play', 'my-list', 'details']);
-    f.mountPlay(); await act(() => {});
+    await f.mountPlay(); await act(() => {});
     assert.deepEqual(f.destinations.at(-1), [102], 'platform guide targets the actual native Play handle');
     assert.equal(f.requests, 1); assert.equal(f.registry.capture()?.childId, 'play');
     const other = {regionId: f.ids.row('continue'), childId: 'actual-card'};
     await act(() => f.registry.didFocus(other)); await f.publish();
     await act(() => f.registry.didBlur(other)); await f.publish();
     assert.equal(f.requests, 1, 'revalidation and a later blur never reacquire entry');
-  } finally {f.dispose();}
+  } finally {await f.dispose();}
 });
 
 test('a rail visit that still holds attached focus when async content lands owns initial entry, and a later rail blur never re-acquires it', async () => {
@@ -143,11 +144,11 @@ test('a rail visit that still holds attached focus when async content lands owns
     f.registry.attach(rail, {requestTVFocus() {}});
     await act(() => f.registry.didFocus(rail));
     await f.publish();
-    f.mountGuide(); f.mountPlay(); await act(() => {});
+    await f.mountGuide(); await f.mountPlay(); await act(() => {});
     await act(() => f.registry.didBlur(rail));
     await act(() => {});
     assert.equal(f.requests, 0, 'content arriving after user navigation cannot steal focus');
-  } finally {f.dispose();}
+  } finally {await f.dispose();}
 });
 
 test('a rail focus already blurred before async content lands leaves no attached ownership, so arrival requests entry', async () => {
@@ -160,30 +161,30 @@ test('a rail focus already blurred before async content lands leaves no attached
     await act(() => {});
     assert.equal(f.registry.attachedFocus(), undefined, 'the earlier blur leaves no current focus ownership');
     await f.publish();
-    f.mountGuide(); f.mountPlay(); await act(() => {});
+    await f.mountGuide(); await f.mountPlay(); await act(() => {});
     assert.equal(f.requests, 1, 'initial entry consumes only currently attached focus, so a blur before arrival leaves entry available');
-  } finally {f.dispose();}
+  } finally {await f.dispose();}
 });
 
 for (const obstruction of [{active: false}, {heroObscured: true}]) test(`Home waits through ${JSON.stringify(obstruction)} before first host entry`, async () => {
   const f = await fixture();
   try {
-    await f.update(obstruction); await f.publish(); f.mountGuide(); f.mountPlay(); await act(() => {});
+    await f.update(obstruction); await f.publish(); await f.mountGuide(); await f.mountPlay(); await act(() => {});
     assert.equal(f.requests, 0);
     await f.update({active: true, heroObscured: false}); assert.equal(f.requests, 1);
     await f.update(obstruction); await f.update({active: true, heroObscured: false}); assert.equal(f.requests, 1);
-  } finally {f.dispose();}
+  } finally {await f.dispose();}
 });
 
 test('expanded rail, active selection and stale authority cannot acquire Home entry', async () => {
   for (const blocked of ['rail', 'selection', 'authority']) {
     const f = await fixture();
     try {
-      await f.publish(); f.mountGuide();
+      await f.publish(); await f.mountGuide();
       if (blocked === 'rail') await f.update({railExpanded: true});
       if (blocked === 'selection') await f.selection(true);
       if (blocked === 'authority') await f.foreign();
-      f.mountPlay(); await act(() => {}); assert.equal(f.requests, 0, blocked);
-    } finally {f.dispose();}
+      await f.mountPlay(); await act(() => {}); assert.equal(f.requests, 0, blocked);
+    } finally {await f.dispose();}
   }
 });

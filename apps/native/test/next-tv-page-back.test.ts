@@ -1,10 +1,11 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {getEventListeners} from 'node:events';
 import * as React from 'react';
 import {createFocusRegistry} from '../src-next/kit/focus/registry.ts';
 import {createTVPageBack} from '../src-next/screens/destinations/tv-page-back.ts';
-import {createHookHost} from './hook-driver';
+import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const first = {regionId: 'grid', childId: 'first'}, ninth = {regionId: 'grid', childId: 'ninth'};
@@ -17,27 +18,27 @@ function fixture() {
   const mount = () => registry.attach(first, {requestTVFocus() {requests++; registry.didFocus(first);}});
   return {registry, owner, mount, retire: () => {current = false;}, counts: () => ({scrolls, requests})};
 }
-test('Back scrolls a virtualized page before requesting its real starting host, then yields to Home', () => {
+test('Back scrolls a virtualized page before requesting its real starting host, then yields to Home', async () => {
   const f = fixture();
   assert.equal(f.owner.back(), true); assert.deepEqual(f.counts(), {scrolls: 1, requests: 0});
   assert.equal(f.owner.back(), true, 'an outstanding first jump cannot skip the page');
-  f.mount(); assert.deepEqual(f.counts(), {scrolls: 1, requests: 1});
+  await f.mount(); assert.deepEqual(f.counts(), {scrolls: 1, requests: 1});
   assert.equal(f.owner.back(), false);
   assert.equal(f.registry.remembered('grid'), 'first'); f.owner.dispose();
 });
-test('a retired page or disposed owner never acquires focus when old data mounts', () => {
+test('a retired page or disposed owner never acquires focus when old data mounts', async () => {
   for (const action of ['retire', 'dispose']) {
     const f = fixture(); f.owner.back();
     if (action === 'retire') f.retire(); else f.owner.dispose();
-    f.mount(); assert.equal(f.counts().requests, 0); f.owner.dispose();
+    await f.mount(); assert.equal(f.counts().requests, 0); f.owner.dispose();
   }
 });
-test('a later genuine focus move cancels an outstanding Back jump', () => {
+test('a later genuine focus move cancels an outstanding Back jump', async () => {
   const f = fixture(); f.owner.back(); f.registry.didFocus({regionId: 'rail', childId: 'saved'});
-  f.mount(); assert.equal(f.counts().requests, 0); f.owner.dispose();
+  await f.mount(); assert.equal(f.counts().requests, 0); f.owner.dispose();
 });
-test('Back from the first item still resets nonzero scroll without clearing unrelated row memory', () => {
-  const f = fixture(); f.registry.didFocus({regionId: 'other-row', childId: 'remembered'}); f.registry.didFocus(first); f.mount();
+test('Back from the first item still resets nonzero scroll without clearing unrelated row memory', async () => {
+  const f = fixture(); f.registry.didFocus({regionId: 'other-row', childId: 'remembered'}); f.registry.didFocus(first); await f.mount();
   assert.equal(f.owner.back(), true); assert.deepEqual(f.counts(), {scrolls: 1, requests: 1});
   assert.equal(f.registry.remembered('other-row'), 'remembered'); f.owner.dispose();
 });
@@ -87,7 +88,7 @@ async function hookFixture(options: {aborted?: boolean; enabled?: boolean; signa
   const page = {registerTop: true, current: () => {currentCalls++; if (options.retireIn === 'current') life.abort(); return true;},
     start: () => first, atTop: () => top, scrollTop: () => {scrolls++; top = true;}};
   if (options.aborted) life.abort();
-  const host = createHookHost(() => useTVPageBack(runtime, {kind: 'saved'}, options.enabled !== false, page)); host.mount();
+  const host = createFabricHookHost(() => useTVPageBack(runtime, {kind: 'saved'}, options.enabled !== false, page)); await host.mount();
   return {registry, life, slots, host, page, snapshot, back: () => back, jump: () => jump,
     mount: () => registry.attach(first, {requestTVFocus() {requests++; registry.didFocus(first);}}),
     counts: () => ({subscriptions, snapshots, currentCalls, scrolls, requests, removedBack, removedTop})};
@@ -103,13 +104,13 @@ test('actual PageBack hook aborts a pending virtualized jump before layout clean
     assert.equal(f.counts().subscriptions, 0, 'abort synchronously detaches the actual registry observer');
     assert.equal(f.slots.backs.size, 0); assert.equal(f.slots.tops.size, 0);
     const before = f.counts();
-    f.mount();
+    await f.mount();
     f.registry.configure({id: 'grid', entry: 'first', order: ['first', 'ninth']}); f.registry.attach(first, null);
     assert.equal(back(), false); assert.equal(jump(), false);
     assert.deepEqual(f.counts(), before, 'retained callbacks/attach/configure/detach never read the retired runtime or request focus');
-    f.host.unmount(); assert.equal(f.counts().removedBack, 1); assert.equal(f.counts().removedTop, 1);
+    await f.host.unmount(); assert.equal(f.counts().removedBack, 1); assert.equal(f.counts().removedTop, 1);
     assert.equal(getEventListeners(f.life.signal, 'abort').length, 0);
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });
 
 for (const options of [{aborted: true}, {enabled: false}]) test(`PageBack hook refuses before subscription or registration: ${JSON.stringify(options)}`, async () => {
@@ -118,7 +119,7 @@ for (const options of [{aborted: true}, {enabled: false}]) test(`PageBack hook r
     assert.equal(f.back(), undefined); assert.equal(f.jump(), undefined);
     assert.deepEqual(f.counts(), {subscriptions: 0, snapshots: 0, currentCalls: 0, scrolls: 0, requests: 0, removedBack: 0, removedTop: 0});
     assert.equal(getEventListeners(f.life.signal, 'abort').length, 0);
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });
 
 test('live PageBack hook preserves visibility/route guards, virtualized Back/top and inert callbacks after unmount', async () => {
@@ -132,23 +133,23 @@ test('live PageBack hook preserves visibility/route guards, virtualized Back/top
     f.snapshot.destination = {kind: 'home'}; assert.equal(back(), false); f.snapshot.destination = {kind: 'saved'};
     assert.equal(f.counts().scrolls, 0);
     assert.equal(back(), true); assert.equal(f.counts().requests, 0);
-    f.mount(); assert.equal(f.counts().requests, 1); assert.equal(back(), false, 'opening page yields Back');
+    await f.mount(); assert.equal(f.counts().requests, 1); assert.equal(back(), false, 'opening page yields Back');
     assert.equal(jump(), true); assert.equal(f.counts().scrolls, 2); assert.equal(f.counts().requests, 2);
-    f.host.unmount(); const before = f.counts();
+    await f.host.unmount(); const before = f.counts();
     assert.equal(back(), false); assert.equal(jump(), false); assert.deepEqual(f.counts(), before);
     assert.equal(getEventListeners(f.life.signal, 'abort').length, 0);
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });
 
 test('old PageBack retirement and delayed layout cleanup preserve a successor registration', async () => {
   const old = await hookFixture(), next = await hookFixture({slots: old.slots});
   try {
-    old.life.abort(); old.host.unmount();
+    old.life.abort(); await old.host.unmount();
     assert.deepEqual([...old.slots.backs], [next.back()]); assert.deepEqual([...old.slots.tops], [next.jump()]);
     assert.equal(old.back()!(), false); assert.equal(old.jump()!(), false);
-    assert.equal(next.back()!(), true); next.mount(); assert.equal(next.counts().requests, 1);
+    assert.equal(next.back()!(), true); await next.mount(); assert.equal(next.counts().requests, 1);
     assert.equal(next.counts().removedBack, 0); assert.equal(next.counts().removedTop, 0);
-  } finally {old.host.unmount(); next.host.unmount();}
+  } finally {await old.host.unmount(); await next.host.unmount();}
 });
 
 for (const retireIn of ['back-registration', 'top-registration'] as const) test(`PageBack captures and removes a registration returned after synchronous retirement in ${retireIn}`, async () => {
@@ -156,9 +157,9 @@ for (const retireIn of ['back-registration', 'top-registration'] as const) test(
   try {
     assert.equal(f.counts().subscriptions, 0); assert.equal(f.slots.backs.size, 0); assert.equal(f.slots.tops.size, 0);
     assert.equal(f.back()!(), false); assert.equal(f.jump()?.(), retireIn === 'top-registration' ? false : undefined);
-    f.host.unmount(); assert.equal(f.counts().removedBack, 1); assert.equal(f.counts().removedTop, retireIn === 'top-registration' ? 1 : 0);
+    await f.host.unmount(); assert.equal(f.counts().removedBack, 1); assert.equal(f.counts().removedTop, retireIn === 'top-registration' ? 1 : 0);
     assert.equal(f.counts().snapshots, 0); assert.equal(getEventListeners(f.life.signal, 'abort').length, 0);
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });
 
 for (const retireIn of ['snapshot', 'current'] as const) test(`PageBack rechecks original retirement after synchronous ${retireIn} predicate/accessor`, async () => {
@@ -166,15 +167,15 @@ for (const retireIn of ['snapshot', 'current'] as const) test(`PageBack rechecks
   try {
     assert.equal(f.back()!(), false); assert.equal(f.counts().scrolls, 0); assert.equal(f.counts().requests, 0);
     assert.equal(f.counts().snapshots, 1); assert.equal(f.counts().currentCalls, retireIn === 'current' ? 1 : 0);
-    const before = f.counts(); f.mount(); assert.equal(f.jump()!(), false); assert.deepEqual(f.counts(), before);
-  } finally {f.host.unmount();}
+    const before = f.counts(); await f.mount(); assert.equal(f.jump()!(), false); assert.deepEqual(f.counts(), before);
+  } finally {await f.host.unmount();}
 });
 
 test('PageBack hook retains legacy live behavior without an optional retirement signal and disposes on layout cleanup', async () => {
   const f = await hookFixture({signal: false});
   try {
-    assert.equal(f.back()!(), true); f.host.unmount(); const before = f.counts();
-    f.mount(); assert.equal(f.back()!(), false); assert.deepEqual(f.counts(), before);
+    assert.equal(f.back()!(), true); await f.host.unmount(); const before = f.counts();
+    await f.mount(); assert.equal(f.back()!(), false); assert.deepEqual(f.counts(), before);
     assert.equal(f.counts().subscriptions, 0); assert.equal(f.counts().removedBack, 1); assert.equal(f.counts().removedTop, 1);
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });

@@ -1,3 +1,4 @@
+// @fabric-react
 import * as accountWork from '../src-next/platform/account-work';
 import * as tvApprovalCredentials from '../src-next/screens/accounts/tv-approval-credentials';
 import * as tvApprovalFinalization from '../src-next/screens/accounts/tv-approval-finalization';
@@ -12,7 +13,7 @@ import assert from 'node:assert/strict';
 import * as React from 'react';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {createTheme} from '../src-next/kit/theme';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {nextRetryDelay} from '../src-next/screens/accounts/directory-chooser';
 import {screenModule} from './helpers/screen-harness.mjs';
 
@@ -82,7 +83,7 @@ test('a directory connect is fenced to its attempt: Choose another and a success
       directoryOfflineBody: () => ({key: 'web.chooser.unreachableBodyNever'})},
   });
   let tree: any, completed = 0;
-  const host = createHookHost(() => {tree = AccountEntry({onComplete: () => {completed++;}});});
+  const host = createFabricHookHost(() => {tree = AccountEntry({onComplete: () => {completed++;}});});
   await act(() => host.mount());
   try {
     assert.equal(tree.type, 'Phone'); await act(() => tree.props.onPortico());
@@ -91,28 +92,28 @@ test('a directory connect is fenced to its attempt: Choose another and a success
     const rows = () => nodes(tree.props.beforeActions).filter(node => node.type === 'Focusable');
     assert.equal(rows().length, 2);
 
-    await act(() => {rows()[0].props.onPress(); host.rerender();});
+    await act(async () => {rows()[0].props.onPress(); await host.rerender();});
     assert.equal(tree.props.testID, 'accounts-server-opening');
-    await act(() => {tree.props.primaryAction.onPress(); host.rerender();});
+    await act(async () => {tree.props.primaryAction.onPress(); await host.rerender();});
     assert.equal(tree.type, 'Layout'); assert.equal(tree.props.title, defaultI18n.t('portico.landing.pickTitle'));
-    await act(async () => {pending[0]!.resolve({kind: 'profiles', profiles: [{id: 'p'}]}); await Promise.resolve(); host.rerender();});
+    await act(async () => {pending[0]!.resolve({kind: 'profiles', profiles: [{id: 'p'}]}); await Promise.resolve(); await host.rerender();});
     assert.equal(completed, 0); assert.equal(tree.type, 'Layout');
 
-    await act(() => {rows()[0].props.onPress(); host.rerender();});
+    await act(async () => {rows()[0].props.onPress(); await host.rerender();});
     assert.equal(tree.props.testID, 'accounts-server-opening');
-    await act(() => {tree.props.primaryAction.onPress(); host.rerender();});
-    await act(async () => {pending[1]!.reject(Object.assign(new Error('connection'), {code: 'server_unavailable'})); await Promise.resolve(); host.rerender();});
+    await act(async () => {tree.props.primaryAction.onPress(); await host.rerender();});
+    await act(async () => {pending[1]!.reject(Object.assign(new Error('connection'), {code: 'server_unavailable'})); await Promise.resolve(); await host.rerender();});
     assert.equal(tree.type, 'Layout'); assert.notEqual(tree.props.testID, 'accounts-server-waiting'); assert.equal(completed, 0);
 
-    await act(() => {rows()[0].props.onPress(); host.rerender();});
+    await act(async () => {rows()[0].props.onPress(); await host.rerender();});
     assert.equal(tree.props.testID, 'accounts-server-opening');
-    await act(() => {tree.props.primaryAction.onPress(); host.rerender();});
-    await act(() => {rows()[1].props.onPress(); host.rerender();});
+    await act(async () => {tree.props.primaryAction.onPress(); await host.rerender();});
+    await act(async () => {rows()[1].props.onPress(); await host.rerender();});
     assert.equal(tree.props.testID, 'accounts-server-opening');
     const successorTitle = tree.props.title;
-    await act(async () => {pending[2]!.resolve({kind: 'profiles', profiles: [{id: 'p'}]}); await Promise.resolve(); host.rerender();});
+    await act(async () => {pending[2]!.resolve({kind: 'profiles', profiles: [{id: 'p'}]}); await Promise.resolve(); await host.rerender();});
     assert.equal(tree.props.testID, 'accounts-server-opening'); assert.equal(tree.props.title, successorTitle); assert.equal(completed, 0);
-    await act(async () => {pending[3]!.reject(Object.assign(new Error('connection'), {code: 'server_unavailable'})); await Promise.resolve(); host.rerender();});
+    await act(async () => {pending[3]!.reject(Object.assign(new Error('connection'), {code: 'server_unavailable'})); await Promise.resolve(); await host.rerender();});
     assert.equal(tree.props.testID, 'accounts-server-waiting');
     assert.equal(tree.props.title, defaultI18n.t('web.chooser.waitingTitle', {server: 'Two'}));
     assert.ok(tree.props.retry, 'the waiting state carries its automatic retry schedule');
@@ -159,7 +160,7 @@ test('a directory connect is fenced to its attempt: Choose another and a success
     await rejectLast();
     await advance(19);
     count = pending.length;
-    host.unmount(); t.mock.timers.tick(1000);
+    await host.unmount(); t.mock.timers.tick(1000);
     assert.equal(pending.length, count, 'unmount retires the timer');
-  } finally {host.unmount(); t.mock.timers.reset();}
+  } finally {await host.unmount(); t.mock.timers.reset();}
 });

@@ -1,8 +1,9 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
-import {createHookHost} from './hook-driver.ts';
+import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 
 const {react} = {react: {...React, default: React}};
@@ -32,12 +33,12 @@ const collection = {pageSize: 60, pageOf: () => 0, subscribe: () => () => {}, su
 let backHandler: (() => boolean) | undefined;
 const runtime = {artwork: () => undefined, ambient: () => undefined, text: {locale: 'en-US'}, registerTVPageBack: (handler: () => boolean) => {backHandler = handler; return () => {};}, error: () => ({})} as any;
 
-test('TV person draws the ten-foot composition from the real person page', () => {
+test('TV person draws the ten-foot composition from the real person page', async () => {
   const opened: any[] = [], roles: string[] = [], backs: number[] = [];
   let tree: any;
-  const host = createHookHost(() => {tree = TVPerson({focusScope: 'person:spielberg', page, role: 'all', collection, runtime, actions: {open: (entry: unknown) => opened.push(entry), menuState: {subscribe: () => () => {}, getSnapshot: () => 0}, isMenuOpen: () => false} as any,
+  const host = createFabricHookHost(() => {tree = TVPerson({focusScope: 'person:spielberg', page, role: 'all', collection, runtime, actions: {open: (entry: unknown) => opened.push(entry), menuState: {subscribe: () => () => {}, getSnapshot: () => 0}, isMenuOpen: () => false} as any,
     onRole: (role: any) => roles.push(role), onBack: () => {backs.push(1);}});});
-  host.mount();
+  await host.mount();
   try {
     const nodes = descendants(tree);
     assert.equal(nodes.find(node => node.type === 'PersonCircle').props.size, 280);
@@ -48,7 +49,7 @@ test('TV person draws the ten-foot composition from the real person page', () =>
     assert.ok(nodes.some(node => node.type === 'Text' && node.props.children === defaultI18n.t('web.person.titles', {count: 2})));
     const bio = nodes.find(node => node.props.testID === 'person-biography');
     assert.ok(descendants(bio).some(node => node.type === 'Text' && node.props.children === 'Steven Allan Spielberg is an American filmmaker.'));
-    bio.props.onPress(); host.rerender();
+    bio.props.onPress(); await host.rerender();
     const expanded = descendants(tree).find(node => node.props.testID === 'person-biography');
     assert.equal(expanded.props.accessibilityState.expanded, true);
     const menu = nodes.find(node => node.type === 'Menu');
@@ -60,9 +61,9 @@ test('TV person draws the ten-foot composition from the real person page', () =>
     const card = shelf.props.renderItem(0, {index: 0, id: '0', onFocus: () => {}, onBlur: () => {}});
     assert.equal(card.props.testID, 'person-credit-0');
     assert.equal(card.props.hasTVPreferredFocus, true, 'the first real credit is the page focus target');
-    let poster: any; const cardHost = createHookHost(() => {poster = card.type(card.props);}); cardHost.mount();
-    try {poster.props.onNavigate(); assert.deepEqual(opened, [credits[0]!.media]);} finally {cardHost.unmount();}
+    let poster: any; const cardHost = createFabricHookHost(() => {poster = card.type(card.props);}); await cardHost.mount();
+    try {poster.props.onNavigate(); assert.deepEqual(opened, [credits[0]!.media]);} finally {await cardHost.unmount();}
     assert.equal(backHandler?.(), true);
     assert.deepEqual(backs, [1]);
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });

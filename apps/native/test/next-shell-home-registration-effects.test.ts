@@ -1,3 +1,4 @@
+// @fabric-react
 import * as layoutModel from '../src-next/kit/layout/model.ts';
 import * as homeWindow from '../src-next/screens/home/home-window';
 import {createNativeMusicMixes} from '../src-next/screens/destinations/music/mixes';
@@ -11,7 +12,7 @@ import test from 'node:test';
 import * as React from 'react';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {HomeService} from '../../../packages/client-core/src/home-service';
 import * as homeSelection from '../../../packages/client-core/src/home-selection/index';
@@ -150,7 +151,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     HomeRowHost({element: windows[0], index: 0});
     HomeRowHost({element: windows[1], index: 1});
   }
-  const host = createHookHost(Harness);
+  const host = createFabricHookHost(Harness);
   try {
     await act(() => host.mount());
     assert.ok(renders < 25, `Home settled after ${renders} renders`);
@@ -165,5 +166,5 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     for (const [id, token] of beforeTokens) assert.equal(tokens.get(id), token);
     await act(() => bindings.selection('recent').onToggle('recent-b'));
     assert.equal(controller.getSnapshot().selection.summary.count, 1, 'canonical reconciliation still leaves genuine unchanged membership actionable');
-  } finally {host.unmount(); remove(); bindings.dispose(); navigation.dispose(); home.dispose();}
+  } finally {await host.unmount(); remove(); bindings.dispose(); navigation.dispose(); home.dispose();}
 });

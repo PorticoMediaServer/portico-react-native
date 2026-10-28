@@ -1,10 +1,11 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {defaultI18n} from '../../../packages/i18n/src';
 import * as passwordPolicy from '../../../packages/client-core/src/password-strength';
 import * as resetPaths from '../src-next/screens/accounts/reset-file-paths';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
@@ -26,7 +27,7 @@ test('compact auth form keeps Back above its left-aligned heading, with reachabl
     '../../kit/artwork': {ColourBackdrop: 'Backdrop'}, '../../kit/theme': {useTheme: () => theme, nativeType},
     '../../kit/useMotion': {useMotion: () => ({timing: () => ({duration: 160})})}, '../../kit/states/StateActionButton': {StateActionButton: 'Action'},
   });
-  const host = createHookHost(() => {tree = PhoneAccountForm({title: 'Create account', body: 'Account details', testID: 'form',
+  const host = createFabricHookHost(() => {tree = PhoneAccountForm({title: 'Create account', body: 'Account details', testID: 'form',
     beforeActions: React.createElement('TextInput', {testID: 'draft'}), primaryAction: {id: 'continue', label: 'Continue', onPress() {}},
     secondaryAction: {id: 'back', label: 'Back', onPress: () => {back++;}}});});
   context.after(() => host.unmount()); await act(() => host.mount());
@@ -44,7 +45,7 @@ test('compact auth form keeps Back above its left-aligned heading, with reachabl
   await act(() => listeners.get('keyboardDidHide')!());
   assert.equal(nodes(tree).find(node => node.type === 'KeyboardAvoidingView').props.enabled, false);
   actions[0].props.action.onPress(); assert.equal(back, 1);
-  host.unmount(); assert.equal(listeners.size, 0);
+  await host.unmount(); assert.equal(listeners.size, 0);
 });
 
 test('new-password strength uses all four shared-policy segments and the exact label', async context => {
@@ -52,7 +53,7 @@ test('new-password strength uses all four shared-policy segments and the exact l
     react, 'react-native': {View: 'View', Text: 'Text'}, '../../../../../packages/i18n/src': {defaultI18n: copy},
     '../../../../../packages/client-core/src/password-strength': passwordPolicy, '../../kit/theme': {useTheme: () => theme},
   });
-  let value = '', tree: any; const host = createHookHost(() => {tree = PasswordStrengthMeter({password: value});});
+  let value = '', tree: any; const host = createFabricHookHost(() => {tree = PasswordStrengthMeter({password: value});});
   context.after(() => host.unmount()); await act(() => host.mount()); const rendered = () => tree; assert.equal(rendered(), null);
   for (const [password, count, label] of [['short', 0, 'services.password.tooShort'], ['password', 1, 'accounts.password.weak'], ['correct horse battery staple', 4, 'services.password.strong']] as const) {
     value = password; await act(() => host.rerender());
@@ -69,7 +70,7 @@ test('owner reset disclosure expands the other systems without replacing the ret
     '../../kit/states': {StateLayout: 'State'}, '../../kit/controls': {TextField: 'Field', Button: 'Button'}, '../../kit/theme': {useTheme: () => theme},
     './PhoneAccountForm': {PhoneAccountForm: 'Form'}, './reset-file-paths': resetPaths,
   });
-  let tree: any; const host = createHookHost(() => {tree = PhoneOwnerReset({phase: 'code', serverName: 'Server', code: '', onCodeChange() {}, busy: false,
+  let tree: any; const host = createFabricHookHost(() => {tree = PhoneOwnerReset({phase: 'code', serverName: 'Server', code: '', onCodeChange() {}, busy: false,
     location: {systemKind: 'docker', dataDirectory: '/actual', fileDirectory: '/actual', fileName: 'reset-code.txt', retryAfterSeconds: 0}, onBack() {}, onWrite() {}, onVerify() {}, onContinue() {}});});
   context.after(() => host.unmount()); await act(() => host.mount());
   const all = () => nodes(tree.props.beforeActions);
@@ -94,7 +95,7 @@ for (const os of ['ios', 'android'] as const) {
       '../overlays/OverlayPaintContext': {useOverlayPaintMode: () => ({interactive: true})},
       '../../platform/native-blur': {BlurView: 'BlurView', glassRecipe: () => ({nativeBlur, backgroundColor: '#1c3341', backgroundAlpha: .8})},
     });
-    const host = createHookHost(() => {tree = TextField.render({appearance, label: 'Password', value: 'value', secureTextEntry: true,
+    const host = createFabricHookHost(() => {tree = TextField.render({appearance, label: 'Password', value: 'value', secureTextEntry: true,
       autoComplete: 'new-password', textContentType: 'newPassword', onChangeText: (value: string) => changed.push(value)}, null);});
     context.after(() => host.unmount()); await act(() => host.mount());
     const input = nodes(tree).find(node => node.type === 'TextInput');

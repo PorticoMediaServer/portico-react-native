@@ -1,3 +1,4 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -6,7 +7,7 @@ import {registerHooks} from 'node:module';
 import React, {type ReactElement, type ReactNode} from 'react';
 import {transformSync} from 'rolldown/utils';
 import {createTheme, fontFamilies, nativeType} from '../src-next/kit/theme.ts';
-import {createHookHost} from './hook-driver.ts';
+import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {dispatchMenuKey} from '../src-next/platform/menu-key.ts';
 
 // Native hosts, scheduler admission and animation clocks are controlled here.
@@ -100,108 +101,108 @@ function nodes(node: ReactNode): Element[] {
   if (!React.isValidElement<Record<string, any>>(node)) return [];
   return [node, ...nodes(node.props.children)];
 }
-function mount(component: any, initial: any, contexts: [any, unknown][] = []) {
+async function mount(component: any, initial: any, contexts: [any, unknown][] = []) {
   let props = initial, tree: ReactNode, focusRegistry: any;
-  const host = createHookHost(() => {
-    const savedContexts = contexts.map(([context, value]) => {const previous = context._currentValue; context._currentValue = value; return [context, previous];});
+  const host = createFabricHookHost(() => {
+    const savedContexts = contexts.map(([context, value]) => {const previous = context._currentValue2; context._currentValue2 = value; return [context, previous];});
     try {
     if (component === Row) {
       const wrapper: any = Row(props), provider = wrapper.type(wrapper.props), context = provider.type;
-      const previous = context._currentValue;
+      const previous = context._currentValue2;
       focusRegistry = provider.props.value;
-      context._currentValue = provider.props.value;
-      try {tree = provider.props.children.type(provider.props.children.props);} finally {context._currentValue = previous;}
+      context._currentValue2 = provider.props.value;
+      try {tree = provider.props.children.type(provider.props.children.props);} finally {context._currentValue2 = previous;}
     } else tree = typeof component === 'function' ? component(props) : component.render(props, props.ref ?? null);
-    } finally {for (const [context, value] of savedContexts) context._currentValue = value;}
+    } finally {for (const [context, value] of savedContexts) context._currentValue2 = value;}
   });
-  host.mount();
-  return {host, get tree() {return tree;}, get focusRegistry() {return focusRegistry;}, update(next: any) {props = next; host.rerender();}};
+  await host.mount();
+  return {host, get tree() {return tree;}, get focusRegistry() {return focusRegistry;}, async update(next: any) {props = next; await host.rerender();}};
 }
 const find = (tree: ReactNode, type: unknown) => nodes(tree).find(node => node.type === type)!;
 
-test('Q6 a real touch hold opens More once, suppresses release, and cancels on scrolling', t => {
+test('Q6 a real touch hold opens More once, suppresses release, and cancels on scrolling', async t => {
   state.theme = createTheme({isTV: false, width: 390});
   t.mock.timers.enable({apis: ['setTimeout']});
   const actions: string[] = [], touches: unknown[] = [];
   const props = {title: 'Actual title', onNavigate: () => actions.push('navigate'), onMore: () => actions.push('more'),
     selection: {active: false, selected: false, onEnter: () => actions.push('enter'), onToggle: () => actions.push('toggle')},
     onTouchMove: (event: unknown) => touches.push(event), children: () => null};
-  const card = mount(CardFrame, props);
+  const card = await mount(CardFrame, props);
   const point = (x: number, y: number) => ({nativeEvent: {pageX: x, pageY: y, touches: [{}]}});
   try {
     let press = find(card.tree, 'Pressable');
     assert.equal(press.props.onLongPress, undefined);
-    press.props.onTouchStart(point(20, 30)); card.host.flush();
+    press.props.onTouchStart(point(20, 30)); await card.host.flush();
     assert.equal(find(card.tree, SelectionHoldFeedback).props.active, true);
     assert.equal(find(card.tree, SelectionHoldFeedback).props.progress, 0);
     t.mock.timers.tick(499); assert.deepEqual(actions, []);
-    t.mock.timers.tick(1); card.host.flush();
+    t.mock.timers.tick(1); await card.host.flush();
     assert.deepEqual(actions, ['more']); assert.equal(find(card.tree, SelectionHoldFeedback).props.progress, 1);
     press = find(card.tree, 'Pressable'); press.props.onTouchEnd(point(20, 30)); press.props.onPressOut(); press.props.onPress();
     assert.deepEqual(actions, ['more']);
-    press.props.onTouchStart(point(20, 30)); const moved = point(31, 30); press.props.onTouchMove(moved); card.host.flush();
+    press.props.onTouchStart(point(20, 30)); const moved = point(31, 30); press.props.onTouchMove(moved); await card.host.flush();
     assert.equal(touches[0], moved); t.mock.timers.tick(500); press.props.onPress();
     assert.deepEqual(actions, ['more']); assert.equal(find(card.tree, SelectionHoldFeedback).props.active, false);
-    card.update({...props, selection: {...props.selection, active: true}});
-    find(card.tree, 'Pressable').props.onTouchStart(point(20, 30)); t.mock.timers.tick(500); card.host.flush();
+    await card.update({...props, selection: {...props.selection, active: true}});
+    find(card.tree, 'Pressable').props.onTouchStart(point(20, 30)); t.mock.timers.tick(500); await card.host.flush();
     assert.deepEqual(actions, ['more', 'toggle']);
-    find(card.tree, 'Pressable').props.onTouchStart(point(0, 0)); card.host.unmount(); t.mock.timers.tick(500);
+    find(card.tree, 'Pressable').props.onTouchStart(point(0, 0)); await card.host.unmount(); t.mock.timers.tick(500);
     assert.deepEqual(actions, ['more', 'toggle']);
-  } finally {card.host.unmount();}
+  } finally {await card.host.unmount();}
 });
 
-test('TV cards retain a sole native target and only the current enabled focused card owns Menu', () => {
+test('TV cards retain a sole native target and only the current enabled focused card owns Menu', async () => {
   state.theme = createTheme({isTV: true, width: 1920});
   const actions: string[] = [];
   const props = {title: 'Actual title', onNavigate: () => actions.push('navigate'), onMore: () => actions.push('more'), children: () => null};
-  const a = mount(CardFrame, props), b = mount(CardFrame, {...props, onMore: () => actions.push('second')});
+  const a = await mount(CardFrame, props), b = await mount(CardFrame, {...props, onMore: () => actions.push('second')});
   const menu = () => dispatchMenuKey({eventType: 'menu', eventKeyAction: 1}, 'android', true);
   try {
     assert.equal(nodes(a.tree).filter(node => node.type === 'Pressable').length, 1);
-    find(a.tree, 'Pressable').props.onFocus(); a.host.flush(); assert.equal(menu(), true);
-    find(b.tree, 'Pressable').props.onFocus(); b.host.flush();
-    find(a.tree, 'Pressable').props.onBlur(); a.host.flush(); assert.equal(menu(), true);
+    find(a.tree, 'Pressable').props.onFocus(); await a.host.flush(); assert.equal(menu(), true);
+    find(b.tree, 'Pressable').props.onFocus(); await b.host.flush();
+    find(a.tree, 'Pressable').props.onBlur(); await a.host.flush(); assert.equal(menu(), true);
     assert.deepEqual(actions, ['more', 'second']);
-    b.update({...props, disabled: true}); assert.equal(menu(), false);
+    await b.update({...props, disabled: true}); assert.equal(menu(), false);
     assert.equal(find(b.tree, SelectionHoldFeedback), undefined);
-  } finally {a.host.unmount(); b.host.unmount();}
+  } finally {await a.host.unmount(); await b.host.unmount();}
 });
 
-test('scheduled native Image callbacks reject an old retry and an unmounted source; visibility mounts no probe', t => {
+test('scheduled native Image callbacks reject an old retry and an unmounted source; visibility mounts no probe', async t => {
   t.mock.timers.enable({apis: ['setTimeout']});
   state.theme = createTheme({isTV: false, width: 390});
   const calls: string[] = [];
   state.slot = {active: true, recovering: false, gaveUp: false, cached: false, attempt: 0, loaded: () => calls.push('loaded'), failed: () => calls.push('failed')};
   const source = {uri: 'https://current.example/art', cacheKey: 'current-authority'};
   const props = {source, width: 120, height: 180, onReady: () => calls.push('ready'), onError: () => calls.push('error')};
-  const frame = mount(Artwork, {...props, visible: false});
+  const frame = await mount(Artwork, {...props, visible: false});
   try {
     assert.equal(nodes(frame.tree).filter(node => typeof node.type === 'function').length, 0);
-    frame.update({...props, visible: true});
+    await frame.update({...props, visible: true});
     const scheduled = nodes(frame.tree).find(node => typeof node.type === 'function')!;
-    const image = mount(scheduled.type, scheduled.props);
+    const image = await mount(scheduled.type, scheduled.props);
     const original = find(image.tree, 'Image');
     try {
       assert.deepEqual(calls, []);
-      state.slot = {...state.slot, attempt: 1}; image.host.rerender();
+      state.slot = {...state.slot, attempt: 1}; await image.host.rerender();
       original.props.onLoad({nativeEvent: {source: {width: 240, height: 360}}}); assert.deepEqual(calls, []);
       const actual = find(image.tree, 'Image');
-      actual.props.onLoad({nativeEvent: {source: {width: 240, height: 360}}}); image.host.flush();
+      actual.props.onLoad({nativeEvent: {source: {width: 240, height: 360}}}); await image.host.flush();
       assert.deepEqual(calls, ['loaded'], 'decode completes before the actual placed-art arrival turn');
-      t.mock.timers.tick(0); image.host.flush();
+      t.mock.timers.tick(0); await image.host.flush();
       assert.deepEqual(calls, ['loaded', 'ready']);
-      image.host.unmount(); actual.props.onError(); assert.deepEqual(calls, ['loaded', 'ready']);
-    } finally {image.host.unmount();}
-  } finally {frame.host.unmount();}
+      await image.host.unmount(); actual.props.onError(); assert.deepEqual(calls, ['loaded', 'ready']);
+    } finally {await image.host.unmount();}
+  } finally {await frame.host.unmount();}
 });
 
-test('ambient staging forwards visibility independently and only the actual sharp foreground reveals a hero', () => {
+test('ambient staging forwards visibility independently and only the actual sharp foreground reveals a hero', async () => {
   state.theme = createTheme({isTV: true, width: 1920});
   const foreground = {uri: 'https://current.example/sharp', cacheKey: 'sharp'}, ambient = {uri: 'https://current.example/tiny', url: '/tiny', cacheKey: 'tiny', variant: 'ambient-v1' as const, version: 'v1', maxEdge: 64 as const};
   const ready: unknown[] = [], errors: unknown[] = [], statuses: unknown[] = [];
   const authenticated = {...foreground, headers: {Authorization: 'Bearer fixture_only'}};
   const onError = (value: unknown) => errors.push(value), onStatusChange = (value: unknown) => statuses.push(value);
-  const surface = mount(AmbientArt, {foreground: authenticated, source: ambient, visible: false, priority: true, arrivalDurationMs: 240, onError, onStatusChange, onReady: (value: unknown) => ready.push(value)});
+  const surface = await mount(AmbientArt, {foreground: authenticated, source: ambient, visible: false, priority: true, arrivalDurationMs: 240, onError, onStatusChange, onReady: (value: unknown) => ready.push(value)});
   try {
     const art = nodes(surface.tree).filter(node => node.type === Artwork);
     assert.equal(art.length, 2); assert.ok(art.every(node => node.props.visible === false));
@@ -211,12 +212,12 @@ test('ambient staging forwards visibility independently and only the actual shar
     assert.equal(art[1]!.props.onError, onError); assert.equal(art[1]!.props.onStatusChange, onStatusChange);
     assert.equal(art[1]!.props.priority, true); assert.equal(art[1]!.props.arrivalDurationMs, 240);
     art[1]!.props.onReady(authenticated); assert.deepEqual(ready, [authenticated]);
-  } finally {surface.host.unmount();}
+  } finally {await surface.host.unmount();}
 });
 
-test('TV Home uses an alpha mask at the fixed sharp frame and the authored scrim over the whole canvas', () => {
+test('TV Home uses an alpha mask at the fixed sharp frame and the authored scrim over the whole canvas', async () => {
   state.theme = createTheme({isTV: true, width: 1920});
-  const surface = mount(AmbientArt, {foreground: {uri: 'https://current.example/sharp', cacheKey: 'sharp'}, treatment: 'hero', width: 1920, height: 900});
+  const surface = await mount(AmbientArt, {foreground: {uri: 'https://current.example/sharp', cacheKey: 'sharp'}, treatment: 'hero', width: 1920, height: 900});
   try {
     const mask = nodes(surface.tree).find(node => node.props.leftOpaqueAt !== undefined);
     assert.ok(mask, 'sharp artwork must reveal ambient at its left edge instead of painting opaque ink at x420');
@@ -226,17 +227,17 @@ test('TV Home uses an alpha mask at the fixed sharp frame and the authored scrim
     assert.equal(frame!.props.style[0].right, 0); assert.equal(frame!.props.style[0].height, '100%');
     const scrim = nodes(surface.tree).find(node => node.props.tvSide === true);
     assert.ok(scrim, 'TV left scrim spans the full canvas after the foreground frame');
-    const actualScrim = mount(scrim.type, scrim.props);
+    const actualScrim = await mount(scrim.type, scrim.props);
     try {
       const gradient = nodes(actualScrim.tree).find(node => node.props.id === 'art-tv-side');
       assert.deepEqual(nodes(gradient!.props.children).map(stop => [stop.props.offset, stop.props.stopOpacity]), [[0, .86], [.3, .62], [.56, .12], [.7, 0]]);
-    } finally {actualScrim.host.unmount();}
-  } finally {surface.host.unmount();}
+    } finally {await actualScrim.host.unmount();}
+  } finally {await surface.host.unmount();}
 });
 
-test('actual maskElement intersects exact left/bottom alpha ramps, stationary outside foreground drift', () => {
+test('actual maskElement intersects exact left/bottom alpha ramps, stationary outside foreground drift', async () => {
   const child = React.createElement('ActualAuthenticatedArtwork', {headers: {Authorization: 'Bearer fixture_only'}});
-  const mask = mount(ArtworkAlphaMask, {leftOpaqueAt: .38, bottomOpaqueAt: .42, children: child});
+  const mask = await mount(ArtworkAlphaMask, {leftOpaqueAt: .38, bottomOpaqueAt: .42, children: child});
   try {
     const native = mask.tree as Element;
     assert.equal(native.type, 'MaskedView'); assert.equal(native.props.androidRenderingMode, 'hardware');
@@ -252,78 +253,78 @@ test('actual maskElement intersects exact left/bottom alpha ramps, stationary ou
     const final = nodes(svg).find(node => node.props.mask === 'url(#alpha-intersection)')!;
     assert.equal(final.props.fill, 'url(#alpha-bottom)', 'applying one ramp as a mask to the other multiplies alpha instead of stacking opaque scrims');
     assert.equal(nodes(svg).some(node => node.type === 'Image'), false);
-  } finally {mask.host.unmount();}
+  } finally {await mask.host.unmount();}
 });
 
-test('registered browse filters use real controlled search/facet actions and preserve excluded values', () => {
+test('registered browse filters use real controlled search/facet actions and preserve excluded values', async () => {
   state.theme = createTheme({isTV: false, width: 390});
   assert.equal(new Set(browseGalleries.map(gallery => gallery.id)).size, browseGalleries.length);
   for (const id of ['browse-filters', 'browse-match-modes', 'browse-menu-owner']) assert.ok(browseGalleries.some(gallery => gallery.id === id));
   const owner = (browseGalleries.find(gallery => gallery.id === 'browse-menu-owner')!.render as React.FunctionComponent)({}) as Element;
   assert.equal((owner.props.ownerTag as Element).type, OwnerTag);
   const entry = (browseGalleries.find(gallery => gallery.id === 'browse-filters')!.render as React.FunctionComponent)({}) as Element;
-  const filterCase = mount(entry.type, entry.props), toolbarNode = filterCase.tree as Element;
-  const toolbar = mount(toolbarNode.type, toolbarNode.props);
+  const filterCase = await mount(entry.type, entry.props), toolbarNode = filterCase.tree as Element;
+  const toolbar = await mount(toolbarNode.type, toolbarNode.props);
   const surfaceNode = nodes(toolbar.tree).find(node => typeof node.type === 'function' && node.props.fields && node.props.renderAllValues)!;
-  const surface = mount(surfaceNode.type, surfaceNode.props);
+  const surface = await mount(surfaceNode.type, surfaceNode.props);
   try {
     const builder = find(surface.tree, FilterBuilder);
-    builder.props.onShowAll('genre'); surface.host.flush();
+    builder.props.onShowAll('genre'); await surface.host.flush();
     const pickerNode = nodes(surface.tree).find(node => node.props.label === 'Genre' && node.props.state?.kind === 'values')!;
-    const picker = mount(pickerNode.type, pickerNode.props);
+    const picker = await mount(pickerNode.type, pickerNode.props);
     try {
       assert.equal((picker.tree as Element).type, Dialog);
       const all = find(picker.tree, FacetChips).props.values.length;
-      find(picker.tree, TextField).props.onChangeText('Family'); picker.host.flush();
+      find(picker.tree, TextField).props.onChangeText('Family'); await picker.host.flush();
       assert.equal(find(picker.tree, FacetChips).props.values.length, 1); assert.ok(all > 1);
-      find(picker.tree, FacetChips).props.onValueChange('Family', 'exclude'); toolbar.host.flush();
+      find(picker.tree, FacetChips).props.onValueChange('Family', 'exclude'); await toolbar.host.flush();
       const updated = nodes(toolbar.tree).find(node => node.type === surfaceNode.type)!;
       assert.ok(updated.props.fields.genre.excluded.includes('Family'));
       assert.ok(!updated.props.fields.genre.included.includes('Family'));
       assert.ok(updated.props.fields.genre.excluded.includes('Horror'), 'unrelated excluded facts survive');
       assert.deepEqual(updated.props.fields.year.included, ['1980'], 'unrelated fields survive');
-      find((picker.tree as Element).props.footer, Button).props.onPress(); surface.host.flush();
+      find((picker.tree as Element).props.footer, Button).props.onPress(); await surface.host.flush();
       assert.equal(nodes(surface.tree).find(node => node.type === pickerNode.type), undefined);
-    } finally {picker.host.unmount();}
-  } finally {surface.host.unmount(); toolbar.host.unmount(); filterCase.host.unmount();}
+    } finally {await picker.host.unmount();}
+  } finally {await surface.host.unmount(); await toolbar.host.unmount(); await filterCase.host.unmount();}
 });
 
-test('phone continuation facts stay on one quiet line while TV retains its full episode identity', () => {
+test('phone continuation facts stay on one quiet line while TV retains its full episode identity', async () => {
   const caption = [{id: 'episode-label', text: 'S1 E1', role: 'context' as const}, {id: 'episode-title', text: 'Actual episode title', role: 'identity' as const}];
   const detail = [{id: 'remaining', text: '1 h 4 min left', role: 'supplement' as const}];
   const props = {title: 'Actual show', onNavigate() {}, caption, detail};
   for (const isTV of [false, true]) {
     state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
-    const card = mount(WideCard, props);
+    const card = await mount(WideCard, props);
     try {
       const content = (card.tree as Element).props.children({focused: false, hovered: false, pressed: false, holding: false});
       const parts = nodes(content).filter(node => node.type === Parts);
       assert.equal(parts.length, 1);
       assert.deepEqual(parts[0]!.props.parts, isTV ? caption : [caption[0], detail[0]]);
       if (!isTV) {
-        card.update({...props, caption: [{id: 'year', text: '2015', role: 'context'}]});
+        await card.update({...props, caption: [{id: 'year', text: '2015', role: 'context'}]});
         const film = (card.tree as Element).props.children({focused: false, hovered: false, pressed: false, holding: false});
         assert.deepEqual(find(film, Parts).props.parts, detail, 'phone film continuation shows remaining time without a second year line');
       }
-    } finally {card.host.unmount();}
+    } finally {await card.host.unmount();}
   }
 });
 
-test('TV shelves reserve focus overflow without shifting the card edge and preserve all native actions', () => {
+test('TV shelves reserve focus overflow without shifting the card edge and preserve all native actions', async () => {
   state.theme = createTheme({isTV: true, width: 1920});
   state.workletTargets = [];
   const items = [{id: 'first'}, {id: 'second'}], focused: string[] = [], ranges: number[][] = [];
   let seeAll = 0;
-  const row = mount(Row, {title: 'Continue Watching', items, getKey: (item: {id: string}) => item.id,
+  const row = await mount(Row, {title: 'Continue Watching', items, getKey: (item: {id: string}) => item.id,
     itemWidth: 400, itemHeight: 225, selection: {active: false, isSelected: () => false, onToggle() {}, onEnter() {}},
     onSeeAll: () => seeAll++, onVisibleRange: (first: number, last: number) => ranges.push([first, last]),
     onItemFocus: (item: {id: string}) => focused.push(item.id),
     renderItem: (item: {id: string}, context: any) => React.createElement('View', {key: item.id, testID: item.id, onFocus: context.onFocus})});
   try {
     let scroll = find(row.tree, 'AnimatedScrollView');
-    nodes(scroll).find(node => node.props.testID === 'first')!.props.onFocus(); row.host.flush();
+    nodes(scroll).find(node => node.props.testID === 'first')!.props.onFocus(); await row.host.flush();
     assert.deepEqual(state.workletTargets, [], 'preferred native focus can arrive before viewport measurement without scrolling against zero width');
-    scroll.props.onLayout({nativeEvent: {layout: {width: 1920}}}); row.host.flush();
+    scroll.props.onLayout({nativeEvent: {layout: {width: 1920}}}); await row.host.flush();
     assert.deepEqual(state.workletTargets, [0], 'the measured viewport re-anchors the already focused first card at its200px safe edge');
     scroll = find(row.tree, 'AnimatedScrollView');
     const first = nodes(scroll).find(node => node.props.testID === 'first')!;
@@ -331,16 +332,16 @@ test('TV shelves reserve focus overflow without shifting the card edge and prese
     assert.equal(placed.props.style.left, 200);
     assert.equal(placed.props.style.top + Object.assign({}, ...scroll.props.style).marginTop, 0, 'ring clearance does not add space below the heading');
     assert.ok(placed.props.style.top >= 18, 'the 1.08 scale and 8px outer ring fit above the track');
-    first.props.onFocus(); row.host.flush(); assert.deepEqual(focused, ['first', 'first']);
+    first.props.onFocus(); await row.host.flush(); assert.deepEqual(focused, ['first', 'first']);
     assert.deepEqual(ranges.at(-1), [0, 1]);
     assert.equal(find(row.tree, 'Pressable'), undefined, 'DESIGN.md TV focus: row headings and See all are not TV stops');
     assert.equal(seeAll, 0, 'See all is supplied by the card hold menu, never a second heading target');
-  } finally {row.host.unmount();}
+  } finally {await row.host.unmount();}
 });
 
-test('TV art focus paints an outer ring and soft shadow without an elevated interior surface', () => {
+test('TV art focus paints an outer ring and soft shadow without an elevated interior surface', async () => {
   state.theme = createTheme({isTV: true, width: 1920});
-  const art = mount(ArtFrame, {height: 225, focused: true, children: null});
+  const art = await mount(ArtFrame, {height: 225, focused: true, children: null});
   try {
     const ring = nodes(art.tree).find(node => Array.isArray(node.props.style) && node.props.style[0]?.boxShadow)!;
     assert.ok(ring);
@@ -349,16 +350,16 @@ test('TV art focus paints an outer ring and soft shadow without an elevated inte
     assert.equal(ring.props.style[0].top, -8);
     assert.equal(ring.props.style[0].boxShadow[0].spreadDistance, -12);
     assert.equal(ring.props.style[0].boxShadow[0].blurRadius, 64);
-  } finally {art.host.unmount();}
+  } finally {await art.host.unmount();}
 });
 
 
-test('the real overlay gallery lets an initially open surface own its window and Cancel retains the opener', () => {
+test('the real overlay gallery lets an initially open surface own its window and Cancel retains the opener', async () => {
   for (const isTV of [false, true]) {
     state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
-    const gallery = mount(overlayGalleries.find(value => value.id === 'overlays-dialog')!.render, {});
+    const gallery = await mount(overlayGalleries.find(value => value.id === 'overlays-dialog')!.render, {});
     const sceneElement = gallery.tree as Element;
-    const scene = mount(sceneElement.type, sceneElement.props);
+    const scene = await mount(sceneElement.type, sceneElement.props);
     try {
       assert.equal((scene.tree as Element).type, 'View');
       assert.ok(find(scene.tree, OverlaysProvider));
@@ -369,75 +370,75 @@ test('the real overlay gallery lets an initially open surface own its window and
       assert.ok(opener.props.ref);
       assert.equal(dialog.props.returnFocusRef, opener.props.ref);
       const cancel = nodes(dialog.props.footer).find(node => node.type === Button)!;
-      cancel.props.onPress(); gallery.host.flush();
+      cancel.props.onPress(); await gallery.host.flush();
       const updated = (gallery.tree as Element).props;
-      scene.update(updated);
+      await scene.update(updated);
       assert.equal(find(scene.tree, Dialog).props.open, false);
       assert.ok(find(scene.tree, Button));
-    } finally {scene.host.unmount(); gallery.host.unmount();}
+    } finally {await scene.host.unmount(); await gallery.host.unmount();}
   }
 });
 
 
-test('actual selection galleries render list changes when native Intl.ListFormat is unavailable', t => {
+test('actual selection galleries render list changes when native Intl.ListFormat is unavailable', async t => {
   const descriptor = Object.getOwnPropertyDescriptor(Intl, 'ListFormat')!;
   Object.defineProperty(Intl, 'ListFormat', {...descriptor, value: undefined});
   t.after(() => Object.defineProperty(Intl, 'ListFormat', descriptor));
   for (const isTV of [false, true]) {
     state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
     for (const id of ['selection-circles', 'selection-playlist', 'selection-editor', 'selection-deleteOne']) {
-      const gallery = mount(selectionGalleries.find(value => value.id === id)!.render, {});
+      const gallery = await mount(selectionGalleries.find(value => value.id === id)!.render, {});
       const exampleElement = (gallery.tree as Element).props.children as Element;
-      const example = mount(exampleElement.type, exampleElement.props);
+      const example = await mount(exampleElement.type, exampleElement.props);
       try {
         assert.ok(example.tree);
         if (id === 'selection-editor') {
           const editor = find(example.tree, BulkEditor);
           assert.ok(editor.props.summary.some((part: {id: string; text: string}) => part.id === 'tags-add' && part.text.length > 0));
         }
-      } finally {example.host.unmount(); gallery.host.unmount();}
+      } finally {await example.host.unmount(); await gallery.host.unmount();}
     }
   }
 });
 
-test('optional DEV selection trace preserves exact close reasons, actual actions and the closed mutation fence', () => {
+test('optional DEV selection trace preserves exact close reasons, actual actions and the closed mutation fence', async () => {
   const previous = globalThis.__porticoNativeSelectionTrace, previousTheme = state.theme;
   state.theme = createTheme({isTV: false, width: 390});
   globalThis.__porticoNativeSelectionTrace = [];
   try {
     for (const [scenario, component] of [['playlist', PlaylistPicker], ['mixed', MixedEditExplainer]] as const) {
-      const gallery = mount(selectionGalleries.find(value => value.id === `selection-${scenario}`)!.render, {});
+      const gallery = await mount(selectionGalleries.find(value => value.id === `selection-${scenario}`)!.render, {});
       const exampleElement = (gallery.tree as Element).props.children as Element;
-      const example = mount(exampleElement.type, exampleElement.props);
+      const example = await mount(exampleElement.type, exampleElement.props);
       try {
         const surface = () => find(example.tree, component);
-        surface().props.onOpenChange(false, 'escape'); example.host.flush();
+        surface().props.onOpenChange(false, 'escape'); await example.host.flush();
         assert.equal(surface().props.open, false);
         assert.deepEqual(globalThis.__porticoNativeSelectionTrace.at(-1), {kind: 'open-change', scenario, surface: `dev.selection.${scenario}.surface`, next: false, reason: 'escape'});
-        surface().props.onOpenChange(true, 'action'); example.host.flush();
+        surface().props.onOpenChange(true, 'action'); await example.host.flush();
         assert.equal(surface().props.open, true);
         if (scenario === 'playlist') {
           assert.throws(() => surface().props.onAdd('family-movies'), /complete props from the actual fenced controller/);
           assert.deepEqual(globalThis.__porticoNativeSelectionTrace.at(-1), {kind: 'mutation-attempt'});
           assert.equal(surface().props.open, true, 'the observer must not invent a successful add or dismissal');
         } else {
-          surface().props.onKeepOnly('movie'); example.host.flush();
+          surface().props.onKeepOnly('movie'); await example.host.flush();
           assert.deepEqual(globalThis.__porticoNativeSelectionTrace.at(-1), {kind: 'action', scenario, action: 'keep-only', value: 'movie'});
         }
         for (let index = 0; index < 70; index++) surface().props.onOpenChange(index % 2 === 0, 'outside');
-        example.host.flush();
+        await example.host.flush();
         assert.equal(globalThis.__porticoNativeSelectionTrace.length, 64);
         assert.deepEqual(globalThis.__porticoNativeSelectionTrace.at(-1), {kind: 'open-change', scenario, surface: `dev.selection.${scenario}.surface`, next: false, reason: 'outside'});
         assert.equal(surface().props.open, false);
-      } finally {example.host.unmount(); gallery.host.unmount();}
+      } finally {await example.host.unmount(); await gallery.host.unmount();}
     }
   } finally {globalThis.__porticoNativeSelectionTrace = previous; state.theme = previousTheme;}
 });
 
 
-test('TV panel artwork gets a full unpadded frame independent of the controls padding', () => {
+test('TV panel artwork gets a full unpadded frame independent of the controls padding', async () => {
   state.theme = createTheme({isTV: true, width: 1920});
-  const panel = mount(PanelBackground, {});
+  const panel = await mount(PanelBackground, {});
   try {
     const root = panel.tree as Element;
     assert.equal(root.type, 'View');
@@ -450,33 +451,33 @@ test('TV panel artwork gets a full unpadded frame independent of the controls pa
     assert.equal(svg.props.width, '100%');
     assert.equal(svg.props.height, '100%');
     assert.equal(svg.props.style, undefined);
-  } finally {panel.host.unmount();}
+  } finally {await panel.host.unmount();}
 });
 
 
-test('real state galleries request initial TV focus only on TV, preserving the native phone state', () => {
+test('real state galleries request initial TV focus only on TV, preserving the native phone state', async () => {
   for (const isTV of [false, true]) {
     state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
     for (const id of ['states-connection', 'states-page-failure']) {
-      const gallery = mount(stateGalleries.find(value => value.id === id)!.render, {});
+      const gallery = await mount(stateGalleries.find(value => value.id === id)!.render, {});
       try {assert.equal(find(gallery.tree, StateLayout).props.primaryAction.hasTVPreferredFocus, isTV);}
-      finally {gallery.host.unmount();}
+      finally {await gallery.host.unmount();}
     }
   }
 });
 
-test('state icon glass excludes its Android foreground from root capture and retains Apple material and TV fill', () => {
+test('state icon glass excludes its Android foreground from root capture and retains Apple material and TV fill', async () => {
   const previous = {theme: state.theme, os: state.os};
   try {
     for (const os of ['android', 'ios'] as const) {
       state.os = os;
       for (const isTV of [false, true]) {
         state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
-        const layout = mount(StateLayout, {title: 'Actual state', icon: 'i-download'});
-        let material: ReturnType<typeof mount> | undefined;
+        const layout = await mount(StateLayout, {title: 'Actual state', icon: 'i-download'});
+        let material: Awaited<ReturnType<typeof mount>> | undefined;
         try {
           const boundary = nodes(layout.tree).find(node => node.type === MaterialBlurView);
-          material = boundary ? mount(boundary.type, boundary.props) : undefined;
+          material = boundary ? await mount(boundary.type, boundary.props) : undefined;
           const blur = material?.tree as Element | undefined;
           const disk = nodes(layout.tree).find(node => node.props.style?.width === (isTV ? 88 : 54) && node.props.style?.height === (isTV ? 88 : 54))!;
           assert.ok(disk);
@@ -514,7 +515,7 @@ test('state icon glass excludes its Android foreground from root capture and ret
               assert.equal(nodes(blur.props.children).includes(icon), false, 'Apple retains its existing native material composition');
             }
           }
-        } finally {material?.host.unmount(); layout.host.unmount();}
+        } finally {await material?.host.unmount(); await layout.host.unmount();}
       }
     }
   } finally {state.theme = previous.theme; state.os = previous.os;}
@@ -525,44 +526,44 @@ function nativeFocusable(tree: ReactNode): Element {
   return element.type.render(element.props, element.props.ref);
 }
 
-function actualRegion(id: string) {
-  const provider = mount(FocusProvider, {children: null}), providerElement = provider.tree as any;
+async function actualRegion(id: string) {
+  const provider = await mount(FocusProvider, {children: null}), providerElement = provider.tree as any;
   const registryContext: [any, unknown] = [providerElement.type, providerElement.props.value];
-  const outer = mount(FocusRegion, {id, children: null}, [registryContext]);
-  const element = outer.tree as any, region = mount(element.type, element.props, [registryContext]);
+  const outer = await mount(FocusRegion, {id, children: null}, [registryContext]);
+  const element = outer.tree as any, region = await mount(element.type, element.props, [registryContext]);
   const guide = region.tree as any, childContext: [any, unknown] = [guide.props.children.type, id];
   return {registry: providerElement.props.value, contexts: [registryContext, childContext],
-    unmount() {region.host.unmount(); outer.host.unmount(); provider.host.unmount();}};
+    async unmount() {await region.host.unmount(); await outer.host.unmount(); await provider.host.unmount();}};
 }
 
-test('F06 CardFrame and TextField attach exactly the hosts native props make eligible', () => {
+test('F06 CardFrame and TextField attach exactly the hosts native props make eligible', async () => {
   state.theme = createTheme({isTV: true, width: 1920});
-  const scope = actualRegion('eligibility');
+  const scope = await actualRegion('eligibility');
   const cardProps = {title: 'Actual card', focusId: 'card', primaryAction: 'navigate', onNavigate() {}, children: () => null};
-  const card = mount(CardFrame, {...cardProps, disabled: true}, scope.contexts);
+  const card = await mount(CardFrame, {...cardProps, disabled: true}, scope.contexts);
   const host = {nativeTag: 301, requestTVFocus() {}};
   try {
     let native = find(card.tree, 'Pressable'); native.props.ref(host); assert.equal(native.props.focusable, false);
     assert.equal(scope.registry.child({regionId: 'eligibility', childId: 'card'}), undefined);
-    card.update({...cardProps, focusable: false}); assert.equal(find(card.tree, 'Pressable').props.focusable, false);
+    await card.update({...cardProps, focusable: false}); assert.equal(find(card.tree, 'Pressable').props.focusable, false);
     assert.equal(scope.registry.child({regionId: 'eligibility', childId: 'card'}), undefined);
-    card.update(cardProps); native = find(card.tree, 'Pressable'); assert.equal(native.props.focusable, true);
+    await card.update(cardProps); native = find(card.tree, 'Pressable'); assert.equal(native.props.focusable, true);
     assert.equal(scope.registry.child({regionId: 'eligibility', childId: 'card'}), host);
-    const input = mount(TextField, {focusId: 'input', focusable: false}, scope.contexts);
+    const input = await mount(TextField, {focusId: 'input', focusable: false}, scope.contexts);
     try {
       const inputHost = {nativeTag: 302, focus() {}}; find(input.tree, 'TextInput').props.ref(inputHost);
       assert.equal(find(input.tree, 'TextInput').props.focusable, false); assert.equal(scope.registry.child({regionId: 'eligibility', childId: 'input'}), undefined);
-      input.update({focusId: 'input', editable: false}); assert.equal(find(input.tree, 'TextInput').props.focusable, false);
-      input.update({focusId: 'input'}); assert.equal(find(input.tree, 'TextInput').props.focusable, true);
+      await input.update({focusId: 'input', editable: false}); assert.equal(find(input.tree, 'TextInput').props.focusable, false);
+      await input.update({focusId: 'input'}); assert.equal(find(input.tree, 'TextInput').props.focusable, true);
       assert.equal(scope.registry.child({regionId: 'eligibility', childId: 'input'}), inputHost);
-    } finally {input.host.unmount();}
-  } finally {card.host.unmount(); scope.unmount();}
+    } finally {await input.host.unmount();}
+  } finally {await card.host.unmount(); await scope.unmount();}
 });
 
-test('F01 Library composites forward caller-fenced surface and semantic inner identities', () => {
+test('F01 Library composites forward caller-fenced surface and semantic inner identities', async () => {
   state.theme = createTheme({isTV: true, width: 1920});
-  const switcher = mount(LibrarySwitcher, {testID: 'actual-libraries', libraries: [{id: 'one/source', name: 'First'}, {id: 'second', name: 'Second'}], value: 'second', onValueChange() {}, open: true});
-  const menu = mount(LibraryMenu, {testID: 'actual-library-options', owner: false, open: true, onSaveView() {}, onMarkAll() {}, onEditPins() {}});
+  const switcher = await mount(LibrarySwitcher, {testID: 'actual-libraries', libraries: [{id: 'one/source', name: 'First'}, {id: 'second', name: 'Second'}], value: 'second', onValueChange() {}, open: true});
+  const menu = await mount(LibraryMenu, {testID: 'actual-library-options', owner: false, open: true, onSaveView() {}, onMarkAll() {}, onEditPins() {}});
   try {
     const surface = find(switcher.tree, Popover); assert.equal(surface.props.testID, 'actual-libraries-surface');
     const choices = nodes(surface).filter(node => node.type === MenuRow);
@@ -570,16 +571,16 @@ test('F01 Library composites forward caller-fenced surface and semantic inner id
     assert.deepEqual(choices.map(node => node.props.testID), ['actual-libraries-library-one%2Fsource', 'actual-libraries-library-second']);
     const menuSurface = find(menu.tree, Popover); assert.equal(menuSurface.props.testID, 'actual-library-options-surface');
     assert.deepEqual(nodes(menuSurface).filter(node => node.type === MenuRow).map(node => node.props.focusId), ['save-view', 'mark-all', 'edit-pins']);
-    const scope = actualRegion(surface.props.testID), choice = mount(MenuRow, choices[0]!.props, scope.contexts);
+    const scope = await actualRegion(surface.props.testID), choice = await mount(MenuRow, choices[0]!.props, scope.contexts);
     try {
-      const target = find(choice.tree, Focusable), control = mount(Focusable, target.props, scope.contexts);
+      const target = find(choice.tree, Focusable), control = await mount(Focusable, target.props, scope.contexts);
       try {nativeFocusable(control.tree).props.ref({nativeTag: 303, requestTVFocus() {}}); assert.ok(scope.registry.child({regionId: surface.props.testID, childId: 'one/source'}));}
-      finally {control.host.unmount();}
-    } finally {choice.host.unmount(); scope.unmount();}
-  } finally {menu.host.unmount(); switcher.host.unmount();}
+      finally {await control.host.unmount();}
+    } finally {await choice.host.unmount(); await scope.unmount();}
+  } finally {await menu.host.unmount(); await switcher.host.unmount();}
 });
 
-test('inline Banner stays in form flow with the same approved face and overlay default', () => {
+test('inline Banner stays in form flow with the same approved face and overlay default', async () => {
   const previous = state.theme;
   try {for (const isTV of [false, true]) {
     state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
@@ -587,7 +588,7 @@ test('inline Banner stays in form flow with the same approved face and overlay d
       let actions = 0;
       const props = {message: 'Actual server error', accessibilityLabel: 'Accessible server error', variant, tone: 'error', topInset: 27,
         action: {label: 'Actual retry', onPress: () => {actions++;}}, testID: 'form-error'};
-      const overlay = mount(Banner, props), explicit = mount(Banner, {...props, placement: 'overlay'}), inline = mount(Banner, {...props, placement: 'inline'});
+      const overlay = await mount(Banner, props), explicit = await mount(Banner, {...props, placement: 'overlay'}), inline = await mount(Banner, {...props, placement: 'inline'});
       try {
         assert.deepEqual((overlay.tree as Element).props.style, {position: 'absolute', top: 27, left: 0, right: 0, zIndex: state.theme.layers.notice, alignItems: 'center', paddingHorizontal: isTV ? 96 : 16});
         assert.deepEqual((explicit.tree as Element).props.style, (overlay.tree as Element).props.style);
@@ -600,27 +601,27 @@ test('inline Banner stays in form flow with the same approved face and overlay d
         const action = find(inline.tree, Button);
         assert.equal(Boolean(action), variant === 'notice');
         if (action) {action.props.onPress(); assert.equal(actions, 1);}
-      } finally {inline.host.unmount(); explicit.host.unmount(); overlay.host.unmount();}
+      } finally {await inline.host.unmount(); await explicit.host.unmount(); await overlay.host.unmount();}
     }
     for (const placement of ['overlay', 'inline']) {
-      const hidden = mount(Banner, {message: 'Actual server error', visible: false, placement});
-      try {assert.equal(hidden.tree, null);} finally {hidden.host.unmount();}
+      const hidden = await mount(Banner, {message: 'Actual server error', visible: false, placement});
+      try {assert.equal(hidden.tree, null);} finally {await hidden.host.unmount();}
     }
   }} finally {state.theme = previous;}
 });
 
-test('Library Save view follows caller eligibility without disabling the other menu commands', () => {
+test('Library Save view follows caller eligibility without disabling the other menu commands', async () => {
   const previous = state.theme;
   try {for (const isTV of [false, true]) {
     state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
     for (const canSaveView of [undefined, true, false]) {
       const events: unknown[] = [];
-      const menu = mount(LibraryMenu, {testID: 'save-eligibility', owner: false, open: true, canSaveView,
+      const menu = await mount(LibraryMenu, {testID: 'save-eligibility', owner: false, open: true, canSaveView,
         onOpenChange: (open: boolean) => events.push(open), onSaveView: () => events.push('save'), onMarkAll() {}, onEditPins() {}});
       const rows = nodes(find(menu.tree, Popover)).filter(node => node.type === MenuRow);
       const save = rows.find(row => row.props.focusId === 'save-view')!;
-      const scope = actualRegion('save-eligibility-surface'), row = mount(MenuRow, save.props, scope.contexts);
-      const control = mount(Focusable, find(row.tree, Focusable).props, scope.contexts);
+      const scope = await actualRegion('save-eligibility-surface'), row = await mount(MenuRow, save.props, scope.contexts);
+      const control = await mount(Focusable, find(row.tree, Focusable).props, scope.contexts);
       try {
         assert.deepEqual(rows.map(item => item.props.focusId), ['save-view', 'mark-all', 'edit-pins']);
         assert.equal(save.props.disabled, canSaveView === false);
@@ -632,25 +633,25 @@ test('Library Save view follows caller eligibility without disabling the other m
         if (isTV) assert.equal(scope.registry.child({regionId: 'save-eligibility-surface', childId: 'save-view'}), canSaveView === false ? undefined : host);
         if (canSaveView !== false) {save.props.onPress(); assert.deepEqual(events, [false, 'save']);}
         else assert.deepEqual(events, []);
-      } finally {control.host.unmount(); row.host.unmount(); scope.unmount(); menu.host.unmount();}
+      } finally {await control.host.unmount(); await row.host.unmount(); await scope.unmount(); await menu.host.unmount();}
     }
   }} finally {state.theme = previous;}
 });
 
-test('F09 explicitly anchored TV Menu holds its in-window native focus guide', () => {
+test('F09 explicitly anchored TV Menu holds its in-window native focus guide', async () => {
   state.theme = createTheme({isTV: true, width: 1920});
-  const menu = mount(Menu, {testID: 'anchored-menu', open: true, onOpenChange() {}, presentation: 'anchored', anchorRef: {current: {measureInWindow: (run: any) => run(300, 200, 100, 60)}}, items: [{id: 'action', label: 'Actual action', onSelect() {}}]});
+  const menu = await mount(Menu, {testID: 'anchored-menu', open: true, onOpenChange() {}, presentation: 'anchored', anchorRef: {current: {measureInWindow: (run: any) => run(300, 200, 100, 60)}}, items: [{id: 'action', label: 'Actual action', onSelect() {}}]});
   try {
     const popover = menu.tree as any; assert.equal(popover.type, Popover); assert.equal(popover.props.holdFocus, true); assert.equal(popover.props.modal, undefined);
-    const surface = mount(Popover, popover.props);
+    const surface = await mount(Popover, popover.props);
     try {
-      surface.host.flush(); const boundary = nodes(surface.tree).find(node => (node.type as any)?.name === 'FocusBoundary')!;
+      await surface.host.flush(); const boundary = nodes(surface.tree).find(node => (node.type as any)?.name === 'FocusBoundary')!;
       assert.ok(boundary); assert.equal(boundary.props.modal, true, 'containment is independent of the native window modality');
-    } finally {surface.host.unmount();}
-  } finally {menu.host.unmount();}
+    } finally {await surface.host.unmount();}
+  } finally {await menu.host.unmount();}
 });
 
-test('F10 standalone Row owns one provider and reports actual raw viewport keys across retained holes', () => {
+test('F10 standalone Row owns one provider and reports actual raw viewport keys across retained holes', async () => {
   state.theme = createTheme({isTV: true, width: 1920});
   const seen: (readonly string[])[] = [], items = ['a', 'b', 'c', 'd'].map(id => ({id}));
   const props = {title: 'Actual row', items, getKey: (item: {id: string}) => item.id, getFocusId: (item: {id: string}) => `source/${item.id}`,
@@ -658,63 +659,63 @@ test('F10 standalone Row owns one provider and reports actual raw viewport keys 
     selection: {active: false, isSelected: () => false, onToggle() {}, onEnter() {}},
     onVisibleKeys: (keys: readonly string[]) => seen.push(keys),
     renderItem: (item: {id: string}, context: any) => React.createElement('View', {testID: `actual-${item.id}`, context})};
-  const row = mount(Row, props);
+  const row = await mount(Row, props);
   try {
     assert.deepEqual(seen.at(-1), ['a', 'b']); const registry = row.focusRegistry;
-    registry.didFocus({regionId: 'standalone', childId: 'source/b'}); row.host.flush();
-    row.update({...props, items: [items[3], items[2], items[0]]});
+    registry.didFocus({regionId: 'standalone', childId: 'source/b'}); await row.host.flush();
+    await row.update({...props, items: [items[3], items[2], items[0]]});
     const rendered = nodes(row.tree).filter(node => node.props.context);
     assert.deepEqual(rendered.map(node => [node.props.context.id, node.props.context.index]), [['a', 0], ['c', 2], ['d', 3]]);
     assert.deepEqual(seen.at(-1), ['a'], 'physical hole at position1 does not enroll items[1]');
     assert.equal(row.focusRegistry, registry);
-  } finally {row.host.unmount();}
+  } finally {await row.host.unmount();}
 });
 
-test('F13 separate Tabs and Segmented groups fence shared semantic values and preserve explicit IDs', () => {
+test('F13 separate Tabs and Segmented groups fence shared semantic values and preserve explicit IDs', async () => {
   state.theme = createTheme({isTV: true, width: 1920});
-  const items = [{value: 'all', label: 'Actual all'}], scope = actualRegion('choices');
-  const a = mount(Tabs, {testID: 'group-a', items}), b = mount(Segmented, {testID: 'group-b', items}), explicit = mount(Tabs, {testID: 'group-c', items, itemProps: () => ({focusId: 'explicit-child', testID: 'explicit-host'})});
+  const items = [{value: 'all', label: 'Actual all'}], scope = await actualRegion('choices');
+  const a = await mount(Tabs, {testID: 'group-a', items}), b = await mount(Segmented, {testID: 'group-b', items}), explicit = await mount(Tabs, {testID: 'group-c', items, itemProps: () => ({focusId: 'explicit-child', testID: 'explicit-host'})});
   try {
     const first = find(a.tree, Focusable), second = find(b.tree, Focusable), override = find(explicit.tree, Focusable);
     assert.notEqual(first.props.focusId, second.props.focusId); assert.equal(override.props.focusId, 'explicit-child'); assert.equal(override.props.testID, 'explicit-host');
-    const firstTarget = mount(Focusable, first.props, scope.contexts), secondTarget = mount(Focusable, second.props, scope.contexts);
+    const firstTarget = await mount(Focusable, first.props, scope.contexts), secondTarget = await mount(Focusable, second.props, scope.contexts);
     try {
       const one = {nativeTag: 304, requestTVFocus() {}}, two = {nativeTag: 305, requestTVFocus() {}};
       nativeFocusable(firstTarget.tree).props.ref(one); nativeFocusable(secondTarget.tree).props.ref(two);
       assert.equal(scope.registry.child({regionId: 'choices', childId: first.props.focusId}), one); assert.equal(scope.registry.child({regionId: 'choices', childId: second.props.focusId}), two);
-      firstTarget.host.unmount(); assert.equal(scope.registry.child({regionId: 'choices', childId: second.props.focusId}), two);
-    } finally {firstTarget.host.unmount(); secondTarget.host.unmount();}
-  } finally {a.host.unmount(); b.host.unmount(); explicit.host.unmount(); scope.unmount();}
+      await firstTarget.host.unmount(); assert.equal(scope.registry.child({regionId: 'choices', childId: second.props.focusId}), two);
+    } finally {await firstTarget.host.unmount(); await secondTarget.host.unmount();}
+  } finally {await a.host.unmount(); await b.host.unmount(); await explicit.host.unmount(); await scope.unmount();}
 });
 
 
-test('Q6 touch menus opt into compact sheets or anchored 300pt popovers without changing account defaults', () => {
+test('Q6 touch menus opt into compact sheets or anchored 300pt popovers without changing account defaults', async () => {
   const props = {title: 'Actual title', open: true, width: 420, onOpenChange() {}, anchorRef: {current: {measureInWindow(run: any) {run(100, 100, 150, 225);}}}, items: [{id: 'play', label: 'Play', onSelect() {}}]};
   state.theme = createTheme({isTV: false, width: 820});
-  const touch = mount(Menu, {...props, touchContext: true});
+  const touch = await mount(Menu, {...props, touchContext: true});
   try {
     const surface = find(touch.tree, Popover);
     assert.equal(surface.props.touchContext, true); assert.equal(surface.props.modal, true); assert.equal(surface.props.backdropOpacity, .58);
     assert.equal(surface.props.width, 300);
-  } finally {touch.host.unmount();}
-  const account = mount(Menu, props);
-  try {assert.equal(find(account.tree, Popover).props.touchContext, false); assert.equal(find(account.tree, Popover).props.width, 420);} finally {account.host.unmount();}
+  } finally {await touch.host.unmount();}
+  const account = await mount(Menu, props);
+  try {assert.equal(find(account.tree, Popover).props.touchContext, false); assert.equal(find(account.tree, Popover).props.width, 420);} finally {await account.host.unmount();}
   state.theme = createTheme({isTV: false, width: 390});
-  const compact = mount(Menu, {...props, touchContext: true});
+  const compact = await mount(Menu, {...props, touchContext: true});
   try {
     const sheet = nodes(compact.tree).find(node => node.props.fitContent === true)!;
     assert.equal(sheet.props.backdropOpacity, .58);
     assert.equal(sheet.props.width, undefined);
     assert.deepEqual(find(compact.tree, MenuRow).props.style, {minHeight: 44});
-  } finally {compact.host.unmount();}
+  } finally {await compact.host.unmount();}
 });
 
-test('an anchored TV menu preserves its real header, trailing content, actions and return focus', () => {
+test('an anchored TV menu preserves its real header, trailing content, actions and return focus', async () => {
   state.theme = createTheme({isTV: true, width: 1920});
   const header = React.createElement('View', {testID: 'actual-profile-header'}), trailing = React.createElement('Text', {}, '3 new');
   const anchorRef = {current: {measureInWindow(run: any) {run(72, 948, 320, 76);}}};
   const calls: string[] = [];
-  const menu = mount(Menu, {testID: 'profile-menu', title: 'Actual profile', context: header, open: true, presentation: 'anchored',
+  const menu = await mount(Menu, {testID: 'profile-menu', title: 'Actual profile', context: header, open: true, presentation: 'anchored',
     anchorRef, returnFocusRef: anchorRef, placement: 'right-end', offset: 168, alignOffset: -8, width: 640,
     onOpenChange(open: boolean, reason: string) {calls.push(`${open}:${reason}`);},
     items: [{id: 'notifications', label: 'Notifications', trailing, onSelect() {calls.push('notifications');}}]});
@@ -727,38 +728,38 @@ test('an anchored TV menu preserves its real header, trailing content, actions a
     const row = find(popover, MenuRow); assert.equal(row.props.trailing, trailing); assert.equal(row.props.tvFlyout, true);
     row.props.onPress(); assert.deepEqual(calls, ['notifications', 'false:action']);
     row.props.onMenu(); assert.equal(calls.at(-1), 'false:back');
-  } finally {menu.host.unmount();}
+  } finally {await menu.host.unmount();}
 });
 
-test('right-end Popover positions from native measurements and reanchors while the rail moves', () => {
+test('right-end Popover positions from native measurements and reanchors while the rail moves', async () => {
   state.theme = createTheme({isTV: true, width: 1920});
   let nextFrame: FrameRequestCallback | undefined, cancelled = false;
   const request = globalThis.requestAnimationFrame, cancel = globalThis.cancelAnimationFrame;
   globalThis.requestAnimationFrame = run => {nextFrame = run; return 7;};
   globalThis.cancelAnimationFrame = id => {assert.equal(id, 7); cancelled = true;};
   let anchor = {x: 72, y: 948, width: 320, height: 76};
-  const surface = mount(Popover, {testID: 'measured-menu', title: 'Actual profile', open: true, onOpenChange() {}, width: 640,
+  const surface = await mount(Popover, {testID: 'measured-menu', title: 'Actual profile', open: true, onOpenChange() {}, width: 640,
     placement: 'right-end', offset: 168, alignOffset: -8, holdFocus: true, anchorRef: {current: {measureInWindow(run: any) {run(anchor.x, anchor.y, anchor.width, anchor.height);}}}, children: null});
   try {
-    surface.host.flush();
+    await surface.host.flush();
     const content = nodes(surface.tree).find(node => node.props.onLayout)!;
-    content.props.onLayout({nativeEvent: {layout: {height: 525}}}); surface.host.flush();
+    content.props.onLayout({nativeEvent: {layout: {height: 525}}}); await surface.host.flush();
     assert.deepEqual(find(surface.tree, OverlayPortal).props.rect, {x: 560, y: 491, width: 640, height: 525});
-    anchor = {...anchor, x: 82, y: 958}; nextFrame!(0); surface.host.flush();
+    anchor = {...anchor, x: 82, y: 958}; nextFrame!(0); await surface.host.flush();
     assert.deepEqual(find(surface.tree, OverlayPortal).props.rect, {x: 570, y: 501, width: 640, height: 525});
     assert.equal(nodes(surface.tree).find(node => (node.type as any)?.name === 'FocusBoundary')!.props.modal, true);
-  } finally {surface.host.unmount(); globalThis.requestAnimationFrame = request; globalThis.cancelAnimationFrame = cancel;}
+  } finally {await surface.host.unmount(); globalThis.requestAnimationFrame = request; globalThis.cancelAnimationFrame = cancel;}
   assert.equal(cancelled, true);
 });
 
-test('Q6 custom compact heading replaces only the touch sheet heading, including explicit null', () => {
+test('Q6 custom compact heading replaces only the touch sheet heading, including explicit null', async () => {
   state.theme = createTheme({isTV: false, width: 390});
   const header = React.createElement('View', {testID: 'captured-member-header'});
   const props = {title: 'Actual title', open: true, onOpenChange() {}, items: [], touchHeader: header};
-  const menu = mount(Menu, {...props, touchContext: true});
+  const menu = await mount(Menu, {...props, touchContext: true});
   try {
     assert.equal((menu.tree as Element).props.headerContent, header);
-    menu.update({...props, touchContext: true, touchHeader: null}); assert.equal((menu.tree as Element).props.headerContent, null);
-    menu.update(props); assert.equal((menu.tree as Element).props.headerContent, undefined);
-  } finally {menu.host.unmount();}
+    await menu.update({...props, touchContext: true, touchHeader: null}); assert.equal((menu.tree as Element).props.headerContent, null);
+    await menu.update(props); assert.equal((menu.tree as Element).props.headerContent, undefined);
+  } finally {await menu.host.unmount();}
 });

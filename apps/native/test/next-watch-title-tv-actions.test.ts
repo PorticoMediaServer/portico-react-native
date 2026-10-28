@@ -1,3 +1,4 @@
+// @fabric-react
 import {presentError} from '../../../packages/client-core/src/presentation/errors.ts';
 import {tvTitleRegionMap, tvTitleFocusSection} from '../src-next/screens/watch/tv-title-focus.ts';
 import {tvFocusIds} from '../src-next/shell/tv-focus.ts';
@@ -5,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
-import {createHookHost} from './hook-driver.ts';
+import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {sameFence} from '../../../packages/player-core/src/index.ts';
 import {cardText, episodeLabel, playbackIdentity, titleFactParts} from '../../../packages/client-core/src/presentation/kit-model/index.ts';
 import {durationText} from '../../../packages/client-core/src/presentation/kit-model/text.ts';
@@ -39,12 +40,12 @@ test('TV title resume, Start over, watched and Play menu bind actual current tit
       {id: 'd1', name: 'Pete Docter', role: 'Director', department: 'directing', provider: 'tmdb'},
       {id: 'c1', name: 'Amy Poehler', role: 'Joy', department: 'acting', provider: 'tmdb'},
       {id: 'c2', name: 'Phyllis Smith', role: 'Sadness', department: 'acting', provider: 'tmdb'}]}}}};
-  const controller = {pageLease: () => undefined, getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {},
+  const controller = {pageLease: () => undefined, getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: (() => {const snapshot = {phase: 'idle'}; return () => snapshot;})(), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {},
     play: async (...args: unknown[]) => {calls.push(['play', ...args]);}, personal: async (...args: unknown[]) => {calls.push(['personal', ...args]);}};
   let tree: any;
-  const host = createHookHost(() => {tree = NativeTitleScreen({controller, text: {t: defaultI18n.t}, artwork: () => undefined, ambient: () => undefined,
+  const host = createFabricHookHost(() => {tree = NativeTitleScreen({controller, text: {t: defaultI18n.t}, artwork: () => undefined, ambient: () => undefined,
     back: assert.fail, navigate: assert.fail, more: (...args: unknown[]) => {calls.push(['more', ...args]);}, reportError: assert.fail, renderError: assert.fail, aboutLabel: 'About'});});
-  host.mount();
+  await host.mount();
   try {
     const resume = descendants(tree).find(node => node.props.testID === 'watch-title-play');
     assert.equal(resume.type, 'Resume'); assert.equal(resume.props.progress, 540 / 5700);
@@ -59,22 +60,22 @@ test('TV title resume, Start over, watched and Play menu bind actual current tit
     assert.equal(watched.props.accessibilityLabel, defaultI18n.t('entry.markWatched')); watched.props.onPress();
     assert.deepEqual(calls.shift(), ['personal', {action: 'watched', value: true}]);
     snapshot = {...snapshot, detail: {...snapshot.detail, data: {...snapshot.detail.data, actions: snapshot.detail.data.actions.filter((action: any) => action.id === 'resume')}}};
-    host.rerender();
+    await host.rerender();
     assert.equal(descendants(tree).some(node => node.props.focusId === 'watch-title-watched' || node.props.focusId === 'watch-title-start-over'), false);
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });
 
-test('TV Down from the hero buttons skips the strip for the first content row and Up returns to Play', () => {
+test('TV Down from the hero buttons skips the strip for the first content row and Up returns to Play', async () => {
   const entry = {id: 'inside-out', kind: 'movie', title: 'Inside Out'};
   const snapshot = {retired: false, entry, place: {tab: 'related', anchor: {itemId: null, offset: 0}}, episodes: [], seasons: [],
     detail: {phase: 'ready', data: {item: entry, actions: [{id: 'play', enabled: true, playback: {itemId: entry.id, startSeconds: 0}}], personal: {progressSeconds: 0},
       metadata: {genres: [], ratings: [], credits: []},
       related: {rows: [{id: 'row-1', heading: 'More like Inside Out', entries: [{id: 'first', kind: 'movie', title: 'First film'}, {id: 'second', kind: 'movie', title: 'Second film'}]}]}}}};
-  const controller = {pageLease: () => undefined, getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {}, play: async () => {}};
+  const controller = {pageLease: () => undefined, getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: (() => {const snapshot = {phase: 'idle'}; return () => snapshot;})(), open() {}, close() {}, play: async () => {}, personal: async () => {}, retry() {}}, open: async () => {}, play: async () => {}};
   let tree: any;
-  const host = createHookHost(() => {tree = NativeTitleScreen({controller, text: {t: defaultI18n.t}, artwork: () => undefined, ambient: () => undefined,
+  const host = createFabricHookHost(() => {tree = NativeTitleScreen({controller, text: {t: defaultI18n.t}, artwork: () => undefined, ambient: () => undefined,
     back: assert.fail, navigate: assert.fail, more: assert.fail, reportError: assert.fail, renderError: assert.fail, aboutLabel: 'About'});});
-  host.mount();
+  await host.mount();
   try {
     const play = () => descendants(tree).find(node => node.props.focusId === 'watch-title-play');
     const shelf = () => descendants(tree).find(node => node.type === 'TVShelf');
@@ -91,5 +92,5 @@ test('TV Down from the hero buttons skips the strip for the first content row an
     assert.equal(strip.props.passive, true); assert.equal(strip.props.onValueChange, undefined);
     assert.ok(descendants(tree).some(node => node.type === 'Text' && node.props.children === 'About'), 'Details stays mounted below related rows');
 
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });

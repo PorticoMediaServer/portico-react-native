@@ -1,10 +1,11 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {createTheme, nativeType} from '../src-next/kit/theme';
 import {createNativeMeasurementRegistry, type HostRegistration} from '../src-next/dev/layout-dump/registry';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {useHostRef} from '../src-next/kit/focus/useHostRef';
 
@@ -26,7 +27,7 @@ async function fixture(dev: boolean) {
       const lease = registry.register(host, facts); registrations.push({host, lease, facts}); return lease;
     }};
   }});
-  let host: ReturnType<typeof createHookHost> | undefined;
+  let host: Awaited<ReturnType<typeof createFabricHookHost>> | undefined;
   try {
     const {useNativeObservation} = await screenModule(new URL('../src-next/kit/dev-observation.ts', import.meta.url), {
       react: {...React, default: React}, 'react-native': {findNodeHandle: () => null}, './focus/useHostRef': {useHostRef},
@@ -40,15 +41,15 @@ async function fixture(dev: boolean) {
       '../../kit/dev-observation': {useNativeObservation},
       '../../kit/theme': {nativeType, useTheme: () => createTheme({isTV: false, width: 390, textScale})},
     });
-    host = createHookHost(() => {tree = PhoneFrontDoor({busy: false, onPortico, onLocal});});
+    host = createFabricHookHost(() => {tree = PhoneFrontDoor({busy: false, onPortico, onLocal});});
     await act(() => host!.mount());
     return {registry, registrations, imports: () => imports, actions, tree: () => tree,
       heading: () => nodes(tree).find(node => node.type === 'Text'),
       title: async (next: string) => {title = next; await act(() => host!.rerender());},
       scale: async (next: number) => {textScale = next; await act(() => host!.rerender());},
-      close: () => {host?.unmount(); restore();},
+      close: async () => {await host?.unmount(); restore();},
     };
-  } catch (error) {host?.unmount(); restore(); throw error;}
+  } catch (error) {await host?.unmount(); restore(); throw error;}
   function restore() {
     if (previousDev) Object.defineProperty(globalThis, '__DEV__', previousDev); else Reflect.deleteProperty(globalThis, '__DEV__');
     if (previousRequire) Object.defineProperty(globalThis, 'require', previousRequire); else Reflect.deleteProperty(globalThis, 'require');
@@ -85,7 +86,7 @@ test('frontdoor heading records only actual native text lines and diagnostic sty
     assert.equal(f.registry.read(nativeHost), undefined); assert.ok(f.registry.read(replacement));
     f.heading().props.ref(null); assert.equal(f.registry.read(replacement), undefined);
     f.heading().props.ref(nativeHost);
-  } finally {f.close();}
+  } finally {await f.close();}
   assert.equal(f.registry.read(nativeHost), undefined, 'unmount retires the lease even without another native ref callback');
 });
 
@@ -103,7 +104,7 @@ test('production frontdoor never loads measurement code or attaches callbacks an
     assert.deepEqual(buttons.map(button => button.props.testID), ['accounts-welcome-portico', 'accounts-welcome-local']);
     assert.deepEqual(buttons.map(button => button.props.style), Array(2).fill({alignSelf: 'stretch', height: 48, borderRadius: 11, paddingHorizontal: 20}));
     assert.deepEqual(f.actions, []); buttons[0].props.onPress(); buttons[1].props.onPress(); assert.deepEqual(f.actions, ['portico', 'local']);
-  } finally {f.close();}
+  } finally {await f.close();}
 });
 
 test('the existing brand Image owns a DEV lease without changing its asset or presentation', async () => {
@@ -128,7 +129,7 @@ test('the existing brand Image owns a DEV lease without changing its asset or pr
     const cleanup = ref(first);
     cleanup(); assert.equal(f.registry.read(first), undefined);
     ref(first);
-  } finally {f.close();}
+  } finally {await f.close();}
   assert.equal(f.registry.read(first), undefined);
 });
 
@@ -154,6 +155,6 @@ test('the existing welcome View owns a DEV scope lease that retires on replaceme
     const cleanup = ref(first);
     assert.equal(typeof cleanup, 'function'); cleanup(); assert.equal(f.registry.read(first), undefined, 'React ref cleanup retires scope');
     ref(first);
-  } finally {f.close();}
+  } finally {await f.close();}
   assert.equal(f.registry.read(first), undefined, 'welcome unmount retires its scope without relying on the full NativeRoot disappearing');
 });

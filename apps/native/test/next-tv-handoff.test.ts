@@ -1,12 +1,15 @@
+// @fabric-react
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import * as React from 'react';
 import {catalogue, defaultI18n, enUS} from '../../../packages/i18n/src';
 import {createTheme, nativeType} from '../src-next/kit/theme';
 import {stateSentenceParts} from '../src-next/kit/states/sentence-parts';
-import {act, createHookHost} from './hook-driver';
+import * as React from 'react';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
+// Walks both the element props the shallow fixtures hand back and the host
+// nodes React commits, so a case keeps the same lookup it always used.
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
 const theme = createTheme({isTV: true, width: 1920});
 const scope = (component: (props: any) => any, props: any) => {
@@ -49,7 +52,7 @@ test('signed-in profile management reuses the drawn QR/link part and returns thr
   });
   const url = 'https://server.example/settings?scope=account&section=profile';
   let tree: any;
-  const host = createHookHost(() => {tree = TVManagementHandoff({url, onBack: () => calls.push('back')});});
+  const host = createFabricHookHost(() => {tree = TVManagementHandoff({url, onBack: () => calls.push('back')});});
   await act(() => host.mount());
   try {
     assert.deepEqual(calls, [], 'showing the hand-off never invokes an account action');
@@ -60,7 +63,7 @@ test('signed-in profile management reuses the drawn QR/link part and returns thr
     assert.equal([...listeners][0]!(), true);
     tree.props.onAccessibilityEscape();
     assert.deepEqual(calls, ['back', 'back']);
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
   assert.equal(listeners.size, 0, 'the departed management view retains no hardware Back handler');
 });
 
@@ -71,7 +74,7 @@ test('unsigned Forgot PIN has the profile why, public QR, one initially focused 
   }, (...args) => entries.push(args));
   const props = {profileName: 'Actual profile', url: 'https://server.example/settings/profile', body: 'account.tvHandoffTitle', onBack: () => callbacks.push('back')};
   let tree: any;
-  const host = createHookHost(() => {tree = scope(TVForgotPINHandoff, props);});
+  const host = createFabricHookHost(() => {tree = scope(TVForgotPINHandoff, props);});
   await act(() => host.mount());
   try {
     assert.deepEqual(callbacks, [], 'displaying this variant has no session-retirement or automatic-continue callback');
@@ -92,7 +95,7 @@ test('unsigned Forgot PIN has the profile why, public QR, one initially focused 
     assert.deepEqual(entries[0]![1], {regionId: 'tv.auth.profile.forgot-pin', childId: 'back'});
     buttons[0].props.onPress(); assert.deepEqual(callbacks, ['back']);
     assert.equal([...listeners][0]!(), true); assert.deepEqual(callbacks, ['back', 'back']);
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
   assert.equal(listeners.size, 0);
   assert.deepEqual(callbacks, ['back', 'back'], 'unmount is not a sign-out or cancellation action');
 });

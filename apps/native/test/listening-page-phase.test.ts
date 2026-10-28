@@ -1,10 +1,11 @@
+// @fabric-react
 import {dockFence} from './helpers/dock-fence.ts';
 /** Authored UNRUN actual-hook/UI-worklet source vectors with controlled shared
  * values. No reconciler, native image, display timing, input or device proof. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
-import {createHookHost, act} from './hook-driver.ts';
+import {createFabricHookHost, act} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {sameFence} from '../../../packages/player-core/src/index.ts';
 import {validRect} from '../src-next/kit/dock/model.ts';
@@ -47,25 +48,25 @@ async function rig() {
     '../overlays/OverlayPaintContext': {useOverlayPaintMode: () => ({interactive})}, './ListeningCoverPaint': {ListeningCoverPaint: 'ListeningCoverPaint'},
     '../overlays/CommittedPaint': {CommittedPaintProvider: 'CommittedPaintProvider'},
   });
-  const provider = createHookHost(() => {tree = ListeningCoverProvider({children: null});});provider.mount();
+  const provider = createFabricHookHost(() => {tree = ListeningCoverProvider({children: null});});await provider.mount();
   const step = () => {for (const reaction of reactions) {const now = reaction.read();reaction.apply(now, reaction.previous);reaction.previous = now;}};
   await act(() => tree.props.value.publish(binding)); tree.props.value.reportPageHeight(690);step();
-  let pageStyle: any; const page = createHookHost(() => {pageStyle = useListeningPageStyle(fence as any, 690);}); page.mount();
-  let tab: any; const tabHost = createHookHost(() => {tab = useListeningTabBarPaint();});tabHost.mount();
+  let pageStyle: any; const page = createFabricHookHost(() => {pageStyle = useListeningPageStyle(fence as any, 690);}); await page.mount();
+  let tab: any; const tabHost = createFabricHookHost(() => {tab = useListeningTabBarPaint();});await tabHost.mount();
   return {controller, context: () => tree.props.value, step,
     async publishScrubber(value: any) {let off: any;await act(() => {off = scrubberContexts().props.value(value);});return async () => {await act(() => off());};},
-    mountSeek() {
+    async mountSeek() {
       let seekTree: any;
-      const host = createHookHost(() => {seekTree = ListeningSeekPaint({fence, fraction: .1, span: 100, seconds: 10, label: 'Seek'});});host.mount();
+      const host = createFabricHookHost(() => {seekTree = ListeningSeekPaint({fence, fraction: .1, span: 100, seconds: 10, label: 'Seek'});});await host.mount();
       return {host, get tree() {return seekTree;}, view: () => seekTree.props.children, fill: () => seekTree.props.children.props.children.props.children.props.style[1].read()};
     },
     inert() {interactive = false;},
     async publishSame() {await act(() => tree.props.value.publish({...binding, opening: fullOpening, pageOpen: true}));step();},
-    async nextTrack() {await act(() => tree.props.value.publish({...binding, fence: dockFence('next'), opening: fullOpening, pageOpen: true}));step();page.rerender();},
-    async reduce() {reduce = true; provider.rerender();await act(() => {});step();page.rerender();tabHost.rerender();},
-    async retire() {current = false;await act(() => {for (const listener of [...listeners]) listener();});step();page.rerender();tabHost.rerender();},
+    async nextTrack() {await act(() => tree.props.value.publish({...binding, fence: dockFence('next'), opening: fullOpening, pageOpen: true}));step();await page.rerender();},
+    async reduce() {reduce = true; await provider.rerender();await act(() => {});step();await page.rerender();await tabHost.rerender();},
+    async retire() {current = false;await act(() => {for (const listener of [...listeners]) listener();});step();await page.rerender();await tabHost.rerender();},
     tabStyle: () => tab.style.read(), measureTab: (height: number) => tab.measure(height),
-    pageStyle: () => pageStyle.read(), close() {tabHost.unmount();page.unmount();provider.unmount();}};
+    pageStyle: () => pageStyle.read(), async close() {await tabHost.unmount();await page.unmount();await provider.unmount();}};
 }
 
 test('phone tabs use their actual footprint and shared page reduction, with no independent transition clock', async () => {
@@ -84,7 +85,7 @@ test('phone tabs use their actual footprint and shared page reduction, with no i
     assert.equal(r.tabStyle().transform[0].translateY, 62, 'reduction preserves direct finger tracking');
     await r.retire();
     assert.deepEqual(r.tabStyle(), {opacity: 1, transform: [{translateY: 0}]});
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 test('first mini drag starts one260/320/380 group clock and the admitted body handoff does not restart it', async () => {
@@ -102,7 +103,7 @@ test('first mini drag starts one260/320/380 group clock and the admitted body ha
     r.controller.presentationGoal.value = 1; r.step();
     assert.deepEqual(r.context().groups.map((value: any) => value.running.config.duration), [120, 120, 120]);
     assert.equal(handles[0].stopped, true);
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 test('reduction retargets partial page/group opacity160linear while removing autonomous page travel', async () => {
@@ -120,7 +121,7 @@ test('reduction retargets partial page/group opacity160linear while removing aut
     assert.deepEqual(r.pageStyle().transform, [{translateY: 0}]);
     r.controller.dragging.value = true; r.step();
     assert.equal(r.pageStyle().transform[0].translateY, 690 * .832, 'direct finger progress remains direct under reduction');
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 test('a track replacement in the same open page preserves group paint without admitting old-fence pixels', async () => {
@@ -133,7 +134,7 @@ test('a track replacement in the same open page preserves group paint without ad
     assert.deepEqual(r.context().groups.map((value: any) => value.value), [1, 1, 1]);
     assert.deepEqual(r.context().groups.map((value: any) => value.running), handles, 'no second entrance clock on Next');
     assert.equal(r.pageStyle().opacity, 0, 'preserved numeric opacity never grants the old fence paint permission');
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 test('reversing an outgoing page retargets its actual partial paint with only the group stagger', async () => {
@@ -153,7 +154,7 @@ test('reversing an outgoing page retargets its actual partial paint with only th
     r.controller.presentationGoal.value = 0;r.step();
     assert.deepEqual(r.context().groups.map((value: any) => value.running.delay), [0, 60, 120],
       'reversal before a delayed group becomes visible must not replay the initial260ms wait');
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 test('artless admitted paint still gets a page clock and original retirement cancels it', async () => {
@@ -168,14 +169,14 @@ test('artless admitted paint still gets a page clock and original retirement can
     assert.equal(r.context().pageAlpha.value, 0);
     assert.deepEqual(r.context().groups.map((value: any) => value.value), [0, 0, 0]);
     assert.equal(r.pageStyle().opacity, 0);
-  } finally {r.close();}
+  } finally {await r.close();}
 });
 
 
 test('retiring the live scrubber keeps its last painted fraction and footprint without retaining its recogniser', async () => {
   const r = await rig(), context = r.context();
   const channel = {fence, gesture: {synthetic: 'original'}, scope: 7, activeScope: cell(7), ticket: cell(1), drag: cell(null), base: cell(.2), travel: cell(0)};
-  const off = await r.publishScrubber(channel), widget = r.mountSeek();
+  const off = await r.publishScrubber(channel), widget = await r.mountSeek();
   try {
     assert.equal(r.context(), context, 'live scrubber publication does not change the main context read by the business publisher');
     widget.view().props.onLayout({nativeEvent: {layout: {width: 200}}});r.step();
@@ -183,18 +184,18 @@ test('retiring the live scrubber keeps its last painted fraction and footprint w
     channel.drag.value = .65;r.step();
     assert.equal(widget.fill().transform[1].scaleX, .65);
     channel.ticket.value = 0;channel.drag.value = null;r.step();
-    r.inert();await off();widget.host.rerender();r.step();
+    r.inert();await off();await widget.host.rerender();r.step();
     assert.equal(widget.fill().transform[1].scaleX, .65, 'engine/rest facts cannot erase the captured actual preview');
     assert.equal(widget.view().props.style.height, 28);
     assert.notEqual(widget.tree.props.gesture, channel.gesture, 'the retired business recogniser is no longer installed');
-  } finally {widget.host.unmount();r.close();}
+  } finally {await widget.host.unmount();await r.close();}
 });
 
 test('listening scrub accessibility actions use the live publication and refuse retired scopes', async () => {
   const r = await rig(), directions: number[] = [];
   const channel = {fence, gesture: {}, scope: 7, activeScope: cell(7), ticket: cell(1), drag: cell(null), base: cell(.2), travel: cell(0),
     adjust: (direction: number) => directions.push(direction)};
-  const off = await r.publishScrubber(channel), widget = r.mountSeek();
+  const off = await r.publishScrubber(channel), widget = await r.mountSeek();
   const action = (name: string) => widget.view().props.onAccessibilityAction({nativeEvent: {actionName: name}});
   try {
     assert.equal(widget.view().props.accessible, true);
@@ -207,10 +208,10 @@ test('listening scrub accessibility actions use the live publication and refuse 
     channel.ticket.value = 2; channel.activeScope.value = 8;
     action('decrement');
     assert.deepEqual(directions, [1, -1], 'native callbacks queued after scope retirement cannot seek');
-    r.inert(); await off(); widget.host.rerender();
+    r.inert(); await off(); await widget.host.rerender();
     assert.equal(widget.view().props.accessible, false);
     assert.deepEqual(widget.view().props.accessibilityActions, []);
     action('increment');
     assert.deepEqual(directions, [1, -1]);
-  } finally {widget.host.unmount(); r.close();}
+  } finally {await widget.host.unmount(); await r.close();}
 });

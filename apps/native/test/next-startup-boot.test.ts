@@ -1,7 +1,8 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
-import {act, createHookHost} from './hook-driver.ts';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {startupWait} from '../src-next/shell/startup-recovery.ts';
 
@@ -40,9 +41,9 @@ async function boot(options: {os?: string; platform?: string; isPad?: boolean; r
   const previousRequire = Object.getOwnPropertyDescriptor(globalThis, 'require');
   Object.defineProperty(globalThis, 'require', {configurable: true, value: (path: string) => {assert.equal(path, '../../assets/wordmark.png'); return 'wordmark';}});
   const restoreRequire = () => {if (previousRequire) Object.defineProperty(globalThis, 'require', previousRequire); else Reflect.deleteProperty(globalThis, 'require');};
-  const host = createHookHost(() => {tree = StartupBoot(props);});
-  try {await act(() => host.mount());} catch (error) {host.unmount(); restoreRequire(); throw error;}
-  return {host: {unmount: () => {host.unmount(); restoreRequire();}}, animations, loops, announcements, hidden: () => hidden, tree: () => tree, nodes: () => all(tree),
+  const host = createFabricHookHost(() => {tree = StartupBoot(props);});
+  try {await act(() => host.mount());} catch (error) {await host.unmount(); restoreRequire(); throw error;}
+  return {host: {unmount: async () => {await host.unmount(); restoreRequire();}}, animations, loops, announcements, hidden: () => hidden, tree: () => tree, nodes: () => all(tree),
     async update(next: Record<string, unknown>) {props = {...props, ...next}; await act(() => host.rerender());}};
 }
 
@@ -66,7 +67,7 @@ test(`${name} boot uses the bound wordmark and backdrop geometry without moving 
     const overlay = f.nodes().find(node => node.props.testID === 'native-startup-boot')!;
     assert.equal(overlay.props.focusable, false); assert.equal(overlay.props.accessibilityLabel, 'Portico, Loading');
     assert.equal(f.nodes().find(node => node.type === 'OverlayPaintProvider')!.props.mode.interactive, false);
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });
 
 for (const reduce of [false, true])
@@ -86,7 +87,7 @@ test(`${reduce ? 'reduced' : 'ordinary'} handoff keeps content fixed, blocks inp
     assert.equal(f.nodes().some(node => node.props.testID === 'native-startup-boot'), false);
     assert.equal(f.nodes().find(node => node.type === 'OverlayPaintProvider')!.props.mode.interactive, true);
     assert.equal(f.nodes()[1]!.props.importantForAccessibility, 'auto'); assert.equal(f.hidden(), 1);
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });
 
 test('a retired fade completion cannot hide or focus a later boot opening', async () => {
@@ -96,7 +97,7 @@ test('a retired fade completion cannot hide or focus a later boot opening', asyn
     await f.update({active: true}); assert.equal(old.stopped, true);
     await act(() => old.complete!({finished: true}));
     assert.equal(f.hidden(), 0); assert.ok(f.nodes().find(node => node.props.testID === 'native-startup-boot'));
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });
 
 test('boot announces its short waiting messages without changing the deadline or server facts', async () => {
@@ -104,5 +105,5 @@ test('boot announces its short waiting messages without changing the deadline or
   try {
     await f.update({waiting: startupWait(3_000, true)}); await f.update({waiting: startupWait(8_000, true)});
     assert.deepEqual(f.announcements, ['Connecting to Test server', 'Still connecting']);
-  } finally {f.host.unmount();}
+  } finally {await f.host.unmount();}
 });

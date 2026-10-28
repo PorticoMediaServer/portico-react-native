@@ -1,9 +1,12 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {porticoPublicLinks} from '../../../packages/client-core/src/public-links';
 import * as passwordPolicy from '../../../packages/client-core/src/password-strength';
-import {act, createHookHost} from './hook-driver';
+import {act as fabricAct, createFabricHookHost} from './helpers/fabric-hooks.mjs';
+import {act as driverAct, createHookHost} from './hook-driver.ts';
+const act = async (work: () => void | Promise<void>) => {await driverAct(work); await fabricAct(() => {});};
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
@@ -17,7 +20,7 @@ const registration = {kind: 'registration', registrationId: 'registration-origin
 
 /** Actual AccountEntry hook effects and handlers. Native hosts and IO are ports;
  * missing paths throw instead of manufacturing a successful command. */
-async function fixture(context: import('node:test').TestContext, initialStage: 'welcome' | 'address' = 'welcome', invitationRole?: 'admin' | 'member') {
+async function fixture(context: import('node:test').TestContext, initialStage: 'welcome' | 'address' = 'welcome', invitationRole?: 'admin' | 'member', createHost: (body: () => void) => any = createFabricHookHost) {
   const calls = {prepare: 0, constructed: 0, synchronize: 0, links: [] as string[], register: [] as unknown[][],
     resend: [] as any[], verify: [] as any[], local: 0, factor: [] as string[], complete: 0};
   let linkFailure: Error | undefined;
@@ -90,7 +93,7 @@ async function fixture(context: import('node:test').TestContext, initialStage: '
     context.after(() => {if (previousRequire) Object.defineProperty(globalThis, 'require', previousRequire); else Reflect.deleteProperty(globalThis, 'require');});
   }
   const incomingInvitation = invitationRole ? {raw: entry.raw, current: () => true, onRetired: () => () => {}} : undefined;
-  const host = createHookHost(() => {tree = AccountEntry({initialStage, incomingInvitation, onComplete: () => {calls.complete++;}});});
+  const host = createHost(() => {tree = AccountEntry({initialStage, incomingInvitation, onComplete: () => {calls.complete++;}});});
   context.after(() => host.unmount()); await act(() => host.mount());
   const fields = () => nodes(tree.props.beforeActions).filter(node => node.type === 'TextField');
   return {host, calls, tree: () => tree, fields, failLinks: (error: Error) => {linkFailure = error;}, prepare: (work: typeof prepare) => {prepare = work;},
@@ -102,8 +105,10 @@ async function fixture(context: import('node:test').TestContext, initialStage: '
     }};
 }
 
+// Preserve this manual replay vector: production Fabric cannot replay a
+// captured committed setup/cleanup pair as the development renderer can.
 test('welcome, effect replay, local entry and Back never prepare or synchronize a Portico account', async context => {
-  const f = await fixture(context);
+  const f = await fixture(context, 'welcome', undefined, createHookHost);
   assert.equal(f.tree().type, 'FrontDoor');
   const retainedPortico = f.tree().props.onPortico;
   await act(() => {f.host.replay(); f.host.rerender();});
@@ -197,3 +202,5 @@ for (const [role, sentence] of [['admin', 'accounts.invitation.admin'], ['member
     assert.equal(f.calls.complete, 0, 'preview does not accept the invitation');
   });
 }
+
+test.todo('Fabric account entry effect replay: TypeError: f.host.replay is not a function');

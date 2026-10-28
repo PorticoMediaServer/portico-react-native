@@ -1,9 +1,10 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {createTheme} from '../src-next/kit/theme';
-import {act, createHookHost} from './hook-driver';
+import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
@@ -17,7 +18,7 @@ test('phone PIN keeps one real numeric input, strips non-digits and submits the 
   });
   const completed: string[] = [];
   let setValue: (value: string) => void = () => {}, tree: any;
-  const host = createHookHost(() => {
+  const host = createFabricHookHost(() => {
     const [value, set] = React.useState('');
     setValue = set;
     tree = PhonePINEntry({value, onChange: set, onComplete: (code: string) => completed.push(code)});
@@ -38,5 +39,5 @@ test('phone PIN keeps one real numeric input, strips non-digits and submits the 
     await act(() => setValue(''));
     await act(() => input().props.onChangeText('1234'));
     assert.deepEqual(completed, ['1234', '1234'], 'a cleared wrong PIN can be entered again');
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });

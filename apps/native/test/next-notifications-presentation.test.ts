@@ -1,7 +1,8 @@
+// @fabric-react
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
-import {createHookHost} from './hook-driver.ts';
+import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const react = {...React, default: React};
@@ -40,8 +41,8 @@ test('notification sections use a count slot, intra-section separators and the a
   const runtime = {getSnapshot: () => ({hasLiveTV: false}), text: i18n};
   const retirement = {subscribe: () => () => {}, getSnapshot: () => undefined};
   let tree: any;
-  const host = createHookHost(() => {tree = NativeNotificationsScreen({context, route, runtime, profileService, adminService, retirement});});
-  host.mount(); host.flush();
+  const host = createFabricHookHost(() => {tree = NativeNotificationsScreen({context, route, runtime, profileService, adminService, retirement});});
+  await host.mount(); await host.flush();
   try {
     const tabs = all(tree).find(node => node.type === 'Tabs');
     assert.equal(tabs.props.items[0].label, 'notifications.view.unread');
@@ -66,7 +67,7 @@ test('notification sections use a count slot, intra-section separators and the a
     assert.equal(card(drawn[1]).borderTopLeftRadius, 14); assert.equal(card(drawn[1]).borderBottomLeftRadius, 0);
     assert.equal(card(drawn[2]).borderTopLeftRadius, 0); assert.equal(card(drawn[2]).borderBottomLeftRadius, 14);
     assert.equal(flatten(all(tree).find(node => node.props.testID === 'notifications-mark-all').props.textStyle).fontSize, 15);
-  } finally {host.unmount();}
+  } finally {await host.unmount();}
 });
 
 test('a notification row omits its top rule unless the caller supplies a preceding row', async () => {
@@ -94,8 +95,8 @@ test('Tabs draws the count as a distinct pill while retaining tab semantics and 
   });
   const items = [{value: 'unread', label: 'Unread', count: '12'}, {value: 'all', label: 'All'}];
   let tree: any;
-  const host = createHookHost(() => {tree = Tabs({items, value: 'unread', onValueChange() {}, testID: 'tabs'});});
-  host.mount();
+  const host = createFabricHookHost(() => {tree = Tabs({items, value: 'unread', onValueChange() {}, testID: 'tabs'});});
+  await host.mount();
   try {
     const tab = all(tree).find(node => node.props.testID === 'tabs-item-unread');
     assert.equal(tab.props.accessibilityRole, 'tab');
@@ -106,15 +107,15 @@ test('Tabs draws the count as a distinct pill while retaining tab semantics and 
     const pill = flatten(texts[1].props.style);
     assert.equal(pill.fontSize, 12); assert.equal(pill.borderRadius, 9); assert.equal(pill.marginLeft, 6);
     assert.equal(pill.paddingHorizontal, 7); assert.equal(pill.paddingVertical, 1);
-    fontScale = 2; host.rerender();
+    fontScale = 2; await host.rerender();
     const enlarged = all(tree).find(node => node.props.testID === 'tabs-item-unread');
     const enlargedChoice = all(enlarged).find(node => typeof node.type === 'function');
     assert.equal(all(enlargedChoice.type(enlargedChoice.props)).find(node => node.type === 'Text').props.numberOfLines, undefined);
-  } finally {host.unmount();}
-  const segmented = createHookHost(() => {tree = Segmented({items, value: 'unread', onValueChange() {}, variant: 'phone'});});
-  segmented.mount();
+  } finally {await host.unmount();}
+  const segmented = createFabricHookHost(() => {tree = Segmented({items, value: 'unread', onValueChange() {}, variant: 'phone'});});
+  await segmented.mount();
   try {
     const choice = all(tree).find(node => node.type === 'Focusable'), style = flatten(choice.props.style({focused: false}));
     assert.equal(style.minHeight, 28); assert.equal(style.height, undefined);
-  } finally {segmented.unmount();}
+  } finally {await segmented.unmount();}
 });

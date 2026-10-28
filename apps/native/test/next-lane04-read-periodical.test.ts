@@ -1,7 +1,8 @@
+// @fabric-react
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
-import {createHookHost} from './hook-driver.ts';
+import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {periodicalDatePreview, periodicalDayRead, periodicalHeroIssue, readingItemIsRead} from '../src-next/screens/read/periodical-presentation';
 
@@ -188,20 +189,20 @@ test('periodical hero inspects My List once per item and route lease, not per pu
     '../downloads/request': {}, '../../../platform/offline-reading': {}, './ReadingLoading': {}, './ReadingShelf': {}, './ReadingActions': {},
     './periodical-presentation': {},
   });
-  const driver = createHookHost(() => {tree = PeriodicalActions({issue: selected, showRead: false, onOpen() {}, actions, runtime,
+  const driver = createFabricHookHost(() => {tree = PeriodicalActions({issue: selected, showRead: false, onOpen() {}, actions, runtime,
     offer: (issue: any) => ({item: issue.item, lifetime: {signal: lease.signal, isCurrent: () => !lease.signal.aborted}, open() {}})});});
   try {
-    driver.mount(); await new Promise(resolve => setImmediate(resolve)); driver.flush();
+    await driver.mount(); await new Promise(resolve => setImmediate(resolve)); await driver.flush();
     assert.deepEqual(reads, ['newest']);
-    for (let index = 0; index < 4; index++) {selected = {...selected, item: {...selected.item}}; driver.rerender(); await Promise.resolve(); driver.flush();}
+    for (let index = 0; index < 4; index++) {selected = {...selected, item: {...selected.item}}; await driver.rerender(); await Promise.resolve(); await driver.flush();}
     assert.deepEqual(reads, ['newest']);
     assert.ok(tree);
-    selected = older; driver.rerender(); await new Promise(resolve => setImmediate(resolve)); driver.flush();
+    selected = older; await driver.rerender(); await new Promise(resolve => setImmediate(resolve)); await driver.flush();
     assert.deepEqual(reads, ['newest', 'older']);
-    lease.abort(); lease = new AbortController(); driver.rerender(); await new Promise(resolve => setImmediate(resolve)); driver.flush();
+    lease.abort(); lease = new AbortController(); await driver.rerender(); await new Promise(resolve => setImmediate(resolve)); await driver.flush();
     assert.deepEqual(reads, ['newest', 'older', 'older']);
     assert.deepEqual(errors, []);
-  } finally {driver.unmount(); lease.abort();}
+  } finally {await driver.unmount(); lease.abort();}
 });
 
 test('SUP-017: magazine Order walks the whole archive oldest first, years and issues alike', async () => {
