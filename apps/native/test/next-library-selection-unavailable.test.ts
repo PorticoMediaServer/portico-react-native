@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import {NativeLibraryDestination} from '../src-next/screens/library/model.ts';
+import * as selectionUnavailableActions from '../src-next/screens/library/selection-unavailable-actions.ts';
+import * as wholeQueryUnavailable from '../src-next/screens/library/whole-query-unavailable.ts';
 import type {LibraryContentApi} from '../../../packages/client-core/src/library-content.ts';
 import type {BrowseRequestBody} from '../../../packages/client-core/src/browse.ts';
 
@@ -60,7 +62,7 @@ test('actual native Library selection composes the refusal without an executor a
   '../destinations/lifetime':{nativeDestinationLifetime:()=>({current:()=>true})},
   '../native-screen-services':{nativeScreenServices:()=>({})},'../destinations/DestinationPicker':{},'../search/loaded-destinations':{},'../destinations/bulk-media':{},
   './model':{nativeLibraryEntryKey:()=>''},'./play-selection':{createNativeLibraryPlaySelection:()=>producer},
-  './whole-query-unavailable':{nativeWholeQueryUnavailableActions:()=>[]},
+  './selection-unavailable-actions':selectionUnavailableActions,'./whole-query-unavailable':wholeQueryUnavailable,
  });
  const port=createNativeLibrarySelection({subscribeAuthority:()=>()=>{}} as any,source as any,{getSnapshot:()=>({visible:true}),subscribe:()=>()=>{}} as any);
  const off=port.subscribe(()=>{notifications++;});
