@@ -44,6 +44,7 @@ async function run() {
     await refuses('invalid_image', () => downloads.appendCoverImage(partial, 'AA=A'), 'malformed base64 refused');
     await refuses('invalid_image', () => downloads.appendCoverImage(partial, 'AB=='), 'noncanonical tail bits refused');
     await refuses('invalid_image', () => downloads.appendCoverImage(partial, base64(new Uint8Array(65537))), 'chunk above 64 KiB refused');
+    await refuses('invalid_image', () => downloads.appendCoverImage(partial, base64(new Uint8Array(65538))), 'largest same-length encoded chunk refused');
     const count = await downloads.appendCoverImage(partial, png);
     check(count > 8, 'valid raster bytes appended');
     await refuses('invalid_image', () => downloads.finishCoverImage(partial, count + 1), 'wrong final size refused');
@@ -53,6 +54,12 @@ async function run() {
     await downloads.appendCoverImage(wrong, 'AAAAAAAAAAAAAAAA');
     await refuses('unsupported_image', () => downloads.finishCoverImage(wrong, 12), 'wrong raster signature refused');
     await remove(wrong);
+    const maximum = await begin();
+    const maximumChunk = new Uint8Array(65536);
+    maximumChunk.set([137, 80, 78, 71, 13, 10, 26, 10]);
+    check(await downloads.appendCoverImage(maximum, base64(maximumChunk)) === 65536, 'exact 64 KiB chunk accepted');
+    check((await downloads.finishCoverImage(maximum, 65536)).size === 65536, 'exact 64 KiB file finished');
+    await remove(maximum);
     const large = await begin();
     const chunk = new Uint8Array(24576);
     chunk.set([137, 80, 78, 71, 13, 10, 26, 10]);
