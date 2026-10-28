@@ -97,7 +97,7 @@ function People({ports, runtime, compactHeader, source}: Props & {source: Native
       </Focusable> : <View style={{paddingVertical: 14, borderTopWidth: 1, borderTopColor: theme.colors.lineSoft, gap: 5}}>
         <Text style={[shellType(15, 700), {color: theme.colors.text}]}>{item.notes || roleLabel(t, item.role)}</Text>
         <Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary}]}>{roleLabel(t, item.role)} · {item.state} · {defaultI18n.date(item.expiresAt)}</Text>
-        {item.state === 'pending' && <Button variant="glass" size="compact" disabled={loading} onPress={() => {if (current()) source.beginInvitation(item);}}>{t('action.edit')}</Button>}
+        {item.state === 'pending' && <Button variant="glass" size="compact" disabled={loading} onPress={() => {if (current()) source.beginInvitation(item);}}>{t('next.selection.edit')}</Button>}
         {item.state === 'pending' && <Button size="compact" variant="danger" disabled={loading} onPress={() => ask({action: 'revoke', invitation: item})}>{t('web.access.revoke')}</Button>}
       </View>}
       ListFooterComponent={<View style={{gap: 16, marginTop: 12}}><View style={{flexDirection: 'row', gap: 8}}>
@@ -203,7 +203,7 @@ function InvitationEditor({source, opening, runtime}: {source: NativePeopleSourc
     {opening.invitation?.state === 'pending' && <Button testID="people-share-invitation" variant="glass" disabled={state.busy} onPress={() => {
       if (!current()) return;
       void source.invitationShareLink(opening).then(link => {if (link && current()) return Share.share({message: link});}).catch(error => {if (source.current() && source.getSnapshot().invitationOpening === opening) runtime.reportError(error);});
-    }}>{t('action.share')}</Button>}
+    }}>{t('invite.share')}</Button>}
     {state.invitationLink && <TextField label={t('web.access.inviteLink')} value={state.invitationLink} editable={false} selectTextOnFocus/>}
     {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {if (current()) source.closeInvitation();})}/>}
   </BottomSheet>;
