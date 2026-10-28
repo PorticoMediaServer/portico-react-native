@@ -169,8 +169,8 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
     const [owners, grants] = await Promise.all([this.request<unknown>('/v1/admin/dvr/recording-owners?' + new URLSearchParams({limit: '200', cursor})), this.request<unknown>('/v1/admin/dvr/recording-permissions')]);
     return parseRecordingPolicy(owners, grants, this.lifetime.authority.serverId);
   };
-  setPermission = async (owner: RecordingOwner, enabled: boolean, inheritProfiles: boolean, revision: number) => {
-    await this.request('/v1/admin/dvr/recording-permissions', 'PUT', {owner, enabled, inheritProfiles, revision});
+  setPermission = async (owner: RecordingOwner, enabled: boolean, revision: number) => {
+    await this.request('/v1/admin/dvr/recording-permissions', 'PUT', {owner, enabled, revision});
   };
   rules = async (cursor = '') => parseAdminRulePage(await this.request<unknown>('/v1/admin/dvr/recording-groups?' + new URLSearchParams({limit: '100', cursor})), this.lifetime.authority.serverId);
   private async recordingMutation(draft: Parameters<typeof recordingRulePayload>[0], grants: readonly RecordingGrant[], caller?: NativeRecordingCommandLifetime): Promise<AdminRule> {

@@ -156,7 +156,7 @@ test('rule toggle adopts only its exact advanced receipt', async () => {
   const owner = {authority: 'local' as const, accountId: 'a', profileId: 'p'};
   const row = {id: 'r', revision: 3, owner, status: 'disabled', kind: 'title', name: 'Title', match: 'Title', sourceId: 's', enabled: false, options: {prePaddingMs: 60000, postPaddingMs: 0, keepPolicy: null, newEpisodesOnly: false, priority: 0, folderTemplate: ''}};
   const rule = parseAdminRules({serverId: 'server', result: {items: [row]}}, 'server')[0]!;
-  const grants = [{owner, enabled: true, inheritProfiles: false, revision: 1}];
+  const grants = [{owner, enabled: true, revision: 1}];
   let receipt = {...row, revision: 4, enabled: true};
   const calls: string[] = [];
   const api = {request: async <T,>(path: string) => {
@@ -172,7 +172,7 @@ test('rule toggle adopts only its exact advanced receipt', async () => {
 });
 
 test('new rule accepts only its actual command receipt and never refreshes a shared source',async()=>{
- const owner={authority:'local' as const,accountId:'a',profileId:'p'},grants=[{owner,enabled:true,inheritProfiles:false,revision:1}];
+ const owner={authority:'local' as const,accountId:'a',profileId:'p'},grants=[{owner,enabled:true,revision:1}];
  const draft={owner,anchor:{sourceId:'s',channelId:'c',generation:'g',programmeId:'programme'},kind:'title',name:'Actual title',match:'Actual title',sourceId:'s',enabled:false,
   options:{prePaddingMs:60000,postPaddingMs:null,keepPolicy:null,newEpisodesOnly:false,priority:500,folderTemplate:''}};
  const row={id:'generated',revision:7,owner,status:'disabled',kind:draft.kind,name:draft.name,match:draft.match,sourceId:'s',enabled:false,
@@ -193,7 +193,7 @@ test('new rule accepts only its actual command receipt and never refreshes a sha
 test('original create/toggle caller retirement during POST/PUT never refreshes or adopts under a successor',async()=>{
  for(const command of ['create','toggle'] as const){
   let answer!:(value:unknown)=>void,live=true;const calls:{method?:string;signal?:AbortSignal}[]=[];
-  const owner={authority:'local' as const,accountId:'a',profileId:'p'},grants=[{owner,enabled:true,inheritProfiles:false,revision:1}];
+  const owner={authority:'local' as const,accountId:'a',profileId:'p'},grants=[{owner,enabled:true,revision:1}];
   const row={id:'original',revision:3,owner,status:'disabled',kind:'title',name:'Title',match:'Title',sourceId:'s',enabled:false,options:{prePaddingMs:60000,postPaddingMs:0,keepPolicy:null,newEpisodesOnly:false,priority:0,folderTemplate:''}};
   const rule=parseAdminRules({serverId:'server',result:{items:[row]}},'server')[0]!;
   const lifetime=new NativeScreenLifetime(authority()),caller=new AbortController();
@@ -215,7 +215,7 @@ test('last original owner predicate aborting a command caller inside the real li
  }
  const original=authority();const lifetime=new ObservedLifetime({...original,current:()=>{if(armed)caller.abort();return original.current();}});
  const controller=new NativeLiveOwnerController(lifetime,{request:async<T>()=>{requests++;return {} as T;}},()=> 'original-pre-io');
- const owner={authority:'local' as const,accountId:'a',profileId:'p'},grants=[{owner,enabled:true,inheritProfiles:false,revision:1}];
+ const owner={authority:'local' as const,accountId:'a',profileId:'p'},grants=[{owner,enabled:true,revision:1}];
  try{
   await assert.rejects(controller.createRule({owner,anchor:{sourceId:'s',channelId:'c',generation:'g',programmeId:'programme'},kind:'title',name:'Title',match:'Title',sourceId:'s',enabled:false,
    options:{prePaddingMs:60000,postPaddingMs:0,keepPolicy:null,newEpisodesOnly:false,priority:0,folderTemplate:''}},grants,

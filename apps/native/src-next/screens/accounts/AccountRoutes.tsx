@@ -410,7 +410,7 @@ export function ProfileRoute({context, route, onBack, embedded = false}: {contex
       <TextField label={t('profile.name')} description={deletion?.preview.name ?? profiles.find(value => value.id === deletion?.preview.profileId)?.name} value={deleteName} onChangeText={value => {if (deletionCurrent() && !activeTicket.current) {deleteNameRef.current = value; setDeleteName(value);}}} editable={!actionBusy}/>
       {problem ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{problem}</Text> : null}
     </BottomSheet>
-    {limitsProfile && limitsLease && editorCurrent() ? <ProfileLimitsSheet profile={limitsProfile} lease={limitsLease} identityFor={identityForLimits} onClose={closeEdit} onSaved={() => {if (editorCurrent()) {setNotice(t('limits.saved', {name: limitsProfile.name})); closeEdit();}}}/> : null}
+    {limitsProfile && limitsLease && editorCurrent() ? <ProfileLimitsSheet profile={limitsProfile} lease={limitsLease} serverOwner={context.account.account.role === 'owner'} identityFor={identityForLimits} onClose={closeEdit} onSaved={() => {if (editorCurrent()) {setNotice(t('limits.saved', {name: limitsProfile.name})); closeEdit();}}}/> : null}
   </>;
 }
 
@@ -458,7 +458,9 @@ type ProfileLimitsOwner = {
   retired: boolean;
 };
 
-function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {profile: ManagedProfile; lease: ProfileLease; identityFor: (controller: AbortController) => IdentityClient; onClose: () => void; onSaved: () => void}) {
+/** `serverOwner`: only the server owner may switch Recordings on (Who can record); anyone who
+ * manages the profile may switch it off. */
+function ProfileLimitsSheet({profile, lease, serverOwner, identityFor, onClose, onSaved}: {profile: ManagedProfile; lease: ProfileLease; serverOwner: boolean; identityFor: (controller: AbortController) => IdentityClient; onClose: () => void; onSaved: () => void}) {
   const theme = useTheme();
   const [owner, setOwner] = useState<ProfileLimitsOwner>();
   const ownerRef = useRef<ProfileLimitsOwner | undefined>(undefined);
@@ -541,7 +543,7 @@ function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {pr
       <Text style={[theme.type.captionStrong, {color: theme.colors.textTertiary, marginTop: 6}]}>{t('limits.features')}</Text>
       {([['allowDownloads', 'limits.feature.downloads'], ['allowLiveTv', 'limits.feature.liveTv'], ['allowDvr', 'limits.feature.dvr'], ['allowWatchTogether', 'limits.feature.watchTogether']] as const).map(([key, label]) =>
         <View key={key} style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12}}><Text style={[theme.type.body, {color: theme.colors.text}]}>{t(label)}</Text>
-          <Switch focusId={`feature:${key}`} checked={draft[key]} onCheckedChange={value => updateDraft({[key]: value})}/></View>)}
+          <Switch focusId={`feature:${key}`} checked={draft[key]} disabled={key === 'allowDvr' && !serverOwner && !restrictions?.allowDvr} onCheckedChange={value => updateDraft({[key]: value})}/></View>)}
 
     </View>}
     <Dialog testID="profile-hidden-labels-picker" open={labelsOpen} onOpenChange={setLabelsOpen} title={t('web.limits.hiddenLabels')} description={t('next.settingsSpec.account.profile.groups.3.rows.2.help')}
