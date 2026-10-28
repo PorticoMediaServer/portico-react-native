@@ -53,7 +53,7 @@ static void PorticoConfigureItem(AVPlayerItem *item) {
  if (screenPixels.width > 0) item.preferredMaximumResolution = screenPixels;
 #endif
 }
-@interface PorticoPlaybackController () <AVPlayerItemOutputPullDelegate>
+@interface PorticoPlaybackController ()
 @property(nonatomic,copy) NSDictionary *command;
 @end
 @implementation PorticoPlaybackController {
@@ -162,21 +162,6 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  if(_capturedVideoFrame){CVPixelBufferRelease(_capturedVideoFrame);_capturedVideoFrame=NULL;}
  _capturedVideoTime=kCMTimeInvalid;
 }
-- (BOOL)requestVideoFrameForBinding:(NSDictionary *)binding {
- if(!NSThread.isMainThread||![binding isEqual:self.externalPresentationBinding]||!_videoOutput)return NO;
- // A snapshot is an intermittent consumer. Announce its return from quiescence once,
- // rather than asking AVFoundation to wake for every frame or altering the player/layer.
- [_videoOutput setDelegate:self queue:dispatch_get_main_queue()];
- [_videoOutput requestNotificationOfMediaDataChangeWithAdvanceInterval:0.03];
- return YES;
-}
-- (void)outputMediaDataWillChange:(AVPlayerItemOutput *)output {
- // The bounded snapshot flight pulls on the main queue; the callback wakes AVFoundation's
- // idle output without starting another clock or giving the output playback ownership.
-}
-- (void)outputSequenceWasFlushed:(AVPlayerItemOutput *)output {
- if(output==_videoOutput)[self clearCapturedVideoFrame];
-}
 - (CVPixelBufferRef)copyVideoFrameForBinding:(NSDictionary *)binding displayTime:(CMTime *)displayTime transform:(CGAffineTransform *)transform {
  if(!NSThread.isMainThread||![binding isEqual:self.externalPresentationBinding]||!_videoOutput)return NULL;
  AVPlayerItem *item=_observedItem;CMTime now=item.currentTime,actual=kCMTimeInvalid;
@@ -186,7 +171,12 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  if(frame){[self clearCapturedVideoFrame];_capturedVideoFrame=frame;_capturedVideoTime=actual;}
  // A paused frame may have already been consumed by a previous request. Reuse only the
  // actual decoded buffer from this same item/binding and within one frame's coarse budget.
- if(!_capturedVideoFrame||!CMTIME_IS_NUMERIC(_capturedVideoTime)||fabs(CMTimeGetSeconds(CMTimeSubtract(now,_capturedVideoTime)))>.25||item!=_player.currentItem||![binding isEqual:self.externalPresentationBinding])return NULL;
+ if(!_capturedVideoFrame||!CMTIME_IS_NUMERIC(_capturedVideoTime)||fabs(CMTimeGetSeconds(CMTimeSubtract(now,_capturedVideoTime)))>.25||item!=_player.currentItem||![binding isEqual:self.externalPresentationBinding]){
+  // An unusable buffer has no cache lifetime. Release it before the next pull instead
+  // of retaining a decoder-owned surface while waiting for a current sample.
+  [self clearCapturedVideoFrame];
+  return NULL;
+ }
  if(displayTime)*displayTime=_capturedVideoTime;
  if(transform){*transform=CGAffineTransformIdentity;for(AVPlayerItemTrack *track in item.tracks)if([track.assetTrack.mediaType isEqual:AVMediaTypeVideo]){*transform=track.assetTrack.preferredTransform;break;}}
  return CVPixelBufferRetain(_capturedVideoFrame);
