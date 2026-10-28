@@ -74,7 +74,7 @@ const {PlaylistPicker} = await import('../src-next/kit/selection/Picker.tsx');
 const {BulkEditor} = await import('../src-next/kit/selection/BulkEditor.tsx');
 const {DeleteMediaDialog} = await import('../src-next/kit/selection/DeleteMediaDialog.tsx');
 const {MixedEditExplainer} = await import('../src-next/kit/selection/MixedEditExplainer.tsx');
-const {SelectionBar} = await import('../src-next/kit/selection/SelectionBar.tsx');
+const {SelectionBar, SelectionPhoneActionBar} = await import('../src-next/kit/selection/SelectionBar.tsx');
 const {Icon} = await import('../src-next/kit/Icon.tsx');
 const {SelectionActionRow} = await import('../src-next/kit/selection/SelectionActionRow.tsx');
 const {StateLayout} = await import('../src-next/kit/states/StateLayout.tsx');
@@ -1514,4 +1514,60 @@ test('actual phone tablet and TV selection bars expose the disabled count-free s
   }
  } finally {state.theme=previous;state.viewport=viewport;}
  assert.deepEqual(calls,['stale','stale','stale']);
+});
+
+test('phone and TV selection actions retain disabled sort reasons and Queue explanations without executors', async () => {
+  const previous = state.theme;
+  const calls: string[] = [], reason = 'Unavailable with this sort order.';
+  try {
+    for (const isTV of [false, true]) {
+      state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
+      const props: SelectionBarProps = {count: 201, onCancel() {}, menu: 'queue', onMenuChange() {}, onAction: id => calls.push(id), actions: [
+        {id: 'play', disabled: true, reason}, {id: 'playlist', disabled: true, reason}, {id: 'queue', reason}, {id: 'playNext', disabled: true, reason}, {id: 'playLater', disabled: true, reason},
+      ]};
+      const bar = await mount(SelectionBar, props);
+      try {
+        if (isTV) {
+          const controls = elements(bar.tree).filter(element => element.props.accessibilityHint === reason && element.props.disabled);
+          assert.equal(controls.length, 2);for (const control of controls) control.props.onPress();assert.deepEqual(calls, []);
+        }
+        if (!isTV) {
+          const phone = await mount(SelectionPhoneActionBar, props);
+          try {
+            const controls = elements(phone.tree).filter(element => element.props.accessibilityHint === reason && element.props.disabled);
+            assert.equal(controls.length, 2);for (const control of controls) control.props.onPress();assert.deepEqual(calls, []);
+          } finally {await phone.host.unmount();}
+        }
+        const node = elements(bar.tree).find(element => element.props.menu === 'queue' && element.type !== SelectionBar)!;
+        const menu = await mount(node.type, node.props);
+        try {
+          const rows = elements(menu.tree).filter(element => element.props.description === reason && element.props.onPress);
+          assert.equal(rows.length, 2);
+          for (const row of rows) {assert.equal(row.props.disabled, true);row.props.onPress();}
+          assert.deepEqual(calls, []);
+        } finally {await menu.host.unmount();}
+      } finally {await bar.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});
+test('bounded unavailable Delete uses the existing phone control reason while TV owner curation remains intact', async () => {
+  const previous = state.theme, calls: string[] = [], reason = 'Unavailable with this sort order.';
+  try {
+    for (const isTV of [false, true]) {
+      state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
+      const props: SelectionBarProps = {count: 200, onCancel() {}, menu: 'more', onMenuChange() {}, onAction: id => calls.push(id), actions: [{id: 'more'}, {id: 'delete', disabled: true, reason}]};
+      const bar = await mount(SelectionBar, props);
+      try {
+        const node = elements(bar.tree).find(element => element.props.menu === 'more' && element.type !== SelectionBar)!;
+        const menu = await mount(node.type, node.props);
+        try {
+          if (isTV) assert.deepEqual((menu.tree as any).props.items, [], 'a new exclusion cannot expose a curated owner action');
+          else {
+            const row = elements(menu.tree).find(element => element.props.description === reason && element.props.onPress);assert.ok(row);assert.equal(row.props.disabled, true);row.props.onPress();
+          }
+          assert.deepEqual(calls, []);
+        } finally {await menu.host.unmount();}
+      } finally {await bar.host.unmount();}
+    }
+  } finally {state.theme = previous;}
 });

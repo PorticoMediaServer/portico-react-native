@@ -12,7 +12,9 @@ import {nativeSelectionCommand, nativeSelectionOffers} from './selection-actions
 import {selectedItemsLabel} from './selection-display';
 
 const t = defaultI18n.t;
-const reason = (value: SelectionActionReason): string => t(value === 'mixed-types' ? 'next.selection.native.mixedTitle'
+const reason = (value: SelectionActionReason): string => t(value === 'unsupported-sort' ? 'next.selection.unsupportedSort'
+  : value === 'preview-limit' ? 'next.selection.previewLimit'
+  : value === 'mixed-types' ? 'next.selection.native.mixedTitle'
   : value === 'no-bulk-fields' ? 'next.selection.native.noBulkFields'
     : value === 'one-library-required' ? 'next.selection.native.deleteLibraries'
       : value === 'delete-limit' ? 'next.selection.native.deleteLimit' : 'error.permission');

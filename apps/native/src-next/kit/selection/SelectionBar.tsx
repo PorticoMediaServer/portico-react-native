@@ -69,7 +69,7 @@ function SelectionMenus(props: SelectionBarProps & {returnFocusRef?: FocusRef}) 
   if (menu === 'queue') return <SelectionSurface testID={controlID(props.testID, 'menu', menu)} open={props.menu !== null} onOpenChange={open => {if (!open) props.onMenuChange(null);}}
     title={selectionText('next.selection.native.queueTitle', {items: props.selectionLabel ?? selectionText('next.selection.native.titles', {count: props.count})})}
     description={selectionText('next.selection.native.queueOrder')} initialFocusRef={queueFirst} returnFocusRef={props.returnFocusRef ?? retainedReturn.current}>
-    {items.filter((entry): entry is Extract<MenuEntry, {onSelect: unknown}> => 'onSelect' in entry).map((entry, index) => <MenuRow key={entry.id} testID={`${controlID(props.testID, 'menu', menu)}-item-${entry.id}`} ref={index === 0 ? queueFirst : undefined} label={entry.label} icon={entry.icon} disabled={entry.disabled} description={entry.description ?? selectionText(entry.id === 'playNext' ? 'next.selection.native.queueNextDescription' : 'next.selection.native.queueLaterDescription')} onPress={() => {entry.onSelect(); props.onMenuChange(null);}} style={{minHeight: isTV ? 84 : 56, paddingHorizontal: isTV ? 0 : 22}} />)}
+    {items.filter((entry): entry is Extract<MenuEntry, {onSelect: unknown}> => 'onSelect' in entry).map((entry, index) => <MenuRow key={entry.id} testID={`${controlID(props.testID, 'menu', menu)}-item-${entry.id}`} ref={index === 0 ? queueFirst : undefined} label={entry.label} icon={entry.icon} disabled={entry.disabled} description={entry.description ?? selectionText(entry.id === 'playNext' ? 'next.selection.native.queueNextDescription' : 'next.selection.native.queueLaterDescription')} onPress={() => {if (!entry.disabled) {entry.onSelect(); props.onMenuChange(null);}}} style={{minHeight: isTV ? 84 : 56, paddingHorizontal: isTV ? 0 : 22}} />)}
   </SelectionSurface>;
   return <Menu testID={controlID(props.testID, 'menu', menu)} open={props.menu !== null} onOpenChange={open => {if (!open) props.onMenuChange(null);}}
     title={props.menuTitle ?? selectionText('next.selection.native.selected', {count: props.count})}
@@ -116,8 +116,8 @@ export function SelectionBar(props: SelectionBarProps) {
         {props.subtitle ? <SelectionText size={20} weight={600} secondary style={{marginLeft: 12}}>{props.subtitle}</SelectionText> : null}
       </View>
       <View style={{height: 44, width: 2, backgroundColor: 'rgba(92,179,226,.35)', marginHorizontal: 6}} />
-      {mainTV.filter(id => props.fourthSlot !== 'watched' || id !== 'myList').map(id => {const offer = actions.find(action => action.id === id);return offer ? <Button key={id} testID={controlID(props.testID, 'action', id)} ref={id === 'more' ? moreRef : id === 'queue' ? queueRef : id === 'watched' ? watchedRef : undefined} variant={id === 'play' ? 'primary' : 'glass'} size="compact" icon={icons[id]} iconOnly={id === 'more'} disabled={offer.disabled} accessibilityLabel={label(id)}
-        style={{height: 64, borderRadius: 14, paddingHorizontal: id === 'more' ? 0 : id === 'play' ? 30 : 24}} textStyle={{fontSize: (id === 'play' ? 24 : 22) * textScale}} onPress={() => activate(props, id)}>{label(id)}</Button> : null;})}
+      {mainTV.filter(id => props.fourthSlot !== 'watched' || id !== 'myList').map(id => {const offer = actions.find(action => action.id === id);return offer ? <Button key={id} testID={controlID(props.testID, 'action', id)} ref={id === 'more' ? moreRef : id === 'queue' ? queueRef : id === 'watched' ? watchedRef : undefined} variant={id === 'play' ? 'primary' : 'glass'} size="compact" icon={icons[id]} iconOnly={id === 'more'} disabled={offer.disabled} accessibilityLabel={label(id)} accessibilityHint={offer.reason}
+        style={{height: 64, borderRadius: 14, paddingHorizontal: id === 'more' ? 0 : id === 'play' ? 30 : 24}} textStyle={{fontSize: (id === 'play' ? 24 : 22) * textScale}} onPress={() => {if (!offer.disabled) activate(props, id);}}>{label(id)}</Button> : null;})}
       <View style={{flex: 1}} />
       {props.selectAllUnavailable ? <View style={{alignItems: 'flex-end', maxWidth: 260, gap: 2}}>
         <Button testID={controlID(props.testID, 'select-all')} variant="glass" size="compact" disabled accessibilityLabel={props.selectAllUnavailable.label} accessibilityHint={props.selectAllUnavailable.reason} accessibilityState={{disabled: true}} style={{height: 54, paddingHorizontal: 24}} textStyle={{fontSize: 22 * textScale}}>{props.selectAllUnavailable.label}</Button>
@@ -140,8 +140,8 @@ export function SelectionPhoneActionBar(props: Pick<SelectionBarProps, 'actions'
     {ids.map(id => {
       const offer = props.actions.find(action => action.id === id);
       if (!offer) return <View key={id} style={{flex: 1}} />;
-      return <Focusable key={id} accessibilityRole="button" accessibilityLabel={label(id)} disabled={offer.disabled}
-        onPress={() => {if (id === 'queue' || id === 'watched' || id === 'more') props.onMenuChange(id);else props.onAction(id);}}
+      return <Focusable key={id} accessibilityRole="button" accessibilityLabel={label(id)} accessibilityHint={offer.reason} disabled={offer.disabled}
+        onPress={() => {if (offer.disabled) return; if (id === 'queue' || id === 'watched' || id === 'more') props.onMenuChange(id);else props.onAction(id);}}
         style={{flex: 1, height: 44, alignItems: 'center', paddingTop: id === 'play' ? 0 : 2, gap: 4, opacity: offer.disabled ? .42 : 1}}>
         <View style={id === 'play' ? {width: 34, height: 28, borderRadius: 9, backgroundColor: colors.text, alignItems: 'center', justifyContent: 'center'} : {height: 24}}><Icon name={icons[id]} size={id === 'play' ? 20 : 24} color={id === 'play' ? colors.ink : colors.textSecondary} /></View>
         <SelectionText size={10.5} weight={700}>{label(id)}</SelectionText>

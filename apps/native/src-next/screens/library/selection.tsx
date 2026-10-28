@@ -1,3 +1,4 @@
+import {nativeSelectionActionUnavailable, nativeSelectionUnavailableActions} from './selection-unavailable-actions';
 import {nativeWholeQueryUnavailableActions} from './whole-query-unavailable';
 import React, {useRef, useState, useSyncExternalStore} from 'react';
 import {Text, View} from 'react-native';
@@ -180,7 +181,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     if (!current || !op || !visible() || pending || destinations || bulk || personal?.service.getSnapshot().busy
       || !!personal?.service.getSnapshot().results.length) return;
     const query = op.target.mode === 'query' ? op.target : undefined;
-    if (query && !queryExecutable(query, action === 'play' ? 'play' : 'queue')) return;
+    if (nativeSelectionActionUnavailable(view.summary, action) || query && !queryExecutable(query, action === 'play' ? 'play' : 'queue')) return;
     const controller = new AbortController(), live = () => !controller.signal.aborted && visible() && producer === current && current.model.isOperationCurrent(op);
     pending = controller; emit();
     try {
@@ -223,7 +224,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
   // prefix, its retry and each receipt.
   const openDestination = (kind: 'playlist' | 'collection', view: SelectionSnapshot<BrowseSelectionContext>) => {
     // The rendered snapshot must still be the live one before anything is captured.
-    if (view !== snapshot()) return;
+    if (view !== snapshot() || kind === 'playlist' && nativeSelectionActionUnavailable(view.summary, 'playlist')) return;
     const current = producer, model = current?.model;
     // A personal operation still in flight, its result set, or a picker already
     // open owns the surface: a retained callback never opens behind it.
@@ -247,7 +248,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
   // select 21/22: the owner's real bulk editor and delete dialog, over exactly
   // the selected leaves and the captured view. No grant, no row.
   const openAdmin = (kind: 'edit' | 'delete', view: SelectionSnapshot<BrowseSelectionContext>) => {
-    if (view !== snapshot()) return;
+    if (view !== snapshot() || kind === 'delete' && nativeSelectionActionUnavailable(view.summary, 'delete')) return;
     const current = producer, model = current?.model;
     if (!current || !model || !view.active || !view.selectedKeys.length || destinations || bulk || pending || personalController
       || !!personal?.service.getSnapshot().results.length || personal?.service.getSnapshot().busy || !visible()) return;
@@ -360,7 +361,7 @@ function LibrarySelectionBars({store, artwork}: {store: Store; artwork: (path?: 
   const state = store.snapshot();
   if (!store.active()) return null;
   const summary = state?.summary;
-  const actions: SelectionActionOffer[] = [];
+  let actions: SelectionActionOffer[] = [];
   // Whole views have Play/Queue executors. Large-query Delete/Download retain
   // their unavailable controls and reasons without inventing a producer.
   const explicit = state?.target?.mode !== 'query';
@@ -379,6 +380,7 @@ function LibrarySelectionBars({store, artwork}: {store: Store; artwork: (path?: 
   if (explicit && summary?.every.delete) actions.push({id: 'delete', disabled: store.busy()});
   if (explicit && summary?.every.watched) actions.push({id: 'watched', disabled: store.busy()}, {id: 'unwatched', disabled: store.busy()});
   const unavailable = nativeWholeQueryUnavailableActions(state); actions.push(...unavailable);
+  actions = nativeSelectionUnavailableActions(actions, summary);
   if ((explicit || unavailable.length > 0) && actions.some(action => ['removeMyList', 'favorite', 'watched', 'unwatched', 'edit', 'delete', 'download'].includes(action.id))) actions.push({id: 'more', disabled: store.busy()});
   const personal = store.personal(), destination = store.destination(), destinationKind = store.destinationKind(), whole = store.whole(), wholeUnavailable = store.wholeUnavailable();
   const bulk = store.bulk(), bulkState = bulk?.getSnapshot(), preview: BulkMetadataPreview | undefined = bulkState?.preview;
