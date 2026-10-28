@@ -1,12 +1,13 @@
+import {webhookEventGroups} from '../../../packages/client-core/src/server-admin/api-words.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {webhookEventGroups, selectWebhookEventGroup, webhookSecretChange} from '../src-next/screens/settings-live/server/integrations/webhook-form.ts';
+import {selectWebhookEventGroup, webhookSecretChange} from '../src-next/screens/settings-live/server/integrations/webhook-form.ts';
 
 test('webhook event groups preserve the server order and include unfamiliar event families', () => {
   assert.deepEqual(webhookEventGroups(['title.added', 'scan.started', 'title.updated', 'future.event', 'scan.finished', 'title.added']), [
-    {prefix: 'title', events: ['title.added', 'title.updated']},
-    {prefix: 'scan', events: ['scan.started', 'scan.finished']},
-    {prefix: 'future', events: ['future.event']},
+    {id: 'titles', label: 'api.webhooks.group.titles', events: ['title.added', 'title.updated']},
+    {id: 'scans', label: 'api.webhooks.group.scans', events: ['scan.started', 'scan.finished']},
+    {id: 'other', label: 'api.webhooks.group.other', events: ['future.event']},
   ]);
 });
 

@@ -102,7 +102,6 @@ function Backups({group, t, children, advancedContent, advancedSummary, advanced
   const running = state.document?.running, fraction = running ? backupProgressFraction(running) : undefined;
   return <View style={{marginTop:22,gap:12}} testID="server-storage-backups">
     <Text style={[shellType(17,800),{color:theme.colors.text}]}>{t('web.maintenance.backups')}</Text>
-    <Text style={[shellType(13,400,18),{color:theme.colors.textSecondary}]}>{t('web.maintenance.backupsLedePlain')}</Text>
     {state.settings && <NativeBackupFolder source={source} settings={state.settings} api={group.api} current={group.current} failure={group.failure} t={t}/>}
     {children}
     {problem && <Text accessibilityRole="alert" style={{color:theme.colors.record}}>{t(uncertain ? 'error.unconfirmedChange' : 'error.unavailable')}</Text>}

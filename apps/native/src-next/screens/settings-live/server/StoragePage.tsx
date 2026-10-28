@@ -1,7 +1,8 @@
 import React, {useState} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import type {RuntimeSettings} from '../../../../../../packages/client-core/src/console';
-import type {MaintenanceDocument, MaintenanceSettings} from '../../../../../../packages/client-core/src/server-admin/server-forms';
+import type {LogSettings} from '../../../../../../packages/client-core/src/server-administration';
+import type {LogsDraft, MaintenanceDocument, MaintenanceSettings} from '../../../../../../packages/client-core/src/server-admin/server-forms';
 import {applySettingsBindingPatch, readSettingsBinding, settingsBinding, settingsBindingPatch} from '../../../../../../packages/client-core/src/presentation/settings-bindings';
 import {settingsRowIndex, settingsSpec} from '../../../../../../packages/client-core/src/presentation/settings-spec';
 import {defaultI18n, type MessageId} from '../../../../../../packages/i18n/src';
@@ -21,26 +22,30 @@ import {NativeDownloadsUsage} from './storage/DownloadsUsage';
 import {useFormState, useStorageForms, useStorageSet, type StorageForms} from './storage/forms';
 import {NativeSettingControl} from './SettingControl';
 import {settingChoice, settingsSummary} from './settings-values';
+import {storageExtraSummary} from './storage/summary';
 
 const IDS = ['runtime', 'maintenance', 'logs'] as const;
 type ViewerRole = 'owner' | 'administrator' | 'member';
 /** Storage & backups is one page; Missing titles belongs to Libraries. */
-export function NativeServerStorage({ports, runtime, compactHeader = false}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean}) {
+export function NativeServerStorage({ports, runtime, compactHeader = false, onOpenPage}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean; onOpenPage: (page: 'history' | 'troubleshooting') => void}) {
   const group = useStorageForms(ports, IDS, runtime.reportError);
-  return group ? <Storage key={group.mount} ports={ports} runtime={runtime} compactHeader={compactHeader} group={group}/> : null;
+  return group ? <Storage key={group.mount} ports={ports} runtime={runtime} compactHeader={compactHeader} group={group} onOpenPage={onOpenPage}/> : null;
 }
-function Storage({ports, runtime, compactHeader, group}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader: boolean; group: StorageForms}) {
+function Storage({ports, runtime, compactHeader, group, onOpenPage}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader: boolean; group: StorageForms; onOpenPage: (page: 'history' | 'troubleshooting') => void}) {
   const theme = useTheme(), t = runtime.text.t as typeof defaultI18n.t, context = ports.context, state = useStorageSet(group);
   const runtimeState = useFormState<RuntimeSettings, unknown>(group.forms.runtime);
   const maintenanceState = useFormState<MaintenanceSettings, MaintenanceDocument>(group.forms.maintenance);
+  const logsState = useFormState<LogsDraft, LogSettings>(group.forms.logs);
   const [advanced, setAdvanced] = useState(false), [customKeep, setCustomKeep] = useState(false), [customSchedule, setCustomSchedule] = useState<MaintenanceSettings>();
   const viewerRole: ViewerRole = context.account.account.role === 'owner' ? 'owner' : context.account.canManage ? 'administrator' : 'member';
   const sources = {forms: {runtime: runtimeState.draft, maintenance: maintenanceState.draft}}, keep = settingsRowIndex.get('storage.backupKeep')!.row;
   const kept = readSettingsBinding(settingsBinding(keep.id)!, sources, keep.id)?.current;
   const section = settingsSpec.find(section => section.scope === 'server' && section.id === 'storage');
-  const summary = settingsSummary(section?.advanced?.groups?.flatMap(group => group.rows) ?? [], row => {
+  const specSummary = settingsSummary(section?.advanced?.groups?.flatMap(group => group.rows) ?? [], row => {
     const binding = settingsBinding(row.id); return binding ? readSettingsBinding(binding, sources, row.id) : undefined;
   }, t);
+  const extra = storageExtraSummary(runtimeState.draft, maintenanceState.draft, maintenanceState.status, logsState.draft, t);
+  const summary = [specSummary === 'All at defaults' ? '' : specSummary, ...extra].filter(Boolean).join(' · ') || specSummary;
   return <View style={{flex:1}}><ScrollView contentContainerStyle={{paddingHorizontal:20,paddingBottom:40}}>
     <ServerHeader serverName={context.serverName} viewerRole={viewerRole} audience={viewerRole === 'administrator' ? 'administrators' : 'owner'} variant="phone" style={{marginBottom:12}}/>
     {!compactHeader && <Text accessibilityRole="header" style={[shellType(28,800,33,-.03),{color:theme.colors.text}]}>{t('settings.server.storage')}</Text>}
@@ -48,7 +53,7 @@ function Storage({ports, runtime, compactHeader, group}: {ports: NativeSettingsL
     <NativeEmptyCache context={context} runtime={runtime}/>
     <BackupsTab ports={ports} runtime={runtime} t={t} advancedOpen={advanced} onAdvancedOpenChange={setAdvanced} advancedSummary={summary}
       advancedContent={<>
-        <LimitsTab group={group} t={t} customBackupKeep={customKeep}/>
+        <LimitsTab group={group} t={t} customBackupKeep={customKeep} onOpenPage={onOpenPage}/>
         <NativeDownloadsUsage ports={ports} runtime={runtime}/>
         {maintenanceState.draft && <NativeBackupSchedule group={group} draft={maintenanceState.draft} saving={state.saving} t={t} placement="advanced" customDraft={customSchedule} onCustomDraftChange={setCustomSchedule}/>}
       </>}>

@@ -1,3 +1,4 @@
+import {previewMatches, previewDuration} from './presentation';
 import {Artwork} from '../../../../kit/artwork';
 import React,{useEffect,useMemo,useRef,useState,useSyncExternalStore} from 'react';
 import {Animated,Easing,Modal,ScrollView,Text,View} from 'react-native';
@@ -85,8 +86,8 @@ export function NativeChannelEditor({group,runtime,isCurrent}:{group:NativeChann
       </>}
     </ScrollView>
     {config && <View testID="channel-preview-bar" style={{paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderColor: theme.colors.lineSoft, backgroundColor: theme.colors.raised, flexDirection: 'row', alignItems: 'center', gap: 12}}>
-      <View style={{flex: 1, gap: 3}}><Text style={[shellType(14, 700), {color: theme.colors.text}]}>{state.previewLoading ? t('next.settings.loading') : previewRule ? t('builder.matches', {count: previewRule.eligible}) : t('builder.preview')}</Text>
-        {state.preview && <Text style={[shellType(12.5), {color: theme.colors.textSecondary}]}>{state.preview.complete && previewRule?.complete ? '≈' : '≥'} {(state.preview.durationMs / 3600000).toFixed(1)} h</Text>}
+      <View style={{flex: 1, gap: 3}}><Text style={[shellType(14, 700), {color: theme.colors.text}]}>{state.previewLoading ? t('next.settings.loading') : previewRule ? previewMatches(previewRule.eligible, !!state.preview?.complete && previewRule.complete, t) : t('builder.preview')}</Text>
+        {state.preview && <Text style={[shellType(12.5), {color: theme.colors.textSecondary}]}>{previewDuration(state.preview)}</Text>}
       </View>
       <Button size="compact" variant="glass" disabled={!state.preview || state.previewLoading || !valid || !conditionsValid || hoursEditing} onPress={() => {if (config && state.preview && allowed() && !editor.getSnapshot().pending && !editor.getSnapshot().previewLoading && editor.getSnapshot().preview === state.preview && !previewRef.current) {const next = {config, result: state.preview}; previewRef.current = next; setPreview(next);}}}>{t('builder.preview')}</Button>
       {state.error === 'preview' && <Button size="compact" variant="text" onPress={() => {if (allowed()) void editor.preview();}}>{t('action.tryAgain')}</Button>}
@@ -95,7 +96,8 @@ export function NativeChannelEditor({group,runtime,isCurrent}:{group:NativeChann
       <View style={{flex: 1, backgroundColor: theme.colors.ink, paddingTop: insets.top, paddingBottom: insets.bottom}}>
         <View style={{minHeight: 56, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12}}><Button variant="text" size="small" onPress={closePreview}>{t('action.back')}</Button><Text accessibilityRole="header" style={[shellType(17, 700), {color: theme.colors.text}]}>{t('builder.preview')}</Text></View>
         <ScrollView contentContainerStyle={{padding: 20, gap: 18}}>
-          {heldPreview?.result.rules.map(value => <View key={value.ruleId} style={{gap: 10}}><Text style={[shellType(17, 700), {color: theme.colors.text}]}>{t('builder.matches', {count: value.eligible})}</Text><View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 12}}>{value.sample.map(sample => <View key={sample.itemId} style={{width: 100, gap: 6}}><Artwork source={runtime.artwork(`/v1/items/${encodeURIComponent(sample.itemId)}/art/poster`)} alt={librarySampleLabel(sample)} width={100} height={150}/><Text style={[shellType(12.5), {color: theme.colors.textSecondary}]}>{librarySampleLabel(sample)}</Text></View>)}</View></View>)}
+          {heldPreview && <Text style={[shellType(15, 600), {color: theme.colors.textSecondary}]}>{previewDuration(heldPreview.result)}</Text>}
+          {heldPreview?.result.rules.map(value => <View key={value.ruleId} style={{gap: 10}}><Text style={[shellType(17, 700), {color: theme.colors.text}]}>{previewMatches(value.eligible, heldPreview.result.complete && value.complete, t)}</Text><View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 12}}>{value.sample.map(sample => <View key={sample.itemId} style={{width: 100, gap: 6}}><Artwork source={runtime.artwork(`/v1/items/${encodeURIComponent(sample.itemId)}/art/poster`)} alt={librarySampleLabel(sample)} width={100} height={150}/><Text style={[shellType(12.5), {color: theme.colors.textSecondary}]}>{librarySampleLabel(sample)}</Text></View>)}</View></View>)}
           {heldPreview?.result.firstDay.length ? <Text accessibilityRole="header" style={[shellType(17, 700), {color: theme.colors.text}]}>Today's schedule</Text> : null}
           {heldPreview?.result.firstDay.map(value => <View key={value.id} style={{flexDirection: 'row', gap: 12}}><Text style={{color: theme.colors.textTertiary}}>{new Intl.DateTimeFormat(runtime.text.locale, {timeZone: heldPreview.config.timezone, hour: 'numeric', minute: '2-digit'}).format(value.startMs)}</Text><Text style={{color: theme.colors.text, flex: 1}}>{value.title}</Text></View>)}
         </ScrollView>

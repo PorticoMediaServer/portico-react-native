@@ -3,7 +3,6 @@ import {Text, View} from 'react-native';
 import type {RuntimeSettings} from '../../../../../../../packages/client-core/src/console';
 import {readSettingsBinding, settingsBinding, settingsBindingPatch} from '../../../../../../../packages/client-core/src/presentation/settings-bindings';
 import {settingsRowIndex} from '../../../../../../../packages/client-core/src/presentation/settings-spec';
-import {defaultI18n} from '../../../../../../../packages/i18n/src';
 import {Button, TextField} from '../../../../kit/controls';
 import {SettingsRow} from '../../../../kit/shell';
 import {useTheme} from '../../../../kit/theme';
@@ -11,7 +10,7 @@ import {StateView} from '../../../../kit/states';
 import type {NativeShellRuntime} from '../../../../shell/runtime';
 import type {NativeSettingsLivePorts} from '../../ports';
 import {NativeAdvancedSection} from '../AdvancedSection';
-import {settingNumber} from '../settings-values';
+import {settingNumber, settingsSummary} from '../settings-values';
 import {useFormState, useStorageForms, useStorageSet, type StorageForms} from '../storage/forms';
 
 const IDS = ['runtime'] as const;
@@ -26,7 +25,8 @@ function Advanced({group, runtime}: {group: StorageForms; runtime: NativeShellRu
   const theme = useTheme(), t = runtime.text.t, form = group.forms.runtime;
   const state = useFormState<RuntimeSettings, unknown>(form), save = useStorageSet(group);
   const binding = settingsBinding('integrations.requestsPerMinute')!;
-  const value = state.draft ? readSettingsBinding(binding, {forms: {runtime: state.draft}})?.effective : undefined;
+  const fact = state.draft ? readSettingsBinding(binding, {forms: {runtime: state.draft}}, row.id) : undefined;
+  const value = fact?.effective;
   const [field, setField] = useState<Field>({text: ''}), [opening, setOpening] = useState<Opening>();
   const active = useRef<Opening | undefined>(undefined);
   useLayoutEffect(() => {
@@ -50,7 +50,7 @@ function Advanced({group, runtime}: {group: StorageForms; runtime: NativeShellRu
     group.set.discard(); const saved = form.getSnapshot().draft as RuntimeSettings | undefined;
     replaceInput(saved ? String(saved.apiRequestsPerMinute) : '');
   };
-  return <NativeAdvancedSection testID="integrations-advanced" summary={typeof value === 'number' ? `${defaultI18n.number(value)} / min` : t('next.settings.loading')}>
+  return <NativeAdvancedSection testID="integrations-advanced" summary={fact ? settingsSummary([row], () => fact, t) : t('next.settings.loading')}>
     {state.loadError !== undefined && <><Text accessibilityRole="alert" style={{color: theme.colors.record}}>{t('error.unavailable')}</Text><Button size="compact" variant="glass" onPress={() => {if (current()) void form.load();}}>{t('action.tryAgain')}</Button></>}
     {state.draft && <SettingsRow first label={t('next.settingsSpec.server.integrations.advanced.groups.1.rows.0.label')} description={t('next.settingsSpec.server.integrations.advanced.groups.1.rows.0.help')}
       control={<TextField accessibilityLabel={t('next.settingsSpec.server.integrations.advanced.groups.1.rows.0.label')} value={input} keyboardType="number-pad" editable={live() && !save.saving} error={input && !valid ? t('error.invalidInput') : undefined} onChangeText={text => {

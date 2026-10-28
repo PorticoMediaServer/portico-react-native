@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import {settingsRowIndex} from '../../../packages/client-core/src/presentation/settings-spec.ts';
-import {settingNumber} from '../src-next/screens/settings-live/server/settings-values.ts';
+import {settingNumber, settingsSummary} from '../src-next/screens/settings-live/server/settings-values.ts';
 
 type Node = {type: any; props: Record<string, any>};
 const nodes = (node: any): Node[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children), ...nodes(node.props.control)] : [];
@@ -37,14 +37,14 @@ async function fixture(error = false) {
     react, 'react-native': {Text: 'Text', View: 'View'},
     '../../../../../../../packages/client-core/src/presentation/settings-bindings': {
       settingsBinding: () => ({form: 'runtime', key: 'apiRequestsPerMinute'}),
-      readSettingsBinding: (_binding: unknown, sources: any) => ({effective: sources.forms.runtime.apiRequestsPerMinute}),
+      readSettingsBinding: (_binding: unknown, sources: any) => ({current: sources.forms.runtime.apiRequestsPerMinute, effective: sources.forms.runtime.apiRequestsPerMinute, default: 600}),
       settingsBindingPatch: (_binding: unknown, value: number) => ({form: 'runtime', values: {apiRequestsPerMinute: value}}),
     },
     '../../../../../../../packages/client-core/src/presentation/settings-spec': {settingsRowIndex},
     '../../../../../../../packages/i18n/src': {defaultI18n: {number: String}},
     '../../../../kit/controls': {Button: 'Button', TextField: 'TextField'}, '../../../../kit/shell': {SettingsRow: 'SettingsRow'},
     '../../../../kit/theme': {useTheme: () => ({colors: {record: '#f00'}})}, '../../../../kit/states': {StateView: 'StateView'},
-    '../AdvancedSection': {NativeAdvancedSection: 'NativeAdvancedSection'}, '../settings-values': {settingNumber},
+    '../AdvancedSection': {NativeAdvancedSection: 'NativeAdvancedSection'}, '../settings-values': {settingNumber, settingsSummary},
     '../storage/forms': {useStorageForms: () => group, useFormState: () => state, useStorageSet: () => state},
   });
   const runtime = {text: {t: (id: string) => id}, reportError() {}, error: (_error: unknown, retry: () => void) => ({primaryAction: {onPress: retry}})};
@@ -85,4 +85,12 @@ test('a retired Advanced opening cannot edit, save, discard or retry its old for
   const retry = nodes(tree).find(value => value.type === 'StateView')!.props.primaryAction.onPress;
   f.unmount(); field.props.onChangeText('630'); save.props.onPress(); discard.props.onPress(); retry();
   assert.deepEqual(f.edits, [620]); assert.deepEqual(f.writes, []); assert.equal(f.discards, 0); assert.equal(f.loads, 0);
+});
+
+test('Integration Advanced shares the canonical default and changed summary', async () => {
+  const f = await fixture();
+  assert.equal(f.render().props.summary, 'All at defaults');
+  input(f.render()).props.onChangeText('620');
+  assert.equal(f.render().props.summary, 'next.settingsSpec.server.integrations.advanced.groups.1.rows.0.label: 620');
+  f.unmount();
 });

@@ -7,13 +7,14 @@ import {nativeChannelLogoArtwork} from './logo-artwork';
 import {defaultI18n} from '../../../../../../../packages/i18n/src';
 import type {NativeSettingsLivePorts} from '../../ports';
 import type {NativeShellRuntime} from '../../../../shell/runtime';
-import {Button,Focusable,Switch} from '../../../../kit/controls';
-import {BottomSheet} from '../../../../kit/overlays';
+import {Button,Focusable} from '../../../../kit/controls';
+import {BottomSheet, MenuRow} from '../../../../kit/overlays';
 import {shellType} from '../../../../kit/shell/visual';
 import {useTheme} from '../../../../kit/theme';
 import {createNativeChannels,type NativeChannelsGroup} from './model';
 import {NativeBlockPresets} from './BlockPresets';
 import {NativeChannelLogo} from './ChannelLogo';
+import {channelStatus} from './presentation';
 import {NativeChannelEditor} from './ChannelEditor';
 
 type Confirmation=Readonly<{channel:LibraryChannel}>;
@@ -72,6 +73,8 @@ export function Channels({group,runtime}:{group:NativeChannelsGroup;runtime:Nati
   const ask=(channel:LibraryChannel)=>{if(!commands()||!listed(channel))return;const next={channel};view.confirmation=next;setConfirmation(next);};
   const heldHealth=health&&view.health===health&&current()&&state.selected===health.channel&&listed(health.channel)?health:undefined;
   const closeHealth=()=>{if(!heldHealth||!current()||view.health!==heldHealth)return;view.health=undefined;setHealth(undefined);reader.closeHealth(heldHealth.channel);};
+  const dateTime = (iso: string) => new Intl.DateTimeFormat(runtime.text.locale, {dateStyle: 'medium', timeStyle: 'short'}).format(Date.parse(iso));
+  const fact = (label: string, value: string) => <View key={label} style={{flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 12, borderBottomWidth: 1, borderColor: theme.colors.lineSoft}}><Text style={[shellType(14, 500), {color: theme.colors.textSecondary, flex: 1}]}>{label}</Text><Text style={[shellType(14, 600), {color: theme.colors.text, flexShrink: 1, textAlign: 'right'}]}>{value}</Text></View>;
   // Each Library Channel is its own guide source; this is the complete owner list.
   const marks=channelMonograms({kind:'complete-authorized',channels:(state.channels??[]).map(channel=>({sourceId:channel.config.id,id:channel.config.id,name:channel.config.name}))});
   const busy=action.busy||editing.busy||logoState.busy||presetState.busy,blocked=busy||!!presetState.pending||presetState.reconcile||!!logoState.pending||!!action.pending||editing.pending||editing.phase!=='closed';
@@ -82,36 +85,57 @@ export function Channels({group,runtime}:{group:NativeChannelsGroup;runtime:Nati
     {editing.pending&&<Button size="compact" variant="glass" disabled={editing.busy} onPress={resume}>{t('action.tryAgain')}</Button>}
     {action.pending&&<View style={{gap:8}}><Text style={{color:theme.colors.textSecondary}}>{action.pending.name}</Text><Button size="compact" variant="glass" disabled={action.busy} onPress={()=>{if(current()&&actions.getSnapshot().pending===action.pending)void actions.retry();}}>{t('action.tryAgain')}</Button></View>}
     {logoState.pending&&<View style={{gap:8}}><Text style={{color:theme.colors.textSecondary}}>{logoState.pending.name}</Text><Text style={{color:theme.colors.record}}>{t('error.unconfirmedChange')}</Text><Button size="compact" variant="glass" disabled={logoState.busy} onPress={()=>{if(logoCurrent()&&group.logos.getSnapshot().pending===logoState.pending)void group.logos.retry();}}>{t('action.tryAgain')}</Button></View>}
-    {state.channels?.map(channel => <View key={channel.config.id} style={{padding: 12, gap: 8, borderRadius: 12, backgroundColor: theme.colors.raised}}>
+    {state.channels?.map(channel => {const status = channelStatus(channel), color = status.tone === 'healthy' ? theme.colors.healthy : status.tone === 'warning' ? theme.colors.amber : theme.colors.textTertiary; return <View key={channel.config.id} style={{padding: 12, gap: 8, borderRadius: 12, backgroundColor: theme.colors.raised}}>
       <Focusable accessibilityRole="button" accessibilityLabel={channel.config.name} onPress={() => {if (commands() && listed(channel) && !view.menu && !view.templates && !view.confirmation && !view.health) {const next = {channel}; view.menu = next; setMenu(next);}}} style={{gap: 8}}>
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}><ChannelMark mark={marks.get(channel.config.id)!.get(channel.config.id)!} source={nativeChannelLogoArtwork(group, runtime, channel)} size={44} sized/><Text style={[shellType(15, 700), {color: theme.colors.text, flex: 1}]}>{channel.config.name}</Text></View>
-        <Text style={{color: theme.colors.textSecondary}}>{t('builder.matches', {count: channel.candidateCount})}{' · '}{channel.state}</Text>
-        {channel.generatedThrough && <Text style={{color: theme.colors.textTertiary}}>{t('web.libraryChannels.healthSchedule')}: {defaultI18n.date(channel.generatedThrough)}</Text>}
+        <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12}}><Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{t('server.channels.titles', {count: channel.candidateCount})}</Text><View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}><View style={{width: 6, height: 6, borderRadius: 3, backgroundColor: color}}/><Text style={[shellType(12.5, 600), {color}]}>{t(status.label)}</Text></View></View>
+        {channel.generatedThrough && <Text style={{color: theme.colors.textTertiary}}>{t('server.channels.through', {when: dateTime(channel.generatedThrough)})}</Text>}
         {channel.config.description && <Text style={{color: theme.colors.textSecondary}}>{channel.config.description}</Text>}
       </Focusable>
-      <Switch checked={channel.config.enabled} disabled={blocked} onCheckedChange={value => {if (commands() && listed(channel) && value !== channel.config.enabled) void actions.perform(channel, 'toggle');}}>{t('builder.on')}</Switch>
-    </View>)}
+    </View>;})}
     <BottomSheet open={!!heldTemplates} onOpenChange={value => {if (!value) closeTemplates();}} title={t('builder.newTitle')}>
-      <View style={{gap: 12}}>
+      <View style={{borderRadius: 14, backgroundColor: theme.colors.raised, overflow: 'hidden'}}>
         {state.templatesLoading && <Text style={{color: theme.colors.textSecondary}}>{t('next.settings.loading')}</Text>}
         {state.templatesError && <Button variant="glass" onPress={() => {if (heldTemplates && current() && view.templates === heldTemplates) void reader.templates();}}>{t('action.tryAgain')}</Button>}
-        {state.templates?.map(template => <View key={template.id} style={{gap: 4}}><Button size="compact" variant="glass" disabled={!template.applicable || blocked || !group.timezone} onPress={() => chooseTemplate(template)}>{template.name}</Button>{!template.applicable && <Text style={{color: theme.colors.textTertiary}}>Not enough media</Text>}</View>)}
-        <Button size="compact" variant="glass" disabled={blocked || !group.timezone} onPress={() => chooseTemplate()}>Start from scratch</Button>
+        {state.templates?.map(template => <View key={template.id} style={{borderBottomWidth: 1, borderColor: theme.colors.lineSoft}}><MenuRow variant="grouped" icon="i-tv" label={template.name} description={!template.applicable ? t('server.channels.notEnough') : undefined} disabled={!template.applicable || blocked || !group.timezone} onPress={() => chooseTemplate(template)}/></View>)}
+        <MenuRow variant="grouped" icon="i-plus" label={t('web.libraryChannels.startFromScratch')} disabled={blocked || !group.timezone} onPress={() => chooseTemplate()}/>
       </View>
     </BottomSheet>
     <BottomSheet open={!!heldMenu} onOpenChange={value => {if (!value) closeMenu();}} title={heldMenu?.channel.config.name}>
-      {heldMenu && <View style={{gap: 10}}>
-        <Button size="compact" variant="glass" disabled={blocked} onPress={() => menuAction(open)}>{t('web.selection.edit')}</Button>
-        {logoAvailable && <NativeChannelLogo group={group} channel={heldMenu.channel} isCurrent={() => menuCurrent() && logoCurrent()} claim={token => menuCurrent() && claimLogo(token)} release={releaseLogo}/>}
-        <Button size="compact" variant="glass" disabled={blocked || state.channels?.indexOf(heldMenu.channel) === 0} onPress={() => {if ((reader.getSnapshot().channels?.indexOf(heldMenu.channel) ?? -1) > 0) menuAction(channel => {void actions.perform(channel, 'move', -1);});}}>{t('web.profile.moveUp')}</Button>
-        <Button size="compact" variant="glass" disabled={blocked || state.channels?.indexOf(heldMenu.channel) === (state.channels?.length ?? 0) - 1} onPress={() => {const rows = reader.getSnapshot().channels; if (rows && rows.indexOf(heldMenu.channel) < rows.length - 1) menuAction(channel => {void actions.perform(channel, 'move', 1);});}}>{t('web.profile.moveDown')}</Button>
-        <Button size="compact" variant="glass" disabled={blocked} onPress={() => menuAction(channel => {void actions.perform(channel, 'regenerate');})}>{t('web.libraryChannels.regenSchedule')}</Button>
-        <Button size="compact" variant="glass" onPress={() => menuAction(channel => {const next = {channel}; view.health = next; setHealth(next); void reader.health(channel);}, false)}>{t('web.libraryChannels.checkHealth')}</Button>
-        <Button size="compact" variant="danger" disabled={blocked} onPress={() => menuAction(ask)}>{t('action.delete')}</Button>
+      {heldMenu && <View style={{borderRadius: 14, backgroundColor: theme.colors.raised, overflow: 'hidden'}}>
+        <MenuRow variant="grouped" icon="i-edit" label={t('web.selection.edit')} disabled={blocked} onPress={() => menuAction(open)}/>
+        <View style={{height: 1, backgroundColor: theme.colors.lineSoft}}/>
+        <MenuRow variant="grouped" icon="i-pulse" label={t('web.libraryChannels.checkHealth')} onPress={() => menuAction(channel => {const next = {channel}; view.health = next; setHealth(next); void reader.health(channel);}, false)}/>
+        {logoAvailable && <><View style={{height: 1, backgroundColor: theme.colors.lineSoft}}/><NativeChannelLogo menuRow group={group} channel={heldMenu.channel} isCurrent={() => menuCurrent() && logoCurrent()} claim={token => menuCurrent() && claimLogo(token)} release={releaseLogo}/></>}
+        <View style={{height: 1, backgroundColor: theme.colors.lineSoft}}/>
+        <MenuRow variant="grouped" icon={heldMenu.channel.config.enabled ? 'i-pause' : 'i-play'} label={t(heldMenu.channel.config.enabled ? 'web.libraryChannels.turnOff' : 'web.libraryChannels.turnOn')} disabled={blocked} onPress={() => menuAction(channel => {void actions.perform(channel, 'toggle');})}/>
+        <View style={{height: 1, backgroundColor: theme.colors.lineSoft}}/>
+        <MenuRow variant="grouped" icon="i-refresh" label={t('web.libraryChannels.regenSchedule')} disabled={blocked} onPress={() => menuAction(channel => {void actions.perform(channel, 'regenerate');})}/>
+        <View style={{height: 1, backgroundColor: theme.colors.lineSoft}}/>
+        <MenuRow variant="grouped" icon="i-up" label={t('web.profile.moveUp')} disabled={blocked || state.channels?.indexOf(heldMenu.channel) === 0} onPress={() => {if ((reader.getSnapshot().channels?.indexOf(heldMenu.channel) ?? -1) > 0) menuAction(channel => {void actions.perform(channel, 'move', -1);});}}/>
+        <View style={{height: 1, backgroundColor: theme.colors.lineSoft}}/>
+        <MenuRow variant="grouped" icon="i-down" label={t('web.profile.moveDown')} disabled={blocked || state.channels?.indexOf(heldMenu.channel) === (state.channels?.length ?? 0) - 1} onPress={() => {const rows = reader.getSnapshot().channels; if (rows && rows.indexOf(heldMenu.channel) < rows.length - 1) menuAction(channel => {void actions.perform(channel, 'move', 1);});}}/>
+        <View style={{height: 1, backgroundColor: theme.colors.lineSoft}}/>
+        <MenuRow variant="grouped" icon="i-trash" label={t('web.libraryChannels.delete')} destructive disabled={blocked} onPress={() => menuAction(ask)}/>
       </View>}
     </BottomSheet>
     <BottomSheet open={!!held} onOpenChange={value=>{if(!value)close();}} title={held?.channel.config.name} description={t('web.libraryChannels.deleteBody')} footer={<View style={{flexDirection:'row',gap:8}}><Button variant="glass" onPress={close}>{t('action.cancel')}</Button><Button variant="danger" disabled={action.busy} loading={action.busy} onPress={()=>{void confirm();}}>{t('action.delete')}</Button></View>}><View/></BottomSheet>
-    <BottomSheet open={!!heldHealth} onOpenChange={value=>{if(!value)closeHealth();}} title={heldHealth?.channel.config.name} description={t('web.libraryChannels.healthLede')} footer={<View style={{flexDirection:'row',gap:8}}><Button variant="glass" disabled={state.healthLoading} onPress={()=>{if(heldHealth&&current()&&view.health===heldHealth&&listed(heldHealth.channel))void reader.health(heldHealth.channel);}}>Check again</Button><Button onPress={closeHealth}>{t('action.done')}</Button></View>}><View style={{gap:8}}>{state.healthLoading&&<Text style={{color:theme.colors.textSecondary}}>{t('next.settings.loading')}</Text>}{state.healthError&&<Text style={{color:theme.colors.record}}>{t('error.unavailable')}</Text>}{state.health&&<><Text style={{color:state.health.healthy?theme.colors.healthy:theme.colors.amber}}>{state.health.message||t(state.health.healthy?'web.libraryChannels.onAir':'web.libraryChannels.offAir')}</Text><Text style={{color:theme.colors.textSecondary}}>{t('web.libraryChannels.healthPrograms')}: {defaultI18n.number(state.health.scheduledEntries)}</Text><Text style={{color:theme.colors.textSecondary}}>Eligible: {defaultI18n.number(state.health.candidates)}</Text><Text style={{color:theme.colors.textSecondary}}>Unplaceable: {defaultI18n.number(state.health.unresolved)}</Text><Text style={{color:theme.colors.textSecondary}}>Building: {state.health.pendingGeneration ? 'Yes' : 'No'}</Text>{state.health.generatedThrough&&<Text style={{color:theme.colors.textSecondary}}>{t('web.libraryChannels.healthSchedule')}: {defaultI18n.date(state.health.generatedThrough)}</Text>}</>}</View></BottomSheet>
+    <BottomSheet open={!!heldHealth} onOpenChange={value => {if (!value) closeHealth();}} title={heldHealth?.channel.config.name} description={t('web.libraryChannels.healthLede')} footer={<View style={{flexDirection: 'row', gap: 8}}><Button disabled={state.healthLoading} onPress={() => {if (heldHealth && current() && view.health === heldHealth && listed(heldHealth.channel)) void reader.health(heldHealth.channel);}}>{t('server.remote.checkAgain')}</Button><Button variant="glass" onPress={closeHealth}>{t('action.done')}</Button></View>}>
+      <View style={{gap: 14}}>
+        {state.healthLoading && <Text style={{color: theme.colors.textSecondary}}>{t('next.settings.loading')}</Text>}
+        {state.healthError && <Text accessibilityRole="alert" style={{color: theme.colors.record}}>{t('error.unavailable')}</Text>}
+        {state.health && <>
+          <View style={{padding: 14, borderRadius: 14, backgroundColor: theme.colors.raised, borderWidth: 1, borderColor: state.health.healthy ? theme.colors.healthy : theme.colors.amber}}><Text style={[shellType(14, 600), {color: state.health.healthy ? theme.colors.healthy : theme.colors.amber}]}>{state.health.message || t(state.health.healthy ? 'web.libraryChannels.onAir' : 'web.libraryChannels.offAir')}</Text></View>
+          <View style={{paddingHorizontal: 14, borderRadius: 14, backgroundColor: theme.colors.raised}}>
+            {fact(t('web.libraryChannels.healthSchedule'), state.health.generatedThrough ? dateTime(state.health.generatedThrough) : t('web.libraryChannels.healthNotGenerated'))}
+            {fact(t('web.libraryChannels.healthPrograms'), defaultI18n.number(state.health.scheduledEntries))}
+            {fact(t('web.libraryChannels.healthCandidates'), defaultI18n.number(state.health.candidates))}
+            {fact(t('web.libraryChannels.healthUnresolved'), defaultI18n.number(state.health.unresolved))}
+            {fact(t('web.libraryChannels.healthNewSchedule'), t(state.health.pendingGeneration ? 'web.libraryChannels.healthBeingMade' : 'web.libraryChannels.healthUpToDate'))}
+          </View>
+        </>}
+      </View>
+    </BottomSheet>
     <NativeBlockPresets group={group} isCurrent={presetsCurrent} onEditing={presetEditing}/>
     {attempt&&view.editor===attempt&&<NativeChannelEditor key={attempt.id} group={group} runtime={runtime} isCurrent={editorCurrent}/>}
   </View>;

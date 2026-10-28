@@ -42,11 +42,14 @@ test('Messages filters use their exact picker opening, Live is a switch, and log
   const choose = second.props.items.find((item: any) => item.id === 'scan').onSelect;
   choose(); choose(); assert.deepEqual(calls, [['', 'scan']]); assert.equal(menu().props.open, false);
   const live = nodes(render()).find(node => node.type === 'Switch')!; assert.equal(live.props.checked, true);
-  assert.ok(nodes(render()).some(node => node.type === 'Text' && text(node) === 'Following'));
+  assert.ok(nodes(render()).some(node => node.type === 'Text' && text(node) === 'web.logs.following'));
   live.props.onCheckedChange(false); assert.deepEqual(calls.at(-1), ['live', false]);
   const line = nodes(render()).find(node => node.type === 'View' && node.props.key === 1)!;
   assert.ok(line); const metadata = line.props.children[0];
-  assert.deepEqual(nodes(metadata).filter(node => node.type === 'Text').map(text), ['12:30', 'WARN', 'server.logCategory.scan']);
+  assert.deepEqual(nodes(metadata).filter(node => node.type === 'Text').map(text), ['12:30', 'web.logs.level.warn', 'server.logCategory.scan']);
+  const meta = nodes(metadata).filter(node => node.type === 'Text');
+  assert.ok(meta.every(node => node.props.style.fontFamily === 'monospace'));
+  assert.equal(meta[1].props.style.color, 'amber');
   assert.equal(nodes(line).find(node => node.type === 'Text' && text(node) === 'Fixture message')?.props.selectable, true);
   current = false; chip('web.logs.level').props.onPress(); live.props.onCheckedChange(true);
   assert.equal(menu().props.open, false); assert.equal(calls.length, 2);

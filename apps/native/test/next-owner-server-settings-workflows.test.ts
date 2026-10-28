@@ -1,10 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {screenModule, hooks} from './helpers/screen-harness.mjs';
-import {bindingModule, formsFixture, lifecycleHooks, maintenance, nodes, content, specification, t, i18n, theme} from './helpers/owner-server-settings.mjs';
+import {bindingModule, formsFixture as untypedFormsFixture, lifecycleHooks, maintenance, nodes, content, specification, t, i18n, theme} from './helpers/owner-server-settings.mjs';
 import * as values from '../src-next/screens/settings-live/server/settings-values.ts';
 import {secureConnectionView} from '../../../packages/client-core/src/server-admin/secure-connection.ts';
 import {retryCertificate} from '../../../packages/client-core/src/certificates.ts';
+
+import type {DraftForm} from '../../../packages/client-core/src/server-admin/draft-form.ts';
+// The JavaScript fixture builds this dictionary from the supplied form IDs.
+type Fixture = Awaited<ReturnType<typeof untypedFormsFixture>> & {group: {forms: Record<string, DraftForm<any, any>>}};
+const formsFixture = (...args: Parameters<typeof untypedFormsFixture>) => untypedFormsFixture(...args) as Promise<Fixture>;
 
 const bindings = await bindingModule();
 const settle = () => new Promise(resolve => setImmediate(resolve));
@@ -42,13 +47,17 @@ test('Storage custom limits open an exact-value editor and a rejected edit never
     react: host.react, 'react-native': {Text: 'Text', View: 'View'}, '../../../../../../../packages/client-core/src/presentation/settings-bindings': bindings, '../../../../../../../packages/client-core/src/presentation/settings-spec': specification, '../../../../../../../packages/i18n/src': {defaultI18n: i18n},
     '../../../../kit/controls': {Button: 'Button', Select: 'Select', TextField: 'TextField'}, '../../../../kit/overlays': {BottomSheet: 'BottomSheet'}, '../../../../kit/shell/visual': {shellType: () => ({})}, '../../../../kit/theme': {useTheme: () => theme}, '../SettingControl': {NativeSettingControl: 'Setting'}, '../settings-values': values, './space-source': {nativeStorageOwner: (context: any) => context.current()}, './forms': fixture.hooks,
   });
-  const render = () => host.render(() => module.LimitsTab({group: fixture.group, t})), find = (id: string) => nodes(render()).find((node: any) => node.props.testID === id);
+  const opened: string[] = [];
+  const render = () => host.render(() => module.LimitsTab({group: fixture.group, t, onOpenPage: (page: string) => opened.push(page)})), find = (id: string) => nodes(render()).find((node: any) => node.props.testID === id);
   assert.equal(find('storage.analysisSpace').props.value, 'custom');assert.ok(find('storage.analysisSpace').props.options.some((option: any) => option.value === 'custom-edit'));
   find('storage.analysisSpace').props.onValueChange('custom-edit');
   const field = () => nodes(render()).find((node: any) => node.type === 'TextField');field().props.onChangeText('0');
   const save = () => nodes(find('server-storage-number').props.footer).find((node: any) => node.type === 'Button' && content(node) === 'action.save');
   assert.equal(save().props.disabled, true);save().props.onPress();assert.equal(fixture.group.forms.runtime.getSnapshot().draft.analysisStorageGiB, 40);
   field().props.onChangeText('48');assert.equal(save().props.disabled, false);save().props.onPress();assert.equal(fixture.group.forms.runtime.getSnapshot().draft.analysisStorageGiB, 48);
+  const links = nodes(render()).filter((node: any) => node.type === 'Button' && ['next.settingsSpec.server.storage.advanced.groups.0.rows.0.control.label', 'next.settingsSpec.server.storage.advanced.groups.0.rows.2.control.label'].includes(content(node)));
+  assert.equal(links.length, 2); links.forEach((node: any) => node.props.onPress()); assert.deepEqual(opened, ['history', 'troubleshooting']);
+  assert.ok(!nodes(render()).some((node: any) => node.props.row?.id === 'troubleshooting.keepLogs'));
   fixture.stop();
 });
 

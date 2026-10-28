@@ -19,11 +19,11 @@ type Translate = typeof defaultI18n.t;
 type NumberEditor = Readonly<{label: string; value: string; min: number; max: number; done: (value: number) => void}>;
 const bounds: Readonly<Record<string, readonly [number, number]>> = {
   'storage.analysisSpace': [1, 16384], 'storage.analysisStage': [1, 4096], 'storage.subtitleTracks': [32, 4096], 'storage.subtitleFile': [32, 512],
-  'storage.keepNotifications': [1, 180], 'storage.backupKeepExact': [1, 365], 'troubleshooting.keepLogs': [1, 30],
+  'storage.keepNotifications': [1, 180], 'storage.backupKeepExact': [1, 365],
 };
 
 /** The Storage page owns the forms and one Save, including its main backup settings. */
-export function LimitsTab({group, t, customBackupKeep = false}: {group: StorageForms; t: Translate; customBackupKeep?: boolean}) {
+export function LimitsTab({group, t, customBackupKeep = false, onOpenPage}: {group: StorageForms; t: Translate; customBackupKeep?: boolean; onOpenPage: (page: 'history' | 'troubleshooting') => void}) {
   const theme = useTheme(), {forms} = group, state = useStorageSet(group);
   const runtimeState = useFormState<RuntimeSettings, unknown>(forms.runtime);
   const maintenanceState = useFormState<MaintenanceSettings, MaintenanceDocument>(forms.maintenance);
@@ -47,6 +47,7 @@ export function LimitsTab({group, t, customBackupKeep = false}: {group: StorageF
   const filePreset = exactPresetValue(fileOptions, read), showFileChildren = customFiles || filePreset === 'custom';
   const keepRow = settingsRowIndex.get('storage.backupKeep')!.row;
   const renderRow = (row: SpecRow): React.ReactNode => {
+    if (row.id === 'storage.keepHistory' || row.id === 'storage.keepLogsLink') return <Button key={row.id} variant="text" onPress={() => {if (group.context.current()) onOpenPage(row.id === 'storage.keepHistory' ? 'history' : 'troubleshooting');}}>{t(row.control.label ?? row.label)}</Button>;
     if (row.id === 'storage.keepFiles') {
       if (!maintenanceDraft || !fileOptions.some(option => option.sets && Object.keys(option.sets).every(id => read(id) !== undefined))) return null;
       return <View key={row.id} style={{gap: 10}}><NativeSettingControl row={row} value={customFiles ? 'custom' : filePreset} t={t} disabled={state.saving} onCustom={() => setCustomFiles(true)}
@@ -82,22 +83,20 @@ export function LimitsTab({group, t, customBackupKeep = false}: {group: StorageF
   };
   const section = settingsSpec.find(section => section.scope === 'server' && section.id === 'storage');
   const customNumber = editing ? settingNumber(value, {min: editing.min, max: editing.max, step: 1}) : {valid: false};
-  return <View style={{gap: 18}} testID="server-storage-limits">
-    {section?.advanced?.groups?.map((group, index) => {
-      const rows = group.rows.map(renderRow).filter(Boolean);
-      return rows.length ? <View key={index} style={{gap: 8}}>{group.title && <Text style={[shellType(16, 700), {color: theme.colors.textSecondary}]}>{t(group.title)}</Text>}<View style={{borderRadius: 14, backgroundColor: theme.colors.raised, padding: 14, gap: 12}}>{rows}</View></View> : null;
-    })}
-    {runtimeDraft && <View style={{gap: 10}}>
-      {retention(t('settings.server.playHistoryKeep'), runtimeDraft.playHistoryDays, 36500, playHistoryDays => forms.runtime.set((draft: RuntimeSettings) => ({...draft, playHistoryDays})), 0)}
-      {renderRow(settingsRowIndex.get('troubleshooting.keepLogs')!.row)}
-      {retention(t('web.logs.retentionTasks'), runtimeDraft.jobDays, 30, jobDays => forms.runtime.set((draft: RuntimeSettings) => ({...draft, jobDays})))}
-    </View>}
+  const expertRetention = <>
+    {runtimeDraft && retention(t('web.logs.retentionTasks'), runtimeDraft.jobDays, 30, jobDays => forms.runtime.set((draft: RuntimeSettings) => ({...draft, jobDays})))}
     {maintenanceDraft && maintenanceState.status?.storageCategories.filter(category => !['conversions', 'prepared', 'downloads', 'subtitles', 'trickplay'].includes(category.retentionKey)).map(category => <View key={category.id}>
       {retention(category.name, maintenanceDraft.retention[category.retentionKey] ?? 0, maintenanceState.status?.retentionMaxima[category.retentionKey] ?? 3650, days => forms.maintenance.set((draft: MaintenanceSettings) => ({...draft, retention: {...draft.retention, [category.retentionKey]: days}})), 0)}
     </View>)}
-    {logsDraft && <View style={{gap: 10}}><Text style={[shellType(16, 700), {color: theme.colors.textSecondary}]}>{t('server.logsByKind')}</Text>
+  </>;
+  return <View style={{gap: 18}} testID="server-storage-limits">
+    {section?.advanced?.groups?.map((expertGroup, index) => {
+      const rows = expertGroup.rows.map(renderRow).filter(Boolean);
+      return rows.length ? <View key={index} style={{gap: 8}}>{expertGroup.title && <Text style={[shellType(16, 700), {color: theme.colors.textSecondary}]}>{t(expertGroup.title)}</Text>}<View style={{borderRadius: 14, backgroundColor: theme.colors.raised, padding: 14, gap: 12}}>{rows}{index === 0 && expertRetention}</View></View> : null;
+    })}
+    {logsDraft && <View style={{gap: 10}}><Text style={[shellType(16, 700), {color: theme.colors.textSecondary}]}>{t('server.logsByKind')}</Text><View style={{borderRadius: 14, backgroundColor: theme.colors.raised, padding: 14, gap: 12}}>
       {logsDraft.retention.map(entry => <View key={entry.category}>{retention(t('settings.server.retention.logs', {category: t(`server.logCategory.${entry.category}` as MessageId)}), entry.days, 90, days => forms.logs.set((draft: LogsDraft) => ({...draft, retention: draft.retention.map(row => row.category === entry.category ? {...row, days} : row)})))}</View>)}
-    </View>}
+    </View></View>}
     <BottomSheet open={Boolean(editing)} onOpenChange={next => {if (!next) setEditing(undefined);}} testID="server-storage-number" keyboardAvoiding title={editing?.label}
       footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" onPress={() => setEditing(undefined)}>{t('action.cancel')}</Button>
         <Button disabled={state.saving || !customNumber.valid} onPress={() => {if (editing && customNumber.valid && typeof customNumber.value === 'number' && nativeStorageOwner(group.context)) {editing.done(customNumber.value);setEditing(undefined);}}}>{t('action.save')}</Button></View>}>

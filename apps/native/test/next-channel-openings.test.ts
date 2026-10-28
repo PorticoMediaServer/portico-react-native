@@ -1,9 +1,10 @@
+import * as presentation from '../src-next/screens/settings-live/server/channels/presentation.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 const nodes = (tree: any): any[] => Array.isArray(tree) ? tree.flatMap(nodes) : tree && typeof tree === 'object' ? [tree, ...nodes(tree.props?.children), ...nodes(tree.props?.footer)] : [];
-const button = (tree: any, label: string) => {const found = nodes(tree).find(node => node.type === 'Button' && node.props.children.includes(label)); assert.ok(found, label); return found;};
+const button = (tree: any, label: string) => {const found = nodes(tree).find(node => node.type === 'Button' && node.props.children.includes(label) || node.type === 'MenuRow' && node.props.label === label); assert.ok(found, label); return found;};
 const theme = {isTV: false, platform: 'phone', colors: new Proxy({}, {get: (_target, key) => String(key)})};
 const t = (id: string) => id;
 function layoutHost() {
@@ -21,7 +22,7 @@ function layoutHost() {
 const source = (getSnapshot: () => any) => ({subscribe: () => () => {}, getSnapshot});
 const common = {'../../../../../../../packages/i18n/src': {defaultI18n: {t, date: String, number: String}},
   '../../../../kit/artwork': {ChannelMark: 'ChannelMark', Artwork: 'Artwork'}, '../../../../kit/controls': {Button: 'Button', Focusable: 'Focusable', Switch: 'Switch', Select: 'Select', TextField: 'TextField'},
-  '../../../../kit/overlays': {BottomSheet: 'BottomSheet'}, '../../../../kit/shell/visual': {shellType: () => ({})}, '../../../../kit/theme': {useTheme: () => theme}};
+  '../../../../kit/overlays': {BottomSheet: 'BottomSheet', MenuRow: 'MenuRow'}, './presentation': presentation, '../../../../kit/shell/visual': {shellType: () => ({})}, '../../../../kit/theme': {useTheme: () => theme}};
 
 async function channelsFixture() {
   const host = layoutHost(), calls: any[][] = [];
@@ -46,6 +47,7 @@ async function channelsFixture() {
   return {calls, channels, templates, render, tree: () => tree, menu, templateMenu,
     openMenu: (name: string) => {nodes(tree).find(node => node.type === 'Focusable' && node.props.accessibilityLabel === name).props.onPress(); render();},
     openTemplates: () => {button(tree, 'builder.newTitle').props.onPress(); render();},
+    setHealth: (value: any) => {state = {...state, selected: channels[0], health: value}; render();},
     list: (next: any[]) => {state = {...state, channels: next}; render();},
     dispose: () => {active = false; host.dispose();},
   };
@@ -55,7 +57,7 @@ test('A replaced channel menu rejects its old dismiss, edit, delete and move cal
   const f = await channelsFixture();
   try {
     f.openMenu('First'); const old = f.menu();
-    const edit = button(old, 'web.selection.edit').props.onPress, remove = button(old, 'action.delete').props.onPress, move = button(old, 'web.profile.moveDown').props.onPress;
+    const edit = button(old, 'web.selection.edit').props.onPress, remove = button(old, 'web.libraryChannels.delete').props.onPress, move = button(old, 'web.profile.moveDown').props.onPress;
     old.props.onOpenChange(false); f.render(); f.openMenu('Second');
     old.props.onOpenChange(false); edit(); remove(); move(); f.render();
     assert.equal(f.menu().props.open, true); assert.equal(f.menu().props.title, 'Second'); assert.deepEqual(f.calls, []);
@@ -66,7 +68,7 @@ test('A replaced channel menu rejects its old dismiss, edit, delete and move cal
 test('Template actions belong to their opening and an inapplicable template cannot dispatch directly', async () => {
   const f = await channelsFixture();
   try {
-    f.openTemplates(); const old = f.templateMenu(), choose = button(old, 'Ready template').props.onPress, blank = button(old, 'Start from scratch').props.onPress;
+    f.openTemplates(); const old = f.templateMenu(), choose = button(old, 'Ready template').props.onPress, blank = button(old, 'web.libraryChannels.startFromScratch').props.onPress;
     old.props.onOpenChange(false); f.render(); f.openTemplates();
     old.props.onOpenChange(false); choose(); blank(); f.render(); assert.equal(f.templateMenu().props.open, true); assert.deepEqual(f.calls, []);
     const blocked = button(f.templateMenu(), 'Blocked template'); assert.equal(blocked.props.disabled, true); blocked.props.onPress(); f.render();
@@ -105,6 +107,7 @@ async function editorFixture() {
   render();
   return {render, tree: () => tree, closes: () => closes, modal: () => nodes(tree).filter(node => node.type === 'Modal')[1],
     openPreview: () => {button(nodes(tree).find(node => node.props?.testID === 'channel-preview-bar'), 'builder.preview').props.onPress(); render();},
+    incompletePreview: () => {state = {...state, preview: {...state.preview, complete: false, rules: state.preview.rules.map((rule: any) => ({...rule, complete: false}))}}; render();},
     changeConfig: () => {state = {...state, config: {...state.config, name: 'Changed'}, preview: undefined}; render();},
     changePreview: () => {state = {...state, preview: makePreview('Replacement sample')}; render();},
     dispose: () => {active = false; host.dispose();},
@@ -139,5 +142,37 @@ test('A replacement preview result opens independently and cannot be closed by t
     f.openPreview(); const old = f.modal(); f.changePreview(); f.openPreview(); old.props.onRequestClose(); f.render();
     assert.equal(f.modal().props.visible, true);
     assert.equal(nodes(f.modal()).find(node => node.type === 'Artwork').props.alt, 'Replacement sample');
+  } finally {f.dispose();}
+});
+
+
+test('channel toggles live in the guarded menu and health facts use the approved captions and hierarchy', async () => {
+  const f = await channelsFixture();
+  try {
+    assert.ok(!nodes(f.tree()).some(node => node.type === 'Switch'));
+    f.openMenu('First'); const toggle = button(f.menu(), 'web.libraryChannels.turnOff');
+    toggle.props.onPress(); toggle.props.onPress(); f.render();
+    assert.deepEqual(f.calls, [['perform', f.channels[0], 'toggle']]);
+    f.openMenu('First'); button(f.menu(), 'web.libraryChannels.checkHealth').props.onPress();
+    f.setHealth({healthy: false, candidates: 2, unresolved: 1, scheduledEntries: 11, pendingGeneration: true, generatedThrough: '2026-10-29T16:00:00Z'});
+    const health = nodes(f.tree()).find(node => node.type === 'BottomSheet' && node.props.description === 'web.libraryChannels.healthLede')!;
+    assert.equal(health.props.open, true);
+    for (const label of ['web.libraryChannels.healthCandidates', 'web.libraryChannels.healthUnresolved', 'web.libraryChannels.healthNewSchedule', 'web.libraryChannels.healthBeingMade']) assert.ok(nodes(health).some(node => node.type === 'Text' && node.props.children.includes(label)), label);
+    assert.equal(button(health.props.footer, 'server.remote.checkAgain').props.variant, undefined);
+    assert.equal(button(health.props.footer, 'action.done').props.variant, 'glass');
+    button(health.props.footer, 'server.remote.checkAgain').props.onPress();
+    assert.equal(f.calls.filter(value => value[0] === 'health').length, 2);
+  } finally {f.dispose();}
+});
+
+
+test('the fixed preview bar and full preview both show lower-bound counts and actual total hours', async () => {
+  const f = await editorFixture();
+  const text = (node: any): string => Array.isArray(node) ? node.map(text).join('') : node?.props ? text(node.props.children) : typeof node === 'string' || typeof node === 'number' ? String(node) : '';
+  try {
+    f.incompletePreview();
+    const bar = nodes(f.tree()).find(node => node.props?.testID === 'channel-preview-bar');
+    assert.ok(text(bar).includes('At least 1 title matches')); assert.ok(text(bar).includes('≥ 1.0 h'));
+    f.openPreview(); assert.ok(text(f.modal()).includes('At least 1 title matches')); assert.ok(text(f.modal()).includes('≥ 1.0 h'));
   } finally {f.dispose();}
 });

@@ -72,7 +72,7 @@ export function NativeBroadcastSheet({ports, runtime, open, onOpenChange}: {port
     }
   };
   return <BottomSheet open={open && current()} onOpenChange={next => {if (!next) close();}} testID="server-message-everyone" keyboardAvoiding
-    title={t('server.messageEveryone')} description={t('web.broadcast.lede')} dismissOnBack={!busy} dismissOnGesture={!busy} dismissOnOutsidePress={!busy} showClose={!busy}
+    title={t('server.messageEveryone')} dismissOnBack={!busy} dismissOnGesture={!busy} dismissOnOutsidePress={!busy} showClose={!busy}
     footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={busy} onPress={close}>{t('action.cancel')}</Button>
       <Button loading={busy} disabled={busy || !title.trim() || Boolean(validation)} onPress={() => {void send();}}>{t('feedback.send')}</Button></View>}>
     <View style={{gap: 12}}>
