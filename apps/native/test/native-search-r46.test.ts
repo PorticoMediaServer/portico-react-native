@@ -136,7 +136,7 @@ test('typed no matches keeps state 17a four backdrop tiles, filtering missing ar
   const backdrops = ['crime', 'drama', 'comedy', 'animation', 'next'].map((id, index) => ({
     id, name: id, count: 11 + index, coverPaths: [], backdropPath: `/backdrops/${id}`,
   }));
-  const {tree, paint, find, calls} = await mount(snapshot, {phase: 'ready', genres: [missing, ...backdrops],
+  const {tree, paint, find, calls} = await mount(snapshot, {phase: 'ready', genres: [missing], backdropGenres: [missing, ...backdrops],
     initialHeading: 'next.search.browseByGenre', emptyHeading: 'next.search.browseInstead'});
   assert.ok(nodes(tree).some(node => node.props.testID === 'search-no-matches'));
   assert.ok(find(props => props.title === defaultI18n.t('next.search.browseInstead')));
@@ -212,7 +212,7 @@ test('Search no-match genre counts use the actual runtime regional formatter', a
     data: {groups, capabilities}, query: {q: 'unmatched'}}, groups, recent: [], clearing: false};
   const text = createI18n(resolveRegion({locale: 'en-US', formats: 'de-DE'}, {locales: ['en-US']}));
   const genre = {id: 'actual-metadata-value', name: 'Stored metadata label', count: 1234, coverPaths: [], backdropPath: '/actual/backdrop'};
-  const {tree, paint} = await mount(snapshot, {phase: 'ready', genres: [genre], initialHeading: 'next.search.browseByGenre', emptyHeading: 'next.search.browseInstead'}, text);
+  const {tree, paint} = await mount(snapshot, {phase: 'ready', genres: [], backdropGenres: [genre], initialHeading: 'next.search.browseByGenre', emptyHeading: 'next.search.browseInstead'}, text);
   const tile = nodes(tree).find(node => typeof node.type === 'function' && node.props.genre === genre);
   assert.ok(tile);
   const count = text.t('next.selection.titles', {count: genre.count});

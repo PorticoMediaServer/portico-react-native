@@ -36,6 +36,8 @@ async function bindings() {
   const listeners = new Set<(event: any) => void>();
   const native = {Platform: {OS: 'android', isTV: true}, View: 'View', Text: 'Text', Pressable: 'Pressable', ScrollView: 'ScrollView', TVFocusGuideView: 'Guide',
     AccessibilityInfo: {announceForAccessibility() {}},
+    // Search registration reads the real app-state surface; this fixture only drives focus.
+    AppState: {currentState: 'active', addEventListener: () => ({remove() {}})},
     BackHandler: {addEventListener: () => ({remove() {}})}, useWindowDimensions: () => ({width: 1920, height: 1080}),
     TVEventHandler: {addListener: (listener: (event: any) => void) => {listeners.add(listener); return {remove: () => listeners.delete(listener)};}},
     findNodeHandle: (host: any) => host.nativeTag, StyleSheet: {create: (value: any) => value, flatten, absoluteFill: {position: 'absolute'}}};
