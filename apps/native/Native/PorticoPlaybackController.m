@@ -162,6 +162,17 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  if(_capturedVideoFrame){CVPixelBufferRelease(_capturedVideoFrame);_capturedVideoFrame=NULL;}
  _capturedVideoTime=kCMTimeInvalid;
 }
+- (BOOL)refreshVideoOutputForBinding:(NSDictionary *)binding {
+ if(!NSThread.isMainThread||![binding isEqual:self.externalPresentationBinding]||!_videoOutput)return NO;
+ AVPlayerItem *item=_observedItem;
+ AVPlayerItemVideoOutput *replacement=[[AVPlayerItemVideoOutput alloc]initWithPixelBufferAttributes:@{(id)kCVPixelBufferPixelFormatTypeKey:@(kCVPixelFormatType_32BGRA)}];
+ replacement.suppressesPlayerRendering=NO;
+ [item removeOutput:_videoOutput];
+ [self clearCapturedVideoFrame];
+ _videoOutput=replacement;
+ [item addOutput:replacement];
+ return [binding isEqual:self.externalPresentationBinding];
+}
 - (CVPixelBufferRef)copyVideoFrameForBinding:(NSDictionary *)binding displayTime:(CMTime *)displayTime transform:(CGAffineTransform *)transform {
  if(!NSThread.isMainThread||![binding isEqual:self.externalPresentationBinding]||!_videoOutput)return NULL;
  AVPlayerItem *item=_observedItem;CMTime now=item.currentTime,actual=kCMTimeInvalid;
