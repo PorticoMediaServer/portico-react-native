@@ -25,10 +25,10 @@ import {NativeAdvancedSection} from './server/AdvancedSection';
 
 /** Settings › Server › Live TV & Channels: the owner's real sources and recordings.
  * Every read and write is the server's; a row never shows a change it did not accept. */
-export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, onClose, initialAction}: {initialAction?: 'add' | 'discover'; controller: NativeLiveOwnerController; recordings: NativeRecordingsController; ports: Pick<NativeSettingsLivePorts, 'context' | 'requestId'>; runtime: NativeShellRuntime; onClose: () => void}) {
+export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, onClose, initialAction, initialChannelId}: {initialChannelId?: string; initialAction?: 'add' | 'discover'; controller: NativeLiveOwnerController; recordings: NativeRecordingsController; ports: Pick<NativeSettingsLivePorts, 'context' | 'requestId'>; runtime: NativeShellRuntime; onClose: () => void}) {
   const theme = useTheme(), t = runtime.text.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
-  const [tab, setTab] = useState('sources');
+  const [tab, setTab] = useState(initialChannelId ? 'channels' : 'sources');
   const [addMenu, setAddMenu] = useState(false), [adding, setAdding] = useState(initialAction === 'add'), [discovering, setDiscovering] = useState(initialAction === 'discover'), [uploading, setUploading] = useState(false), [tuner, setTuner] = useState<string>();
   const addButton = useRef<View | null>(null);
   const [menu, setMenu] = useState<LiveSource>(), [configure, setConfigure] = useState<LiveSource>(), [mapping, setMapping] = useState<LiveSource>();
@@ -130,7 +130,7 @@ export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, o
           </View>
           <LiveDefaultsSection controller={controller} runtime={runtime}/>
         </View>
-        : tab === 'channels' ? <NativeLibraryChannelsPanel ports={ports} runtime={runtime}/>
+        : tab === 'channels' ? <NativeLibraryChannelsPanel ports={ports} runtime={runtime} initialChannelId={initialChannelId}/>
         : <NativeRecordingOwner controller={controller} recordings={recordings} runtime={runtime} sources={sources}/>}
     </ScrollView>
     <Menu open={menu !== undefined} onOpenChange={value => {if (!value) setMenu(undefined);}} title={menu?.name} anchorRef={menuOpener} presentation="sheet" items={menuItems} testID="live-owner-menu"/>

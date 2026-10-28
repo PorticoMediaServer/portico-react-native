@@ -1,3 +1,4 @@
+import {setServerChannelHidden} from '../../../../../packages/client-core/src/server-channel-visibility';
 import {clonePortableDto} from '../../../../../packages/client-core/src';
 import {liveSourceChoicesService, parseEnvelope, type LiveSourceChoicePage} from '../../../../../packages/client-core/src/administration';
 import {rebaseDraft, sendWithFreshRecord, ALREADY_DONE} from '../../../../../packages/client-core/src/freshness-actions';
@@ -72,6 +73,11 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
       return undefined;
     });
   }
+  channelHidden = async (sourceId: string, channelId: string, hidden: boolean, caller: NativeRecordingCommandLifetime, expected?: Readonly<{revision: number; hidden: boolean}>) => {
+    const current = () => this.current() && caller.isCurrent() && !caller.signal.aborted;
+    const api = {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => this.lifetime.request(next => this.api.request<T>(path, method, body, next), signal)};
+    return setServerChannelHidden(api, this.lifetime.authority.serverId, sourceId, channelId, hidden, this.operationId, caller.signal, current, expected);
+  };
   nextId = (): string => this.operationId();
   private row = (id: string) => this.getSnapshot().list?.sources.find(value => value.id === id);
   private freshRow = async (id: string) => {
