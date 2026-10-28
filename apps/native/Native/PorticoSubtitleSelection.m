@@ -29,7 +29,7 @@ static BOOL PlainText(id value){
  // server can answer "still authorised, unchanged" with a header instead of the whole track.
  NSString *_etag,*_responseEtag;BOOL _notModified;
  // A download's subtitle file on this device: read once, never re-checked with a server.
- BOOL _local;NSInteger _localEpoch;
+ BOOL _local;NSInteger _localEpoch,_selectionEpoch;
 }
 + (void)applyCaptionAppearanceToLabel:(UILabel *)label baseSize:(CGFloat)base style:(NSDictionary *)style italic:(BOOL)italic {
  NSDictionary *scales=@{@"small":@0.8,@"medium":@1,@"large":@1.3,@"extra-large":@1.6};
@@ -60,6 +60,10 @@ static BOOL PlainText(id value){
  else if(label.text.length)label.attributedText=[[NSAttributedString alloc]initWithString:label.text attributes:@{NSFontAttributeName:font,NSForegroundColorAttributeName:text}];
 }
 
++ (NSString *)normalizedTitle:(NSString *)title {
+ NSArray *parts=[(title?:@"").lowercaseString componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+ NSMutableArray *words=[NSMutableArray new];for(NSString *part in parts)if(part.length)[words addObject:part];return [words componentsJoinedByString:@" "];
+}
 + (AVMediaSelectionOption *)option:(NSArray<AVMediaSelectionOption *> *)options language:(NSString *)language title:(NSString *)title {
  NSString *wanted=[[language lowercaseString] componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"-_"]].firstObject;
  NSMutableArray<AVMediaSelectionOption *> *matches=[NSMutableArray new];
@@ -69,22 +73,34 @@ static BOOL PlainText(id value){
   NSString *base=[tag componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"-_"]].firstObject;
   if(wanted.length&&[base isEqual:wanted])[matches addObject:option];
  }
- if(matches.count>1&&title.length)for(AVMediaSelectionOption *option in matches)if([option.displayName localizedCaseInsensitiveContainsString:title]||[title localizedCaseInsensitiveContainsString:option.displayName])return option;
- return matches.count==1?matches.firstObject:nil; // ambiguous: keep drawing it ourselves
+ NSString *requested=[self normalizedTitle:title];NSMutableArray *exact=[NSMutableArray new],*fuzzy=[NSMutableArray new];
+ if(requested.length)for(AVMediaSelectionOption *option in matches){
+  NSString *name=[self normalizedTitle:option.displayName];
+  if([name isEqual:requested])[exact addObject:option];
+  else if(name.length&&([name containsString:requested]||[requested containsString:name]))[fuzzy addObject:option];
+ }
+ if(exact.count)return exact.count==1?exact.firstObject:nil;
+ if(matches.count==1)return matches.firstObject;
+ return fuzzy.count==1?fuzzy.firstObject:nil; // ambiguous: keep drawing it ourselves
 }
 - (BOOL)overlayActive {return _command!=nil&&!_nativeSelected;}
 - (void)setText:(NSString *)text{NSDictionary *cue=@{@"text":text,@"italic":@(_italic&&text.length>0),@"top":@(_top&&text.length>0)};if([_displayCue isEqual:cue])return;_displayCue=cue;_text=[text copy];if(self.onText)self.onText(cue);}
 - (void)status:(NSString *)error{if(self.onStatus)self.onStatus(error?:@"");}
+- (void)resetNativeSelection {
+ _selectionEpoch++;
+ if(_nativeSelected&&_item){AVMediaSelectionGroup *group=[_item.asset mediaSelectionGroupForMediaCharacteristic:AVMediaCharacteristicLegible];if(group)[_item selectMediaOption:nil inMediaSelectionGroup:group];}
+ _legibleRequested=NO;_nativeSelected=NO;
+}
 - (void)invalidate {
- _local=NO;_localEpoch++;
+ [self resetNativeSelection];_local=NO;_localEpoch++;
  [_task cancel];_task=nil;[_session invalidateAndCancel];_session=nil;[_timer invalidate];_timer=nil;
  _command=nil;_item=nil;_cues=nil;_prefixEnds=nil;_bytes=nil;_url=nil;_etag=nil;_responseEtag=nil;_notModified=NO;_revision=0;_offset=0;_authorizedUntil=0;_lastRequest=0;_legibleRequested=NO;_nativeSelected=NO;_nativeName=nil;_nativeLanguage=nil;_nativeTitle=nil;
  [self setText:@""];
 }
 - (void)disableEmbedded:(AVPlayerItem *)item {
- if(!item||_legibleRequested)return;_legibleRequested=YES;__weak PorticoSubtitleSelection *weakSelf=self;
+ if(!item||_legibleRequested)return;_legibleRequested=YES;NSInteger epoch=++_selectionEpoch;__weak PorticoSubtitleSelection *weakSelf=self;
  [item.asset loadValuesAsynchronouslyForKeys:@[@"availableMediaCharacteristicsWithMediaSelectionOptions"] completionHandler:^{dispatch_async(dispatch_get_main_queue(),^{
-  PorticoSubtitleSelection *self=weakSelf;if(!self||self->_item!=item)return;
+  PorticoSubtitleSelection *self=weakSelf;if(!self||self->_item!=item||self->_selectionEpoch!=epoch)return;
   AVMediaSelectionGroup *group=[item.asset mediaSelectionGroupForMediaCharacteristic:AVMediaCharacteristicLegible];if(group){AVMediaSelectionOption *selected=nil;for(AVMediaSelectionOption *option in group.options){if(self->_nativeName.length&&[option.displayName isEqual:self->_nativeName]){selected=option;break;}}if(!selected&&self->_nativeLanguage.length)selected=[PorticoSubtitleSelection option:group.options language:self->_nativeLanguage title:self->_nativeTitle];[item selectMediaOption:selected inMediaSelectionGroup:group];self->_nativeSelected=selected!=nil;[self tick:self->_time];}
  });}];
 }
@@ -121,16 +137,18 @@ static BOOL PlainText(id value){
  BOOL refreshRequested=![_command[@"refreshRevision"] isEqual:command[@"refreshRevision"]];
  BOOL sameResource=_item==item&&[_url isEqual:url]&&[_command[@"binding"] isEqual:command[@"binding"]];
  if(!sameResource){[self invalidate];_item=item;_url=url;}
+ _offset=offset;
  NSString *nativeName=[command[@"manifestName"] isKindOfClass:NSString.class]?command[@"manifestName"]:nil;
- if(_nativeName!=nativeName&&![_nativeName isEqual:nativeName]){_nativeName=[nativeName copy];_legibleRequested=NO;_nativeSelected=NO;}
+ if(_nativeName!=nativeName&&![_nativeName isEqual:nativeName]){[self resetNativeSelection];_nativeName=[nativeName copy];}
  // OS-02: an embedded text track (MP4 tx3g, HLS WebVTT) chosen without a manifest name is
  // matched by language (and title when several share it), so AVPlayer draws it itself and it
  // survives Picture in Picture and AirPlay. Sidecar, uploaded and provider tracks stay drawn by
  // the app: they are not part of the stream.
- BOOL embedded=[command[@"origin"] isEqual:@"embedded"];
+ // Direct embedded text needs the app clock for a correction. HLS manifest timing is baked in.
+ BOOL embedded=[command[@"origin"] isEqual:@"embedded"]&&_offset==0;
  NSString *language=embedded&&[command[@"language"] isKindOfClass:NSString.class]&&[command[@"language"] length]<=35?command[@"language"]:nil;
  NSString *title=embedded&&[command[@"title"] isKindOfClass:NSString.class]&&[command[@"title"] length]<=256?command[@"title"]:nil;
- if(!(_nativeLanguage==language||[_nativeLanguage isEqual:language])||!(_nativeTitle==title||[_nativeTitle isEqual:title])){_nativeLanguage=[language copy];_nativeTitle=[title copy];_legibleRequested=NO;_nativeSelected=NO;}
+ if(!(_nativeLanguage==language||[_nativeLanguage isEqual:language])||!(_nativeTitle==title||[_nativeTitle isEqual:title])){[self resetNativeSelection];_nativeLanguage=[language copy];_nativeTitle=[title copy];}
  _command=[command copy];_revision=[command[@"revision"] integerValue];_offset=offset;
  [self disableEmbedded:item];
  if(!_session){NSURLSessionConfiguration *configuration=NSURLSessionConfiguration.ephemeralSessionConfiguration;configuration.URLCache=nil;configuration.HTTPCookieStorage=nil;configuration.URLCredentialStorage=nil;configuration.requestCachePolicy=NSURLRequestReloadIgnoringLocalCacheData;configuration.timeoutIntervalForRequest=15;configuration.timeoutIntervalForResource=20;configuration.HTTPMaximumConnectionsPerHost=1;_session=[NSURLSession sessionWithConfiguration:configuration delegate:self delegateQueue:NSOperationQueue.mainQueue];}
