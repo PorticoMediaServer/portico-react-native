@@ -6,6 +6,9 @@ import {NativeHomeEmpty} from '../screens/home/HomeEmpty';
 import React, {type RefObject} from 'react';
 import {BackHandler, Platform, View} from 'react-native';
 import {defaultI18n} from '../../../../packages/i18n/src';
+import {UserMutationRecoveryModel, type UserMutationRecoveryDestination} from '../../../../packages/client-core/src/user-mutation-recovery';
+import {NativePendingChanges} from './pending-changes';
+import {PendingChanges} from './PendingChanges';
 import {HomeSelectionController, homeSelectionContext} from '../../../../packages/client-core/src/home-selection/index';
 import {homeChannelSelection, homeCollectionSelection, homeEntryCapabilities, homeEntrySelection} from '../../../../packages/client-core/src/home-selection';
 import type {HomeRow, HomeSpotlight} from '../../../../packages/client-core/src/home';
@@ -66,6 +69,24 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     feedback.reportError(error, 'home');
   };
   const open = (route: NativeShellRoute) => {if (alive && context.current()) context.navigation.open(route, context.authority());};
+  const mutationCoordinator = context.api.getUserMutationCoordinator();
+  const mutationScope = () => alive && context.current() ? context.api.getUserMutationScope() : undefined;
+  const pendingChanges = mutationCoordinator ? new NativePendingChanges(new UserMutationRecoveryModel({
+    api: context.api, coordinator: mutationCoordinator, scope: mutationScope,
+  }), mutationScope, context.subscribeAuthority) : undefined;
+  const reviewDestination = (destination: UserMutationRecoveryDestination) => {
+    if (!pendingChanges?.current()) return;
+    if (destination.kind === 'saved') open({kind: 'shell', destination: {kind: 'saved'}});
+    else if (destination.kind === 'settings' && destination.server) {
+      const page = destination.section === 'metadata' ? 'metadata' : destination.section === 'storage' ? 'storage' : destination.section === 'live' ? 'live' : undefined;
+      open({kind: 'server-settings', ...(page ? {page} : {})});
+    }
+    else if (destination.kind === 'playback') {
+      const playback = context.playback.getSnapshot();
+      if (playback.fence && (!destination.sessionId || destination.sessionId === playback.fence.sessionId)) context.playback.open(playback.fence);
+      else open({kind: 'shell', destination: {kind: 'settings'}});
+    } else open({kind: 'shell', destination: {kind: 'settings'}});
+  };
   const platform = {platform: Platform.isTV ? 'tv' as const : 'phone-app' as const, playbackAvailable: true, queueAvailable: true};
   const environment = () => {
     const document = context.home.getSnapshot().document;
@@ -300,7 +321,11 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
           .catch(error => {if (operation.lifetime.isCurrent()) reportError(error);})
           .finally(() => {operation.dispose(); operations.delete(signal);});
   };
-  return {get account() {return nativeAccountMenu(context.account, open, Platform.isTV, nativeMenuRouteAvailable);}, attach: value => {runtime = value;},
+  return {get account() {
+    const account = nativeAccountMenu(context.account, open, Platform.isTV, nativeMenuRouteAvailable);
+    return pendingChanges ? {...account, actions: [...account.actions, {id: 'pending-changes', label: defaultI18n.t('recovery.title'), icon: 'i-clock' as const, onPress: pendingChanges.open}]} : account;
+  }, attach: value => {runtime = value;},
+    renderPendingChanges: () => pendingChanges && runtime ? <PendingChanges owner={pendingChanges} runtime={runtime} openDestination={reviewDestination}/> : null,
     getState: () => {const state = controller.getSnapshot(), navigation = context.navigation.getSnapshot(); return {destination: navigation.destination,
       railDestination: nativeRailDestination(navigation, context.libraries()), contentVisible: navigation.route.kind === 'shell', selectionActive: state.selection.active,
       homeVisible: currentHome(), homeObscured: !!(state.menu || state.picker || state.editor || state.deletion || state.rating || state.mixedEdit)};},
@@ -428,6 +453,6 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     mixes,
     musicDiscover: musicNavigation.open,
     onArtworkError: error => reportError(error, 'artwork-error'),
-    dispose: () => {if (!alive) return; alive = false; capturedMenu = undefined; listeningPlaylist?.dispose(); listeningQueuePolicy?.dispose(); listeningSongDetail?.dispose(); musicNavigation.dispose(); mixesLife.abort(); mixes.dispose(); routes.dispose(); for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); tvPageBack.clear(); runtime = undefined; listeners.clear();},
+    dispose: () => {if (!alive) return; alive = false; pendingChanges?.dispose(); capturedMenu = undefined; listeningPlaylist?.dispose(); listeningQueuePolicy?.dispose(); listeningSongDetail?.dispose(); musicNavigation.dispose(); mixesLife.abort(); mixes.dispose(); routes.dispose(); for (const operation of operations) operation.abort(); operations.clear(); for (const cleanup of cleanups) cleanup(); for (const member of members.values()) member.cleanup(); members.clear(); for (const window of windows.values()) window.cleanup?.(); for (const spotlight of spotlights.values()) spotlight.cleanup(); windows.clear(); spotlights.clear(); controller.dispose(); management?.dispose(); scroll.clear(); tvPageBack.clear(); runtime = undefined; listeners.clear();},
   };
 }

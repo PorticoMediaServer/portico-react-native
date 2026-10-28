@@ -118,19 +118,29 @@ static NSDictionary *Query(NSString *key) { return @{(__bridge id)kSecClass:(__b
    if(![p[@"next"] isKindOfClass:NSDictionary.class]){if(error)*error=StoreError();return nil;}next=[p[@"next"] mutableCopy];
   } else {
    next=[state mutableCopy];NSMutableArray *entries=[NSMutableArray new];for(NSDictionary *entry in state[@"entries"])[entries addObject:[entry mutableCopy]];next[@"entries"]=entries;
-   if([operation isEqual:@"scope"]){
-    id scope=p[@"scope"]?:NSNull.null;
+   if([operation isEqual:@"scope"]||[operation isEqual:@"retireScope"]){
+    BOOL retiring=[operation isEqual:@"retireScope"];
+    if(retiring){id active=[self read:[prefix stringByAppendingString:@"active"] error:error];if(!active)return nil;if(![active isEqual:p[@"scope"]])return @NO;}
+    id scope=retiring?NSNull.null:(p[@"scope"]?:NSNull.null);
     for(NSMutableDictionary *e in entries)if([e[@"state"] isEqual:@"pending"]&&![e[@"scope"] isEqual:scope]){e[@"state"]=@"quarantined";e[@"errorCode"]=@"mutation_scope_changed";[e removeObjectForKey:@"leaseOwner"];[e removeObjectForKey:@"leaseUntilMs"];}
     // Live authorization binding is deliberately separate from the general outbox.
     if(![self write:[prefix stringByAppendingString:@"active"] value:scope error:error])return nil;
    } else if([operation isEqual:@"reserveStop"]){
     NSDictionary *e=p[@"entry"];if(![e isKindOfClass:NSDictionary.class]||![e[@"operation"] isEqual:@"stop_playback_session"]||![e[@"method"] isEqual:@"DELETE"]){if(error)*error=StoreError();return nil;}
     id active=[self read:[prefix stringByAppendingString:@"active"] error:error];if(![active isEqual:e[@"scope"]]){if(error)*error=StoreError();return nil;}
-    for(NSDictionary *prior in entries)if([prior[@"scope"] isEqual:e[@"scope"]]&&[prior[@"intentId"] isEqual:e[@"intentId"]])return prior;
-    NSMutableDictionary *candidate=[e mutableCopy];NSInteger activeCount=0;double now=NSDate.date.timeIntervalSince1970*1000;
-    for(NSDictionary *prior in entries)if([prior[@"state"] isEqual:@"pending"]&&[prior[@"leaseUntilMs"] doubleValue]>now)activeCount++;
-    if(activeCount>=2){[candidate removeObjectForKey:@"leaseOwner"];[candidate removeObjectForKey:@"leaseUntilMs"];candidate[@"attempts"]=@0;}e=candidate;
-    if(entries.count>=256){if(error)*error=StoreError();return nil;}[entries addObject:[e mutableCopy]];result=e;
+    NSMutableDictionary *existing=nil;for(NSMutableDictionary *prior in entries)if([prior[@"scope"] isEqual:e[@"scope"]]&&[prior[@"intentId"] isEqual:e[@"intentId"]]){existing=prior;break;}
+    if(existing){existing[@"nativeStopOwner"]=e[@"nativeStopOwner"];result=existing;}
+    else {
+     NSMutableDictionary *candidate=[e mutableCopy];NSInteger activeCount=0;double now=NSDate.date.timeIntervalSince1970*1000;
+     for(NSDictionary *prior in entries)if([prior[@"state"] isEqual:@"pending"]&&[prior[@"leaseUntilMs"] doubleValue]>now)activeCount++;
+     if(activeCount>=2){[candidate removeObjectForKey:@"leaseOwner"];[candidate removeObjectForKey:@"leaseUntilMs"];candidate[@"attempts"]=@0;}e=candidate;
+     if(entries.count>=256){if(error)*error=StoreError();return nil;}[entries addObject:[e mutableCopy]];result=e;
+    }
+   } else if([operation isEqual:@"consumeStop"]){
+    id active=[self read:[prefix stringByAppendingString:@"active"] error:error];if(!active)return nil;
+    BOOL found=NO;for(NSMutableDictionary *e in entries)if([e[@"key"] isEqual:p[@"key"]]&&[e[@"operation"] isEqual:@"stop_playback_session"]&&[e[@"scope"] isEqual:active]&&[e[@"nativeStopOwner"] isEqual:p[@"owner"]]&&[@[@"pending",@"confirmed"] containsObject:e[@"state"]]){
+     if([e[@"nativeStopConsumed"] boolValue])return @YES;e[@"nativeStopConsumed"]=@YES;found=YES;
+    }if(!found)return @NO;
    } else if([operation isEqual:@"finishStop"]){
     BOOL found=NO;for(NSMutableDictionary *e in entries)if([e[@"key"] isEqual:p[@"key"]]&&[e[@"state"] isEqual:@"pending"]&&[e[@"leaseOwner"] isEqual:p[@"leaseOwner"]]){
      found=YES;NSDictionary *change=p[@"change"];if(![change isKindOfClass:NSDictionary.class]){if(error)*error=StoreError();return nil;}

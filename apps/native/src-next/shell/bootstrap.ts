@@ -19,7 +19,8 @@ import {ambientArtworkSource} from '../../../../packages/client-core/src/artwork
 import type {HttpLocalApi, LocalSession, Library} from '../../../../packages/client-core/src';
 import {restoreNativeConnection, readNativeSelectedViewer, trackNativeConnection} from '../platform/session';
 import {beginNativeInstallation} from '../platform/installation';
-import {NativeUserMutationStore} from '../platform/user-mutations';
+import {NativeStopResultConsumer} from '../platform/native-stop-consumer';
+import {NativeUserMutationStore,retainNativeUserMutationSelection} from '../platform/user-mutations';
 import {NativeQueueStore} from '../platform/queue-storage';
 import {bindNativeDeviceSettings, nativeDeviceSettings} from '../platform/device-settings';
 import {bindNativeServerPreferences} from '../platform/server-preferences';
@@ -77,7 +78,7 @@ export type NativeShellBootstrapContext = Readonly<{
   navigation: NativeShellNavigation;
 }>;
 /** Only the integrated family/action owners supply these implementations; never fallback no-ops. */
-export type NativeShellBindings = Pick<NativeShellRuntime, 'actions' | 'mixes' | 'musicDiscover' | 'listeningPlaylist' | 'listeningQueuePolicy' | 'listeningSongDetail' | 'selection' | 'setHomeWindow' | 'homeMenuRow' | 'renderSelection' | 'renderRoutes' | 'renderWatch' | 'libraryMenu' | 'renderDestination' | 'renderHomeEmpty' | 'renderDownloads' | 'openServers' | 'connectionFacts' | 'error' | 'reportError' | 'onDestination' | 'scrollToTop' | 'registerScrollToTop' | 'registerTVPageBack' | 'registerTVRailBack' | 'onArtworkError' | 'castControl'> & {
+export type NativeShellBindings = Pick<NativeShellRuntime, 'actions' | 'mixes' | 'musicDiscover' | 'listeningPlaylist' | 'listeningQueuePolicy' | 'listeningSongDetail' | 'selection' | 'setHomeWindow' | 'homeMenuRow' | 'renderSelection' | 'renderRoutes' | 'renderWatch' | 'libraryMenu' | 'renderDestination' | 'renderHomeEmpty' | 'renderDownloads' | 'renderPendingChanges' | 'openServers' | 'connectionFacts' | 'error' | 'reportError' | 'onDestination' | 'scrollToTop' | 'registerScrollToTop' | 'registerTVPageBack' | 'registerTVRailBack' | 'onArtworkError' | 'castControl'> & {
   account: NativeShellSnapshot['account'];
   getState: () => Pick<NativeShellSnapshot, 'destination' | 'railDestination' | 'contentVisible' | 'selectionActive' | 'homeObscured' | 'homeVisible'>;
   attach: (runtime: NativeShellRuntime) => void;
@@ -169,15 +170,19 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     api = restored.api;
     api.setUserMutationSession(restored.session);
     const mutationStore = new NativeUserMutationStore();
-    await mutationStore.activate(api.getUserMutationScope()); assertCurrent();
+    let reportMutationError = (error: unknown) => console.warn('[user-mutations]', error);
+    const mutationScope=api.getUserMutationScope();if(!mutationScope)throw cancelled();
+    await retainNativeUserMutationSelection(mutationStore,mutationScope,error=>reportMutationError(error)); assertCurrent();
     const mutations = api.configureUserMutations(mutationStore);
     const mutationApi = api;
-    let reportMutationError = (error: unknown) => console.warn('[user-mutations]', error);
+    const stopConsumer=new NativeStopResultConsumer({coordinator:mutations,scope:mutationApi.getUserMutationScope,
+      consumeLocal:async key=>{const bridge=NativeModules.PorticoPlaybackModule;if(typeof bridge?.consumeListeningStop!=='function')throw Object.assign(new Error('mutation_consumer_unavailable'),{code:'mutation_consumer_unavailable'});return await bridge.consumeListeningStop(key)===true;},
+      consumeResult:key=>mutationApi.consumeUserMutation(key),report:error=>reportMutationError(error)});
     const nativeMutations = NativeModules.PorticoPlaybackModule ? new NativeEventEmitter(NativeModules.PorticoPlaybackModule).addListener('PorticoUserMutationStatus', (status: {state?: string; code?: string}) => {
-      if (status.state === 'not_queued') reportMutationError(Object.assign(new Error(status.code ?? 'mutation_not_queued'), {code: status.code ?? 'mutation_not_queued'}));
+      if (['not_queued', 'review', 'quarantined'].includes(status.state ?? '')) reportMutationError(Object.assign(new Error(status.code ?? 'mutation_not_queued'), {code: status.code ?? 'mutation_not_queued'}));
       void mutations.reconcile().catch(reportMutationError);
     }) : undefined;
-    cleanups.push(() => {nativeMutations?.remove(); mutations.dispose(); mutationApi.setUserMutationSession(undefined); void mutationStore.activate(undefined).catch(reportMutationError);});
+    cleanups.push(() => {nativeMutations?.remove(); stopConsumer.dispose(); mutations.dispose(); mutationApi.setUserMutationSession(undefined);});
     api.setDeviceClass(Platform.isTV ? 'television' : 'mobile');
     const local = api;
     trackNativeConnection(local);

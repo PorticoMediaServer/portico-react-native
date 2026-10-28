@@ -368,8 +368,10 @@ internal object PorticoUserMutationStore {
       next = org.json.JSONObject(state.toString())
       val entries = next.getJSONArray("entries")
       when(operation) {
-        "scope" -> {
-          val scope = payload.optJSONObject("scope")
+        "scope", "retireScope" -> {
+          val retiring=operation == "retireScope"
+          if(retiring && !scopeEqual(read(store,"active")?.optJSONObject("scope"),payload.optJSONObject("scope"))) return@transaction false
+          val scope = if(retiring) null else payload.optJSONObject("scope")
           for(i in 0 until entries.length()) {
             val entry = entries.getJSONObject(i)
             if(entry.getString("state") == "pending" && !scopeEqual(entry.optJSONObject("scope"), scope)) {
@@ -382,13 +384,19 @@ internal object PorticoUserMutationStore {
           val entry = payload.getJSONObject("entry")
           check(entry.getString("operation") == "stop_playback_session" && entry.getString("method") == "DELETE")
           check(scopeEqual(read(store,"active")?.optJSONObject("scope"),entry.optJSONObject("scope"))) { "mutation_scope_changed" }
-          for(i in 0 until entries.length()) {
-            val prior = entries.getJSONObject(i)
-            if(scopeEqual(prior.optJSONObject("scope"), entry.optJSONObject("scope")) && prior.getString("intentId") == entry.getString("intentId")) return@transaction prior.toString()
+          val existing=(0 until entries.length()).map { entries.getJSONObject(it) }.firstOrNull { scopeEqual(it.optJSONObject("scope"),entry.optJSONObject("scope")) && it.getString("intentId") == entry.getString("intentId") }
+          if(existing != null) { existing.put("nativeStopOwner",entry.getString("nativeStopOwner")); result=existing.toString() }
+          else {
+            val activeCount=(0 until entries.length()).count { val prior=entries.getJSONObject(it); prior.getString("state") == "pending" && prior.optLong("leaseUntilMs") > System.currentTimeMillis() }
+            if(activeCount >= 2) { entry.remove("leaseOwner"); entry.remove("leaseUntilMs"); entry.put("attempts",0) }
+            check(entries.length() < 256) { "mutation_not_queued" }; entries.put(entry); result = entry.toString()
           }
-          val activeCount=(0 until entries.length()).count { val prior=entries.getJSONObject(it); prior.getString("state") == "pending" && prior.optLong("leaseUntilMs") > System.currentTimeMillis() }
-          if(activeCount >= 2) { entry.remove("leaseOwner"); entry.remove("leaseUntilMs"); entry.put("attempts",0) }
-          check(entries.length() < 256) { "mutation_not_queued" }; entries.put(entry); result = entry.toString()
+        }
+        "consumeStop" -> {
+          val active=read(store,"active")?.optJSONObject("scope")
+          val entry=(0 until entries.length()).map { entries.getJSONObject(it) }.firstOrNull { it.getString("key") == payload.getString("key") && it.getString("operation") == "stop_playback_session" && scopeEqual(it.optJSONObject("scope"),active) && it.optString("nativeStopOwner") == payload.getString("owner") && it.getString("state") in setOf("pending","confirmed") } ?: return@transaction false
+          if(entry.optBoolean("nativeStopConsumed")) return@transaction true
+          entry.put("nativeStopConsumed",true)
         }
         "finishStop" -> {
           var found = false

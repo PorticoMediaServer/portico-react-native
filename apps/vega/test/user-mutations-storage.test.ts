@@ -27,12 +27,12 @@ test('paged aggregate exceeds legacy 256KiB cap and survives a fresh adapter',as
 });
 test('torn inactive page and manifest writes preserve committed aggregate',async()=>{
  const a=new Store(),before=await a.read();let calls=0;
- files.writeStringToFile=async(path:string,text:string)=>{if(++calls===2){await originalWrite(path,text.slice(0,10));throw new Error('simulated power loss');}await originalWrite(path,text);};
+ files.writeStringToFile=async(path:string,text:string,encoding:string)=>{if(++calls===2){await originalWrite(path,text.slice(0,10),encoding);throw new Error('simulated power loss');}return originalWrite(path,text,encoding);};
  try{await assert.rejects(a.compareAndSwap(before.revision,state(before.revision+1,Array.from({length:15},(_,i)=>({...entry(i+50),body:{draft:'x'.repeat(40000)}})))));}finally{files.writeStringToFile=originalWrite;}
  assert.deepEqual(await a.read(),before);
  assert.equal(await a.compareAndSwap(before.revision,state(before.revision+1,[entry(90)])),true);
  const committed=await a.read();calls=0;
- files.writeStringToFile=async(path:string,text:string)=>{if(++calls===2){await originalWrite(path,text.slice(0,10));throw new Error('manifest power loss');}await originalWrite(path,text);};
+ files.writeStringToFile=async(path:string,text:string,encoding:string)=>{if(++calls===2){await originalWrite(path,text.slice(0,10),encoding);throw new Error('manifest power loss');}return originalWrite(path,text,encoding);};
  try{await assert.rejects(a.compareAndSwap(committed.revision,state(committed.revision+1,[entry(91)])));}finally{files.writeStringToFile=originalWrite;}
  assert.deepEqual(await a.read(),committed);
 });
@@ -40,4 +40,30 @@ test('scope switch quarantines original family without reactivation on later log
  const a=new Store();await a.activate({...scope,familyId:'successor'});
  let current=await a.read();assert.equal(current.entries[0].state,'quarantined');assert.equal(current.entries[0].scope.familyId,'family');assert.deepEqual(current.entries[0].body,{generation:7,positionMs:1234});
  await a.activate(scope);current=await a.read();assert.equal(current.entries[0].state,'quarantined');
+});
+test('same-family remount preserves pending; delayed old retire cannot wipe active successor',async()=>{
+ const a=new Store();await a.activate(scope);const before=await a.read();
+ const pending={...entry(7000),dueMs:Number.MAX_SAFE_INTEGER};assert.equal(await a.compareAndSwap(before.revision,state(before.revision+1,[...before.entries,pending])),true);
+ await a.activate({...scope});assert.equal((await a.read()).entries.find(e=>e.key===pending.key)?.state,'pending');
+ const successor={...scope,familyId:'successor-2'};await a.activate(successor);
+ assert.equal(await userMutationTransaction('retireScope',JSON.stringify({scope})),false);
+ const current=await a.read();assert.equal(current.entries.find(e=>e.key===pending.key)?.state,'quarantined');
+ const fresh={...entry(7001),scope:successor,dueMs:Number.MAX_SAFE_INTEGER};await a.compareAndSwap(current.revision,state(current.revision+1,[...current.entries,fresh]));
+ assert.equal(await userMutationTransaction('retireScope',JSON.stringify({scope})),false);
+ assert.equal((await a.read()).entries.find(e=>e.key===fresh.key)?.state,'pending');
+ assert.equal(await userMutationTransaction('retireScope',JSON.stringify({scope:successor})),true);
+ assert.equal((await a.read()).entries.find(e=>e.key===fresh.key)?.state,'quarantined');
+});
+test('a corrupted sole committed manifest fails closed for read and CAS',async()=>{
+ const a=new Store(),before=await a.read();let manifestPath:string|undefined;
+ files.writeStringToFile=async(path:string,text:string,encoding:string)=>{if(text.includes('"bank"'))manifestPath=path;return originalWrite(path,text,encoding);};
+ try{assert.equal(await a.compareAndSwap(before.revision,state(before.revision+1,before.entries)),true);}finally{files.writeStringToFile=originalWrite;}
+ assert.ok(manifestPath);const committed=await files.readFileAsString(manifestPath,'UTF-8');
+ await originalWrite(manifestPath,'corrupted sole committed manifest','UTF-8');
+ try{
+  await assert.rejects(a.read(),/damaged/);
+  await assert.rejects(a.compareAndSwap(0,state(1,[entry(7999)])),/damaged/);
+  assert.equal(await files.readFileAsString(manifestPath,'UTF-8'),'corrupted sole committed manifest');
+ }finally{await originalWrite(manifestPath,committed,'UTF-8');}
+ assert.equal((await a.read()).revision,before.revision+1);
 });

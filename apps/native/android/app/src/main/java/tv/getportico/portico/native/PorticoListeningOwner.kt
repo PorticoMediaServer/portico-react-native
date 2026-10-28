@@ -1451,7 +1451,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   private fun stopRetryFloor(headers: Headers?): Long {
     val text = headers?.get("Retry-After") ?: return 0
     text.trim().toLongOrNull()?.takeIf { it >= 0 }?.let { return if(it > Long.MAX_VALUE/1000) Long.MAX_VALUE else it*1000 }
-    return try { maxOf(0, java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz",java.util.Locale.US).apply { timeZone=TimeZone.getTimeZone("GMT") }.parse(text)!!.time-System.currentTimeMillis()) } catch(e: Exception) { 0 }
+    return try { maxOf(0, java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz",java.util.Locale.US).apply { timeZone=TimeZone.getTimeZone("GMT") }.parse(text)!!.time-(mutationIssuedBaseMs+((mono()-mutationClockMono)*1000).toLong())) } catch(e: Exception) { 0 }
   }
   private fun lookupStop(entry: Map<String, Any?>, token: String, origin: String, floor: Long) {
     if(!stopAuthorized(entry)) return
@@ -1463,6 +1463,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
           receipt["status"] in setOf("applied","already_stopped","deleted","removed","partial","conflict","invalid","terminal") &&
           whole(receipt["committedMs"],0.0,MAX_INTEGER) && whole(receipt["expiresMs"],num(receipt["committedMs"]) ?: MAX_INTEGER,MAX_INTEGER) &&
           listOf("revision","generation","positionMs").all { receipt[it] == null || whole(receipt[it],0.0,MAX_INTEGER) } &&
+          (receipt["generation"] == null || whole(receipt["generation"],0.0,2147483647.0)) &&
           (receipt["targetId"] == null || receipt["targetId"] is String && (receipt["targetId"] as String).toByteArray(Charsets.UTF_8).size <= 128) &&
           (receipt["positionStatus"] == null || receipt["positionStatus"] in setOf("","applied","already_stopped","not_renderer","policy_rejected","unchanged"))
       if(status in 200..299 && valid) {
@@ -1494,7 +1495,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     // All fingerprint object keys recursively sorted, identical to core's canonical JSON.
     val bodyPrint="{\"generation\":${body["generation"]}"+(if(evidence) ",\"positionMs\":${body["positionMs"]}" else "")+"}"
     val fingerprint="{\"body\":$bodyPrint,\"headers\":{},\"method\":\"DELETE\",\"operation\":\"stop_playback_session\",\"path\":\"$path\",\"target\":\"$identity\"}"
-    val entry=mapOf("key" to key,"operation" to "stop_playback_session","method" to "DELETE","path" to path,"target" to identity,"intentId" to identity,"fingerprint" to fingerprint,"scope" to scope,"body" to body,"headers" to mapOf("Idempotency-Key" to key),"state" to "pending","attempts" to 1,"dueMs" to now,"leaseOwner" to "native:$key","leaseUntilMs" to now+30000)
+    val entry=mapOf("nativeStopOwner" to activeOwner,"key" to key,"operation" to "stop_playback_session","method" to "DELETE","path" to path,"target" to identity,"intentId" to identity,"fingerprint" to fingerprint,"scope" to scope,"body" to body,"headers" to mapOf("Idempotency-Key" to key),"state" to "pending","attempts" to 1,"dueMs" to now,"leaseOwner" to "native:$key","leaseUntilMs" to now+30000)
     return try {
       val saved = PorticoUserMutationStore.transact(PorticoRecordStore.get(context),"reserveStop",JSONObject(json(mapOf("entry" to entry)))) as String
       @Suppress("UNCHECKED_CAST") val result=parse(saved.toByteArray(Charsets.UTF_8)) as Map<String,Any?>
@@ -1518,6 +1519,17 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     @Suppress("UNCHECKED_CAST") val body=entry["body"] as Map<String,Any?>
     @Suppress("UNCHECKED_CAST") val headers=entry["headers"] as Map<String,String>
     exchange.start(origin+entry["path"],token,"DELETE",body,headers)
+  }
+
+  fun consumeStop(key: String): Boolean {
+    val state=JSONObject(PorticoUserMutationStore.transact(PorticoRecordStore.get(context),"read",JSONObject()) as String)
+    val entries=state.getJSONArray("entries")
+    val entry=(0 until entries.length()).map { entries.getJSONObject(it) }.firstOrNull { it.getString("key") == key } ?: return false
+    if(entry.optString("nativeStopOwner").isEmpty() || entry.getString("operation") != "stop_playback_session") return false
+    if(activeOwner != null && listOfNotNull(session,audible).any { "stop:${it["id"]}:${generation(it)?.toLong()}" == entry.getString("target") }) return false
+    val consumed=PorticoUserMutationStore.transact(PorticoRecordStore.get(context),"consumeStop",JSONObject().put("key",key).put("owner",entry.getString("nativeStopOwner"))) == true
+    if(consumed) onUserMutation?.invoke(mapOf("key" to key,"state" to entry.getString("state"),"nativeStopConsumed" to true))
+    return consumed
   }
 
   fun retire(owner: String?, stop: Boolean) {
@@ -1545,6 +1557,9 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     this.token = ""
     actions.clear(); transition = null; metadata = null; prepared = null; committed = null; audible = null; policy = null; commitWanted = false
     onSystemChange?.invoke()
+    if(stop) (stopDisposition?.get("key") as? String)?.let { key ->
+      try { consumeStop(key) } catch(e: Exception) { publishStop(mapOf("key" to key,"state" to "pending","code" to "mutation_store_unavailable")) }
+    }
     if(stopEntry != null) sendStop(stopEntry,token,origin,ready)
   }
 

@@ -25,6 +25,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface PorticoListeningSessionOwner : NSObject
 @property(nonatomic,copy,nullable) void (^onUserMutation)(NSDictionary *status);
 - (nullable NSDictionary *)stopDisposition;
+- (BOOL)consumeStop:(NSString *)key error:(NSError **)error;
 @property(nonatomic,copy,nullable) void (^onSnapshot)(NSDictionary *snapshot);
 - (instancetype)initWithController:(PorticoPlaybackController *)controller render:(id<PorticoListeningRenderBinding>)render;
 - (nullable NSString *)activeOwner;

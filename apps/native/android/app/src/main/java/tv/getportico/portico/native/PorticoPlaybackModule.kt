@@ -236,6 +236,14 @@ class PorticoPlaybackModule(context: ReactApplicationContext) : PorticoEventModu
   }
 
   @ReactMethod
+  fun consumeListeningStop(key: String, promise: Promise) {
+    main.post {
+      try { promise.resolve(listening.consumeStop(key)) }
+      catch(e: Exception) { promise.reject("mutation_store_unavailable","User changes could not be saved.",e) }
+    }
+  }
+
+  @ReactMethod
   fun retireListening(owner: String?, stop: Boolean, promise: Promise) {
     main.post {
       if (!invalidated) listening.retire(owner, stop)

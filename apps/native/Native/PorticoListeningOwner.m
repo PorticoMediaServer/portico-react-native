@@ -1116,7 +1116,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
 }
 - (double)stopRetryFloor:(NSDictionary *)headers {
  double delay=1000;NSString *retry=nil;for(NSString *field in headers)if([field caseInsensitiveCompare:@"Retry-After"]==NSOrderedSame)retry=headers[field];
- if(retry){NSScanner *scan=[NSScanner scannerWithString:retry];long long seconds=0;if([scan scanLongLong:&seconds]&&scan.isAtEnd&&seconds>=0)delay=MAX(delay,seconds*1000.0);else{NSDateFormatter *f=[NSDateFormatter new];f.locale=[[NSLocale alloc]initWithLocaleIdentifier:@"en_US_POSIX"];f.timeZone=[NSTimeZone timeZoneForSecondsFromGMT:0];f.dateFormat=@"EEE, dd MMM yyyy HH:mm:ss zzz";NSDate *date=[f dateFromString:retry];if(date)delay=MAX(delay,date.timeIntervalSince1970*1000-Wall()*1000);}}
+ if(retry){NSScanner *scan=[NSScanner scannerWithString:retry];long long seconds=0;if([scan scanLongLong:&seconds]&&scan.isAtEnd&&seconds>=0)delay=MAX(delay,seconds*1000.0);else{NSDateFormatter *f=[NSDateFormatter new];f.locale=[[NSLocale alloc]initWithLocaleIdentifier:@"en_US_POSIX"];f.timeZone=[NSTimeZone timeZoneForSecondsFromGMT:0];f.dateFormat=@"EEE, dd MMM yyyy HH:mm:ss zzz";NSDate *date=[f dateFromString:retry];if(date)delay=MAX(delay,date.timeIntervalSince1970*1000-(_mutationIssuedBaseMs+(Mono()-_mutationClockMono)*1000));}}
  return delay;
 }
 - (void)lookupStop:(NSDictionary *)entry token:(NSString *)token origin:(NSString *)origin floor:(double)floor {
@@ -1127,6 +1127,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
   NSDictionary *raw=V1Dictionary(value);if(V1Dictionary(raw[@"data"]))raw=raw[@"data"];
   NSArray *statuses=@[@"applied",@"already_stopped",@"deleted",@"removed",@"partial",@"conflict",@"invalid",@"terminal"];
   BOOL fields=YES;for(NSString *field in @[@"revision",@"generation",@"positionMs"])if(raw[field]&&!ListeningNumber(raw[field],0,9007199254740991.0,YES))fields=NO;
+  if(raw[@"generation"]&&[raw[@"generation"] doubleValue]>2147483647)fields=NO;
   if(raw[@"targetId"]&&(!Text(raw[@"targetId"])||[raw[@"targetId"] lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>128))fields=NO;
   if(raw[@"positionStatus"]&&![@[@"",@"applied",@"already_stopped",@"not_renderer",@"policy_rejected",@"unchanged"] containsObject:raw[@"positionStatus"]])fields=NO;
   if(fields&&status>=200&&status<300&&[raw[@"key"] isEqual:entry[@"key"]]&&[raw[@"operation"] isEqual:@"stop_playback_session"]&&[statuses containsObject:raw[@"status"]]&&ListeningNumber(raw[@"committedMs"],0,9007199254740991.0,YES)&&ListeningNumber(raw[@"expiresMs"],[raw[@"committedMs"] doubleValue],9007199254740991.0,YES)){
@@ -1154,7 +1155,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  NSDictionary *body=evidence?@{@"generation":generation,@"positionMs":@((long long)llround(MAX(0,isfinite(position)?position:0)*1000))}:@{@"generation":generation};
  NSDictionary *input=@{@"operation":@"stop_playback_session",@"method":@"DELETE",@"path":path,@"target":identity,@"body":body,@"headers":@{}};
  NSString *fingerprint=[[NSString alloc]initWithData:[NSJSONSerialization dataWithJSONObject:input options:(NSJSONWritingSortedKeys|NSJSONWritingWithoutEscapingSlashes) error:nil] encoding:NSUTF8StringEncoding];
- NSDictionary *entry=@{@"key":key,@"operation":@"stop_playback_session",@"method":@"DELETE",@"path":path,@"target":identity,@"intentId":identity,@"fingerprint":fingerprint,@"scope":scope,@"body":body,@"headers":@{@"Idempotency-Key":key},@"state":@"pending",@"attempts":@1,@"dueMs":@(now),@"leaseOwner":[@"native:" stringByAppendingString:key],@"leaseUntilMs":@(now+30000)};
+ NSDictionary *entry=@{@"nativeStopOwner":owner,@"key":key,@"operation":@"stop_playback_session",@"method":@"DELETE",@"path":path,@"target":identity,@"intentId":identity,@"fingerprint":fingerprint,@"scope":scope,@"body":body,@"headers":@{@"Idempotency-Key":key},@"state":@"pending",@"attempts":@1,@"dueMs":@(now),@"leaseOwner":[@"native:" stringByAppendingString:key],@"leaseUntilMs":@(now+30000)};
  NSError *error=nil;NSDictionary *saved=[PorticoQueuePlaybackStore userMutationTransaction:@"reserveStop" payload:@{@"entry":entry} error:&error];
  if(!saved){[self publishStop:@{@"state":@"not_queued",@"key":key,@"code":@"mutation_not_queued",@"draft":entry}];return nil;}
  [self publishStop:@{@"key":saved[@"key"],@"intentId":identity,@"state":saved[@"state"],@"code":saved[@"errorCode"]?:@"mutation_pending",@"receipt":saved[@"receipt"]?:NSNull.null}];
@@ -1173,6 +1174,17 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  [request start:[NSURL URLWithString:[origin stringByAppendingString:entry[@"path"]]] token:token body:entry[@"body"] method:@"DELETE"];
 }
 - (NSDictionary *)stopDisposition {return _stopDisposition;}
+/** A known Stop result is consumed only after this occurrence is no longer a
+ * local native owner. This also re-proves consumption after JS/app restart. */
+- (BOOL)consumeStop:(NSString *)key error:(NSError **)error {
+ NSDictionary *state=[PorticoQueuePlaybackStore userMutationTransaction:@"read" payload:@{} error:error];if(!state)return NO;
+ NSDictionary *entry=nil;for(NSDictionary *e in state[@"entries"])if([e[@"key"] isEqual:key]){entry=e;break;}
+ if(!Text(entry[@"nativeStopOwner"])||![entry[@"operation"] isEqual:@"stop_playback_session"])return NO;
+ if(_owner){for(NSDictionary *session in @[_session?:@{},_audible?:@{}]){NSString *target=[NSString stringWithFormat:@"stop:%@:%@",session[@"id"],session[@"presentation"][@"generation"]];if([target isEqual:entry[@"target"]])return NO;}}
+ id saved=[PorticoQueuePlaybackStore userMutationTransaction:@"consumeStop" payload:@{@"key":key,@"owner":entry[@"nativeStopOwner"]} error:error];
+ if([saved boolValue]&&self.onUserMutation)self.onUserMutation(@{@"key":key,@"state":entry[@"state"],@"nativeStopConsumed":@YES});
+ return [saved boolValue];
+}
 
 
 - (void)retire:(NSString *)owner stop:(BOOL)stop {
@@ -1186,6 +1198,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  if(_journalKey&&!_commitWanted)[PorticoQueuePlaybackStore write:_journalKey value:@{@"version":@1,@"sessionId":session?:NSNull.null,@"retired":@YES} error:nil];
  [self endControlGrace];
  _owner=nil;_token=nil;_actions=nil;_transition=nil;_metadata=nil;_prepared=nil;_committed=nil;_audible=nil;_policy=nil;_timerCustody=nil;_commitWanted=NO;
+ if(stop&&Text(_stopDisposition[@"key"])) {NSError *error=nil;[self consumeStop:_stopDisposition[@"key"] error:&error];if(error)[self publishStop:@{@"key":_stopDisposition[@"key"],@"state":@"pending",@"code":@"mutation_store_unavailable"}];}
  if(stopEntry)[self sendStop:stopEntry token:token origin:origin ready:ready];
  // Not while the other player engine has started a video: the session is its to keep.
  [[AVAudioSession sharedInstance] setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:nil];
