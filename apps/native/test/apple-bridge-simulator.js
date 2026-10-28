@@ -39,6 +39,11 @@ async function run() {
     check(facts && typeof facts === 'object', 'capabilities bridge returns facts');
     const route = await NativeModules.PorticoSystemMedia.currentRoute();
     check(route && typeof route === 'object', 'system media route bridge returns facts');
+    if (Platform.isTV) {
+      // Downloads and document export are handheld-only product surfaces.
+      report({assertions, failures: 0, scope: 'tvOS boot, capabilities and system-media route', heartbeat, longestGapMs});
+      return;
+    }
     await refuses('unsupported_image', () => downloads.beginCoverImage('text/plain'), 'unsupported MIME refused');
     const partial = await begin();
     await refuses('invalid_image', () => downloads.appendCoverImage(partial, 'AA=A'), 'malformed base64 refused');
