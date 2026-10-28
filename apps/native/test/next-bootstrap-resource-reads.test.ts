@@ -5,6 +5,7 @@ import * as preferenceValues from '../../../packages/client-core/src/preferences
 import * as tolerant from '../../../packages/client-core/src/tolerant.ts';
 import * as messages from '../../../packages/client-core/src/server-messages.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
+import * as installation from '../../../packages/client-core/src/installation.ts';
 
 const routePath = (name: string) => '/test/' + name;
 const unsupported = () => {throw new Error('Unexpected bootstrap-resource test path');};
@@ -14,7 +15,7 @@ const routes = {routePath, encodedRoutePath: unsupported, routeBody: (_name: str
 // generated path resolution and display-only error copy are replaced.
 const inbox = await screenModule(new URL('../../../packages/client-core/src/inbox.ts', import.meta.url), {
   react,
-  '../../contracts/src/routes.ts': routes, '../../contracts/src/route-paths.ts': routes, './random-id.ts': {randomId: () => 'operation'}, './notifications.ts': notifications,
+  '../../contracts/src/routes.ts': routes, '../../contracts/src/route-paths.ts': routes, './random-id.ts': {randomId: () => 'operation'}, './installation.ts': installation, './notifications.ts': notifications,
   './presentation/service-text.ts': {serviceProblem: () => 'Request failed', serviceText: (key: string) => key},
 });
 const preferences = await screenModule(new URL('../../../packages/client-core/src/preferences-reader.ts', import.meta.url), {
