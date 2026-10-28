@@ -25,6 +25,10 @@ async function fixture() {
   const {NativeReadingActions} = await screenModule(new URL('../src-next/screens/read/reading-actions.ts', import.meta.url), {
     react: {default: {}}, '../../shell/model': {sameAuthority: (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b)},
     '../../platform/server-connections': {nativeRouteCrypto: {random: () => {onRandom?.(); return new Uint8Array(16).fill(++random);}}},
+    // Member fixtures never reach the owner's bulk editor (next-reading-selection-edit covers it).
+    '../destinations/bulk-media': {NativeBulkMedia: class {constructor() {throw new Error('bulk editor opened for a member');}}},
+    '../destinations/lifetime': {nativeDestinationLifetime: () => {throw new Error('unused');}},
+    '../native-screen-services': {nativeScreenServices: () => {throw new Error('unused');}},
   });
   const actions = new NativeReadingActions(context, (error: unknown) => errors.push(error));
   assert.equal(listeners.size, 0); assert.equal(actions.arm(), true);

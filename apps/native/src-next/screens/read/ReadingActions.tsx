@@ -1,11 +1,12 @@
 import React, {useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore} from 'react';
-import {View} from 'react-native';
+import {Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {Button} from '../../kit/controls';
 import {Menu} from '../../kit/overlays';
-import {SelectionBar} from '../../kit/selection';
+import {BulkEditor, SelectionBar} from '../../kit/selection';
+import {bulkChangeSummary} from '../destinations/bulk-media';
 import type {CardSelection} from '../../kit/cards/model';
 import {useTheme} from '../../kit/theme';
 import {NativeReadingActions, type NativeReadingActionOffer} from './reading-actions';
@@ -41,17 +42,31 @@ export function ReadingItemMenu({port, runtime}: {port: ReadingActionsPort; runt
     ] : []}/>;
 }
 
-/** Reading uses Read/Unread copy, not the AV selection bar's Watched actions. */
+/** Reading uses Read/Unread copy, not the AV selection bar's Watched actions. An owner's
+ * Edit details comes first, in the Server blue (phone-read 2, desktop-read 2b). */
 export function ReadingSelectionToolbar({port, runtime}: {port: ReadingActionsPort; runtime: NativeShellRuntime}) {
   const theme = useTheme(), {actions, state} = port;
+  const owner = state.selecting && actions.owner(), bulk = state.edit, edit = bulk?.getSnapshot();
   if (!state.selecting) return theme.platform === 'phone' ? null : <View style={{alignItems: 'flex-end', paddingHorizontal: theme.gutter}}>
     <Button variant="text" onPress={actions.start}>{t('next.selection.select')}</Button>
   </View>;
   return <View>
     <SelectionBar count={state.selected.length} onCancel={actions.cancel} menu={null} onMenuChange={() => {}} actions={[]} onAction={() => {}}/>
     <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: theme.gutter, paddingVertical: 10}}>
-      {(['list', 'unlist', 'read', 'unread'] as const).map(action => <Button key={action} variant="glass" size="small" disabled={state.busy || !state.selected.length}
+      {owner ? <Button testID="reading-selection-edit" variant="glass" size="small" icon="i-edit" iconColor={theme.colors.accentStrong}
+        textStyle={{color: theme.colors.accentStrong}} disabled={state.busy || !actions.canEdit(state)}
+        onPress={() => actions.openEditor(state)}>{t('next.reader.editDetails')}</Button> : null}
+      {(['list', 'unlist', 'read', 'unread'] as const).map(action => <Button key={action} variant="glass" size="small" disabled={state.busy || !!bulk || !state.selected.length}
         onPress={() => {void actions.apply(state, action).catch(runtime.reportError);}}>{t(action === 'list' ? 'next.home.addMyList' : action === 'unlist' ? 'next.home.removeMyList' : action === 'read' ? 'next.reader.markRead' : 'next.reader.markUnread')}</Button>)}
     </View>
+    {bulk && edit ? <BulkEditor open title={t('next.reader.editDetails')} count={state.selected.length} saveLabel={t('action.save')}
+      schema={edit.preview?.schema ?? []} values={edit.values} changes={edit.changes} onChangesChange={bulk.setChanges}
+      lockEdited={edit.lockEdited} onLockEditedChange={bulk.setLockEdited} onSave={() => {void bulk.save();}}
+      pending={edit.phase === 'saving'} error={edit.error} result={edit.result}
+      resultEntries={state.selected.map(offer => ({id: offer.item.id, title: offer.item.title}))}
+      onRetry={ids => {void bulk.retry(ids);}} singleItemFields={edit.singleItemFields}
+      fieldLabel={field => field.label} summary={bulkChangeSummary(edit)}
+      ownerHeader={<Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('next.selection.selected', {count: state.selected.length})}</Text>}
+      onOpenChange={open => {if (!open) actions.closeEditor(bulk);}} testID="reading-bulk-editor"/> : null}
   </View>;
 }

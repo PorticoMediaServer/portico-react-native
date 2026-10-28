@@ -74,8 +74,11 @@ export class NativeBulkMedia {
   constructor(options: CatalogueSelectionOptions, entries: readonly ContentEntry[]) {
     this.options = options;
     this.entries = Object.freeze([...entries]);
+    // A Reading selection is one kind of publication (the server edits one kind at a time).
+    const reading = entries.some(entry => entry.kind === 'ebook' || entry.kind === 'comic');
     if (!entries.length || entries.length > 200 || new Set(entries.map(entry => entry.id)).size !== entries.length
-      || entries.some(entry => !entry.libraryId || !['movie', 'episode', 'song', 'audiobook_file'].includes(entry.kind))) throw unavailable();
+      || entries.some(entry => !entry.libraryId || !(reading ? entry.kind === entries[0]!.kind && ['ebook', 'comic'].includes(entry.kind)
+        : ['movie', 'episode', 'song', 'audiobook_file'].includes(entry.kind)))) throw unavailable();
     this.captured = Object.freeze(entries.map(entry => Object.freeze({kind: entry.kind, id: entry.id, libraryId: entry.libraryId!})));
     this.targets = metadataPreviewTargets(entries.map(entry => ({kind: entry.kind, id: entry.id, libraryId: entry.libraryId!})));
   }
@@ -243,6 +246,8 @@ export class NativeBulkMedia {
   };
 
   openDelete = async (): Promise<void> => {
+    // Reading selections offer Edit details only; deleting publications is not drawn there.
+    if (this.captured.some(entry => entry.kind === 'ebook' || entry.kind === 'comic')) throw unavailable();
     const epoch = this.begin({phase: 'idle', deletion: {phase: 'loading', confirmation: '', removeFiles: false}});
     if (!this.claim(epoch, {deletion: {phase: 'loading', confirmation: '', removeFiles: false}})) return;
     try {
@@ -308,4 +313,17 @@ export class NativeBulkMedia {
 function bulkView(receipts: readonly BulkReceipt[]): BulkResultView {
   const results = receipts.flatMap(receipt => receipt.results);
   return {results, updated: results.filter(row => row.ok).length, failed: results.filter(row => !row.ok).length};
+}
+
+/** The pending changes as one line per field, for the editor's footer summary. */
+export function bulkChangeSummary(state: NativeBulkMediaSnapshot): readonly {id: string; text: string}[] {
+  return Object.entries(state.changes).flatMap(([field, change]) => {
+    const spec = state.preview?.schema.find(candidate => candidate.field === field);
+    if (!spec) return [];
+    if ('value' in change) return [{id: field, text: `${spec.label}: ${change.value || defaultI18n.t('next.selection.native.notSet')}`}];
+    const parts: string[] = [];
+    if (change.add.length) parts.push(`+${defaultI18n.list(change.add)}`);
+    if (change.remove.length) parts.push(`−${defaultI18n.list(change.remove)}`);
+    return parts.length ? [{id: field, text: `${spec.label}: ${parts.join(' · ')}`}] : [];
+  });
 }
