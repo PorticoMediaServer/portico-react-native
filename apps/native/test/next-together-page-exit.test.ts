@@ -38,7 +38,8 @@ function fixture(phase = 'idle', actualService?: any) {
   const begin = (kind: string, proof: any) => {calls.push(kind); pending = proof; return new Promise<boolean>(resolve => {resolveJoin = resolve;});};
   const service: any = {getSnapshot: () => state, subscribe: (fn: () => void) => {listeners.add(fn); return () => listeners.delete(fn);},
     refreshDirectory: async () => {refreshes++;}, end: async () => {ends++;}, create: (_draft: unknown, proof: any) => begin('create', proof), open: (_id: string, proof: any) => begin('open', proof),
-    join: (_code: string, _who: string, proof: any) => begin('join', proof)};
+    join: (_code: string, _who: string, proof: any) => begin('join', proof),
+    clearJoinFailure: () => {calls.push('clearJoinFailure'); state = {...state, joinFailure: undefined, error: undefined}; for (const fn of listeners) fn();}};
   const controller = new NativeTogetherController(lifetime, actualService ?? service);
   const authority = () => lifetime.authority, navigation = new NativeShellNavigation(authority(), authority);
   navigation.open({kind: 'together'}, authority());
@@ -57,6 +58,7 @@ function fixture(phase = 'idle', actualService?: any) {
     directory: () => {state = {...state, directory: [{id: 'offered', name: 'Offered', members: [], permissions: {isHost: false}, timeline: {state: 'paused'}}]}; for (const fn of listeners) fn();},
     pageBack: () => find(tree.type(tree.props), 'together-page-back').props.onPress(), back: () => back, ends: () => ends, pending: () => pending,
     refreshes: () => refreshes,
+    refuseCode: () => {state = {...state, phase: 'idle', error: 'together.error.join', joinFailure: {code: 'invite_not_found', inviteCode: 'ABCDEFGH'}}; for (const fn of listeners) fn();},
     leave: () => navigation.back(authority()), unmount: () => host.unmount(),
     revisit: () => {host.unmount(); navigation.open({kind: 'together'}, authority()); page = capture(); host = mount();},
     restore: () => {host.unmount(); navigation.open({kind: 'account'}, authority()); navigation.back(authority()); page = capture(); host = mount();},
@@ -251,4 +253,19 @@ for (const cleanup of ['successor', 'dispose'] as const) test(`original page abo
       finally {controller.dispose();}
     }
   } finally {pages.dispose(); navigation.dispose(); lifetime.dispose();}
+});
+
+test('a wrong invite code is shown on the code field, not as a banner, and editing the code clears it', async () => {
+  const f = fixture();
+  try {
+    await act(() => find(f.tree(), 'together-join').props.onPress());
+    await act(() => {find(f.tree(), 'together-code').props.onChangeText('ABCDEFGH');});
+    await act(() => f.refuseCode());
+    const form = find(f.tree(), 'together-form');
+    assert.equal(find(f.tree(), 'together-code').props.error, 'together.error.join');
+    const banners = (node: any): any[] => !node ? [] : Array.isArray(node) ? node.flatMap(banners) : [...(node.type === 'Banner' ? [node] : []), ...banners(node.props?.children)];
+    assert.equal(banners(form.props.children).length, 0, 'the field owns the wrong-code message');
+    await act(() => {find(f.tree(), 'together-code').props.onChangeText('ABCDEFGJ');});
+    assert.ok(f.calls.includes('clearJoinFailure')); assert.equal(find(f.tree(), 'together-code').props.error, undefined);
+  } finally {f.dispose();}
 });

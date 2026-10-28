@@ -5,7 +5,7 @@ import type {ConnectivityStatus} from '../../../../../../packages/client-core/sr
 import {secureConnectionView} from '../../../../../../packages/client-core/src/server-admin/secure-connection';
 import {ownCertificateLine, remoteStatusLine} from '../../../../../../packages/client-core/src/server-admin/status-words';
 import type {CertificateDraft, ConnectivityDraft} from '../../../../../../packages/client-core/src/server-admin/server-forms';
-import {retryCertificate, type CertificateApi, type CertificateStatus} from '../../../../../../packages/client-core/src/certificates';
+import {certificateProblemMessage, retryCertificate, type CertificateApi, type CertificateStatus} from '../../../../../../packages/client-core/src/certificates';
 import {routePath} from '../../../../../../packages/contracts/src/routes';
 import {useSettingsRequestScope} from '../use-settings-request-scope';
 import {settingsSpec} from '../../../../../../packages/client-core/src/presentation/settings-spec';
@@ -61,11 +61,11 @@ function RemoteAccessPage({group, ports, runtime, compactHeader}: {group: Storag
   }
   const remoteLine = remoteStatusLine(t, {unavailable: remoteState.status === undefined, remote: remoteState.status, connectivity: connectivityState.status, certificate});
   const secure = secureConnectionView({certificate});
-  const certificateProblem = !!certificate?.config.enabled && (!!certificate.errorCode || !!certificate.routeErrorCode || certificate.state === 'invalid' || certificate.state === 'expired');
+  const problemMessage = certificateProblemMessage(certificate), certificateProblem = problemMessage !== undefined;
   const own = ownCertificateLine(t, connectivityState.status?.tls.customCertificate, value => new Date(value).toLocaleString());
   const services = !!context.account.account.hostedAccountId && !!certificateState.draft?.claimed;
   const secureBody = certificateState.loadError !== undefined || certificateState.loading ? undefined
-    : certificateProblem ? t('web.network.certificateProblem') : certificate ? t(secure.body, secure.address ? {address: secure.address} : undefined)
+    : problemMessage ? t(problemMessage) : certificate ? t(secure.body, secure.address ? {address: secure.address} : undefined)
       : certificateState.unavailable ? t('web.connectivity.customCertNotInUse') : undefined;
   const role = context.account.account.role === 'owner' ? 'owner' : 'administrator';
   const signInOptions = [

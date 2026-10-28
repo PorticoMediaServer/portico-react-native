@@ -366,7 +366,7 @@ function togetherService() {
   const service: NativeTogetherService & {dispose: () => void} = {
     getSnapshot: () => state, subscribe: listener => {listeners.add(listener); return () => {listeners.delete(listener);};},
     serverNow: () => 1, refreshDirectory: async () => {calls.push('directory');}, refreshQueue: async () => {calls.push('queue');},
-    open: async () => true, create: async () => true, join: async () => true, dismiss() {calls.push('dismiss');},
+    open: async () => true, create: async () => true, join: async () => true, dismiss() {calls.push('dismiss');}, clearJoinFailure() {calls.push('clearJoinFailure');},
     transport: async () => true, invite: async () => true, makeHost: async () => true, queueRemove: async () => true,
     leave: async () => {}, end: async () => true, dispose() {calls.push('borrowed-dispose');},
   };

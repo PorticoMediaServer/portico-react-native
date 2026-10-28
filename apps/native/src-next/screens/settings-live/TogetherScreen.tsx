@@ -48,10 +48,12 @@ export function NativeTogetherScreen({controller, media, ports, runtime, page, o
     const local = () => view.active && view.form === expected && !expected?.retired && !page.signal.aborted && !controller.lifetime.signal.aborted;
     return local() && page.current() && local() && controller.lifetime.current() && local();
   }, [controller, page, view]);
+  // SUP-006: only the server's wrong-code refusal for this join belongs on the field.
+  const codeFailure = !theme.isTV && sheet === 'join' && state.joinFailure?.code === 'invite_not_found' && !!state.error;
   const closeForm = () => {
     if (!form || !viewCurrent(form)) return;
     form.retired = true; view.form = undefined;
-    setForm(undefined); setTyping(undefined);
+    setForm(undefined); setTyping(undefined); controller.clearJoinFailure();
     if (view.pending?.form === form) {const original = view.pending; view.pending = undefined; original.abort.abort();}
   };
   const enter = async (work: (lifetime: GroupEnterLifetime) => Promise<boolean>, expected: Form | undefined) => {
@@ -126,14 +128,14 @@ export function NativeTogetherScreen({controller, media, ports, runtime, page, o
       {state.directoryError && <Banner message={state.directoryError} tone="warning"/>}
     </ScrollView>
     <Dialog testID="together-form" open={sheet !== undefined} onOpenChange={open => {if (!open) closeForm();}} headerContext={<ScreenText secondary>{t('entry.group.together')}</ScreenText>} title={t(sheet === 'join' ? 'web.together.joinWithCode' : 'web.together.startTitle')} description={t(sheet === 'join' ? 'web.together.joinHelp' : 'web.together.startHelp')} placement={theme.isTV ? 'side' : undefined} width={theme.isTV ? sheet === 'join' || typing ? 1240 : 760 : undefined} initialFocusRef={theme.isTV ? typing ? undefined : firstTVField : firstField} returnFocusRef={sheet === 'join' ? joinRef : startRef} footer={<Button testID="together-submit" onFocus={() => {if (viewCurrent(form) && sheet === 'start') setTyping(undefined);}} loading={busy} disabled={busy || !who.trim() || (sheet === 'join' ? code.replace(/[\s-]/g, '').length !== 8 : !name.trim())} onPress={() => run(async () => {const ok = await enter(lifetime => sheet === 'join' ? controller.join(code, who, lifetime) : controller.create(name, who, authority, lifetime), form); if (ok && viewCurrent(form)) closeForm();})}>{t(sheet === 'join' ? 'web.together.join' : 'web.together.start')}</Button>}>
-      {state.error && <Banner message={state.error} tone="warning"/>}
+      {state.error && !codeFailure && <Banner message={state.error} tone="warning"/>}
       <View style={{flexDirection: theme.isTV && typing ? 'row' : 'column', gap: theme.isTV && typing ? 48 : 24}}>
         <FocusRegion id={fieldsRegion} entry={sheet === 'join' ? 'code' : 'name'} edges={typing ? {right: keyboard} : undefined} style={{gap: 24, flex: 1}}>
         {theme.isTV ? <>
           <TogetherTVField ref={firstTVField} focusId={sheet === 'join' ? 'code' : 'name'} testID={sheet === 'join' ? 'together-code' : 'together-name'} label={t(sheet === 'join' ? 'web.together.hostCode' : 'profile.name')} value={sheet === 'join' ? code : name} onPress={() => type(sheet === 'join' ? 'code' : 'name')}/>
           <TogetherTVField focusId="who" testID="together-display-name" label={t('web.together.yourName')} description={t('web.together.shownToOthers')} value={who} onPress={() => type('who')}/>
         </> : <>
-          {sheet === 'join' ? <TextField ref={firstField} focusId="code" testID="together-code" label={t('web.together.hostCode')} value={code} onChangeText={value => {if (viewCurrent(form)) setCode(value.toUpperCase());}} autoCapitalize="characters" maxLength={12}/>
+          {sheet === 'join' ? <TextField ref={firstField} focusId="code" testID="together-code" label={t('web.together.hostCode')} value={code} error={codeFailure ? state.error : undefined} onChangeText={value => {if (viewCurrent(form)) {controller.clearJoinFailure(); setCode(value.toUpperCase());}}} autoCapitalize="characters" maxLength={12}/>
             : <TextField ref={firstField} focusId="name" testID="together-name" label={t('profile.name')} value={name} onChangeText={value => {if (viewCurrent(form)) setName(value);}} maxLength={80}/>}
           <TextField focusId="who" testID="together-display-name" label={t('web.together.yourName')} description={t('web.together.shownToOthers')} value={who} onChangeText={value => {if (viewCurrent(form)) setWho(value);}} maxLength={64}/>
         </>}

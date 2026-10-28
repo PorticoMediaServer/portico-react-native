@@ -4,7 +4,7 @@ import {screenModule, hooks} from './helpers/screen-harness.mjs';
 import {bindingModule, formsFixture as untypedFormsFixture, lifecycleHooks, maintenance, nodes, content, specification, t, i18n, theme} from './helpers/owner-server-settings.mjs';
 import * as values from '../src-next/screens/settings-live/server/settings-values.ts';
 import {secureConnectionView} from '../../../packages/client-core/src/server-admin/secure-connection.ts';
-import {retryCertificate} from '../../../packages/client-core/src/certificates.ts';
+import {certificateProblemMessage, retryCertificate} from '../../../packages/client-core/src/certificates.ts';
 
 import type {DraftForm} from '../../../packages/client-core/src/server-admin/draft-form.ts';
 // The JavaScript fixture builds this dictionary from the supplied form IDs.
@@ -72,7 +72,7 @@ test('Remote access edits the certificate switch, keeps own address on main, and
   const api = {request: async (path: string) => {assert.equal(path, 'post_networking_certificate_retry');retries++;return new Promise(resolve => {finish = resolve;});}};
   const module = await screenModule(new URL('../src-next/screens/settings-live/server/RemoteAccessPage.tsx', import.meta.url), {
     ...chrome, react: host.react, '../../../../../../packages/client-core/src/server-admin/secure-connection': {secureConnectionView}, '../../../../../../packages/client-core/src/server-admin/status-words': {remoteStatusLine: () => ({tone: 'neutral', text: 'Route status'}), ownCertificateLine: () => undefined},
-    '../../../../../../packages/client-core/src/certificates': {retryCertificate}, '../../../../../../packages/contracts/src/routes': {routePath: (id: string) => id}, '../use-settings-request-scope': {useSettingsRequestScope: () => ({api, lifetime: {current: fixture.group.context.current}})},
+    '../../../../../../packages/client-core/src/certificates': {certificateProblemMessage, retryCertificate}, '../../../../../../packages/contracts/src/routes': {routePath: (id: string) => id}, '../use-settings-request-scope': {useSettingsRequestScope: () => ({api, lifetime: {current: fixture.group.context.current}})},
     '../../../../../../packages/client-core/src/presentation/settings-spec': specification, '../../../../../../packages/client-core/src/presentation/settings-bindings': bindings, './storage/forms': fixture.hooks,
   });
   const render = () => host.render(() => {const outer = module.NativeRemoteAccessPage({ports: {context: fixture.group.context}, runtime});return outer.type(outer.props);});

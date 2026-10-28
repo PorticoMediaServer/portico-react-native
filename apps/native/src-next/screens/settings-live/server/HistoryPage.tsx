@@ -4,7 +4,7 @@ import type {RuntimeSettings} from '../../../../../../packages/client-core/src/c
 import {fetchPlayHistory, playHistoryPlatform, playHistoryTitle, type PlayHistoryEntry} from '../../../../../../packages/client-core/src/play-history';
 import {DashboardDataClient} from '../../../../../../packages/client-core/src/admin/dashboard';
 import {captureReportContext} from '../../../../../../packages/client-core/src/report-context';
-import {applySettingsBindingPatch, settingsBinding, settingsBindingPatch} from '../../../../../../packages/client-core/src/presentation/settings-bindings';
+import {applySettingsBindingPatch, readSettingsBinding, settingsBinding, settingsBindingPatch} from '../../../../../../packages/client-core/src/presentation/settings-bindings';
 import {settingsRowIndex} from '../../../../../../packages/client-core/src/presentation/settings-spec';
 import {duration} from '../../../../../../packages/client-core/src/server-admin/console-words';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
@@ -18,7 +18,7 @@ import type {NativeShellBootstrapContext} from '../../../shell/bootstrap';
 import type {NativeSettingsLivePorts} from '../ports';
 import {NativeScreenLifetime, screenScopeEnded} from '../lifetime';
 import {NativeAdvancedSection} from './AdvancedSection';
-import {NativeHistorySource, historyLocation, historyRetentionChoice, historyRetentionDays, type HistoryQuery} from './history-source';
+import {NativeHistorySource, historyLocation, type HistoryQuery} from './history-source';
 import {nativeStorageOwner} from './storage/space-source';
 import {useFormState, useStorageForms, useStorageSet, type StorageForms} from './storage/forms';
 import {settingsPageHeading, settingsPageInset} from './page-layout';
@@ -56,8 +56,10 @@ function History({group, forms, runtime, compactHeader}: {group: Group; forms: S
   const table = settingsRowIndex.get('history.plays')!.row, keep = settingsRowIndex.get('history.keepHistory')!.row;
   const filter = (id: string) => table.control.filters?.find(filter => filter.id === id);
   const change = (patch: Partial<HistoryQuery>) => {if (group.current()) source.change({...state.query, ...patch});};
-  const days = settings.draft?.playHistoryDays, choice = days === undefined ? undefined : historyRetentionChoice(days);
+  const days = settings.draft?.playHistoryDays, keepBinding = settingsBinding(keep.id)!;
   const keepOptions = (keep.control.options ?? []).map(option => ({value: String(option.value), label: t(option.label), disabled: false}));
+  const stored = settings.draft ? readSettingsBinding(keepBinding, {forms: {runtime: settings.draft}})?.current : undefined;
+  const choice = stored === undefined ? undefined : keepOptions.some(option => option.value === stored) ? String(stored) : 'custom';
   if (choice === 'custom') keepOptions.push({value: 'custom', label: `${defaultI18n.number(days!)} ${t('settings.unit.days')}`, disabled: true});
   const people = [{value: '', label: t(filter('person')!.options[0]!.label)}, ...state.people.map(person => ({value: person.accountId, label: person.username || '—'}))];
   if (state.query.accountId && !people.some(person => person.value === state.query.accountId)) {
@@ -101,8 +103,8 @@ function History({group, forms, runtime, compactHeader}: {group: Group; forms: S
       {!!state.nextCursor && <Button variant="glass" loading={state.phase === 'loading'} disabled={state.phase !== 'ready'} onPress={() => source.more()}>{t('action.showMore')}</Button>}
       <NativeAdvancedSection testID="server-history-advanced" summary={days === undefined ? t('status.loading') : days === 0 ? t('next.settings.allDefaults') : `${t(keep.label)}: ${keepOptions.find(option => option.value === choice)?.label ?? days}`}>
         {choice !== undefined && <Select testID="history.keepHistory" rowLabel={t(keep.label)} description={keep.help ? t(keep.help) : undefined} value={choice} options={keepOptions} disabled={formState.saving} onValueChange={value => {
-          const days = historyRetentionDays(value);if (days === undefined || formState.saving || !group.current()) return;
-          const patch = settingsBindingPatch(settingsBinding(keep.id)!, String(days), {forms: {runtime: settings.draft}});
+          if (value === 'custom' || formState.saving || !group.current() || !settings.draft) return;
+          const patch = settingsBindingPatch(keepBinding, value, {forms: {runtime: settings.draft}});
           forms.forms.runtime.set((draft: RuntimeSettings) => applySettingsBindingPatch(draft, patch));
         }}/>} 
         {settings.loadError !== undefined && <StateView variant="inline" {...runtime.error(settings.loadError, () => {void forms.forms.runtime.load();})}/>}

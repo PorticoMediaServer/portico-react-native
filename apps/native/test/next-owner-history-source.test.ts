@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {NativeHistorySource, historyLocation, historyRetentionChoice, historyRetentionDays} from '../src-next/screens/settings-live/server/history-source.ts';
+import {NativeHistorySource, historyLocation} from '../src-next/screens/settings-live/server/history-source.ts';
 import type {HistoryReader} from '../src-next/screens/settings-live/server/history-source.ts';
 import type {PlayHistoryPage, PlayHistoryEntry, PlayHistoryFilters} from '../../../packages/client-core/src/play-history';
 
@@ -46,8 +46,6 @@ test('retiring a History owner aborts reads and prevents late data or new reques
   source.start();active = false;source.dispose();assert.equal(signal!.aborted, true);held.resolve(page([entry('stale')]));await settle();source.refresh();assert.equal(reads, 1);assert.deepEqual(source.getSnapshot().entries, []);
 });
 
-test('retention labels map to valid numeric days and unknown location text never exposes an address', () => {
-  for (const [choice, days] of [['forever', 0], ['3y', 1095], ['1y', 365], ['180d', 180], ['90d', 90], ['30d', 30]] as const) {assert.equal(historyRetentionDays(choice), days);assert.equal(historyRetentionChoice(days), choice);}
-  assert.equal(historyRetentionChoice(46), 'custom');assert.equal(historyRetentionDays('custom'), undefined);assert.equal(historyRetentionDays('__proto__'), undefined);
+test('unknown location text never exposes an address', () => {
   assert.equal(historyLocation('remote'), 'away');assert.equal(historyLocation('local'), 'home');assert.equal(historyLocation('192.0.2.5'), undefined);assert.equal(historyLocation(undefined), undefined);
 });

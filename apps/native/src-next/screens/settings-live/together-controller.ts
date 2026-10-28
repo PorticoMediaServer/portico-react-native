@@ -3,7 +3,7 @@ import type {Group} from '../../../../../packages/client-core/src/social-playbac
 import type {GroupHostAuthority} from '../../../../../packages/client-core/src/social-playback';
 import {NativeScreenLifetime, NativeScreenStore, screenScopeEnded} from './lifetime';
 
-export type NativeTogetherService = Pick<GroupSessionService, 'getSnapshot' | 'subscribe' | 'refreshDirectory' | 'open' | 'create' | 'join' | 'dismiss' | 'serverNow' | 'refreshQueue' | 'transport' | 'invite' | 'makeHost' | 'queueRemove' | 'leave' | 'end'>;
+export type NativeTogetherService = Pick<GroupSessionService, 'getSnapshot' | 'subscribe' | 'refreshDirectory' | 'open' | 'create' | 'join' | 'dismiss' | 'serverNow' | 'refreshQueue' | 'transport' | 'invite' | 'makeHost' | 'queueRemove' | 'leave' | 'end' | 'clearJoinFailure'>;
 
 /** A borrowed service is already bound to the same authenticated player/follower lifetime. */
 export class NativeTogetherController extends NativeScreenStore<GroupSessionSnapshot> {
@@ -34,6 +34,8 @@ export class NativeTogetherController extends NativeScreenStore<GroupSessionSnap
   queueRemove = (entryId: string) => this.action(() => this.service.queueRemove(entryId));
   leave = () => this.action(() => this.service.leave());
   end = () => this.action(() => this.service.end());
+  /** A code edit or closed form retires the failed join's field error; never throws for a retired screen. */
+  clearJoinFailure(): void {if (!this.disposed && this.lifetime.current() && this.service.getSnapshot().joinFailure) this.service.clearJoinFailure();}
   dismiss(): void {this.lifetime.assert(); if (this.disposed) throw screenScopeEnded(); this.service.dismiss();}
   dispose(): void {if (this.disposed) return; this.disposed = true; this.off(); this.clearListeners();}
 }

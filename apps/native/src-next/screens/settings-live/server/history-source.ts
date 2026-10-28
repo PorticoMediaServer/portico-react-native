@@ -98,8 +98,4 @@ export class NativeHistorySource {
   }
 }
 
-/** The shared codec takes numeric days; the approved labels use duration tokens. */
-const retentionDays: Readonly<Record<string, number>> = {forever: 0, '3y': 1095, '1y': 365, '180d': 180, '90d': 90, '30d': 30};
-export const historyRetentionDays = (choice: string): number | undefined => Object.hasOwn(retentionDays, choice) ? retentionDays[choice] : undefined;
-export const historyRetentionChoice = (days: number): string => Object.keys(retentionDays).find(choice => retentionDays[choice] === days) ?? 'custom';
 export const historyLocation = (value: string | undefined): 'home' | 'away' | undefined => value === 'local' || value === 'home' ? 'home' : value === 'remote' || value === 'away' ? 'away' : undefined;
