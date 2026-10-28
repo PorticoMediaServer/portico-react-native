@@ -24,6 +24,7 @@ import {NativeScreenLifetime} from '../lifetime';
 import type {NativeSettingsLivePorts} from '../ports';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import {settingsPageHeading, settingsPageInset} from './page-layout';
+import {transcodeLocationChoice, transcodeLocationTarget, type TranscodeLocation} from '../../../../../../packages/client-core/src/presentation/transcode-location';
 
 /** Phone Streaming borrows checked revisioned runtime/connectivity documents, never delivery policy state. */
 export function NativeServerStreaming({ports, runtime, compactHeader = false}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean}) {
@@ -62,6 +63,9 @@ export function NativeServerStreaming({ports, runtime, compactHeader = false}: {
   const connectivityState = useSyncExternalStore(owned.forms.connectivity.subscribe, owned.forms.connectivity.getSnapshot);
   const state = useSyncExternalStore(owned.set.subscribe, owned.set.getSnapshot);
   const [discardRevision, setDiscardRevision] = useState(0), [advanced, setAdvanced] = useState(false), [customAway, setCustomAway] = useState(false);
+  // Choosing "a folder" writes nothing until a path is picked, so remember that choice locally.
+  const [folderChosen, setFolderChosen] = useState(false);
+  useEffect(() => setFolderChosen(false), [runtimeState.saved, discardRevision]);
   useEffect(() => setCustomAway(false), [connectivityState.saved]);
   const [invalid, setInvalid] = useState<ReadonlySet<string>>(new Set());
   const sources: SettingsBindingSources = {forms: {runtime: runtimeState.draft, connectivity: connectivityState.draft}};
@@ -85,13 +89,26 @@ export function NativeServerStreaming({ports, runtime, compactHeader = false}: {
     const binding = settingsBinding(id); return binding ? readSettingsBinding(binding, sources, id)?.current : undefined;
   };
   const renderRow = (row: SpecRow): React.ReactNode => {
+    if (row.id === 'streaming.transcodeLocation') {
+      const directory = capacity?.temporaryDirectory, draft = runtimeState.draft as {temporaryDirectory?: string} | undefined;
+      if (!directory || !draft) return null;
+      const located = transcodeLocationChoice(directory, draft.temporaryDirectory), choice: TranscodeLocation = folderChosen ? 'folder' : located.value;
+      const options = (row.control.options ?? []).filter(option => option.value !== 'memory' || located.memoryAvailable);
+      return <React.Fragment key={row.id}><NativeSettingControl key={`${row.id}:${discardRevision}`} row={{...row, control: {...row.control, options}}} value={choice} t={t}
+        disabled={state.saving} onChange={next => {
+          if (!owned.lifetime.current() || owned.set.getSnapshot().saving || !['separate', 'memory', 'folder'].includes(String(next))) return;
+          const target = transcodeLocationTarget(next as TranscodeLocation, directory);
+          setFolderChosen(next === 'folder');
+          if (target !== undefined) owned.forms.runtime.set((current: Record<string, unknown>) => withFormValue(current, 'temporaryDirectory', target));
+        }}/>
+        {choice === 'folder' && row.children?.map(renderRow)}</React.Fragment>;
+    }
     const value = fact(row);
     // A drawn parent the page cannot paint (it has no binding of its own) still carries
     // dependent rows that do: paint those instead of hiding the whole branch.
     if (!value) return row.children?.length ? <React.Fragment key={row.id}>{row.children.map(renderRow)}</React.Fragment> : null;
-    // The drawn Conversion location select is projected by client-core from the capacity facts
-    // and is not painted here, so the folder row's own dependency never resolves: keep it usable
-    // so the owner can still choose where conversions are written.
+    // The folder row is shown only under the Location choice above, whose value has no binding
+    // of its own for the generic dependency check.
     const folderRow = row.id === 'streaming.transcodeFolder';
     const shown = row.id === 'streaming.awayQuality' && customAway ? 'custom' : row.id === 'streaming.maxHardwareConversions' && value.current === 'unlimited' ? 'auto' : value.current;
     return <React.Fragment key={row.id}><NativeSettingControl key={`${row.id}:${discardRevision}`} row={row} value={shown} t={t} api={owned.api}

@@ -7,6 +7,7 @@ import {secureConnectionView} from '../../../packages/client-core/src/server-adm
 import {certificateProblemMessage, retryCertificate} from '../../../packages/client-core/src/certificates.ts';
 
 import type {DraftForm} from '../../../packages/client-core/src/server-admin/draft-form.ts';
+import * as transcodeLocation from '../../../packages/client-core/src/presentation/transcode-location.ts';
 // The JavaScript fixture builds this dictionary from the supplied form IDs.
 type Fixture = Awaited<ReturnType<typeof untypedFormsFixture>> & {group: {forms: Record<string, DraftForm<any, any>>}};
 const formsFixture = (...args: Parameters<typeof untypedFormsFixture>) => untypedFormsFixture(...args) as Promise<Fixture>;
@@ -150,6 +151,7 @@ test('Streaming draws its backed Advanced rows and hardware testing is one expli
     '../../../../../../packages/client-core/src/hardware': {testHardware: () => {hardwareTests++;return new Promise(resolve => {finish = resolve;});}}, '../../../../../../packages/i18n/src': {defaultI18n: i18n}, '../../../../../../packages/client-core/src/console': {ConsoleClient: Console}, '../../../../../../packages/client-core/src/server-admin/draft-form': {FormSet},
     '../../../../../../packages/client-core/src/server-admin/server-forms': {createServerForm: (id: string) => fixture.group.forms[id], withFormValue: (draft: object, key: string, value: unknown) => ({...draft, [key]: value})}, '../../../../../../packages/client-core/src/presentation/settings-bindings': bindings, '../../../../../../packages/client-core/src/presentation/settings-spec': specification,
     './StreamingHardware': {NativeStreamingHardware: 'Hardware'}, '../lifetime': {NativeScreenLifetime: Lifetime},
+    '../../../../../../packages/client-core/src/presentation/transcode-location': transcodeLocation,
   });
   (fixture.group.context as any).api = {request: async () => configuration};
   const render = () => host.render(() => module.NativeServerStreaming({ports: {context: fixture.group.context}, runtime}));
@@ -158,10 +160,15 @@ test('Streaming draws its backed Advanced rows and hardware testing is one expli
   assert.equal(nodes(tree).filter((node: any) => node.type === 'Advanced').length, 1);
   for (const id of ['streaming.toneMapping', 'streaming.toneMappingMethod', 'streaming.encoderSpeed', 'streaming.whenCantPlay', 'streaming.repackage', 'streaming.maxConversions', 'streaming.awayExact', 'streaming.ffmpegPath']) assert.ok(controls.some((node: any) => node.props.row.id === id), id);
   assert.ok(!controls.some((node: any) => ['streaming.hardware', 'streaming.hardwareDecode', 'streaming.memoryCap'].includes(node.props.row.id)));
-  // The drawn Conversion location select has no binding of its own, so the dependent folder row
-  // is painted on its own and stays usable rather than resolving to a dependency nothing writes.
+  // Conversion location reads the stored directory through the shared choice: a stored path is
+  // "a folder", which reveals the usable folder row; Separate writes the empty directory.
+  const location = controls.find((node: any) => node.props.row.id === 'streaming.transcodeLocation');
+  assert.ok(location);assert.equal(location.props.value, 'folder');
+  assert.ok(!location.props.row.control.options.some((option: any) => option.value === 'memory'), 'Memory is offered only with a RAM file system');
   const folder = controls.find((node: any) => node.props.row.id === 'streaming.transcodeFolder');
   assert.ok(folder);assert.equal(folder.props.disabled, false);assert.equal(folder.props.value, '/transcode');
+  location.props.onChange('separate');assert.equal(fixture.group.forms.runtime.getSnapshot().draft.temporaryDirectory, '');
+  assert.ok(!nodes(render()).some((node: any) => node.type === 'Setting' && node.props.row.id === 'streaming.transcodeFolder'), 'Separate hides the folder row');
   controls.find((node: any) => node.props.row.id === 'streaming.repackage').props.onChange(false);assert.equal(fixture.group.forms.runtime.getSnapshot().draft.directStreamRemux, false);
   assert.equal(hardwareTests, 0);const hardware = nodes(tree).find((node: any) => node.type === 'Hardware');hardware.props.onTest();hardware.props.onTest();assert.equal(hardwareTests, 1);finish!(capacity);await settle();host.dispose();fixture.stop();
 });
