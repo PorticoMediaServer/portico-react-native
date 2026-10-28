@@ -84,6 +84,9 @@ static BOOL PlainText(id value){
  return fuzzy.count==1?fuzzy.firstObject:nil; // ambiguous: keep drawing it ourselves
 }
 - (BOOL)overlayActive {return _command!=nil&&!_nativeSelected;}
+- (NSTimeInterval)now {return self.clock?self.clock():NSProcessInfo.processInfo.systemUptime;}
+/** Once a second: expired cues go, and a due recheck starts. */
+- (void)timerTick {NSTimeInterval now=[self now];if(now>_authorizedUntil){[self setText:@""];}if(!_task&&now-_lastRequest>=25)[self fetch];}
 - (void)setText:(NSString *)text{NSDictionary *cue=@{@"text":text,@"italic":@(_italic&&text.length>0),@"top":@(_top&&text.length>0)};if([_displayCue isEqual:cue])return;_displayCue=cue;_text=[text copy];if(self.onText)self.onText(cue);}
 - (void)status:(NSString *)error{if(self.onStatus)self.onStatus(error?:@"");}
 - (void)resetNativeSelection {
@@ -151,8 +154,8 @@ static BOOL PlainText(id value){
  if(!(_nativeLanguage==language||[_nativeLanguage isEqual:language])||!(_nativeTitle==title||[_nativeTitle isEqual:title])){[self resetNativeSelection];_nativeLanguage=[language copy];_nativeTitle=[title copy];}
  _command=[command copy];_revision=[command[@"revision"] integerValue];_offset=offset;
  [self disableEmbedded:item];
- if(!_session){NSURLSessionConfiguration *configuration=NSURLSessionConfiguration.ephemeralSessionConfiguration;configuration.URLCache=nil;configuration.HTTPCookieStorage=nil;configuration.URLCredentialStorage=nil;configuration.requestCachePolicy=NSURLRequestReloadIgnoringLocalCacheData;configuration.timeoutIntervalForRequest=15;configuration.timeoutIntervalForResource=20;configuration.HTTPMaximumConnectionsPerHost=1;_session=[NSURLSession sessionWithConfiguration:configuration delegate:self delegateQueue:NSOperationQueue.mainQueue];}
- if(!_timer){__weak PorticoSubtitleSelection *weakSelf=self;_timer=[NSTimer scheduledTimerWithTimeInterval:1 repeats:YES block:^(NSTimer *timer){PorticoSubtitleSelection *self=weakSelf;if(!self)return;NSTimeInterval now=NSProcessInfo.processInfo.systemUptime;if(now>self->_authorizedUntil){[self setText:@""];}if(!self->_task&&now-self->_lastRequest>=25)[self fetch];}];}
+ if(!_session){NSURLSessionConfiguration *configuration=NSURLSessionConfiguration.ephemeralSessionConfiguration;configuration.URLCache=nil;configuration.HTTPCookieStorage=nil;configuration.URLCredentialStorage=nil;configuration.requestCachePolicy=NSURLRequestReloadIgnoringLocalCacheData;configuration.timeoutIntervalForRequest=15;configuration.timeoutIntervalForResource=20;configuration.HTTPMaximumConnectionsPerHost=1;if(self.configureSession)self.configureSession(configuration);_session=[NSURLSession sessionWithConfiguration:configuration delegate:self delegateQueue:NSOperationQueue.mainQueue];}
+ if(!_timer&&!self.manualTimer){__weak PorticoSubtitleSelection *weakSelf=self;_timer=[NSTimer scheduledTimerWithTimeInterval:1 repeats:YES block:^(NSTimer *timer){[weakSelf timerTick];}];}
  if(!sameResource||refreshRequested)[self fetch];else [self tick:_time];
 }
 /** Reads a download's WebVTT file off the main thread and keeps its cues. Tags are dropped (the
@@ -201,7 +204,7 @@ static BOOL PlainText(id value){
 }
 - (void)fetch {
  if(_local||!_url||!_session||_task)return;
- _lastRequest=NSProcessInfo.processInfo.systemUptime;_bytes=[NSMutableData new];_failed=NO;_transientFailure=NO;_responseEtag=nil;
+ _lastRequest=[self now];_bytes=[NSMutableData new];_failed=NO;_transientFailure=NO;_responseEtag=nil;
  NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:_url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:15];[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
  _notModified=NO;if(_etag.length&&_cues)[request setValue:_etag forHTTPHeaderField:@"If-None-Match"];
  // A scoped media grant, not a bearer credential. Redirects are denied below.
@@ -225,8 +228,8 @@ static BOOL PlainText(id value){
 }
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
  if(task!=_task)return;_task=nil;
- if(_notModified){_notModified=NO;_bytes=nil;_authorizedUntil=NSProcessInfo.processInfo.systemUptime+40;[self status:@""];[self tick:_time];return;}
- if(_failed||error){_bytes=nil;if(_transientFailure||(!_failed&&error))_lastRequest=NSProcessInfo.processInfo.systemUptime-20;[self tick:_time];if(!_failed)[self status:@"subtitle_connection_failed"];return;}
+ if(_notModified){_notModified=NO;_bytes=nil;_authorizedUntil=[self now]+40;[self status:@""];[self tick:_time];return;}
+ if(_failed||error){_bytes=nil;if(_transientFailure||(!_failed&&error))_lastRequest=[self now]-20;[self tick:_time];if(!_failed)[self status:@"subtitle_connection_failed"];return;}
  id document=[NSJSONSerialization JSONObjectWithData:_bytes options:0 error:nil];_bytes=nil;
  BOOL valid=[document isKindOfClass:NSDictionary.class]&&PositiveInteger(document[@"version"])&&[document[@"version"] isEqual:@1]&&[document[@"timeDomain"] isEqual:@"source-relative"]&&[document[@"cues"] isKindOfClass:NSArray.class]&&[document[@"cues"] count]<=20000;
  NSMutableArray *cues=[NSMutableArray new],*ends=[NSMutableArray new];int64_t previous=-1,maxEnd=0;NSUInteger textBytes=0;
@@ -238,10 +241,10 @@ static BOOL PlainText(id value){
  }
  if(valid&&cues.count==0&&[document[@"cues"] count]>0)valid=NO;
  if(!valid){_etag=nil;_cues=nil;_authorizedUntil=0;[self setText:@""];[self status:@"subtitle_document_invalid"];return;}
- _etag=_responseEtag;_cues=cues;_prefixEnds=ends;_authorizedUntil=NSProcessInfo.processInfo.systemUptime+40;[self status:@""];[self tick:_time];
+ _etag=_responseEtag;_cues=cues;_prefixEnds=ends;_authorizedUntil=[self now]+40;[self status:@""];[self tick:_time];
 }
 - (void)tick:(CMTime)time {
- _time=time;if(_nativeSelected){[self setText:@""];return;}if(!_command||!_cues||NSProcessInfo.processInfo.systemUptime>_authorizedUntil||!CMTIME_IS_NUMERIC(time)){[self setText:@""];return;}
+ _time=time;if(_nativeSelected){[self setText:@""];return;}if(!_command||!_cues||[self now]>_authorizedUntil||!CMTIME_IS_NUMERIC(time)){[self setText:@""];return;}
  CMTime converted=CMTimeConvertScale(time,1000000,kCMTimeRoundingMethod_RoundHalfAwayFromZero);int64_t now=converted.value-_offset;
  NSUInteger low=0,high=_cues.count;while(low<high){NSUInteger mid=low+(high-low)/2;if([_cues[mid][@"start"] longLongValue]<=now)low=mid+1;else high=mid;}
  _italic=NO;_top=NO;NSMutableArray<NSString *> *active=[NSMutableArray new];

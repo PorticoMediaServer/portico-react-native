@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import {NativeModules, Platform} from './react-native-stub.mjs';
 import {coverImageMime, coverImageSupported, stageCoverImage, type CoverImageMime} from '../src-next/platform/cover-image';
 
-type Bridge = {writeCoverImage?: (mime: string, encoded: string) => Promise<unknown>; deleteCoverImage?: (handle: string) => Promise<unknown>};
+type Bridge = {
+  beginCoverImage?: (mime: string) => Promise<unknown>;
+  appendCoverImage?: (handle: string, encoded: string) => Promise<unknown>;
+  finishCoverImage?: (handle: string, size: number) => Promise<unknown>;
+  deleteCoverImage?: (handle: string) => Promise<unknown>;
+};
 const native = NativeModules.PorticoDownloads as unknown as Bridge;
 const signatures: Record<CoverImageMime, readonly number[]> = {
   'image/jpeg': [0xff, 0xd8, 0xff],
@@ -20,18 +25,29 @@ function deferred<T>() {
   const promise = new Promise<T>(done => {resolve = done;});
   return {promise, resolve};
 }
+/** A native module that stages chunks as the real ones do; `writes` are the finished files. */
 function fixture(t: TestContext) {
-  const write = native.writeCoverImage, remove = native.deleteCoverImage, tv = Platform.isTV;
-  const writes: {mime: string; encoded: string}[] = [], deleted: string[] = [];
+  const saved = {...native}, tv = Platform.isTV;
+  const stages = new Map<string, {mime: string; chunks: Buffer[]}>();
+  const writes: {mime: string; encoded: string; chunks: number}[] = [], appends: string[] = [], deleted: string[] = [];
   Platform.isTV = false;
-  native.writeCoverImage = async (mime, encoded) => {
-    writes.push({mime, encoded});
-    return {handle: 'cover-' + writes.length, uri: 'file:///private/cover-' + writes.length, size: Buffer.from(encoded, 'base64').length};
+  native.beginCoverImage = async mime => {
+    const handle = 'cover-' + (stages.size + 1); stages.set(handle, {mime, chunks: []}); return {handle};
+  };
+  native.appendCoverImage = async (handle, encoded) => {
+    const stage = stages.get(handle)!; appends.push(encoded); stage.chunks.push(Buffer.from(encoded, 'base64'));
+    return Buffer.concat(stage.chunks).length;
+  };
+  native.finishCoverImage = async (handle, size) => {
+    const stage = stages.get(handle)!, bytes = Buffer.concat(stage.chunks);
+    assert.equal(bytes.length, size);
+    writes.push({mime: stage.mime, encoded: bytes.toString('base64'), chunks: stage.chunks.length});
+    return {handle, uri: 'file:///private/' + handle, size: bytes.length};
   };
   native.deleteCoverImage = async handle => {deleted.push(handle);};
-  t.after(() => {native.writeCoverImage = write; native.deleteCoverImage = remove; Platform.isTV = tv;});
+  t.after(() => {Object.assign(native, saved); Platform.isTV = tv;});
   const controller = new AbortController();
-  return {writes, deleted, controller, lifetime: {signal: controller.signal, isCurrent: () => true}};
+  return {writes, appends, deleted, stages, controller, lifetime: {signal: controller.signal, isCurrent: () => true}};
 }
 
 test('cover MIME admission uses the raster bytes, including short invalid signatures', () => {
@@ -61,17 +77,26 @@ test('cover staging preserves every admitted byte, base64 tail and chunk boundar
   assert.equal(deleted.length, writes.length);
 });
 
-test('large cover encoding yields to queued UI work before entering the native write', {timeout: 5000}, async t => {
+test('large cover staging yields to queued UI work between native chunks', {timeout: 5000}, async t => {
   const {writes, lifetime} = fixture(t);
-  let uiRan = false;
+  let uiRan = false, chunks = 0;
   const ui = new Promise<void>(resolve => setTimeout(() => {uiRan = true; resolve();}, 0));
-  const write = native.writeCoverImage!;
-  native.writeCoverImage = async (mime, encoded) => {
-    assert.equal(uiRan, true, 'encoding must yield an event-loop turn rather than only a promise microtask');
-    return write(mime, encoded);
+  const append = native.appendCoverImage!;
+  native.appendCoverImage = async (handle, encoded) => {
+    if (chunks++ > 0) assert.equal(uiRan, true, 'staging must yield an event-loop turn rather than only a promise microtask');
+    return append(handle, encoded);
   };
   const temp = await stageCoverImage(image('image/jpeg', 256 * 1024), 'image/jpeg', lifetime);
-  await ui; assert.ok(temp); assert.equal(writes.length, 1); await temp.dispose();
+  await ui; assert.ok(temp); assert.equal(writes.length, 1); assert.ok(chunks > 1); await temp.dispose();
+});
+
+test('no chunk sent to the native module is larger than its bound or the whole image', {timeout: 5000}, async t => {
+  const {writes, appends, lifetime} = fixture(t), bytes = image('image/png', 100001);
+  const temp = await stageCoverImage(bytes, 'image/png', lifetime);
+  assert.ok(temp); assert.equal(writes[0]!.encoded, Buffer.from(bytes).toString('base64'));
+  // 24 KiB per chunk: 32768 base64 characters, well inside the native 64 KiB bound.
+  assert.ok(appends.every(chunk => chunk.length <= 32768)); assert.equal(appends.length, Math.ceil(100001 / (24 * 1024)));
+  await temp.dispose();
 });
 
 test('the 10 MiB maximum uses bounded encoder inputs and retains byte accuracy', {timeout: 5000}, async t => {
@@ -133,15 +158,15 @@ test('a cancelled or stale witness never starts encoding', async t => {
   assert.equal(writes.length, 0);
 });
 
-test('cancellation during encoding discards the partial representation without staging a file', {timeout: 5000}, async t => {
+test('cancellation during staging deletes the partial native stage and never finishes it', {timeout: 5000}, async t => {
   const {writes, deleted, lifetime, controller} = fixture(t);
   const pending = stageCoverImage(image('image/jpeg', 256 * 1024), 'image/jpeg', lifetime);
   controller.abort();
-  assert.equal(await pending, undefined); assert.equal(writes.length, 0); assert.deepEqual(deleted, []);
+  assert.equal(await pending, undefined); assert.equal(writes.length, 0); assert.deepEqual(deleted, ['cover-1']);
 });
 
-test('document retirement during encoding and cancellation just before native staging are fenced', {timeout: 5000}, async t => {
-  const {writes, lifetime, controller} = fixture(t);
+test('document retirement during staging and cancellation just before finishing are fenced', {timeout: 5000}, async t => {
+  const {writes, deleted, lifetime, controller} = fixture(t);
   let current = true;
   const pending = stageCoverImage(image('image/png', 50001), 'image/png', {...lifetime, isCurrent: () => current});
   current = false;
@@ -149,39 +174,54 @@ test('document retirement during encoding and cancellation just before native st
   const small = stageCoverImage(image('image/jpeg', 4), 'image/jpeg', lifetime);
   controller.abort();
   assert.equal(await small, undefined); assert.equal(writes.length, 0);
+  assert.deepEqual(deleted, ['cover-1', 'cover-2']);
 });
 
-test('cancellation while native staging is pending deletes only the returned owned handle', {timeout: 5000}, async t => {
+test('cancellation while the native finish is pending deletes only the returned owned handle', {timeout: 5000}, async t => {
   const {deleted, lifetime, controller} = fixture(t), gate = deferred<unknown>(), started = deferred<void>();
-  native.writeCoverImage = () => {started.resolve(); return gate.promise;};
+  native.finishCoverImage = () => {started.resolve(); return gate.promise;};
   const pending = stageCoverImage(image('image/jpeg', 4), 'image/jpeg', lifetime);
   await started.promise; controller.abort();
-  gate.resolve({handle: 'own-late-cover', uri: 'file:///private/own-late-cover', size: 4});
-  assert.equal(await pending, undefined); assert.deepEqual(deleted, ['own-late-cover']);
+  gate.resolve({handle: 'cover-1', uri: 'file:///private/cover-1', size: 4});
+  assert.equal(await pending, undefined); assert.deepEqual(deleted, ['cover-1']);
 });
 
-test('retirement while native staging is pending also deletes the exact late handle', {timeout: 5000}, async t => {
+test('retirement while the native finish is pending also deletes the exact late handle', {timeout: 5000}, async t => {
   const {deleted, lifetime} = fixture(t), gate = deferred<unknown>(), started = deferred<void>();
   let current = true;
-  native.writeCoverImage = () => {started.resolve(); return gate.promise;};
+  native.finishCoverImage = () => {started.resolve(); return gate.promise;};
   const pending = stageCoverImage(image('image/jpeg', 4), 'image/jpeg', {...lifetime, isCurrent: () => current});
   await started.promise; current = false;
-  gate.resolve({handle: 'own-retired-cover', uri: 'file:///private/own-retired-cover', size: 4});
-  assert.equal(await pending, undefined); assert.deepEqual(deleted, ['own-retired-cover']);
+  gate.resolve({handle: 'cover-1', uri: 'file:///private/cover-1', size: 4});
+  assert.equal(await pending, undefined); assert.deepEqual(deleted, ['cover-1']);
 });
 
-test('malformed native leases are rejected and recognizable owned handles are cleaned up', async t => {
+test('malformed native answers are rejected and the owned stage is cleaned up', async t => {
   const {deleted, lifetime} = fixture(t);
   for (const result of [
     null, {handle: '', uri: 'file:///private/empty', size: 4},
-    {handle: 'wrong-uri', uri: 'https://example.invalid/cover', size: 4},
-    {handle: 'wrong-size', uri: 'file:///private/size', size: 5},
-    {handle: 'fractional-size', uri: 'file:///private/size', size: 4.1},
+    {handle: 'another-cover', uri: 'file:///private/other', size: 4},
+    {handle: 'HANDLE', uri: 'https://example.invalid/cover', size: 4},
+    {handle: 'HANDLE', uri: 'file:///private/size', size: 5},
+    {handle: 'HANDLE', uri: 'file:///private/size', size: 4.1},
   ]) {
-    native.writeCoverImage = async () => result;
+    native.finishCoverImage = async handle => result && {...result, handle: result.handle === 'HANDLE' ? handle : result.handle};
     await assert.rejects(stageCoverImage(image('image/jpeg', 4), 'image/jpeg', lifetime), {code: 'invalid_image'});
   }
-  assert.deepEqual(deleted, ['wrong-uri', 'wrong-size', 'fractional-size']);
+  assert.deepEqual(deleted, ['cover-1', 'cover-2', 'cover-3', 'cover-4', 'cover-5', 'cover-6']);
+  // A stage the native module never named, or a chunk it miscounted, is refused the same way.
+  native.beginCoverImage = async () => ({});
+  await assert.rejects(stageCoverImage(image('image/jpeg', 4), 'image/jpeg', lifetime), {code: 'invalid_image'});
+  native.beginCoverImage = async () => ({handle: 'miscounted'}); native.appendCoverImage = async () => 3;
+  await assert.rejects(stageCoverImage(image('image/jpeg', 4), 'image/jpeg', lifetime), {code: 'invalid_image'});
+  assert.equal(deleted.at(-1), 'miscounted');
+});
+
+test('a native staging failure deletes the stage and keeps the native error', async t => {
+  const {deleted, lifetime} = fixture(t);
+  native.appendCoverImage = async () => {throw Object.assign(new Error('write_failed'), {code: 'write_failed'});};
+  await assert.rejects(stageCoverImage(image('image/jpeg', 4), 'image/jpeg', lifetime), {code: 'write_failed'});
+  assert.deepEqual(deleted, ['cover-1']);
 });
 
 test('an admitted cover lease is disposed once across explicit disposal and abort', async t => {
@@ -198,7 +238,7 @@ test('cover staging still refuses televisions and unavailable native bridges', a
   Platform.isTV = true;
   assert.equal(coverImageSupported(), false);
   await assert.rejects(stageCoverImage(image('image/jpeg', 4), 'image/jpeg', lifetime), {code: 'cover_image_unavailable'});
-  Platform.isTV = false; native.writeCoverImage = undefined;
+  Platform.isTV = false; native.appendCoverImage = undefined;
   assert.equal(coverImageSupported(), false);
   await assert.rejects(stageCoverImage(image('image/jpeg', 4), 'image/jpeg', lifetime), {code: 'cover_image_unavailable'});
 });

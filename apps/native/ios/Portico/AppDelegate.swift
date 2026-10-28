@@ -112,6 +112,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
       launch[.url] = route
     }
     reactNativeFactory?.startReactNative(withModuleName: "Portico", in: window, launchOptions: launch)
+    // The launch screen stays over React until Boot draws its first frame (PorticoBootCover.h).
+    PorticoBootCoverInstall(window)
     return window
   }
 

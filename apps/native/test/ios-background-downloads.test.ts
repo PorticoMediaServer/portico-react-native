@@ -136,7 +136,7 @@ test('every JavaScript call is relayed to an owner method of the same name, gate
   const module = section(downloads, '@implementation PorticoDownloads {', '\n@end\n');
   const exported = [...module.matchAll(/^RCT_EXPORT_METHOD\((.*)\) \{\n(.*)\n\}/gm)];
   assert.deepEqual(exported.map(([, signature]) => signature.slice(0, signature.indexOf(':'))), [
-    'list', 'start', 'pause', 'remove', 'removeGeneration', 'setMeta', 'setMetas',
+    'list', 'start', 'resume', 'pause', 'remove', 'removeGeneration', 'setMeta', 'setMetas',
     'publicationStateOpen', 'publicationStateRead', 'publicationStateWrite',
     'writeExtra', 'readExtra', 'fetchExtra', 'storage', 'setCellular', 'readState', 'writeState', 'localFile', 'publicationOpen',
   ]);
@@ -179,8 +179,12 @@ test('callbacks wait for the manifest, and an unread manifest is never written o
   const owner = section(downloads, '@implementation PorticoDownloadOwner', '\n@end\n');
   assert.match(method(owner, '- (BOOL)saveManifest {'), /if \(!_loaded\) return NO;/);
   const load = method(owner, '- (void)loadManifest {');
-  assert.ok(load.indexOf('fileExistsAtPath') < load.indexOf('_loaded = YES'), 'an unreadable manifest leaves the owner unloaded');
-  assert.ok(load.indexOf('_entries = entries') < load.indexOf('for (NSArray *item in waiting) ((dispatch_block_t)item[0])();'), 'waiting work runs in arrival order after the read');
+  // Every marker must be present: indexOf's -1 would otherwise satisfy each ordering (N01). What
+  // the manifest restores is executed in apple-download-manifest-tests.m.
+  const at = (marker: string) => {const index = load.indexOf(marker); assert.ok(index >= 0, marker); return index;};
+  assert.ok(at('if (!entries) { [self refusePending]; return; }') < at('_loaded = YES'), 'an unreadable manifest leaves the owner unloaded');
+  assert.ok(at('PorticoDownloadManifestEntries(raw)') < at('_entries = entries'), 'the owner restores exactly what the manifest decodes');
+  assert.ok(at('_entries = entries') < at('for (NSArray *item in waiting) ((dispatch_block_t)item[0])();'), 'waiting work runs in arrival order after the read');
   assert.match(owner, /UIApplicationProtectedDataDidBecomeAvailable/);
   // Filing waits for the manifest; a moment's progress before it is read is let go.
   for (const [callback, gate] of [['didWriteData:', 'ifLoaded'], ['taskIsWaitingForConnectivity:', 'ifLoaded'], ['didFinishDownloadingToURL:', 'whenLoaded'], ['didCompleteWithError:', 'whenLoaded']]) {

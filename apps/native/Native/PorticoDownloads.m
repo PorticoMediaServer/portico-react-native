@@ -7,6 +7,7 @@
 #import <CommonCrypto/CommonDigest.h>
 #import "PorticoDownloadAttempt.h"
 #import "PorticoDownloadOwner.h"
+#import "PorticoDownloadManifest.h"
 #import "PorticoServerTrust.h"
 #import "PorticoDownloadStorage.h"
 
@@ -240,26 +241,12 @@ static BOOL PorticoSafeExtraName(NSString *value) {
   return [pattern numberOfMatchesInString:value options:0 range:NSMakeRange(0, value.length)] == 1;
 }
 
-static BOOL PorticoSafeIdentifier(NSString *value) {
-  if (![value isKindOfClass:NSString.class] || value.length < 1 || value.length > 160) return NO;
-  NSCharacterSet *allowed = [NSCharacterSet characterSetWithCharactersInString:@"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"];
-  return [value rangeOfCharacterFromSet:allowed.invertedSet].location == NSNotFound;
-}
 
 // An inaccessible path is not evidence that its record is absent.
 static BOOL PorticoDownloadMissingFile(NSError *error) {
   return [error.domain isEqual:NSCocoaErrorDomain] && error.code == NSFileReadNoSuchFileError;
 }
 
-static BOOL PorticoDownloadValidEntry(NSString *identifier, NSDictionary *entry) {
-  if (!PorticoSafeIdentifier(identifier) || ![entry isKindOfClass:NSDictionary.class] || ![entry[@"id"] isEqual:identifier]) return NO;
-  if (![@[@"downloading", @"paused", @"failed", @"ready", @"removed"] containsObject:entry[@"state"] ?: NSNull.null]) return NO;
-  NSString *digest = entry[@"sha256"];
-  if (![digest isKindOfClass:NSString.class] || digest.length != 64 || [digest.lowercaseString rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdef"].invertedSet].location != NSNotFound) return NO;
-  NSNumber *bytes = entry[@"bytes"];
-  return [bytes isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)bytes) != CFBooleanGetTypeID()
-    && isfinite(bytes.doubleValue) && bytes.doubleValue >= 1 && bytes.doubleValue <= 9007199254740991.0 && floor(bytes.doubleValue) == bytes.doubleValue;
-}
 // A file name from the server is used as a path component, so it is reduced to its last
 // component and stripped of anything that could leave the download's own folder.
 static NSString *PorticoSafeFileName(NSString *value) {
@@ -282,14 +269,8 @@ static NSString *PorticoSafeFileName(NSString *value) {
     if (self.protectedDataAvailable) [self refusePending];
     return;
   }
-  NSMutableDictionary<NSString *, NSMutableDictionary *> *entries = [NSMutableDictionary new];
-  NSString *text = raw ? [[NSString alloc] initWithData:raw encoding:NSUTF8StringEncoding] : nil;
-  NSDictionary *stored = text ? [NSJSONSerialization JSONObjectWithData:raw options:0 error:&error] : nil;
-  if (raw && (![stored isKindOfClass:NSDictionary.class] || !text)) { [self refusePending]; return; }
-  for (NSString *key in stored) {
-    if (!PorticoDownloadValidEntry(key, stored[key])) { [self refusePending]; return; }
-    entries[key] = [stored[key] mutableCopy];
-  }
+  NSMutableDictionary<NSString *, NSMutableDictionary *> *entries = PorticoDownloadManifestEntries(raw);
+  if (!entries) { [self refusePending]; return; }
   // An extra that was being filed when the app stopped leaves its holding file behind.
   for (NSURL *file in [[NSFileManager defaultManager] contentsOfDirectoryAtURL:[self root] includingPropertiesForKeys:nil options:0 error:nil])
     if ([file.pathExtension isEqualToString:@"extra"]) [[NSFileManager defaultManager] removeItemAtURL:file error:nil];
@@ -1194,10 +1175,11 @@ static NSString *PorticoCoverExtension(NSString *mime) {
   if ([mime isEqualToString:@"image/png"]) return @".png";
   return @".webp";
 }
-/** Strict canonical base64: bounded before decode, multiple of four, no
- * whitespace, ignored character or malformed tail. */
+/** Strict canonical base64 for one chunk (at most 64 KiB of bytes; the app
+ * sends 24 KiB): bounded before decode, multiple of four, no whitespace,
+ * ignored character or malformed tail. */
 static BOOL PorticoCoverBase64Valid(NSString *value) {
-  const NSUInteger maximum = 13981016;
+  const NSUInteger maximum = 87384;
   NSUInteger length = value.length;
   if (length == 0 || length > maximum || length % 4 != 0) return NO;
   const char *bytes = value.UTF8String;
@@ -1219,11 +1201,22 @@ static NSString *PorticoCoverDirectory(NSError **error) {
   return directory;
 }
 
+/** A cover-page temp file this module created, filled in bounded chunks and then finished. */
+@interface PorticoCoverStage : NSObject
+@property (nonatomic, copy) NSString *path;
+@property (nonatomic, copy) NSString *mime;
+@property (nonatomic) NSUInteger generation;
+@property (nonatomic) unsigned long long size;
+@property (nonatomic) BOOL finished;
+@end
+@implementation PorticoCoverStage
+@end
+
 @implementation PorticoDownloads {
   PorticoDownloadOwner *_owner;
   PorticoPublicationReads *_publicationReads;
   PorticoPublicationStateRegistry *_publicationState;
-  NSMutableDictionary<NSString *, NSString *> *_coverFiles;
+  NSMutableDictionary<NSString *, PorticoCoverStage *> *_coverFiles;
   NSLock *_coverLock;
   NSUInteger _coverGeneration;
   BOOL _coverRetired;
@@ -1244,7 +1237,7 @@ RCT_EXPORT_MODULE()
   }
   return self;
 }
-- (void)invalidate {[_owner publicationStateInvalidate:_publicationState];[_publicationReads invalidate];[_coverLock lock];_coverRetired=YES;_coverGeneration++;NSArray<NSString *> *paths=[_coverFiles allValues];[_coverFiles removeAllObjects];[_coverLock unlock];for (NSString *path in paths) [[NSFileManager defaultManager] removeItemAtPath:path error:nil];[super invalidate];}
+- (void)invalidate {[_owner publicationStateInvalidate:_publicationState];[_publicationReads invalidate];[_coverLock lock];_coverRetired=YES;_coverGeneration++;NSArray<NSString *> *paths=[_coverFiles.allValues valueForKey:@"path"];[_coverFiles removeAllObjects];[_coverLock unlock];for (NSString *path in paths) [[NSFileManager defaultManager] removeItemAtPath:path error:nil];[super invalidate];}
 - (dispatch_queue_t)methodQueue { return _owner.queue; }
 - (NSArray<NSString *> *)supportedEvents { return @[PorticoDownloadChanged]; }
 - (void)startObserving { _porticoObserving = YES; }
@@ -1318,39 +1311,77 @@ RCT_EXPORT_METHOD(publicationMemberRead:(NSString *)handle operation:(double)ope
 RCT_EXPORT_METHOD(publicationCancel:(NSString *)handle operation:(double)operation) {[_publicationReads cancel:handle operation:operation];}
 RCT_EXPORT_METHOD(publicationClose:(NSString *)handle) {[_publicationReads close:handle];}
 
-// One bounded image-only private temp file. The caller sends bytes only; the
-// filename, directory and opaque handle are generated here.
-RCT_EXPORT_METHOD(writeCoverImage:(NSString *)mime base64:(NSString *)base64 resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
-  if (![mime isKindOfClass:NSString.class] || ![base64 isKindOfClass:NSString.class]) {reject(@"invalid_image", @"invalid_image", nil);return;}
-  if (![mime isEqualToString:@"image/jpeg"] && ![mime isEqualToString:@"image/png"] && ![mime isEqualToString:@"image/webp"]) {reject(@"unsupported_image", @"unsupported_image", nil);return;}
-  if (!PorticoCoverBase64Valid(base64)) {reject(@"invalid_image", @"invalid_image", nil);return;}
-  NSData *data = [[NSData alloc] initWithBase64EncodedString:base64 options:0];
-  if (!data || data.length == 0 || data.length > 10 * 1024 * 1024) {reject(@"invalid_image", @"invalid_image", nil);return;}
-  // Canonical equality also rejects non-zero unused tail bits in the last sextet.
-  if (![[data base64EncodedStringWithOptions:0] isEqualToString:base64]) {reject(@"invalid_image", @"invalid_image", nil);return;}
-  NSString *actual = PorticoCoverActualMime(data);
-  if (![actual isEqualToString:mime]) {reject(@"unsupported_image", @"unsupported_image", nil);return;}
-  NSUInteger generation; BOOL retired;
-  [_coverLock lock];generation=_coverGeneration;retired=_coverRetired;[_coverLock unlock];
-  if (retired) {reject(@"cancelled", @"cancelled", nil);return;}
+// One bounded image-only private temp file, staged in chunks so the app never
+// holds the whole image as one string (IM01). The caller sends bytes only; the
+// filename, directory and opaque handle are generated here. A stage that loses
+// its module generation never finishes and is deleted. Calls run in order on
+// the module's queue.
+RCT_EXPORT_METHOD(beginCoverImage:(NSString *)mime resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  if (![mime isKindOfClass:NSString.class] || (![mime isEqualToString:@"image/jpeg"] && ![mime isEqualToString:@"image/png"] && ![mime isEqualToString:@"image/webp"])) {reject(@"unsupported_image", @"unsupported_image", nil);return;}
   NSError *error = nil;
   NSString *directory = PorticoCoverDirectory(&error);
   if (!directory) {reject(@"write_failed", @"write_failed", error);return;}
   NSString *path = [directory stringByAppendingPathComponent:[[NSUUID UUID].UUIDString stringByAppendingString:PorticoCoverExtension(mime)]];
-  if (![data writeToFile:path options:NSDataWritingAtomic error:&error]) {reject(@"write_failed", @"write_failed", error);return;}
-  NSNumber *size = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil][NSFileSize];
-  if (![size isEqualToNumber:@(data.length)]) {[[NSFileManager defaultManager] removeItemAtPath:path error:nil];reject(@"write_failed", @"write_failed", nil);return;}
+  if (![[NSFileManager defaultManager] createFileAtPath:path contents:[NSData data] attributes:nil]) {reject(@"write_failed", @"write_failed", nil);return;}
+  PorticoCoverStage *stage = [PorticoCoverStage new];
+  stage.path = path; stage.mime = mime;
   NSString *handle = [NSUUID UUID].UUIDString;
   BOOL registered = NO;
   [_coverLock lock];
-  if (!_coverRetired && _coverGeneration == generation) {_coverFiles[handle]=path;registered=YES;}
+  if (!_coverRetired) {stage.generation=_coverGeneration;_coverFiles[handle]=stage;registered=YES;}
   [_coverLock unlock];
   if (!registered) {[[NSFileManager defaultManager] removeItemAtPath:path error:nil];reject(@"cancelled", @"cancelled", nil);return;}
-  resolve(@{@"handle":handle, @"uri":[NSURL fileURLWithPath:path].absoluteString, @"size":size});
+  resolve(@{@"handle":handle});
+}
+/** The stage when it is known, unfinished and of the current generation. */
+- (PorticoCoverStage *)openCoverStage:(NSString *)handle {
+  if (![handle isKindOfClass:NSString.class]) return nil;
+  [_coverLock lock];
+  PorticoCoverStage *stage = _coverFiles[handle];
+  if (stage.finished || _coverRetired || stage.generation != _coverGeneration) stage = nil;
+  [_coverLock unlock];
+  return stage;
+}
+// Appends one chunk; answers the bytes staged so far.
+RCT_EXPORT_METHOD(appendCoverImage:(NSString *)handle base64:(NSString *)base64 resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  if (![base64 isKindOfClass:NSString.class] || !PorticoCoverBase64Valid(base64)) {reject(@"invalid_image", @"invalid_image", nil);return;}
+  NSData *data = [[NSData alloc] initWithBase64EncodedString:base64 options:0];
+  // Canonical equality also rejects non-zero unused tail bits in the last sextet.
+  if (data.length == 0 || ![[data base64EncodedStringWithOptions:0] isEqualToString:base64]) {reject(@"invalid_image", @"invalid_image", nil);return;}
+  PorticoCoverStage *stage = [self openCoverStage:handle];
+  if (!stage) {reject(@"invalid_handle", @"invalid_handle", nil);return;}
+  if (stage.size + data.length > 10 * 1024 * 1024) {reject(@"invalid_image", @"invalid_image", nil);return;}
+  NSError *error = nil;
+  NSFileHandle *file = [NSFileHandle fileHandleForWritingToURL:[NSURL fileURLWithPath:stage.path] error:&error];
+  if (!file || ![file seekToEndReturningOffset:nil error:&error] || ![file writeData:data error:&error]) {[file closeAndReturnError:nil];reject(@"write_failed", @"write_failed", error);return;}
+  if (![file closeAndReturnError:&error]) {reject(@"write_failed", @"write_failed", error);return;}
+  stage.size += data.length;
+  resolve(@(stage.size));
+}
+// The staged file is exactly `size` bytes of the declared image type: it becomes the lease.
+RCT_EXPORT_METHOD(finishCoverImage:(NSString *)handle size:(double)size resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  PorticoCoverStage *stage = [self openCoverStage:handle];
+  if (!stage) {reject(@"invalid_handle", @"invalid_handle", nil);return;}
+  NSNumber *actual = [[NSFileManager defaultManager] attributesOfItemAtPath:stage.path error:nil][NSFileSize];
+  if (size < 1 || size != floor(size) || (unsigned long long)size != stage.size || actual.unsignedLongLongValue != stage.size) {reject(@"invalid_image", @"invalid_image", nil);return;}
+  NSError *error = nil;
+  NSFileHandle *file = [NSFileHandle fileHandleForUpdatingURL:[NSURL fileURLWithPath:stage.path] error:&error];
+  NSData *head = [file readDataUpToLength:12 error:&error];
+  if (!file || !head) {[file closeAndReturnError:nil];reject(@"write_failed", @"write_failed", error);return;}
+  if (![PorticoCoverActualMime(head) isEqualToString:stage.mime]) {[file closeAndReturnError:nil];reject(@"unsupported_image", @"unsupported_image", nil);return;}
+  BOOL synced = [file synchronizeAndReturnError:&error];
+  [file closeAndReturnError:nil];
+  if (!synced) {reject(@"write_failed", @"write_failed", error);return;}
+  BOOL finished = NO;
+  [_coverLock lock];
+  if (!_coverRetired && stage.generation == _coverGeneration) {stage.finished=YES;finished=YES;}
+  [_coverLock unlock];
+  if (!finished) {[[NSFileManager defaultManager] removeItemAtPath:stage.path error:nil];reject(@"cancelled", @"cancelled", nil);return;}
+  resolve(@{@"handle":handle, @"uri":[NSURL fileURLWithPath:stage.path].absoluteString, @"size":@(stage.size)});
 }
 RCT_EXPORT_METHOD(deleteCoverImage:(NSString *)handle resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
   if (![handle isKindOfClass:NSString.class]) {resolve(nil);return;}
-  [_coverLock lock];NSString *path = _coverFiles[handle];[_coverLock unlock];
+  [_coverLock lock];NSString *path = _coverFiles[handle].path;[_coverLock unlock];
   if (!path) {resolve(nil);return;}
   NSString *directory = PorticoCoverDirectory(nil);
   if (!directory || ![[path stringByDeletingLastPathComponent] isEqualToString:directory]) {

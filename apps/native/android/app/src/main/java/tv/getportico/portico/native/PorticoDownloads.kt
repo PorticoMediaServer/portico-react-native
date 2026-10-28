@@ -19,13 +19,21 @@ import java.util.UUID
 class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(context) {
   private val publications = PorticoPublicationReads()
   private val publicationState = PorticoDownloadCenter.PublicationStateRegistry()
-  /** Cover-page temp files this very module created; opaque handle -> private cache file. */
-  private val coverImages = mutableMapOf<String, File>()
+  /** A cover-page temp file this very module created, filled in bounded chunks and then finished. */
+  private class CoverStage(val file: File, val mime: String, val generation: Long) {
+    var size = 0L
+    var finished = false
+    var busy = false
+  }
+  /** Opaque handle -> its private cache file. */
+  private val coverImages = mutableMapOf<String, CoverStage>()
   private val coverLock = Any()
   private var coverRetired = false
   private var coverGeneration = 0L
   private val coverBase64 = Regex("^[A-Za-z0-9+/]*={0,2}$")
-  private val maxCoverEncoded = ((10 * 1024 * 1024 + 2) / 3) * 4
+  private val maxCoverBytes = 10L * 1024 * 1024
+  /** One chunk's bound (64 KiB of bytes); the app sends 24 KiB. */
+  private val maxCoverChunkEncoded = ((64 * 1024 + 2) / 3) * 4
   @Volatile private var invalidated = false
   private val changed: (Map<String, Any?>) -> Unit = { entry ->
     if (!invalidated) emit("PorticoDownloadChanged", Arguments.makeNativeMap(entry))
@@ -51,7 +59,7 @@ class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(co
     publications.invalidate()
     val retired = synchronized(coverLock) {
       coverRetired = true; coverGeneration++
-      val files = coverImages.values.toList(); coverImages.clear(); files
+      val files = coverImages.values.map { it.file }; coverImages.clear(); files
     }
     retired.forEach { it.delete() }
     // Transfers belong to the process and go on; only the listener goes.
@@ -237,52 +245,94 @@ class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(co
   }
   private fun coverExtension(mime: String) = when (mime) { "image/jpeg" -> ".jpg"; "image/png" -> ".png"; else -> ".webp" }
 
-  /** One bounded image-only private temp file. Caller sends only bytes; the
-   * filename, directory and handle are generated here. A write that loses its
-   * module generation never registers and deletes its own partial file. */
+  /**
+   * One bounded image-only private temp file, staged in chunks so the app never holds the whole
+   * image as one string (IM01). The caller sends only bytes; the filename, directory and handle are
+   * generated here. A stage that loses its module generation never finishes and is deleted.
+   */
   @ReactMethod
-  fun writeCoverImage(mime: String?, base64: String?, promise: Promise) {
-    val type = mime ?: run { promise.reject("invalid_image", "invalid_image"); return }
-    if (type != "image/jpeg" && type != "image/png" && type != "image/webp") { promise.reject("unsupported_image", "unsupported_image"); return }
-    val encoded = base64 ?: run { promise.reject("invalid_image", "invalid_image"); return }
-    // Bound the bridge string before any decode allocation; strict canonical
-    // base64, so no whitespace, ignored character or malformed tail is accepted.
-    if (encoded.length == 0 || encoded.length > maxCoverEncoded || encoded.length % 4 != 0 || !coverBase64.matches(encoded)) {
-      promise.reject("invalid_image", "invalid_image"); return
-    }
-    val data = try { Base64.decode(encoded, Base64.NO_WRAP) } catch (_: IllegalArgumentException) { promise.reject("invalid_image", "invalid_image"); return }
-    // Canonical equality also rejects non-zero unused tail bits in the last sextet.
-    if (Base64.encodeToString(data, Base64.NO_WRAP) != encoded) { promise.reject("invalid_image", "invalid_image"); return }
-    if (data.isEmpty() || data.size > 10 * 1024 * 1024) { promise.reject("invalid_image", "invalid_image"); return }
-    if (coverMime(data) != type) { promise.reject("unsupported_image", "unsupported_image"); return }
-    val generation = synchronized(coverLock) { if (coverRetired) -1L else coverGeneration }
-    if (generation < 0) { promise.reject("cancelled", "cancelled"); return }
+  fun beginCoverImage(mime: String?, promise: Promise) {
+    val type = mime?.takeIf { it == "image/jpeg" || it == "image/png" || it == "image/webp" }
+        ?: run { promise.reject("unsupported_image", "unsupported_image"); return }
     var file: File? = null
     try {
       val target = File(coverDirectory(), UUID.randomUUID().toString() + coverExtension(type))
       file = target
-      FileOutputStream(target).use { out -> out.write(data); out.flush(); out.fd.sync() }
-      if (!target.isFile || target.length() != data.size.toLong()) throw java.io.IOException("cover_write")
+      if (!target.createNewFile()) throw java.io.IOException("cover_write")
       val handle = UUID.randomUUID().toString()
       val registered = synchronized(coverLock) {
-        if (coverRetired || coverGeneration != generation) false else { coverImages[handle] = target; true }
+        if (coverRetired) false else { coverImages[handle] = CoverStage(target, type, coverGeneration); true }
       }
       if (!registered) { target.delete(); promise.reject("cancelled", "cancelled"); return }
-      val result = Arguments.createMap()
-      result.putString("handle", handle)
-      result.putString("uri", Uri.fromFile(target).toString())
-      result.putDouble("size", target.length().toDouble())
-      promise.resolve(result)
+      promise.resolve(Arguments.createMap().apply { putString("handle", handle) })
     } catch (_: Exception) {
       file?.delete()
       promise.reject("write_failed", "write_failed")
+    }
+  }
+
+  /** The stage, held for one call; null when unknown, finished, busy or from a retired generation. */
+  private fun claimCover(handle: String?): CoverStage? = synchronized(coverLock) {
+    handle?.let { coverImages[it] }?.takeIf { !it.finished && !it.busy && !coverRetired && it.generation == coverGeneration }?.also { it.busy = true }
+  }
+
+  /** Appends one chunk; answers the bytes staged so far. */
+  @ReactMethod
+  fun appendCoverImage(handle: String?, base64: String?, promise: Promise) {
+    val encoded = base64 ?: run { promise.reject("invalid_image", "invalid_image"); return }
+    // Bound the bridge string before any decode allocation; strict canonical base64, so no
+    // whitespace, ignored character or malformed tail is accepted.
+    if (encoded.isEmpty() || encoded.length > maxCoverChunkEncoded || encoded.length % 4 != 0 || !coverBase64.matches(encoded)) {
+      promise.reject("invalid_image", "invalid_image"); return
+    }
+    val data = try { Base64.decode(encoded, Base64.NO_WRAP) } catch (_: IllegalArgumentException) { promise.reject("invalid_image", "invalid_image"); return }
+    // Canonical equality also rejects non-zero unused tail bits in the last sextet.
+    if (data.isEmpty() || Base64.encodeToString(data, Base64.NO_WRAP) != encoded) { promise.reject("invalid_image", "invalid_image"); return }
+    val stage = claimCover(handle) ?: run { promise.reject("invalid_handle", "invalid_handle"); return }
+    try {
+      if (stage.size + data.size > maxCoverBytes) { promise.reject("invalid_image", "invalid_image"); return }
+      FileOutputStream(stage.file, true).use { it.write(data) }
+      stage.size += data.size
+      promise.resolve(stage.size.toDouble())
+    } catch (_: Exception) {
+      promise.reject("write_failed", "write_failed")
+    } finally {
+      synchronized(coverLock) { stage.busy = false }
+    }
+  }
+
+  /** The staged file is exactly [size] bytes of the declared image type: it becomes the lease. */
+  @ReactMethod
+  fun finishCoverImage(handle: String?, size: Double, promise: Promise) {
+    val stage = claimCover(handle) ?: run { promise.reject("invalid_handle", "invalid_handle"); return }
+    try {
+      if (size < 1 || size != Math.floor(size) || size.toLong() != stage.size || stage.file.length() != stage.size) {
+        promise.reject("invalid_image", "invalid_image"); return
+      }
+      val head = ByteArray(12)
+      val read = java.io.FileInputStream(stage.file).use { input -> var total = 0; while (total < head.size) { val n = input.read(head, total, head.size - total); if (n < 0) break; total += n }; total }
+      if (coverMime(head.copyOf(read)) != stage.mime) { promise.reject("unsupported_image", "unsupported_image"); return }
+      FileOutputStream(stage.file, true).use { it.fd.sync() }
+      val finished = synchronized(coverLock) {
+        if (coverRetired || stage.generation != coverGeneration) false else { stage.finished = true; true }
+      }
+      if (!finished) { stage.file.delete(); promise.reject("cancelled", "cancelled"); return }
+      val result = Arguments.createMap()
+      result.putString("handle", handle)
+      result.putString("uri", Uri.fromFile(stage.file).toString())
+      result.putDouble("size", stage.size.toDouble())
+      promise.resolve(result)
+    } catch (_: Exception) {
+      promise.reject("write_failed", "write_failed")
+    } finally {
+      synchronized(coverLock) { stage.busy = false }
     }
   }
   /** Idempotent. A handle is removed only after its private file is gone; a
    * failed delete keeps the exact bookkeeping so teardown can retry. */
   @ReactMethod
   fun deleteCoverImage(handle: String?, promise: Promise) {
-    val file = handle?.let { synchronized(coverLock) { coverImages[it] } }
+    val file = handle?.let { synchronized(coverLock) { coverImages[it]?.file } }
     if (file == null) { promise.resolve(null); return }
     val directory = reactApplicationContext.cacheDir.resolve("portico-cover-uploads").canonicalFile
     if (file.canonicalFile.parentFile != directory) {

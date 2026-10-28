@@ -143,6 +143,11 @@ export class NativePlaybackRuntime {
   private externalPresentationBinding?: NativeBinding | null;
   private externalController?: AbortController;
   private externalEpoch = 0;
+  /** SUP-007: AirPlay video carries the picture only, so captions this app draws are burned in
+   * while it lasts, once per session (the next queue item is prepared again). */
+  private airPlayActive = false;
+  private airPlayController?: AbortController;
+  private airPlaySession?: string;
   private pictureRequests = 0;
   private pictureBinding?: NativeBinding;
   /** The one request the retained view is serving, from issue to its own terminal;
@@ -1154,6 +1159,7 @@ export class NativePlaybackRuntime {
     this.cancelSnapshot();
     this.clearForcedImage();
     this.externalPresentationBinding = undefined; this.pictureBinding = undefined; this.pictureAttempt = undefined; this.pictureLeave = undefined; this.pictureState = 'idle';
+    this.airPlayController?.abort(); this.airPlayController = undefined;
     this.sourceKey = key; const epoch = ++this.sourceEpoch;
     const playback = this.playback.getSnapshot();
     this.recovery.retain(playback.session && (playback.phase === 'starting' || playback.phase === 'ready') ? `${playback.intentId}/${playback.playbackRun}` : undefined);
@@ -1479,6 +1485,8 @@ export class NativePlaybackRuntime {
     }
     if (typeof fact.effectiveRate === 'number') this.effectiveRate = fact.effectiveRate;
     if (Array.isArray(fact.supportedRates)) this.supportedRates = Object.freeze(fact.supportedRates.filter((rate: unknown): rate is number => typeof rate === 'number' && Number.isFinite(rate) && rate >= .5 && rate <= 3));
+    if (fact.type === 'externalPlayback') this.followAirPlay(fact.active === true);
+    else if (fact.type === 'progress' && this.airPlayActive) this.followAirPlay();
     if (fact.type === 'systemPaused') this.playback.pause();
     else if (fact.type === 'ready') this.playback.ready(before.intentId);
     else if (fact.type === 'stalled') this.playback.recovering(before.intentId, true);
@@ -1765,6 +1773,22 @@ export class NativePlaybackRuntime {
       if (this.externalController === controller) this.externalController = undefined;
     }
   };
+
+  /** The AirPlay route changed (`active`), or playback moved on while it lasts. */
+  private followAirPlay(active?: boolean): void {
+    if (active !== undefined && active !== this.airPlayActive) {
+      this.airPlayActive = active; this.airPlaySession = undefined;
+      this.airPlayController?.abort(); this.airPlayController = undefined;
+    }
+    const fence = this.snapshot.fence, sessionId = this.currentSession()?.id;
+    if (!this.airPlayActive || this.airPlayController || fence?.kind !== 'queue' || !sessionId || sessionId === this.airPlaySession) return;
+    const controller = this.airPlayController = new AbortController();
+    void this.prepareExternalPresentation(fence, {signal: controller.signal, isCurrent: () => this.airPlayController === controller})
+      .then(binding => {if (this.airPlayController === controller && binding) this.airPlaySession = sessionId;},
+        // The captions stay drawn on this device; the next progress tick tries again.
+        error => {if (__DEV__) console.warn('[airplay-captions]', error);})
+      .finally(() => {if (this.airPlayController === controller) this.airPlayController = undefined;});
+  }
 
   private waitForExternalPresentation(signal: AbortSignal, current: () => boolean, accepts: (binding: NativeBinding) => boolean): Promise<NativeBinding | undefined> {
     return new Promise(resolve => {

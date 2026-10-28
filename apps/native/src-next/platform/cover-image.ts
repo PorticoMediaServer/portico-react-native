@@ -13,17 +13,19 @@ export type CoverImageTemp = Readonly<{
 }>;
 
 type CoverBridge = {
-  writeCoverImage?: (mime: string, base64: string) => Promise<unknown>;
+  beginCoverImage?: (mime: string) => Promise<unknown>;
+  appendCoverImage?: (handle: string, base64: string) => Promise<unknown>;
+  finishCoverImage?: (handle: string, size: number) => Promise<unknown>;
   deleteCoverImage?: (handle: string) => Promise<unknown>;
 };
 const bridge = (): CoverBridge | undefined => Platform.isTV ? undefined : NativeModules.PorticoDownloads as CoverBridge | undefined;
 const MAX_BYTES = 10 * 1024 * 1024;
-const MAX_BASE64 = Math.ceil(MAX_BYTES / 3) * 4;
 const failure = (code: string) => Object.assign(new Error(code), {code});
 
 export const coverImageSupported = (): boolean => {
   const native = bridge();
-  return !!native && typeof native.writeCoverImage === 'function' && typeof native.deleteCoverImage === 'function';
+  return !!native && typeof native.beginCoverImage === 'function' && typeof native.appendCoverImage === 'function'
+    && typeof native.finishCoverImage === 'function' && typeof native.deleteCoverImage === 'function';
 };
 
 /** The actual raster signature, never a caller-declared MIME. */
@@ -36,24 +38,12 @@ export function coverImageMime(bytes: Uint8Array): CoverImageMime | undefined {
 }
 
 // Full chunks end on a three-byte boundary, so only the last one needs padding.
-const ENCODE_CHUNK_BYTES = 24 * 1024;
-async function base64(bytes: Uint8Array, lifetime: CoverImageLifetime): Promise<string | undefined> {
-  // The current native bridge requires one base64 string. Bound temporary strings
-  // and yield between chunks while the native byte-staging port is unavailable.
-  const chunks: string[] = [];
-  for (let offset = 0; offset < bytes.length; offset += ENCODE_CHUNK_BYTES) {
-    if (lifetime.signal.aborted || !lifetime.isCurrent()) return undefined;
-    const end = Math.min(offset + ENCODE_CHUNK_BYTES, bytes.length);
-    let binary = '';
-    // Keep the call argument count small on Hermes and avoid a string append per byte.
-    for (let at = offset; at < end; at += 1024) binary += String.fromCharCode(...bytes.subarray(at, Math.min(at + 1024, end)));
-    chunks.push(globalThis.btoa(binary));
-    if (end < bytes.length) {
-      await new Promise<void>(resolve => setTimeout(resolve, 0));
-      if (lifetime.signal.aborted || !lifetime.isCurrent()) return undefined;
-    }
-  }
-  return chunks.join('');
+const CHUNK_BYTES = 24 * 1024;
+function base64(bytes: Uint8Array): string {
+  let binary = '';
+  // Keep the call argument count small on Hermes and avoid a string append per byte.
+  for (let at = 0; at < bytes.length; at += 1024) binary += String.fromCharCode(...bytes.subarray(at, Math.min(at + 1024, bytes.length)));
+  return globalThis.btoa(binary);
 }
 
 /** Stage one admitted page image as a bounded private temp file. The caller
@@ -61,25 +51,39 @@ async function base64(bytes: Uint8Array, lifetime: CoverImageLifetime): Promise<
  * after this call, and again before handing `uri` to the upload. */
 export async function stageCoverImage(bytes: Uint8Array, mime: CoverImageMime, lifetime: CoverImageLifetime): Promise<CoverImageTemp | undefined> {
   const native = bridge();
-  if (!native?.writeCoverImage || !native.deleteCoverImage) throw failure('cover_image_unavailable');
-  if (lifetime.signal.aborted || !lifetime.isCurrent()) return undefined;
+  if (!native?.beginCoverImage || !native.appendCoverImage || !native.finishCoverImage || !native.deleteCoverImage) throw failure('cover_image_unavailable');
+  const current = () => !lifetime.signal.aborted && lifetime.isCurrent();
+  if (!current()) return undefined;
   if (coverImageMime(bytes) !== mime) throw failure('unsupported_image');
   if (bytes.length === 0 || bytes.length > MAX_BYTES) throw failure('invalid_image');
   // The caller's Uint8Array is mutable. Keep the exact admitted page bytes across
   // event-loop yields, including if the caller later replaces or detaches its buffer.
-  const size = bytes.length;
-  const encoded = await base64(bytes.slice(), lifetime);
-  if (encoded === undefined || lifetime.signal.aborted || !lifetime.isCurrent()) return undefined;
-  if (encoded.length === 0 || encoded.length > MAX_BASE64) throw failure('invalid_image');
-  const result = await native.writeCoverImage(mime, encoded);
-  const value = result as {handle?: unknown; uri?: unknown; size?: unknown};
-  const handle = typeof value?.handle === 'string' ? value.handle : undefined;
-  if (!handle || typeof value.uri !== 'string' || !/^file:\/\//.test(value.uri)
-    || typeof value.size !== 'number' || value.size !== size) {
-    // A recognizable handle is still ours even when the rest is malformed.
-    if (handle) {try {await native.deleteCoverImage!(handle);} catch { /* teardown retries */ }}
+  const admitted = bytes.slice(), size = admitted.length;
+  // Native staging takes bounded chunks (IM01): the whole image never exists here as one string.
+  const begun = await native.beginCoverImage(mime) as {handle?: unknown} | undefined;
+  const handle = typeof begun?.handle === 'string' ? begun.handle : undefined;
+  if (!handle) throw failure('invalid_image');
+  const discard = async () => {try {await native.deleteCoverImage!(handle);} catch { /* the module keeps bookkeeping for teardown */ }};
+  let value: {handle?: unknown; uri?: unknown; size?: unknown} | undefined;
+  try {
+    for (let offset = 0; offset < size; offset += CHUNK_BYTES) {
+      if (!current()) {await discard(); return undefined;}
+      const end = Math.min(offset + CHUNK_BYTES, size);
+      if (await native.appendCoverImage(handle, base64(admitted.subarray(offset, end))) !== end) throw failure('invalid_image');
+      // Queued UI work runs between chunks.
+      if (end < size) await new Promise<void>(resolve => setTimeout(resolve, 0));
+    }
+    if (!current()) {await discard(); return undefined;}
+    value = await native.finishCoverImage(handle, size) as typeof value;
+  } catch (error) {
+    await discard();
+    throw error;
+  }
+  if (value?.handle !== handle || typeof value.uri !== 'string' || !/^file:\/\//.test(value.uri) || value.size !== size) {
+    await discard();
     throw failure('invalid_image');
   }
+  const uri = value.uri;
   let disposed = false, onAbort: (() => void) | undefined;
   const dispose = async () => {
     if (disposed) return;
@@ -90,5 +94,5 @@ export async function stageCoverImage(bytes: Uint8Array, mime: CoverImageMime, l
   onAbort = () => {void dispose();};
   lifetime.signal.addEventListener('abort', onAbort, {once: true});
   if (lifetime.signal.aborted || !lifetime.isCurrent()) {await dispose(); return undefined;}
-  return Object.freeze({handle, uri: value.uri, size: value.size, dispose});
+  return Object.freeze({handle, uri, size, dispose});
 }

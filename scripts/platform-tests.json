@@ -39,6 +39,13 @@
       "requirements": "Isolated iOS simulator/device; real renderer/processing implementation and authored audio fixtures."
     },
     {
+      "source": "apps/native/test/apple-download-manifest-tests.m",
+      "execution": "macos-foundation",
+      "frameworks": [
+        "Foundation"
+      ]
+    },
+    {
       "source": "apps/native/test/apple-download-storage-tests.m",
       "execution": "macos-foundation",
       "frameworks": [
@@ -56,6 +63,14 @@
       "execution": "macos-foundation",
       "frameworks": [
         "Foundation"
+      ]
+    },
+    {
+      "source": "apps/native/test/apple-playback-failures-tests.m",
+      "execution": "macos-foundation",
+      "frameworks": [
+        "Foundation",
+        "AVFoundation"
       ]
     },
     {
@@ -122,6 +137,12 @@
       "execution": "owned-apple",
       "owner": "Native Apple qualification",
       "requirements": "Disposable isolated iOS simulator app and UIKit scene; real subtitle picker/file implementation."
+    },
+    {
+      "source": "apps/native/test/apple-subtitle-timeline-tests.m",
+      "execution": "owned-apple",
+      "owner": "Native Apple qualification",
+      "requirements": "iOS simulator; real PorticoSubtitleSelection.m with this file (PorticoServerTrust is stubbed in the test); no network."
     },
     {
       "source": "apps/native/test/apple-topshelf-feed-tests.swift",

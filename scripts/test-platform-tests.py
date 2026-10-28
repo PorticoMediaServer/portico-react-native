@@ -95,5 +95,46 @@ class PlatformInventoryTests(unittest.TestCase):
         self.assertIn("'--scratch', '" + str(output / 'second-scratch') + "'", second)
 
 
+
+class OwnedAppleRunnerTests(unittest.TestCase):
+    """C03: the owned runner's verdicts and receipts, without a Mac."""
+
+    def setUp(self):
+        self.runner = module('run_owned_apple', 'run-owned-apple.py')
+        self.platform = module('platform_tests_for_runner', 'platform-tests.py')
+
+    def test_a_suite_passes_only_on_exit_zero_and_a_clean_json_summary(self):
+        outcome = self.runner.outcome
+        self.assertEqual(outcome('noise\n{"assertions":12,"failures":0}\n', 0), (True, 12))
+        self.assertEqual(outcome('{"assertions":12,"failures":1}', 0), (False, 12))
+        self.assertEqual(outcome('{"assertions":0,"failures":0}', 0), (False, 0))
+        self.assertEqual(outcome('{"assertions":12,"failures":0}', 1), (False, 0))
+        self.assertEqual(outcome('{"fooPass":true,"barPass":true,"rate":44100}', 0), (True, 2))
+        self.assertEqual(outcome('{"fooPass":true,"barPass":false}', 0), (False, 2))
+        self.assertEqual(outcome('{"rate":44100}', 0), (False, 0))
+        self.assertEqual(outcome('no summary', 0), (False, 0))
+        self.assertEqual(outcome('{"assertions":true}', 0), (False, 0))
+
+    def test_every_owned_suite_has_a_recipe_or_a_stated_reason(self):
+        recipes = json.loads(self.runner.RECIPES.read_text())
+        self.assertEqual(set(recipes), set(self.runner.owned_sources()))
+        for source, recipe in recipes.items():
+            self.assertTrue(recipe.get('runnable') or recipe.get('reason'), source)
+            command, reason = self.runner.plan(source, recipe, Path('/tmp/work'), None)
+            self.assertTrue(command is not None or reason, source)
+
+    def test_receipts_list_only_passed_suites_and_the_validator_refuses_an_incomplete_set(self):
+        sources = self.runner.owned_sources()
+        results = {source: {'status': 'passed', 'assertions': 3} for source in sources}
+        revision = 'a' * 40
+        document = self.runner.receipt(revision, results, 'macOS 26; iOS simulator', 'disposable', 'owned-apple.log')
+        entries = self.platform.inventory()
+        self.platform.owned_receipts(entries, document, revision)
+        results[sources[0]] = {'status': 'not-run', 'reason': 'no recipe', 'assertions': 0}
+        partial = self.runner.receipt(revision, results, 'macOS 26; iOS simulator', 'disposable', 'owned-apple.log')
+        self.assertNotIn(sources[0], [row['source'] for row in partial['tests']])
+        with self.assertRaisesRegex(ValueError, 'Missing owned Apple receipts'):
+            self.platform.owned_receipts(entries, partial, revision)
+
 if __name__ == '__main__':
     unittest.main()

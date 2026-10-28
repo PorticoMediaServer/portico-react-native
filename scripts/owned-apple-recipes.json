@@ -1,0 +1,163 @@
+{
+  "apps/native/test/apple-audio-capture-tests.m": {
+    "runnable": true,
+    "sdk": "iphonesimulator",
+    "sources": [
+      "apps/native/Native/PorticoAudioCapture.m"
+    ],
+    "frameworks": [
+      "Foundation",
+      "AVFoundation"
+    ],
+    "runs": [
+      {
+        "args": [
+          "44100",
+          "2"
+        ],
+        "env": {
+          "PORTICO_AUDIO_OUTPUT_CAPTURE": "{tmp}/capture-44100.caf"
+        }
+      },
+      {
+        "args": [
+          "96000",
+          "8"
+        ],
+        "env": {
+          "PORTICO_AUDIO_OUTPUT_CAPTURE": "{tmp}/capture-96000.caf"
+        }
+      }
+    ]
+  },
+  "apps/native/test/apple-audio-decode-tests.m": {
+    "runnable": true,
+    "sdk": "iphonesimulator",
+    "fixtures": "an authored decode fixture directory at <fixtures>/audio-decode",
+    "sources": [
+      "apps/native/Native/PorticoAudioRender.m",
+      "apps/native/Native/PorticoAudioProcessing.m"
+    ],
+    "frameworks": [
+      "Foundation",
+      "AVFoundation",
+      "UIKit",
+      "AudioToolbox"
+    ],
+    "runs": [
+      {
+        "args": [
+          "{fixtures}/audio-decode"
+        ]
+      }
+    ]
+  },
+  "apps/native/test/apple-audio-output-tests.m": {
+    "runnable": true,
+    "sdk": "iphonesimulator",
+    "sources": [],
+    "frameworks": [
+      "Foundation",
+      "AVFoundation"
+    ]
+  },
+  "apps/native/test/apple-audio-processing-tests.m": {
+    "runnable": true,
+    "sdk": "iphonesimulator",
+    "sources": [
+      "apps/native/Native/PorticoAudioProcessing.m"
+    ],
+    "frameworks": [
+      "Foundation",
+      "AVFoundation",
+      "UIKit"
+    ]
+  },
+  "apps/native/test/apple-audio-render-tests.m": {
+    "runnable": true,
+    "sdk": "iphonesimulator",
+    "fixtures": "an authored audio file at <fixtures>/audio-render/source.flac",
+    "sources": [
+      "apps/native/Native/PorticoAudioRender.m",
+      "apps/native/Native/PorticoAudioProcessing.m"
+    ],
+    "frameworks": [
+      "Foundation",
+      "AVFoundation",
+      "UIKit",
+      "AudioToolbox"
+    ],
+    "runs": [
+      {
+        "args": [
+          "{fixtures}/audio-render/source.flac"
+        ],
+        "env": {
+          "PORTICO_APPLE_ISOLATED_SIMULATOR_TESTS": "1"
+        }
+      }
+    ]
+  },
+  "apps/native/test/apple-haptics-tests.m": {
+    "runnable": false,
+    "reason": "imports React (RCTBridgeModule): needs the Pods build products; recipe to be completed on the Mac"
+  },
+  "apps/native/test/apple-reader-assets-tests.m": {
+    "runnable": true,
+    "sdk": "iphonesimulator",
+    "sources": [
+      "apps/native/Native/PorticoReaderAssetOrigin.m"
+    ],
+    "frameworks": [
+      "Foundation",
+      "WebKit",
+      "UIKit"
+    ]
+  },
+  "apps/native/test/apple-server-trust-tests.m": {
+    "runnable": false,
+    "reason": "links React (RCTHTTPRequestHandler) and needs loopback TLS fixtures and a second-process readback phase; recipe to be completed on the Mac"
+  },
+  "apps/native/test/apple-subtitle-picker-tests.m": {
+    "runnable": false,
+    "reason": "a UIApplicationMain test app (UIKit scene): needs an .app bundle installed and launched with simctl; recipe to be completed on the Mac"
+  },
+  "apps/native/test/apple-subtitle-timeline-tests.m": {
+    "runnable": true,
+    "sdk": "iphonesimulator",
+    "sources": [
+      "apps/native/Native/PorticoSubtitleSelection.m"
+    ],
+    "frameworks": [
+      "Foundation",
+      "UIKit",
+      "AVFoundation",
+      "CoreMedia",
+      "MediaAccessibility",
+      "CoreText"
+    ]
+  },
+  "apps/native/test/apple-topshelf-feed-tests.swift": {
+    "runnable": false,
+    "reason": "needs the tvOS Top Shelf provider sources and a tvOS simulator; recipe to be completed on the Mac"
+  },
+  "apps/native/test/apple-video-snapshot-tests.m": {
+    "runnable": false,
+    "reason": "links React and the real player view/controller: needs the Pods build products; recipe to be completed on the Mac"
+  },
+  "apps/native/test/apple-webvtt-clock-tests.m": {
+    "runnable": true,
+    "sdk": "iphonesimulator",
+    "sources": [
+      "apps/native/Native/PorticoSubtitleSelection.m"
+    ],
+    "frameworks": [
+      "Foundation",
+      "UIKit",
+      "AVFoundation",
+      "CoreMedia",
+      "MediaAccessibility",
+      "CoreText"
+    ]
+  }
+}

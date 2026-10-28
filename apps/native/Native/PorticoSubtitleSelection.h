@@ -15,4 +15,12 @@
 /** True while a chosen track is drawn by the app rather than by AVPlayer (so it can't appear in
  * Picture in Picture or on an AirPlay receiver). */
 @property(nonatomic,readonly) BOOL overlayActive;
+/** Test seams (N06; apps/native/test/apple-subtitle-timeline-tests.m). `clock` is the time the
+ * 40-second grant and the 25-second recheck run on (default: system uptime); `configureSession`
+ * adjusts the request session's configuration before it is made; with `manualTimer` set no timer
+ * runs and the test calls `timerTick` (the once-a-second check) itself. */
+@property(nonatomic,copy) NSTimeInterval (^clock)(void);
+@property(nonatomic,copy) void (^configureSession)(NSURLSessionConfiguration *configuration);
+@property(nonatomic) BOOL manualTimer;
+- (void)timerTick;
 @end

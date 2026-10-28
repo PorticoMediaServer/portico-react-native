@@ -173,6 +173,7 @@ only `error` facts are sent. JavaScript drops any fact whose `instanceId`, bindi
 | `seekApplied`, `seekFailed` | A `pendingSeek` finished. | `seekRevision` |
 | `error` | The media cannot continue. `paused` is true. The Android native engine also sends it, with `engineCode: 'source_not_supported'`, when a seek lands at the start of a streamed file that has no index to seek by: the server then delivers the title another way at the position asked for. | `networkError`, `deliveryError` (booleans), `httpStatus` (0 or 400-599), `hasPlayed` (a frame was shown or time advanced), `uncertain` (the cause is not the media: an interruption, an output that would not start), `engineCode` (`''`, `decode_error` or `source_not_supported`; empty when it is a network or delivery error), `errorDetail` (a short technical string) |
 | `subtitleStatus` | The subtitle command was taken up or could not be. `error` is empty on success. | |
+| `externalPlayback` (Apple) | AirPlay video started or ended. JavaScript burns in the captions it draws while it is active (SUP-007). | `active` (boolean) |
 | `systemPaused` | The system paused a video the app wanted playing (the app left the screen). JavaScript sets its intent to paused. | `reason` (mpv: `'background'`) |
 | `audioMapped`, `audioObserved`, `audioApplied`, `audioFailed`, `audioUnavailable` | Section 6. | |
 | `audioTrackApplied`, `audioTrackFailed` (mpv) | An `audioTrack` choice finished. | `audioTrackRevision`, `streamIndex` |

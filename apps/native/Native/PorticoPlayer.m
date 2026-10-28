@@ -1,4 +1,6 @@
 #import "PorticoInstallationStorage.h"
+#import "PorticoBootCover.h"
+#import <sys/sysctl.h>
 #import <React/RCTViewManager.h>
 #import <React/RCTBridge.h>
 #import <React/RCTBridgeModule.h>
@@ -125,6 +127,33 @@ static NSData *PorticoAvatarUploadBody(NSString *body) {
  NSData *data=[[NSData alloc]initWithBase64EncodedString:envelope[@"nativeAvatarBase64"] options:0];
  return data.length>0&&data.length<=4194304?data:nil;
 }
+static UIView *PorticoBootCoverView;
+static BOOL PorticoBootHandedOver;
+static double PorticoBootCoverInstalledAt;
+
+void PorticoBootCoverInstall(UIWindow *window){
+ PorticoBootCoverInstalledAt=NSDate.date.timeIntervalSince1970*1000;
+ if(PorticoBootHandedOver||PorticoBootCoverView)return;
+ UIView *cover=[[UIStoryboard storyboardWithName:@"LaunchScreen" bundle:nil] instantiateInitialViewController].view;
+ if(!cover)return;
+ cover.frame=window.bounds;
+ cover.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+ // Never a touch target or a focus stop; VoiceOver reads it as the app's name.
+ cover.userInteractionEnabled=NO;
+ cover.isAccessibilityElement=YES;
+ cover.accessibilityLabel=@"Portico";
+ [window addSubview:cover];
+ PorticoBootCoverView=cover;
+}
+
+/** Boot's t = 0: the process start, or the window's creation when iOS prewarmed the process. */
+static double PorticoLaunchStartedAt(void){
+ if([NSProcessInfo.processInfo.environment[@"ActivePrewarm"] isEqualToString:@"1"]&&PorticoBootCoverInstalledAt>0)return PorticoBootCoverInstalledAt;
+ struct kinfo_proc info;size_t size=sizeof(info);int mib[4]={CTL_KERN,KERN_PROC,KERN_PROC_PID,getpid()};
+ if(sysctl(mib,4,&info,&size,NULL,0)==0&&size>0){struct timeval start=info.kp_proc.p_starttime;return start.tv_sec*1000.0+start.tv_usec/1000.0;}
+ return PorticoBootCoverInstalledAt>0?PorticoBootCoverInstalledAt:NSDate.date.timeIntervalSince1970*1000;
+}
+
 @interface PorticoRuntime : NSObject<RCTBridgeModule,RCTInvalidating> @end
 @implementation PorticoRuntime
 RCT_EXPORT_MODULE()
@@ -136,6 +165,10 @@ RCT_EXPORT_MODULE()
  for(NSString *identifier in identifiers){PorticoEventStream *stream;@synchronized(PorticoEventStream.class){stream=PorticoEventStreams[identifier];if(stream.owner!=self&&stream.owner!=nil)continue;[PorticoEventStreams removeObjectForKey:identifier];}[stream cancel];}
 }
 + (BOOL)requiresMainQueueSetup{return NO;}
+/** React has drawn its first frame: the launch cover goes, without animation. */
+RCT_EXPORT_METHOD(bootDrawn){
+ dispatch_async(dispatch_get_main_queue(), ^{PorticoBootHandedOver=YES;[PorticoBootCoverView removeFromSuperview];PorticoBootCoverView=nil;});
+}
 RCT_REMAP_METHOD(prepareSecureRecords,prepareSecureRecordsWithResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
  dispatch_async(PorticoStorageQueue(), ^{
  if(PorticoPrepareInstallationStorage()!=errSecSuccess){reject(@"secure_storage",@"This installation’s saved records could not be prepared.",nil);return;}
@@ -147,6 +180,7 @@ RCT_REMAP_METHOD(prepareSecureRecords,prepareSecureRecordsWithResolver:(RCTPromi
 }
 - (NSDictionary *)constantsToExport{
  NSMutableDictionary *values=[@{@"launchId":NSUUID.UUID.UUIDString} mutableCopy];
+ values[@"launchStartedAt"]=@(PorticoLaunchStartedAt());
 #if !TARGET_OS_TV
  values[@"pictureInPictureSupported"]=@([AVPictureInPictureController isPictureInPictureSupported]);
 #endif

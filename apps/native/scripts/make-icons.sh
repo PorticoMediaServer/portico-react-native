@@ -44,14 +44,7 @@ gradient 1024 1024 "$IOS/bg.png"
 magick "$IOS/bg.png" "$BRAND/appicon-1024.png" -composite -alpha off "$IOS/AppIcon-1024.png"; rm "$IOS/bg.png"
 json "$IOS" "{\"images\" : [{\"filename\" : \"AppIcon-1024.png\", \"idiom\" : \"universal\", \"platform\" : \"ios\", \"size\" : \"1024x1024\"}], $INFO}"
 
-# --- launch logo, both platforms: the white wordmark, large and centred by the storyboard ---
-for P in ios tvos; do
-  L="$HERE/$P/Portico/Images.xcassets/LaunchLogo.imageset"; rm -rf "$L"; mkdir -p "$L"
-  magick "$BRAND/wordmark-white-4096w.png" -resize 1200x "$L/LaunchLogo@2x.png"
-  magick "$BRAND/wordmark-white-4096w.png" -resize 1800x "$L/LaunchLogo@3x.png"
-  magick "$BRAND/wordmark-white-4096w.png" -resize 600x "$L/LaunchLogo.png"
-  json "$L" "{\"images\" : [{\"filename\" : \"LaunchLogo.png\", \"idiom\" : \"universal\", \"scale\" : \"1x\"}, {\"filename\" : \"LaunchLogo@2x.png\", \"idiom\" : \"universal\", \"scale\" : \"2x\"}, {\"filename\" : \"LaunchLogo@3x.png\", \"idiom\" : \"universal\", \"scale\" : \"3x\"}], $INFO}"
-done
+# The launch assets (BootWordmark, BootBand, BootBackdrop) come from scripts/make-boot-assets.py.
 
 # --- tvOS: a layered icon (navy behind, wordmark in front, so it lifts on focus) ------------
 TV="$HERE/tvos/Portico/Images.xcassets"

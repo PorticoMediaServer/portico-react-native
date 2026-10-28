@@ -1,4 +1,5 @@
 #import "PorticoPlaybackController.h"
+#import "PorticoPlaybackFailures.h"
 #import "PorticoServerTrust.h"
 #import "PorticoAudioSelection.h"
 #import "PorticoAudioRender.h"
@@ -37,31 +38,6 @@ static BOOL PorticoPlaybackInteger(id value,double minimum) {
 static BOOL PorticoAllowedSource(NSURL *url) {
  if([@[@"http",@"https"] containsObject:url.scheme.lowercaseString])return url.host.length>0&&!url.user&&!url.password;
  return PorticoAllowedLocalSource(url);
-}
-static NSInteger PorticoHTTPStatusInComment(NSString *comment) {
- if(![comment isKindOfClass:NSString.class]||comment.length>4096)return 0;
- static NSRegularExpression *pattern;static dispatch_once_t once;
- dispatch_once(&once,^{pattern=[NSRegularExpression regularExpressionWithPattern:@"\\bHTTP\\s+(?:error\\s+|status(?:\\s+code)?\\s*[:=]?\\s*)?([45][0-9]{2})\\b" options:NSRegularExpressionCaseInsensitive error:nil];});
- NSTextCheckingResult *match=[pattern firstMatchInString:comment options:0 range:NSMakeRange(0,comment.length)];
- return match?[comment substringWithRange:[match rangeAtIndex:1]].integerValue:0;
-}
-/** URL failures that waiting will not change. A bad server response is not one of them: with no
- * status to go by it is most often a server that is failing for now. */
-static BOOL PorticoURLErrorIsPermanent(NSInteger code) {
- return [@[@(NSURLErrorCancelled),@(NSURLErrorFileDoesNotExist),@(NSURLErrorFileIsDirectory),@(NSURLErrorNoPermissionsToReadFile),@(NSURLErrorDataNotAllowed),@(NSURLErrorAppTransportSecurityRequiresSecureConnection),@(NSURLErrorUserAuthenticationRequired),@(NSURLErrorUserCancelledAuthentication),@(NSURLErrorCannotDecodeRawData),@(NSURLErrorCannotDecodeContentData)] containsObject:@(code)];
-}
-static NSInteger PorticoErrorHTTPStatus(NSError *top) {
- NSError *error=top;
- for(int i=0;[error isKindOfClass:NSError.class]&&i<4;i++,error=error.userInfo[NSUnderlyingErrorKey]){
-  id response=error.userInfo[@"NSHTTPURLResponse"];
-  if([response isKindOfClass:NSHTTPURLResponse.class]){NSInteger status=[response statusCode];if(status>=400&&status<=599)return status;}
-  NSInteger status=PorticoHTTPStatusInComment(error.userInfo[NSLocalizedDescriptionKey]);
-  if(!status)status=PorticoHTTPStatusInComment(error.userInfo[NSLocalizedFailureReasonErrorKey]);
-  if(status)return status;
-  // HLS can wrap these HTTP failures as CoreMedia errors rather than URL errors.
-  if([error.domain isEqual:@"CoreMediaErrorDomain"]){if(error.code==-12938)return 404;if(error.code==-12660)return 403;}
- }
- return 0;
 }
 
 static void PorticoConfigureItem(AVPlayerItem *item) {
@@ -109,8 +85,11 @@ static void PorticoConfigureItem(AVPlayerItem *item) {
  BOOL _testSeekInjected; BOOL _testForceClamp;
 #endif
 }
+/** KVO context for the AirPlay route (`externalPlaybackActive`, SUP-007). */
+static void *PorticoExternalPlaybackContext=&PorticoExternalPlaybackContext;
 - (instancetype)init {
  if((self=[super init])){_listeningRouteReady=YES;_previousProgress=NAN;_paused=YES;_seekRevision=-1;_acceptedSeekRevision=-1;_instanceId=NSUUID.UUID.UUIDString;_player=[AVPlayer new];
+ [_player addObserver:self forKeyPath:@"externalPlaybackActive" options:0 context:PorticoExternalPlaybackContext];
  __weak PorticoPlaybackController *weakSelf=self;
  _audioRender=[PorticoAudioRender new];_audioRender.onFact=^(NSDictionary *renderFact){
   PorticoPlaybackController *owner=weakSelf;if(!owner||!owner->_audioRender.active||!owner->_source.length)return;
@@ -342,7 +321,8 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  [_audioRender invalidate];
  [_player pause];[_player.currentItem cancelPendingSeeks];[self removeObservation];[_audioSelection invalidate];[_subtitleSelection invalidate];[_subtitleOverlay invalidate];
  if(_timeObserver)[_player removeTimeObserver:_timeObserver];if(_subtitleTimeObserver)[_player removeTimeObserver:_subtitleTimeObserver];
- _player=[AVPlayer new];_source=nil;_binding=nil;_command=nil;_seeking=NO;_seekRevision=-1;_acceptedSeekRevision=-1;_seekRetired=NO;
+ [_player removeObserver:self forKeyPath:@"externalPlaybackActive" context:PorticoExternalPlaybackContext];
+ _player=[AVPlayer new];[_player addObserver:self forKeyPath:@"externalPlaybackActive" options:0 context:PorticoExternalPlaybackContext];_source=nil;_binding=nil;_command=nil;_seeking=NO;_seekRevision=-1;_acceptedSeekRevision=-1;_seekRetired=NO;
  __weak PorticoPlaybackController *weakSelf=self;
  _timeObserver=[_player addPeriodicTimeObserverForInterval:CMTimeMake(1,2) queue:dispatch_get_main_queue() usingBlock:^(CMTime time){[weakSelf applyRouteResume];[weakSelf applyPendingSeek];[weakSelf emit:@"progress" error:nil];}];
  _subtitleTimeObserver=[_player addPeriodicTimeObserverForInterval:CMTimeMake(1,20) queue:dispatch_get_main_queue() usingBlock:^(CMTime time){PorticoPlaybackController *view=weakSelf;if(view)[view->_subtitleSelection tick:time];}];
@@ -561,6 +541,8 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
 }
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
  if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self observeValueForKeyPath:keyPath ofObject:object change:change context:context];});return;}
+ // AirPlay video started or ended: JavaScript burns in the captions this app draws while it lasts.
+ if(context==PorticoExternalPlaybackContext){if(object==_player)[self emit:@"externalPlayback" error:nil];return;}
  if(object!=_player.currentItem)return;
  // The seekable-range observation exists for the live window only. It used to fall through to
  // the status handling, so every window update announced "ready" again and re-applied intent.
@@ -644,48 +626,13 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  * underlying code, so the app can tell the server which route failed and ask for the next one
  * instead of showing the viewer an error. */
 - (void)publishFailure:(NSError *)top {
- NSString *engine=@"";
- if([top.domain isEqual:AVFoundationErrorDomain]){
-  if(top.code==AVErrorDecodeFailed||top.code==AVErrorDecoderNotFound||top.code==AVErrorDecoderTemporarilyUnavailable)engine=@"decode_error";
-  else if(top.code==AVErrorFileFormatNotRecognized||top.code==AVErrorFailedToParse||top.code==AVErrorFormatUnsupported)engine=@"source_not_supported";
- }
- NSInteger httpStatus=PorticoErrorHTTPStatus(top);
  // The item's error log gathers every transport event of its life, most of them survived. Only a
- // fresh entry can be about this failure, and never when the engine has named a decoder or parser
- // fault itself: an old 404 or 503 must not hide that, or send playback looking for another route.
+ // recent entry can be about this failure (PorticoPlaybackFailureFacts).
  AVPlayerItemErrorLogEvent *log=_player.currentItem.errorLog.events.lastObject;
- BOOL fresh=log!=nil&&!engine.length&&log.date!=nil&&fabs(log.date.timeIntervalSinceNow)<=15;
- if(!httpStatus&&fresh)httpStatus=PorticoHTTPStatusInComment(log.errorComment);
- if(!httpStatus&&fresh&&log.errorStatusCode>=400&&log.errorStatusCode<=599)httpStatus=log.errorStatusCode;
- // The outermost error that says anything decides. A deeper code never turns a lost connection
- // into a media failure, and a socket error is the connection unless it is a missing or forbidden
- // file: a connection dropped while the app was in the background is weather, not the media.
- BOOL network=NO,delivery=NO;NSError *error=top;
- for(int i=0;[error isKindOfClass:NSError.class]&&i<4&&!network&&!delivery;i++,error=error.userInfo[NSUnderlyingErrorKey]){
-  if([error.domain isEqual:NSURLErrorDomain]){
-   if(PorticoURLErrorIsPermanent(error.code))delivery=YES;else network=YES;
-  }
-  if([error.domain isEqual:NSPOSIXErrorDomain]){
-   if(error.code==ENOENT||error.code==EACCES||error.code==EPERM||error.code==EISDIR)delivery=YES;else network=YES;
-  }
-  if([error.domain isEqual:NSCocoaErrorDomain]&&(error.code==NSFileReadNoPermissionError||error.code==NSFileReadNoSuchFileError))delivery=YES;
-  if([error.domain isEqual:AVFoundationErrorDomain]&&error.code==AVErrorContentIsUnavailable)delivery=YES;
- }
- // A stream's transport failure can arrive as a media error whose cause is only in the log.
- if(!network&&!delivery&&!httpStatus&&fresh&&[log.errorDomain isEqual:NSURLErrorDomain]){
-  if(PorticoURLErrorIsPermanent(log.errorStatusCode))delivery=YES;else network=YES;
- }
- if(httpStatus){delivery=YES;network=httpStatus>=500||httpStatus==408||httpStatus==429;}
- // Nothing says why it failed, but something says it was not the media: the system interrupted
- // playback (session interrupted -11818, media services reset -11819, operation interrupted
- // -11847, out of memory -11801), or the transport was reporting trouble moments ago. The app
- // must not take that for an incompatibility and tell the server so.
- BOOL interrupted=[top.domain isEqual:AVFoundationErrorDomain]&&(top.code==-11818||top.code==-11819||top.code==-11847||top.code==-11801);
- BOOL uncertain=!network&&!delivery&&!httpStatus&&!engine.length&&(interrupted||fresh);
- NSError *under=top.userInfo[NSUnderlyingErrorKey];
- NSString *detail=[NSString stringWithFormat:@"%@ %ld%@",top.domain?:@"",(long)top.code,under?[NSString stringWithFormat:@" / %@ %ld",under.domain,(long)under.code]:@""];
+ BOOL recent=log!=nil&&log.date!=nil&&fabs(log.date.timeIntervalSinceNow)<=15;
  double position=(_routeResume||_routeFailed)?_routePosition:[self sourcePosition];
- NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":@"error",@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@YES,@"networkError":@(network),@"deliveryError":@(delivery),@"httpStatus":@(httpStatus),@"hasPlayed":@(_hasPlayed),@"uncertain":@(uncertain),@"engineCode":(network||delivery)?@"":engine,@"errorDetail":detail,@"error":network?@"playback_connection_interrupted":@"playback_failed"} mutableCopy];
+ NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":@"error",@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@YES,@"hasPlayed":@(_hasPlayed)} mutableCopy];
+ [fact addEntriesFromDictionary:PorticoPlaybackFailureFacts(top,recent,log.errorDomain,log.errorStatusCode,log.errorComment)];
  [fact addEntriesFromDictionary:[self rateFacts]];[self publish:fact];
 }
 - (void)stalled:(NSNotification *)note{if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self stalled:note];});return;}if(note.object==_player.currentItem)[self emit:@"stalled" error:nil];}
@@ -715,7 +662,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  if(frame)CVPixelBufferRelease(frame);
  return [binding isEqual:self.externalPresentationBinding]?observation:@{};
 }
-- (void)emit:(NSString *)type error:(NSString *)error{if(_audioRender.active)return;if(!self.onFact||!_source.length)return;double position=(_routeResume||_routeFailed)?_routePosition:[self sourcePosition];if([type isEqual:@"progress"]){if(_player.rate>0&&!_seeking&&!_routeResume&&isfinite(position)&&isfinite(_previousProgress)&&position>_previousProgress+0.05)_hasPlayed=YES;_previousProgress=position;}if(_timelineOriginMS&&!isfinite(position)&&([type isEqual:@"progress"]||[type isEqual:@"ended"]))return;NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":type,@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@((BOOL)(_player.timeControlStatus==AVPlayerTimeControlStatusPaused&&!_seeking&&!_routeResume)),@"error":error?:@""} mutableCopy];if([type isEqual:@"progress"]){[self addConnectionFacts:fact position:position];fact[@"observedPlayback"]=[self observedPlayback];}[fact addEntriesFromDictionary:[self rateFacts]];[self publish:fact];}
+- (void)emit:(NSString *)type error:(NSString *)error{if(_audioRender.active)return;if(!self.onFact||!_source.length)return;double position=(_routeResume||_routeFailed)?_routePosition:[self sourcePosition];if([type isEqual:@"progress"]){if(_player.rate>0&&!_seeking&&!_routeResume&&isfinite(position)&&isfinite(_previousProgress)&&position>_previousProgress+0.05)_hasPlayed=YES;_previousProgress=position;}if(_timelineOriginMS&&!isfinite(position)&&([type isEqual:@"progress"]||[type isEqual:@"ended"]))return;NSMutableDictionary *fact=[@{@"instanceId":_instanceId,@"type":type,@"intentId":@(_intentId),@"position":@(isfinite(position)?position:0),@"paused":@((BOOL)(_player.timeControlStatus==AVPlayerTimeControlStatusPaused&&!_seeking&&!_routeResume)),@"error":error?:@""} mutableCopy];if([type isEqual:@"progress"]){[self addConnectionFacts:fact position:position];fact[@"observedPlayback"]=[self observedPlayback];}if([type isEqual:@"externalPlayback"])fact[@"active"]=@(_player.externalPlaybackActive);[fact addEntriesFromDictionary:[self rateFacts]];[self publish:fact];}
 /** What the player measured of the connection and how much it holds ahead of the picture, for
  * Automatic quality: the transfer rate of the stream's own downloads (a stream only; a file read
  * in place reports none), and the buffered media after the position. */
@@ -735,5 +682,5 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  [self endDisplayObservation];[self clearOwnedDisplayCriteria];
 #endif
  [self clearCapturedVideoFrame];if(_videoOutput&&[_observedItem.outputs containsObject:_videoOutput])[_observedItem removeOutput:_videoOutput];_videoOutput=nil;if(_observing){[_observedItem removeObserver:self forKeyPath:@"status"];[_observedItem removeObserver:self forKeyPath:@"seekableTimeRanges"];_observing=NO;_observedItem=nil;}}
-- (void)dealloc{[_audioRender invalidate];[_subtitleSelection invalidate];[_subtitleOverlay invalidate];[_audioSelection invalidate];[self removeObservation];[[NSNotificationCenter defaultCenter] removeObserver:self];if(_subtitleTimeObserver)[_player removeTimeObserver:_subtitleTimeObserver];if(_timeObserver)[_player removeTimeObserver:_timeObserver];[_player pause];}
+- (void)dealloc{[_player removeObserver:self forKeyPath:@"externalPlaybackActive" context:PorticoExternalPlaybackContext];[_audioRender invalidate];[_subtitleSelection invalidate];[_subtitleOverlay invalidate];[_audioSelection invalidate];[self removeObservation];[[NSNotificationCenter defaultCenter] removeObserver:self];if(_subtitleTimeObserver)[_player removeTimeObserver:_subtitleTimeObserver];if(_timeObserver)[_player removeTimeObserver:_timeObserver];[_player pause];}
 @end
