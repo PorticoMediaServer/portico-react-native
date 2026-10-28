@@ -86,6 +86,9 @@ function resumeSetupHosted(opening: SetupHostedOpening | undefined, ports: Setup
 export function AccountEntry({downloads, incomingInvitation, onBack, onComplete, onSetupComplete, onStageChange, initialStage = 'welcome', initialAddress = '', endedSignIn}: {downloads?: AccountDownloadsEntry; incomingInvitation?: NativeInvitationLink; onBack?: () => void; onComplete: () => void; onSetupComplete?: (serverId: string) => void; onStageChange?: (stage: NativeAccountEntryStage) => void; initialStage?: 'welcome' | 'address'; initialAddress?: string; endedSignIn?: NativeSignInHint}) {
   const latestEndedHint = useRef(endedSignIn); latestEndedHint.current = endedSignIn;
   const preparedAuthSource = useRef<NativePorticoSignIn | undefined>(undefined);
+  // The original phone provider opening owns its waiting paint across the OS
+  // handoff, callback read and session adoption. It is paint, never authority.
+  const [providerLoading, setProviderLoading] = useState<NativePorticoSignIn>();
   const theme = useTheme(), [stage, setStage] = useState<NativeAccountEntryStage>(endedSignIn ? 'ended-sign-in' : initialStage), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [address, setAddress] = useState(endedSignIn?.origin ?? initialAddress), [username, setUsername] = useState(endedSignIn?.signIn === 'local' ? endedSignIn.username : ''), [password, setPassword] = useState(''), [code, setCode] = useState('');
   // Root 43: only the server's confirmed public-handle collision may mark this
@@ -946,6 +949,12 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const availableProviders = authOptions?.providers.filter(value => value.enabled
     && (NativeModules.PorticoAccountAuth.canOpenBrowser || value.id === 'apple' && value.native
       && value.nativeClientIds.includes(NativeModules.PorticoAccountAuth.bundleId) && NativeModules.PorticoAccountAuth.canSignInApple)) ?? [];
+  // Keep the same native ancestry and loading title when callback settlement
+  // hands off to directory loading. No signed-out form or second loading mount
+  // belongs between them. Decision forms (username/contact/MFA) remain distinct.
+  if ((stage === 'portico' && providerLoading && providerLoading === account.current)
+    || (stage === 'servers' && directoryList === 'loading'))
+    return <StateLayout testID="accounts-server-list-loading" title={t('web.chooser.loading')}/>;
   if (stage === 'welcome' && theme.platform === 'phone') return <PhoneFrontDoor busy={busy} error={status}
     onInvitation={() => {if (lifetime.current && stageRef.current === 'welcome') openInvitationEntry();}}
     onPortico={() => {if (lifetime.current && stageRef.current === 'welcome') void run(portico);}}
@@ -1360,6 +1369,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       username={username} password={password} onUsernameChange={value => {if (current()) setUsername(value);}} onPasswordChange={value => {if (current()) setPassword(value);}}
       onProvider={id => {if (!current() || busy || !availableProviders.some(value => value.id === id)) return; void run(async () => {
         if (!current() || !source) return;
+        setProviderLoading(source);
         try {
           const tx = await source.provider(id, current); if (!current()) return; setTransaction(tx);
           if (tx.status === 'verified' && !tx.needsUsername && !tx.mfaRequired) {
@@ -1367,6 +1377,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
             if (current()) await directory();
           } else if (current()) setStage('provider');
         } catch (error) {if (current()) throw error;}
+        finally {if (lifetime.current) setProviderLoading(value => value === source ? undefined : value);}
       });}}
       onContinue={() => {if (!current() || busy || !authOptions?.password || !username || !password || !source) return; void run(async () => {
         if (!current()) return; try {await source.password(username, password, current); if (current()) await directory();} catch (error) {if (current()) throw error;}
@@ -1527,7 +1538,6 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   if (stage === 'contact') return layout(t('auth.checkEmail'), t('auth.codeSentTo', {address: masked}), fields(codeField(t('auth.verificationCode'), code, setCode)), action('contact', t('action.continue'), async () => {
     await account.current!.verifyContact(contact.current!, code); setTransaction(value => value && {...value, contactVerified: true}); setCode(''); setStage('provider');
   }, !code));
-  if (stage === 'servers' && directoryList === 'loading') return <StateLayout testID="accounts-server-list-loading" title={t('web.chooser.loading')}/>;
   if (stage === 'servers' && directoryList === 'failed') return <StateLayout testID="accounts-server-list-failed" icon="i-warn" tone="error"
     title={t('web.chooser.loadFailed')} body={t('web.chooser.loadFailedBody')}
     // connect#13: the one button that helps holds the starting focus.
