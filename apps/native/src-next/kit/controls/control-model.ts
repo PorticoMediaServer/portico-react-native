@@ -20,7 +20,7 @@ export function buttonGeometry(size: ButtonSize, platform: ControlPlatform, vari
     icon: buttonSpec.hero.icon[platform], fontSize: typeScale[platform === 'tv' ? 'tenFoot' : platform === 'web' ? 'desktop' : 'handheld'].button.size,
   };
   if (platform === 'tv') return {height: 64, radius: 14, paddingX: 26, gap: 12, icon: 26, fontSize: 22};
-  // kit.css .btn and its page-local utility sizes, also used by web-next controls.
+  // kit.css .btn and its page-local utility sizes, also used by web controls.
   if (platform === 'web') {
     const desktop = {
       compact: {...buttonSpec.compact, icon: buttonSpec.hero.icon.web, fontSize: typeScale.desktop.compactButton.size},
