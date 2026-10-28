@@ -68,7 +68,7 @@ export class NativeLiveController extends NativeScreenStore<NativeLiveSnapshot> 
     const state = this.getSnapshot(); this.remember(state.options, {view}); this.publish({...state, view}); this.persist(state.options, {view});
   }
   setViewport(viewport: GuideViewport): void {if (this.disposed || !this.lifetime.current()) return; this.viewport = viewport; if (this.memoryReady) this.store.setViewport(viewport);}
-  select(change: Partial<Pick<LegacyGuideOptions, 'kind' | 'sourceId' | 'group' | 'favorites' | 'sort'>>): void {
+  select(change: Partial<Pick<LegacyGuideOptions, 'kind' | 'sourceId' | 'group' | 'favorites' | 'sort' | 'includeServerHidden'>>): void {
     this.lifetime.assert();
     if (this.disposed) return;
     this.store.dispose();
@@ -80,17 +80,22 @@ export class NativeLiveController extends NativeScreenStore<NativeLiveSnapshot> 
     this.store = this.makeStore(options);
     this.publish({...state, options, view, revision: state.revision + 1});
     if (this.viewport) {this.viewport = {...this.viewport, firstRow: 0, lastRow: this.viewport.lastRow - this.viewport.firstRow}; if (this.memoryReady) this.store.setViewport(this.viewport);}
+    // Showing or hiding server-hidden channels changes the sources and groups too.
+    if (change.includeServerHidden !== undefined && !!change.includeServerHidden !== !!state.options.includeServerHidden) {this.refreshSources = undefined; void this.loadSources();}
   }
   loadSources(): Promise<void> {
     if (this.refreshSources) return this.refreshSources;
     this.lifetime.assert();
-    return this.refreshSources = (async () => {
+    const hidden = !!this.getSnapshot().options.includeServerHidden;
+    const flight: Promise<void> = (async () => {
       try {
         await this.prepareMemory(); this.lifetime.assert(); if (this.disposed) return;
-        const result = await fetchGuideSourceSummaries(this.api, this.lifetime.authority.serverId, this.getSnapshot().options.timezone, this.lifetime.signal);
-        if (!this.disposed && this.lifetime.current()) this.publish({...this.getSnapshot(), sources: result.sources, loading: false, error: undefined});
-      } catch (error) {if (!this.disposed && this.lifetime.current()) this.publish({...this.getSnapshot(), loading: false, error});}
-    })().finally(() => {this.refreshSources = undefined;});
+        const result = await fetchGuideSourceSummaries(this.api, this.lifetime.authority.serverId, this.getSnapshot().options.timezone, this.lifetime.signal, hidden);
+        // A summary read for the other Show hidden choice is never published.
+        if (!this.disposed && this.lifetime.current() && !!this.getSnapshot().options.includeServerHidden === hidden) this.publish({...this.getSnapshot(), sources: result.sources, loading: false, error: undefined});
+      } catch (error) {if (!this.disposed && this.lifetime.current() && !!this.getSnapshot().options.includeServerHidden === hidden) this.publish({...this.getSnapshot(), loading: false, error});}
+    })().finally(() => {if (this.refreshSources === flight) this.refreshSources = undefined;});
+    return this.refreshSources = flight;
   }
   clearMutationError(): void {if (!this.disposed && this.lifetime.current()) this.publish({...this.getSnapshot(), mutationError: undefined});}
   /** The native crypto port supplies the existing 48hex protocol key. An unknown outcome

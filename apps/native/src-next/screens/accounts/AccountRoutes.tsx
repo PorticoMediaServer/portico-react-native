@@ -410,7 +410,7 @@ export function ProfileRoute({context, route, onBack, embedded = false}: {contex
       <TextField label={t('profile.name')} description={deletion?.preview.name ?? profiles.find(value => value.id === deletion?.preview.profileId)?.name} value={deleteName} onChangeText={value => {if (deletionCurrent() && !activeTicket.current) {deleteNameRef.current = value; setDeleteName(value);}}} editable={!actionBusy}/>
       {problem ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{problem}</Text> : null}
     </BottomSheet>
-    {limitsProfile && limitsLease && editorCurrent() ? <ProfileLimitsSheet profile={limitsProfile} lease={limitsLease} identityFor={identityForLimits} onClose={closeEdit} onSaved={() => {if (editorCurrent()) {setNotice(t('limits.saved', {name: limitsProfile.name})); closeEdit();}}}/> : null}
+    {limitsProfile && limitsLease && editorCurrent() ? <ProfileLimitsSheet profile={limitsProfile} lease={limitsLease} serverOwner={context.account.account.role === 'owner'} identityFor={identityForLimits} onClose={closeEdit} onSaved={() => {if (editorCurrent()) {setNotice(t('limits.saved', {name: limitsProfile.name})); closeEdit();}}}/> : null}
   </>;
 }
 
@@ -433,7 +433,9 @@ type ProfileLimitsOwner = {
   retired: boolean;
 };
 
-function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {profile: ManagedProfile; lease: ProfileLease; identityFor: (controller: AbortController) => IdentityClient; onClose: () => void; onSaved: () => void}) {
+/** `serverOwner`: only the server owner may switch Recordings on (Who can record); anyone who
+ * manages the profile may switch it off. */
+function ProfileLimitsSheet({profile, lease, serverOwner, identityFor, onClose, onSaved}: {profile: ManagedProfile; lease: ProfileLease; serverOwner: boolean; identityFor: (controller: AbortController) => IdentityClient; onClose: () => void; onSaved: () => void}) {
   const [owner, setOwner] = useState<ProfileLimitsOwner>();
   const ownerRef = useRef<ProfileLimitsOwner | undefined>(undefined);
   const [restrictions, setRestrictions] = useState<ProfileRestrictions>(), [systems, setSystems] = useState<readonly RatingSystem[]>();
@@ -501,7 +503,7 @@ function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {pr
   return <BottomSheet open onOpenChange={open => {if (!open) close();}} title={t('limits.title', {name: profile.name})} description={t('limits.subtitle')}
     testID="profile-limits" footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={busy} onPress={close}>{t('action.cancel')}</Button><Button focusId="save" loading={busy} disabled={!draft || !owner || !current(owner)} onPress={save}>{t('limits.save')}</Button></View>}>
     {error ? <StateView title={presentError(error, 'profiles').title} body={presentError(error, 'profiles').body}/> : !draft ? <StateView title={t('status.loading')}/> : <View style={{gap: 14}}>
-      <ProfileRestrictionsFields draft={draft} systems={systems ?? []} disabled={busy} current={() => !!owner && current(owner)} onChange={updateDraft}/>
+      <ProfileRestrictionsFields draft={draft} systems={systems ?? []} disabled={busy} recordingLocked={!serverOwner && !restrictions?.allowDvr} current={() => !!owner && current(owner)} onChange={updateDraft}/>
     </View>}
 
   </BottomSheet>;

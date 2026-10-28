@@ -1,4 +1,4 @@
-import React,{useCallback,useEffect,useLayoutEffect,useMemo,useState,useSyncExternalStore} from 'react';
+import React,{useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState,useSyncExternalStore} from 'react';
 import {Text,View} from 'react-native';
 import type {LibraryChannel,LibraryChannelTemplate} from '../../../../../../../packages/client-core/src/library-channels';
 import {channelMonograms} from '../../../../../../../packages/client-core/src/presentation/kit-model/channels';
@@ -22,12 +22,12 @@ type ChannelMenu=Readonly<{channel:LibraryChannel}>;
 type TemplateMenu=Readonly<{token:object}>;
 let nextEditorAttempt=0;
 type EditorAttempt=Readonly<{id:number}>;
-export function NativeLibraryChannelsPage({ports,runtime}:{ports:Pick<NativeSettingsLivePorts,'context'|'requestId'>;runtime:NativeShellRuntime}) {
+export function NativeLibraryChannelsPage({ports,runtime,initialChannelId}:{initialChannelId?:string;ports:Pick<NativeSettingsLivePorts,'context'|'requestId'>;runtime:NativeShellRuntime}) {
   const context=ports.context,reportError=runtime.reportError,[group,setGroup]=useState<NativeChannelsGroup>();
   useLayoutEffect(()=>{const next=createNativeChannels(context,reportError);setGroup(next);return next.dispose;},[context,reportError]);
-  return group?.context===context?<Channels group={group} runtime={runtime}/>:null;
+  return group?.context===context?<Channels group={group} runtime={runtime} initialChannelId={initialChannelId}/>:null;
 }
-export function Channels({group,runtime}:{group:NativeChannelsGroup;runtime:NativeShellRuntime}) {
+export function Channels({group,runtime,initialChannelId}:{initialChannelId?:string;group:NativeChannelsGroup;runtime:NativeShellRuntime}) {
   const {reader,editor,actions}=group,theme=useTheme(),t=runtime.text.t as typeof defaultI18n.t,state=useSyncExternalStore(reader.subscribe,reader.getSnapshot,reader.getSnapshot),editing=useSyncExternalStore(editor.subscribe,editor.getSnapshot,editor.getSnapshot),action=useSyncExternalStore(actions.subscribe,actions.getSnapshot,actions.getSnapshot);
   const [confirmation,setConfirmation]=useState<Confirmation>(),[attempt,setAttempt]=useState<EditorAttempt>(),[health,setHealth]=useState<Readonly<{channel:LibraryChannel}>>(),[logoAvailable,setLogoAvailable]=useState(false),[menu,setMenu]=useState<ChannelMenu>(),[templatesMenu,setTemplatesMenu]=useState<TemplateMenu>();
   const view=useMemo(()=>({reader,active:true,confirmation:undefined as Confirmation|undefined,editor:undefined as EditorAttempt|undefined,health:undefined as Readonly<{channel:LibraryChannel}>|undefined,logo:undefined as object|undefined,menu:undefined as ChannelMenu|undefined,templates:undefined as TemplateMenu|undefined,presetsEditing:false}),[reader]);
@@ -42,9 +42,9 @@ export function Channels({group,runtime}:{group:NativeChannelsGroup;runtime:Nati
   const presetsCurrent=useCallback(()=>current()&&!view.logo&&!group.logos.getSnapshot().busy&&!group.logos.getSnapshot().pending&&editor.getSnapshot().phase==='closed'&&!editor.getSnapshot().pending&&!editor.getSnapshot().busy&&!actions.getSnapshot().busy&&!actions.getSnapshot().pending,[current,view,group,editor,actions]);
   const presetEditing=useCallback((value:boolean)=>{view.presetsEditing=value;},[view]);
   const presetState=useSyncExternalStore(group.presets.subscribe,group.presets.getSnapshot,group.presets.getSnapshot);
-  const commands=()=>current()&&!view.presetsEditing&&!group.presets.getSnapshot().busy&&!group.presets.getSnapshot().pending&&!group.presets.getSnapshot().reconcile&&!view.logo&&!group.logos.getSnapshot().busy&&!group.logos.getSnapshot().pending&&editor.getSnapshot().phase==='closed'&&!editor.getSnapshot().pending&&!editor.getSnapshot().busy&&!actions.getSnapshot().busy&&!actions.getSnapshot().pending;
+  const commands=useCallback(()=>current()&&!view.presetsEditing&&!group.presets.getSnapshot().busy&&!group.presets.getSnapshot().pending&&!group.presets.getSnapshot().reconcile&&!view.logo&&!group.logos.getSnapshot().busy&&!group.logos.getSnapshot().pending&&editor.getSnapshot().phase==='closed'&&!editor.getSnapshot().pending&&!editor.getSnapshot().busy&&!actions.getSnapshot().busy&&!actions.getSnapshot().pending,[current,view,group,editor,actions]);
   const claimLogo=useCallback((token:object)=>{if(!current()||view.presetsEditing||group.presets.getSnapshot().busy||group.presets.getSnapshot().pending||group.presets.getSnapshot().reconcile||view.logo||group.logos.getSnapshot().busy||group.logos.getSnapshot().pending||editor.getSnapshot().phase!=='closed'||editor.getSnapshot().pending||editor.getSnapshot().busy||actions.getSnapshot().busy||actions.getSnapshot().pending)return false;view.logo=token;return true;},[current,view,group,editor,actions]);
-  const listed=(channel:LibraryChannel)=>!!reader.getSnapshot().channels?.includes(channel);
+  const listed=useCallback((channel:LibraryChannel)=>!!reader.getSnapshot().channels?.includes(channel),[reader]);
   if (view.menu && current() && !listed(view.menu.channel)) view.menu = undefined;
   if (view.confirmation && current() && !listed(view.confirmation.channel)) view.confirmation = undefined;
   if (view.health && current() && (!listed(view.health.channel) || reader.getSnapshot().selected !== view.health.channel)) view.health = undefined;
@@ -61,11 +61,18 @@ export function Channels({group,runtime}:{group:NativeChannelsGroup;runtime:Nati
     if (!heldTemplates || view.templates !== heldTemplates || !commands() || !group.timezone || template && (!template.applicable || !reader.getSnapshot().templates?.includes(template))) return;
     view.templates = undefined; setTemplatesMenu(undefined); open(undefined, template);
   };
-  const open=(channel?:LibraryChannel,template?:LibraryChannelTemplate)=>{
+  const open=useCallback((channel?:LibraryChannel,template?:LibraryChannelTemplate)=>{
     if(!commands()||channel&&!listed(channel)||!channel&&!group.timezone)return;
     const next={id:++nextEditorAttempt};view.editor=next;setAttempt(next);view.confirmation=undefined;setConfirmation(undefined);
     if(channel)editor.edit(channel);else if(template)editor.template(template,group.timezone!);else void editor.blank(group.timezone!);
-  };
+  },[commands,listed,group,view,editor]);
+  const openedLink=useRef<string | undefined>(undefined);
+  useLayoutEffect(()=>{
+    if(!initialChannelId||openedLink.current===initialChannelId||theme.isTV||state.phase!=='ready'||!commands())return;
+    openedLink.current=initialChannelId;
+    const channel=state.channels?.find(value=>value.config.id===initialChannelId);
+    if(channel)open(channel);
+  },[initialChannelId,state,editing.phase,theme.isTV,commands,open]);
   const resume=()=>{if(!current()||view.presetsEditing||group.presets.getSnapshot().busy||group.presets.getSnapshot().pending||group.presets.getSnapshot().reconcile||view.logo||group.logos.getSnapshot().busy||group.logos.getSnapshot().pending||editor.getSnapshot().phase!=='closed'||!editor.getSnapshot().pending||editor.getSnapshot().busy||actions.getSnapshot().busy||actions.getSnapshot().pending)return;const next={id:++nextEditorAttempt};view.editor=next;setAttempt(next);editor.resume();};
   const held=confirmation&&view.confirmation===confirmation&&current()&&listed(confirmation.channel)?confirmation:undefined;
   const close=()=>{if(!held||!current()||view.confirmation!==held)return;view.confirmation=undefined;setConfirmation(undefined);};

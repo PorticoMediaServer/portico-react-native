@@ -32,7 +32,7 @@ import {NativeRecordingsScreen} from './RecordingsScreen';
 import {tvGuideNavigationCells, tvGuideFocusStart} from '../../tv/layout/guide-focus';
 import {useTVPageBack} from '../destinations/useTVPageBack';
 import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
-import {nativeGuideClock, nativeGuideDate, nativeGuideRegion, nativeGuideNext, nativeProgrammeCaption, nativeChannelMenuEntries} from './guide-presentation';
+import {nativeGuideClock, nativeGuideDate, nativeGuideRegion, nativeGuideNext, nativeProgrammeCaption, nativeLibraryChannelEditorRoute, nativeChannelMenuEntries} from './guide-presentation';
 import {useGuideTimePan} from './useGuideTimePan';
 import {nativeGuideCellWindow, nativeGuideElapsedWidth, nativeGuidePanRange, nativeGuidePanTarget} from './guide-pan-model';
 import {NativeLivePhonePicker} from './LivePhonePicker';
@@ -229,15 +229,37 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
     controller.clearMutationError(); setChannelMenuError(undefined); setChannelMenuBusy(false);
     setChannelMenu({channel, scope: scopeKey});
   };
-  // desktop-live/tablet-play: everyone may favorite; an owner may also hide a channel from their guide.
-  const changeChannel = (change: 'favorite' | 'hidden') => {
+  // Owners change server visibility; Favorites remain the viewer's own preference.
+  const changeChannel = (change: 'favorite' | 'hidden' | 'edit') => {
     const opening = channelMenu, channel = opening?.channel, raw = channel && legacyChannel(channel);
     const current = () => !!opening && channelMenuRef.current === opening && channelMenuScope.current === opening.scope
       && !runtime.retirementSignal?.aborted && controller.lifetime.current();
     if (!current() || !channel || !raw || channelMenuBusy) return;
+    if (change === 'edit') {
+      if (theme.isTV || raw.provenance !== 'library-channel' || !managementCurrent()) return;
+      setChannelMenu(undefined);
+      navigation.open(nativeLibraryChannelEditorRoute(raw.id), controller.lifetime.authority);
+      return;
+    }
     setChannelMenuBusy(true); setChannelMenuError(undefined);
     const proof = {signal: controller.lifetime.signal, isCurrent: current};
-    const values = change === 'favorite' ? {favorite: !channel.favorite, hidden: raw.hidden} : {favorite: channel.favorite, hidden: !raw.hidden};
+    if (change === 'hidden') {
+      if (!managementCurrent() || channel.kind === 'library') {setChannelMenuBusy(false);return;}
+      void owner.channelHidden(raw.sourceId, raw.id, !raw.serverHidden, proof).then(receipt => {
+        if (!current()) return;
+        controller.guide.reset();void controller.loadSources();setSelected(undefined);setChannelMenu(undefined);
+        const undoScope = opening!.scope;
+        const undoCurrent = () => channelMenuScope.current === undoScope && managementCurrent() && !runtime.retirementSignal?.aborted;
+        setToast({id: `channel-${Date.now()}`, message: t(receipt.hidden ? 'channels.hiddenNotice' : 'channels.shownNotice'), actionOnTV: true,
+          action: {label: t('action.undo'), onPress: () => {
+            if (!undoCurrent()) return;
+            void owner.channelHidden(raw.sourceId, raw.id, receipt.previousHidden, {signal: controller.lifetime.signal, isCurrent: undoCurrent}, receipt)
+              .then(() => {if (undoCurrent()) {controller.guide.reset();void controller.loadSources();}}).catch(error => {if (undoCurrent()) runtime.reportError(error);});
+          }}});
+      }).catch(error => {if (current()) setChannelMenuError(error);}).finally(() => {if (channelMenuRef.current === opening) setChannelMenuBusy(false);});
+      return;
+    }
+    const values = {favorite: !channel.favorite, hidden: raw.hidden};
     const work = controller.channelPreference(channel, values, ports.dvrRequestId, proof).then(committed => {
       if (!committed || !current()) return;
       setSelected(value => value?.channel.id === channel.id && value.channel.sourceId === channel.sourceId && value.channel.kind === channel.kind ? {...value, channel: committed} : value);
@@ -312,7 +334,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
   });
   const viewSwitch = <Segmented testID="live-view" variant="phone" style={{backgroundColor: theme.colors.raisedHigh, borderRadius: 10}} value={view} onValueChange={value => setView(value as 'list' | 'guide')} itemProps={item => ({accessibilityLabel: t(item.value === 'list' ? 'channels.viewList' : 'channels.viewGuide'), style: {height: 32, borderRadius: 8, paddingLeft: 9, paddingRight: 11}})} items={(['list', 'guide'] as const).map(value => ({value, label: <View style={{flexDirection: 'row', gap: 6, alignItems: 'center'}}><Icon name={value === 'list' ? 'i-list' : 'i-timeline'} size={16} color={view === value ? theme.colors.text : theme.colors.textTertiary}/><Text style={[shellType(13.5, 700), {color: view === value ? theme.colors.text : theme.colors.textTertiary}]}>{t(value === 'list' ? 'channels.viewList' : 'channels.viewGuide')}</Text></View>}))}/>;
   const filterChips = <FlatList horizontal data={groups} keyExtractor={group => group} showsHorizontalScrollIndicator={false} initialNumToRender={10} maxToRenderPerBatch={10} windowSize={3} style={{flexGrow: landscape ? 1 : 0, flex: landscape ? 1 : undefined, height: theme.isTV ? 64 : phoneChrome ? 34 : 44}} contentContainerStyle={{gap: theme.isTV ? 12 : phoneChrome ? 8 : 10, paddingHorizontal: compact ? 20 : 0}}
-          ListHeaderComponent={<View style={{flexDirection: 'row', gap: theme.isTV ? 12 : phoneChrome ? 8 : 10}}>{phoneChrome && sourcePicker}<Chip style={phoneChrome ? {height: 34, borderRadius: 9, paddingHorizontal: 12} : undefined} textStyle={phoneChrome ? shellType(13.5, 700) : undefined} focusId="all" testID="live-filter-all" selected={!state.options.favorites && !state.options.group} onPress={() => select({favorites: false, group: undefined})}>{t('channels.filterAll')}</Chip><Chip style={phoneChrome ? {height: 34, borderRadius: 9, paddingHorizontal: 12} : undefined} textStyle={phoneChrome ? shellType(13.5, 700) : undefined} focusId="favorites" testID="live-filter-favorites" selected={state.options.favorites === true} onPress={() => select({favorites: !state.options.favorites, group: undefined})}>{t('channels.favorites')}</Chip></View>}
+          ListHeaderComponent={<View style={{flexDirection: 'row', gap: theme.isTV ? 12 : phoneChrome ? 8 : 10}}>{phoneChrome && sourcePicker}<Chip style={phoneChrome ? {height: 34, borderRadius: 9, paddingHorizontal: 12} : undefined} textStyle={phoneChrome ? shellType(13.5, 700) : undefined} focusId="all" testID="live-filter-all" selected={!state.options.favorites && !state.options.group} onPress={() => select({favorites: false, group: undefined})}>{t('channels.filterAll')}</Chip><Chip style={phoneChrome ? {height: 34, borderRadius: 9, paddingHorizontal: 12} : undefined} textStyle={phoneChrome ? shellType(13.5, 700) : undefined} focusId="favorites" testID="live-filter-favorites" selected={state.options.favorites === true} onPress={() => select({favorites: !state.options.favorites, group: undefined})}>{t('channels.favorites')}</Chip>{ports.context.account.account.role === 'owner' && <Chip style={phoneChrome ? {height: 34, borderRadius: 9, paddingHorizontal: 12} : undefined} textStyle={phoneChrome ? shellType(13.5, 700) : undefined} focusId="hidden" testID="live-filter-hidden" selected={state.options.includeServerHidden === true} onPress={() => select({includeServerHidden: !state.options.includeServerHidden})}>{t('channels.showHidden')}</Chip>}</View>}
           renderItem={({item: group}) => <Chip style={phoneChrome ? {height: 34, borderRadius: 9, paddingHorizontal: 12} : undefined} textStyle={phoneChrome ? shellType(13.5, 700) : undefined} focusId={`group:${group}`} testID={`live-filter-${group}`} selected={state.options.group === group} onPress={() => select({group, favorites: false})}>{group}</Chip>}/>;
   useDestinationEntryFocus({visible: theme.isTV && !managementActive && !recordingsOpen && recordingsReturn > 0, intent: 'restore', revision: recordingsReturn}, {regionId: controls, childId: 'live-recordings'});
   useDestinationEntryFocus({visible: theme.isTV && !managementActive && !recordingsOpen && managementReturn > 0, intent: 'restore', revision: managementReturn}, {regionId: controls, childId: 'live-owner-open'});
@@ -467,7 +489,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
     <Menu testID="live-channel-menu" open={!!channelMenu && channelMenu.scope === scopeKey} onOpenChange={open => {if (!open) setChannelMenu(undefined);}} title={channelMenu?.channel.name} anchorRef={channelMenuAnchor} returnFocusRef={channelMenuAnchor} touchContext
       footer={channelMenu && channelMenuError !== undefined ? <StateView {...runtime.error(channelMenuError, () => setChannelMenuError(undefined))}/> : undefined}
       items={channelMenu ? [
-        ...nativeChannelMenuEntries(channelMenu.channel, legacyChannel(channelMenu.channel)?.hidden === true, ports.context.account.account.role === 'owner', t)
+        ...nativeChannelMenuEntries(channelMenu.channel, legacyChannel(channelMenu.channel)?.serverHidden === true, ports.context.account.account.role === 'owner', t, theme.isTV)
           .map(entry => ({...entry, disabled: channelMenuBusy || state.mutating, closeOnSelect: false, onSelect: () => changeChannel(entry.id)})),
       ] : []}/>
     <NativeSeriesRuleSheet controller={recordings} draft={series?.draft} defaults={series?.defaults} runtime={runtime} open={series !== undefined}
@@ -517,7 +539,7 @@ function LiveRow({selected, onChannelMenu, tvRange, onTVFocus, panPosition, panA
   const logo = runtime.artwork(channel.logoUrl);
   const current = nowNext(programs.programs, now), nextText = nativeGuideNext(current.next, clock, runtime.text);
   if (list && !theme.isTV) return <NativeLiveListRow channel={channel} programme={current.now} next={current.next} now={now} runtime={runtime} clock={clock} height={rowHeight} onOpen={node => onOpen(channel, current.now, node)} onMenu={node => onChannelMenu(channel, node)}/>;
-  return <View style={{height: rowHeight, marginBottom: rowGap, flexDirection: 'row', gap: theme.isTV ? 18 : phoneGrid ? 2 : 8}}>
+  return <View style={{height: rowHeight, opacity: legacyChannel(channel)?.serverHidden ? .5 : 1, marginBottom: rowGap, flexDirection: 'row', gap: theme.isTV ? 18 : phoneGrid ? 2 : 8}}>
     <View style={{width: channelWidth - (theme.isTV ? 18 : phoneGrid ? 2 : 8)}}>
       <FocusItem focusId={channelFocusId(channel)} cell={theme.isTV ? {row: index, kind: 'channel'} : undefined}><Focusable ref={channelRef} focusId={channelFocusId(channel)} testID={`live-channel-${channel.sourceId}-${channel.id}`} accessibilityRole="button" accessibilityLabel={`${channel.number} ${channel.name}`} onFocus={() => onTVFocus(index)} onLongPress={() => onChannelMenu(channel, channelRef.current)} onPress={() => list ? onOpen(channel, current.now, channelRef.current) : theme.isTV ? watch(channel) : onOpen(channel, undefined, channelRef.current)} focusKind="row" style={{height: rowHeight, borderRadius: compactChannel ? 8 : 12, paddingHorizontal: phoneGrid ? 0 : 16, flexDirection: compactChannel ? 'column' : 'row', justifyContent: compactChannel ? 'center' : undefined, alignItems: 'center', gap: compactChannel ? 5 : landscapePhone ? 10 : 16, backgroundColor: phoneGrid ? 'transparent' : theme.colors.raised}}>
         <View style={{width: theme.isTV ? 56 : landscapePhone ? 32 : 36, height: theme.isTV ? 56 : landscapePhone ? 32 : 36}}><GuideChannelArt channel={channel} source={logo} size={theme.isTV ? 56 : landscapePhone ? 32 : 36}/>{compactChannel && channel.favorite && <View style={{position: 'absolute', right: -7, top: -6, width: 18, height: 18, borderRadius: 9, backgroundColor: theme.colors.ink, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-star-f" size={10} color={theme.colors.accentStrong}/></View>}</View>
@@ -546,7 +568,7 @@ function NativeLiveListRow({channel, programme, next, now, runtime, clock, heigh
   const theme = useTheme(), node = useRef<View>(null), logo = runtime.artwork(channel.logoUrl), nextText = nativeGuideNext(next, clock, runtime.text);
   const remaining = programme && programmeFactParts({startMs: programme.start, endMs: programme.end}, runtime.text, now).find(fact => fact.id === 'remaining');
   const progress = programme && programme.end > programme.start ? Math.max(0, Math.min(1, (now - programme.start) / (programme.end - programme.start))) : undefined;
-  return <Focusable ref={node} testID={`live-list-${channel.sourceId}-${channel.id}`} accessibilityRole="button" accessibilityLabel={[channel.name, programme?.title].filter(Boolean).join(' ')} onPress={() => onOpen(node.current)} onLongPress={() => onMenu(node.current)} focusKind="row" style={{height, paddingVertical: 12, paddingHorizontal: 20, flexDirection: 'row', gap: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.line}}>
+  return <Focusable ref={node} testID={`live-list-${channel.sourceId}-${channel.id}`} accessibilityRole="button" accessibilityLabel={[channel.name, programme?.title].filter(Boolean).join(' ')} onPress={() => onOpen(node.current)} onLongPress={() => onMenu(node.current)} focusKind="row" style={{height, opacity: legacyChannel(channel)?.serverHidden ? .5 : 1, paddingVertical: 12, paddingHorizontal: 20, flexDirection: 'row', gap: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.line}}>
     <View style={{width: 46, alignItems: 'center', gap: 5}}>{(logo || channel.mark && channel.sourceId) && <View style={{width: 46, height: 46, borderRadius: 11, overflow: 'hidden'}}><GuideChannelArt channel={channel} source={logo} size={46}/></View>}<Text style={[shellType(11.5, 700), {color: theme.colors.textTertiary}]}>{channel.number}</Text></View>
     <View style={{flex: 1, minWidth: 0}}>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}><Text numberOfLines={1} style={[shellType(12.5, 600), {color: theme.colors.textTertiary, flexShrink: 1}]}>{channel.name}</Text>{channel.favorite && <Icon name="i-star-f" size={10} color={theme.colors.accentStrong}/>}<ProgrammeFlags programme={programme} text={runtime.text}/>{remaining && <Text numberOfLines={1} style={[shellType(12.5), {color: theme.colors.textSecondary, marginLeft: 'auto'}]}>{remaining.text}</Text>}</View>

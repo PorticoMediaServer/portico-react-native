@@ -77,7 +77,7 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
   const ruleRevision = routeRevision;
 
   const shownRuleRemove = ruleRemoveOpening && ruleRemoveRef.current === ruleRemoveOpening && ruleRemoveOpening.controller === controller && ruleRemoveOpening.revision === ruleRevision ? ruleRemoveOpening : undefined;
-  const [permissionDraft, setPermissionDraft] = useState<Readonly<Record<string, Readonly<{enabled: boolean; inheritProfiles: boolean}>>>>({});
+  const [permissionDraft, setPermissionDraft] = useState<Readonly<Record<string, Readonly<{enabled: boolean}>>>>({});
   const [defaultsDraft, setDefaultsDraft] = useState<DVRDefaults>(), [storageDraft, setStorageDraft] = useState<StoragePolicy>();
   const publishedRules = useRef<readonly AdminRule[] | undefined>(undefined);
   useLayoutEffect(() => {publishedRules.current = rules; return () => {if (publishedRules.current === rules) publishedRules.current = undefined;};}, [rules, facts]);
@@ -157,9 +157,9 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
     setBusy('save'); setError(undefined);
     try {
       for (const [key, change] of Object.entries(permissionDraft)) {
-        const choice = policy.owners.find(value => recordingOwnerKey(value.owner) === key), grant = policy.grants.find(value => recordingOwnerKey(value.owner) === key);
+        const choice = policy.owners.find(value => recordingOwnerKey(value.owner) === key);
         if (!current()) return;
-        if (choice) await controller.setPermission(choice.owner, change.enabled, change.inheritProfiles, grant?.revision ?? 0);
+        if (choice) await controller.setPermission(choice.owner, change.enabled, choice.revision);
         if (!current()) return;
       }
       if (!current()) return;
@@ -262,35 +262,27 @@ function TunerCard({source, runtime}: {source: TunerAllocation; runtime: NativeS
 
 /** Every profile the server lists, with its effective grant; an inherited profile reads as such.
  * A switch edits the page's draft; nothing is written until the bar's Save. */
-function Permissions({policy, draft, runtime, onChange}: {policy: Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>; draft: Readonly<Record<string, Readonly<{enabled: boolean; inheritProfiles: boolean}>>>; runtime: NativeShellRuntime; onChange: (owner: RecordingOwner, change: Readonly<{enabled: boolean; inheritProfiles: boolean}>) => void}) {
+/** Who can record: one Can record switch per profile, the same switch as Recordings in that
+ * profile's settings. Nothing is inherited from the account. */
+function Permissions({policy, draft, runtime, onChange}: {policy: Readonly<{owners: readonly RecordingOwnerChoice[]; grants: readonly RecordingGrant[]}>; draft: Readonly<Record<string, Readonly<{enabled: boolean}>>>; runtime: NativeShellRuntime; onChange: (owner: RecordingOwner, change: Readonly<{enabled: boolean}>) => void}) {
   const theme = useTheme(), t = runtime.text.t;
   const accounts = new Map<string, RecordingOwnerChoice[]>();
   for (const choice of policy.owners) {const key = JSON.stringify([choice.owner.authority, choice.owner.accountId]); accounts.set(key, [...(accounts.get(key) ?? []), choice]);}
   return <Section title={t('web.dvrSettings.whoCanRecord')} description={t('web.dvrSettings.whoCanRecordLede')}>
-    {[...accounts.entries()].map(([accountId, profiles]) => {
-      const primary = profiles[0]!, primaryKey = recordingOwnerKey(primary.owner), primaryGrant = policy.grants.find(grant => recordingOwnerKey(grant.owner) === primaryKey);
-      const primaryValue = draft[primaryKey] ?? {enabled: recordingAllowed(primary.owner, policy.grants), inheritProfiles: primaryGrant?.inheritProfiles ?? false};
-      return <View key={accountId} style={{gap: 4, backgroundColor: theme.colors.raised, borderRadius: 14, padding: 10}}>
-        <Text style={[shellType(12.5, 700), {color: theme.colors.textTertiary, paddingHorizontal: 6}]}>{primary.accountName}</Text>
-        {profiles.map(choice => {
-          const key = recordingOwnerKey(choice.owner), exact = policy.grants.find(grant => recordingOwnerKey(grant.owner) === key);
-          const value = draft[key] ?? {enabled: recordingAllowed(choice.owner, policy.grants), inheritProfiles: exact?.inheritProfiles ?? false};
-          return <View key={key} style={{flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 6, minHeight: 44}}>
-            <View style={{flex: 1}}>
-              <Text style={[shellType(15, 600), {color: theme.colors.text}]} numberOfLines={1}>{choice.profileName}</Text>
-              <Text style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{exact ? t(exact.enabled ? 'recordings.on' : 'recordings.paused') : t('web.dvrSettings.inheritedFromAccount')}</Text>
-            </View>
-            <Switch testID={`live-owner-permission-${choice.owner.profileId}`} accessibilityLabel={choice.profileName} checked={value.enabled}
-              onCheckedChange={enabled => onChange(choice.owner, {...value, enabled})}/>
-          </View>;
-        })}
-        <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 6, paddingLeft: 18, minHeight: 40}}>
-          <Text style={[shellType(13), {color: theme.colors.textSecondary, flex: 1}]}>{t('web.dvrSettings.inheritRow')}</Text>
-          <Switch testID={`live-owner-inherit-${primary.owner.accountId}`} accessibilityLabel={t('web.dvrSettings.inheritSwitch')} checked={primaryValue.inheritProfiles} disabled={!primaryValue.enabled}
-            onCheckedChange={inheritProfiles => onChange(primary.owner, {...primaryValue, inheritProfiles})}/>
-        </View>
-      </View>;
-    })}
+    {[...accounts.entries()].map(([accountId, profiles]) => <View key={accountId} style={{gap: 4, backgroundColor: theme.colors.raised, borderRadius: 14, padding: 10}}>
+      <Text style={[shellType(12.5, 700), {color: theme.colors.textTertiary, paddingHorizontal: 6}]}>{profiles[0]!.accountName}</Text>
+      {profiles.map(choice => {
+        const key = recordingOwnerKey(choice.owner), enabled = draft[key]?.enabled ?? choice.canRecord;
+        return <View key={key} style={{flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 6, minHeight: 44}}>
+          <View style={{flex: 1}}>
+            <Text style={[shellType(15, 600), {color: theme.colors.text}]} numberOfLines={1}>{choice.profileName}</Text>
+            <Text style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{t(enabled ? 'next.liveOwner.canRecord' : 'next.liveOwner.cannotRecord')}</Text>
+          </View>
+          <Switch testID={`live-owner-permission-${choice.owner.profileId}`} accessibilityLabel={choice.profileName} checked={enabled}
+            onCheckedChange={next => onChange(choice.owner, {enabled: next})}/>
+        </View>;
+      })}
+    </View>)}
   </Section>;
 }
 

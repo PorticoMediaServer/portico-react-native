@@ -39,7 +39,9 @@ export function ProfileColorPicker({value, onChange, disabled, testID}: {value: 
 
 /** The same server-owned scale, label limits and feature switches for one's
  * own profile and People's editor. No picture or rating-system chooser. */
-export function ProfileRestrictionsFields({draft, systems, disabled, current, onChange}: {draft: ProfileRestrictions; systems: readonly RatingSystem[]; disabled: boolean; current: () => boolean; onChange: (change: Partial<ProfileRestrictions>) => void}) {
+/** `recordingLocked`: Recordings is off and the caller is not the server owner, who alone may
+ * switch it on (Who can record). Switching it off is open to anyone who manages the profile. */
+export function ProfileRestrictionsFields({draft, systems, disabled, recordingLocked = false, current, onChange}: {draft: ProfileRestrictions; systems: readonly RatingSystem[]; disabled: boolean; recordingLocked?: boolean; current: () => boolean; onChange: (change: Partial<ProfileRestrictions>) => void}) {
   const theme = useTheme();
   const [labelsOpen, setLabelsOpen] = useState(false), [labelsDraft, setLabelsDraft] = useState<readonly string[]>([]), [labelDraft, setLabelDraft] = useState('');
   const system = systems.find(value => value.id === draft.ratingSystem) ?? (draft.ratingSystem === '' ? systems[0] : undefined);
@@ -62,7 +64,7 @@ export function ProfileRestrictionsFields({draft, systems, disabled, current, on
       ['allowLiveTv', 'limits.feature.liveTv', 'web.limits.liveTvHelp'],
       ['allowDvr', 'limits.feature.dvr', 'web.limits.dvrHelp'],
       ['allowWatchTogether', 'limits.feature.watchTogether', 'web.limits.togetherHelp'],
-    ] as const).map(([key, label, help]) => <SettingsRow key={key} label={t(label)} description={t(help)} control={<Switch focusId={`feature:${key}`} testID={`profile-feature-${key}`} accessibilityLabel={t(label)} checked={draft[key]} disabled={disabled} onCheckedChange={value => change({[key]: value})}/>}/>)}
+    ] as const).map(([key, label, help]) => <SettingsRow key={key} label={t(label)} description={t(help)} control={<Switch focusId={`feature:${key}`} testID={`profile-feature-${key}`} accessibilityLabel={t(label)} checked={draft[key]} disabled={disabled || key === 'allowDvr' && recordingLocked} onCheckedChange={value => change({[key]: value})}/>}/>)}
     <Dialog testID="profile-hidden-labels-picker" open={labelsOpen} onOpenChange={open => {if (current() && !disabled) setLabelsOpen(open);}} title={t('web.limits.hiddenLabels')} description={t('next.settingsSpec.account.profile.groups.3.rows.2.help')}
       footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={disabled} onPress={() => {if (current()) setLabelsOpen(false);}}>{t('action.cancel')}</Button>
         <Button disabled={disabled} onPress={() => {if (!current() || disabled) return; change({blockedLabels: [...labelsDraft]}); setLabelsOpen(false);}}>{t('action.done')}</Button></View>}>
