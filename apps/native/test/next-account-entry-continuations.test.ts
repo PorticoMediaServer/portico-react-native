@@ -103,14 +103,14 @@ const byID=(tree:any,id:string)=>nodes(tree).find(n=>n.props.testID===id);
 
 test('signed-out invitation prepares its exact offered controls, signs in and returns to original preview before explicit Join',async context=>{
   const f=await fixture(context);await f.preview();
-  assert.ok(nodes(f.tree().props.beforeActions).some(n=>n.props.children==="You'll join as an administrator."));
+  assert.ok(nodes(f.tree().props.beforeActions).some(n=>n.props.children===t('accounts.invitation.admin')));
   await act(()=>f.tree().props.primaryAction.onPress());
   let phone=await f.phone();assert.ok(byID(phone,'accounts-auth-google'));assert.ok(byID(phone,'accounts-auth-continue'));
   await act(()=>{byID(phone,'accounts-auth-username').props.onChangeText('intended');byID(phone,'accounts-auth-password').props.onChangeText('password');});
   phone=await f.phone();const stale=byID(phone,'accounts-auth-google').props.onPress;
   await act(()=>byID(phone,'accounts-auth-continue').props.onPress());
   assert.equal(f.calls.login,1);assert.equal(f.tree().props.testID,'accounts-portico-invitation');assert.equal(f.calls.join,0);
-  assert.ok(nodes(f.tree().props.beforeActions).some(n=>n.props.children==="You'll join as an administrator."));
+  assert.ok(nodes(f.tree().props.beforeActions).some(n=>n.props.children===t('accounts.invitation.admin')));
   await act(()=>stale());assert.equal(f.calls.provider,0);
   await act(()=>f.tree().props.primaryAction.onPress());assert.equal(f.calls.join,1);assert.equal(f.calls.complete,1);
   assert.deepEqual(f.calls.inspect,['https://verified.example','https://verified.example']);

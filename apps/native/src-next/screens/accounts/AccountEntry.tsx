@@ -1199,7 +1199,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     return <FormLayout testID="accounts-invitation-account" title={t('accounts.invitation.to') + ' ' + (preview?.serverName ?? '')}
       body={preview ? t('accounts.invitation.porticoBody', {server: preview.serverName}) : undefined}
       beforeActions={<View style={{gap: 12, alignSelf: 'stretch', marginBottom: 18}}>{status}
-        {preview && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{preview.role === 'admin' ? "You'll join as an administrator." : t('accounts.invitation.member')}</Text>}
+        {preview && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{preview.role === 'admin' ? t('accounts.invitation.admin') : t('accounts.invitation.member')}</Text>}
         {preview?.allLibraries && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('server.people.allLibraries')}</Text>}
         {preview?.libraries.map((library, index) => <Text key={index} style={[theme.type.body, {color: theme.colors.textSecondary}]}>{library.name}</Text>)}
       </View>} primaryAction={{id: 'sign-in-to-join', label: t('auth.signInWithAccount'), disabled: busy || !preview, loading: busy, onPress: () => begin(false)}}
@@ -1266,7 +1266,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       return <FormLayout testID="accounts-portico-invitation" title={t('accounts.invitation.to') + ' ' + preview.serverName}
         body={t('accounts.invitation.porticoBody', {server: preview.serverName})}
         beforeActions={<View style={{alignSelf: 'stretch', gap: 12, marginBottom: 18}}>{invitationStatus}
-          <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{preview.role === 'admin' ? "You'll join as an administrator." : t('accounts.invitation.member')}</Text>
+          <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{preview.role === 'admin' ? t('accounts.invitation.admin') : t('accounts.invitation.member')}</Text>
           <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('accounts.invitation.libraries')}</Text>
           {preview.allLibraries && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('server.people.allLibraries')}</Text>}
           {preview.libraries.map((library, index) => <Text key={index} style={[theme.type.body, {color: theme.colors.textSecondary}]}>{library.name}</Text>)}

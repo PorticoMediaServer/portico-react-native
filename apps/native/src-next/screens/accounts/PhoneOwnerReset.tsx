@@ -31,7 +31,7 @@ export function PhoneOwnerReset({phase, serverName, location, code, onCodeChange
           {paths.alternatives.map(system => <View key={system.kind} style={{gap: 4}}>
             <Text style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{system.name}</Text>
             <Text selectable style={[theme.type.caption, {color: theme.colors.text}]}>{system.path}</Text>
-            {'detail' in system && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{system.detail}</Text>}
+            {'detail' in system && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{'path' in system.detail ? t(system.detail.key, {path: system.detail.path}) : t(system.detail.key)}</Text>}
           </View>)}
         </View>}
         <TextField appearance={theme.platform === 'phone' ? 'auth' : undefined} label={t('accounts.recovery.code')} value={code} onChangeText={onCodeChange} editable={!busy} autoCapitalize="characters" autoCorrect={false} autoComplete="off"/>

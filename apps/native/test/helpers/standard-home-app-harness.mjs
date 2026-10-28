@@ -155,9 +155,9 @@ const nativeURL = data(`import React from ${JSON.stringify(reactURL)};
  export const Dimensions={get:()=>({width:390,height:844,scale:1,fontScale:1}),addEventListener:()=>({remove(){}})},PixelRatio={get:()=>1,getFontScale:()=>1},useWindowDimensions=()=>({width:390,height:844,scale:1,fontScale:1});
  export const TVEventHandler={addListener:()=>({remove(){}})},registerCallableModule=()=>{},AppRegistry={registerComponent:(name,factory)=>S.registrations.set(name,factory)},StatusBar=host('StatusBar'),UIManager={hasViewManagerConfig:()=>true},findNodeHandle=node=>node?.tag??null,requireNativeComponent=name=>host(name),useTVEventHandler=()=>{},I18nManager={isRTL:false};
  export const Alert={alert(){}},Keyboard={dismiss(){},isVisible:()=>false,addListener:()=>({remove(){}})},Linking={openURL:async()=>{},canOpenURL:async()=>true,addEventListener:()=>({remove(){}}),getInitialURL:async()=>null},useColorScheme=()=> 'dark';
- class Value{constructor(value){this.value=value}setValue(value){this.value=value}stopAnimation(){}};
+ class Value{constructor(value){this.value=value}setValue(value){this.value=value}stopAnimation(){}interpolate(config){return {value:this.value,config}}};
  export const Easing={bezier:()=>x=>x,linear:x=>x};
- export const Animated={View:host('AnimatedView'),Value,timing:(value,config)=>({start:done=>{value.value=config.toValue;done?.({finished:true})}}),parallel:()=>({start(){}})};
+ export const Animated={View:host('AnimatedView'),Value,timing:(value,config)=>({start:done=>{value.value=config.toValue;done?.({finished:true})},stop(){}}),parallel:()=>({start(){},stop(){}}),sequence:()=>({start(){},stop(){}}),loop:()=>({start(){},stop(){}})};
 `);
 const animatedURL = data(`import React from ${JSON.stringify(
   reactURL,

@@ -337,7 +337,8 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
           || nextAccount.account.role !== currentAccount().account.role) {end(); return;}
         // Revalidate Home before committing the other private facts. Same-scope read failures
         // retain the entire published body; a changed Home fence retires it in the transport.
-        if (AppState.currentState === 'active' && bound.getState().homeVisible && !bound.getState().homeObscured && !playback!.getSnapshot().dock.local?.expanded) {
+        // A sheet over Home still leaves its document on screen; only a hidden Home waits.
+        if (AppState.currentState === 'active' && bound.getState().homeVisible && !playback!.getSnapshot().dock.local?.expanded) {
           await documentService.revalidate({signal: round.signal}); assertCurrent();
         } else freshness.invalidateHome();
         const selectedBeforeRefreshPublish = await readNativeSelectedViewer(); assertCurrent();
@@ -412,7 +413,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const updateHomeFreshness = () => {
       if (!current()) return;
       const state = bound.getState();
-      freshness.setHomeOpen(state.homeVisible && !state.homeObscured && !playback!.getSnapshot().dock.local?.expanded);
+      freshness.setHomeOpen(state.homeVisible && !playback!.getSnapshot().dock.local?.expanded);
     };
     freshness.setActive(AppState.currentState === 'active'); updateHomeFreshness(); freshness.attach(events);
     cleanups.push(() => freshness.dispose(), bound.subscribe(updateHomeFreshness), playback.subscribe(updateHomeFreshness));

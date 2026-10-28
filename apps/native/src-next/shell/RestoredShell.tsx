@@ -281,7 +281,7 @@ export function RestoredShell() {
     const restore = error.action === 'try-again' || error.action === 'refresh';
     const connection = error.category === 'offline' || error.category === 'unreachable' || error.category === 'timeout';
     if (connection) return withDownloads(<View style={{flex: 1, backgroundColor: theme.colors.ink}}><TVDesignCanvas><StateLayout testID="native-recovery-connection" titleRef={recoveryTitle} backdropShape="side" shell={<RecoveryBrand/>}
-      title={error.category === 'offline' ? theme.isTV ? 'This TV is offline' : defaultI18n.t('next.states.offlinePhone')
+      title={error.category === 'offline' ? theme.isTV ? defaultI18n.t('next.boot.tvOffline') : defaultI18n.t('next.states.offlinePhone')
         : serverName ? defaultI18n.t('next.states.cantReach', {server: serverName}) : defaultI18n.t('next.states.cantReachServer')}
       icon={error.category === 'offline' ? 'i-wifioff' : 'i-srvoff'} tone="warning"
       beforeActions={recoveryWait ? <RecoveryRetry waiting={recoveryWait}/> : undefined}

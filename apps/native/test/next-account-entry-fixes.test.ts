@@ -181,7 +181,7 @@ test('local two-step uses numeric one-time-code autofill and keeps the local com
   assert.deepEqual(f.calls.factor, ['001122']); assert.equal(f.calls.complete, 1); assert.equal(f.calls.prepare, 0);
 });
 
-for (const [role, sentence] of [['admin', "You'll join as an administrator."], ['member', 'accounts.invitation.member']] as const) {
+for (const [role, sentence] of [['admin', 'accounts.invitation.admin'], ['member', 'accounts.invitation.member']] as const) {
   test(`both invitation previews disclose the actual ${role} role before joining`, async context => {
     const f = await fixture(context, 'welcome', role);
     assert.equal(f.tree().props.testID, 'accounts-invitation-entry');

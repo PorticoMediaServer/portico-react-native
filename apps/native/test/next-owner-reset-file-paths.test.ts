@@ -24,5 +24,5 @@ test('unknown system help uses Linux and binding current installation defaults',
   assert.deepEqual(paths.alternatives.map(system => system.kind), ['windows', 'macos', 'docker']);
   const windows = paths.alternatives.find(system => system.kind === 'windows')!;
   assert.equal(windows.path, '%LOCALAPPDATA%\\Portico\\reset-code.txt');
-  assert.equal('detail' in windows && windows.detail, 'For a Windows service: C:\\ProgramData\\Portico\\reset-code.txt');
+  assert.deepEqual('detail' in windows && windows.detail, {key: 'accounts.recovery.fileWindowsService', path: 'C:\\ProgramData\\Portico\\reset-code.txt'});
 });

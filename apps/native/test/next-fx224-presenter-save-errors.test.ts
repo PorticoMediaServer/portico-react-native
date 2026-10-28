@@ -234,7 +234,10 @@ test('a partial multi-form failure keeps the unsaved General form and still repo
   await f.mount('general');
   f.byTestId('server-general-name').props.onChangeText('Stored name');
   await f.settle();
-  press(f.app, f.pressable('Fast'));
+  // MOB-082: background speed is one choice row (Select) rather than three buttons.
+  press(f.app, f.byTestId('general.backgroundSpeed'));
+  await f.settle();
+  press(f.app, f.byTestId('general.backgroundSpeed-option-fast'));
   await f.settle();
   f.failure.maintenanceWrite = true;
   press(f.app, f.pressable('Save'));
