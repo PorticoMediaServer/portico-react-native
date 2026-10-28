@@ -9,6 +9,7 @@ import {BulkEditor, SelectionBar} from '../../kit/selection';
 import {bulkChangeSummary} from '../destinations/bulk-media';
 import type {CardSelection} from '../../kit/cards/model';
 import {useTheme} from '../../kit/theme';
+import {ReadingCollectionPicker} from './ReadingCollectionPicker';
 import {NativeReadingActions, type NativeReadingActionOffer} from './reading-actions';
 
 const {t} = defaultI18n;
@@ -56,9 +57,12 @@ export function ReadingSelectionToolbar({port, runtime}: {port: ReadingActionsPo
       {owner ? <Button testID="reading-selection-edit" variant="glass" size="small" icon="i-edit" iconColor={theme.colors.accentStrong}
         textStyle={{color: theme.colors.accentStrong}} disabled={state.busy || !actions.canEdit(state)}
         onPress={() => actions.openEditor(state)}>{t('next.reader.editDetails')}</Button> : null}
-      {(['list', 'unlist', 'read', 'unread'] as const).map(action => <Button key={action} variant="glass" size="small" disabled={state.busy || !!bulk || !state.selected.length}
+      <Button testID="reading-selection-collection" variant="glass" size="small" icon="i-layers" disabled={state.busy || !actions.canCollect(state)}
+        onPress={() => actions.openCollection(state)}>{t('next.home.collection')}</Button>
+      {(['list', 'unlist', 'read', 'unread'] as const).map(action => <Button key={action} variant="glass" size="small" disabled={state.busy || !!bulk || !!state.collection || !state.selected.length}
         onPress={() => {void actions.apply(state, action).catch(runtime.reportError);}}>{t(action === 'list' ? 'next.home.addMyList' : action === 'unlist' ? 'next.home.removeMyList' : action === 'read' ? 'next.reader.markRead' : 'next.reader.markUnread')}</Button>)}
     </View>
+    {state.collection ? <ReadingCollectionPicker controller={state.collection} runtime={runtime} onClose={() => actions.closeCollection(state.collection)} onView={() => actions.viewCollection(state.collection)}/> : null}
     {bulk && edit ? <BulkEditor open title={t('next.reader.editDetails')} count={state.selected.length} saveLabel={t('action.save')}
       schema={edit.preview?.schema ?? []} values={edit.values} changes={edit.changes} onChangesChange={bulk.setChanges}
       lockEdited={edit.lockEdited} onLockEditedChange={bulk.setLockEdited} onSave={() => {void bulk.save();}}

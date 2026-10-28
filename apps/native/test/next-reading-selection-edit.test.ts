@@ -23,6 +23,7 @@ async function fixture(role: 'owner' | 'member') {
     dispose = () => {this.disposed = true;};
   }
   const {NativeReadingActions} = await screenModule(new URL('../src-next/screens/read/reading-actions.ts', import.meta.url), {
+    '../../../../../packages/client-core/src/reading-collection': {ReadingCollection: class {constructor() {throw new Error('unexpected collection opening');}}},
     react: {default: {}}, '../../shell/model': {sameAuthority: (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b)},
     '../../platform/server-connections': {nativeRouteCrypto: {random: () => new Uint8Array(16)}},
     '../destinations/bulk-media': {NativeBulkMedia: FakeBulk},
