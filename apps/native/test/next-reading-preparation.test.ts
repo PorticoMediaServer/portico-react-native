@@ -14,7 +14,7 @@ const caps: BrowseCapabilities = {library: {...library, defaultView: 'browse', p
   sorts: [{id: 'title', labelKey: 'sort.title', directions: ['asc', 'desc'], defaultDirection: 'asc', expensive: false, applicableKinds: ['movie']}], quickFilters: [],
   queryLimits: {maximumDepth: 6, maximumClauses: 50, maximumBytes: 8192, maximumSorts: 1, defaultLimit: 60, maximumLimit: 100, cursorTtlMs: 600000}};
 const counts = {play: 2, queue: 2, playlist: 2, myList: 2, watched: 2, collection: 2, favorite: 2, download: 0, edit: 2, refresh: 2, delete: 2};
-const whole = {selector: {query: {libraryId: 'lib', pivot: 'movies', filter: null, sort: pivot.defaultSort}}, catalogRevision: 'r1', total: 2,
+const whole = {selector: {query: {libraryId: 'lib', pivot: 'movies', filter: null, sort: pivot.defaultSort, selectionBasis: 'a'.repeat(64)}}, catalogRevision: 'r1', total: 2,
   types: [{kind: 'movie', count: 2, capabilityCounts: counts, libraries: [{libraryId: 'lib', count: 2}]}]};
 const pending = (domain: string, queryId: string) => ({kind: `${domain}-preparing`, state: 'preparing', queryId, retryAfterMs: 0});
 const ready = (body: unknown): PreparationResponse => ({status: 200, headers: {}, body});
