@@ -1,15 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
-import * as browse from '../../../packages/client-core/src/browse.ts';
-import {browseSessionBuilder} from '../../../packages/client-core/src/browse-session.ts';
-import * as windowed from '../../../packages/client-core/src/collections/windowed.ts';
-import * as content from '../../../packages/client-core/src/library-content.ts';
-import * as tabs from '../../../packages/client-core/src/presentation/library-tabs.ts';
+import {NativeLibraryDestination} from '../src-next/screens/library/model.ts';
+import type {LibraryContentApi} from '../../../packages/client-core/src/library-content.ts';
+import type {BrowseRequestBody} from '../../../packages/client-core/src/browse.ts';
 
-// The official shared-package mirror is intentionally pending. Exercise the real
-// native destination against the session publication port, without replacing or
-// hand-editing mirrored packages. Canonical tests cover wire parsing/lifetimes.
 const unavailable = {reason: 'search_not_bounded'} as const;
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 const library = {id:'lib',name:'Movies',kind:'movie'};
@@ -19,42 +14,28 @@ const caps = {library:{...library,defaultView:'browse'},pivots:[pivot],resolvedP
  queryLimits:{maximumDepth:5,maximumClauses:40,maximumBytes:65536,maximumSorts:3,defaultLimit:60,maximumLimit:100,cursorTtlMs:1800000}};
 
 test('actual native Library model publishes unavailable alongside resident rows and clears it on ready/query/retirement', async () => {
- const sessions: any[] = [];
- class Session {
-  options:any; retired=false;
-  constructor(options:any){this.options=options;sessions.push(this);}
-  retire(){this.retired=true;}
-  owns(){return !this.retired;}
-  fetchPage=async(start:number)=>{
-   await tick();
-   const entry={id:'movie',libraryId:'lib',kind:'movie',title:'Movie'};
-   if(!this.options.current()) throw new Error('retired');
-   this.options.onRevision('r1'); this.options.onWholeUnavailable(unavailable);
-   return {items:[entry],total:1,totalIsLowerBound:false,positionIndex:{}};
-  };
- }
- const {NativeLibraryDestination} = await screenModule(new URL('../src-next/screens/library/model.ts',import.meta.url),{
-  react:{default:{}},
-  '../../../../../packages/client-core/src/browse':browse,
-  '../../../../../packages/client-core/src/browse-session':{BrowseSession:Session,browseSessionBuilder},
-  '../../../../../packages/client-core/src/collections/windowed':windowed,
-  '../../../../../packages/client-core/src/library-content':content,
-  '../../../../../packages/client-core/src/presentation/library-tabs':tabs,
-  './filters':{NativeLibraryFilterDraft:class{}},
- });
  let current=true;
- const model=new NativeLibraryDestination({library,scope:{serverId:'server',viewerId:'viewer'},current:()=>current,api:{request:async()=>caps}});
+ const counts={play:1,queue:1,playlist:1,myList:1,watched:1,collection:1,favorite:1,download:0,edit:1,refresh:1,delete:1};
+ const api:LibraryContentApi={request:async<T>()=>caps as T,requestRaw:async(_path,method,options)=>{
+  assert.equal(method,'POST');const body=options?.body as BrowseRequestBody;
+  const ready=body.sort?.[0]?.direction==='desc';
+  return {status:200,headers:{},body:{pivot:'movies',applied:{query:body.query??null,sort:body.sort,seek:null},
+   entries:[{id:'movie',libraryId:'lib',kind:'movie',title:'Movie',navigation:{view:'item'}}],
+   pageInfo:{start:0,total:1,revision:'r1',hasMore:false,nextCursor:''},
+   ...(ready?{wholeSelection:{selector:{query:{libraryId:'lib',pivot:'movies',sort:body.sort,selectionBasis:'a'.repeat(64)}},catalogRevision:'r1',total:1,
+    types:[{kind:'movie',count:1,capabilityCounts:counts,libraries:[{libraryId:'lib',count:1}]}]}}:{wholeSelectionUnavailable:unavailable})}};
+ }};
+ const model=new NativeLibraryDestination({library,scope:{serverId:'server',viewerId:'viewer'},current:()=>current,api});
  try {
   await model.load();await tick();await tick();
   assert.equal(model.getSnapshot().phase,'ready');
   assert.deepEqual(model.getSnapshot().wholeSelectionUnavailable,unavailable);
-  assert.equal(model.getSnapshot().collection.itemAt(0).id,'movie');
-  const first=sessions[0];
-  first.options.onWhole({total:1}); assert.equal(model.getSnapshot().wholeSelectionUnavailable,undefined);
-  first.options.onWholeUnavailable(unavailable); assert.equal(model.getSnapshot().wholeSelection,undefined);
+  assert.equal(model.getSnapshot().collection?.itemAt(0)?.id,'movie');
   model.setQuery([],{field:'title',direction:'desc'});
-  assert.equal(model.getSnapshot().wholeSelectionUnavailable,undefined);assert.equal(first.retired,true);assert.equal(first.options.current(),false);
-  await tick();await tick();assert.ok(model.getSnapshot().wholeSelectionUnavailable);
+  assert.equal(model.getSnapshot().wholeSelectionUnavailable,undefined);
+  await tick();await tick();assert.equal(model.getSnapshot().wholeSelection?.total,1);assert.equal(model.getSnapshot().wholeSelectionUnavailable,undefined);
+  model.setQuery([],{field:'title',direction:'asc'});
+  assert.equal(model.getSnapshot().wholeSelection,undefined);await tick();await tick();assert.ok(model.getSnapshot().wholeSelectionUnavailable);
   current=false;assert.equal(model.getSnapshot().wholeSelectionUnavailable,undefined);
  } finally {model.dispose();}
 });

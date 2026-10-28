@@ -101,7 +101,7 @@ export function SelectionBar(props: SelectionBarProps) {
         <View pointerEvents="none" style={styles.count}><SelectionText size={17} weight={800}>{selectionText('next.selection.native.selected', {count: props.count})}</SelectionText></View>
         {props.selectAllUnavailable ? <View style={{marginLeft: 'auto', alignItems: 'flex-end', maxWidth: '50%'}}>
           <Button testID={controlID(props.testID, 'select-all')} variant="text" size="small" disabled accessibilityLabel={props.selectAllUnavailable.label} accessibilityHint={props.selectAllUnavailable.reason} accessibilityState={{disabled: true}} textStyle={{fontSize: 16 * textScale}}>{props.selectAllUnavailable.label}</Button>
-          <SelectionText size={11} secondary accessible>{props.selectAllUnavailable.reason}</SelectionText>
+          <SelectionText size={11} secondary>{props.selectAllUnavailable.reason}</SelectionText>
         </View> : props.onSelectAll && props.selectAllLabel ? <Button testID={controlID(props.testID, 'select-all')} variant="text" size="small" style={{marginLeft: 'auto', paddingHorizontal: 0}} textStyle={{fontSize: 16 * textScale}} onPress={props.onSelectAll}>{props.selectAllLabel}</Button> : null}
       </View>
       {props.subtitle ? <View style={{paddingHorizontal: 20, paddingBottom: 10}}><SelectionText size={13} weight={600} secondary>{props.subtitle}</SelectionText></View> : null}
@@ -121,7 +121,7 @@ export function SelectionBar(props: SelectionBarProps) {
       <View style={{flex: 1}} />
       {props.selectAllUnavailable ? <View style={{alignItems: 'flex-end', maxWidth: 260, gap: 2}}>
         <Button testID={controlID(props.testID, 'select-all')} variant="glass" size="compact" disabled accessibilityLabel={props.selectAllUnavailable.label} accessibilityHint={props.selectAllUnavailable.reason} accessibilityState={{disabled: true}} style={{height: 54, paddingHorizontal: 24}} textStyle={{fontSize: 22 * textScale}}>{props.selectAllUnavailable.label}</Button>
-        <SelectionText size={16} secondary accessible>{props.selectAllUnavailable.reason}</SelectionText>
+        <SelectionText size={16} secondary>{props.selectAllUnavailable.reason}</SelectionText>
       </View> : props.onSelectAll && props.selectAllLabel ? <Button testID={controlID(props.testID, 'select-all')} variant="glass" size="compact" onPress={props.onSelectAll} style={{height: 64, paddingHorizontal: 24}} textStyle={{fontSize: 22 * textScale}}>{props.selectAllLabel}</Button> : null}
       <Button testID={controlID(props.testID, 'dismiss')} variant="glass" size="compact" onPress={props.onCancel} style={{height: 64, paddingHorizontal: 24}} textStyle={{fontSize: 22 * textScale}}>{selectionText('next.selection.native.done')}</Button>
     </View>

@@ -4,6 +4,7 @@ import {NativeLibraryDestination} from '../src-next/screens/library/model.ts';
 import {NativeLibraryFilterDraft} from '../src-next/screens/library/filters.ts';
 import type {BrowseCapabilities, BrowseRequestBody} from '../../../packages/client-core/src/browse.ts';
 import type {LibraryContentApi} from '../../../packages/client-core/src/library-content.ts';
+import {readingTabModel} from '../../../packages/client-core/src/presentation/library-tabs.ts';
 import type {PreparationResponse} from '../../../packages/client-core/src/read-preparation.ts';
 
 const tick = async () => {for (let n = 0; n < 40; n++) await Promise.resolve();};
@@ -78,4 +79,26 @@ test('native Reading facet preparation retains prior values, then reports revoca
     assert.equal(state?.phase, 'error'); assert.equal(state?.value?.total, 1); assert.equal((state?.error as {status: number}).status, 403);
     assert.equal(calls.at(-1), 'DELETE /v1/libraries/lib/reading-facet-queries/facet');
   } finally {draft.dispose();}
+});
+
+test('native Reading initial browse 202 keeps its collection pending until the real page and releases its handle', async t => {
+  t.mock.timers.enable({apis: ['setTimeout', 'Date']});
+  const calls: string[] = []; let captured!: BrowseRequestBody;
+  const api: LibraryContentApi = {request: async <T>() => reading as T, requestRaw: async (path, method, options) => {
+    calls.push(`${method} ${path}`);
+    if (method === 'DELETE') return ready(undefined);
+    if (method === 'POST') {captured = options?.body as BrowseRequestBody; return {status: 202, headers: {'Retry-After': '1'}, body: pending('reading-browse', 'reading-page')};}
+    return ready({...page(captured), pivot: 'books', entries: [{id: 'book', kind: 'book', title: 'Book', libraryId: 'lib', navigation: {view: 'item'}}]});
+  }};
+  const destination = new NativeLibraryDestination({api, scope, library: {...library, kind: 'book'}, tab: readingTabModel(reading)!.find(tab => tab.pivot === 'books')!, current: () => true});
+  try {
+    await destination.load(); await tick();
+    assert.equal(destination.getSnapshot().collection?.itemAt(0), undefined);
+    assert.equal(destination.getSnapshot().collection?.getSnapshot().status, 'loading');
+    t.mock.timers.tick(1000); await tick(); assert.equal(calls.length, 1, 'server Retry-After is a strict floor');
+    t.mock.timers.tick(101); await tick();
+    assert.equal(destination.getSnapshot().collection?.itemAt(0)?.id, 'book');
+    assert.equal(destination.getSnapshot().collection?.getSnapshot().status, 'ready');
+    assert.deepEqual(calls.slice(1), ['GET /v1/libraries/lib/reading-browse-queries/reading-page', 'DELETE /v1/libraries/lib/reading-browse-queries/reading-page']);
+  } finally {destination.dispose();}
 });
