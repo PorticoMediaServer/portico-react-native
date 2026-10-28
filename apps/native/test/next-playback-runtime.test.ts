@@ -127,18 +127,22 @@ function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFil
     }
     // The existing fake owns session/revision/timeline receipts. Add its missing linear
     // projection at the test boundary, using the actual V1ChannelControl response schema.
-    const body = response.body as {kind?: string; id?: string; presentation?: Record<string, unknown>} | undefined;
-    if (body?.kind === 'channel' && body.id && body.presentation) {
-      const seek = (request.body as {seek?: {id: string; live?: boolean; positionMs: number}} | undefined)?.seek;
-      if (seek) channelSeeks.set(body.id, {id: seek.id, positionMs: seek.live ? 120000 : seek.positionMs, acknowledged: false});
-      const held = channelSeeks.get(body.id);
-      response = {...response, body: {...body, presentation: {...body.presentation, linear: {name: 'channel-1', originMs: 0, windowStartMs: body.presentation.generation === 0 ? 0 : channelWindow.startMs, windowEndMs: body.presentation.generation === 0 ? 0 : channelWindow.endMs, liveEdgeMs: body.presentation.generation === 0 ? 0 : channelWindow.endMs, state: body.presentation.generation === 0 ? 'preparing' : 'ready',
-        ...(held ? {seek: held, confirmedPositionMs: held.positionMs} : {})}}}};
-    }
-    if (path.endsWith('/timeline') && request.method === 'POST') {
+    // A sample reaching a pending seek's target acknowledges it (before the ack's view is built).
+    if (path.endsWith('/observation') && request.method === 'PUT') {
       const id = url.pathname.split('/').at(-2)!, held = channelSeeks.get(id);
       if (held && (request.body as {positionMs: number}).positionMs === held.positionMs) held.acknowledged = true;
     }
+    const linear = (body: {kind?: string; id?: string; presentation?: Record<string, unknown>} | undefined, seek?: {id: string; live?: boolean; positionMs: number}) => {
+      if (body?.kind !== 'channel' || !body.id || !body.presentation) return body;
+      if (seek) channelSeeks.set(body.id, {id: seek.id, positionMs: seek.live ? 120000 : seek.positionMs, acknowledged: false});
+      const held = channelSeeks.get(body.id);
+      return {...body, presentation: {...body.presentation, linear: {name: 'channel-1', originMs: 0, windowStartMs: body.presentation.generation === 0 ? 0 : channelWindow.startMs, windowEndMs: body.presentation.generation === 0 ? 0 : channelWindow.endMs, liveEdgeMs: body.presentation.generation === 0 ? 0 : channelWindow.endMs, state: body.presentation.generation === 0 ? 'preparing' : 'ready',
+        ...(held ? {seek: held, confirmedPositionMs: held.positionMs} : {})}}};
+    };
+    const body = response.body as {kind?: string; id?: string; presentation?: Record<string, unknown>; session?: {kind?: string; id?: string; presentation?: Record<string, unknown>}} | undefined;
+    if (body?.kind === 'channel') response = {...response, body: linear(body, (request.body as {seek?: {id: string; live?: boolean; positionMs: number}} | undefined)?.seek)};
+    // An observation's ack carries the channel view: it gets the same linear projection.
+    else if (body?.session?.kind === 'channel') response = {...response, body: {...body, session: linear(body.session)}};
     return new Response(response.status === 204 ? null : JSON.stringify(response.body), {status: response.status, headers: response.headers});
   };
   const api = new HttpLocalApi('https://portico.test', '', fetcher);
@@ -511,7 +515,7 @@ test('the app-local strict transport guards native controller adoption and never
     d.respond(request => request.method === 'PATCH' ? {status: 410, headers: {}, body: {error: {code: 'session_ended', message: 'session_ended'}}} : undefined);
     await assert.rejects(d.runtime.queue.changePlayback({audioTrackId: 'a2'}, {...versionLifetime(), recoverEnded: false}), (error: any) => error.status === 410);
     assert.equal(d.runtime.queue.currentSession()?.id, original.id);
-    assert.equal(d.requests.slice(sent).some(request => request.method === 'POST' || request.path.endsWith('/timeline')), false);
+    assert.equal(d.requests.slice(sent).some(request => request.method === 'POST' || request.path.endsWith('/observation')), false);
   } finally {d.runtime.dispose();}
 });
 
@@ -2462,7 +2466,7 @@ test('late combined cleanup refuses a session that does not match its returned q
 });
 
 
-const timelineBodies = (requests: FakeRequest[]) => requests.filter(request => request.method === 'POST' && request.path.endsWith('/timeline')).map(request => request.body as Record<string, any>);
+const timelineBodies = (requests: FakeRequest[]) => requests.filter(request => request.method === 'PUT' && request.path.endsWith('/observation')).map(request => request.body as Record<string, any>);
 
 test('accepted renderer output reaches the existing timeline as an immutable scalar whitelist, with no plan inference', async () => {
   const d = fixture();
@@ -2756,9 +2760,9 @@ function assertColdChannelPending(d: ReturnType<typeof fixture>, baseline: Chann
   assert.equal(diagnostics.commandSent, false); assert.equal(diagnostics.boundSession, null);
   assert.equal(opening.outcome.status, 'pending', 'cold control admission does not complete the original ordered join');
   assert.deepEqual(callbacks, []);
-  const path = encodedRoutePath('get_playback_session', {id: body.id});
-  assert.equal(d.requests.filter(request => request.method === 'GET' && request.path === path).length, 0, 'the original ordinary poll has not fired before clock advancement');
-  assert.equal(d.requests.filter(request => request.method === 'PATCH' && request.path === path).length, 0, 'there is no resolved join seek before the positive poll');
+  const path = encodedRoutePath('get_playback_session', {id: body.id}), observed = encodedRoutePath('put_playback_observation', {id: body.id});
+  assert.equal(d.requests.filter(request => request.method === 'PUT' && request.path === observed).length, 0, 'the original first observation has not fired before clock advancement');
+  assert.equal(d.requests.filter(request => request.method === 'PATCH' && request.path === path).length, 0, 'there is no resolved join seek before the positive observation');
   return body.id;
 }
 function assertOriginalChannelJoin(d: ReturnType<typeof fixture>, id: string) {
@@ -2766,10 +2770,11 @@ function assertOriginalChannelJoin(d: ReturnType<typeof fixture>, id: string) {
   const state = d.runtime.playback.getSnapshot(); assert(state.session); assert(state.session.generation > 0); assert(state.session.streamUrl);
   assert(state.linear?.desired.seek); assert.notEqual(state.linear.desired.seek.positionUs, null);
   assert.equal(state.linear.desired.seek.bufferGeneration, state.linear.media.bufferGeneration);
-  const path = encodedRoutePath('get_playback_session', {id});
-  assert(d.requests.some(request => request.method === 'GET' && request.path === path), 'the original resource was polled');
+  const path = encodedRoutePath('get_playback_session', {id}), observed = encodedRoutePath('put_playback_observation', {id});
+  // The channel's view arrives with an observation's ack (no separate poll).
+  assert(d.requests.some(request => request.method === 'PUT' && request.path === observed), 'the original resource was observed');
   const joins = d.requests.filter(request => request.method === 'PATCH' && request.path === path && record(request.body) && record(request.body.seek) && request.body.seek.live === true);
-  assert.equal(joins.length, 1, 'the positive poll dispatches one ordered go-live join on the same resource');
+  assert.equal(joins.length, 1, 'the positive observation dispatches one ordered go-live join on the same resource');
   assert(joins[0]!.headers?.['if-match']);
   const binding = d.runtime.coordinator.getBinding(); assert(binding);
   assert.equal(binding.sessionId, id); assert.equal(binding.generation, state.session.generation);
