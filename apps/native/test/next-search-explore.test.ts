@@ -12,9 +12,9 @@ const genre = (value: string, count = 1) => ({value, label: `Metadata ${value}`,
 type Page = SearchGenrePage & {hasGenres?: boolean; previousCursor?: string; reloadCursor?: string};
 type Request = SearchGenreRequest & {preview?: 'covers' | 'backdrop'};
 const api: LibraryContentApi = {request: async () => {throw new Error('native adapter must use shared reader');}};
-async function adapters(read: (api: LibraryContentApi, request: Request, signal: AbortSignal) => Promise<Page>) {
+async function adapters(read: (api: LibraryContentApi, request: Request, signal: AbortSignal, options?:{onFallback?:()=>void}) => Promise<Page>, release: (page: Page|undefined)=>void=()=>{}) {
   return await screenModule(new URL('../src-next/screens/search/explore.ts', import.meta.url), {
-    react: {default: {}}, '../../../../../packages/client-core/src/search-genres': {readSearchGenres: read,releaseSearchGenres:()=>{},searchGenresReadMetadata:()=>undefined},
+    react: {default: {}}, '../../../../../packages/client-core/src/search-genres': {readSearchGenres: read,releaseSearchGenres:release,searchGenresReadMetadata:()=>undefined},
   }) as typeof import('../src-next/screens/search/explore.ts');
 }
 const options = {api, current: () => true, openGenre() {}};
@@ -84,7 +84,7 @@ test('preview retirement, hiding and background cancellation discard late respon
   assert.deepEqual(retired.genres, []); assert.equal(opens, 0); assert.equal(controller.getSnapshot(), retired);
 });
 
-const page = (number: number): Page => ({queryId:'fixture_query',revision: 'basis', genres: Array.from({length: 50}, (_, index) => ({value: `${number}:${index}`, label: `Genre ${number}:${index}`, count: 10, covers: []})),
+const page = (number: number): Page => ({queryId:`fixture_query_${number}`,revision: 'basis', genres: Array.from({length: 50}, (_, index) => ({value: `${number}:${index}`, label: `Genre ${number}:${index}`, count: 10, covers: []})),
   ...(number < 8 ? {nextCursor: `after:${number}`} : {}), ...(number ? {previousCursor: `before:${number}`} : {}), reloadCursor: `at:${number}`});
 const pageNumber = (cursor?: string) => cursor?.startsWith('after:') ? Number(cursor.slice(6)) + 1 : cursor?.startsWith('before:') ? Number(cursor.slice(7)) - 1 : cursor ? Number(cursor.slice(3)) : 0;
 
@@ -192,4 +192,27 @@ test('All genres detects resident cursor cycles without retaining lifetime curso
     await list.load(); await list.next(); await list.next(); await list.next();
     assert.equal(reads, 3); assert.equal(list.getSnapshot().phase, 'error');
   } finally {list.dispose();}
+});
+
+test('cold preview fallback stops the spinner without claiming an empty genre catalogue, then installs exact', async()=>{
+  let finish!:(page:Page)=>void,entered!:()=>void;const started=new Promise<void>(resolve=>{entered=resolve;});
+  const {NativeSearchExplore}=await adapters(async(_api,_request,_signal,options)=>{
+    options?.onFallback?.();entered();return new Promise(resolve=>{finish=resolve;});
+  });
+  const controller=new NativeSearchExplore({...options,surface:'tv'});
+  try{const loading=controller.load();await started;assert.equal(controller.getSnapshot().phase,'ready');assert.equal(controller.getSnapshot().hasGenres,undefined);
+    finish({queryId:'exact_query',revision:'exact',hasGenres:true,genres:[genre('ready')]});await loading;
+    assert.equal(controller.getSnapshot().hasGenres,true);assert.equal(controller.getSnapshot().genres[0].id,'ready');
+  }finally{controller.dispose();}
+});
+
+test('resident directory leases are released on page eviction, background and disposal',async()=>{
+  const released=new Set<string>();
+  const {NativeSearchGenreList}=await adapters(async(_api,request)=>page(pageNumber(request.cursor)),value=>{if(value)released.add(value.queryId);});
+  const list=new NativeSearchGenreList(options);
+  try{await list.load();await list.next();await list.next();assert.equal(released.size,0);
+    await list.next();assert.deepEqual([...released],['fixture_query_0']);
+    list.setActive(false);assert.deepEqual([...released].sort(),['fixture_query_0','fixture_query_1','fixture_query_2','fixture_query_3']);
+    assert.equal(list.getSnapshot().genres.length,150);
+  }finally{list.dispose();}
 });
