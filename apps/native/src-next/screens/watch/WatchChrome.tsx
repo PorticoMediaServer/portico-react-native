@@ -372,7 +372,8 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       ? t('player.live.scheduled', {title: liveActions.recording.programme.title}) : `${recordingLabel(liveActions.recording.state)}: ${liveActions.recording.programme.title}` : undefined;
   const liveEdge = linear ? channelSeconds(linear.media.liveEdgeUs) : undefined;
   const behindLive = liveEdge === undefined ? 0 : Math.max(0, liveEdge - source.playback.positionSeconds);
-  const audioTracks = source.options?.versions.find(version => version.id === source.session?.versionId)?.audio.length ?? source.options?.versions[0]?.audio.length ?? 0;
+  const audioTracks = source.fence?.kind === 'local' ? source.localTracks?.audio.length ?? 0
+    : source.options?.versions.find(version => version.id === source.session?.versionId)?.audio.length ?? source.options?.versions[0]?.audio.length ?? 0;
   const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 3).map(word => word[0]!.toUpperCase()).join('');
   const channelMark = linear ? (linear.media.logoUrl
     ? <Artwork source={props.artwork?.(linear.media.logoUrl)} width={64} height={64} style={{borderRadius: 15, overflow: 'hidden', marginRight: 24}}/>

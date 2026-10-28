@@ -164,7 +164,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     && latest.current.state.panel === state.panel && !!state.panel && latest.current.panelCurrent(), [playback, fence, state.panel]);
   const back = () => {if (current()) context.backPanel();};
   useOverlayLifecycle(!!state.panel, true, back, theme.isTV ? undefined : first, undefined, 0, 'watch-panel', !theme.isTV);
-  useEffect(() => {const expected = latest.current.fence; void options.load(expected); return () => options.clear();}, [options, fenceKey]);
+  useEffect(() => {const expected = latest.current.fence; if (expected.kind === 'queue') void options.load(expected); else options.clear(); return () => options.clear();}, [options, fenceKey]);
   useEffect(() => {const epoch = commandEpoch.current + 1; commandEpoch.current = epoch; busy.current = false; setPending(false);
     return () => {commandEpoch.current = epoch + 1;};}, [fenceKey, state.panel]);
   useEffect(() => {scroll.current?.scrollTo({y: state.panelOffset, animated: false});}, [state.panel, state.panelOffset]);
@@ -203,10 +203,13 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
   if (!state.panel || !sameFence(state.fence, fence)) return null;
   if (state.panel === 'episodes') return episodes?.(context) ?? null;
   const ready = choices.phase === 'ready' && sameFence(choices.fence, fence) ? choices.options : undefined;
-  const subtitlePlan = source.subtitles?.plan, subtitleProvider = source.subtitles?.catalog?.provider, subtitleCandidates = source.subtitles?.candidates ?? [];
+  const onlineSubtitles = fence.kind === 'queue' ? source.subtitles : undefined;
+  const subtitlePlan = onlineSubtitles?.plan, subtitleProvider = onlineSubtitles?.catalog?.provider, subtitleCandidates = onlineSubtitles?.candidates ?? [];
   const subtitleDiscovered = subtitlePlan ? subtitlePlan.discovered.filter(track => !subtitlePlan.resources.some(resource => resource.discoveryId === track.id && resource.enabled)) : [];
-  const rows = ready ? nativeWatchPanelRows(source, ready, names) : undefined;
-  const selected = nativeWatchTracks(source);
+  const selected = nativeWatchTracks(source), localTracks = selected.local;
+  const rows = ready || localTracks ? nativeWatchPanelRows(source, ready, names) : undefined;
+  const subtitleOffsetMs = localTracks && localTracks.subtitleTimingSupported && selected.subtitle ? localTracks.subtitleOffsetMs
+    : selected.resource && source.subtitles?.plan ? Number(source.subtitles.plan.offsetUs) / 1000 : undefined;
   // The accepted window's own wire facts only: an entry is offered where the projection says
   // it is available and carries a real position after the current one, with a display row the
   // queue actually published and a video kind the producer admits. No unseen slots, no
@@ -353,16 +356,19 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
       </Focusable>;
     })}
   </View>;
-  else if (choices.phase === 'failed' && state.panel !== 'audio') body = renderError(choices.error, retry);
-  else if (choices.phase === 'failed') body = <View style={{padding: theme.isTV ? 14 : 24, alignItems: 'center', gap: 12}}>
+  else if (!localTracks && choices.phase === 'failed' && state.panel !== 'audio') body = renderError(choices.error, retry);
+  else if (!localTracks && choices.phase === 'failed') body = <View style={{padding: theme.isTV ? 14 : 24, alignItems: 'center', gap: 12}}>
     <Icon name="i-audio" size={theme.isTV ? 36 : 22}/><Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('player.opt.audioLoadFailed')}</Text>
     {!theme.isTV && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{copy.audioContinues}</Text>}
     <Button ref={first} focusId="watch-choices-retry" variant="glass" icon="i-restart" onPress={retry}>{t('action.tryAgain')}</Button>
   </View>;
-  else if (!ready || !rows) body = <ActivityIndicator accessibilityLabel={t('player.opt.loadingAudio')}/>;
+  else if ((!ready && !localTracks) || !rows) body = <ActivityIndicator accessibilityLabel={t('player.opt.loadingAudio')}/>;
   else if (state.panel === 'audio') body = <>{list(rows.audio, track => playback.change(fence, {audioTrackId: track.id}))}{footer(names.audioFooter(source))}</>;
   else if (state.panel === 'subtitles') body = <>
     {list([{id: 'subtitle-off', primary: t('player.opt.off'), selected: selected.subtitlesOff, value: null}, ...rows.subtitles], track => playback.change(fence, {subtitleTrackId: track?.id ?? null}))}
+    {localTracks?.subtitleError && <View style={{marginHorizontal: theme.isTV ? 14 : 18, marginVertical: 10}}>
+      <Text testID="watch-subtitle-local-error" accessibilityRole="alert" style={{color: theme.colors.textSecondary}}>{t('player.opt.unavailable')}</Text>
+    </View>}
     {source.forcedOnly && playback.setForcedOnly && <Focusable focusId="watch-subtitle-forced" testID="watch-subtitle-forced" focusKind="row" accessibilityRole="switch"
       accessibilityLabel={t('player.opt.forced')} accessibilityState={{checked: source.forcedOnly.on}} disabled={!current() || pending}
       onPress={() => {if (!current()) return; playback.setForcedOnly?.(fence, !source.forcedOnly!.on);}}
@@ -396,9 +402,9 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     {style && style.fields.length > 0 && !theme.isTV && actionRow('subtitle-style', t('player.opt.subtitleStyle'), styleSummary,
       () => {if (current()) context.openPanel('style');})}
     {subtitleReasonText && <Text style={{marginHorizontal: theme.isTV ? 14 : 18, marginTop: 8, color: theme.colors.textTertiary}}>{subtitleReasonText}</Text>}
-    {selected.resource && source.subtitles?.plan && <View style={{marginHorizontal: theme.isTV ? 14 : 18, marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 6}}>
+    {subtitleOffsetMs !== undefined && <View style={{marginHorizontal: theme.isTV ? 14 : 18, marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 6}}>
       <Text style={[theme.type.bodyStrong, {color: theme.colors.text, flex: 1}]}>{t('player.opt.timing')}</Text>
-      <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('player.opt.offsetSeconds', {seconds: new Intl.NumberFormat(context.runtime.text.locale, {minimumFractionDigits: 1, maximumFractionDigits: 1}).format(Number(source.subtitles.plan.offsetUs) / 1_000_000)})}</Text>
+      <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('player.opt.offsetSeconds', {seconds: new Intl.NumberFormat(context.runtime.text.locale, {minimumFractionDigits: 1, maximumFractionDigits: 1}).format(subtitleOffsetMs / 1000)})}</Text>
       {[-500, 500].map(delta => <Button key={delta} focusId={`watch-subtitle-offset-${delta}`} variant="glass" size="small" style={tablet ? {height: 44, minWidth: 44} : undefined} disabled={pending || !nativeWatchSubtitleTiming(source, delta)}
         accessibilityLabel={t(delta < 0 ? 'player.opt.earlier' : 'player.opt.later')} onPress={() => {const choice = nativeWatchSubtitleTiming(playback.getSnapshot(), delta); if (choice) void run(() => playback.change(fence, choice));}}>
         {`${delta < 0 ? '−' : '+'}${new Intl.NumberFormat(context.runtime.text.locale, {minimumFractionDigits: 1, maximumFractionDigits: 1}).format(.5)}`}
@@ -422,7 +428,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
         </Focusable>)}
       </View>
     </View>)}</View>;
-  else if (state.panel === 'chapters') body = list(ready.chapters.map((chapter, index) => ({id: `${index}:${chapter.startMs}`, primary: chapter.title || t('player.chapter.numbered', {number: index + 1}), secondary: clockText(chapter.startMs / 1000), selected: source.playback.positionSeconds * 1000 >= chapter.startMs && (!ready.chapters[index + 1] || source.playback.positionSeconds * 1000 < ready.chapters[index + 1]!.startMs), value: chapter})), chapter => playback.seek(fence, chapter.startMs / 1000));
+  else if (state.panel === 'chapters' && ready) body = list(ready.chapters.map((chapter, index) => ({id: `${index}:${chapter.startMs}`, primary: chapter.title || t('player.chapter.numbered', {number: index + 1}), secondary: clockText(chapter.startMs / 1000), selected: source.playback.positionSeconds * 1000 >= chapter.startMs && (!ready.chapters[index + 1] || source.playback.positionSeconds * 1000 < ready.chapters[index + 1]!.startMs), value: chapter})), chapter => playback.seek(fence, chapter.startMs / 1000));
   const option = (panel: NativeWatchPanel, icon: IconName, value?: string) => {
     const open = state.panel === panel;
     return <Focusable key={panel} ref={state.panel === 'options' && (state.panelFocus === panel || !state.panelFocus && panel === 'subtitles') ? first : undefined}
@@ -451,7 +457,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     {style && style.fields.length > 0 && theme.isTV && option('style', 'i-subs', styleSummary)}
     {option('audio', 'i-audio', rows?.audio.find(row => row.selected)?.primary)}
     {state.panel === 'audio' && well('audio', expandedBody)}
-    {option('quality', 'i-quality', rows?.qualities.find(row => row.selected)?.primary)}
+    {fence.kind !== 'local' && option('quality', 'i-quality', rows?.qualities.find(row => row.selected)?.primary)}
     {state.panel === 'quality' && well('quality', expandedBody)}
     {option('speed', 'i-gauge', rateLabel(source.effectiveRate))}
     {state.panel === 'speed' && well('speed', expandedBody)}

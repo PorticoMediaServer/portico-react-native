@@ -37,10 +37,13 @@ export function subtitleExtraFiles(track: DownloadBundleSubtitle): readonly (rea
 
 export type StoredSubtitle = Readonly<{
   id: string; language: string; title: string; default: boolean; forced: boolean;
+  revision?: number;
   /** The form on this device that the track is played from: `ass`, `pgs`, `vobsub`, `dvb` or `vtt`. */
   format: string;
   /** The file the player opens: for a VobSub track its index (the pictures are beside it, under the same name ending `.sub`). */
   url: string;
+  /** Plain reading saved beside a rich original, for an engine without that renderer. */
+  textUrl?: string;
   /** A styled script's attached fonts that are on this device, by the names they are kept under. */
   fonts?: readonly Readonly<{name: string; url: string}>[];
   /** An image track's line count and how many are forced, as the server counted them. */
@@ -65,7 +68,8 @@ export function storedSubtitle(track: DownloadBundleSubtitle, saved: ReadonlySet
     .sort((a, b) => a.index - b.index)
     .map(font => Object.freeze({name: subtitleExtraName(track.id, track.revision, font.name), url: at(font.name)}));
   return Object.freeze({
-    id: track.id, language: track.language, title: track.title, default: track.default, forced: track.forced, format: form, url: at(form),
+    id: track.id, revision: track.revision, language: track.language, title: track.title, default: track.default, forced: track.forced, format: form, url: at(form),
+    ...(form !== 'vtt' && has('vtt') ? {textUrl: at('vtt')} : {}),
     ...(fonts.length ? {fonts: Object.freeze(fonts)} : {}),
     ...(track.lines ? {lines: track.lines} : {}),
   });

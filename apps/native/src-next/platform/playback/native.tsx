@@ -3,7 +3,7 @@ import {AppState, Dimensions, NativeEventEmitter, NativeModules, Platform, UIMan
 import {CapabilityPublisher} from '../../../../../packages/client-core/src/playback-v1/options';
 import {localV1Http} from '../../../../../packages/client-core/src/playback-v1/local-http';
 import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
-import {chooseEngine, parseEngineFeatures, type EngineKind} from './engine-choice';
+import {chooseEngine, localRuleFacts, parseEngineFeatures, type EngineKind} from './engine-choice';
 import {planEngineOf, requiredSubtitleRendering} from './engine-media';
 import {deviceCapabilityDocument} from './capability-document';
 import type {NativeFacts} from './device-profile';
@@ -91,15 +91,16 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
   // The engine views emit the PiP state they answered; a television offers none.
   const pictureEvents: {remove: () => void}[] = [];
   let runtime: NativePlaybackRuntime;
-  runtime = new NativePlaybackRuntime({...options, ...(Platform.OS === 'android' ? {androidDisplayMatching: true as const} : {}), ...(nativeDynamicRangeMatchingAvailable() ? {nativeDynamicRangeMatching: true as const} : {}), ...(pipSupported ? {pictureInPictureControls: true as const} : {}), offlineDevice: options.offlineDevice ?? offlineDownloads, engineFeatures: kind => kind === 'mpv' && mpvFeatures ? mpvFeatures : nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
+  runtime = new NativePlaybackRuntime({...options, ...(Platform.OS === 'android' ? {androidDisplayMatching: true as const, nativeLocalSubtitleTiming: true as const} : {}), ...(nativeDynamicRangeMatchingAvailable() ? {nativeDynamicRangeMatching: true as const} : {}), ...(pipSupported ? {pictureInPictureControls: true as const} : {}), offlineDevice: options.offlineDevice ?? offlineDownloads, engineFeatures: kind => kind === 'mpv' && mpvFeatures ? mpvFeatures : nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
     disposeCapabilities: () => { closed = true; offSettings(); capabilitiesEvent?.remove(); for (const event of pictureEvents) event.remove(); capabilityHttp.dispose(); appState?.remove(); void native.purgeAudioCache?.().catch(() => {}); },
     engines: {initial: 'native', transport: kind => kind === 'mpv' ? mpvTransport : nativeTransport, choose: state => {
-      const session = state.session, known = session ? runtime.path.session(session.id) ?? runtime.queue.currentSession() : undefined;
+      const session = state.session, known = session && session.mode !== 'local' ? runtime.path.session(session.id) ?? runtime.queue.currentSession() : undefined;
       const plan = planEngineOf(session, known), snapshot = runtime.getSnapshot();
       const nativeOnly = !!state.nativeListening || !!session?.audio || known?.kind === 'audio';
       if (plan.stale && !nativeOnly) return runtime.coordinator.getEngine();
       return chooseEngine({setting: options.settings().engine, mpvAvailable, planEngine: plan.engine, nativeOnly,
-        requiredSubtitleRendering: requiredSubtitleRendering(snapshot.subtitles?.plan, known), nativeSubtitleRendering: nativeFeatures.subtitleRendering});
+        ...(session?.mode === 'local' ? localRuleFacts({address: session.streamUrl, local: true, platform: Platform.OS === 'android' ? 'android' : 'apple', container: runtime.localContainer(session)}) : {}),
+        requiredSubtitleRendering: session?.mode === 'local' ? runtime.localSubtitleRendering() : requiredSubtitleRendering(snapshot.subtitles?.plan, known), nativeSubtitleRendering: nativeFeatures.subtitleRendering});
     }}});
   runtime.installSnapshotCapture(createVideoSnapshotCapture({isCurrent: runtime.isSnapshotSourceCurrent}));
   if (pipSupported) {

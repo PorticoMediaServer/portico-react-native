@@ -8,7 +8,6 @@ import android.database.ContentObserver
 import android.hardware.display.DisplayManager
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
-import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.MediaCodecInfo
 import android.media.MediaCodecInfo.CodecProfileLevel
@@ -111,9 +110,13 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
       val display = displays.getDisplay(Display.DEFAULT_DISPLAY)
       result.putArray("displayHdr", displayHdr(display))
       result.putMap("screen", screen(display))
-      val outputs = try { audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList() } catch (_: Exception) { emptyList() }
-      result.putArray("passthrough", passthrough(outputs))
-      result.putMap("audio", output(outputs))
+      val outputs = try { audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).map { PorticoOutputDevice(it.type, it.channelCounts.toList(), it.encodings.toList()) } } catch (_: Exception) { emptyList() }
+      val output = PorticoCapabilityAudio.output(outputs, PorticoMpvDevice.isTelevision, hdmiPlug())
+      result.putArray("passthrough", passthrough(output))
+      result.putMap("audio", Arguments.createMap().apply {
+        putInt("maxOutputChannels", output.channels)
+        putString("route", output.route)
+      })
       promise.resolve(result)
     } catch (e: Exception) {
       promise.reject("capabilities", "This device's playback capabilities could not be read.", e)
@@ -122,22 +125,8 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
 
   // --- video -----------------------------------------------------------------------------
 
-  private class Video(val codec: String) {
-    var hardware = false
-    var maxWidth = 0
-    var maxHeight = 0
-    var maxFrameRate = 0
-    var maxBitrate = 0
-    var maxLevel = 0
-    var tenBit = false
-    var points: List<VideoPoint> = emptyList()
-    val profiles = LinkedHashSet<String>()
-    val hdr = LinkedHashSet<String>()
-    val dolbyVision = LinkedHashSet<Int>()
-  }
-
   private fun videoDecoders(codecs: List<MediaCodecInfo>): WritableArray {
-    val found = LinkedHashMap<String, Video>()
+    val found = LinkedHashMap<String, PorticoVideoDecoder>()
     var dolbyVision: Set<Int> = emptySet()
     for (info in codecs) {
       for (type in info.supportedTypes) {
@@ -149,25 +138,17 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
         }
         val codec = VIDEO[mime] ?: continue
         val video = capabilities.videoCapabilities ?: continue
-        val hardware = hardware(info)
-        val entry = found.getOrPut(codec) { Video(codec) }
-        // The chip's decoder describes the device; a software decoder only fills in when there is none.
-        if (entry.hardware && !hardware) continue
-        if (hardware && !entry.hardware) {
-          entry.hardware = true
-          entry.maxWidth = 0; entry.maxHeight = 0; entry.maxFrameRate = 0; entry.maxBitrate = 0; entry.maxLevel = 0
-          entry.tenBit = false; entry.points = emptyList(); entry.profiles.clear(); entry.hdr.clear()
-        }
+        val entry = PorticoVideoDecoder(codec)
+        entry.hardware = hardware(info)
         val width = video.supportedWidths.upper
         val height = try { video.getSupportedHeightsFor(width).upper } catch (_: Exception) { video.supportedHeights.upper }
-        if (width.toLong() * height > entry.maxWidth.toLong() * entry.maxHeight) {
-          entry.maxWidth = width
-          entry.maxHeight = height
-          entry.maxFrameRate = try { video.getSupportedFrameRatesFor(width, height).upper.toInt() } catch (_: Exception) { video.supportedFrameRates.upper }
-          entry.points = videoPoints(video, width, height)
-        }
-        entry.maxBitrate = maxOf(entry.maxBitrate, video.bitrateRange.upper)
+        entry.maxWidth = width
+        entry.maxHeight = height
+        entry.maxFrameRate = try { video.getSupportedFrameRatesFor(width, height).upper.toInt() } catch (_: Exception) { video.supportedFrameRates.upper }
+        entry.points = videoPoints(video, width, height)
+        entry.maxBitrate = video.bitrateRange.upper
         for (level in capabilities.profileLevels) describe(codec, level, entry)
+        if (entry.preferredOver(found[codec])) found[codec] = entry
       }
     }
     found["hevc"]?.dolbyVision?.addAll(dolbyVision.filter { it != 9 })
@@ -187,7 +168,7 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
         if (entry.profiles.isNotEmpty()) putArray("profiles", Arguments.fromList(entry.profiles.toList()))
         if (entry.maxLevel > 0) putInt("maxLevel", entry.maxLevel)
         putBoolean("tenBit", entry.tenBit)
-        putArray("hdr", Arguments.fromList(entry.hdr.toList()))
+        putArray("hdr", Arguments.fromList(entry.decodedRanges()))
         if (entry.dolbyVision.isNotEmpty()) putArray("dolbyVisionProfiles", Arguments.fromList(entry.dolbyVision.sorted()))
       })
     }
@@ -199,7 +180,7 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
    * profile as `ffprobe` names it, lowercased with underscores ("High 10" is `high_10`). The
    * server refuses a file whose profile is not listed, so the vocabulary has to be the file's.
    */
-  private fun describe(codec: String, level: CodecProfileLevel, entry: Video) {
+  private fun describe(codec: String, level: CodecProfileLevel, entry: PorticoVideoDecoder) {
     when (codec) {
       "h264" -> {
         when (level.profile) {
@@ -260,76 +241,44 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
     return out
   }
 
-  /** The output a new playback would use: the first kind in [ROUTES] that is connected. */
-  private fun activeOutput(outputs: List<AudioDeviceInfo>): AudioDeviceInfo? =
-      ROUTES.firstNotNullOfOrNull { (types, _) -> outputs.firstOrNull { it.type in types } }
-
   /**
    * What the receiver or television takes as a bitstream. Only when the sound is going there:
    * with headphones or a Bluetooth speaker connected the system plays through those, and a
    * bitstream the receiver could have taken has nowhere to go.
    */
-  private fun passthrough(outputs: List<AudioDeviceInfo>): WritableArray {
-    val found = LinkedHashMap<String, Pair<Int, Boolean>>()
-    val active = activeOutput(outputs)
-    for (device in outputs) {
-      if (device.type !in DIGITAL_OUTPUTS) continue
-      if (active != null && active.type !in DIGITAL_OUTPUTS) continue
-      val channels = (device.channelCounts.maxOrNull() ?: 0)
-      for (encoding in device.encodings) {
-        val (codec, limit, atmos) = BITSTREAMS[encoding] ?: continue
-        val previous = found[codec]
-        found[codec] = Pair(maxOf(previous?.first ?: 0, if (channels > 0) minOf(channels, limit) else limit), (previous?.second ?: false) || atmos)
-      }
-    }
+  private fun passthrough(output: PorticoEffectiveOutput): WritableArray {
+    val out = Arguments.createArray()
+    if (!output.digital) return out
+    val encodings = output.encodings.toMutableList()
+    var channels = output.channels
     // The player's own answer as well: what its audio output would hand on untouched. It reads
     // what the system says can be played directly, what the HDMI plug reported, and the surround
     // setting some televisions and Fire TV keep instead, so a receiver the device list above says
-    // nothing about is still found. Asked only while sound is going to the digital output.
-    if (active == null || active.type in DIGITAL_OUTPUTS) {
+    // nothing about is still found. An optical route uses its own encodings; the global HDMI
+    // broadcast must not lend an optical output the receiver's lossless formats.
+    if (output.route == "hdmi") {
       val player = try { androidx.media3.exoplayer.audio.AudioCapabilities.getCapabilities(reactApplicationContext, androidx.media3.common.AudioAttributes.DEFAULT, null) } catch (_: Throwable) { null }
-      if (player != null) for ((encoding, entry) in BITSTREAMS) {
-        if (!player.supportsEncoding(encoding)) continue
-        val (codec, limit, atmos) = entry
-        val channels = player.maxChannelCount
-        val previous = found[codec]
-        found[codec] = Pair(maxOf(previous?.first ?: 0, if (channels > 0) minOf(channels, limit) else limit), (previous?.second ?: false) || atmos)
+      if (player != null) {
+        channels = maxOf(channels, player.maxChannelCount)
+        encodings.addAll(PorticoCapabilityAudio.bitstreams.keys.filter { player.supportsEncoding(it) })
       }
     }
-    val out = Arguments.createArray()
-    for ((codec, value) in found) out.pushMap(Arguments.createMap().apply {
-      putString("codec", codec)
-      putInt("maxChannels", value.first)
-      if (value.second) putArray("objectAudio", Arguments.fromList(listOf("atmos")))
+    for (value in PorticoCapabilityAudio.passthrough(encodings, channels)) out.pushMap(Arguments.createMap().apply {
+      putString("codec", value.codec)
+      putInt("maxChannels", value.channels)
+      if (value.variants.isNotEmpty()) putArray("variants", Arguments.fromList(value.variants))
+      if (value.objectAudio.isNotEmpty()) putArray("objectAudio", Arguments.fromList(value.objectAudio))
     })
     return out
   }
 
-  /** The output a new playback would use, as one of the words the profile uses, and how many channels it carries. */
-  private fun output(outputs: List<AudioDeviceInfo>): WritableMap {
-    val device = activeOutput(outputs)
-    var route = device?.let { d -> ROUTES.first { d.type in it.first }.second } ?: if (outputs.isEmpty()) "" else "other"
-    val chosen = device ?: outputs.firstOrNull()
-    // A device that lists no channel counts takes any number of channels. That is eight on a
-    // digital output (a receiver or television) and two on anything else.
-    var channels = chosen?.channelCounts?.maxOrNull() ?: if (chosen != null && chosen.type in DIGITAL_OUTPUTS) 8 else 2
-    // Fire OS may list no HDMI device at all. A television box whose sound is not going to
-    // headphones, Bluetooth or USB, with the HDMI plug reporting a connected sink, sends it over
-    // HDMI, with as many channels as the plug reported.
-    if (PorticoMpvDevice.isTelevision && route !in setOf("hdmi", "bluetooth", "headphones", "usb")) {
-      hdmiPlug()?.let { plugged -> route = "hdmi"; if (plugged > 0) channels = plugged }
-    }
-    return Arguments.createMap().apply {
-      putInt("maxOutputChannels", channels.coerceIn(2, 16))
-      putString("route", route)
-    }
-  }
-
-  /** The HDMI sink's channel count from the plug broadcast when one is connected (0: not said), else null. */
-  private fun hdmiPlug(): Int? = try {
+  /** The HDMI sink's facts from the plug broadcast when one is connected, else null. */
+  private fun hdmiPlug(): PorticoHdmiPlug? = try {
     val sticky = if (Build.VERSION.SDK_INT >= 33) reactApplicationContext.registerReceiver(null, IntentFilter(AudioManager.ACTION_HDMI_AUDIO_PLUG), Context.RECEIVER_NOT_EXPORTED)
         else reactApplicationContext.registerReceiver(null, IntentFilter(AudioManager.ACTION_HDMI_AUDIO_PLUG))
-    if (sticky?.getIntExtra(AudioManager.EXTRA_AUDIO_PLUG_STATE, 0) == 1) sticky.getIntExtra(AudioManager.EXTRA_MAX_CHANNEL_COUNT, 0) else null
+    if (sticky?.getIntExtra(AudioManager.EXTRA_AUDIO_PLUG_STATE, 0) == 1)
+      PorticoHdmiPlug(sticky.getIntExtra(AudioManager.EXTRA_MAX_CHANNEL_COUNT, 0), sticky.getIntArrayExtra(AudioManager.EXTRA_ENCODINGS)?.toList() ?: emptyList())
+    else null
   } catch (_: Exception) { null }
 
   // --- display ---------------------------------------------------------------------------
@@ -403,25 +352,5 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
         CodecProfileLevel.HEVCMainTierLevel61 to 183, CodecProfileLevel.HEVCHighTierLevel61 to 183,
         CodecProfileLevel.HEVCMainTierLevel62 to 186, CodecProfileLevel.HEVCHighTierLevel62 to 186)
 
-    private val DIGITAL_OUTPUTS = setOf(
-        AudioDeviceInfo.TYPE_HDMI, AudioDeviceInfo.TYPE_HDMI_ARC, AudioDeviceInfo.TYPE_HDMI_EARC, AudioDeviceInfo.TYPE_LINE_DIGITAL)
-
-    /** Encoding to codec, the most channels that bitstream carries, and whether it is object audio. */
-    private val BITSTREAMS = mapOf(
-        AudioFormat.ENCODING_AC3 to Triple("ac3", 6, false),
-        AudioFormat.ENCODING_E_AC3 to Triple("eac3", 8, false),
-        AudioFormat.ENCODING_E_AC3_JOC to Triple("eac3", 8, true),
-        AudioFormat.ENCODING_DOLBY_TRUEHD to Triple("truehd", 8, false),
-        AudioFormat.ENCODING_DTS to Triple("dts", 6, false),
-        // DTS-HD is the same codec as DTS to the server (a longer form of it): one name, eight channels.
-        AudioFormat.ENCODING_DTS_HD to Triple("dts", 8, false))
-
-    /** In the order a new playback would choose them. */
-    private val ROUTES = listOf(
-        setOf(AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_BLE_SPEAKER, AudioDeviceInfo.TYPE_HEARING_AID) to "bluetooth",
-        setOf(AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_WIRED_HEADSET) to "headphones",
-        setOf(AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_ACCESSORY) to "usb",
-        setOf(AudioDeviceInfo.TYPE_HDMI, AudioDeviceInfo.TYPE_HDMI_ARC, AudioDeviceInfo.TYPE_HDMI_EARC) to "hdmi",
-        setOf(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) to "speaker")
   }
 }

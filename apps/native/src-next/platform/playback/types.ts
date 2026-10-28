@@ -122,6 +122,9 @@ export type NativePlaybackRuntimeSnapshot = Readonly<{
   authority: PlaybackAuthority; sequence: number; dock: DockState; playback: PlaybackSnapshot;
   fence?: PlaybackFence; subject?: PlaybackSubject; entry?: ContentEntry;
   queue: QueuePlayerState; session?: Session; options?: PlaybackOptions; subtitles?: SubtitleSnapshot;
+  /** Direct-file audio is selected only after the current engine acknowledges it. */
+  audioTrackSelection?: import('./audio-track-selection').NativeAudioTrackStatus;
+  localTracks?: import('./offline-tracks').NativeLocalTracksSnapshot;
   channelGuide?: NativeChannelGuideOrigin;
   seekWindow?: Readonly<{startSeconds: number; endSeconds: number}>;
   capabilities: NativePlaybackCapabilities; engine: EngineKind; lease: string;
@@ -149,6 +152,8 @@ export type NativePlaybackRuntimeOptions = Readonly<{
   subscribeStartContext?: (listener: () => void) => () => void;
   androidDisplayMatching?: true;
   nativeDynamicRangeMatching?: true;
+  /** The native downloaded-WebVTT renderer applies a session offset separately from baked timing. */
+  nativeLocalSubtitleTiming?: true;
   api: HttpLocalApi;
   authority: () => PlaybackAuthority;
   session: () => LocalSession | undefined;

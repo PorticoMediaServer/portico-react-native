@@ -107,6 +107,7 @@ test('the actual Apple factory injects only the installed platform picker into i
       '../../../../../packages/client-core/src/playback-v1/local-http': {localV1Http: () => ({})},
       '../../../../../packages/client-core/src/presentation/service-text': {serviceText},
       './engine-choice': {parseEngineFeatures: () => ({})},
+      './dynamic-range-matching': {nativeDynamicRangeMatchingAvailable: () => false},
       './capability-document.ios': {deviceCapabilityDocument: () => ({})},
       './NativeListeningAdapter': {},
       './runtime': {NativePlaybackRuntime: class {constructor(options: unknown) {captured = options;return runtime;}}},

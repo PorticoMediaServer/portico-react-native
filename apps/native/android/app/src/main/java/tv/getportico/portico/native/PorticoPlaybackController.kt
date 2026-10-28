@@ -22,7 +22,6 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -100,6 +99,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   private val main = Handler(Looper.getMainLooper())
   private val subtitles = PorticoSubtitleSelection()
   private val audioSelection = PorticoAudioSelection()
+  private val localAudioSelection = PorticoLocalAudioSelection()
   private var owner: String? = null
   private var commandRevision = 0L
   private var factSequence = 0L
@@ -109,6 +109,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   private var intentId = 0L
   private var itemInstanceId = ""
   private var desiredPaused = true
+  private var passthroughPolicy = PorticoPassthroughPolicy()
   private var timelineOriginMs: Double? = null
   private var invalidated = false
 
@@ -198,6 +199,18 @@ internal class PorticoPlaybackController(private val context: Context) {
         publish(out)
       }
     }
+    localAudioSelection.onFact = { fact ->
+      val type = fact["type"] as? String
+      if (type != null && source?.startsWith("file://") == true && fact["localAudioItemInstanceId"] == itemInstanceId) {
+        val extra = HashMap(fact).apply { remove("localAudioItemInstanceId") }
+        emit(type, fact["error"] as? String, extra)
+      }
+    }
+    localAudioSelection.onRestored = { item ->
+      if (!invalidated && item == itemInstanceId && source?.startsWith("file://") == true && player?.playbackState == Player.STATE_READY) {
+        if (!matchDisplay { becameReady() }) becameReady()
+      }
+    }
   }
 
   // --- lease -----------------------------------------------------------------------------
@@ -261,6 +274,9 @@ internal class PorticoPlaybackController(private val context: Context) {
     val binding = command?.get("binding") as? Map<*, *> ?: return "Invalid playback binding."
     @Suppress("UNCHECKED_CAST") val bound = binding as Map<String, Any?>
     if (command["matchFrameRate"] != null && command["matchFrameRate"] != "auto" && command["matchFrameRate"] != "off") return "Invalid display matching choice."
+    if (!PorticoPassthroughPolicy.valid(command["passthrough"])) return "Invalid passthrough policy."
+    if (!PorticoLocalAudioSelection.valid(command["localAudioTrack"])) return "Invalid local audio track."
+    if (command["localAudioTrack"] != null && (command["source"] as? String)?.startsWith("file://") != true) return "Local audio selection requires a downloaded file."
     if (listeningOwner != null && !applyingListening) {
       // A delayed JavaScript command may attach the visual surface; it cannot undo a native pause,
       // a timer, an interruption or the end of the owner's authority.
@@ -348,14 +364,22 @@ internal class PorticoPlaybackController(private val context: Context) {
     val verifying = next["connectionState"] == "verifying"
     val nextId = number((next["binding"] as Map<*, *>)["intentId"])!!.toLong()
     val nextSource = next["source"] as String
+    val policy = (next["passthrough"] as? Map<*, *>)?.let { PorticoPassthroughPolicy.read(it) } ?: passthroughPolicy
+    val outputChanged = player?.let { !audioGains.containsKey(it) && audioPolicies[it] != policy } ?: false
     if (!sameBinding) { routeResume = false; routeSeeking = false; routeSuspended = false; routeFailed = false; routeEpoch++ }
     val changed = source != nextSource
+    @Suppress("UNCHECKED_CAST") val localAudio = next["localAudioTrack"] as? Map<String, Any?>
+    // A policy-only sink replacement keeps this session's exact native choice. A new source,
+    // binding or engine never borrows a track identity from the old file.
+    val retainedAudio = if (sameBinding && !changed && outputChanged && !verifying && nextSource.startsWith("file://"))
+        localAudioSelection.retain(localAudio) else null
     // A transport rebind is not a new playback intent or a seek: keep the position it had.
-    if (sameBinding && (verifying || changed) && !routeResume && !routeSuspended) {
+    if (sameBinding && (verifying || changed || outputChanged) && !routeResume && !routeSuspended) {
       val position = if (routeFailed) routePosition else sourcePosition()
       if (position.isFinite() && (timelineOriginMs != null || position >= 0)) { routePosition = position; routeResume = true; routeFailed = false; routeEpoch++ }
     }
     command = next
+    passthroughPolicy = policy
     clearDisabledFrameRate()
     desiredPaused = next["paused"] as Boolean
     if (verifying) {
@@ -367,8 +391,8 @@ internal class PorticoPlaybackController(private val context: Context) {
     @Suppress("UNCHECKED_CAST") val plan = render?.get("plan") as? Map<String, Any?>
     // After a gapless or crossfaded edge the engine already plays the next plan: the new binding is
     // adopted without touching the sound.
-    val adopted = plan != null && plan["id"] == enginePlan && !routeSuspended && player?.currentMediaItem != null
-    val reload = if (plan != null) !adopted else (routeSuspended || nextId != intentId || changed || player?.currentMediaItem == null || enginePlan != null)
+    val adopted = plan != null && plan["id"] == enginePlan && !routeSuspended && !outputChanged && player?.currentMediaItem != null
+    val reload = outputChanged || if (plan != null) !adopted else (routeSuspended || nextId != intentId || changed || player?.currentMediaItem == null || enginePlan != null)
     routeSuspended = false
     if (adopted && (nextId != intentId || changed)) {
       intentId = nextId
@@ -396,7 +420,7 @@ internal class PorticoPlaybackController(private val context: Context) {
         val pendingStart = (next["pendingSeek"] as? Map<*, *>)?.get("positionSeconds")?.let { number(it) }
         // A direct MP3 or ADTS file with a seek index from the server lands exactly (rendered or not).
         @Suppress("UNCHECKED_CAST") val indexed = PorticoSeekIndex.spec(plan ?: next["seekPlan"] as? Map<String, Any?>, url.toString())
-        load(url, if (plan != null && !routeResume) pendingStart else null, indexed)
+        load(url, if (plan != null && !routeResume) pendingStart else null, indexed, retainedAudio)
         enginePlan = plan?.get("id") as? String
         if (routeResume) {
           val epoch = routeEpoch
@@ -414,6 +438,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     val pending = next["pendingSeek"] as? Map<*, *>
     if (pending != null && (routeResume || routeSeeking || routeFailed)) { routeResume = false; routeSeeking = false; routeFailed = false; routeEpoch++ }
     if (pending == null && seeking) { seeking = false; seekWait = null }
+    localAudioSelection.apply(localAudio, player, itemInstanceId, source?.startsWith("file://") == true)
     audioSelection.apply(scoped(next["audio"]), player, itemInstanceId)
     val chosenSubtitles = scoped(next["subtitles"])
     val style = chosenSubtitles?.get("style") as? Map<*, *>
@@ -440,6 +465,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   /** Listening players put a gain stage on decoded sound, so normalization can raise a quiet track as well as lower a loud one. */
   private val audioGains = java.util.WeakHashMap<ExoPlayer, PorticoAudioGain>()
   private val audioSources = java.util.WeakHashMap<ExoPlayer, PorticoAudioSourceTag>()
+  private val audioPolicies = java.util.WeakHashMap<ExoPlayer, PorticoPassthroughPolicy>()
 
   /** Capture the validated binding at source creation, before any index/network await. */
   private fun originalAudioSource(): PorticoAudioSourceTag? {
@@ -469,7 +495,7 @@ internal class PorticoPlaybackController(private val context: Context) {
    * starts under it (which then becomes the player): the same data source, the same memory limit
    * on a small device, the same cap at the screen's size, and no subtitles of the player's own.
    * The file listening renderer has the gain stage and decodes to PCM. Ordinary streams keep
-   * the standard output, including its own device/route-checked passthrough admission.
+   * the standard output, with the viewer's policy restricting its device/route-checked passthrough.
    */
   private fun build(music: Boolean, ownsFocus: Boolean, listening: Boolean = music): ExoPlayer {
     val http = OkHttpDataSource.Factory(mediaClient)
@@ -480,7 +506,8 @@ internal class PorticoPlaybackController(private val context: Context) {
     // MP3 and ADTS files whose seek index has been read are placed by it (PorticoSeekIndex).
     val extractors = PorticoSeekIndex.Factory(DefaultExtractorsFactory().setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE))
     val gain = if (listening) PorticoAudioGain() else null
-    val renderers = if (gain != null) PorticoAudioRenderers(context, gain) else DefaultRenderersFactory(context)
+    val policy = passthroughPolicy
+    val renderers = if (gain != null) PorticoAudioRenderers(context, gain) else PorticoPassthroughRenderers(context, policy)
     val made = ExoPlayer.Builder(context, renderers.setEnableDecoderFallback(true))
         .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, http), extractors))
         .setLoadControl(load.build())
@@ -501,6 +528,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     if (TelevisionDisplay.isTelevision) made.videoChangeFrameRateStrategy = C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF
     made.addAnalyticsListener(bandwidth)
     if (gain != null) audioGains[made] = gain
+    else audioPolicies[made] = policy
     return made
   }
 
@@ -531,7 +559,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     }
   }
 
-  private fun load(url: Uri, startSeconds: Double? = null, index: PorticoSeekIndex.Spec? = null) {
+  private fun load(url: Uri, startSeconds: Double? = null, index: PorticoSeekIndex.Spec? = null, retainedAudio: PorticoLocalAudioSelection.Retained? = null) {
     // A player that came out of a music crossfade was built for music (its sound is announced to
     // the system as music). A title with a picture gets the app's own player again.
     if (playerIsDeck && listeningOwner == null) {
@@ -542,10 +570,11 @@ internal class PorticoPlaybackController(private val context: Context) {
     }
     // The accepted ordinary replacement may cross between file rendering and a plain stream.
     // unload() has already stopped/cleared the original; do not reuse its incompatible sink.
-    player?.takeIf { audioGains.containsKey(it) != listeningUsesPCM() }?.let { old ->
+    player?.takeIf { audioGains.containsKey(it) != listeningUsesPCM() || (!audioGains.containsKey(it) && audioPolicies[it] != passthroughPolicy) }?.let { old ->
       old.removeListener(listener)
       audioSources.remove(old)
       audioGains.remove(old)
+      audioPolicies.remove(old)
       old.release()
       player = null
       playerIsDeck = false
@@ -566,6 +595,9 @@ internal class PorticoPlaybackController(private val context: Context) {
     val start = if (routeResume && timelineOriginMs == null) (routePosition * 1000).toLong()
         else if (startSeconds != null && startSeconds > 0 && timelineOriginMs == null) (startSeconds * 1000).toLong() else C.TIME_UNSET
     engine.playWhenReady = false
+    // Establish the hold before preparing the replacement; even a synchronous callback cannot
+    // announce ready or start its default audio while the retained choice is unresolved.
+    if (retainedAudio != null) localAudioSelection.restore(retainedAudio, engine, itemInstanceId)
     // The index is read before the file is opened when it will be used: a part-way start, a
     // resume, or any ADTS file (which Media3 cannot place at all without it).
     val address = url.toString()
@@ -598,6 +630,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   }
 
   private fun unload() {
+    localAudioSelection.invalidate()
     unindexedMedia = null
     hasPlayed = false
     previousProgress = Double.NaN
@@ -669,7 +702,10 @@ internal class PorticoPlaybackController(private val context: Context) {
 
     override fun onRenderedFirstFrame() { hasPlayed = true; firstFrameItem = itemInstanceId; if (lease != null) emit("firstFrame", null) }
 
-    override fun onTracksChanged(tracks: Tracks) = audioSelection.tracksChanged(tracks)
+    override fun onTracksChanged(tracks: Tracks) {
+      audioSelection.tracksChanged(tracks)
+      localAudioSelection.tracksChanged(tracks)
+    }
 
     override fun onVideoSizeChanged(size: VideoSize) {
       if (size.width > 0 && size.height > 0) lastVideoSize = size
@@ -682,10 +718,11 @@ internal class PorticoPlaybackController(private val context: Context) {
   private fun becameReady() {
     if (player?.playbackState != Player.STATE_READY) return
     applyRouteResume()
-    if (!readyAnnounced && !routeResume && !routeFailed) { readyAnnounced = true; emit("ready", null) }
+    if (!readyAnnounced && !routeResume && !routeFailed && !localAudioSelection.holdsPlayback) { readyAnnounced = true; emit("ready", null) }
     finishSeek()
     applyPendingSeek()
     applyIntent()
+    player?.let { localAudioSelection.tracksChanged(it.currentTracks) }
   }
 
   // --- matching the display (television) ---------------------------------------------------
@@ -869,8 +906,7 @@ internal class PorticoPlaybackController(private val context: Context) {
       return
     }
     routeResume = false
-    readyAnnounced = true
-    emit("ready", null)
+    if (!localAudioSelection.holdsPlayback) { readyAnnounced = true; emit("ready", null) }
     applyIntent()
   }
 
@@ -951,7 +987,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   private fun applyIntent() {
     val engine = player ?: return
     val pending = command?.get("pendingSeek") is Map<*, *>
-    if (desiredPaused || seeking || pending || displayHold || (!readyAnnounced && listeningOwner == null) || routeSuspended || routeResume || routeSeeking || routeFailed || (backgroundHold && listeningOwner == null) || (listeningOwner != null && !listeningAllowed)) {
+    if (desiredPaused || seeking || pending || displayHold || localAudioSelection.holdsPlayback || (!readyAnnounced && listeningOwner == null) || routeSuspended || routeResume || routeSeeking || routeFailed || (backgroundHold && listeningOwner == null) || (listeningOwner != null && !listeningAllowed)) {
       engine.playWhenReady = false
       incoming?.playWhenReady = false
     } else if (heldAtEnd) {
@@ -1317,6 +1353,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     // Display metadata belongs to the validated attachment, never its playback intent.
     // Missing stays missing (Automatic), including after an earlier attachment chose Off.
     attached?.get("matchFrameRate")?.let { next["matchFrameRate"] = it }
+    attached?.get("passthrough")?.let { next["passthrough"] = it }
     // The same command again changes nothing, and must not churn JavaScript's command barrier.
     val before = command?.let { HashMap(it).apply { remove("commandRevision") } }
     if (before == HashMap(next).apply { remove("commandRevision") }) return

@@ -18,18 +18,25 @@ export type NativeWatchPanelNames = Readonly<{
   audioFooter: (source: NativePlaybackRuntimeSnapshot) => readonly string[];
   qualityFooter: (source: NativePlaybackRuntimeSnapshot) => readonly string[];
 }>;
-export function nativeWatchPanelRows(source: NativePlaybackRuntimeSnapshot, options: PlaybackOptions, names: NativeWatchPanelNames) {
+export function nativeWatchPanelRows(source: NativePlaybackRuntimeSnapshot, options: PlaybackOptions | undefined, names: NativeWatchPanelNames) {
   const fence = source.fence, selected = nativeWatchTracks(source), session = source.session;
   const empty = {audio: [], subtitles: [], qualities: []} as const;
-  if (!selected.version || !fence || fence.kind !== 'queue' || !session || !sameFence(source.dock.local?.fence, fence)
+  const unique = <T extends {id: string}>(rows: readonly T[]) => new Set(rows.map(row => row.id)).size === rows.length;
+  if (selected.local) {
+    const audio: readonly NativeWatchChoiceRow<AudioStream>[] = unique(selected.local.audio) ? selected.local.audio.map(track => ({...names.audio(track, source), id: track.id,
+      selected: selected.audio?.id === track.id, value: track})) : [];
+    const subtitles: readonly NativeWatchChoiceRow<NativeWatchSubtitleOffer>[] = unique(selected.local.subtitles) ? selected.local.subtitles.map(track => ({...names.subtitle(track, source), id: track.id,
+      ...(track.unavailable ? {unavailable: true} : {}), selected: selected.subtitle?.id === track.id, value: track})) : [];
+    return {audio, subtitles, qualities: []};
+  }
+  if (!selected.version || !fence || fence.kind !== 'queue' || !session || !options || !sameFence(source.dock.local?.fence, fence)
     || options.itemId !== fence.itemId || new Set(options.versions.map(row => row.id)).size !== options.versions.length) return empty;
   const version = options.versions.find(row => row.id === session.versionId);
   if (!version) return empty;
   // Names use this actual fresh offer; selected identities remain the session's.
   const offeredSource = {...source, options};
-  const unique = <T extends {id: string}>(rows: readonly T[]) => new Set(rows.map(row => row.id)).size === rows.length;
   const audio: readonly NativeWatchChoiceRow<AudioStream>[] = unique(version.audio) ? version.audio.map(track => ({...names.audio(track, offeredSource), id: track.id,
-    selected: session.presentation.audioTrackId === track.id, value: track})) : [];
+    selected: selected.audio?.id === track.id, value: track})) : [];
   const plan = source.subtitles?.plan;
   const resources = !source.subtitles?.suppressed && plan?.sessionId === fence.sessionId && plan.generation === fence.generation && plan.sourceId === fence.sourceId
     ? plan.resources.filter(resource => resource.sourceId === fence.sourceId) : [];

@@ -3,9 +3,11 @@ import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
+import {videoTrackName, videoTrackWords} from '../../../../../packages/client-core/src/video-track-labels';
+import type {AudioStream, SubtitleStream} from '../../../../../packages/client-core/src/playback-v1/types';
 import type {OfflineEntry, OfflineSnapshot} from '../../platform/offline-downloads';
 import type {RememberedDownloadsOpening} from '../../shell/remembered-downloads-opening';
-import {Button} from '../../kit/controls';
+import {Button, RichSelect} from '../../kit/controls';
 import {useTheme} from '../../kit/theme';
 import {downloadEntryIdentity} from './presentation';
 import type {createRememberedReadingOwner} from '../../shell/remembered-reading-owner';
@@ -64,6 +66,11 @@ function RememberedPlayer({player, width, busy, current, run}: {player: Player; 
   run: (action: (lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>) => Promise<void>) => void}) {
   const theme = useTheme(), t = defaultI18n.t;
   const state = useSyncExternalStore(player.subscribe, player.getSnapshot, player.getSnapshot), fence = player.fence(), Surface = player.Surface;
+  const tracks = state.localTracks, words = videoTrackWords(t, defaultI18n.locale);
+  const name = (track: AudioStream | SubtitleStream, index: number) => {
+    const value = videoTrackName(track, words);
+    return {label: value.first || t('next.kit.track', {number: index + 1}), description: value.rest || undefined};
+  };
   return <>
     <View style={{height: Math.round(width * 9 / 16), backgroundColor: theme.colors.raised}}><Surface/></View>
     {fence && <View style={{flexDirection: 'row', gap: 12}}>
@@ -73,6 +80,22 @@ function RememberedPlayer({player, width, busy, current, run}: {player: Player; 
       }}>{t(state.phase !== 'ended' && state.intent === 'playing' ? 'action.pause' : 'action.play')}</Button>
       <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{Math.floor(state.positionSeconds)} / {Math.floor(state.session?.duration ?? 0)}</Text>
     </View>}
+    {fence && tracks && <>
+      {tracks.audio.length > 1 && <RichSelect testID="remembered-player-audio" label={t('title.audio')} value={tracks.audioTrackId ?? ''}
+        disabled={busy || !['starting', 'ready'].includes(state.phase)} options={tracks.audio.map((track, index) => ({value: track.id, ...name(track, index)}))}
+        onValueChange={id => {if (current()) run(async () => player.change(fence, {audioTrackId: id}));}}/>}
+      {tracks.subtitles.length > 0 && <RichSelect testID="remembered-player-subtitles" label={t('player.opt.subtitles')} value={tracks.subtitleTrackId ?? ''}
+        disabled={busy || !['starting', 'ready'].includes(state.phase)} options={[{value: '', label: t('player.opt.off')}, ...tracks.subtitles.map((track, index) => ({value: track.id, ...name(track, index), disabled: track.unavailable}))]}
+        onValueChange={id => {if (current()) run(async () => player.change(fence, {subtitleTrackId: id || null}));}}/>}
+      {tracks.subtitleError && <Text accessibilityRole="alert" style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('player.opt.unavailable')}</Text>}
+      {tracks.subtitleTrackId && tracks.subtitleTimingSupported && <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
+        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('player.opt.timing')}</Text>
+        <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('player.opt.offsetSeconds', {seconds: new Intl.NumberFormat(defaultI18n.locale, {minimumFractionDigits: 1, maximumFractionDigits: 1}).format(tracks.subtitleOffsetMs / 1000)})}</Text>
+        {[-500, 500].map(delta => <Button key={delta} variant="glass" disabled={busy || !['starting', 'ready'].includes(state.phase) || Math.abs(tracks.subtitleOffsetMs + delta) > 600_000}
+          accessibilityLabel={t(delta < 0 ? 'player.opt.earlier' : 'player.opt.later')} onPress={() => {if (current()) run(async () => player.change(fence,
+            {subtitleTrackId: tracks.subtitleTrackId, subtitleOffsetMs: tracks.subtitleOffsetMs + delta}));}}>{`${delta < 0 ? '−' : '+'}${new Intl.NumberFormat(defaultI18n.locale, {minimumFractionDigits: 1, maximumFractionDigits: 1}).format(.5)}`}</Button>)}
+      </View>}
+    </>}
     {state.error && <Text accessibilityRole="alert" style={[theme.type.body, {color: theme.colors.textSecondary}]}>{state.error}</Text>}
   </>;
 }

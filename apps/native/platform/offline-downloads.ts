@@ -14,6 +14,7 @@ import {serviceText} from '../../../packages/client-core/src/presentation/servic
 import {durationIntent} from '../../../packages/client-core/src/wire-units';
 import type {MessageId} from '../../../packages/i18n/src/index';
 import type {LocalMedia, LocalProgress} from './local-playback';
+import {offlineCompletion} from './offline-completion';
 
 /** Downloads kept on this phone or tablet.
  *
@@ -59,10 +60,6 @@ const MAX_PLAYS = 400;
 const RETRY_EVERY_MS = 30 * 1000;
 /** Stops that mend themselves: the app tries again without being asked. */
 const RETRYABLE = new Set(['network', 'grant_expired', 'transfer_failed', 'server_refused']);
-/** A play counts as finished for this device's own rules (remove after watching, next episode)
- * when the file ended or was stopped this far in. What the server makes of it is the server's. */
-const FINISHED_AT = 0.92;
-
 export type OfflineEntry = Readonly<{
   id: string; itemId: string; title: string; subtitle: string; quality: string;
   /** The poster or cover kept with the download (a file on this device), or ''. */
@@ -1286,8 +1283,8 @@ export class OfflineDownloads {
     const playId = event.playId ?? this.playing.get(entry.id) ?? 'play_' + random();
     this.playing.set(entry.id, playId);
     const position = Math.max(0, event.positionSeconds);
-    const finished = event.ended || (event.durationSeconds > 0 && position / event.durationSeconds >= FINISHED_AT);
-    bucket(this.stored.resume, owner)[entry.itemId] = finished ? 0 : position;
+    const completion = offlineCompletion(entry.kind ?? entry.info?.kind, position, event.durationSeconds, event.ended);
+    bucket(this.stored.resume, owner)[entry.itemId] = completion.resumeSeconds;
     const plays = bucket(this.stored.plays, owner);
     const clockKey = JSON.stringify([owner, entry.itemId]);
     const pendingTimes = Object.values(plays).filter(p => p.itemId === entry.itemId).map(p => Date.parse(p.observedAt)).filter(Number.isFinite);
@@ -1302,7 +1299,7 @@ export class OfflineDownloads {
     await this.persist();
     if (!event.final) return;
     void this.syncProgress();
-    if (!finished) return;
+    if (!completion.finished) return;
     this.playing.delete(entry.id);
     if (this.stored.settings.autoNext) void this.autoNext(entry);
     if (this.stored.settings.deleteWatched) void this.remove(entry);

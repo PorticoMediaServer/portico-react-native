@@ -45,6 +45,9 @@ import {boundSubtitleControls, type NativePlaybackSubtitleControls} from './subt
 import {uploadPickedSubtitle} from './subtitle-file-upload';
 import {deviceDrawnTrack, engineSubtitleRender, externalSubtitlePreparation, fontsUrlOf, linesUrlOf, parseSubtitleFonts, type SubtitleFonts} from './engine-media';
 import {classifyPlaybackFailure} from './playback-failure';
+import {mediaRecovered, NativePlaybackRecovery} from './playback-recovery';
+import {directAudioStreamIndex, NativeAudioTrackSelection} from './audio-track-selection';
+import {NativeOfflineTracks} from './offline-tracks';
 import {nativeListeningFor, serverPlaybackV1Kinds} from './native-listening-kinds';
 import {selectionSegments, selectionStartSeconds} from './selection';
 import type {VideoSnapshotCapture, VideoSnapshotSource} from '../video-snapshot';
@@ -102,6 +105,7 @@ export class NativePlaybackRuntime {
   private readonly optionsClient: PlaybackOptionsClient;
   private readonly offline?: NativeOfflinePlayback;
   private offlineSource?: NativeOfflineSource;
+  private localTracks?: NativeOfflineTracks;
   private snapshot: NativePlaybackRuntimeSnapshot;
   private listeners = new Set<() => void>();
   private offs: (() => void)[] = [];
@@ -169,8 +173,9 @@ export class NativePlaybackRuntime {
   private captureSource?: VideoSnapshotSource;
   private readonly videoExitImages = new Set<() => Promise<void>>();
   private captureEpoch = 0;
-  private routeRecovery?: ReturnType<typeof setTimeout>;
-  private recoverySince = 0;
+  private readonly recovery: NativePlaybackRecovery;
+  private readonly audioTrackSelection = new NativeAudioTrackSelection();
+  private audioTrackInstance?: string;
   private completionTimer?: unknown;
   private completionKey = '';
   private skipped = new Set<string>();
@@ -181,6 +186,7 @@ export class NativePlaybackRuntime {
 
   constructor(options: NativePlaybackRuntimeOptions) {
     this.o = options;
+    this.recovery = new NativePlaybackRecovery(options.timers);
     this.bound = Object.freeze({...options.authority()});
     const session = options.session(), viewer = session?.viewer;
     if (!session || !viewer || !['local', 'hosted'].includes(viewer.authority) || viewer.serverId !== this.bound.serverId || viewer.accountId !== this.bound.accountId || viewer.profileId !== this.bound.profileId) throw new Error('Invalid playback authority.');
@@ -248,6 +254,11 @@ export class NativePlaybackRuntime {
     this.snapshot = this.makeSnapshot(0);
   }
   getSnapshot = () => this.snapshot;
+  /** File format facts only for this exact admitted local session. */
+  localContainer(session: PlaybackSession): string | undefined {
+    return this.offline?.mediaUrl(session) ? this.offlineSource?.media.extras?.bundle?.media.container : undefined;
+  }
+  localSubtitleRendering(): string | undefined {return this.playback.getSnapshot().session?.mode === 'local' ? this.localTracks?.requiredRendering() : undefined;}
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   private authorityMatches(): boolean {
     const session = this.o.session(), viewer = session?.viewer;
@@ -319,7 +330,7 @@ export class NativePlaybackRuntime {
     this.offs.push(this.queue.subscribe(() => this.changed()));
     this.offs.push(this.path.subscribeSessions(() => this.changed()));
     this.offs.push(this.queue.connect());
-    this.offs.push(this.coordinator.subscribe(() => { if (this.captureSource && !this.isSnapshotSourceCurrent(this.captureSource)) this.cancelSnapshot(); this.publish(); }));
+    this.offs.push(this.coordinator.subscribe(() => { if (this.captureSource && !this.isSnapshotSourceCurrent(this.captureSource)) this.cancelSnapshot(); this.applyOptions(); this.publish(); }));
     this.offs.push(this.o.subscribeAuthority(() => { if (!this.active()) return; void this.refreshAuthority(); }));
     // X-02: the profile's Sound settings are what the listening engine renders with, so the
     // same adopt path the web player uses runs here on start and on every settings change.
@@ -1128,6 +1139,9 @@ export class NativePlaybackRuntime {
     this.clearForcedImage();
     this.externalPresentationBinding = undefined; this.pictureBinding = undefined; this.pictureAttempt = undefined; this.pictureLeave = undefined; this.pictureState = 'idle';
     this.sourceKey = key; const epoch = ++this.sourceEpoch;
+    const playback = this.playback.getSnapshot();
+    this.recovery.retain(playback.session && (playback.phase === 'starting' || playback.phase === 'ready') ? `${playback.intentId}/${playback.playbackRun}` : undefined);
+    this.audioTrackSelection.clear(); this.coordinator.setAudioTrack(null); this.coordinator.setLocalAudioTrack(null); this.localTracks = undefined;
     this.sourceController?.abort();
     this.subtitleOff?.(); this.subtitleOff = undefined;
     const subtitles = this.subtitleService; this.subtitleService = undefined; subtitles?.stop();
@@ -1141,7 +1155,12 @@ export class NativePlaybackRuntime {
     if (!key) { if (!this.preparing && this.playback.getSnapshot().phase === 'idle') { this.entry = undefined; this.subject = undefined; } return; }
     const controller = new AbortController(); this.sourceController = controller;
     const state = this.playback.getSnapshot(), itemId = state.itemId!, session = this.currentSession();
-    if (state.session?.mode === 'local') {this.options = undefined; return;}
+    if (state.session?.mode === 'local') {
+      this.options = undefined;
+      if (this.offlineSource?.current() && this.offline?.mediaUrl(state.session)) this.localTracks = new NativeOfflineTracks(this.offlineSource.media,
+        {intentId: state.intentId, sessionId: state.session.id, generation: state.session.generation});
+      return;
+    }
     if (state.channel) return; // Live references are never catalogue/subtitle endpoint IDs.
     if (this.entry?.id !== itemId) { this.entry = undefined; this.subject = undefined; }
     else this.subject = subjectOf(this.entry);
@@ -1195,24 +1214,21 @@ export class NativePlaybackRuntime {
   private applyOptions(): void {
     if (this.retired) return;
     const state = this.playback.getSnapshot(), fence = this.fence(), settings = this.o.settings();
+    this.coordinator.setPassthroughPolicy({disabled: settings.overrides?.disablePassthrough === true || settings.overrides?.forceStereo === true, formats: settings.passthroughFormats ?? {}});
     this.coordinator.setDisplayMatching(this.o.androidDisplayMatching ? settings.matchFrameRate ?? 'auto' : undefined);
     this.coordinator.setDynamicRangeMatching(this.o.nativeDynamicRangeMatching ? settings.matchDynamicRange ?? 'auto' : undefined);
-    if (!state.session || !fence) { this.clearForcedImage(); this.coordinator.setOptions(1, null, null); return; }
+    const instance = this.coordinator.getInstanceId();
+    if (instance !== this.audioTrackInstance) {this.audioTrackInstance = instance; this.audioTrackSelection.clear();}
+    if (!state.session || !fence) { this.clearForcedImage(); this.audioTrackSelection.clear(); this.coordinator.setAudioTrack(null); this.coordinator.setLocalAudioTrack(null); this.coordinator.setOptions(1, null, null); return; }
+    if (fence.kind !== 'local') this.coordinator.setLocalAudioTrack(null);
     if (fence.kind === 'channel') {
       this.clearForcedImage();
+      this.audioTrackSelection.clear(); this.coordinator.setAudioTrack(null);
       this.coordinator.setOptions(1, null, {binding: {intentId: state.intentId, sessionId: state.session.id, generation: state.session.generation}, mode: 'off'});
       return;
     }
     const baseRate = this.local(fence).kind === 'audiobook' ? settings.audiobookRate : this.local(fence).kind === 'music' ? 1 : settings.videoRate;
     const rate = this.choices.get('speed', fence.playback, baseRate);
-    if (fence.kind === 'local') {
-      this.clearForcedImage();
-      this.coordinator.setOptions(rate, null, {binding: {intentId: state.intentId, sessionId: state.session.id, generation: state.session.generation}, mode: 'off'});
-      return;
-    }
-    this.path.setRate(rate);
-    const session = this.currentSession(), plan = this.subtitleService?.getSnapshot().plan;
-    this.path.setTracks(session?.presentation.audioTrackId, session?.presentation.subtitle?.trackId ?? null);
     const style = captionStyle({
       ...settings.subtitles,
       size: this.choices.get('subtitleSize', fence.playback, settings.subtitles.size),
@@ -1221,7 +1237,34 @@ export class NativePlaybackRuntime {
       background: this.choices.has('subtitleBackground', fence.playback)
         ? this.choices.get('subtitleBackground', fence.playback, 'none') : settings.subtitles.background,
     });
+    if (fence.kind === 'local') {
+      this.clearForcedImage();
+      this.audioTrackSelection.clear();
+      const engine = this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', tracks = this.localTracks;
+      // Native rich renderers admit network resources; their local-file path is WebVTT only.
+      const rendering = engine === 'native' ? ['text'] : this.o.engineFeatures(engine).subtitleRendering;
+      const offeredRendering = settings.engine !== 'native' && this.o.engines.transport('mpv')
+        ? [...new Set([...rendering, ...this.o.engineFeatures('mpv').subtitleRendering])] : rendering;
+      tracks?.configure(engine, this.coordinator.getInstanceId(), rendering, offeredRendering, engine === 'mpv' || this.o.nativeLocalSubtitleTiming === true);
+      this.coordinator.setAudioTrack(tracks?.audioCommand() ?? null);
+      this.coordinator.setLocalAudioTrack(tracks?.localAudioCommand() ?? null);
+      this.coordinator.setOptions(rate, null, tracks?.subtitleCommand(style, this.displaySubtitles && this.expanded)
+        ?? {binding: {intentId: state.intentId, sessionId: state.session.id, generation: state.session.generation}, mode: 'off'});
+      return;
+    }
+    this.path.setRate(rate);
+    const session = this.currentSession(), plan = this.subtitleService?.getSnapshot().plan;
     const binding = {intentId: state.intentId, sessionId: state.session.id, generation: state.session.generation};
+    const audioIndex = directAudioStreamIndex(this.coordinator.getEngine(), session, this.options);
+    this.coordinator.setAudioTrack(this.audioTrackSelection.select(binding, audioIndex));
+    if (this.coordinator.getEngine() === 'mpv' && session?.kind === 'vod' && session.role === 'local' && session.presentation.mode === 'direct'
+      && session.presentation.audioTrackId && audioIndex === undefined && (state.phase === 'starting' || state.phase === 'ready')) {
+      this.playback.fail(state.intentId, serviceText('player.opt.unavailable')); return;
+    }
+    const audioTrack = this.audioTrackSelection.getSnapshot();
+    this.path.setTracks(this.coordinator.getEngine() === 'mpv' && session?.presentation.mode === 'direct'
+      ? audioTrack?.state === 'applied' ? session.presentation.audioTrackId : undefined : session?.presentation.audioTrackId,
+    session?.presentation.subtitle?.trackId ?? null);
     let subtitles: Record<string, unknown> | null = null;
     let forcedPath: string | undefined;
     const visible = this.displaySubtitles && this.expanded;
@@ -1306,6 +1349,7 @@ export class NativePlaybackRuntime {
     const currentIndex = fence?.kind === 'queue' ? view?.items.findIndex(item => item.entryId === fence.entryId) ?? -1 : -1;
     const ready = !!fence && !this.retired && (playback.phase === 'ready' || playback.phase === 'starting');
     const session = this.currentSession();
+    const localTracks = fence?.kind === 'local' ? this.localTracks?.getSnapshot() : undefined;
     const offered = view?.window;
     const rowFacts = view && offered && offered.queueId === view.queue.id && offered.revision === view.queue.revision ? offered.entries : undefined;
     const currentFact = fence?.kind === 'queue' ? rowFacts?.find(entry => entry.entryId === fence.entryId) : undefined;
@@ -1342,15 +1386,15 @@ export class NativePlaybackRuntime {
       startFailure: this.startFailure, capacityWait: this.capacityWait, firstVideoFrame,
       initialPresentation: this.initialPresentation?.read(fence),
       ...(fence && this.forcedImageAvailable(fence) ? {forcedOnly: Object.freeze({on: this.choices.get('forcedOnly', fence.playback, false)})} : {}),
-      options: this.options, subtitles: this.subtitleService?.getSnapshot(), seekWindow, engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, externalPresentationBinding,
+      options: this.options, subtitles: this.subtitleService?.getSnapshot(), localTracks, audioTrackSelection: this.audioTrackSelection.getSnapshot(), seekWindow, engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, externalPresentationBinding,
       ...(this.o.pictureInPictureControls ? {pictureInPicture: Object.freeze({request: this.pictureRequests, active: this.pictureAttempt?.state === 'active', state: this.pictureState,
         ...(this.pictureBinding && externalPresentationBinding && sameNativePresentation(this.pictureBinding, externalPresentationBinding) ? {binding: this.pictureBinding} : {})})} : {}), retired: this.retired,
       capabilities: Object.freeze({queueSelection: queueSelectionReady, queueEdit: queueEditReady, queuePolicy: ready && fence?.kind === 'queue' && !!view && session?.queue?.queueId === view.queue.id && view.queue.currentEntryId === fence.entryId, retry: playback.phase === 'error' && !this.preparing && fence?.kind === 'queue' && session?.kind === 'vod' && session.presentation.subtitle?.delivery !== 'other' && view?.queue.currentEntryId === fence.entryId && view.queue.entries.some(entry => entry.id === fence.entryId && !entry.hidden && !entry.removed), play: ready && playback.intent === 'paused', pause: ready && playback.intent === 'playing', stop: !!fence, seek: ready && (seekWindow ? seekWindow.endSeconds > seekWindow.startSeconds : playback.duration > 0),
         previous: ready && fence?.kind === 'queue' && (playback.positionSeconds > 3 || currentIndex > 0), next: ready && fence?.kind === 'queue' && !!view && view.next.reason !== 'end', cast: ready && fence?.kind === 'queue' && !!this.o.openDestinations,
         quality: ready && !playback.nativeListening && !!this.options?.qualities.length, version: ready && !playback.nativeListening && (this.options?.versions.length ?? 0) > 1,
-        audioTrack: ready && !playback.nativeListening && !!this.options?.versions.find(value => value.id === session?.versionId)?.audio.length,
-        subtitleTrack: ready && !playback.nativeListening && !!this.subtitleService?.getSnapshot().plan,
-        subtitlesCanHide: fence?.kind === 'queue' && session?.presentation.subtitle?.delivery !== 'burn' && session?.presentation.decision.subtitles?.action !== 'burn' && this.subtitleService?.getSnapshot().plan?.renderer !== 'burn_in'})});
+        audioTrack: ready && !playback.nativeListening && (localTracks ? localTracks.audio.length > 1 : !!this.options?.versions.find(value => value.id === session?.versionId)?.audio.length),
+        subtitleTrack: ready && !playback.nativeListening && (localTracks ? localTracks.subtitles.length > 0 : !!this.subtitleService?.getSnapshot().plan),
+        subtitlesCanHide: !!localTracks?.subtitles.length || fence?.kind === 'queue' && session?.presentation.subtitle?.delivery !== 'burn' && session?.presentation.decision.subtitles?.action !== 'burn' && this.subtitleService?.getSnapshot().plan?.renderer !== 'burn_in'})});
   }
   private publish(): void {
     // A native fact can synchronously publish through the path, service and
@@ -1373,6 +1417,8 @@ export class NativePlaybackRuntime {
     }
   }
   private applyFact(fact: any): void {
+    const before = this.playback.getSnapshot();
+    const recovered = mediaRecovered(fact, before.positionSeconds);
     // Called only after the coordinator admits the current instance, command
     // barrier, sequence and binding. ready/playing/buffering are not this proof.
     if (fact.type === 'firstFrame') {
@@ -1380,8 +1426,19 @@ export class NativePlaybackRuntime {
       if (binding) this.firstVideoFrame = binding;
     }
     this.externalPresentationBinding = nativeExternalPresentationBinding(fact, this.coordinator.getBinding());
-    this.path.engineFact(fact);
-    const before = this.playback.getSnapshot();
+    // BUFFERING can emit an unchanged progress tick. Keep both the UI and the
+    // server observation stalled until actual media recovery is observed.
+    if (!(fact.type === 'progress' && before.recovering && !recovered && before.intent === 'playing')) this.path.engineFact(fact);
+    if (recovered || fact.type === 'ended') {this.recovery.clear(); this.playback.recovering(before.intentId, false);}
+    if (this.audioTrackSelection.accept(fact)) {
+      if (fact.type === 'audioTrackFailed') this.playback.fail(before.intentId, serviceText('player.opt.unavailable'));
+      else this.applyOptions();
+    }
+    if (before.session?.mode === 'local') {
+      const result = this.localTracks?.accept(fact);
+      if (result === 'failed') this.playback.fail(before.intentId, serviceText('player.opt.unavailable'));
+      else if (result === 'changed') this.applyOptions();
+    }
     if (typeof fact.effectiveRate === 'number') this.effectiveRate = fact.effectiveRate;
     if (Array.isArray(fact.supportedRates)) this.supportedRates = Object.freeze(fact.supportedRates.filter((rate: unknown): rate is number => typeof rate === 'number' && Number.isFinite(rate) && rate >= .5 && rate <= 3));
     if (fact.type === 'systemPaused') this.playback.pause();
@@ -1389,18 +1446,20 @@ export class NativePlaybackRuntime {
     else if (fact.type === 'stalled') this.playback.recovering(before.intentId, true);
     else if (fact.type === 'seekApplied') this.playback.seekApplied(before.intentId, fact.seekRevision, fact.position, fact.paused ? 'paused' : 'playing');
     else if (fact.type === 'seekFailed') this.playback.seekFailed(before.intentId, fact.seekRevision, serviceText('queuePlayer.startFailed'));
-    else if (fact.type === 'progress' || fact.type === 'ended') { this.recoverySince = 0; if (this.routeRecovery) clearTimeout(this.routeRecovery); this.playback.recovering(before.intentId, false); this.playback.fact(before.intentId, fact.position, fact.type === 'ended' ? 'ended' : fact.paused ? 'paused' : 'playing'); }
+    else if (fact.type === 'progress' || fact.type === 'ended') this.playback.fact(before.intentId, fact.position, fact.type === 'ended' ? 'ended' : fact.paused ? 'paused' : 'playing');
     else if (fact.type === 'error') {
       const failure = classifyPlaybackFailure(fact);
       if (failure.network && this.o.api.getRouteConnection()) {
-        this.recoverySince ||= Date.now();
-        if (Date.now() - this.recoverySince < 90_000) {
-          this.playback.recovering(before.intentId, true);
-          if (this.routeRecovery) clearTimeout(this.routeRecovery);
-          this.routeRecovery = setTimeout(() => { if (this.active() && this.playback.getSnapshot().intentId === before.intentId) void this.o.api.recoverRoute().catch(() => {}); }, 1000);
-          return;
-        }
+        const run = `${before.intentId}/${before.playbackRun}`;
+        const current = () => {const state = this.playback.getSnapshot(); return this.active() && state.intentId === before.intentId
+          && state.playbackRun === before.playbackRun && !!state.session && (state.phase === 'starting' || state.phase === 'ready');};
+        if (!current()) return;
+        this.playback.recovering(before.intentId, true);
+        this.recovery.start(run, current, () => this.playback.fail(before.intentId, serviceText('queuePlayer.startFailed')),
+          () => {void this.o.api.recoverRoute().catch(() => {});});
+        return;
       }
+      this.recovery.clear();
       if (failure.engine) this.playback.engineFailed(before.intentId, failure.engine, '', serviceText('queuePlayer.unsupported'));
       else this.playback.fail(before.intentId, serviceText('queuePlayer.startFailed'));
     }
@@ -1732,6 +1791,10 @@ export class NativePlaybackRuntime {
 
   change = async (fence: PlaybackFence, choice: PlaybackChoices): Promise<void> => {
     if (!this.matches(fence)) return;
+    if (fence.kind === 'local') {
+      if (!this.localTracks) throw new Error(serviceText('player.opt.unavailable'));
+      this.localTracks.choose(choice); this.applyOptions(); this.coordinator.reconsiderEngine(); this.publish(); return;
+    }
     if (this.playback.hasNativeOwner()) throw new Error(serviceText('player.opt.unavailable'));
     const options = this.options, version = options?.versions.find(value => value.id === this.currentSession()?.versionId);
     if (choice.quality && !options?.qualities.some(value => value.mode === choice.quality!.mode && (value.mode !== 'fixed' || value.id === ('id' in choice.quality! ? choice.quality!.id : undefined)))) throw new Error('Invalid playback quality.');
@@ -1973,7 +2036,7 @@ export class NativePlaybackRuntime {
     this.cancelSnapshot(); for (const release of this.videoExitImages) void release().catch(() => {}); this.snapshotCapture?.dispose();
     this.startController?.abort(); this.sourceController?.abort(); this.clearForcedImage(); this.http.dispose(); this.clearCompletion();
     const identity = this.snapshot.fence?.playback; if (identity) this.choices.stop(identity); this.skipped.clear();
-    if (this.routeRecovery) clearTimeout(this.routeRecovery);
+    this.recovery.clear(); this.audioTrackSelection.clear(); this.localTracks = undefined;
     this.subtitleOff?.(); this.subtitleService?.stop(); this.subtitleService = undefined;
     this.detailOff?.(); this.detailOff = undefined;
     this.detail?.service.dispose(); this.detail = undefined;

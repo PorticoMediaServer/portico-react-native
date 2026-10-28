@@ -198,22 +198,37 @@ export class NativeCastCaller {
     const finish = () => {if (done) return; done = true; clearTimeout(timer); sub.remove(); if (this.cancelChooser === cancel) this.cancelChooser = undefined;};
     const cancel = () => {finish(); controller.cancelConnecting();};
     const timer = setTimeout(cancel, 90000);
+    const failed = (error: unknown) => {if(this.viewerCurrent()&&this.source===source){finish();this.options.reportError(error);controller.cancelConnecting();}};
+    const admitDevice = async (actual: Omit<Device,'state'>, order: number) => {
+      if(done||this.source!==source)return;
+      const generation=this.acceptAttachment(actual,order);if(generation===undefined)return;
+      finish();
+      if(!this.precommitSourceCurrent(source)){controller.cancelConnecting();return;}
+      const device=Object.freeze({...actual,deviceName:String(actual.deviceName||'').slice(0,100)});
+      await castControllerStorageReady;
+      if(this.source!==source||this.bridgeGeneration!==generation||this.attachmentId!==device.attachmentId||!this.precommitSourceCurrent(source)||this.cancelling){controller.cancelConnecting();return;}
+      const position = source.adapter.getSnapshot().playback.positionSeconds;
+      return controller.start(this.transport(device,generation,()=>this.source===source),fence.itemId,meta,position,source.choices);
+    };
     const sub = this.emitter.addListener('PorticoCastSession',(event:Device)=>{
       if(done||this.source!==source||event.state!=='started'||!validCastAttachment(event.attachmentId))return;
       const order=++this.eventOrder;
-      void this.bridge!.current().then(async actual=>{
+      void this.bridge!.current().then(actual=>{
         if(done||this.source!==source||!actual||actual.attachmentId!==event.attachmentId)return;
-        const generation=this.acceptAttachment(actual,order);if(generation===undefined)return;
-        finish();
-        if(!this.precommitSourceCurrent(source)){controller.cancelConnecting();return;}
-        const device=Object.freeze({...actual,deviceName:String(actual.deviceName||'').slice(0,100)});
-        await castControllerStorageReady;
-        if(this.source!==source||this.bridgeGeneration!==generation||this.attachmentId!==device.attachmentId||!this.precommitSourceCurrent(source)||this.cancelling){controller.cancelConnecting();return;}
-        return controller.start(this.transport(device,generation,()=>this.source===source),fence.itemId,meta,snapshot.playback.positionSeconds,source.choices);
-      }).catch(error=>{if(this.viewerCurrent()&&this.source===source){finish();this.options.reportError(error);controller.cancelConnecting();}});
+        return admitDevice(actual,order);
+      }).catch(failed);
     });
     this.cancelChooser = cancel;
-    try {this.bridge.choose();} catch (error) {cancel(); this.options.reportError(error);}
+    // Reusing a connected SDK session does not emit another "started" event.
+    // Admit that exact current attachment through the same source checks.
+    try {
+      const order=++this.eventOrder;
+      void this.bridge.current().then(actual=>{
+        if(done||this.source!==source)return;
+        if(actual&&validCastAttachment(actual.attachmentId))return admitDevice(actual,order);
+        this.bridge!.choose();
+      }).catch(failed);
+    } catch (error) {cancel(); this.options.reportError(error);}
   };
   private transport(device: Omit<Device, 'state'>,generation:number,attempt:()=>boolean): CastTransport {
     const attachmentId=device.attachmentId;

@@ -122,7 +122,8 @@ const hdrRanges: readonly DynamicRange[] = ['sdr', 'hdr10', 'hdr10plus', 'hlg'];
 const audio: readonly ClientAudioCodec[] = ([
   ['aac', 8], ['mp3', 2], ['mp2', 2], ['ac3', 6], ['eac3', 8], ['dts', 8], ['truehd', 8], ['mlp', 8],
   ['flac', 8], ['alac', 8], ['opus', 8], ['vorbis', 8], ['pcm', 8], ['wmav2', 2], ['wmapro', 8],
-] as const).map(([codec, maxChannels]) => Object.freeze({codec, maxChannels, evidence: 'declared' as const}));
+] as const).map<ClientAudioCodec>(([codec, maxChannels]) => Object.freeze({codec, maxChannels,
+  ...(codec === 'dts' ? {variants: ['dts_core', 'dts_hd_hra', 'dts_hd_ma'] as ClientAudioCodec['variants']} : {}), evidence: 'declared' as const}));
 
 const fileContainers = ['mkv', 'webm', 'mp4', 'm4v', 'mov', 'avi', 'ts', 'm2ts', 'mts', 'mpg', 'mpeg', 'vob', 'wmv', 'asf', 'flv', 'ogv', 'ogm', '3gp', 'divx'];
 
@@ -145,11 +146,12 @@ export function mpvEngineCapabilities(facts: MpvDeviceFacts | null): EngineCapab
     return {maxWidth: Math.max(width, height), maxHeight: Math.min(width, height), maxFrameRate: Math.min(240, whole(own?.maxFrameRate) ?? 60)};
   };
   // The chip decoder's own operating points ("4K at 30, 1080p at 60") where the device reports
-  // them, each within the chip's overall limit.
+  // them. Clip dimensions only: the rate at the largest size is not the rate at smaller sizes.
   const chipPoints = (codec: string, overall: Limit): Limit[] => {
     const points = (facts?.hardwareLimits?.[codec]?.limits ?? []).map(p => ({maxWidth: whole(p.maxWidth), maxHeight: whole(p.maxHeight), maxFrameRate: whole(p.maxFrameRate)}))
-      .filter((p): p is Limit => !!p.maxWidth && !!p.maxHeight && !!p.maxFrameRate).map(p => within(p, overall));
-    return points.length > 1 ? points.slice(0, 8) : [overall];
+      .filter((p): p is Limit => !!p.maxWidth && !!p.maxHeight && !!p.maxFrameRate)
+      .map(p => ({maxWidth: Math.min(p.maxWidth, overall.maxWidth), maxHeight: Math.min(p.maxHeight, overall.maxHeight), maxFrameRate: Math.min(240, p.maxFrameRate)}));
+    return points.length ? points.slice(0, 8) : [overall];
   };
   // Operating points by depth: the chip's for the depths it decodes, software's for a depth only
   // mpv's own decoder takes. Absent when one limit says it all.
@@ -170,8 +172,9 @@ export function mpvEngineCapabilities(facts: MpvDeviceFacts | null): EngineCapab
   const h264Hardware = facts?.hardwareLimits?.h264 ? chip('h264') : tier === 'light' ? hd60 : uhd60;
   if (hardware.h264) {
     const eight = chipPoints('h264', h264Hardware);
-    const limits = points([8], eight, heavy ? [10] : [], heavy ? within(heavy, h264Hardware) : null);
-    video.push({codec: 'h264', bitDepths: heavy ? [8, 10] : [8], ...(limits ? largest([...eight, ...(heavy ? [heavy] : [])]) : h264Hardware), ...(limits ? {limits} : {}), dynamicRanges: ['sdr'], evidence: probed});
+    const soft = heavy ? within(heavy, h264Hardware) : null;
+    const limits = points([8], eight, heavy ? [10] : [], soft);
+    video.push({codec: 'h264', bitDepths: heavy ? [8, 10] : [8], ...largest([...eight, ...(soft ? [soft] : [])]), ...(limits ? {limits} : {}), dynamicRanges: ['sdr'], evidence: probed});
   } else {
     video.push({codec: 'h264', bitDepths: heavy ? [8, 10] : [8], ...(heavy ?? hd30), dynamicRanges: ['sdr'], evidence: probed});
   }
@@ -184,8 +187,9 @@ export function mpvEngineCapabilities(facts: MpvDeviceFacts | null): EngineCapab
     const tenBit = chipTenBit || !!heavy;
     const own = hardware[codec] ? chipPoints(codec, chip(codec)) : [];
     // A chip that decodes only 8-bit keeps its own limits for 8-bit; 10-bit is software's.
-    const limits = hardware[codec] ? points(chipTenBit ? [8, 10] : [8], own, !chipTenBit && heavy ? [10] : [], !chipTenBit && heavy ? within(chip(codec), heavy) : null) : undefined;
-    const limit = !hardware[codec] ? heavy! : limits ? largest(own) : chip(codec);
+    const soft = hardware[codec] && !chipTenBit && heavy ? within(chip(codec), heavy) : null;
+    const limits = hardware[codec] ? points(chipTenBit ? [8, 10] : [8], own, soft ? [10] : [], soft) : undefined;
+    const limit = !hardware[codec] ? heavy! : largest([...own, ...(soft ? [soft] : [])]);
     const ranges: DynamicRange[] = tenBit ? [...hdrRanges, ...(codec === 'hevc' && dolbyVision.length ? ['dolby_vision' as const] : [])] : ['sdr'];
     video.push({codec, bitDepths: tenBit ? [8, 10] : [8], ...limit, ...(limits ? {limits} : {}), dynamicRanges: ranges, ...(codec === 'hevc' && tenBit && dolbyVision.length ? {dolbyVisionProfiles: dolbyVision} : {}), evidence: probed});
   };

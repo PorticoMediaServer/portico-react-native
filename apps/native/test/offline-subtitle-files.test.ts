@@ -1,7 +1,7 @@
 /** The subtitle files kept beside a download: their names, which belong together, and the form a track is played from. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {storedSubtitle, subtitleExtraFiles, subtitleExtraName} from '../src/bridge/offline-subtitle-files.ts';
+import {storedSubtitle, subtitleExtraFiles, subtitleExtraName} from '../platform/offline-subtitle-files.ts';
 
 const dir = 'file:///var/mobile/Containers/Data/Application/A/Library/Application%20Support/Downloads/dl1/extras/';
 const file = (path: string) => ({path, contentType: 'application/octet-stream'});
@@ -43,6 +43,8 @@ test('a styled track comes with the fonts that have arrived, in their order, und
   const some = storedSubtitle(styled, names(['sub-s9-4.ass', 'sub-s9-4.vtt', 'sub-s9-4.font1', 'sub-s9-4.font10']), dir)!;
   assert.equal(some.format, 'ass');
   assert.equal(some.url, dir + 'sub-s9-4.ass');
+  assert.equal(some.textUrl, dir + 'sub-s9-4.vtt', 'the saved plain reading remains available to the native renderer');
+  assert.equal(some.revision, 4);
   assert.deepEqual(some.fonts, [{name: 'sub-s9-4.font1', url: dir + 'sub-s9-4.font1'}, {name: 'sub-s9-4.font10', url: dir + 'sub-s9-4.font10'}]);
   // Fonts never ride with the plain-text reading, and one the bundle does not list is never made up.
   const text = storedSubtitle(styled, names(['sub-s9-4.vtt', 'sub-s9-4.font0']), dir)!;

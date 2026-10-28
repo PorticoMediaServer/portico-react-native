@@ -1142,3 +1142,33 @@ test('private cached title keeps typed duration and episode facts after native J
   assert.equal(entry.info?.durationSeconds,1200);
   assert.equal(entry.info?.groupNumber,2);assert.equal(entry.info?.number,3);
 });
+
+test('unfinished audiobook progress keeps its resume and file even with delete-watched and auto-next enabled', async () => {
+  const {offlineDownloads} = await bridge(), owner = ownerKeyOf(A);
+  device.seed({id: 'book-copy', itemId: 'book-part', meta: {owner, kind: 'audiobook_file'}});
+  offlineDownloads.adopt(A); await offlineDownloads.open();
+  await offlineDownloads.setSettings({deleteWatched: true, autoNext: true});
+  offlineDownloads.recordProgress({entryId: 'book-copy', itemId: 'book-part', playId: 'book-play', positionSeconds: 33480,
+    durationSeconds: 36000, state: 'paused', ended: false});
+  await settle();
+  const saved = JSON.parse(device.state);
+  assert.equal(saved.resume[owner]['book-part'], 33480);
+  assert.equal(saved.plays[owner]['book-play'].ended, undefined);
+  assert.equal(saved.nextAfter[owner]?.['book-part'], undefined);
+  assert.deepEqual(device.removed, []);
+  assert.ok(device.entries.has('book-copy'));
+});
+
+test('near-end video keeps its unfinished resume while an actual end resets it', async () => {
+  const {offlineDownloads} = await bridge(), owner = ownerKeyOf(A);
+  device.seed({id: 'movie-copy', itemId: 'movie', meta: {owner, kind: 'movie'}});
+  offlineDownloads.adopt(A); await offlineDownloads.open();
+  const progress = {entryId: 'movie-copy', itemId: 'movie', playId: 'movie-play', positionSeconds: 930, durationSeconds: 1000};
+  offlineDownloads.recordProgress({...progress, state: 'paused', ended: false}); await settle();
+  assert.equal(JSON.parse(device.state).resume[owner].movie, 930);
+  offlineDownloads.recordProgress({...progress, positionSeconds: 1000, state: 'ended', ended: true}); await settle();
+  const saved = JSON.parse(device.state);
+  assert.equal(saved.resume[owner].movie, 0);
+  assert.equal(saved.plays[owner]['movie-play'].ended, true);
+  assert.deepEqual(device.removed, [], 'delete-watched remains opt-in');
+});

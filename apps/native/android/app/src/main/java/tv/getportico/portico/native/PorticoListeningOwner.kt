@@ -90,6 +90,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   private var endedReported = false
   private var terminal = false
   private var safetyPaused = false
+  private var engineFailed = false
   private var busy = false
   private var invalidated = false
   private var emitting = false
@@ -183,7 +184,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     seq = num(handover["lastSeq"])!!.toLong(); audibleSeq = 0
     leaseUntil = mono() + num(handover["leaseMs"])!! / 1000.0
     nextReport = 0.0; reportEvery = 10.0; retryAt = 0.0; backoff = 0.0; audioCooldown = 0.0
-    reportNow = true; patchWanted = false; ended = false; endedReported = false; terminal = false; safetyPaused = false; busy = false; rendering = false
+    reportNow = true; patchWanted = false; ended = false; endedReported = false; terminal = false; safetyPaused = false; engineFailed = false; busy = false; rendering = false
     routeReady = true; routeRevision = -1; seekRevision = 0; sequence = 0; ackSequence = 0; transitionSequence = 0; failures = 0; commitTries = 0; actionRevision = 0
     nativeSeek = seekTo(startSeconds(session))
     lastFact = null; transition = null; prepared = null; committed = null; audioReady = false; commitWanted = false; audioAttempt = null; error = null; notice = null
@@ -449,23 +450,30 @@ internal class PorticoListeningOwner(private val context: Context, private val c
   private fun sessionPath(suffix: String) = "/v1/playback/sessions/" + Uri.encode(session["id"] as String) + suffix
   private fun queuePath(command: String) = "/v1/queues/" + Uri.encode(queue?.get("id") as? String ?: "") + ":" + command
 
-  /** 404/410 or `session_ended`: read why the server ended it, and stop with that. Nothing advances. */
+  /** Events and 404/410 read the same session: reconcile controls, or stop with the server's end. */
   private fun learnEnd() {
     val id = session["id"]
     send("GET", sessionPath(""), null, null) { status, value, _, _ ->
       if (session["id"] != id) return@send
-      val answer = value as? Map<*, *>
-      val ending = answer?.get("end") as? Map<*, *>
-      if (status == 200 && answer?.get("state") != "ended") { retryAt = mono() + 1; return@send }
-      // Ended as completed while a commit's answer was lost: that commit landed. Take its session.
-      if (ending?.get("reason") == "completed" && lostCommit != null) { replayLostCommit(); return@send }
-      val reason = ending?.get("reason") as? String
-      // The track this owner reported finished: its own doing, and the queue is already moving on.
-      if (reason == "ended" && endedReported) return@send
-      val message = (ending?.get("message") as? String)?.takeIf { it.isNotEmpty() }
-      end = if (!reason.isNullOrEmpty()) mapOf("reason" to reason, "message" to message) else mapOf("reason" to "stopped", "message" to null)
-      fail(message ?: "Playback ended on the server.", true)
+      @Suppress("UNCHECKED_CAST") val answer = value as? Map<String, Any?>
+      if (status == 200 && answer?.get("state") != "ended") {
+        if (!reconcileSession(answer, patchWanted)) retryAt = mono() + 1
+        return@send
+      }
+      serverEnded(answer)
     }
+  }
+
+  private fun serverEnded(answer: Map<String, Any?>?) {
+    val ending = answer?.get("end") as? Map<*, *>
+    // Ended as completed while a commit's answer was lost: that commit landed. Take its session.
+    if (ending?.get("reason") == "completed" && lostCommit != null) { replayLostCommit(); return }
+    val reason = ending?.get("reason") as? String
+    // The track this owner reported finished: its own doing, and the queue is already moving on.
+    if (reason == "ended" && endedReported) return
+    val message = (ending?.get("message") as? String)?.takeIf { it.isNotEmpty() }
+    end = if (!reason.isNullOrEmpty()) mapOf("reason" to reason, "message" to message) else mapOf("reason" to "stopped", "message" to null)
+    fail(message ?: "Playback ended on the server.", true)
   }
 
   private fun sessionGone(status: Int, value: Any?) = status == 404 || status == 410 || errorCode(value) in GONE
@@ -553,11 +561,11 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     send("PATCH", sessionPath(""), mapOf("state" to want), mapOf("If-Match" to (session["revision"] as String), "Content-Type" to "application/merge-patch+json")) { status, value, _, _ ->
       if (session["id"] != id) return@send
       @Suppress("UNCHECKED_CAST") val answer = value as? Map<String, Any?>
-      if (status in 200..299 && v1Session(answer)) { session = keepPresentation(answer!!); patchWanted = intent != want; persist(); emit(); return@send }
+      if (status in 200..299 && reconcileSession(answer, intent != want)) return@send
       if (status == 412) {
         // Adopt the server's current session; apply the intent again only if it still differs.
         val current = currentOf(value)
-        if (v1Session(current) && current!!["id"] == id) { session = keepPresentation(current); patchWanted = current["state"] != intent } else patchWanted = false
+        if (!reconcileSession(current, true)) patchWanted = false
         return@send
       }
       if (sessionGone(status, value)) { patchWanted = false; learnEnd(); return@send }
@@ -567,14 +575,37 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     }
   }
 
-  /** A PATCH answer carries the presentation the server has; a new generation is a new source. */
-  private fun keepPresentation(fresh: Map<String, Any?>): Map<String, Any?> {
-    if ((generation(fresh) ?: 0.0) > (generation(session) ?: 0.0)) {
-      nativeSeek = seekTo(num(controller.listeningSnapshot()["positionSeconds"]) ?: 0.0)
-      reportNow = true
-      dropPrepared(null)
+  /** Every accepted server session is assigned before any command can apply its new generation. */
+  private fun reconcileSession(value: Map<String, Any?>?, keepLocalIntent: Boolean): Boolean {
+    val fresh = value ?: return false
+    if (!v1Session(fresh) || fresh["id"] != session["id"] || fresh["itemId"] != session["itemId"]) return false
+    if (fresh["state"] == "ended") { patchWanted = false; serverEnded(fresh); return true }
+    val clock = controller.listeningSnapshot()
+    val binding = clock["binding"] as? Map<*, *>
+    val observed = if (audible == null && clock["observed"] == true && binding?.get("sessionId") == session["id"] &&
+        num(binding?.get("generation")) == generation(session)) num(clock["positionSeconds"]) else null
+    val update = PorticoListeningPolicy.reconcileSession(session, fresh, intent, keepLocalIntent, observed, num(nativeSeek?.get("positionSeconds"))) ?: return false
+    session = fresh
+    intent = update.intent
+    patchWanted = update.patchWanted
+    if (update.seekSeconds != null) {
+      nativeSeek = seekTo(update.seekSeconds)
+      ended = false; endedReported = false; audioAttempt = null; reportNow = true; pausedAt = 0.0
+      if (audible != null) {
+        // A seek/replan of the committed successor retires the old buffered edge; its lease and
+        // report sequence remain the successor's, not a new locally invented session.
+        val previous = audible?.get("id")
+        transition = mapOf("previousSessionId" to (transition?.get("previousSessionId") ?: previous), "queue" to queueHeader)
+        transitionSequence = sequence + 1
+        audible = null; committed = null; prepared = null; audioReady = false; commitWanted = false; rendering = false
+        metadata = null; metadataRequest?.cancel(); metadataRequest = null; clearArtwork()
+        controller.resetListeningEngine(activeOwner ?: return false)
+        loadCurrentMetadata()
+      }
     }
-    return fresh
+    if (update.dropPrepared) { reportNow = true; dropPrepared(null) }
+    persist(); apply(); emit()
+    return true
   }
 
   // --- queue moves -----------------------------------------------------------------------
@@ -697,7 +728,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     prepared = null; committed = null; commitWanted = false; audioReady = false; renderFailures = 0; startPending = null; parkedCommit = null; replayTries = 0
     pausedAt = 0.0; wasPlaying = false
     intent = if (timerStopped || next["state"] == "paused") "paused" else "playing"
-    safetyPaused = false; audioAttempt = null; rendering = false; policyRateKey = null
+    safetyPaused = false; engineFailed = false; audioAttempt = null; rendering = false; policyRateKey = null
     duration = PorticoAudioPlan.durationSeconds(decodePlan(presentation(next)))
     nativeSeek = seekTo(startSeconds(next))
     lastFact = null; metadata = null
@@ -852,7 +883,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     val previous = (audible?.get("id") ?: session["id"]) as? String
     transition = mapOf("previousSessionId" to (transition?.get("previousSessionId") ?: previous), "queue" to queueHeader)
     transitionSequence = sequence + 1
-    audible = null; committed = null; prepared = null; audioReady = false; audioAttempt = null; lastFact = fact; nativeSeek = null; ended = false; reportNow = true; policyRateKey = null; renderFailures = 0
+    audible = null; committed = null; prepared = null; audioReady = false; audioAttempt = null; lastFact = fact; nativeSeek = null; ended = false; engineFailed = false; reportNow = true; policyRateKey = null; renderFailures = 0
     metadata = null
     metadataRequest?.cancel(); metadataRequest = null
     clearArtwork()
@@ -868,6 +899,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     if (activeOwner == null || terminal || binding?.get("sessionId") != heard["id"] || num(binding?.get("generation")) != generation(heard)) return
     val type = fact["type"] as? String ?: return
     lastFact = fact
+    if (type == "ready" && controller.listeningSnapshot()["ready"] == true) engineFailed = false
     if (type == "audioPrepared" && prepared?.get("token") == fact["token"]) audioReady = true
     if (type == "audioCommit" && audioReady && committed == null && prepared?.get("token") == fact["token"]) {
       if (mayAdvance() && intent == "playing" && allowed()) { commitWanted = true; commitTries = 0; tick() } else dropPrepared(null)
@@ -892,7 +924,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
       apply(); emit()
       return
     }
-    if (type == "error") { safetyPaused = true; error = "This audio couldn’t be played. Press Retry."; reportNow = true; dropPrepared(null); apply() }
+    if (type == "error") { engineFailed = true; safetyPaused = true; error = "This audio couldn’t be played. Press Retry."; reportNow = true; dropPrepared(null); apply() }
     if (type == "progress") {
       checkDeadlines()
       // While paused nothing moves: no snapshot per engine tick.
@@ -941,7 +973,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     checkDeadlines(); resetInactivity()
     var resolved = action!!
     var amount = value
-    if (resolved == "resume" && ended) { resolved = "retry"; amount = 0.0 }
+    if (resolved == "resume" && PorticoListeningPolicy.resumeNeedsRetry(ended, engineFailed)) { resolved = "retry"; amount = if (ended) 0.0 else null }
     if (resolved == "pause") { if (intent == "playing") pausedAt = mono(); dropPrepared(null); intent = "paused"; patchWanted = true; reportNow = true; apply() }
     if (resolved == "resume") { intent = "playing"; safetyPaused = false; timerStopped = false; error = null; patchWanted = true; reportNow = true; apply() }
     if (resolved == "seek") pausedAt = 0.0
@@ -955,7 +987,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     if (resolved == "rate") { rate = amount!!; if (committed == null) dropPrepared(null); reportNow = true; apply() }
     if (resolved == "retry") {
       val seconds = amount ?: num(controller.listeningSnapshot()["positionSeconds"]) ?: 0.0
-      dropPrepared(null); intent = "playing"; safetyPaused = false; timerStopped = false; ended = false; endedReported = false; error = null; patchWanted = true; renderFailures = 0
+      dropPrepared(null); intent = "playing"; safetyPaused = false; engineFailed = false; timerStopped = false; ended = false; endedReported = false; error = null; patchWanted = true; reportNow = true; renderFailures = 0
       controller.resetListeningEngine(owner)
       nativeSeek = seekTo(seconds)
       apply()
@@ -964,7 +996,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     return !terminal
   }
 
-  /** The event stream says this session changed: check at once whether the server ended it. */
+  /** The event stream says this session changed: reconcile its controls or end at once. */
   fun sessionUpdated(sessionId: String, owner: String): Boolean {
     if (activeOwner != owner || terminal) return false
     // An end this owner reported itself needs no check; anything else is read at once.
