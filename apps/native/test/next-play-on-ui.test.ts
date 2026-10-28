@@ -83,7 +83,9 @@ test('receiver rows keep platform context, grouping and chevrons without middle-
   const f = await sheet({tablet: true, state: {receivers: [receiver]}}), tree = f.render();
   assert.ok(find(tree, 'play-on-network'));
   const row = find(tree, 'play-on-tv');
-  assert.ok(text(row).includes('services.platform.tvos')); assert.equal(text(row).includes(' · '), false);
+  assert.ok(text(row).includes('next.cast.receiverOn') && text(row).includes('services.platform.tvos')); assert.equal(text(row).includes(' · '), false);
+  assert.ok(text(find(tree, 'play-on-link')).includes('next.cast.linkTvHint'));
+  assert.ok(text(find(tree, 'play-on-handover')).includes('playOn.stillHereUntilTakeover'));
   assert.ok(descendants(row).some(node => node.type === 'Icon' && node.props.name === 'i-right'));
   assert.equal(row.props.style({focused: false}).minHeight, 52);
   row.props.onPress(); assert.deepEqual(f.commands[0], ['send', receiver]);

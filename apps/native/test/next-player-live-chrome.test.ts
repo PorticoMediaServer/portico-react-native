@@ -50,7 +50,7 @@ async function fixture(input: {compact?: boolean; bar?: boolean; tabletop?: 'col
     '../../kit/useMotion': {useMotion: () => ({reduce: true, timing: () => ({}), duration: () => 0}), useReducedMotion: () => true},
     '../../kit/dock/PlayerMorphBridge': {useInitialPlayerPaint: () => undefined, usePublishedPlayerMorph: () => undefined},
     './TVControlLabel': {TVControlLabel: 'TVControlLabel'}, '../settings-live/GroupPill': {NativeTVGroupPill: 'GroupPill'}, './controls': {}, './WatchTimeline': {NativeWatchTimeline: 'Timeline'},
-    './useSkipPromptMotion': {useSkipPromptMotion: (value: unknown) => ({value, interactive: !!value, bodyStyle: {}, positionStyle: {}})}, './UpNextCard': {NativeUpNextCard: 'UpNextCard'}, '../../kit/artwork': {Artwork: 'Artwork'},
+    './useSkipPromptMotion': {useSkipPromptMotion: (value: unknown) => ({value, interactive: !!value, bodyStyle: {}, positionStyle: {}})}, './UpNextCard': {NativeUpNextCard: 'UpNextCard'}, './StillWatchingCard': {NativeStillWatchingCard: 'StillWatchingCard'}, '../../kit/artwork': {Artwork: 'Artwork'},
     './live-guide': {emptyLiveGuide: () => ({}), noLiveGuideSubscription: noopSubscription}, './live-actions': {emptyLiveActions: () => ({}), noLiveActionsSubscription: noopSubscription},
     '../../../../../packages/client-core/src/guide/now-next': {nowNext: () => ({})}, '../../../../../packages/client-core/src/playback-messages': {playbackUserMessage: String},
     './TVMiniGuide': {NativeMiniGuide: 'MiniGuide'}, './TVLiveActions': {TVLiveActions: 'LiveActions'},
@@ -141,13 +141,19 @@ test('ended and still-watching cards dispatch only their current canonical actio
   card.props.onPlayNow();assert.deepEqual(f.calls.at(-1), ['policy-advance', f.fence, 'manual']);
   f.changeSource({policy: {...policy, endCountdown: undefined, attention: 'still-watching'}});
   const count = f.calls.length;card.props.onPlayNow();card.props.postPlay.onCancel();assert.equal(f.calls.length, count, 'the retained ordinary end card cannot confirm a new still-watching check');
-  const waiting = nodes(f.render()).find(node => node.type === 'UpNextCard');
-  assert.equal(waiting.props.countdown, null);waiting.props.onPlayNow();assert.deepEqual(f.calls.at(-1), ['policy-advance', f.fence, 'still-watching']);
-  f.changeSource({dock: {local: {expanded: false}}});const collapsed = f.calls.length;waiting.props.onPlayNow();waiting.props.postPlay.onReplay();waiting.props.postPlay.onClose();assert.equal(f.calls.length, collapsed, 'a retained end card cannot act after the same session collapses');
-  f.changeSource({dock: {local: {expanded: true}}, retired: true});waiting.props.postPlay.onReplay();waiting.props.postPlay.onClose();assert.equal(f.calls.length, collapsed, 'runtime retirement closes retained end actions even if its last fence is still published');
+  // phone-player 6e: on a handheld the check is its own centred question, not the Up next card.
+  const rendered = nodes(f.render());
+  assert.equal(rendered.some(node => node.type === 'UpNextCard'), false);
+  const waiting = rendered.find(node => node.type === 'StillWatchingCard');
+  assert.ok(waiting); assert.equal(waiting.props.item, next);
+  waiting.props.onConfirm();assert.deepEqual(f.calls.at(-1), ['policy-advance', f.fence, 'still-watching']);
+  waiting.props.onReplay();assert.deepEqual(f.calls.at(-1), ['replay', f.fence]);
+  waiting.props.onClose();assert.deepEqual(f.calls.at(-1), ['stop', f.fence]);
+  f.changeSource({dock: {local: {expanded: false}}});const collapsed = f.calls.length;waiting.props.onConfirm();waiting.props.onReplay();waiting.props.onClose();assert.equal(f.calls.length, collapsed, 'a retained check cannot act after the same session collapses');
+  f.changeSource({dock: {local: {expanded: true}}, retired: true});waiting.props.onReplay();waiting.props.onClose();assert.equal(f.calls.length, collapsed, 'runtime retirement closes retained actions even if its last fence is still published');
   f.changeSource({retired: false});
-  f.changeSource({policy: {...policy, attention: 'playback-error'}});assert.equal(nodes(f.render()).some(node => node.type === 'UpNextCard'), false);
-  f.changeSource({fence: {...f.fence, generation: 2}});const changed = f.calls.length;waiting.props.onPlayNow();waiting.props.postPlay.onReplay();waiting.props.postPlay.onClose();assert.equal(f.calls.length, changed);
+  f.changeSource({policy: {...policy, attention: 'playback-error'}});assert.equal(nodes(f.render()).some(node => node.type === 'UpNextCard' || node.type === 'StillWatchingCard'), false);
+  f.changeSource({fence: {...f.fence, generation: 2}});const changed = f.calls.length;waiting.props.onConfirm();waiting.props.onReplay();waiting.props.onClose();assert.equal(f.calls.length, changed);
 });
 
 test('the existing next card renders end actions without a credits action or an invented countdown', async () => {
@@ -168,4 +174,22 @@ test('the existing next card renders end actions without a credits action or an 
   assert.equal(nodes(waiting).some(node => node.props.testID === 'watch-up-next-watch'), false);
   const scene = h.render(() => NativeUpNextCard({...props, compact: false, postPlay: undefined, sceneAfter: true, countdown: {seconds: 90, automatic: false}}));
   assert.ok([...nodes(waiting), ...nodes(scene)].filter(node => node.type === 'Text').every(node => typeof node.props.style.fontFamily === 'string'), 'every inline card label carries its native Manrope family');
+});
+
+test('the still-watching check names the next episode and offers only its three actions', async () => {
+  const h = hooks(), calls: string[] = [];
+  const {NativeStillWatchingCard} = await screenModule(new URL('../src-next/screens/watch/StillWatchingCard.tsx', import.meta.url), {
+    react: h.react, 'react-native': {View: 'View', Text: 'Text', StyleSheet: {absoluteFill: {position: 'absolute', inset: 0}}},
+    '../../../../../packages/i18n/src': {defaultI18n: {t}}, '../../kit/controls': {Button: 'Button'}, '../../platform/native-blur': {BlurView: 'BlurView'},
+    '../../kit/theme': {useTheme: () => theme, nativeType: (value: any) => ({fontFamily: 'Manrope', fontSize: value.size})},
+  });
+  const tree = nodes(h.render(() => NativeStillWatchingCard({item: {entryId: 'next', title: 'Bad Tradecraft', episode: {seasonNumber: 1, number: 3}},
+    onConfirm: () => calls.push('confirm'), onReplay: () => calls.push('replay'), onClose: () => calls.push('close')})));
+  const text = strings(tree);
+  for (const key of ['player.post.stillWatching', 'player.post.upNext', 'Bad Tradecraft', 'player.post.pausedAfterEpisodes']) assert.match(text, new RegExp(key.replace('.', '\\.')));
+  const buttons = tree.filter(node => node.type === 'Button');
+  assert.deepEqual(buttons.map(node => node.props.testID), ['watch-still-confirm', 'watch-still-replay', 'watch-still-close']);
+  for (const button of buttons) button.props.onPress();
+  assert.deepEqual(calls, ['confirm', 'replay', 'close']);
+  assert.ok(tree.filter(node => node.type === 'Text').every(node => [node.props.style].flat().some((style: any) => style?.fontFamily)), 'every label carries Manrope');
 });

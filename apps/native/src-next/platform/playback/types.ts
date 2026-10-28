@@ -39,6 +39,8 @@ export type PlaybackAuthority = Readonly<{serverId: string; accountId: string; p
 export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNullable<ContentEntry['playback']>; origin?: Readonly<{kind: 'home-row'; rowId: string}>;
   /** Ordinary Play/Resume asks the server for its current position. */
   startIntent?: 'resume' | 'start-over' | 'explicit';
+  /** An exact edition to start, used only when the server still offers it. */
+  versionId?: string;
   /** Optional pixels measured at this original touch, never playback authority. */
   presentation?: NativeStartArtworkOffer;
   /** A group prepares this title paused until its authoritative clock plays. */

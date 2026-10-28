@@ -23,6 +23,7 @@ import {NativeWatchTimeline} from './WatchTimeline';
 import {useSkipPromptMotion} from './useSkipPromptMotion';
 import {useInitialPlayerPaint, usePublishedPlayerMorph} from '../../kit/dock/PlayerMorphBridge';
 import {NativeUpNextCard} from './UpNextCard';
+import {NativeStillWatchingCard} from './StillWatchingCard';
 import {Artwork, type ArtworkSource} from '../../kit/artwork';
 import type {NativeWatchNotice} from './playback-info';
 import {emptyLiveGuide, noLiveGuideSubscription, type NativeTVLiveGuide} from './live-guide';
@@ -475,7 +476,20 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   // where the controls may be down and the note's line rides its bottom edge.
   const phone = !theme.isTV;
   const endCurrent = () => {const live = playback.getSnapshot();return controlsCurrent() && live.policy?.finished === true && live.policy.attention === policy?.attention && live.queue.view?.next.entryId === nextItem?.entryId;};
-  const skipOfferNode = (endCard || visibleOffer) && nextItem ? <NativeUpNextCard compact={phone} item={nextItem} artwork={props.artwork?.(nextItem.stillUrl ?? nextItem.backdropUrl)} offer={visibleOffer}
+  // phone-player 6e: on handhelds, Still watching? is its own centred question over a dimmed picture.
+  const stillWatching = phone && endCard && policy?.attention === 'still-watching' && !!nextItem;
+  const stillWatchingNode = stillWatching && nextItem ? <View pointerEvents="box-none" style={{position: 'absolute', inset: 0, alignItems: 'center', justifyContent: 'center'}}>
+    <View pointerEvents="none" style={{position: 'absolute', inset: 0, backgroundColor: 'rgba(3,8,12,.42)'}}/>
+    <NativeStillWatchingCard item={nextItem}
+      onConfirm={() => {
+        const live = playback.getSnapshot();
+        if (!endCurrent() || live.policy?.attention !== 'still-watching' || !playback.policyAdvance || live.queue.view?.next.entryId !== nextItem.entryId) return;
+        void playback.policyAdvance(fence, 'still-watching').catch(props.reportError);
+      }}
+      onReplay={() => {if (endCurrent()) void playback.replay(fence).catch(props.reportError);}}
+      onClose={() => {if (endCurrent()) void playback.stop(fence).catch(props.reportError);}}/>
+  </View> : undefined;
+  const skipOfferNode = !stillWatching && (endCard || visibleOffer) && nextItem ? <NativeUpNextCard compact={phone} item={nextItem} artwork={props.artwork?.(nextItem.stillUrl ?? nextItem.backdropUrl)} offer={visibleOffer}
     countdown={countdown} countdownTotal={view?.postPlay.countdownSeconds ?? 10} sceneAfter={!endCard && sceneAfter} onPlayNow={() => {
       const live = playback.getSnapshot(), mode = endCard && policy?.attention === 'still-watching' ? 'still-watching' : 'manual';
       if (!controlsCurrent() || !playback.policyAdvance || !live.queue.view?.next.available || live.queue.view.next.entryId !== nextItem.entryId
@@ -596,6 +610,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         </View>
       </FocusRegion>
     </Animated.View>
+    {stillWatchingNode}
     {skipNodes && <View pointerEvents="box-none" style={{position: 'absolute', right: 32, bottom: 180}}>
       <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>{skipNodes}</View>
     </View>}
@@ -638,6 +653,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         </View>
       </FocusRegion>
     </Animated.View>
+    {stillWatchingNode}
     {skipNodes && <View pointerEvents="box-none" style={{position: 'absolute', left: 22, right: 22, bottom: 52}}>
       <View testID="watch-skip-prompt" style={{flexDirection: 'row', alignItems: 'center', gap: 22}}>{skipNodes}</View>
     </View>}
@@ -806,6 +822,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       </FocusRegion>
     </Animated.View>
     {props.notice && state.panel === undefined && <LossNotice notice={props.notice} top={theme.isTV ? 168 : 64} gutter={theme.isTV ? 96 : 54} available={width}/>}
+    {stillWatchingNode}
     {skipNodes && <Animated.View pointerEvents="box-none" style={[{position: 'absolute', right: theme.isTV ? 96 : 60,
       bottom: theme.isTV ? 284 : skipNodes === skipPromptNode && !motion.reduce ? 20 : visible ? 110 : 20}, skipNodes === skipPromptNode ? promptMotion.positionStyle : undefined]}>
       {theme.isTV

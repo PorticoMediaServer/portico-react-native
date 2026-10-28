@@ -23,6 +23,8 @@ export type NativeShellPlaybackStart = Readonly<{
   origin?: Readonly<{kind: 'home-row'; rowId: string}>;
   /** Ordinary Play/Resume asks the server for its current position. */
   startIntent?: 'resume' | 'start-over' | 'explicit';
+  /** An exact edition to start, used only when the server still offers it. */
+  versionId?: string;
   presentation?: NativeStartArtworkOffer;
 }>;
 export type NativeShellBounds = Readonly<{x: number; y: number; width: number; height: number}>;

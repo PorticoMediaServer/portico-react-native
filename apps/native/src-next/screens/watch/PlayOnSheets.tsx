@@ -141,8 +141,10 @@ export function NativePlayOnSheets({controller, artwork, ambient, airPlayVideo, 
       <Icon name={receiverIcon(receiver.platform)} size={tablet ? 22 : 24} color={theme.colors.textSecondary}/>
       <View style={{flex: 1}}><Text style={titleStyle}>{receiver.displayName}</Text>
         <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 10}}>
-          <Text style={helperStyle}>{receiver.kind === 'portico' ? t('playOn.porticoDevice') : t('playOn.castDevice')}</Text>
-          {playOnPlatformName(receiver.platform) && <Text style={helperStyle}>{playOnPlatformName(receiver.platform)}</Text>}
+          <Text style={helperStyle}>{receiver.kind === 'portico' && playOnPlatformName(receiver.platform)
+            ? t('next.cast.receiverOn', {platform: playOnPlatformName(receiver.platform)!})
+            : receiver.kind === 'portico' ? t('playOn.porticoDevice') : t('playOn.castDevice')}</Text>
+          {receiver.kind !== 'portico' && playOnPlatformName(receiver.platform) && <Text style={helperStyle}>{playOnPlatformName(receiver.platform)}</Text>}
           {receiver.presence === 'offline' && <Text style={helperStyle}>{t('playOn.offline')}</Text>}
         </View>
       </View><Icon name="i-right" size={18} color={theme.colors.textTertiary}/>
@@ -152,8 +154,10 @@ export function NativePlayOnSheets({controller, artwork, ambient, airPlayVideo, 
     <Focusable focusId="play-on-link" testID="play-on-link" focusKind="row" accessibilityRole="button" onPress={onLinkTV}
       style={({focused}) => ({...rowStyle, backgroundColor: focused ? 'rgba(237,245,250,.12)' : 'transparent'})}>
       <Icon name="i-tv" size={22} color={theme.colors.textSecondary}/>
-      <Text style={[...titleStyle, {flex: 1}]}>{t('playOn.linkTV')}</Text><Icon name="i-right" size={18} color={theme.colors.textTertiary}/>
+      <View style={{flex: 1}}><Text style={titleStyle}>{t('playOn.linkTV')}</Text><Text style={helperStyle}>{t('next.cast.linkTvHint')}</Text></View>
+      <Icon name="i-right" size={18} color={theme.colors.textTertiary}/>
     </Focusable>
+    <Text testID="play-on-handover" style={[...helperStyle, {paddingHorizontal: 12, paddingTop: 8, paddingBottom: tablet ? 6 : 0}]}>{t('playOn.stillHereUntilTakeover')}</Text>
     {state.phase !== 'idle' && state.phase !== 'done' && state.phase !== 'failed' && <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12}}>
       <Text style={[theme.type.body, {color: theme.colors.textSecondary, flex: 1}]}>{state.message ?? t('playOn.connectingTo', {device: state.target?.displayName ?? ''})}</Text>
       <Button focusId="play-on-cancel" variant="glass" onPress={controller.close}>{t('action.cancel')}</Button>

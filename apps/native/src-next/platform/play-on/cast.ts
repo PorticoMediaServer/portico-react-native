@@ -13,7 +13,7 @@ type Device = Readonly<{state:string;deviceName:string;deviceId?:string;attachme
 type Bridge = Readonly<{applicationId?: string; available(): Promise<boolean>; current():Promise<Omit<Device,'state'>|null>;choose(): void}>;
 type Source = Readonly<{id: string; adapter: NativePlaybackAdapter; snapshot: NativePlaybackRuntimeSnapshot;
   local: DockPlayback; fence: QueuePlaybackFence; choices: CastChoices}>;
-type Report = Readonly<{itemId: string; positionSeconds: number; durationSeconds: number; paused: boolean}>;
+type Report = Readonly<{itemId: string; versionId?: string; positionSeconds: number; durationSeconds: number; paused: boolean}>;
 export type NativeCastState = Readonly<{cast: CastSnapshot; source?: Source; resumed?:Readonly<{id:string}>;control?:CastDockIdentity;displayKind?:'music'|'audiobook'|'video';receiver?: Report; title?: string; posterUrl?: string; stopped?:boolean}>;
 export type NativeCastOptions = Readonly<{
   api: Readonly<{baseUrl?: string; request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>}>;
@@ -187,6 +187,8 @@ export class NativeCastCaller {
     const source: Source = Object.freeze({id: `cast_${Date.now().toString(36)}_${++this.operation}`, adapter, snapshot, local: Object.freeze({...local}), fence,
       choices: Object.freeze({queue: Object.freeze({...session.queue}), source: Object.freeze({sessionId: session.id, generation: fence.generation,
         queueId: queue.id, entryId: fence.entryId, queueRevision: queue.revision}),
+        // V02: the receiver starts the same edition this device is playing.
+        ...(session.versionId ? {versionId: session.versionId} : {}),
         ...(snapshot.subtitles?.plan ? {subtitleTrackId: snapshot.subtitles.plan.mode === 'off' ? null : snapshot.subtitles.plan.selected?.id} : {})})});
     this.source = source; this.retired = false; this.cancelling = false; this.dockStarted = false; this.receiver = undefined; this.idleObserved=false;this.metadataItem = fence.itemId;
     const entry = snapshot.entry;
@@ -368,7 +370,7 @@ export class NativeCastCaller {
         playback:Object.freeze({itemId:item.id,startSeconds:report.positionSeconds})});
       const latestAttachment=await this.bridge?.current();
       if(latestAttachment?.attachmentId!==expected.attachmentId||!current()||!localUnchanged())return;
-      await adapter.start({entry,target:entry.playback!,startIntent:'explicit',lifetime:{signal:this.abort.signal,isCurrent:current}});
+      await adapter.start({entry,target:entry.playback!,startIntent:'explicit',...(report.versionId?{versionId:report.versionId}:{}),lifetime:{signal:this.abort.signal,isCurrent:current}});
       if(current())await this.dismiss();return;
     }
 
@@ -383,7 +385,7 @@ export class NativeCastCaller {
     const entry:ContentEntry=Object.freeze({id:item.id,kind:item.kind as ContentEntry['kind'],title:item.title,
       ...(typeof item.libraryId==='string'?{libraryId:item.libraryId}:{}),...(typeof item.posterUrl==='string'&&item.posterUrl.startsWith('/v1/')?{posterUrl:item.posterUrl}:{}),
       playback:Object.freeze({itemId:item.id,startSeconds:report.positionSeconds})});
-    await source.adapter.start({entry,target:entry.playback!,startIntent:'explicit',lifetime:{signal:this.abort.signal,isCurrent:()=>this.source===source&&this.viewerCurrent()&&this.state.cast.phase==='off'&&this.receiver===report}});
+    await source.adapter.start({entry,target:entry.playback!,startIntent:'explicit',...(report.versionId?{versionId:report.versionId}:{}),lifetime:{signal:this.abort.signal,isCurrent:()=>this.source===source&&this.viewerCurrent()&&this.state.cast.phase==='off'&&this.receiver===report}});
     await this.dismiss();
   };
   dispose(): void {

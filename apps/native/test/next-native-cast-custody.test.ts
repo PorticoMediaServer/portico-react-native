@@ -215,3 +215,10 @@ test('a returning Continue here held on metadata cannot replace a newer local ru
  f.change({fence:{...f.fence,sessionId:'new-local',generation:2},playback:{...f.snapshot().playback,playbackRun:2}});
  gate.resolve();await continued;assert.equal(f.starts.length,0);assert.equal(f.effects.length,0);
 });
+
+test('V02: the receiver loads the same edition this device is playing', async t => {
+  const f = await fixture(); t.after(() => f.caller.dispose());
+  f.change({session: {...f.snapshot().session, versionId: 'edition-b'}});
+  f.caller.start(); f.choose(); const load = await f.loaded.promise;
+  assert.equal(load.versionId, 'edition-b');
+});

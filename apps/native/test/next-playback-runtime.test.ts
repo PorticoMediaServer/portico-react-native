@@ -1218,6 +1218,18 @@ test('a selected grouped version uses the command final Options resume rather th
   } finally {d.runtime.dispose();}
 });
 
+test('V02: a returning Cast start keeps the receiver-reported edition only while it is still offered', async () => {
+  const d=fixture(true);
+  try {
+    const entry={id:'movie-1',kind:'movie' as const,title:'Movie',libraryId:'library',playback:{itemId:'movie-1',startSeconds:30}};
+    await d.runtime.start({entry,target:entry.playback,startIntent:'explicit',versionId:'v2'}); await settle();
+    assert.equal(d.runtime.getSnapshot().session?.versionId,'v2');
+    const before=d.requests.length;
+    await d.runtime.start({entry,target:entry.playback,startIntent:'explicit',versionId:'retired-edition'}); await settle();
+    assert.equal(d.requests.slice(before).some(request=>record(request.body) && request.body.versionId==='retired-edition'),false);
+  } finally {d.runtime.dispose();}
+});
+
 test('version selection rejects another authority, mismatched item and a no-longer-offered id', async () => {
   const d=fixture(true);
   try {

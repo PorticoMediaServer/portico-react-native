@@ -695,7 +695,9 @@ export class NativePlaybackRuntime {
         this.request<unknown>(routePath('get_capabilities'), 'GET', undefined, scoped.signal),
       ]);
       if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});
-      await this.startOffered(input, offered, capabilities, epoch, undefined, {signal: scoped.signal, isCurrent: current});
+      // A returning Cast title keeps the edition the receiver reported, when it is still offered.
+      const versionId = input.versionId && offered.versions.filter(value => value.id === input.versionId).length === 1 ? input.versionId : undefined;
+      await this.startOffered(input, offered, capabilities, epoch, versionId, {signal: scoped.signal, isCurrent: current});
       const accepted = this.fence(), session = this.currentSession();
       if (presentation && this.initialPresentation === presentation && current() && !audioKind(offered.kind)
         && accepted?.kind === 'queue' && accepted.itemId === input.target.itemId && session?.id === accepted.sessionId
