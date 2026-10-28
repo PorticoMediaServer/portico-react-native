@@ -33,7 +33,9 @@ type Snapshot = Readonly<{facts: readonly TVServerFact[]; nextCursor?: string}>;
 
 /** All controls here are reads through the same admitted primary-profile lifetime.
  * Only the small display projection survives the read: no secret/document reaches JSX. */
-export function TVServerReadOnlyPanel({page, ports, runtime, lifetime}: {page: Page; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; lifetime: NativeScreenLifetime}) {
+export function TVServerReadOnlyPanel({page, ports, runtime, lifetime, statusOnly = false}: {page: Page; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; lifetime: NativeScreenLifetime;
+  /** The owner edits this page's settings below; only its status facts are drawn here. */
+  statusOnly?: boolean}) {
   const theme = useTheme(), t = runtime.text.t;
   const [snapshot, setSnapshot] = useState<Snapshot>(), [error, setError] = useState<unknown>();
   const [revision, setRevision] = useState(0), [cursors, setCursors] = useState<readonly string[]>(['']);
@@ -88,6 +90,11 @@ export function TVServerReadOnlyPanel({page, ports, runtime, lifetime}: {page: P
         return {facts: list.sources.map(source => ({id: source.id, label: source.name, value: t(liveSourceState(source, list.refresh.find(value => value.sourceId === source.id)).id)}))};
       }
       if (!section) throw new Error('native_tv_server_page_missing');
+      if (statusOnly) {
+        if (page !== 'general') return {facts: []};
+        const updates = parseUpdateReport(await read('/v1/admin/updates'));
+        return {facts: [{id: 'general.version', label: label('general.version'), value: updates.current.version}]};
+      }
       const configuration = parseSettingsConfiguration(await read(routePath('get_settings_configuration')));
       const metadata = page === 'metadata' ? parseMetadataSettings(await read(routePath('get_metadata_settings'))) : undefined;
       const extra: Readonly<Record<string, unknown>> = metadata ? {
@@ -109,17 +116,17 @@ export function TVServerReadOnlyPanel({page, ports, runtime, lifetime}: {page: P
     };
     void load().then(value => {if (current()) setSnapshot(value);}, failure => {if (current()) setError(failure);});
     return () => abort.abort();
-  }, [page, ports, lifetime, runtime.text, t, revision, cursor, cursors, report]);
+  }, [page, ports, lifetime, runtime.text, t, revision, cursor, cursors, report, statusOnly]);
   if (error !== undefined) return <StateView testID={`tv-server-${page}-error`} {...runtime.error(error, () => setRevision(value => value + 1))}/>;
   if (!snapshot) return <StateView title={t('status.loading')}/>;
-  return <View>
+  return <View style={statusOnly && snapshot.facts.length ? {marginBottom: 30} : undefined}>
     {snapshot.facts.map(fact => <Focusable key={fact.id} focusId={`tv-server:${page}:${fact.id}`} accessibilityRole="text" accessibilityLabel={[fact.label, fact.value, fact.detail].filter(Boolean).join('. ')} focusKind="row"
       style={{padding: 22, marginBottom: 8, borderRadius: 16, backgroundColor: theme.colors.raised, gap: 8}}>
       <Text style={[shellType(24, 600), {color: theme.colors.text}]}>{fact.label}</Text>
       <Text style={[shellType(22), {color: theme.colors.textSecondary}]}>{fact.value}</Text>
       {fact.detail && <Text style={[shellType(20), {color: theme.colors.textTertiary}]}>{fact.detail}</Text>}
     </Focusable>)}
-    {!snapshot.facts.length && <StateView title={t(page === 'history' ? 'next.settingsSpec.server.history.groups.0.rows.0.control.empty' : page === 'remote-sources' ? 'next.remoteSources.empty' : page === 'live' ? 'web.live.empty.noSourcesTitle' : 'error.unavailable')}/>}
+    {!snapshot.facts.length && !statusOnly && <StateView title={t(page === 'history' ? 'next.settingsSpec.server.history.groups.0.rows.0.control.empty' : page === 'remote-sources' ? 'next.remoteSources.empty' : page === 'live' ? 'web.live.empty.noSourcesTitle' : 'error.unavailable')}/>}
     {cursors.length > 1 && <Button focusId={`tv-server:${page}:previous`} variant="glass" onPress={() => setCursors(value => value.slice(0, -1))}>{t('web.pager.previous')}</Button>}
     {snapshot.nextCursor && <Button focusId={`tv-server:${page}:next`} variant="glass" onPress={() => setCursors(value => [...value, snapshot.nextCursor!])}>{t('web.pager.next')}</Button>}
     {page === 'storage' && <TVDiskUsage context={ports.context} runtime={runtime}/>}

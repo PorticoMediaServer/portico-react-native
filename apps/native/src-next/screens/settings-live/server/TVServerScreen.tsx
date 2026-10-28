@@ -16,6 +16,9 @@ import {TVRemoteAccessPanel} from './TVRemoteAccessPanel';
 import {TVPeoplePanel} from './TVPeoplePanel';
 import {TVServerPageMenu, tvServerPageDefinition, type TVServerPage} from './TVServerPageMenu';
 import {TVServerReadOnlyPanel} from './TVServerReadOnlyPanel';
+import {TVServerSettingsPage} from './TVServerSettingsPage';
+import {TVMetadataPanel} from './TVMetadataPanel';
+import {TVLiveDefaults} from './TVLiveDefaults';
 import {NativeDashboardScreen} from '../DashboardScreen';
 import type {NativeDashboardController} from '../dashboard-controller';
 import {createTVServerReader, nativeServerAdmission} from './tv-server-reader';
@@ -24,15 +27,20 @@ import {ownerLibraryCounts, ownerLibraryKind, ownerLibraryState} from '../owner-
 import type {NativeSettingsLivePorts} from '../ports';
 import {Screen, useScreenEntry} from '../Screen';
 
-/** TV36: GET-only library directory. No mutation service is exposed to a control.
- * Composition admits only the owner's primary profile; the lifetime fences every read. */
+// DECISIONS 28 Oct (replaces G35): the owner changes these pages' settings on TV. Dashboard,
+// Remote sources and Sign-in stay view only; an administrator's pages are always view only.
+const tvEditable: ReadonlySet<TVServerPage> = new Set(['general', 'history', 'libraries', 'metadata', 'segments', 'live', 'people', 'remote', 'integrations', 'streaming', 'storage']);
+
+/** TV36: the library directory is GET-only; the owner's settings below it edit through the
+ * phone's revisioned forms. Composition admits only the owner's primary profile, and an
+ * administrator's pages mount no writer at all. */
 export function NativeTVServerScreen({ports, runtime, initialPage = 'general', dashboard}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; initialPage?: TVServerPage; dashboard: NativeDashboardController}) {
   const theme = useTheme(), t = runtime.text.t;
   const [page, setPage] = useState<TVServerPage>(initialPage);
   const lifetime = useMemo(() => new NativeScreenLifetime(ports.context), [ports]);
   const admission = nativeServerAdmission(ports.context.account, lifetime);
   const role: 'owner' | 'administrator' = admission === 'owner' ? 'owner' : 'administrator';
-  const owner = admission === 'owner';
+  const owner = admission === 'owner', editing = owner && tvEditable.has(page);
   // Dashboard and People are shared with administrators; the other read-only
   // settings retain their existing owner admission.
   const audience = owner && page !== 'people' && page !== 'dashboard' ? 'owner' : 'administrators';
@@ -62,10 +70,16 @@ export function NativeTVServerScreen({ports, runtime, initialPage = 'general', d
       <TVServerPageMenu role={role} page={page} serverName={ports.serverName()} runtime={runtime} column={column} rows={rows} rail={ids.rail} onLayout={enter}
         onSelect={next => {if (lifetime.current() && (owner || next === 'dashboard' || next === 'people')) setPage(next);}}/>
       {page === 'dashboard' ? <NativeDashboardScreen controller={dashboard} ports={ports} runtime={runtime} deniedFallback={null} tvContainer={{column, rows}}/> : <ScrollView style={{flex: 1}} contentContainerStyle={{paddingBottom: 50}}>
-        <View style={{height: 60, overflow: 'hidden'}}><ServerHeader serverName={ports.serverName()} viewerRole={role} audience={audience}/></View>
+        <View style={{height: 60, overflow: 'hidden'}}><ServerHeader serverName={ports.serverName()} viewerRole={role} audience={audience} viewOnly={!editing}/></View>
         <Text accessibilityRole="header" style={[shellType(44, 800), {color: theme.colors.text, marginBottom: 28}]}>{t(tvServerPageDefinition(page).label)}</Text>
         <FocusRegion key={page} id={rows} orientation="vertical" edges={{left: column}}>
-          {page === 'people' ? <TVPeoplePanel ports={ports} runtime={runtime} lifetime={lifetime}/> : page === 'remote' ? <TVRemoteAccessPanel ports={ports} runtime={runtime} lifetime={lifetime}/> : page !== 'libraries' ? <TVServerReadOnlyPanel page={page} ports={ports} runtime={runtime} lifetime={lifetime}/> : <>
+          {page === 'people' ? <><TVPeoplePanel ports={ports} runtime={runtime} lifetime={lifetime}/>{editing && <TVServerSettingsPage page="people" ports={ports} runtime={runtime}/>}</>
+          : page === 'remote' ? editing ? <><TVRemoteAccessPanel ports={ports} runtime={runtime} lifetime={lifetime} statusOnly/><TVServerSettingsPage page="remote" ports={ports} runtime={runtime}/></> : <TVRemoteAccessPanel ports={ports} runtime={runtime} lifetime={lifetime}/>
+          : editing && page === 'metadata' ? <TVMetadataPanel ports={ports} runtime={runtime}/>
+          : editing && page === 'live' ? <><TVServerReadOnlyPanel page="live" ports={ports} runtime={runtime} lifetime={lifetime}/><TVLiveDefaults ports={ports} runtime={runtime}/></>
+          : editing && (page === 'segments' || page === 'streaming') ? <TVServerSettingsPage page={page} ports={ports} runtime={runtime}/>
+          : editing && (page === 'general' || page === 'storage' || page === 'history' || page === 'integrations') ? <><TVServerReadOnlyPanel page={page} ports={ports} runtime={runtime} lifetime={lifetime} statusOnly/><TVServerSettingsPage page={page} ports={ports} runtime={runtime}/></>
+          : page !== 'libraries' ? <TVServerReadOnlyPanel page={page} ports={ports} runtime={runtime} lifetime={lifetime}/> : <>
           {state.phase === 'loading' && <StateView title={t('status.loading')}/>}
           {state.error && <StateView {...runtime.error(state.error, () => {void service.loadLibraries();})}/>}
           {state.data?.items.map(library => {
@@ -80,6 +94,7 @@ export function NativeTVServerScreen({ports, runtime, initialPage = 'general', d
           })}
           {state.canPrevious && <Button focusId="previous" variant="glass" onPress={() => {void service.previousLibraries();}}>{t('web.pager.previous')}</Button>}
           {state.data?.nextCursor && <Button focusId="next" variant="glass" onPress={() => {void service.nextLibraries();}}>{t('web.pager.next')}</Button>}
+          {editing && <View style={{marginTop: 30}}><TVServerSettingsPage page="libraries" ports={ports} runtime={runtime}/></View>}
           </>}
         </FocusRegion>
         {address && <View style={{flexDirection: 'row', alignItems: 'center', gap: 22, padding: 24, borderRadius: 18, backgroundColor: theme.colors.raised, marginTop: 24}}>

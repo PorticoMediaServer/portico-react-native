@@ -138,10 +138,12 @@ export type ServerHeaderProps = {
   audience: ServerAudience;
   facts?: readonly ServerFact[];
   variant?: 'phone' | 'page' | 'group';
+  /** TV pages a viewer cannot change carry the View only tag (tv-more 35). */
+  viewOnly?: boolean;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 };
-export function ServerHeader({serverName, viewerRole, audience, facts = [], variant = 'page', style, testID}: ServerHeaderProps) {
+export function ServerHeader({serverName, viewerRole, audience, facts = [], variant = 'page', viewOnly = true, style, testID}: ServerHeaderProps) {
   const {colors, isTV, textScale} = useTheme();
   const visibility = serverVisibilityKey(viewerRole, audience);
   if (!visibility) return null;
@@ -158,7 +160,7 @@ export function ServerHeader({serverName, viewerRole, audience, facts = [], vari
     <View style={[styles.pill, {height: isTV ? 46 : 30, borderRadius: isTV ? 12 : 8, paddingLeft: isTV ? 14 : 9, paddingRight: isTV ? 18 : 12, gap: isTV ? 12 : 8, backgroundColor: alpha(colors.ink, isTV ? .6 : .55)}]}>
       <Icon name="i-server" size={isTV ? 22 : 16}/><Text style={[text(isTV ? 20 : 13, 700), {color: colors.text}]}>{defaultI18n.t('next.shell.server')}</Text>
       <Text style={[text(isTV ? 20 : 13), {color: colors.textTertiary}]}>{defaultI18n.t(visibility)}</Text>
-      {isTV && <Text style={[text(20, 700), {color: colors.text, backgroundColor: alpha(colors.text, .14), paddingVertical: 2, paddingHorizontal: 10, borderRadius: 7}]}>{defaultI18n.t('next.shell.viewOnly')}</Text>}
+      {isTV && viewOnly && <Text style={[text(20, 700), {color: colors.text, backgroundColor: alpha(colors.text, .14), paddingVertical: 2, paddingHorizontal: 10, borderRadius: 7}]}>{defaultI18n.t('next.shell.viewOnly')}</Text>}
     </View>
     <View style={[styles.facts, {marginTop: isTV ? 0 : 16, marginBottom: isTV ? 22 : 40, gap: isTV ? 26 : 22}]}>
       {!isTV && <Text numberOfLines={1} style={[shellType(26, 800, 26, -.03, textScale), {color: colors.text, flexShrink: 1}]}>{serverName}</Text>}

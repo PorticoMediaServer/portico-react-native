@@ -1,5 +1,11 @@
 import type {SettingsRow} from '../../../../../../packages/client-core/src/presentation/settings-spec';
 
+// The shared alerts form refuses a draft whose critical threshold is below its warning one,
+// while the drawn defaults are warning 10 and critical 5. Those two rows, and the certificate
+// warning that shares their document, are withheld until client-core and the spec agree: an
+// edited alert row would otherwise block the whole page's one Save.
+export const withheldServerRows: ReadonlySet<string> = new Set(['general.alertStorageWarn', 'general.alertStorageCritical', 'general.alertCertificateDays']);
+
 /** A half-entered number stays in its field; it must never overwrite a valid draft. */
 export function settingNumber(text: string, control: Pick<SettingsRow['control'], 'optional' | 'min' | 'max' | 'step'>): Readonly<{valid: boolean; value?: number | null}> {
   if (!text.trim()) return control.optional ? {valid: true, value: null} : {valid: false};

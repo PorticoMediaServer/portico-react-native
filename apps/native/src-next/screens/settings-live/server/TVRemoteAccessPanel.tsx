@@ -19,7 +19,7 @@ import {createTVServerReader} from './tv-server-reader';
 type Snapshot = {remote: RemoteAccess; connectivity: ConnectivityStatus; certificate?: CertificateStatus};
 /** TV38 exposes only selected public settings. Certificate material, mapping internals,
  * trusted proxies and credentials never enter a row or the accessibility label. */
-export function TVRemoteAccessPanel({ports, runtime, lifetime}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; lifetime: NativeScreenLifetime}) {
+export function TVRemoteAccessPanel({ports, runtime, lifetime, statusOnly = false}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; lifetime: NativeScreenLifetime; statusOnly?: boolean}) {
   const theme = useTheme(), t = runtime.text.t;
   const [state, setState] = useState<Snapshot>(), [error, setError] = useState<unknown>(), [revision, setRevision] = useState(0);
   useEffect(() => {
@@ -48,11 +48,12 @@ export function TVRemoteAccessPanel({ports, runtime, lifetime}: {ports: NativeSe
     {healthy !== undefined && <View style={{width: 12, height: 12, borderRadius: 6, backgroundColor: healthy ? theme.colors.healthy : theme.colors.amber}}/>}
     <Text style={[shellType(22, 600), {maxWidth: '45%', color: theme.colors.textSecondary}]}>{value}</Text>
   </Focusable>;
-  return <View>
+  return <View style={statusOnly ? {marginBottom: 30} : undefined}>
     {row('remote', 'settings.server.remote', t(state.remote.config.enabled ? 'web.hostedSecurity.on' : 'web.hostedSecurity.off'), remote.text, remote.tone === 'healthy')}
     {row('secure', 'settings.server.secure.title', t(secure.badge), t(secure.body, secure.address ? {address: secure.address} : undefined), secure.tone === 'healthy')}
-    {row('policy', 'web.connectivity.whoMaySignIn', t(`settings.server.signIn.${state.connectivity.policy.remoteSignInPolicy}`))}
-    {row('dlna', 'settings.server.dlna', t(state.connectivity.policy.dlnaEnabled ? 'web.hostedSecurity.on' : 'web.hostedSecurity.off'), t('settings.server.dlnaHelp'), state.connectivity.policy.dlnaEnabled)}
+    {/* An owner changes these rows below, in the page's own settings. */}
+    {!statusOnly && row('policy', 'web.connectivity.whoMaySignIn', t(`settings.server.signIn.${state.connectivity.policy.remoteSignInPolicy}`))}
+    {!statusOnly && row('dlna', 'settings.server.dlna', t(state.connectivity.policy.dlnaEnabled ? 'web.hostedSecurity.on' : 'web.hostedSecurity.off'), t('settings.server.dlnaHelp'), state.connectivity.policy.dlnaEnabled)}
     {state.certificate && row('account', 'account.portico', t(certificateClaimed(state.certificate) ? 'web.settings.throughAccount' : 'settings.server.secure.notSetUp'))}
   </View>;
 }

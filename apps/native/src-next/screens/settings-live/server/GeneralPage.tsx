@@ -18,7 +18,7 @@ import {HeavyWorkControls} from './HeavyWorkControls';
 import {NativeAdvancedSection} from './AdvancedSection';
 import {NativeSettingControl} from './SettingControl';
 import {NativeBroadcastSheet} from './BroadcastSheet';
-import {settingsSummary} from './settings-values';
+import {settingsSummary, withheldServerRows} from './settings-values';
 import {SettingsRow} from '../../../kit/shell';
 import {TextField} from '../../../kit/controls/TextField';
 import {BottomSheet} from '../../../kit/overlays/BottomSheet';
@@ -34,11 +34,7 @@ import {settingsPageHeading, settingsPageInset} from './page-layout';
 type Translate = typeof defaultI18n.t;
 type ViewerRole = 'owner' | 'administrator' | 'member';
 const IDS = ['runtime', 'maintenance', 'alerts'] as const;
-// The shared alerts form refuses a draft whose critical threshold is below its warning one,
-// while the drawn defaults are warning 10 and critical 5. Those two rows, and the certificate
-// warning that shares their document, are withheld until client-core and the spec agree: an
-// edited alert row would otherwise block the whole page's one Save.
-const WITHHELD_ROWS: ReadonlySet<string> = new Set(['general.alertStorageWarn', 'general.alertStorageCritical', 'general.alertCertificateDays']);
+const WITHHELD_ROWS = withheldServerRows;
 
 /** Settings › Server › General on the phone (slots server-general group 1–2 and the drawn background/restart rows). */
 export function NativeServerGeneral({ports, runtime, compactHeader = false}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean}) {
