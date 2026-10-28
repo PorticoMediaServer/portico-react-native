@@ -108,3 +108,22 @@ test('Segments exposes every supported Advanced control, preserves review, and o
   controls.find((node: any) => node.props.row.id === 'segments.chapters').props.onChange(false);assert.equal(fixture.group.forms.runtime.getSnapshot().draft['segments.useChapterNames'], false);
   controls.find((node: any) => node.props.row.id === 'segments.libraryModes').props.onChange({tv: 'server', anime: 'off', movies: 'thorough'});assert.equal(fixture.group.forms.runtime.getSnapshot().draft['segments.animeMode'], 'off');fixture.stop();
 });
+
+test('a folder row names the bound directory and picks one through the shared explorer', async () => {
+  const values = await import('../src-next/screens/settings-live/server/settings-values.ts'), host = hooks();
+  const module = await screenModule(new URL('../src-next/screens/settings-live/server/SettingControl.tsx', import.meta.url), {
+    react: host.react, 'react-native': {Text: 'Text', View: 'View'}, '../../../kit/controls': {Button: 'Button', Select: 'Select', Switch: 'Switch', TextField: 'TextField'},
+    '../../../kit/shell': {SettingsRow: 'SettingsRow'}, '../../../kit/shell/visual': {shellType: () => ({})}, '../../../kit/theme': {useTheme: () => theme},
+    '../owner-libraries/FolderExplorer': {FolderExplorer: 'FolderExplorer'}, './settings-values': values,
+  });
+  let changed: unknown, opened = false;
+  const api = {request: async () => ({})};
+  const element = host.render(() => module.NativeSettingControl({row: row('streaming.transcodeFolder'), value: '/transcode', t, api, onChange: (next: unknown) => {changed = next;}}));
+  const render = () => host.render(() => element.type(element.props)), explorer = () => nodes(render()).find((node: any) => node.type === 'FolderExplorer');
+  const tree = render();
+  assert.ok(nodes(tree).some((node: any) => node.type === 'Text' && content(node) === '/transcode'));
+  assert.equal(explorer().props.open, false);assert.equal(explorer().props.multiple, false);
+  nodes(tree).find((node: any) => node.props.testID === 'streaming.transcodeFolder:choose').props.onPress();
+  opened = explorer().props.open;assert.equal(opened, true);assert.deepEqual(explorer().props.chosen.map((folder: any) => folder.path), ['/transcode']);
+  assert.equal(changed, undefined);explorer().props.onUse([{path: '/fast-disk/transcode', name: 'transcode'}]);assert.equal(changed, '/fast-disk/transcode');
+});

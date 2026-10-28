@@ -411,9 +411,9 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
         {sourcePicker}
         {!theme.isTV && <><Chip testID="live-view-list" selected={view === 'list'} onPress={() => setView('list')}>{t('channels.viewList')}</Chip><Chip testID="live-view-guide" selected={view === 'guide'} onPress={() => setView('guide')}>{t('channels.viewGuide')}</Chip></>}
         {dayPicker}
-        {!theme.isTV && theme.width >= 1024 && view === 'guide' && <Button testID="live-earlier" variant="glass" size="small" icon="i-left" accessibilityLabel={t('guide.earlier')} disabled={!panActive} onPress={() => pan.adjust(-4 * SLOT_MS)}>2 h</Button>}
+        {!theme.isTV && theme.width >= 1024 && view === 'guide' && <Button testID="live-earlier" variant="glass" size="small" style={{height: 44}} icon="i-left" accessibilityLabel={t('guide.earlier')} disabled={!panActive} onPress={() => pan.adjust(-4 * SLOT_MS)}>2 h</Button>}
         <Button testID="live-now" variant="glass" size="small" onPress={goNow}>{t('guide.now')}</Button>
-        {!theme.isTV && theme.width >= 1024 && view === 'guide' && <Button testID="live-later" variant="glass" size="small" trailingIcon="i-right" accessibilityLabel={t('guide.later')} disabled={!panActive} onPress={() => pan.adjust(4 * SLOT_MS)}>2 h</Button>}
+        {!theme.isTV && theme.width >= 1024 && view === 'guide' && <Button testID="live-later" variant="glass" size="small" style={{height: 44}} trailingIcon="i-right" accessibilityLabel={t('guide.later')} disabled={!panActive} onPress={() => pan.adjust(4 * SLOT_MS)}>2 h</Button>}
         {hasRecordings && <Button focusId="live-recordings" testID="live-recordings" variant="glass" size="small" icon="i-rec" onPress={() => setRecordingsOpen(true)}>{t('recordings.title')}</Button>}
         {!theme.isTV && sortPicker}
         {managesServer && <Button testID="live-owner-open" variant="glass" size="small" icon="i-sliders" disabled={theme.isTV && !managementUrl} onPress={() => openManagement()}>{t('settings.server.live')}</Button>}
@@ -463,7 +463,6 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
       footer={channelMenu && channelMenuError !== undefined ? <StateView {...runtime.error(channelMenuError, () => setChannelMenuError(undefined))}/> : undefined}
       items={channelMenu ? [
         {id: 'favorite', label: t(channelMenu.channel.favorite ? 'channels.removeFavorite' : 'channels.addFavorite'), icon: channelMenu.channel.favorite ? 'i-star-f' : 'i-star', disabled: channelMenuBusy || state.mutating, closeOnSelect: false, onSelect: () => changeChannel(false)},
-        ...(managesServer && channelMenu.channel.kind === 'live' ? [{id: 'hide', label: t('web.liveSource.hideChannel', {name: channelMenu.channel.name}), icon: 'i-eyeoff' as const, disabled: channelMenuBusy || state.mutating, closeOnSelect: false, onSelect: () => changeChannel(true)}] : []),
       ] : []}/>
     <NativeSeriesRuleSheet controller={recordings} draft={series?.draft} defaults={series?.defaults} runtime={runtime} open={series !== undefined}
       onOpenChange={value => {if (!value) setSeries(undefined);}}
@@ -555,7 +554,7 @@ function NativeLiveListRow({channel, programme, next, now, runtime, clock, heigh
 function NativeLiveGuideCell({selected, cell, focusId, gapLabel, gapBody, loading, failed, retry, left, laneWidth, panPosition, panActive, start, now, px, rowHeight, compact, clock, runtime, testID, refNode, onPress, onTVFocus}: {selected: boolean; onTVFocus: () => void; cell: GuideCell; focusId: string; gapLabel: string; gapBody?: string; loading: boolean; failed: boolean; retry: () => void; left: number; laneWidth: number; panPosition: SharedValue<number>; panActive: boolean; start: number; now: number; px: number; rowHeight: number; compact: boolean; clock: (at: number) => string | undefined; runtime: NativeShellRuntime; testID: string; refNode: (node: View | null) => void; onPress: () => void}) {
   const theme = useTheme(), fadeId = useId().replace(/:/g, ''), padding = theme.isTV ? 16 : compact ? 7 : 8;
   const gap = cell.kind === 'gap', narrow = compact && (cell.tier === 'title' || cell.tier === 'sliver');
-  const background = !theme.isTV && gap ? 'transparent' : cell.state === 'now' ? theme.colors.raisedHigh : !theme.isTV && cell.state === 'past' ? alpha(theme.colors.raised, .5) : theme.colors.raised;
+  const background = selected ? theme.colors.raisedBright : !theme.isTV && gap ? 'transparent' : cell.state === 'now' ? theme.colors.raisedHigh : !theme.isTV && cell.state === 'past' ? alpha(theme.colors.raised, .5) : theme.colors.raised;
   const cellWidth = Math.max(0, cell.width - (compact ? 2 : 0)), clippedStart = cell.clippedStart, isTV = theme.isTV;
   const content = useAnimatedStyle(() => {
     const window = nativeGuideCellWindow(left, cellWidth, laneWidth, panActive ? start * px - panPosition.value : 0);

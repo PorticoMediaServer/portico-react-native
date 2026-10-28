@@ -33,6 +33,11 @@ import {useFormState, useStorageForms, useStorageSet, type StorageForms} from '.
 type Translate = typeof defaultI18n.t;
 type ViewerRole = 'owner' | 'administrator' | 'member';
 const IDS = ['runtime', 'maintenance', 'alerts'] as const;
+// The shared alerts form refuses a draft whose critical threshold is below its warning one,
+// while the drawn defaults are warning 10 and critical 5. Those two rows, and the certificate
+// warning that shares their document, are withheld until client-core and the spec agree: an
+// edited alert row would otherwise block the whole page's one Save.
+const WITHHELD_ROWS: ReadonlySet<string> = new Set(['general.alertStorageWarn', 'general.alertStorageCritical', 'general.alertCertificateDays']);
 
 /** Settings › Server › General on the phone (slots server-general group 1–2 and the drawn background/restart rows). */
 export function NativeServerGeneral({ports, runtime, compactHeader = false}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean}) {
@@ -77,6 +82,7 @@ function General({ports, runtime, compactHeader = false, group}: {ports: NativeS
     if (row.id === 'general.updateChecks') setCustomUpdate(false);
   };
   const renderRow = (row: SpecRow) => {
+    if (WITHHELD_ROWS.has(row.id)) return null;
     const value = fact(row); if (!value) return null;
     const custom = row.id === 'general.updateChecks' && customUpdate;
     return <NativeSettingControl key={row.id} row={row} value={custom ? 'custom' : value.current} t={t} disabled={state.saving || row.id === 'general.updateFeed' && !(customUpdate || fact(settingsRowIndex.get('general.updateChecks')!.row)?.current === 'custom')}
@@ -107,7 +113,6 @@ function General({ports, runtime, compactHeader = false, group}: {ports: NativeS
       {!compactHeader && <Text accessibilityRole="header" style={[shellType(28, 800, 33, -.03), {color: theme.colors.text}]}>{t('settings.server.general')}</Text>}
       {draft ? <View style={{marginTop: 16}}>
         <Text style={[shellType(17, 800), {color: theme.colors.text}]}>{t('web.general.serverName')}</Text>
-        <Text style={[shellType(12.5, 400, 17), {color: theme.colors.textTertiary, marginTop: 2}]}>{t('web.general.serverNameHelp')}</Text>
         <TextField testID="server-general-name" value={draft.name} onChangeText={value => forms.runtime.set(current => ({...current, name: value}))} maxLength={100} containerStyle={{marginTop: 10}}/>
       </View> : null}
       <Text style={[shellType(17, 800), {color: theme.colors.text, marginTop: 22}]}>{t('settings.server.updates')}</Text>
@@ -132,13 +137,12 @@ function General({ports, runtime, compactHeader = false, group}: {ports: NativeS
         </View>
       </> : null}
       <Text style={[shellType(17, 800), {color: theme.colors.text, marginTop: 22}]}>{t('server.messageEveryone')}</Text>
-      <Text style={[shellType(12.5, 400, 17), {color: theme.colors.textTertiary, marginTop: 2}]}>{t('web.broadcast.lede')}</Text>
       <View style={{flexDirection: 'row', marginTop: 10}}><Button size="compact" variant="glass" icon="i-mail" onPress={() => setMessageOpen(true)}>{t('server.messageEveryone')}</Button></View>
       <Text style={[shellType(17, 800), {color: theme.colors.text, marginTop: 22}]}>{t('web.maintenance.serverRestart')}</Text>
       <Text style={[shellType(12.5, 400, 17), {color: theme.colors.textTertiary, marginTop: 2}]}>{t('server.restart.body')}</Text>
       <View style={{flexDirection: 'row', marginTop: 10}}><Button size="compact" variant="danger" disabled={busy} onPress={() => setRestarting(true)}>{t('web.maintenance.serverRestart')}</Button></View>
       <NativeAdvancedSection testID="server-general-advanced" open={advanced} onOpenChange={setAdvanced}
-        summary={runtimeState.loading || maintenanceState.loading || alertsState.loading ? t('status.loading') : settingsSummary(section?.advanced?.groups?.flatMap(group => group.rows) ?? [], fact, t)}>
+        summary={runtimeState.loading || maintenanceState.loading || alertsState.loading ? t('status.loading') : settingsSummary((section?.advanced?.groups?.flatMap(group => group.rows) ?? []).filter(row => !WITHHELD_ROWS.has(row.id)), fact, t)}>
         {section?.advanced?.groups?.map((group, index) => {
           if (group.rows.some(row => row.id === 'general.heavyDays')) return null;
           const rows = group.rows.some(row => row.id === 'general.heavyStart')

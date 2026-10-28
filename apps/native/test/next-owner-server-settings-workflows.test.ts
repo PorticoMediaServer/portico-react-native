@@ -26,7 +26,10 @@ test('General exposes backed Advanced controls and one Background speed setting,
   const render = () => host.render(() => {const outer = module.NativeServerGeneral({ports: {context: fixture.group.context}, runtime});return outer.type(outer.props);});
   render();host.flush();await settle();
   const controls = () => nodes(render()).filter((node: any) => node.type === 'Setting');
-  for (const id of ['general.updateChecks', 'general.backgroundSpeed', 'general.updateFeed', 'general.alertStorageWarn', 'general.alertStorageCritical', 'general.alertCertificateDays']) assert.ok(controls().some((node: any) => node.props.row.id === id), id);
+  for (const id of ['general.updateChecks', 'general.backgroundSpeed', 'general.updateFeed']) assert.ok(controls().some((node: any) => node.props.row.id === id), id);
+  // Withheld until client-core and the spec agree: the shared alerts form refuses its own drawn
+  // default pair (critical 5 below warning 10) and would block the whole page's Save.
+  for (const id of ['general.alertStorageWarn', 'general.alertStorageCritical', 'general.alertCertificateDays']) assert.ok(!controls().some((node: any) => node.props.row.id === id), id);
   assert.ok(!controls().some((node: any) => node.props.row.id === 'general.noticeAudience'));
   assert.equal(nodes(render()).filter((node: any) => node.type === 'Advanced').length, 1);
   controls().find((node: any) => node.props.row.id === 'general.backgroundSpeed').props.onChange('fast');assert.equal(fixture.group.forms.maintenance.getSnapshot().draft.backgroundSpeed, 'fast');
@@ -124,7 +127,7 @@ test('Restore picker retains its candidate through the encrypted step and closin
 });
 
 test('Streaming draws its backed Advanced rows and hardware testing is one explicit pending action', async () => {
-  const fixture = await formsFixture({runtime: {conversionMode: 'all', hdrToneMapping: true, hdrToneMappingAlgorithm: 'hable', x264Preset: 'veryfast', planningPolicy: 'minimize_server_work', directStreamRemux: true, outputFormat: 'auto', maxConcurrentSessions: 0, maxHardwareSessions: 0, maxSoftwareSessions: 0, maxBackgroundSessions: 0, serverCap: 0, throttleBufferMs: 60000, playedRetentionMs: 180000, sessionStorageMiB: 4096, ffmpegPath: ''}, connectivity: {uploadCapacityKbps: 0, remoteBitrateLimitKbps: 8000, pausedSessionTimeoutMinutes: 0}}), host = lifecycleHooks();
+  const fixture = await formsFixture({runtime: {conversionMode: 'all', hdrToneMapping: true, hdrToneMappingAlgorithm: 'hable', x264Preset: 'veryfast', planningPolicy: 'minimize_server_work', directStreamRemux: true, outputFormat: 'auto', maxConcurrentSessions: 0, maxHardwareSessions: 0, maxSoftwareSessions: 0, maxBackgroundSessions: 0, serverCap: 0, throttleBufferMs: 60000, playedRetentionMs: 180000, sessionStorageMiB: 4096, ffmpegPath: '', temporaryDirectory: '/transcode'}, connectivity: {uploadCapacityKbps: 0, remoteBitrateLimitKbps: 8000, pausedSessionTimeoutMinutes: 0}}), host = lifecycleHooks();
   const capacity = {hardware: {effective: 'vaapi'}, temporaryDirectory: {path: '/tmp/transcode', ready: true, freeBytes: 12000}};
   const section = specification.settingsSpec.find((value: any) => value.scope === 'server' && value.id === 'streaming');
   const allRows = [...section!.groups!, ...section!.advanced!.groups!].flatMap((group: any) => values.settingRows(group.rows));
@@ -146,6 +149,10 @@ test('Streaming draws its backed Advanced rows and hardware testing is one expli
   assert.equal(nodes(tree).filter((node: any) => node.type === 'Advanced').length, 1);
   for (const id of ['streaming.toneMapping', 'streaming.toneMappingMethod', 'streaming.encoderSpeed', 'streaming.whenCantPlay', 'streaming.repackage', 'streaming.maxConversions', 'streaming.awayExact', 'streaming.ffmpegPath']) assert.ok(controls.some((node: any) => node.props.row.id === id), id);
   assert.ok(!controls.some((node: any) => ['streaming.hardware', 'streaming.hardwareDecode', 'streaming.memoryCap'].includes(node.props.row.id)));
+  // The drawn Conversion location select has no binding of its own, so the dependent folder row
+  // is painted on its own and stays usable rather than resolving to a dependency nothing writes.
+  const folder = controls.find((node: any) => node.props.row.id === 'streaming.transcodeFolder');
+  assert.ok(folder);assert.equal(folder.props.disabled, false);assert.equal(folder.props.value, '/transcode');
   controls.find((node: any) => node.props.row.id === 'streaming.repackage').props.onChange(false);assert.equal(fixture.group.forms.runtime.getSnapshot().draft.directStreamRemux, false);
   assert.equal(hardwareTests, 0);const hardware = nodes(tree).find((node: any) => node.type === 'Hardware');hardware.props.onTest();hardware.props.onTest();assert.equal(hardwareTests, 1);finish!(capacity);await settle();host.dispose();fixture.stop();
 });

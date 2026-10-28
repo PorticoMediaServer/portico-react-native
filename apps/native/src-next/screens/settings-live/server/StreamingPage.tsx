@@ -79,14 +79,22 @@ export function NativeServerStreaming({ports, runtime, compactHeader = false}: {
   };
   const read = (id: string): unknown => {
     if (id === 'streaming.awayQuality' && customAway) return 'custom';
-    if (id === 'streaming.hardware') return capacity?.hardware.effective === 'software' ? 'software' : capacity ? 'auto' : undefined;
+    // The owner's own hardware choice, never the backend the server fell back to.
+    if (id === 'streaming.hardware') return capacity?.hardware.configured;
     const binding = settingsBinding(id); return binding ? readSettingsBinding(binding, sources, id)?.current : undefined;
   };
   const renderRow = (row: SpecRow): React.ReactNode => {
-    const value = fact(row); if (!value) return null;
+    const value = fact(row);
+    // A drawn parent the page cannot paint (it has no binding of its own) still carries
+    // dependent rows that do: paint those instead of hiding the whole branch.
+    if (!value) return row.children?.length ? <React.Fragment key={row.id}>{row.children.map(renderRow)}</React.Fragment> : null;
+    // The drawn Conversion location select is projected by client-core from the capacity facts
+    // and is not painted here, so the folder row's own dependency never resolves: keep it usable
+    // so the owner can still choose where conversions are written.
+    const folderRow = row.id === 'streaming.transcodeFolder';
     const shown = row.id === 'streaming.awayQuality' && customAway ? 'custom' : row.id === 'streaming.maxHardwareConversions' && value.current === 'unlimited' ? 'auto' : value.current;
-    return <React.Fragment key={row.id}><NativeSettingControl key={`${row.id}:${discardRevision}`} row={row} value={shown} t={t}
-      disabled={state.saving || !settingEnabled(row, read)} onChange={next => {change(row, next); if (row.id === 'streaming.awayQuality') setCustomAway(false);}}
+    return <React.Fragment key={row.id}><NativeSettingControl key={`${row.id}:${discardRevision}`} row={row} value={shown} t={t} api={owned.api}
+      disabled={state.saving || !settingEnabled(row, read) && !folderRow} onChange={next => {change(row, next); if (row.id === 'streaming.awayQuality') setCustomAway(false);}}
       onCustom={row.id === 'streaming.awayQuality' ? () => {setCustomAway(true); setAdvanced(true);} : undefined}
       onValidity={valid => setInvalid(before => {const next = new Set(before); if (valid) next.delete(row.id); else next.add(row.id); return next;})}/>
       {row.children?.map(renderRow)}</React.Fragment>;
