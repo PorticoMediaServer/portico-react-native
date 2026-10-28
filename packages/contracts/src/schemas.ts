@@ -15696,7 +15696,6 @@ export const schemas = {
                 "type": "boolean"
               }
             },
-            "required": [],
             "type": "object"
           },
           {
@@ -15789,7 +15788,6 @@ export const schemas = {
                       "type": "array"
                     }
                   },
-                  "required": null,
                   "type": "object"
                 },
                 "type": "object"
@@ -15810,7 +15808,6 @@ export const schemas = {
                     "type": "array"
                   }
                 },
-                "required": null,
                 "type": "object"
               },
               "lists": {
@@ -15830,7 +15827,6 @@ export const schemas = {
                       "type": "array"
                     }
                   },
-                  "required": null,
                   "type": "object"
                 },
                 "type": "object"
@@ -15839,13 +15835,11 @@ export const schemas = {
                 "type": "boolean"
               }
             },
-            "required": null,
             "type": "object"
           },
           {
             "additionalProperties": false,
             "properties": {},
-            "required": null,
             "type": "object"
           }
         ],
@@ -15883,7 +15877,6 @@ export const schemas = {
                   "type": "array"
                 }
               },
-              "required": null,
               "type": "object"
             },
             "type": "object"
@@ -15904,7 +15897,6 @@ export const schemas = {
                 "type": "array"
               }
             },
-            "required": null,
             "type": "object"
           },
           "lists": {
@@ -15924,7 +15916,6 @@ export const schemas = {
                   "type": "array"
                 }
               },
-              "required": null,
               "type": "object"
             },
             "type": "object"
@@ -15975,7 +15966,6 @@ export const schemas = {
             "type": "boolean"
           }
         },
-        "required": [],
         "type": "object"
       },
       "command": {
@@ -15995,7 +15985,6 @@ export const schemas = {
             "type": "string"
           }
         },
-        "required": [],
         "type": "object"
       },
       "operationId": {
@@ -16229,7 +16218,6 @@ export const schemas = {
             "type": "object"
           }
         },
-        "required": [],
         "type": "object"
       }
     },
@@ -180270,11 +180258,17 @@ export const schemas = {
       },
       "nextCursor": {
         "type": "string"
+      },
+      "total": {
+        "maximum": 9007199254740991,
+        "minimum": -9007199254740991,
+        "type": "integer"
       }
     },
     "required": [
       "limit",
-      "items"
+      "items",
+      "total"
     ],
     "type": "object"
   },
@@ -181126,11 +181120,17 @@ export const schemas = {
       },
       "nextCursor": {
         "type": "string"
+      },
+      "total": {
+        "maximum": 9007199254740991,
+        "minimum": -9007199254740991,
+        "type": "integer"
       }
     },
     "required": [
       "limit",
-      "items"
+      "items",
+      "total"
     ],
     "type": "object"
   },
@@ -206846,7 +206846,6 @@ export const schemas = {
             "type": "object"
           }
         },
-        "required": [],
         "type": "object"
       },
       "targets": {
@@ -237592,6 +237591,9 @@ export const schemas = {
                 },
                 "state": {
                   "type": "string"
+                },
+                "username": {
+                  "type": "string"
                 }
               },
               "required": [
@@ -238059,6 +238061,9 @@ export const schemas = {
                     "type": "string"
                   },
                   "state": {
+                    "type": "string"
+                  },
+                  "username": {
                     "type": "string"
                   }
                 },
@@ -239958,6 +239963,9 @@ export const schemas = {
                 },
                 "state": {
                   "type": "string"
+                },
+                "username": {
+                  "type": "string"
                 }
               },
               "required": [
@@ -240424,6 +240432,9 @@ export const schemas = {
                   "type": "string"
                 },
                 "state": {
+                  "type": "string"
+                },
+                "username": {
                   "type": "string"
                 }
               },
@@ -240905,6 +240916,9 @@ export const schemas = {
                   "type": "string"
                 },
                 "state": {
+                  "type": "string"
+                },
+                "username": {
                   "type": "string"
                 }
               },
@@ -241454,6 +241468,9 @@ export const schemas = {
                   "type": "string"
                 },
                 "state": {
+                  "type": "string"
+                },
+                "username": {
                   "type": "string"
                 }
               },
@@ -242198,6 +242215,9 @@ export const schemas = {
                 },
                 "state": {
                   "type": "string"
+                },
+                "username": {
+                  "type": "string"
                 }
               },
               "required": [
@@ -242872,6 +242892,9 @@ export const schemas = {
                 },
                 "state": {
                   "type": "string"
+                },
+                "username": {
+                  "type": "string"
                 }
               },
               "required": [
@@ -243354,6 +243377,9 @@ export const schemas = {
                   "type": "string"
                 },
                 "state": {
+                  "type": "string"
+                },
+                "username": {
                   "type": "string"
                 }
               },
