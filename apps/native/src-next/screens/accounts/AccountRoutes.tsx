@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {BackHandler, Dimensions, NativeModules, Platform, Text, View} from 'react-native';
+import {BackHandler, Dimensions, Platform, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import {ManagedProfilesClient, type ManagedProfile, type ProfileArt, type ProfileDeletion} from '../../../../../packages/client-core/src/profile-management';
@@ -15,7 +15,7 @@ import {nativeAppSessions, subscribeNativeAppSessions} from '../../platform/app-
 import {nativeProfileSelection} from '../../platform/profile-selection';
 import {NativeProfileRecovery, temporaryRecoveryApi} from '../../platform/profile-recovery';
 import {hostedUrl} from '../../platform/account-authority';
-import {profileAvatarUpload, profilePictureSource} from '../../platform/profile-avatars';
+import {pickProfilePicture, profileAvatarUpload, profilePicturePickerAvailable, profilePictureSource} from '../../platform/profile-avatars';
 import type {ProfileAvatar} from '../../../../../packages/client-core/src/identity-restrictions';
 import {nativeNetworkFetch} from '../../platform/server-connections';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
@@ -74,20 +74,6 @@ type ProfileAddOpening = Readonly<{lease: ProfileLease}>;
 type ProfileDeleteOpening = Readonly<{preview: ProfileDeletion; management: ProfileManagementOpening}>;
 
 const profileAbort = () => Object.assign(new Error('profile_command_retired'), {name: 'AbortError'});
-const avatarPick = () => NativeModules.PorticoImagePicker;
-async function pickProfilePicture(lease: ProfileLease): Promise<{bytes: Uint8Array; contentType: string} | undefined> {
-  const picker = avatarPick();
-  if (!lease.current() || !picker || typeof picker.pick !== 'function') return undefined;
-  const result = await picker.pick();
-  if (!lease.current() || !result || typeof result !== 'object') return undefined;
-  const value = result as {base64?: unknown; contentType?: unknown; bytes?: unknown};
-  if (typeof value.base64 !== 'string' || typeof value.contentType !== 'string' || typeof value.bytes !== 'number'
-    || !/^image\/(jpeg|png|webp)$/.test(value.contentType) || !Number.isSafeInteger(value.bytes) || value.bytes < 1 || value.bytes > 4 * 1024 * 1024
-    || value.base64.length !== 4 * Math.ceil(value.bytes / 3) || !/^[A-Za-z0-9+/]*={0,2}$/.test(value.base64)) return undefined;
-  const binary = globalThis.atob(value.base64);
-  if (binary.length !== value.bytes) return undefined;
-  return {bytes: Uint8Array.from(binary, character => character.charCodeAt(0)), contentType: value.contentType};
-}
 
 export function ProfileRoute({context, route, onBack, embedded = false}: {context: NativeShellBootstrapContext; route: NativeShellRoute; onBack: () => void; embedded?: boolean}) {
   const theme = useTheme(), [profile, setProfile] = useState<ManagedProfile>(), [pin, setPin] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
@@ -318,7 +304,7 @@ export function ProfileRoute({context, route, onBack, embedded = false}: {contex
   const managementActions = manage && lease && active ? <View testID="profile-actions" style={{marginTop: 18}}>
           <Text style={[theme.type.captionStrong, {color: theme.colors.textTertiary, marginBottom: 8}]}>{[active.name, active.primary ? t('profile.main') : active.id === current?.viewer.profileId ? t('profile.current') : ''].filter(Boolean).join(' · ')}</Text>
           <View style={{borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
-            {typeof NativeModules.PorticoImagePicker?.pick === 'function' ? <ProfileActionRow testID="profile-picture" label={t(avatars.some(value => value.profileId === active.id) ? 'profile.changePicture' : 'profile.addPicture')} onPress={() => {
+            {profilePicturePickerAvailable() ? <ProfileActionRow testID="profile-picture" label={t(avatars.some(value => value.profileId === active.id) ? 'profile.changePicture' : 'profile.addPicture')} onPress={() => {
               void runAction(async ({identity}) => {
                 const picked = await pickProfilePicture(lease!);
                 if (!picked) return;

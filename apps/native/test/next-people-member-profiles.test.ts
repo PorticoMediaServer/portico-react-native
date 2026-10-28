@@ -1,11 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {NativeModules, Platform} from './react-native-stub.mjs';
+import * as profileAvatars from '../src-next/platform/profile-avatars.ts';
 import {IdentityClient} from '../../../packages/client-core/src/identity-client.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {lifecycleHooks, nodes, content, t, theme} from './helpers/owner-server-settings.mjs';
 
 const {MemberProfilesClient} = await screenModule(new URL('../../../packages/client-core/src/member-profiles.ts', import.meta.url), {
   react: {default: {}}, '../../contracts/src/route-paths.ts': await import('../../../packages/contracts/src/route-paths.ts'), '../../contracts/src/routes.ts': await import('../../../packages/contracts/src/routes.ts'),
+  './identity-client.ts': await import('../../../packages/client-core/src/identity-client.ts'),
   './profile-management.ts': {PROFILE_ART: ['blue', 'violet', 'mint', 'coral', 'gold', 'slate', 'rose', 'sky']}, './identity-restrictions.ts': await import('../../../packages/client-core/src/identity-restrictions.ts'), './server-messages.ts': await import('../../../packages/client-core/src/server-messages.ts'),
 });
 const deferred = () => {let resolve!: (value: any) => void, reject!: (value: any) => void; const promise = new Promise<any>((yes, no) => {resolve = yes; reject = no;}); return {promise, resolve, reject};};
@@ -13,15 +16,17 @@ const profile = (id = 'alex', revision = 4) => ({id, name: 'Alex', art: 'mint', 
   restrictions: {profileId: id, ratingSystem: 'ca', maximumAgeRating: 'PG', maximumAge: 8, allowUnrated: true, blockedLabels: ['Private'], allowDownloads: true, allowLiveTv: false, allowDvr: true, allowWatchTogether: false, revision: 7}});
 const systems = [{id: 'ca', name: 'Canada', region: 'CA', screens: [], values: [{code: 'G', label: 'General', minimumAge: 0}, {code: 'PG', label: 'Parental guidance', minimumAge: 8}]}];
 const tick = async () => {for (let i = 0; i < 8; i++) await Promise.resolve();};
-async function fixture(caller = 'owner', target = 'member') {
+async function fixture(caller = 'owner', target = 'member', Client = MemberProfilesClient) {
   const requests: any[] = [], reported: unknown[] = [];
   let active = true, personCurrent = true;
   const person = {accountId: 'member', role: target, revision: 5};
-  const context = {current: () => active, account: {account: {id: 'caller', role: caller}, capabilities: {managePeople: true}}, api: {request(path: string, method: string, body: unknown, signal: AbortSignal) {
+  const context = {current: () => active, account: {account: {id: 'caller', role: caller}, capabilities: {managePeople: true}}, session: (): {accessToken: string} | undefined => ({accessToken: 'real-member-bearer'}), api: {mediaUrl: (path: string) => `https://verified.test${path}`, requestRaw(path: string, method: string, options: any) {
+    const pending = deferred(); requests.push({path, method, ...options, raw: true, ...pending}); return pending.promise;
+  }, request(path: string, method: string, body: unknown, signal: AbortSignal) {
     const pending = deferred(); requests.push({path, method, body, signal, ...pending}); return pending.promise;
   }}};
   const module = await screenModule(new URL('../src-next/screens/settings-live/server/member-profiles-source.ts', import.meta.url), {
-    react: {default: {}}, '../../../../../../packages/client-core/src/member-profiles': {MemberProfilesClient}, '../../../../../../packages/client-core/src/identity-client': {IdentityClient},
+    react: {default: {}}, '../../../../../../packages/client-core/src/member-profiles': {MemberProfilesClient: Client}, '../../../platform/profile-avatars': profileAvatars, '../../../../../../packages/client-core/src/identity-client': {IdentityClient},
     '../lifetime': {screenScopeEnded: () => new Error('ended'), NativeScreenLifetime: class {live = true; current = () => active && this.live; request = (work: any, signal: any) => work(signal); dispose = () => {this.live = false;};}},
   });
   const source = new module.NativeMemberProfilesSource(context, person, () => personCurrent, (error: unknown) => reported.push(error));
@@ -96,11 +101,11 @@ test('late list, save and conflict re-read cannot publish after switching person
   }
 });
 
-async function screenFixture(source: any) {
+async function screenFixture(source: any, isTV = false) {
   const host = lifecycleHooks();
   const module = await screenModule(new URL('../src-next/screens/settings-live/server/PeopleMemberProfiles.tsx', import.meta.url), {
-    react: host.react, 'react-native': {Text: 'Text', View: 'View'}, '../../../kit/artwork': {ProfileFace: 'ProfileFace'}, '../../../kit/controls': {Button: 'Button', TextField: 'TextField'}, '../../../kit/overlays': {BottomSheet: 'BottomSheet'}, '../../../kit/shell': {SettingsRow: 'SettingsRow'}, '../../../kit/states': {StateView: 'StateView'}, '../../../kit/theme': {useTheme: () => ({...theme, type: {body: {}, caption: {}}})},
-    '../ProfileEditorFields': {ProfileColorPicker: 'ProfileColorPicker', ProfileRestrictionsFields: 'ProfileRestrictionsFields'}, './member-profiles-source': {NativeMemberProfilesSource: class {}},
+    react: host.react, 'react-native': {Text: 'Text', View: 'View'}, '../../../kit/artwork': {ProfileFace: 'ProfileFace'}, '../../../kit/controls': {Button: 'Button', TextField: 'TextField'}, '../../../kit/overlays': {BottomSheet: 'BottomSheet'}, '../../../kit/shell': {SettingsRow: 'SettingsRow'}, '../../../kit/states': {StateView: 'StateView'}, '../../../kit/theme': {useTheme: () => ({...theme, isTV, type: {body: {}, caption: {}}})},
+    '../../../platform/profile-avatars': {...profileAvatars, useAvatarRoute: () => {}}, '../ProfileEditorFields': {ProfileColorPicker: 'ProfileColorPicker', ProfileRestrictionsFields: 'ProfileRestrictionsFields'}, './member-profiles-source': {NativeMemberProfilesSource: class {}},
   });
   const runtime = {text: {t}, error: () => ({title: 'Error'}), reportError: assert.fail};
   return {host, list: () => host.render(() => module.Profiles({source, runtime})), editor: (row: any) => host.render(() => module.MemberProfileEditor({source, runtime, profile: row}))};
@@ -146,4 +151,118 @@ test('Manage disappears if the current caller or target tier no longer allows ed
   f.context.account.account.role = 'owner'; f.person.role = 'owner';
   assert.equal(byID(screen.list(), 'people-profile-manage-alex'), undefined);
   screen.host.dispose(); f.source.dispose();
+});
+
+
+// A command port for the not-yet-mirrored client additions. These tests exercise
+// the native scope, picker, real byte-envelope adapter and UI; canonical wire
+// parsing/revision validation belongs to the client-core checks run by the lead.
+class PictureClient extends MemberProfilesClient {
+  constructor(private pictureApi: any, private memberId: string, private pictureUpload: any) {super(pictureApi, memberId);}
+  uploadPicture(row: any, body: Uint8Array, contentType: string) {
+    return this.pictureUpload(`/v1/admin/access/members/${this.memberId}/profiles/${row.id}/avatar?expectedRevision=${row.revision}`, body, contentType);
+  }
+  removePicture(row: any, signal: AbortSignal) {
+    return this.pictureApi.request(`/v1/admin/access/members/${this.memberId}/profiles/${row.id}/avatar`, 'DELETE', {expectedRevision: row.revision}, signal);
+  }
+}
+const avatar = (version = 2) => ({profileId: 'alex', version, updatedAt: '2026-10-28T12:00:00Z', sourceMime: 'image/jpeg', url: `/v1/admin/access/members/member/profiles/alex/avatar?v=${version}`});
+const photo = {base64: '/9j/AA==', bytes: 4, contentType: 'image/jpeg'};
+function picker(t: any, pick: () => Promise<unknown>) {
+  const old = NativeModules.PorticoImagePicker, oldTV = Platform.isTV;
+  NativeModules.PorticoImagePicker = {pick}; Platform.isTV = false;
+  t.after(() => {NativeModules.PorticoImagePicker = old; Platform.isTV = oldTV;});
+}
+
+test('picture upload and removal publish server read-back and carry the current revision and cancellation signal', async t => {
+  let picks = 0; picker(t, async () => {picks++; return photo;});
+  const f = await fixture('owner', 'member', PictureClient); let row = await f.load(); f.source.manage(row);
+  const choosing = f.source.choosePicture(row); assert.equal(f.source.getSnapshot().busy, true);
+  assert.equal(await f.source.choosePicture(row), false); assert.equal(picks, 1); await tick();
+  const upload = f.requests.at(-1); assert.equal(upload.path, '/v1/admin/access/members/member/profiles/alex/avatar?expectedRevision=4');
+  assert.equal(upload.method, 'POST'); assert.equal(upload.headers['Content-Type'], 'image/jpeg'); assert.equal(upload.signal.aborted, false);
+  assert.deepEqual(Buffer.from(upload.body.nativeAvatarBase64, 'base64'), Buffer.from([255, 216, 255, 0]));
+  upload.resolve({status: 200, headers: {}, body: {...row, revision: 5, avatar: avatar()}}); assert.equal(await choosing, true);
+  row = f.source.getSnapshot().managing; assert.equal(row.avatar.version, 2);
+  const removing = f.source.removePicture(row); const remove = f.requests.at(-1);
+  assert.equal(remove.path, '/v1/admin/access/members/member/profiles/alex/avatar'); assert.equal(remove.method, 'DELETE'); assert.deepEqual(remove.body, {expectedRevision: 5});
+  const {avatar: _avatar, ...without} = row; remove.resolve({...without, revision: 6}); assert.equal(await removing, true);
+  assert.equal(f.source.getSnapshot().managing.avatar, undefined); assert.equal(await f.source.removePicture(row), false); f.source.dispose();
+});
+
+test('late picker results cannot upload after person, caller authority or screen scope changes', async t => {
+  const pick = deferred(); picker(t, () => pick.promise);
+  const f = await fixture('owner', 'member', PictureClient); const row = await f.load(); f.source.manage(row);
+  const choosing = f.source.choosePicture(row); f.switchPerson(); pick.resolve(photo);
+  assert.equal(await choosing, false); assert.equal(f.requests.length, 2); f.source.dispose();
+  const other = deferred(); NativeModules.PorticoImagePicker = {pick: () => other.promise};
+  const g = await fixture('owner', 'member', PictureClient); const managed = await g.load(); g.source.manage(managed);
+  const pending = g.source.choosePicture(managed); g.context.account.account.role = 'member'; other.resolve(photo);
+  assert.equal(await pending, false); assert.equal(g.requests.length, 2); assert.equal(g.source.getSnapshot().error, undefined); g.source.dispose();
+});
+
+test('an in-flight picture upload is aborted on disposal and cannot publish a late result', async t => {
+  picker(t, async () => photo);
+  const f = await fixture('owner', 'member', PictureClient); const row = await f.load(); f.source.manage(row);
+  const choosing = f.source.choosePicture(row); await tick(); const upload = f.requests.at(-1);
+  f.source.dispose(); assert.equal(upload.signal.aborted, true);
+  upload.resolve({status: 200, headers: {}, body: {...row, revision: 5, avatar: avatar()}});
+  assert.equal(await choosing, false); assert.equal(f.source.getSnapshot().managing, undefined); assert.equal(f.reported.length, 0);
+});
+
+test('cancelled photo choice is quiet; TV, copied rows and ineligible tiers cannot open the picker', async t => {
+  let picks = 0; picker(t, async () => {picks++; return null;});
+  const f = await fixture('admin', 'member', PictureClient); const row = await f.load(); f.source.manage(row);
+  assert.equal(await f.source.choosePicture({...row}), false); assert.equal(picks, 0);
+  assert.equal(await f.source.choosePicture(row), false); assert.equal(picks, 1); assert.equal(f.requests.length, 2);
+  assert.equal(f.source.getSnapshot().busy, false); assert.equal(f.source.getSnapshot().error, undefined);
+  Platform.isTV = true; assert.equal(await f.source.choosePicture(row), false); assert.equal(picks, 1); Platform.isTV = false;
+  f.person.role = 'admin'; assert.equal(await f.source.choosePicture(row), false); assert.equal(picks, 1); f.source.dispose();
+});
+
+test('a picture conflict re-reads the profile, announces changed and never replays the upload', async t => {
+  picker(t, async () => photo);
+  const f = await fixture('owner', 'member', PictureClient); const row = await f.load(); f.source.manage(row);
+  const choosing = f.source.choosePicture(row); await tick(); f.requests.at(-1).resolve({status: 409, headers: {}, body: {error: {code: 'profile_changed'}}}); await tick();
+  assert.equal(f.requests.at(-1).method, 'GET'); f.requests.at(-1).resolve({accountId: 'member', items: [{...row, revision: 8}]});
+  assert.equal(await choosing, false); assert.equal(f.source.getSnapshot().changed, true); assert.equal(f.source.getSnapshot().managing.revision, 8);
+  assert.equal(f.requests.filter(request => request.raw).length, 1); f.source.dispose();
+});
+
+test('People pictures use the authorized admin URL, bearer and authority cache scope, and both row/editor artwork', async t => {
+  picker(t, async () => photo);
+  const f = await fixture('owner', 'member', PictureClient); let row = await f.load(); f.source.manage(row);
+  const choosing = f.source.choosePicture(row); await tick(); f.requests.at(-1).resolve({status: 200, headers: {}, body: {...row, revision: 5, avatar: avatar()}}); await choosing;
+  row = f.source.getSnapshot().managing;
+  const picture = f.source.picture(row, 64); assert.equal(picture.uri, 'https://verified.test/v1/admin/access/members/member/profiles/alex/avatar?v=2&size=64');
+  assert.deepEqual(picture.headers, {Authorization: 'Bearer real-member-bearer'}); assert.equal(f.source.picture({...row}, 64), undefined);
+  const screen = await screenFixture(f.source); assert.equal(byID(screen.editor(row), 'people-profile-picture').props.children[0], 'profile.changePicture');
+  assert.ok(byID(screen.editor(row), 'people-profile-remove-picture'));
+  assert.equal(nodes(screen.editor(row)).find((node: any) => node.type === 'ProfileFace').props.source.uri, picture.uri);
+  const list = await screenFixture(f.source); assert.equal(nodes(list.list()).find((node: any) => node.type === 'ProfileFace').props.source.headers.Authorization, 'Bearer real-member-bearer');
+  f.person.role = 'owner'; assert.equal(f.source.picture(row, 44), undefined); f.person.role = 'member';
+  f.context.session = () => undefined; assert.equal(f.source.picture(row, 44), undefined);
+  screen.host.dispose(); list.host.dispose(); f.source.dispose();
+});
+
+test('picture reads refuse public/cross-account URLs, and a denied upload clears the management read', async t => {
+  picker(t, async () => photo);
+  for (const url of ['/v1/profiles/alex/avatar?v=2', '/v1/admin/access/members/other/profiles/alex/avatar?v=2']) {
+    const f = await fixture('owner', 'member', PictureClient); const row = await f.load(); f.source.manage(row);
+    const choosing = f.source.choosePicture(row); await tick(); f.requests.at(-1).resolve({status: 200, headers: {}, body: {...row, revision: 5, avatar: {...avatar(), url}}}); await choosing;
+    assert.equal(f.source.picture(f.source.getSnapshot().managing, 64), undefined); f.source.dispose();
+  }
+  const f = await fixture('owner', 'member', PictureClient); const row = await f.load(); f.source.manage(row);
+  const choosing = f.source.choosePicture(row); await tick(); f.requests.at(-1).resolve({status: 403, headers: {}, body: {error: {code: 'forbidden'}}});
+  assert.equal(await choosing, false); assert.equal(f.source.getSnapshot().denied, true); assert.equal(f.source.getSnapshot().items, undefined);
+  assert.equal(f.source.getSnapshot().managing, undefined); assert.equal(f.source.canPickPicture(row), false); f.source.dispose();
+});
+
+test('TV editor omits the photo picker, and a retained phone picker action cannot follow a different editor action', async t => {
+  let picks = 0; picker(t, async () => {picks++; return photo;});
+  const f = await fixture('owner', 'member', PictureClient); const row = await f.load(); f.source.manage(row);
+  const tv = await screenFixture(f.source, true); assert.equal(byID(tv.editor(row), 'people-profile-picture'), undefined);
+  const phone = await screenFixture(f.source); const choose = byID(phone.editor(row), 'people-profile-picture').props.onPress;
+  byID(phone.editor(row), 'people-profile-rename').props.onPress(); choose();
+  assert.equal(picks, 0); assert.equal(f.requests.length, 2); tv.host.dispose(); phone.host.dispose(); f.source.dispose();
 });

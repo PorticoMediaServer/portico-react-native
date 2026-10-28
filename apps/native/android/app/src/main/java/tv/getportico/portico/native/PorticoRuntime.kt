@@ -220,7 +220,7 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
 
   // The JSON envelope exists only on the JS/native bridge, never on the wire.
   private fun avatarUploadPath(path: String, method: String?) =
-      method == "POST" && Regex("^/v1/direct/profiles/[A-Za-z0-9_-]{1,128}/avatar$").matches(path)
+      method == "POST" && Regex("^/v1/(direct/profiles/[A-Za-z0-9_-]{1,128}|admin/access/members/[A-Za-z0-9_-]{1,128}/profiles/[A-Za-z0-9_-]{1,128})/avatar$").matches(path)
 
   private fun avatarUploadBody(body: String?): ByteArray? = try {
     if (body == null || body.length > 5592448) null else {
