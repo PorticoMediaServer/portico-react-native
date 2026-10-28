@@ -5,6 +5,7 @@ import {sizedUri, useArtworkPlacement, useArtworkSlot} from '../../platform/Artw
 import {artworkArrivalScreen, type createArtworkArrivals} from '../../platform/artwork-arrival';
 import {useTheme} from '../theme';
 import {useReducedMotion} from '../useMotion';
+import {artworkDescriptor} from '../../../../../packages/client-core/src/artwork/index';
 import {artworkArrivalDuration, artworkAttemptSource, artworkFrame} from './model';
 import type {ArtworkProps, ArtworkSource} from './types';
 
@@ -18,7 +19,11 @@ const DecodedImage = Image as React.ComponentType<React.ComponentProps<typeof Im
 
 function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resizeMode, position, zoom = 1, saturation = 1, brightness = 1, blurRadius, filter, priority = false, arrivalDurationMs, sized = false, imageStyle, imageOverlay, onReady, onLoad, onError, onStatusChange}: ScheduledProps) {
   const placement = useArtworkPlacement();
-  const slot = useArtworkSlot(source.cacheKey, placement, priority);
+  // The request URL is chosen before anything is keyed on it: two boxes that need different
+  // slots of one picture are two images, and one slot is one image wherever it appears.
+  const scale = PixelRatio.get();
+  const uri = sized ? source.uri : sizedUri(source.uri, boxWidth, boxHeight, scale, (resizeMode ?? fit) === 'contain' ? 'contain' : 'cover', zoom);
+  const slot = useArtworkSlot(uri === source.uri ? source.cacheKey : JSON.stringify([source.cacheKey, uri]), placement, priority);
   const reduced = useReducedMotion();
   const theme = useTheme();
   const surfaceArrival = useContext(ArtworkArrivalContext), arrivalMs = arrivalDurationMs ?? surfaceArrival;
@@ -53,7 +58,6 @@ function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resize
   useEffect(() => () => opacity.stopAnimation(), [opacity]);
   useLayoutEffect(() => {live.current = true; return () => {live.current = false;};}, []);
 
-  const uri = sized ? source.uri : sizedUri(source.uri, boxWidth, boxWidth / boxHeight, PixelRatio.get());
   const attemptIdentity = JSON.stringify([uri, requestAttempt]);
   const currentAttempt = useRef(attemptIdentity);
   currentAttempt.current = attemptIdentity;
@@ -71,7 +75,11 @@ function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resize
   useEffect(() => {if (order !== undefined) arrival.current?.move(order);}, [order]);
   const mode = resizeMode ?? fit;
   const crop = mode === 'cover' || mode === 'contain';
-  const frame = intrinsic && crop ? artworkFrame(boxWidth, boxHeight, intrinsic.width, intrinsic.height, mode, position, zoom) : {width: boxWidth, height: boxHeight};
+  // The page described the chosen slot's actual size, so its painted frame is known before it
+  // loads; the decoded size is learned on load for an undescribed picture.
+  const chosen = artworkDescriptor(source.uri)?.[uri.includes('size=large') ? 'large' : 'small'];
+  const natural = intrinsic ?? (chosen && !sized ? {width: chosen.width, height: chosen.height} : null);
+  const frame = natural && crop ? artworkFrame(boxWidth, boxHeight, natural.width, natural.height, mode, position, zoom) : {width: boxWidth, height: boxHeight};
   const loaded = (event: Parameters<NonNullable<React.ComponentProps<typeof Image>['onLoad']>>[0]) => {
     if (!live.current || currentAttempt.current !== attemptIdentity) return;
     const natural = event.nativeEvent.source;
@@ -91,11 +99,13 @@ function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resize
     if (arrival.current) arrival.current.ready(reveal); else reveal();
   };
   return slot.active ? <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFillObject, {opacity, filter: filter ?? (saturation !== 1 || brightness !== 1 ? [{saturate: saturation}, {brightness}] : undefined)}]}>
-    <DecodedImage key={requestAttempt} source={artworkAttemptSource(source, uri, requestAttempt)}
+    <DecodedImage key={requestAttempt} source={artworkAttemptSource(source, uri, requestAttempt, sized ? undefined : {width: frame.width, height: frame.height, scale})}
       accessible={Boolean(alt)} accessibilityLabel={alt} fadeDuration={0} blurRadius={blurRadius}
-      // Decode oversized sharp art near twice its displayed dimensions before
-      // GPU scaling; the Android full-size scaling path visibly aliases detail.
-      // Already-sized ambient64 keeps its original decoded representation.
+      // Decode at display size. iOS and tvOS decode to the declared painted
+      // size × scale (the source's width, height and scale). Android decodes
+      // oversized art near twice its displayed dimensions before GPU scaling;
+      // its full-size scaling path visibly aliases detail. Already-sized
+      // ambient64 keeps its original decoded representation.
       resizeMethod={sized ? 'scale' : 'resize'} resizeMultiplier={2}
       resizeMode={intrinsic && crop ? 'stretch' : mode}
       style={[{position: 'absolute'}, frame, !intrinsic && zoom !== 1 ? {transform: [{scale: zoom}]} : undefined, imageStyle]}

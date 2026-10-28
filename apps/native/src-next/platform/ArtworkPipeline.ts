@@ -1,5 +1,5 @@
 import {createContext, useContext, useEffect, useState} from 'react';
-import {ArtworkScheduler, artworkWidthBucket, type ArtworkScreenStats} from '../../../../packages/client-core/src/artwork/index';
+import {ArtworkScheduler, artworkRenditionFor, type ArtworkScreenStats} from '../../../../packages/client-core/src/artwork/index';
 import {beginArtworkArrivalScreen} from './artwork-arrival';
 
 /**
@@ -120,14 +120,15 @@ export function artworkStats() {
 export type ArtworkPlacement = {row: number; group?: string; column?: number; priority?: boolean};
 export const ArtworkPlacementContext = createContext<ArtworkPlacement | null>(null);
 
-/** Size-aware URL: exactly one server variant per rendered size (`w=400|800|1920`). */
-export function sizedUri(uri: string, pointWidth: number, aspect: number, scale: number): string {
-  if (direct() || /[?&](w|size)=/.test(uri)) return uri;
-  const bucket = artworkWidthBucket(pointWidth * scale, {aspect});
-  // Today's server knows only `size=thumbnail` (≤ 400 px long edge) and ignores `w`. Until lane B
-  // ships the 800 variant, anything card-sized takes the thumbnail rather than the 1920 display
-  // image (slightly soft on a 3× phone, a twentieth of the bytes). Drop `size` once `w` is served.
-  return `${uri}${uri.includes('?') ? '&' : '?'}w=${bucket}${bucket <= 800 ? '&size=thumbnail' : ''}`;
+/**
+ * Slot-aware URL: the server made a small and a large file of every picture when it arrived, so
+ * a box asks for the one whose actual pixels cover it at this density, crop and zoom. One picture
+ * at one slot is one URL everywhere, and a described URL names the slot's exact bytes, which the
+ * platform caches for good. A URL that already names a representation (`size=`) is left alone.
+ */
+export function sizedUri(uri: string, pointWidth: number, pointHeight: number, scale: number, fit: 'cover' | 'contain' = 'cover', zoom = 1): string {
+  if (direct() || /[?&]size=/.test(uri)) return uri;
+  return artworkRenditionFor(uri, {width: pointWidth, height: pointHeight, dpr: scale, fit, zoom}).url;
 }
 
 /**

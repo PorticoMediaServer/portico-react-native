@@ -9,8 +9,13 @@ test('copied image scheduler gates mounting, remembers decodes and cancels offsc
   const effects: (() => (() => void) | void)[] = [];
   const react = {createContext: (value: unknown) => ({value}), useContext: (context: {value: unknown}) => context.value, useState: (value: unknown) => [value, () => {}], useEffect: (effect: () => (() => void) | void) => {effects.push(effect);}};
   const pipeline = await screenModule(new URL('../src-next/platform/ArtworkPipeline.ts', import.meta.url), {react: {...react, default: react}, '../../../../packages/client-core/src/artwork/index': artwork, './artwork-arrival': artworkArrival});
-  assert.equal(pipeline.sizedUri('https://server.test/art', 200, 2 / 3, 2), 'https://server.test/art?w=800&size=thumbnail');
-  assert.equal(pipeline.sizedUri('https://server.test/art?size=avatar', 200, 1, 2), 'https://server.test/art?size=avatar');
+  // A box picks the slot whose actual pixels cover it, by name and token; the descriptor and any
+  // legacy width are dropped so one slot is one URL. A deliberate representation is left alone.
+  const described = 'https://server.test/art?v=' + 'a'.repeat(64) + '&sd=533x800.9.' + '1'.repeat(16) + '&ld=1280x1920.40.' + '2'.repeat(16) + '&w=400';
+  assert.equal(pipeline.sizedUri(described, 130, 195, 3), 'https://server.test/art?r=' + '1'.repeat(16) + '&size=small&v=' + 'a'.repeat(64));
+  assert.equal(pipeline.sizedUri(described, 400, 600, 3), 'https://server.test/art?r=' + '2'.repeat(16) + '&size=large&v=' + 'a'.repeat(64));
+  assert.equal(pipeline.sizedUri('https://server.test/art', 200, 300, 2), 'https://server.test/art?size=small');
+  assert.equal(pipeline.sizedUri('https://server.test/art?size=avatar', 200, 200, 2), 'https://server.test/art?size=avatar');
   pipeline.beginArtworkScreen('next-image-proof');
   const first = pipeline.useArtworkSlot('image-proof', {row: 0, column: 0}, true);
   assert.equal(first.active, false);

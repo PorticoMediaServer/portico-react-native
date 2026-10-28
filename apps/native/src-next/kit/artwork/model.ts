@@ -15,11 +15,13 @@ export function artworkFrame(width: number, height: number, intrinsicWidth: numb
   return {width: w, height: h, left: left === 0 ? 0 : left, top: top === 0 ? 0 : top};
 }
 
-/** Headers stay on the native Image; scheduler identity never becomes a request URL. */
-export function artworkAttemptSource(source: ArtworkSource, uri: string, attempt: number) {
+/** Headers stay on the native Image; scheduler identity never becomes a request URL. A display
+ * size (painted points and screen scale) lets the platform decode at that size, not the file's. */
+export function artworkAttemptSource(source: ArtworkSource, uri: string, attempt: number, display?: {width: number; height: number; scale: number}) {
   return {
     uri: attempt > 0 ? `${uri}${uri.includes('?') ? '&' : '?'}_artRetry=${attempt}` : uri,
     ...(source.headers ? {headers: {...source.headers}} : {}),
+    ...(display && display.width > 0 && display.height > 0 && display.scale > 0 ? {width: Math.round(display.width), height: Math.round(display.height), scale: display.scale} : {}),
   };
 }
 
