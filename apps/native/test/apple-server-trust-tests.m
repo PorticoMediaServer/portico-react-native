@@ -5,10 +5,6 @@
 #if !TARGET_OS_SIMULATOR
 #error These tests must run in a disposable, isolated simulator device set.
 #endif
-// The test links the real trust implementation without booting React Native. Only its
-// unrelated HTTP-handler category needs this class; all TLS uses real NSURLSession.
-@implementation RCTHTTPRequestHandler @end
-
 static BOOL expect(BOOL value,const char *what){if(!value)fprintf(stderr,"FAIL %s\n",what);return value;}
 static BOOL waitFor(BOOL (^ready)(void)){
  NSDate *until=[NSDate dateWithTimeIntervalSinceNow:12];
