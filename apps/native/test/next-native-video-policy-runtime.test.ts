@@ -25,7 +25,8 @@ const runtimeModule = screenModule(new URL('../src-next/platform/playback/runtim
   './NativePlaybackCoordinator': {}, './external-presentation': {}, './native-playback': {}, './scope-http': {},
   './preparing-owner': {}, './start-presentation': {}, './offline-playback': {}, './caption-style': {},
   './subtitle-style-choices': {}, './start-intent': {}, './video-policy': {NativeVideoPlaybackPolicy, nativeVideoPolicyMarkers, nativeVideoPolicyPostPlay},
-  './subtitle-controls': {}, './subtitle-file-upload': {}, './engine-media': {}, './playback-failure': {},
+  './subtitle-controls': {}, './subtitle-file-upload': {}, './engine-media': {}, './playback-failure': {}, './playback-recovery': {},
+  './audio-track-selection': {}, './offline-tracks': {},
   './native-listening-kinds': {}, './selection': {}, './video-exit-permission': {},
 });
 
