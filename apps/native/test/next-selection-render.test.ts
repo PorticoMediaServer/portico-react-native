@@ -1408,8 +1408,8 @@ for (const role of ['administrator', 'owner'] as const) test(`TV Dashboard ${rol
     console: {measurement: async name => ({name, observedAt: 1, freshUntil: 30001, facts: {}}), alerts: async () => [], jobs: async cursor => {jobCalls.push(cursor); return {items: [{id: cursor ? 'later' : 'first', kind: 'scan', revision: 1}] as never[], nextCursor: cursor ? '' : 'job-next'};}, dispose() {}},
   });
   const runtime = {text: {t: defaultI18n.t, locale: 'en-US'}, error: feedback.error, artwork: () => undefined};
-  let sessionEvent: (() => void) | undefined;
-  const ports = {serverName: () => 'Server', context: {events: {on: (name: string, listener: () => void) => {if (name === 'admin.sessions') sessionEvent = listener; return () => {sessionEvent = undefined;};}}, navigation: {open() {}, back() {}}}};
+  let sessionEvent: (() => void) | undefined, resyncEvent: (() => void) | undefined;
+  const ports = {serverName: () => 'Server', context: {events: {on: (name: string, listener: () => void) => {if (name === 'admin.sessions') sessionEvent = listener; return () => {sessionEvent = undefined;};}, onResync: (listener: () => void) => {resyncEvent = listener; return () => {resyncEvent = undefined;};}}, navigation: {open() {}, back() {}}}};
   const panel = mount(dashboard.NativeDashboardScreen, {controller, ports, runtime, deniedFallback: null});
   try {
     await act(() => {});
@@ -1449,6 +1449,9 @@ for (const role of ['administrator', 'owner'] as const) test(`TV Dashboard ${rol
       assert.ok(ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-session-last'));
       withNativeControl(row, host => host.props.onBlur({nativeEvent: {}})); assert.equal(controller.sessionFocusToken('first'), undefined);
       assert.deepEqual(calls, [undefined, 'next', 'next', undefined, 'next']);
+      // Missed admin.sessions hints (a resync) are recovered by reading the Dashboard as it is now.
+      assert.ok(resyncEvent); const before = calls.length; resyncEvent!(); await act(() => {});
+      assert.ok(calls.length > before && calls[before] === undefined, 'a resync rereads the sessions from their first page');
     } finally {errorView.host.unmount();}
   } finally {panel.host.unmount(); controller.dispose(); feedback.dispose(); lifetime.dispose();}
 });

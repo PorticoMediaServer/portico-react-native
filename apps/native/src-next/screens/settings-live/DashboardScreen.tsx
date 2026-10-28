@@ -31,7 +31,13 @@ export function NativeDashboardScreen({controller, ports, runtime, deniedFallbac
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]);
   const column = tvContainer?.column ?? ids.surface('server.pages'), rows = tvContainer?.rows ?? ids.surface('server.dashboard');
   const enter = useScreenEntry(theme.isTV && !tvContainer && state.admission !== 'denied' ? {regionId: column, childId: 'dashboard'} : undefined, controller.lifetime.current);
-  useEffect(() => {void controller.refresh(); return ports.context.events.on('admin.sessions', () => {void controller.refresh();});}, [controller, ports]);
+  useEffect(() => {
+    void controller.refresh();
+    // A resync means admin.sessions hints may have been missed: read the Dashboard as it is now.
+    const refresh = () => {void controller.refresh();};
+    const offs = [ports.context.events.on('admin.sessions', refresh), ports.context.events.onResync(refresh)];
+    return () => {for (const off of offs) off();};
+  }, [controller, ports]);
   useEffect(() => {
     if (state.admission !== 'denied') return;
     // Inline keeps the outer Settings route and asks the parent to select its first
