@@ -856,7 +856,8 @@ export class OfflineDownloads {
         if (tracked.has(requestId) || now - (this.requestChecks.get(key) ?? 0) < RETRY_EVERY_MS) continue;
         if (checked++ === 20) break;
         this.requestChecks.set(key, now);
-        try {await getDownloadRequest(api, requestId);}
+        // The counts alone answer whether the request still exists.
+        try {await getDownloadRequest(api, requestId, {limit: 0});}
         catch (error) {
           if (generation !== this.generation) return;
           if ((error as {status?: number} | null)?.status === 404) {delete enrolled[requestId]; this.enrolled.delete(key); added = true;}
