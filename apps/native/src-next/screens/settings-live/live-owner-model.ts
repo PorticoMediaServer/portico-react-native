@@ -92,6 +92,7 @@ export type LiveDefaults = Readonly<{
   streamBufferMs: number; retryWindowMs: number; userAgent: string; guideDays: number; logoImport: boolean; discoveryEnabled: boolean;
 }>;
 export type LiveSourceSettings = Readonly<{
+  enabled?: boolean; viewerAccess?: 'owner-only' | 'server-members'; remote?: import('../../../../../packages/client-core/src/linear-api').PersistedRemoteConfiguration;
   enabledGroups: readonly string[]; enabledChannels: readonly string[]; kind: string;
   streamBufferMs: number | null; retryWindowMs: number | null; userAgent: string;
   filters: Readonly<{categories: FilterRule; countries: FilterRule; keywords: FilterRule}>;

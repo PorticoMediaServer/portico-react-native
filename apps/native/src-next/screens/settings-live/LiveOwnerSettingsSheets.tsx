@@ -13,13 +13,17 @@ import type {NativeLiveOwnerController} from './live-owner-controller';
 import type {ChannelMapEdit, ChannelMapPage, FilterRule, LiveSource, LiveSourceDocument, LiveSourceSettings} from './live-owner-model';
 import {listOf, megabytes, millisOf, secondsOf} from './live-owner-model';
 
+import {lanConfirmationRoots} from '../../../../../packages/client-core/src/linear-api';
+
 type Draft = {
+ enabled?: boolean; viewerAccess?: 'owner-only' | 'server-members'; remote?: LiveSourceSettings['remote'];
   kind: string; enabledGroups: string[]; enabledChannels: string[]; streamBufferMs: number | null; retryWindowMs: number | null; userAgent: string;
   filters: {categories: FilterRule; countries: FilterRule; keywords: FilterRule}; logoImport: {enabled: boolean; overwriteExisting: boolean};
   channelNumbering: {mode: 'source' | 'sequential'; startAt: number; step: number}; guideSourceId: string;
   importLimits: {bytes: number; channels: number; programmes: number} | null;
 };
 const draftOf = (settings: LiveSourceSettings): Draft => ({
+ ...settings,
   kind: settings.kind, enabledGroups: [...settings.enabledGroups], enabledChannels: [...settings.enabledChannels],
   streamBufferMs: settings.streamBufferMs, retryWindowMs: settings.retryWindowMs, userAgent: settings.userAgent,
   filters: {categories: {...settings.filters.categories, values: [...settings.filters.categories.values]}, countries: {...settings.filters.countries, values: [...settings.filters.countries.values]}, keywords: {...settings.filters.keywords, values: [...settings.filters.keywords.values]}},
@@ -27,6 +31,7 @@ const draftOf = (settings: LiveSourceSettings): Draft => ({
   importLimits: settings.importLimits ? {...settings.importLimits} : null,
 });
 const settingsOf = (draft: Draft): LiveSourceSettings => ({
+ ...draft,
   kind: draft.kind, enabledGroups: draft.enabledGroups, enabledChannels: draft.enabledChannels, streamBufferMs: draft.streamBufferMs,
   retryWindowMs: draft.retryWindowMs, userAgent: draft.userAgent,
   filters: {categories: {mode: draft.filters.categories.mode, values: draft.filters.categories.values}, countries: {mode: draft.filters.countries.mode, values: draft.filters.countries.values}, keywords: {mode: draft.filters.keywords.mode, values: draft.filters.keywords.values}},
@@ -59,6 +64,7 @@ function Row({label, description, children}: {label: string; description?: strin
 export function SourceSettingsSheet({controller, runtime, source, sources, open, onOpenChange, onSaved}: {controller: NativeLiveOwnerController; runtime: NativeShellRuntime; source?: LiveSource; sources: readonly LiveSource[]; open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void}) {
   const theme = useTheme(), t = runtime.text.t;
   const [document, setDocument] = useState<LiveSourceDocument>(), [draft, setDraft] = useState<Draft>(), [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false), [logo, setLogo] = useState(''), [saved, setSaved] = useState<MessageId>();
+  const [guideAddress, setGuideAddress] = useState(false);
   const [choosing, setChoosing] = useState<'groups' | 'channels'>();
   const [loading, setLoading] = useState(false);
   const cancel = useRef<View>(null), openingRef = useRef<Readonly<{sourceId: string}> | undefined>(undefined), documentRef = useRef<LiveSourceDocument | undefined>(undefined);
@@ -71,7 +77,7 @@ export function SourceSettingsSheet({controller, runtime, source, sources, open,
     const ticket = Object.freeze({sourceId: source.id});
     openingRef.current = ticket;
     setOpening(ticket);
-    setDocument(undefined); setDraft(undefined); setError(undefined); setBusy(false); setLogo(''); setSaved(undefined); setLoading(true);
+    setGuideAddress(false); setDocument(undefined); setDraft(undefined); setError(undefined); setBusy(false); setLogo(''); setSaved(undefined); setLoading(true);
     let active = true;
     const live = () => active && openingRef.current === ticket;
     void controller.document(source.id).then(value => {
@@ -93,8 +99,8 @@ export function SourceSettingsSheet({controller, runtime, source, sources, open,
     // The accepted command still belongs to the opening and document it was sent for.
     const live = documentRef.current;
     if (openingRef.current !== ticket || live?.sourceId !== sourceId || live.revision !== revision) return;
-    setBusy(false);
-    if (result) {setSaved(liveSavedSettingsId(acquisition)); onSaved();}
+    if (!result) {setBusy(false);setError(controller.getSnapshot().error);}
+    if (result) {const fresh=await controller.document(sourceId).catch(failure=>{if(openingRef.current===ticket)setError(failure);return undefined;});if(openingRef.current!==ticket)return;if(fresh){setDocument(fresh);setDraft(draftOf(fresh.settings));}setBusy(false);setSaved(liveSavedSettingsId(acquisition)); onSaved();}
   };
   const importLogos = async () => {
     if (!source || !document) return;
@@ -110,21 +116,26 @@ export function SourceSettingsSheet({controller, runtime, source, sources, open,
     <Button variant="primary" loading={busy} disabled={!dirty} onPress={() => void save()}>{t('action.save')}</Button>
   </View>;
   return <>
-    <Dialog open={open} onOpenChange={value => onOpenChange(value)} title={source?.name ?? t('web.liveTv.sourceSettings')} description={t('web.liveSource.settingsLede')} initialFocusRef={cancel} footer={footer} testID="live-owner-source-settings">
+    <Dialog open={open} onOpenChange={value => onOpenChange(value)} title={source?.name ?? t('web.liveTv.sourceSettings')} initialFocusRef={cancel} footer={footer} testID="live-owner-source-settings">
       <View style={{gap: 22}}>
         {error !== undefined && <StateView testID="live-owner-source-settings-error" {...runtime.error(error, () => onOpenChange(false))}/>}
         <LoadingBoundary ready={!loading || !!(draft && document)} immediate={!loading || !!(draft && document)} skeleton={<View style={{gap: 10}}><SkeletonBlock height={48} radius={10}/><SkeletonBlock height={48} radius={10}/><SkeletonBlock height={48} radius={10}/></View>}>
         {draft && document && <>
+          {draft.enabled !== undefined && <Row label={t('next.settingsSpec.server.live.groups.2.rows.0.label')}><Switch testID="live-owner-source-enabled" checked={draft.enabled} disabled={busy} onCheckedChange={enabled=>patch({enabled})}/></Row>}
+          {draft.viewerAccess && <Select testID="live-owner-source-access" label={t('next.settingsSpec.server.live.groups.2.rows.1.label')} value={draft.viewerAccess} disabled={busy} options={['server-members','owner-only'].map((value,index)=>({value,label:t(`next.settingsSpec.server.live.groups.2.rows.1.control.options.${index}.label` as MessageId)}))} onValueChange={viewerAccess=>patch({viewerAccess:viewerAccess as 'owner-only'|'server-members'})}/>}
+
           <Section title={t('web.liveSource.provides')}>
             <Select testID="live-owner-provides" label={t('web.liveSource.provides')} value={draft.kind} options={document.availableKinds.map(kind => ({value: kind, label: t((kindKey[kind] ?? kind) as Parameters<typeof t>[0])}))}
               onValueChange={kind => patch({...guideOnlyPatch(kind)})}/>
             {guideOnly && <Text style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{t('web.liveSource.guideOnlyNote')}</Text>}
           </Section>
           {!guideOnly && <>
-            <Section title={t('web.liveSource.guideFrom')} description={t('web.liveSource.guideFromHelp')}>
-              <Select testID="live-owner-guide-from" label={t('web.liveSource.guideFrom')} value={draft.guideSourceId || 'own'} options={[{value: 'own', label: t('web.liveSource.ownGuide')}, ...guides.map(value => ({value: value.id, label: value.name}))]}
-                onValueChange={value => patch({guideSourceId: value === 'own' ? '' : value})}/>
+            <Section title={t('next.settingsSpec.server.live.groups.2.rows.2.label')} description={t('next.settingsSpec.server.live.groups.2.rows.2.help')}>
+              <Select testID="live-owner-guide-from" label={t('next.settingsSpec.server.live.groups.2.rows.2.label')} value={draft.guideSourceId || (guideAddress || draft.remote?.guideUrl || draft.remote?.guideUrlRedacted ? 'url' : 'own')} options={[{value: 'own', label: t('next.settingsSpec.server.live.groups.2.rows.2.control.options.0.label')}, ...guides.map(value => ({value: value.id, label: value.name})),...(draft.remote?[{value:'url',label:t('next.settingsSpec.server.live.groups.2.rows.2.control.options.2.label')}]:[])]}
+                onValueChange={value => {setGuideAddress(value==='url');patch({guideSourceId:value==='own'||value==='url'?'':value,...value==='own'&&draft.remote?{remote:{...draft.remote,guideUrl:'',guideUrlRedacted:false}}:{}});}}/>
+              {draft.remote&&(guideAddress||draft.remote.guideUrl||draft.remote.guideUrlRedacted)&&<TextField testID="live-owner-source-guide-url" label={t('next.settingsSpec.server.live.groups.2.rows.2.children.0.label')} value={draft.remote.guideUrl} editable={!busy} onChangeText={guideUrl=>patch({remote:{...draft.remote!,guideUrl,guideUrlRedacted:false}})}/>}
             </Section>
+            {draft.remote && <Select testID="live-owner-source-refresh" label={t('next.settingsSpec.server.live.groups.2.rows.3.label')} value={String(draft.remote.refreshMs)} disabled={busy} options={[3600000,21600000,43200000,86400000].map((value,index)=>({value:String(value),label:t(`next.settingsSpec.server.live.groups.2.rows.3.control.options.${index}.label` as MessageId)})).concat([3600000,21600000,43200000,86400000].includes(draft.remote.refreshMs)?[]:[{value:String(draft.remote.refreshMs),label:t('next.settingsSpec.server.live.groups.1.rows.0.control.options.3.label')}])} onValueChange={value=>patch({remote:{...draft.remote!,refreshMs:Number(value)}})}/>}
             <Section title={t('server.live.onlyGroups')} description={t('server.live.pickGroupsHelp')}>
               <Row label={t('server.live.onlyGroups')} description={draft.enabledGroups.length ? t('server.live.chosenCount', {count: draft.enabledGroups.length}) : t('server.live.chosenAll')}>
                 <Button variant="glass" size="small" onPress={() => setChoosing('groups')}>{t('server.live.choose')}</Button>
@@ -160,6 +171,11 @@ export function SourceSettingsSheet({controller, runtime, source, sources, open,
                 {logo ? <Text style={[shellType(12.5), {color: theme.colors.textSecondary}]}>{logo}</Text> : null}
               </View>
             </Section>
+          {draft.remote && <>
+            {lanConfirmationRoots(error)&&<Button disabled={busy} onPress={()=>{patch({remote:{...draft.remote!,confirmedLanRoots:lanConfirmationRoots(error)}});setError(undefined);}}>{t('web.liveSource.confirmGuideNetwork')}</Button>}
+            {draft.remote.kind==='xtream' && (['username','password'] as const).map(key=><View key={key}><TextField testID={`live-owner-source-${key}`} label={t(key==='username'?'web.liveSource.replaceUsername':'web.liveSource.replacePassword')} secureTextEntry autoComplete="off" value={draft.remote?.[key]??''} editable={!busy} onChangeText={value=>patch({remote:{...draft.remote!,[key]:value || undefined}})}/><Button disabled={busy} variant="text" onPress={()=>patch({remote:{...draft.remote!,[key]:''}})}>{t(key==='username'?'web.liveSource.clearUsername':'web.liveSource.clearPassword')}</Button></View>)}
+          </>}
+            {draft.remote && <Select testID="live-owner-source-stream-limit" label={t('next.settingsSpec.server.live.advanced.groups.2.rows.0.label')} value={String(draft.remote.ownerLimit || 'auto')} disabled={busy} options={['auto',1,2,3,4,6,8,...(![0,1,2,3,4,6,8].includes(draft.remote.ownerLimit)?[draft.remote.ownerLimit]:[])].map((value,index)=>({value:String(value),label:index===0?t('next.settingsSpec.server.live.advanced.groups.2.rows.0.control.options.0.label'):String(value)}))} onValueChange={value=>patch({remote:{...draft.remote!,ownerLimit:value==='auto'?0:Number(value),useDiscoveredCapacity:value==='auto'&&draft.remote!.kind==='hdhomerun'}})}/>}
             <Section title={t('web.liveSource.streamBuffer')}>
               <View style={{flexDirection: 'row', gap: 10}}>
                 <TextField testID="live-owner-buffer" containerStyle={{flex: 1}} label={t('web.liveSource.streamBuffer')} keyboardType="number-pad" placeholder={t('web.liveSource.serverDefault', {value: document.effective.streamBufferMs / 1000})} value={secondsOf(draft.streamBufferMs)} onChangeText={value => patch({streamBufferMs: millisOf(value)})}/>

@@ -107,6 +107,7 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
     let current = mark;
     try { await put(current.revision, draft); }
     catch (error) {
+      if(JSON.stringify(current.settings.remote)!==JSON.stringify(draft.remote))throw error;
       const fresh = await this.document(current.sourceId).catch(() => {throw error;});
       const rebased = rebaseDraft(current.settings, draft, fresh.settings);
       if (rebased.conflict) throw error;

@@ -252,3 +252,14 @@ test('native DVR defaults refuse deleting the only original and unknown conversi
   assert.throws(() => parseDVRDocument({...document(result.settings.conversion), serverId: 'other'}, 'server'), /invalid_response/);
 });
 
+
+test('native source editor reads persisted rows and sends write-only changes with one revision',async()=>{
+ const owner=authority(),calls:any[]=[];
+ const remote={kind:'xtream',guideUrl:'https://guide.example/guide.xml',guideUrlRedacted:false,refreshMs:21600000,ownerLimit:2,useDiscoveredCapacity:false};
+ const stored={sourceId:'s1',sourceName:'Source',revision:7,digest:'digest',tunerCount:2,effectiveLogoImport:{enabled:true,overwriteExisting:false},availableKinds:['playlist'],settings:{...settings,enabled:true,viewerAccess:'server-members',remote},effective:defaults};
+ const api={async request<T>(path:string,method='GET',body?:any){calls.push({path,method,body});if(path==='/v1/admin/live-sources')return {serverId:'server',sources:[source],refresh:[]} as T;return {serverId:'server',result:stored} as T;}};
+ const controller=new NativeLiveOwnerController(new NativeScreenLifetime(owner),api,()=> 'operation');
+ const doc=await controller.document('s1');assert.equal(doc.settings.viewerAccess,'server-members');assert.equal(doc.settings.remote?.ownerLimit,2);assert.equal(doc.settings.remote?.password,undefined);
+ await controller.saveDocument(doc,{...doc.settings,enabled:false,viewerAccess:'owner-only',remote:{...doc.settings.remote!,refreshMs:43200000,ownerLimit:4,password:'replacement',username:''}});
+ const put=calls.find(value=>value.method==='PUT');assert.equal(put.body.expectedRevision,7);assert.equal(put.body.settings.enabled,false);assert.equal(put.body.settings.remote.password,'replacement');assert.equal(put.body.settings.remote.username,'');assert.equal(put.body.settings.remote.refreshMs,43200000);controller.dispose();
+});
