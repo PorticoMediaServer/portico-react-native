@@ -300,5 +300,6 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
       importantForAccessibility={initialPlayer ? 'no-hide-descendants' : 'auto'} style={[{position: 'absolute', inset: 0}, initialTitleStyle]}>{runtime.renderRoutes()}</Animated.View>}
     {runtime.renderSelection()}
     {runtime.renderDownloads?.()}
+    {runtime.renderPendingChanges?.()}
   </View>;
 }

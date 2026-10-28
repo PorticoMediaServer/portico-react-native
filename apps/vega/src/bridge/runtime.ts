@@ -4,6 +4,7 @@ import {onCredentialExposure, originOf, rememberCredentials, jsonValue} from './
 import {revokeExposedSessions} from './exposure-revocation';
 import {transportMessage} from '../i18n/transport';
 import {profileTrust} from './profile-trust';
+import {userMutationTransaction} from './user-mutations';
 import {randomBytes, uuid} from './random';
 import {readRecord, serialized, writeRecord, type Service} from './storage';
 import {cancel, submit, utf8Length, type WireResponse} from './transport';
@@ -55,6 +56,7 @@ async function save(service: Service, account: string, json: string, full: [stri
 }
 
 export const PorticoRuntime = {
+  userMutationTransaction,
   launchId: uuid(),
   onCredentialExposure: (listener: (event: {origin: string; origins?: readonly string[]}) => void) => onCredentialExposure(({origin, origins}) => listener({origin, origins})),
   transportNotice: (locale: string) => transportMessage('vega.connection.redirectLimit', locale),

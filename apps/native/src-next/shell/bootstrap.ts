@@ -1,5 +1,5 @@
 import type {RefObject} from 'react';
-import {AppState, Dimensions, Platform, type View} from 'react-native';
+import {AppState, Dimensions, Platform, NativeEventEmitter, NativeModules, type View} from 'react-native';
 import type {PlaybackFence} from '../../../../packages/player-core/src';
 import {NativeScreenLifetime} from '../screens/settings-live/lifetime';
 import {sendNativeDeviceReport} from '../screens/settings-live/device-client-report';
@@ -19,6 +19,8 @@ import {ambientArtworkSource} from '../../../../packages/client-core/src/artwork
 import type {HttpLocalApi, LocalSession, Library} from '../../../../packages/client-core/src';
 import {restoreNativeConnection, readNativeSelectedViewer, trackNativeConnection} from '../platform/session';
 import {beginNativeInstallation} from '../platform/installation';
+import {NativeStopResultConsumer} from '../platform/native-stop-consumer';
+import {NativeUserMutationStore,retainNativeUserMutationSelection} from '../platform/user-mutations';
 import {NativeQueueStore} from '../platform/queue-storage';
 import {bindNativeDeviceSettings, nativeDeviceSettings} from '../platform/device-settings';
 import {bindNativeServerPreferences} from '../platform/server-preferences';
@@ -76,7 +78,7 @@ export type NativeShellBootstrapContext = Readonly<{
   navigation: NativeShellNavigation;
 }>;
 /** Only the integrated family/action owners supply these implementations; never fallback no-ops. */
-export type NativeShellBindings = Pick<NativeShellRuntime, 'actions' | 'mixes' | 'musicDiscover' | 'listeningPlaylist' | 'listeningQueuePolicy' | 'listeningSongDetail' | 'selection' | 'setHomeWindow' | 'homeMenuRow' | 'renderSelection' | 'renderRoutes' | 'renderWatch' | 'libraryMenu' | 'renderDestination' | 'renderHomeEmpty' | 'renderDownloads' | 'openServers' | 'connectionFacts' | 'error' | 'reportError' | 'onDestination' | 'scrollToTop' | 'registerScrollToTop' | 'registerTVPageBack' | 'registerTVRailBack' | 'onArtworkError' | 'castControl'> & {
+export type NativeShellBindings = Pick<NativeShellRuntime, 'actions' | 'mixes' | 'musicDiscover' | 'listeningPlaylist' | 'listeningQueuePolicy' | 'listeningSongDetail' | 'selection' | 'setHomeWindow' | 'homeMenuRow' | 'renderSelection' | 'renderRoutes' | 'renderWatch' | 'libraryMenu' | 'renderDestination' | 'renderHomeEmpty' | 'renderDownloads' | 'renderPendingChanges' | 'openServers' | 'connectionFacts' | 'error' | 'reportError' | 'onDestination' | 'scrollToTop' | 'registerScrollToTop' | 'registerTVPageBack' | 'registerTVRailBack' | 'onArtworkError' | 'castControl'> & {
   account: NativeShellSnapshot['account'];
   getState: () => Pick<NativeShellSnapshot, 'destination' | 'railDestination' | 'contentVisible' | 'selectionActive' | 'homeObscured' | 'homeVisible'>;
   attach: (runtime: NativeShellRuntime) => void;
@@ -166,6 +168,21 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const reread = await readNativeSelectedViewer(); assertCurrent();
     if (!reread || reread.serverUrl !== original.serverUrl || !sameViewer(reread.session, restored.session)) throw cancelled();
     api = restored.api;
+    api.setUserMutationSession(restored.session);
+    const mutationStore = new NativeUserMutationStore();
+    let reportMutationError = (error: unknown) => console.warn('[user-mutations]', error);
+    const mutationScope=api.getUserMutationScope();if(!mutationScope)throw cancelled();
+    await retainNativeUserMutationSelection(mutationStore,mutationScope,error=>reportMutationError(error)); assertCurrent();
+    const mutations = api.configureUserMutations(mutationStore);
+    const mutationApi = api;
+    const stopConsumer=new NativeStopResultConsumer({coordinator:mutations,scope:mutationApi.getUserMutationScope,
+      consumeLocal:async key=>{const bridge=NativeModules.PorticoPlaybackModule;if(typeof bridge?.consumeListeningStop!=='function')throw Object.assign(new Error('mutation_consumer_unavailable'),{code:'mutation_consumer_unavailable'});return await bridge.consumeListeningStop(key)===true;},
+      consumeResult:key=>mutationApi.consumeUserMutation(key),report:error=>reportMutationError(error)});
+    const nativeMutations = NativeModules.PorticoPlaybackModule ? new NativeEventEmitter(NativeModules.PorticoPlaybackModule).addListener('PorticoUserMutationStatus', (status: {state?: string; code?: string}) => {
+      if (['not_queued', 'review', 'quarantined'].includes(status.state ?? '')) reportMutationError(Object.assign(new Error(status.code ?? 'mutation_not_queued'), {code: status.code ?? 'mutation_not_queued'}));
+      void mutations.reconcile().catch(reportMutationError);
+    }) : undefined;
+    cleanups.push(() => {nativeMutations?.remove(); stopConsumer.dispose(); mutations.dispose(); mutationApi.setUserMutationSession(undefined);});
     api.setDeviceClass(Platform.isTV ? 'television' : 'mobile');
     const local = api;
     trackNativeConnection(local);
@@ -291,6 +308,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     if (!selectedBeforePublish || !sameViewer(selectedBeforePublish.session, session) || selectedBeforePublish.serverUrl !== original.serverUrl) throw cancelled();
     await accountBinding.assertCurrent(); assertCurrent();
     const bound = bindings;
+    reportMutationError = error => bound.reportError(error);
     const publish = () => {
       if (!current()) return;
       const avatar = avatars.find(value => value.profileId === profile.id), picture = profilePictureSource(local, session!.accessToken, avatar, Platform.isTV ? 80 : 90);
@@ -304,6 +322,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     cleanups.push(context.subscribePreferences(publish));
     refresher = new LocalSessionRefresher({env, api: local, session, onRotated: renewed => {
       if (!current() || !sameViewer(session!, renewed)) {end(); return;}
+      local.setUserMutationSession(renewed);
       if (renewed.viewer.role !== session!.viewer.role) {session = renewed; rebuild(); return;}
       if (renewed.authorizationHorizon !== session!.authorizationHorizon) {
         // Local renewal slides its inactivity horizon. Re-enter the normal

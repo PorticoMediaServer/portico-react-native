@@ -24,8 +24,22 @@ export function PhoneFirstLibrary({context, onDone}: {context: NativeShellBootst
         || !account.capabilities.manageServer || account.account.primaryProfileId !== lifetime.authority.profileId)
         throw Object.assign(new Error('owner_required'), {code: 'owner_required'});
     };
-    const api: LibraryContentApi = {request: async <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => {
-      assertOwner(); const result = await lifetime.request(current => context.api.request<T>(path, method, body, current), signal);
+    const originalApi = context.api;
+    const api: LibraryContentApi = {
+      ...(originalApi.acknowledgeUserMutation ? {acknowledgeUserMutation: async (id: string) => {
+        assertOwner(); await originalApi.acknowledgeUserMutation(id); assertOwner();
+      }} : {}),
+      ...(originalApi.awaitUserMutationsReady ? {awaitUserMutationsReady: async () => {
+        assertOwner(); await originalApi.awaitUserMutationsReady(); assertOwner();
+      }} : {}),
+      ...(originalApi.getUserMutationCoordinator ? {getUserMutationCoordinator: () => {
+        assertOwner(); const value = originalApi.getUserMutationCoordinator(); assertOwner(); return value;
+      }} : {}),
+      ...(originalApi.getUserMutationScope ? {getUserMutationScope: () => {
+        assertOwner(); const value = originalApi.getUserMutationScope(); assertOwner(); return value;
+      }} : {}),
+      request: async <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => {
+      assertOwner(); const result = await lifetime.request(current => originalApi.request<T>(path, method, body, current), signal);
       assertOwner(); return result;
     }};
     const scope = {serverId: lifetime.authority.serverId, viewerId: JSON.stringify([lifetime.authority.epoch, lifetime.authority.accountId, lifetime.authority.profileId])};

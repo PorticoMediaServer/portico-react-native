@@ -1,5 +1,5 @@
 import {useLayoutEffect, useState, useSyncExternalStore} from 'react';
-import {ConsoleClient} from '../../../../../../../packages/client-core/src/console';
+import {ConsoleClient, type ConsoleAPI} from '../../../../../../../packages/client-core/src/console';
 import {isAuthenticationFailure} from '../../../../../../../packages/client-core/src/backups';
 import {FormSet, type DraftForm, type FormState} from '../../../../../../../packages/client-core/src/server-admin/draft-form';
 import {createServerForm, type ServerFormDeps, type ServerFormId} from '../../../../../../../packages/client-core/src/server-admin/server-forms';
@@ -19,14 +19,36 @@ export type StorageForms = Readonly<{
   set: FormSet;
   dispose: () => void;
 }>;
-function createForms(context: NativeShellBootstrapContext, ids: readonly ServerFormId[], reportError: NativeShellRuntime['reportError']): StorageForms {
+export function createStorageForms(context: NativeShellBootstrapContext, ids: readonly ServerFormId[], reportError: NativeShellRuntime['reportError']): StorageForms {
   const lifetime = new NativeScreenLifetime(context), set = new FormSet(), forms: Partial<Record<ServerFormId, DraftForm<any, any>>> = {}, offs: (() => void)[] = [];
   let consoleClient: ConsoleClient | undefined;
   const current = () => lifetime.current() && nativeStorageOwner(context);
   const dispose = () => {lifetime.dispose();for (const form of Object.values(forms)) form.dispose();for (const off of offs) off();consoleClient?.dispose();};
-  const api = {request: async <T,>(path: string, method?: string, body?: unknown, caller?: AbortSignal): Promise<T> => {
+  const originalApi = context.api;
+  const requireCurrent = () => {if (!current()) throw screenScopeEnded();};
+  const api: ConsoleAPI = {
+    ...(originalApi.acknowledgeUserMutation ? {acknowledgeUserMutation: async (id: string) => {
+      requireCurrent(); await originalApi.acknowledgeUserMutation(id); requireCurrent();
+    }} : {}),
+    ...(originalApi.awaitUserMutationsReady ? {awaitUserMutationsReady: async () => {
+      requireCurrent(); await originalApi.awaitUserMutationsReady(); requireCurrent();
+    }} : {}),
+    ...(originalApi.getUserMutationCoordinator ? {getUserMutationCoordinator: () => {
+      requireCurrent(); const value = originalApi.getUserMutationCoordinator(); requireCurrent(); return value;
+    }} : {}),
+    ...(originalApi.getUserMutationScope ? {getUserMutationScope: () => {
+      requireCurrent(); const value = originalApi.getUserMutationScope(); requireCurrent(); return value;
+    }} : {}),
+    ...(originalApi.requestConsole ? {requestConsole: async <T,>(path: string, method: string, body: unknown, caller: AbortSignal): Promise<T> => {
+      requireCurrent();
+      try {
+        const value = await lifetime.request(signal => originalApi.requestConsole<T>(path, method, body, signal), caller);
+        requireCurrent(); return value;
+      } catch (error) {if (isAuthenticationFailure(error)) {const owned = current();dispose();if (owned) reportError(error);}throw error;}
+    }} : {}),
+    request: async <T,>(path: string, method?: string, body?: unknown, caller?: AbortSignal): Promise<T> => {
     if (!current()) throw screenScopeEnded();
-    try {return await lifetime.request(signal => context.api.request<T>(path, method, body, signal), caller);}
+    try {const value = await lifetime.request(signal => originalApi.request<T>(path, method, body, signal), caller);requireCurrent();return value;}
     catch (error) {if (isAuthenticationFailure(error)) {const owned = current();dispose();if (owned) reportError(error);}throw error;}
   }};
   const authority = context.authority();
@@ -40,7 +62,7 @@ function createForms(context: NativeShellBootstrapContext, ids: readonly ServerF
 export function useStorageForms(ports: NativeSettingsLivePorts, ids: readonly ServerFormId[], reportError: NativeShellRuntime['reportError']): StorageForms | undefined {
   const context = ports.context, [group, setGroup] = useState<StorageForms>();
   useLayoutEffect(() => {
-    const next = createForms(context, ids, reportError);setGroup(next);
+    const next = createStorageForms(context, ids, reportError);setGroup(next);
     for (const form of Object.values(next.forms)) void form.load();
     return next.dispose;
   }, [context, ids, reportError]);

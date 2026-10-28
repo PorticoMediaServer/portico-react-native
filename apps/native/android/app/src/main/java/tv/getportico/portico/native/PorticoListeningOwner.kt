@@ -44,6 +44,12 @@ import org.json.JSONTokener
  * sent, and reads the controller's facts. Main thread only.
  */
 internal class PorticoListeningOwner(private val context: Context, private val controller: PorticoPlaybackController) {
+  var onUserMutation: ((Map<String, Any?>) -> Unit)? = null
+  var stopDisposition: Map<String, Any?>? = null
+    private set
+  private var mutationIssuedBaseMs = 0L
+  private var mutationClockMono = 0.0
+  private var mutationScope: Map<String, Any?>? = null
   var onSnapshot: ((Map<String, Any?>) -> Unit)? = null
   /** The system's media session shows this owner: it is told when there is something new to show. */
   var onSystemChange: (() -> Unit)? = null
@@ -175,6 +181,9 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     if (!whole(handover["lastSeq"], 0.0, MAX_INTEGER) || !inRange(handover["leaseMs"], 0.0, 120000.0) || !inRange(handover["durationSeconds"], 0.0, 1e9) ||
         handover["intent"] !in INTENTS || handover["transitions"] !is Boolean) return "Invalid listening handover."
     activeOwner?.let { retire(it, false) }
+    @Suppress("UNCHECKED_CAST") val mutationScope = handover["mutationScope"] as? Map<String,Any?>
+    mutationIssuedBaseMs = System.currentTimeMillis() + (num(handover["mutationClockOffsetMs"])?.toLong() ?: 0L); mutationClockMono=mono()
+    this.mutationScope = mutationScope; stopDisposition = null
     activeOwner = owner
     this.origin = origin
     this.token = token
@@ -1429,6 +1438,100 @@ internal class PorticoListeningOwner(private val context: Context, private val c
 
   // --- retirement ------------------------------------------------------------------------
 
+  private fun publishStop(status: Map<String, Any?>) { stopDisposition = status; onUserMutation?.invoke(status) }
+  private fun stopAuthorized(entry: Map<String, Any?>): Boolean = try {
+    PorticoUserMutationStore.transact(PorticoRecordStore.get(context), "authorizeStop", JSONObject(json(mapOf("entry" to entry)))) == true
+  } catch(e: Exception) { publishStop(mapOf("key" to entry["key"],"state" to "pending","code" to "mutation_store_unavailable")); false }
+  private fun finishStop(entry: Map<String, Any?>, change: Map<String, Any?>) {
+    try {
+      val saved = PorticoUserMutationStore.transact(PorticoRecordStore.get(context),"finishStop",JSONObject(json(mapOf("key" to entry["key"],"leaseOwner" to entry["leaseOwner"],"change" to change)))) == true
+      publishStop(mapOf("key" to entry["key"],"intentId" to entry["intentId"],"state" to if(saved) change["state"] else "pending","code" to if(saved) (change["errorCode"] ?: "") else "mutation_pending","receipt" to if(saved) change["receipt"] else null,"terminalProof" to if(saved) change["terminalProof"] else null))
+    } catch(e: Exception) { publishStop(mapOf("key" to entry["key"],"state" to "pending","code" to "mutation_store_unavailable")) }
+  }
+  private fun stopRetryFloor(headers: Headers?): Long {
+    val text = headers?.get("Retry-After") ?: return 0
+    text.trim().toLongOrNull()?.takeIf { it >= 0 }?.let { return if(it > Long.MAX_VALUE/1000) Long.MAX_VALUE else it*1000 }
+    return try { maxOf(0, java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz",java.util.Locale.US).apply { timeZone=TimeZone.getTimeZone("GMT") }.parse(text)!!.time-(mutationIssuedBaseMs+((mono()-mutationClockMono)*1000).toLong())) } catch(e: Exception) { 0 }
+  }
+  private fun lookupStop(entry: Map<String, Any?>, token: String, origin: String, floor: Long) {
+    if(!stopAuthorized(entry)) return
+    val exchange = Exchange(byteLimit=65536,timeoutMs=10000)
+    exchange.completion = { status,value,_,headers ->
+      @Suppress("UNCHECKED_CAST") val outer = value as? Map<String,Any?>
+      @Suppress("UNCHECKED_CAST") val receipt = (outer?.get("data") as? Map<String,Any?>) ?: outer
+      val valid = receipt != null && receipt["key"] == entry["key"] && receipt["operation"] == "stop_playback_session" &&
+          receipt["status"] in setOf("applied","already_stopped","deleted","removed","partial","conflict","invalid","terminal") &&
+          whole(receipt["committedMs"],0.0,MAX_INTEGER) && whole(receipt["expiresMs"],num(receipt["committedMs"]) ?: MAX_INTEGER,MAX_INTEGER) &&
+          listOf("revision","generation","positionMs").all { receipt[it] == null || whole(receipt[it],0.0,MAX_INTEGER) } &&
+          (receipt["generation"] == null || whole(receipt["generation"],0.0,2147483647.0)) &&
+          (receipt["targetId"] == null || receipt["targetId"] is String && (receipt["targetId"] as String).toByteArray(Charsets.UTF_8).size <= 128) &&
+          (receipt["positionStatus"] == null || receipt["positionStatus"] in setOf("","applied","already_stopped","not_renderer","policy_rejected","unchanged"))
+      if(status in 200..299 && valid) {
+        val tiny = receipt!!.filterKeys { it in setOf("key","operation","status","targetId","revision","generation","positionMs","positionStatus","committedMs","expiresMs") }
+        val rejected = receipt["status"] in setOf("partial","conflict","invalid","terminal") || receipt["positionStatus"] == "policy_rejected"
+        finishStop(entry,mapOf("state" to if(rejected) "review" else "confirmed","receipt" to tiny,"errorCode" to if(receipt["positionStatus"] == "policy_rejected") "final_position_rejected" else if(rejected) "mutation_needs_review" else ""))
+      } else {
+        val code = errorCode(value)
+        if(status in 400..499 && status != 429 && !(status == 404 && code == "receipt_unknown"))
+          finishStop(entry,mapOf("state" to if(status == 401 || status == 403) "quarantined" else "review","errorCode" to code.ifEmpty { "mutation_needs_review" }))
+        else {
+          val delay = maxOf(1000L,floor,stopRetryFloor(headers)); val now=System.currentTimeMillis()
+          finishStop(entry,mapOf("state" to "pending","errorCode" to "mutation_pending","dueMs" to minOf(MAX_INTEGER.toLong(),if(delay > Long.MAX_VALUE-now) Long.MAX_VALUE else now+delay)))
+        }
+      }
+    }
+    exchange.start(origin+"/v1/user-mutations/"+entry["key"],token,"GET",null,null)
+  }
+  private fun reserveStop(position: Double): Map<String,Any?>? {
+    val scope = mutationScope
+    val id=session["id"] as? String; val generation=generation(session)
+    if(scope == null || !v1Id(id) || generation == null) { publishStop(mapOf("state" to "not_queued","code" to "mutation_scope_changed")); return null }
+    val now=System.currentTimeMillis(); val random=ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
+    val key="p251_${mutationIssuedBaseMs+((mono()-mutationClockMono)*1000).toLong()}_"+random.joinToString("") { "%02x".format(it.toInt() and 255) }
+    val identity="stop:$id:${generation.toLong()}"; val path="/v1/playback/sessions/$id"
+    val engine=controller.listeningSnapshot(); val binding=engine["binding"] as? Map<*,*>
+    val evidence=binding?.get("sessionId") == id && num(binding?.get("generation")) == generation && engine["observed"] == true && engine["seeking"] != true
+    val body=if(evidence) mapOf("generation" to generation.toLong(),"positionMs" to Math.round(maxOf(0.0,if(position.isFinite()) position else 0.0)*1000)) else mapOf("generation" to generation.toLong())
+    // All fingerprint object keys recursively sorted, identical to core's canonical JSON.
+    val bodyPrint="{\"generation\":${body["generation"]}"+(if(evidence) ",\"positionMs\":${body["positionMs"]}" else "")+"}"
+    val fingerprint="{\"body\":$bodyPrint,\"headers\":{},\"method\":\"DELETE\",\"operation\":\"stop_playback_session\",\"path\":\"$path\",\"target\":\"$identity\"}"
+    val entry=mapOf("nativeStopOwner" to activeOwner,"key" to key,"operation" to "stop_playback_session","method" to "DELETE","path" to path,"target" to identity,"intentId" to identity,"fingerprint" to fingerprint,"scope" to scope,"body" to body,"headers" to mapOf("Idempotency-Key" to key),"state" to "pending","attempts" to 1,"dueMs" to now,"leaseOwner" to "native:$key","leaseUntilMs" to now+30000)
+    return try {
+      val saved = PorticoUserMutationStore.transact(PorticoRecordStore.get(context),"reserveStop",JSONObject(json(mapOf("entry" to entry)))) as String
+      @Suppress("UNCHECKED_CAST") val result=parse(saved.toByteArray(Charsets.UTF_8)) as Map<String,Any?>
+      publishStop(mapOf("key" to result["key"],"intentId" to identity,"state" to result["state"],"code" to (result["errorCode"] ?: "mutation_pending"),"receipt" to result["receipt"]))
+      if(result["key"] == key && result["leaseOwner"] != null) result else null
+    } catch(e: Exception) { publishStop(mapOf("state" to "not_queued","key" to key,"code" to "mutation_not_queued","draft" to entry)); null }
+  }
+  private fun sendStop(entry: Map<String,Any?>, token: String, origin: String, ready: Boolean) {
+    if(!ready || token.isEmpty()) { finishStop(entry,mapOf("state" to "pending","errorCode" to "mutation_pending")); return }
+    if(!stopAuthorized(entry)) return
+    val exchange=Exchange(byteLimit=65536,timeoutMs=10000)
+    exchange.completion = { status,value,_,headers ->
+      if(status in 400..499 && status != 429) {
+        val code=errorCode(value).ifEmpty { "mutation_needs_review" }
+        val change=hashMapOf<String,Any?>("state" to if(status == 401 || status == 403) "quarantined" else "review","errorCode" to code)
+        if(status in setOf(400,409,412,422)) change["terminalProof"]=mapOf("kind" to "refused","httpStatus" to status,"code" to code)
+        finishStop(entry,change)
+      }
+      else lookupStop(entry,token,origin,stopRetryFloor(headers))
+    }
+    @Suppress("UNCHECKED_CAST") val body=entry["body"] as Map<String,Any?>
+    @Suppress("UNCHECKED_CAST") val headers=entry["headers"] as Map<String,String>
+    exchange.start(origin+entry["path"],token,"DELETE",body,headers)
+  }
+
+  fun consumeStop(key: String): Boolean {
+    val state=JSONObject(PorticoUserMutationStore.transact(PorticoRecordStore.get(context),"read",JSONObject()) as String)
+    val entries=state.getJSONArray("entries")
+    val entry=(0 until entries.length()).map { entries.getJSONObject(it) }.firstOrNull { it.getString("key") == key } ?: return false
+    if(entry.optString("nativeStopOwner").isEmpty() || entry.getString("operation") != "stop_playback_session") return false
+    if(activeOwner != null && listOfNotNull(session,audible).any { "stop:${it["id"]}:${generation(it)?.toLong()}" == entry.getString("target") }) return false
+    val consumed=PorticoUserMutationStore.transact(PorticoRecordStore.get(context),"consumeStop",JSONObject().put("key",key).put("owner",entry.getString("nativeStopOwner"))) == true
+    if(consumed) onUserMutation?.invoke(mapOf("key" to key,"state" to entry.getString("state"),"nativeStopConsumed" to true))
+    return consumed
+  }
+
   fun retire(owner: String?, stop: Boolean) {
     if (activeOwner == null || activeOwner != owner) return
     val origin = this.origin
@@ -1436,6 +1539,7 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     val id = session["id"] as? String
     val ready = routeReady
     val position = num(controller.listeningSnapshot()["positionSeconds"]) ?: 0.0
+    val stopEntry = if(stop && !terminal) reserveStop(position) else null
     // Fence locally before any network cleanup: nothing below can play or publish.
     safetyPaused = true
     metadataRequest?.cancel(); metadataRequest = null
@@ -1449,15 +1553,14 @@ internal class PorticoListeningOwner(private val context: Context, private val c
     noisy = null
     val key = journalKey
     if (key != null && !commitWanted) PorticoRecordStore.get(context).write(PorticoRecordStore.QUEUES, key, json(mapOf("version" to 1, "sessionId" to id, "retired" to true)).toByteArray(Charsets.UTF_8))
-    val wasTerminal = terminal
     activeOwner = null
     this.token = ""
     actions.clear(); transition = null; metadata = null; prepared = null; committed = null; audible = null; policy = null; commitWanted = false
     onSystemChange?.invoke()
-    if (stop && token.isNotEmpty() && ready && v1Id(id) && !wasTerminal) {
-      // DELETE is idempotent; the last position is the listener's.
-      Exchange().start(origin + "/v1/playback/sessions/" + Uri.encode(id), token, "DELETE", mapOf("positionMs" to Math.round(Math.max(0.0, position) * 1000)), null)
+    if(stop) (stopDisposition?.get("key") as? String)?.let { key ->
+      try { consumeStop(key) } catch(e: Exception) { publishStop(mapOf("key" to key,"state" to "pending","code" to "mutation_store_unavailable")) }
     }
+    if(stopEntry != null) sendStop(stopEntry,token,origin,ready)
   }
 
   fun invalidate() {
