@@ -1347,7 +1347,7 @@ RCT_EXPORT_METHOD(appendCoverImage:(NSString *)handle base64:(NSString *)base64 
   if (![base64 isKindOfClass:NSString.class] || !PorticoCoverBase64Valid(base64)) {reject(@"invalid_image", @"invalid_image", nil);return;}
   NSData *data = [[NSData alloc] initWithBase64EncodedString:base64 options:0];
   // Canonical equality also rejects non-zero unused tail bits in the last sextet.
-  if (data.length == 0 || ![[data base64EncodedStringWithOptions:0] isEqualToString:base64]) {reject(@"invalid_image", @"invalid_image", nil);return;}
+  if (data.length == 0 || data.length > 64 * 1024 || ![[data base64EncodedStringWithOptions:0] isEqualToString:base64]) {reject(@"invalid_image", @"invalid_image", nil);return;}
   PorticoCoverStage *stage = [self openCoverStage:handle];
   if (!stage) {reject(@"invalid_handle", @"invalid_handle", nil);return;}
   if (stage.size + data.length > 10 * 1024 * 1024) {reject(@"invalid_image", @"invalid_image", nil);return;}

@@ -84,6 +84,7 @@ static BOOL PlainText(id value){
  return fuzzy.count==1?fuzzy.firstObject:nil; // ambiguous: keep drawing it ourselves
 }
 - (BOOL)overlayActive {return _command!=nil&&!_nativeSelected;}
+- (BOOL)requestPending {return _task!=nil;}
 - (NSTimeInterval)now {return self.clock?self.clock():NSProcessInfo.processInfo.systemUptime;}
 /** Once a second: expired cues go, and a due recheck starts. */
 - (void)timerTick {NSTimeInterval now=[self now];if(now>_authorizedUntil){[self setText:@""];}if(!_task&&now-_lastRequest>=25)[self fetch];}

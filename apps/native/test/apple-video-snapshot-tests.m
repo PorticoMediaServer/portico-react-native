@@ -8,40 +8,36 @@
 #import "../Native/PorticoVideoSnapshot.h"
 #import "../Native/PorticoServerTrust.h"
 
-// Bridge registration/tag storage only. The production view, controller, AVPlayer, output,
-// clock, frame conversion, private file ownership and cleanup run without media mocks.
-void RCTRegisterModule(Class moduleClass) {}
-// The standalone harness has no React bridge; production emits this exact id event.
+// Real React classes, registration, view tags and trust are linked from Pods.
 static NSMutableArray *snapshotRetirements;
-@implementation RCTEventEmitter
-- (void)invalidate { /* Standalone lifecycle stub; not RN event-delivery proof. */ }
-- (void)sendEventWithName:(NSString *)name body:(id)body {if(!snapshotRetirements)snapshotRetirements=[NSMutableArray new];[snapshotRetirements addObject:body];}
-@end
-@implementation RCTViewManager
-@synthesize bridge=_bridge;
-+ (NSString *)moduleName {return @"HarnessViewManager";}
-@end
-@implementation UIView (PorticoSnapshotHarnessTag)
-- (NSNumber *)reactTag {return objc_getAssociatedObject(self,@selector(reactTag));}
-- (void)setReactTag:(NSNumber *)tag {objc_setAssociatedObject(self,@selector(reactTag),tag,OBJC_ASSOCIATION_RETAIN_NONATOMIC);}
-@end
-@implementation PorticoServerTrust
-+ (id<AVAssetResourceLoaderDelegate>)resourceLoaderDelegate {return nil;}
-+ (dispatch_queue_t)resourceLoaderQueue {return dispatch_get_main_queue();}
-+ (void)handleChallenge:(NSURLAuthenticationChallenge *)challenge completion:(void (^)(NSURLSessionAuthChallengeDisposition,NSURLCredential *))completion {completion(NSURLSessionAuthChallengeCancelAuthenticationChallenge,nil);}
-@end
 @interface PorticoVideoSnapshot : RCTEventEmitter
 - (void)capture:(NSString *)identifier source:(NSDictionary *)source resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject;
 - (void)release:(NSString *)identifier resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject;
 - (void)retainForExit:(NSString *)identifier source:(NSDictionary *)source resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject;
 - (void)invalidate;
 @end
+// Observe this module's native event without supplying a fake RN class or JS bridge.
+@interface ObservedVideoSnapshot : PorticoVideoSnapshot @end
+@implementation ObservedVideoSnapshot
+- (void)sendEventWithName:(NSString *)name body:(id)body {
+ if (!snapshotRetirements) snapshotRetirements=[NSMutableArray new];
+ [snapshotRetirements addObject:body];
+}
+@end
 static BOOL expect(BOOL value,const char *what){if(!value)fprintf(stderr,"FAIL %s\n",what);return value;}
 static BOOL waitFor(BOOL (^ready)(void),double seconds){NSDate *until=[NSDate dateWithTimeIntervalSinceNow:seconds];while(!ready()&&until.timeIntervalSinceNow>0)[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];return ready();}
 static NSDictionary *capture(PorticoVideoSnapshot *module,NSString *identifier,NSDictionary *source,NSString *__strong *failure){
  __block BOOL done=NO;__block NSDictionary *result=nil;__block NSString *code=nil;
  [module capture:identifier source:source resolver:^(id value){result=value;done=YES;} rejecter:^(NSString *value,NSString *message,NSError *error){code=value;done=YES;}];
- if(!waitFor(^BOOL{return done;},3))code=@"harness_timeout";if(failure)*failure=code;return result;
+ if(!waitFor(^BOOL{return done;},3))code=@"harness_timeout";if(code){
+  static NSMutableSet *reported;if(!reported)reported=[NSMutableSet new];
+  if(![reported containsObject:identifier]){
+   [reported addObject:identifier];PorticoPlaybackController *controller=PorticoSnapshotController(source[@"reactTag"],source[@"lease"]);
+   AVPlayerItemVideoOutput *output=[controller valueForKey:@"videoOutput"];
+   CMTime cached=[[controller valueForKey:@"capturedVideoTime"] CMTimeValue];
+   fprintf(stderr,"capture %s: %s source=%.3f cached=%.3f newFrame=%d status=%ld rate=%.1f binding=%s\n",identifier.UTF8String,code.UTF8String,controller.currentSourcePosition,CMTimeGetSeconds(cached),[output hasNewPixelBufferForItemTime:controller.player.currentItem.currentTime],(long)controller.player.currentItem.status,controller.player.rate,controller.externalPresentationBinding.description.UTF8String?:"nil");
+  }
+ }if(failure)*failure=code;return result;
 }
 static BOOL release(PorticoVideoSnapshot *module,NSString *identifier){__block BOOL released=NO;[module release:identifier resolver:^(id value){released=[value boolValue];} rejecter:^(NSString *code,NSString *message,NSError *error){}];return released;}
 static NSString *receiptPath(NSDictionary *receipt){return [receipt[@"uri"]isKindOfClass:NSString.class]?[NSURL URLWithString:receipt[@"uri"]].path?:@"":@"";}
@@ -53,7 +49,11 @@ static int runTests(UIWindow *window){@autoreleasepool{
  BOOL ok=YES;NSFileManager *files=NSFileManager.defaultManager;
  NSURL *downloads=[[files URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject URLByAppendingPathComponent:@"Downloads" isDirectory:YES];[files createDirectoryAtURL:downloads withIntermediateDirectories:YES attributes:nil error:nil];NSURL *local=[downloads URLByAppendingPathComponent:@"snapshot-authored.mp4"];
  [files removeItemAtURL:local error:nil];ok=expect([files copyItemAtURL:[NSBundle.mainBundle URLForResource:@"snapshot-red-blue" withExtension:@"mp4"] toURL:local error:nil],"copy authored video to authorized local Downloads")&&ok;
- PorticoPlaybackController *controller=[PorticoPlaybackController new];NSDictionary *lease=[controller acquire:@"snapshot-fixture"];
+ PorticoPlaybackController *controller=[PorticoPlaybackController new];NSMutableArray *playbackFacts=[NSMutableArray new];
+ // The actual module subscribes before accepting commands. Progress facts also exercise
+ // the production decoded-frame observation outlet; a nil observer bypasses that path.
+ controller.onFact=^(NSDictionary *fact){[playbackFacts addObject:fact];};
+ NSDictionary *lease=[controller acquire:@"snapshot-fixture"];
  NSDictionary *binding=@{@"lease":lease[@"lease"],@"intentId":@1,@"sessionId":@"snapshot-session",@"generation":@1,@"itemId":@"authored-video"};
  PorticoPlayerView *view=[[PorticoPlayerView alloc]initWithFrame:CGRectMake(0,0,320,180)];view.reactTag=@42;view.controller=controller;view.lease=lease[@"lease"];[window.rootViewController.view addSubview:view];[view layoutIfNeeded];
  NSDictionary *command=@{@"binding":binding,@"commandRevision":@1,@"source":local.absoluteString,@"rate":@1,@"paused":@NO};NSString *rejection=[controller acceptCommand:command];
@@ -62,7 +62,7 @@ static int runTests(UIWindow *window){@autoreleasepool{
  if(!ok){fprintf(stderr,"ready=%s position=%f error=%s\n",controller.externalPresentationBinding.description.UTF8String,controller.currentSourcePosition,controller.player.currentItem.error.description.UTF8String);[controller invalidate];return 1;}
  AVPlayer *player=controller.player;AVPlayerItem *item=player.currentItem;AVPlayerLayer *layer=(AVPlayerLayer *)view.layer.sublayers.firstObject;
  NSDictionary *source=@{@"reactTag":@42,@"engine":@"native",@"lease":lease[@"lease"],@"binding":@{@"intentId":@1,@"sessionId":@"snapshot-session",@"generation":@1,@"itemId":@"authored-video"}};
- PorticoVideoSnapshot *module=[PorticoVideoSnapshot new];__block NSString *failure=nil;__block NSDictionary *red=nil;
+ PorticoVideoSnapshot *module=[ObservedVideoSnapshot new];__block NSString *failure=nil;__block NSDictionary *red=nil;
  ok=expect(waitFor(^BOOL{if(!red)red=capture(module,@"before-bounds",source,&failure);return red!=nil;},3),"actual decoded red frame captured")&&ok;
  NSArray *redPixel=pixel(red);ok=expect(redPixel.count==3&&[redPixel[0]intValue]>180&&[redPixel[2]intValue]<60,"decoded JPEG contains authored red pixels")&&ok;
  NSString *redPath=receiptPath(red);double before=controller.currentSourcePosition;
@@ -72,8 +72,15 @@ static int runTests(UIWindow *window){@autoreleasepool{
  ok=expect([files fileExistsAtPath:redPath],"retained real JPEG survives geometry-only invalidation")&&ok;
  ok=expect(waitFor(^BOOL{return controller.currentSourcePosition>5.25;},8),"decoded timeline advances while bounds missing")&&ok;
  ok=expect(release(module,@"before-bounds")&&![files fileExistsAtPath:redPath],"release removes retained private JPEG")&&ok;
- NSDictionary *blue=capture(module,@"missing-bounds",source,&failure);NSArray *bluePixel=pixel(blue);double during=controller.currentSourcePosition;
+ CMTime captureStart=item.currentTime;CMTimebaseRef originalTimebase=item.timebase;if(originalTimebase)CFRetain(originalTimebase);float captureRate=player.rate;
+ NSDictionary *blue=capture(module,@"missing-bounds",source,&failure);
+ NSArray *bluePixel=pixel(blue);double during=controller.currentSourcePosition;
  ok=expect(blue&&bluePixel.count==3&&[bluePixel[2]intValue]>180&&[bluePixel[0]intValue]<60,"fresh actual blue frame captured with zero bounds")&&ok;
+ ok=expect(CMTimeCompare(item.currentTime,captureStart)>=0,"snapshot refresh never moves the playing clock backwards")&&ok;
+ ok=expect(originalTimebase&&item.timebase==originalTimebase&&player.currentItem==item&&layer.player==player&&player.rate==captureRate,"snapshot refresh preserves timebase, player, item and rate")&&ok;
+ if(originalTimebase)CFRelease(originalTimebase);
+ BOOL observedVideo=NO;for(NSDictionary *fact in playbackFacts)if([fact[@"type"]isEqual:@"progress"]&&[fact[@"observedPlayback"][@"video"][@"width"]intValue]==320&&[fact[@"observedPlayback"][@"video"][@"height"]intValue]==180)observedVideo=YES;
+ ok=expect(observedVideo,"real progress subscription reports actual decoded video dimensions")&&ok;
  NSString *bluePath=receiptPath(blue);
  view.hidden=NO;view.bounds=CGRectMake(0,0,320,180);[view layoutIfNeeded];
  ok=expect(view.reactTag.intValue==42&&layer.player==player&&player.currentItem==item&&[binding isEqual:controller.externalPresentationBinding],"restore bounds preserves exact attachment and binding")&&ok;
