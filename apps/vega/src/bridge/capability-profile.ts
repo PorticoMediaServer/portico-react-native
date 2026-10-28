@@ -32,7 +32,7 @@ export const vegaAudioDecode: readonly AudioDecodeCapability[] = Object.freeze([
  *
  * - **Subtitles: plain text only.** The app draws the server's cue document and nothing else, so
  *   the server burns styled (ASS) and image (PGS, VobSub, DVB) subtitles into the picture for this
- *   device.
+ *   device. With "Styled subtitles" off, a styled track arrives as its plain words instead.
  * - **It does not switch between the audio tracks inside an original file.** The app switches
  *   between the named tracks of a stream, and asks the server for the title again for anything else.
  * - **Output facts come from the SDK.** Exact HDR/Dolby Vision and channel/rate probes include

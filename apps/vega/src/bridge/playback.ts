@@ -25,7 +25,8 @@ import {CaptionLabel} from './caption-label';
  * `http:` address, or play HLS from an address. The server's HLS is played by `hls.ts`, which
  * fetches the segments itself; a file plays from its address when that is HTTPS. There is no
  * Picture in Picture and no AirPlay, and the engine draws plain-text subtitles only (the server
- * burns styled and image subtitles into the picture for this device).
+ * burns styled and image subtitles into the picture for this device, or sends a styled track's
+ * plain words when "Styled subtitles" is off).
  *
  * Not done here, because the SDK offers no way to: asking the display to match a title's frame
  * rate or dynamic range before it starts (the contract's display matching), and reading the
