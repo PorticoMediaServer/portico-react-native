@@ -1396,6 +1396,7 @@ for (const role of ['administrator', 'owner'] as const) test(`TV Dashboard ${rol
     './Screen': {...await import('../src-next/screens/settings-live/Screen.tsx'), useScreenEntry: () => () => {}},
     './dashboard-presentation': await import('../src-next/screens/settings-live/dashboard-presentation.ts'),
     './owner-dashboard/use-owner-dashboard': {NativeOwnerDashboardPhone: 'NativeOwnerDashboardPhone'},
+    '../../platform/event-resync': await import('../src-next/platform/event-resync.ts'),
   });
   const authority = {serverId: 'server', accountId: 'account', profileId: 'primary', epoch: 'one', viewerFence: 'fence'};
   const owner = {authority: () => authority, current: () => true, subscribeAuthority: () => () => {}, navigation: {open() {}}};

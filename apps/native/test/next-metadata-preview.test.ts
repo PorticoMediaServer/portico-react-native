@@ -40,7 +40,7 @@ test('NativeBulkMedia forwards actual raw status and preserves many, entries and
 });
 test('native preparing never publishes partial fields; closing sends private DELETE and no write', async () => {
   const calls: string[] = [], snapshots: string[] = [];
-  const f = fixture(async (target, method, options) => {calls.push(`${method} ${target}`); if (method === 'POST') return {status: 202, headers: {Location: poll, 'Retry-After': '1'}, body: preparing};
+  const f = fixture(async (target, method, options): Promise<PreparationResponse> => {calls.push(`${method} ${target}`); if (method === 'POST') return {status: 202, headers: {Location: poll, 'Retry-After': '1'}, body: preparing};
     assert.equal(method, 'DELETE'); assert.equal(options.signal, undefined); assert.equal(options.singleAttempt, true); return {status: 204, headers: {}};});
   const unsubscribe = f.bulk.subscribe(() => snapshots.push(f.bulk.getSnapshot().phase));
   try {
