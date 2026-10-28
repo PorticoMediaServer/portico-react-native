@@ -81,6 +81,7 @@ const modules = {
   '../../../../../packages/client-core/src/playback-v1/local-http': {localV1Http: () => ({})},
   '../../../../../packages/client-core/src/presentation/service-text': {serviceText: (key: string) => key},
   './engine-choice': {parseEngineFeatures: () => ({})},
+  './dynamic-range-matching': {nativeDynamicRangeMatchingAvailable: () => false},
   './capability-document.ios': {deviceCapabilityDocument: () => ({})},
   './NativeListeningAdapter': {NativeListeningV1Adapter: class {}},
   './runtime': {NativePlaybackRuntime: FakeRuntime},

@@ -14,7 +14,7 @@ export function createNativeWatchPanelNames(text: TextEnvironment): NativeWatchP
   return {
     audio: (track, source) => {
       const version = source.options?.versions.find(value => value.id === source.session?.versionId);
-      const rows = version?.audio ?? [track];
+      const rows = source.fence?.kind === 'local' ? source.localTracks?.audio ?? [track] : version?.audio ?? [track];
       const name = videoTrackName(track, words);
       // Keep the canonical ordinal fallback when neither a title nor a language
       // was supplied; counts alone never become an invented speaker layout.
@@ -22,7 +22,8 @@ export function createNativeWatchPanelNames(text: TextEnvironment): NativeWatchP
     },
     subtitle: (track, source) => {
       const version = source.options?.versions.find(value => value.id === source.session?.versionId), plan = source.subtitles?.plan;
-      const actual = [...(version?.subtitles ?? []), ...(plan?.resources ?? []).filter(value => !version?.subtitles.some(offered => offered.id === value.id))];
+      const actual = source.fence?.kind === 'local' ? source.localTracks?.subtitles ?? []
+        : [...(version?.subtitles ?? []), ...(plan?.resources ?? []).filter(value => !version?.subtitles.some(offered => offered.id === value.id))];
       const rows = actual.some(value => value.id === track.id) ? actual : [track];
       const origin = 'origin' in track ? track.origin === 'embedded' || track.origin === 'sidecar' ? track.origin : track.origin === 'provider' ? 'downloaded' : 'other' : track.source;
       const name = videoTrackName({...track, source: origin}, words);

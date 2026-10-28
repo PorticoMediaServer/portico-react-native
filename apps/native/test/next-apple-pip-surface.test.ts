@@ -27,6 +27,7 @@ test('Apple retained view receives only the runtime request counter and exact bi
     '../../../../../packages/client-core/src/playback-v1/local-http': {localV1Http: () => ({})},
     '../../../../../packages/client-core/src/presentation/service-text': {serviceText: (key: string) => key},
     './engine-choice': {parseEngineFeatures: () => ({})},
+    './dynamic-range-matching': {nativeDynamicRangeMatchingAvailable: () => false},
     './capability-document.ios': {deviceCapabilityDocument: () => ({})},
     './NativeListeningAdapter': {},
     './runtime': {NativePlaybackRuntime: class {constructor(options: unknown) {captured = options;return runtime;}}},

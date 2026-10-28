@@ -14,6 +14,7 @@ import {appleSubtitleFilePicker} from './subtitle-file-picker.ios';
 import {offlineDownloads} from '../../../platform/offline-downloads';
 import {createVideoSnapshotCapture} from '../video-snapshot';
 import type {NativePlaybackAdapter, NativePlaybackRuntimeOptions, NativePlaybackSurfaceProps} from './types';
+import {nativeDynamicRangeMatchingAvailable} from './dynamic-range-matching';
 
 const names = {native: {module: 'PorticoPlaybackModule', fact: 'PorticoPlaybackFact', view: 'PorticoPlayer'}} as const;
 type EngineModule = NativeListeningBridge & {
@@ -82,13 +83,13 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
   const offlineDevice = !Platform.isTV && offlineDownloads.getSnapshot().supported
     && typeof NativeModules.PorticoDownloads?.localFile === 'function' ? options.offlineDevice ?? offlineDownloads : undefined;
   let runtime: NativePlaybackRuntime;
-  runtime = new NativePlaybackRuntime({...options, offlineDevice, subtitleFilePicker: appleSubtitleFilePicker, ...(pipSupported ? {pictureInPictureControls: true as const} : {}), engineFeatures: () => nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
+  runtime = new NativePlaybackRuntime({...options, offlineDevice, subtitleFilePicker: appleSubtitleFilePicker, ...(nativeDynamicRangeMatchingAvailable() ? {nativeDynamicRangeMatching: true as const} : {}), ...(pipSupported ? {pictureInPictureControls: true as const} : {}), engineFeatures: () => nativeFeatures, requestId, transport: nativeTransport, nativeListening: listening, capabilitiesReady: ready,
     disposeCapabilities: () => { closed = true; offSettings(); capabilitiesEvent?.remove(); pictureEvent?.remove(); capabilityHttp.dispose(); appState?.remove(); void native.purgeAudioCache?.().catch(() => {}); },
     engines: {initial: 'native', transport: kind => kind === 'native' ? nativeTransport : undefined, choose: () => 'native'}});
   runtime.installSnapshotCapture(createVideoSnapshotCapture({isCurrent: runtime.isSnapshotSourceCurrent}));
   // The retained view reports what actually started, stopped or was unavailable.
   const pictureEvent = pipSupported ? emitter.addListener('PorticoPictureInPicture', (fact: unknown) => {runtime.admitPictureInPicture(fact);}) : undefined;
-  const appState = AppState.addEventListener('change', state => { if (state === 'active') void runtime.refreshAuthority().catch(() => {}); else void runtime.flush().catch(() => {}); });
+  const appState = AppState.addEventListener('change', state => { if (state === 'active') {void publishCapabilities();void runtime.refreshAuthority().catch(() => {});} else void runtime.flush().catch(() => {}); });
 
   /** The only new component is a native-module view bridge; all player chrome belongs later. */
   function Surface({dockBounds, expandedBounds, docked, subtitlesVisible}: NativePlaybackSurfaceProps) {

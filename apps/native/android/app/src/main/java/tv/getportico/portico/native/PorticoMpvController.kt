@@ -883,10 +883,10 @@ internal class PorticoMpvController(private val context: Context) {
     val duration = snapshot.duration
     val position = currentPosition()
     // A connection that died leaves mpv at the end of what it had: that is not the end of the
-    // title. It is told from a real end by the relay having just failed upstream.
-    val failure = relay.lastFailure
-    if (failure != null && SystemClock.elapsedRealtime() - failure.at <= 20_000 && !localSource() && duration > 0 && position.isFinite() && position < duration - 3) {
-      publishFailure(PorticoMpvNative.ERROR_LOADING_FAILED, "stream ended early", emptyList())
+    // title. Unresolved media gaps belong to this relay binding and survive while its cache drains.
+    val failure = relay.unresolvedFailure
+    if (failure != null && !localSource() && duration > 0 && position.isFinite() && position < duration - 3) {
+      publishFailure(PorticoMpvNative.ERROR_LOADING_FAILED, "stream ended early", emptyList(), relayFailure = failure)
       return
     }
     endedEmitted = true
@@ -1072,7 +1072,7 @@ internal class PorticoMpvController(private val context: Context) {
    * read) carries its class so the server can be asked for the next route; anything whose cause
    * is unclear says so and blames nobody.
    */
-  private fun publishFailure(code: Int, message: String, log: List<String>, named: String = "") {
+  private fun publishFailure(code: Int, message: String, log: List<String>, named: String = "", relayFailure: PorticoMpvRelay.Failure? = null) {
     var network = false
     var delivery = false
     var uncertain = false
@@ -1080,8 +1080,8 @@ internal class PorticoMpvController(private val context: Context) {
     var engine = named
     val local = localSource()
     if (engine.isEmpty()) {
-      val failure = relay.lastFailure
-      if (!local && failure != null && SystemClock.elapsedRealtime() - failure.at <= 15_000) {
+      val failure = relayFailure ?: relay.lastFailure?.takeIf { SystemClock.elapsedRealtime() - it.at <= 15_000 }
+      if (!local && failure != null) {
         if (failure.httpStatus in 400..599) httpStatus = failure.httpStatus
         else if (failure.httpStatus == 0) { if (failure.permanent) delivery = true else network = true }
       }

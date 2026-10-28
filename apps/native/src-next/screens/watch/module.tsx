@@ -56,6 +56,8 @@ export type NativeWatchModuleBindings = Pick<NativeWatchFactoryPorts,
  * current track or decoded picture observation. Missing producer facts stay absent. */
 export function nativeWatchChromeFacts(source: NativePlaybackRuntimeSnapshot, names: NativeWatchPanelNames) {
   const tracks = nativeWatchTracks(source), fence = source.fence;
+  if (tracks.local) return {quality: '', audio: tracks.audio ? names.audio(tracks.audio, source).primary : undefined,
+    subtitle: tracks.subtitle ? names.subtitle(tracks.subtitle, source).primary : tracks.subtitlesOff ? defaultI18n.t('player.opt.off') : undefined};
   if (!tracks.version || !fence || !source.session || !source.options || !sameFence(source.dock.local?.fence, fence)) return {quality: ''};
   const quality = source.options.qualities.find(option => qualityOptionSelected(option, source.session!.presentation.quality));
   return {

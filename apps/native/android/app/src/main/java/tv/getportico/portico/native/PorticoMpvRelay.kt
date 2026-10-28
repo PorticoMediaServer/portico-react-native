@@ -19,6 +19,7 @@ import javax.net.ssl.SSLException
 import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import tv.getportico.portico.policy.PorticoMpvCompleteness
 
 /**
  * The mpv engine's only way to the network: the Android counterpart of
@@ -57,6 +58,13 @@ internal class PorticoMpvRelay {
     @Volatile var call: Call? = null
     /** The request head arrived in time. */
     @Volatile var headRead = false
+    var sourceEpoch = 0L
+    var mediaResource: String? = null
+    var requestRange: String? = null
+    var rangeStart: Long? = null
+    var rangeEnd: Long? = null
+    var resourceEnd = false
+    var delivered = 0L
   }
 
   private val main = Handler(Looper.getMainLooper())
@@ -73,6 +81,8 @@ internal class PorticoMpvRelay {
   private var originPort = -1
   private var prefixes: List<String> = emptyList()
   private val exchanges = HashSet<Exchange>()
+  private val completeness = PorticoMpvCompleteness<Failure>()
+  private var sourceEpoch = 0L
 
   /** The most recent upstream failure, or null. Safe from any thread. */
   @Volatile var lastFailure: Failure? = null
@@ -80,13 +90,34 @@ internal class PorticoMpvRelay {
 
   fun clearFailure() { lastFailure = null }
 
+  /** A truncated body can remain buffered much longer than a recent-error classification window. */
+  val unresolvedFailure: Failure? get() = synchronized(lock) { completeness.unresolved() }
+
   private fun record(exchange: Exchange, status: Int, permanent: Boolean) {
     synchronized(lock) {
       if (exchange in exchanges && exchange.call?.isCanceled() != true) {
-        lastFailure = Failure(status, permanent, SystemClock.elapsedRealtime())
+        val failure = Failure(status, permanent, SystemClock.elapsedRealtime())
+        lastFailure = failure
+        // 416 is also used to probe a resource's natural end; it proves no missing media bytes.
+        if (status != 416) exchange.mediaResource?.let { resource ->
+          completeness.failed(exchange.sourceEpoch, resource, exchange.requestRange,
+              byteOffset(exchange.rangeStart, exchange.delivered), exchange.rangeEnd, failure)
+        }
       }
     }
   }
+
+  private fun completed(exchange: Exchange, bytes: Long) {
+    synchronized(lock) {
+      if (exchange !in exchanges || exchange.call?.isCanceled() == true) return
+      exchange.mediaResource?.let { resource ->
+        completeness.completed(exchange.sourceEpoch, resource, exchange.requestRange, exchange.rangeStart,
+            byteOffset(exchange.rangeStart, bytes), exchange.resourceEnd)
+      }
+    }
+  }
+
+  private fun byteOffset(start: Long?, bytes: Long): Long? = start?.takeIf { it <= Long.MAX_VALUE - bytes }?.plus(bytes)
 
   /**
    * Binds the relay to [source] and answers with the address mpv should open instead, or null
@@ -110,6 +141,7 @@ internal class PorticoMpvRelay {
         prefixes = prefixesFor(source.path ?: "/")
         cancelAllLocked()
         lastFailure = null
+        sourceEpoch = completeness.reset()
         ensureListeningLocked()
       }
       val local = if (listening == 0) null else local(source, listening)
@@ -135,6 +167,8 @@ internal class PorticoMpvRelay {
         origin = null
         prefixes = emptyList()
         cancelAllLocked()
+        sourceEpoch = completeness.reset()
+        lastFailure = null
       }
     }
   }
@@ -146,6 +180,8 @@ internal class PorticoMpvRelay {
         origin = null
         prefixes = emptyList()
         cancelAllLocked()
+        sourceEpoch = completeness.reset()
+        lastFailure = null
         try { server?.close() } catch (_: IOException) {}
         server = null
         port = 0
@@ -283,7 +319,13 @@ internal class PorticoMpvRelay {
     val upstream = if (!target.startsWith("/") || target.toByteArray(Charsets.UTF_8).size > 8192) null else synchronized(lock) {
       val base = origin
       val built = if (base != null && allowedLocked(path)) try { Uri.parse(base + target) } catch (_: Exception) { null } else null
-      if (built != null && inScopeLocked(built)) built else null
+      if (built != null && inScopeLocked(built)) {
+        exchange.sourceEpoch = sourceEpoch
+        // The second prefix contains subtitles/fonts. Their failure cannot truncate the media.
+        val mediaPrefix = prefixes.firstOrNull()
+        if (request[0] == "GET" && mediaPrefix != null && (path == mediaPrefix || path.startsWith("$mediaPrefix/"))) exchange.mediaResource = built.toString()
+        built
+      } else null
     }
     if (upstream == null) { reply(out, 404); return }
     val playlistPath = (upstream.path ?: "").lowercase().endsWith(".m3u8")
@@ -296,6 +338,9 @@ internal class PorticoMpvRelay {
         if (value.length <= 128 && RANGE.matches(value)) range = value
       }
     }
+    exchange.requestRange = if (playlistPath) null else range
+    exchange.rangeStart = if (exchange.requestRange == null) 0L else exchange.requestRange!!.substringAfter("bytes=").substringBefore('-').toLongOrNull()
+    exchange.rangeEnd = exchange.requestRange?.substringAfter('-')?.toLongOrNull()?.takeIf { it < Long.MAX_VALUE }?.plus(1)
     val wire = try {
       Request.Builder().url(upstream.toString()).method(request[0], null)
           .header("Accept-Encoding", "identity").header("Accept", "*/*")
@@ -329,6 +374,20 @@ internal class PorticoMpvRelay {
         return
       }
       if (status >= 400) record(exchange, status, false)
+      if (status == 200) {
+        exchange.rangeStart = 0L
+        exchange.rangeEnd = answer.body?.contentLength()?.takeIf { it >= 0 }
+        exchange.resourceEnd = true
+      } else if (status == 206) {
+        val match = CONTENT_RANGE.matchEntire(answer.header("Content-Range") ?: "")
+        val start = match?.groupValues?.get(1)?.toLongOrNull()
+        val end = match?.groupValues?.get(2)?.toLongOrNull()?.takeIf { it < Long.MAX_VALUE }?.plus(1)
+        if (start != null && end != null && end > start) {
+          exchange.rangeStart = start
+          exchange.rangeEnd = end
+          exchange.resourceEnd = match?.groupValues?.get(3)?.toLongOrNull() == end
+        }
+      }
       val type = (answer.header("Content-Type") ?: "").lowercase()
       if ((status == 200 || status == 206) && request[0] != "HEAD" && (playlistPath || type.contains("mpegurl"))) {
         servePlaylist(exchange, answer, upstream, out)
@@ -358,8 +417,14 @@ internal class PorticoMpvRelay {
         }
         if (count < 0) break
         out.write(buffer, 0, count)
+        exchange.delivered += count
       }
       out.flush()
+      if (status == 200 || status == 206) {
+        val expected = exchange.rangeEnd?.let { end -> exchange.rangeStart?.let { end - it } }
+        if (expected != null && exchange.delivered < expected) record(exchange, 0, false)
+        else completed(exchange, exchange.delivered)
+      }
     }
   }
 
@@ -398,6 +463,7 @@ internal class PorticoMpvRelay {
     out.write("HTTP/1.1 200 Relay\r\nContent-Type: application/vnd.apple.mpegurl\r\nContent-Length: ${rewritten.size}\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII))
     out.write(rewritten)
     out.flush()
+    completed(exchange, data!!.size.toLong())
   }
 
   companion object {
@@ -408,6 +474,7 @@ internal class PorticoMpvRelay {
     private val timers = java.util.concurrent.ScheduledThreadPoolExecutor(1) { task -> Thread(task, "portico-mpv-relay-timer").apply { isDaemon = true } }.apply { removeOnCancelPolicy = true }
     private const val MAXIMUM_HEAD = 16 * 1024
     private val RANGE = Regex("^bytes=[0-9]*-[0-9]*$")
+    private val CONTENT_RANGE = Regex("^bytes ([0-9]+)-([0-9]+)/([0-9]+|\\*)$", RegexOption.IGNORE_CASE)
     private val FORWARDED = listOf("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified")
 
     /** Media addresses are capability URLs: no cookies, no cache, no redirects. */

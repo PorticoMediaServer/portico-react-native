@@ -22,9 +22,12 @@ RCT_EXPORT_MODULE()
  NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
  [center addObserver:self selector:@selector(changed) name:AVAudioSessionRouteChangeNotification object:nil];
  [center addObserver:self selector:@selector(changed) name:AVPlayerEligibleForHDRPlaybackDidChangeNotification object:nil];
+ if (@available(iOS 15.0, tvOS 15.0, *)) {
+  [center addObserver:self selector:@selector(changed) name:AVAudioSessionSpatialPlaybackCapabilitiesChangedNotification object:nil];
+ }
 }
 - (void)stopObserving { _listening = NO; [NSNotificationCenter.defaultCenter removeObserver:self]; }
-- (void)invalidate { [NSNotificationCenter.defaultCenter removeObserver:self]; [super invalidate]; }
+- (void)invalidate { [self stopObserving]; [super invalidate]; }
 - (void)changed { if (_listening) [self sendEventWithName:@"portico.capabilities" body:@{}]; }
 
 /* Converter creation checks the decoder at each named rate. This is not a USB DAC rate

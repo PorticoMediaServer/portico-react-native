@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {act, createHookHost} from './hook-driver.ts';
-import {playbackFence, sameFence} from '../../../packages/player-core/src/index.ts';
+import {playbackFence, localPlaybackFence, sameFence} from '../../../packages/player-core/src/index.ts';
 import {parseOptions} from '../../../packages/client-core/src/playback-v1/types.ts';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import {nativeWatchTracks} from '../src-next/screens/watch/track-identity.ts';
@@ -30,6 +30,54 @@ const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 's', ac
 const options = parseOptions({itemId: 'item', versions: [{id: 'v2', audio: [{id: 'first', default: true}, {id: 'chosen'}], subtitles: [{id: 'first', default: true}, {id: 'chosen'}]}], qualities: [{mode: 'original'}, {mode: 'automatic'}]});
 const descendants = (node: any): any[] => Array.isArray(node) ? node.flatMap(descendants) : React.isValidElement(node)
   ? [node, ...descendants(typeof (node as any).props.children === 'function' ? (node as any).props.children({focused: false}) : (node as any).props.children)] : [];
+
+test('downloaded audio, saved subtitles and timing reuse the real panel without requesting online options', async () => {
+  for (const tv of [false, true]) {
+    isTV = tv;
+    const local = localPlaybackFence({kind: 'local', playback: {kind: 'local', scope: {authority: 'local', serverId: 's', accountId: 'a', profileId: 'p', sessionFamilyId: 'family'}, run: 1},
+      sessionId: 'local:copy:1', generation: 1, itemId: 'item', entryId: 'copy', playId: 'play', artifact: {sha256: 'a'.repeat(64), bytes: 100}});
+    const calls: unknown[][] = [];
+    const source: any = {fence: local, retired: false, dock: {local: {fence: local, expanded: true}}, playback: {intentId: 4, positionSeconds: 12}, queue: {},
+      capabilities: {audioTrack: true, subtitleTrack: true}, effectiveRate: 1, supportedRates: [1, 1.5],
+      localTracks: {binding: {intentId: 4, sessionId: local.sessionId, generation: 1}, audioTrackId: 'audio-2', subtitleTrackId: 'saved', subtitleOffsetMs: 250, subtitleTimingSupported: true,
+        audio: [{id: 'audio-1', codec: 'aac'}, {id: 'audio-2', codec: 'aac'}], subtitles: [{id: 'saved', format: 'vtt', source: 'sidecar'}]},
+      subtitles: {catalog: {provider: {enabled: true}}, candidates: []}};
+    let context: any = {source, fence: local, state: {fence: local, panel: 'audio', panelOffset: 0}, panelCurrent: () => true,
+      runtime: {text: {locale: 'en-US'}, getSnapshot: () => ({serverName: 'Test server'})}, layout: {mode: 'watch'},
+      renderer: {width: tv ? 1920 : 390, height: tv ? 1080 : 844, scale: 1}, closePanel() {}, backPanel() {}, rememberPanel() {},
+      openPanel: (panel: string) => {context = {...context, state: {...context.state, panel}};}};
+    const controller = {getSnapshot: () => ({phase: 'failed', error: new Error('offline')}), subscribe: () => () => {}, load: async () => {assert.fail('a local panel must not request online options');}, clear() {}};
+    const playback = {getSnapshot: () => source, change: async (...args: unknown[]) => {calls.push(args);}};
+    const names = {audio: (track: any) => ({primary: track.id}), subtitle: (track: any) => ({primary: track.id}), quality: assert.fail, audioFooter: () => [], qualityFooter: () => []};
+    let tree: any;
+    const host = createHookHost(() => {tree = NativeWatchPanels({context, options: controller, playback, names,
+      copy: {sessionLead: '', sessionDefaults: '', audioContinues: ''}, reportError: assert.fail, renderError: assert.fail});});
+    host.mount();
+    try {
+      assert.equal(descendants(tree).some(node => node.type === 'Loading'), false);
+      await act(() => {descendants(tree).find(node => node.props.testID === 'watch-choice-audio-1').props.onPress();});
+      assert.deepEqual(calls[0], [local, {audioTrackId: 'audio-1'}]);
+      await act(() => {context.openPanel('subtitles');host.rerender();});
+      assert.equal(descendants(tree).some(node => node.props.testID === 'watch-action-subtitle-search'), false);
+      await act(() => {descendants(tree).find(node => node.props.testID === 'watch-choice-subtitle-off').props.onPress();});
+      assert.deepEqual(calls[1], [local, {subtitleTrackId: null}]);
+      await act(() => {descendants(tree).find(node => node.props.focusId === 'watch-subtitle-offset-500').props.onPress();});
+      assert.deepEqual(calls[2], [local, {subtitleTrackId: 'saved', subtitleOffsetMs: 750}]);
+      await act(() => {source.localTracks = {...source.localTracks, subtitleTimingSupported: false};host.rerender();});
+      assert.equal(descendants(tree).some(node => node.props.focusId === 'watch-subtitle-offset-500' || node.props.focusId === 'watch-subtitle-offset--500'), false);
+      assert.equal(descendants(tree).some(node => node.props.testID === 'watch-choice-saved'), true);
+      await act(() => {source.localTracks = {...source.localTracks, subtitleError: true};host.rerender();});
+      const subtitleFailure = descendants(tree).find(node => node.props.testID === 'watch-subtitle-local-error');
+      assert.equal(subtitleFailure.props.accessibilityRole, 'alert');
+      assert.equal(subtitleFailure.props.children, defaultI18n.t('player.opt.unavailable'));
+      assert.equal(descendants(tree).find(node => node.props.testID === 'watch-choice-subtitle-off').props.disabled, false);
+      await act(() => {source.localTracks = {...source.localTracks, subtitleError: false};host.rerender();});
+      assert.equal(descendants(tree).some(node => node.props.testID === 'watch-subtitle-local-error'), false);
+      await act(() => {context.openPanel('options');host.rerender();});
+      assert.equal(descendants(tree).some(node => node.props.testID === 'watch-option-quality'), false);
+    } finally {host.unmount();}
+  }
+});
 
 test('real panel renderer sends exact selected-source track/quality commands, blocks stale actions and retains one focus owner', async () => {
   for (const tv of [false, true]) {

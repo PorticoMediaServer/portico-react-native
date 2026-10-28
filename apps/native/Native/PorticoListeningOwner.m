@@ -147,8 +147,8 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
  NSString *_intent;double _rate;NSNumber *_preferredRate;
  long long _seq,_audibleSeq;
  double _leaseUntil,_nextReport,_reportEvery,_retryAt,_backoff,_audioCooldown;
- BOOL _reportNow,_patchWanted,_ended,_endedReported,_terminal,_safetyPaused,_interrupted,_busy,_invalidated,_emitting,_routeReady,_resetEngine,_rendering;
- NSInteger _routeRevision,_seekRevision,_sequence,_ackSequence,_transitionSequence,_failures,_commitTries,_interruptionRevision,_actionRevision;
+ BOOL _reportNow,_patchWanted,_ended,_endedReported,_terminal,_safetyPaused,_engineFailed,_interrupted,_busy,_invalidated,_emitting,_routeReady,_resetEngine,_rendering;
+ NSInteger _routeRevision,_seekRevision,_sequence,_ackSequence,_transitionSequence,_failures,_commitTries,_interruptionRevision,_actionRevision,_intentRevision;
  NSDictionary *_nativeSeek,*_lastFact,*_transition;
  // §18: the prepared next entry {token, expiresAtMs, entryId, itemId, presentation}; the committed answer.
  NSDictionary *_prepared,*_committed;BOOL _audioReady,_commitWanted,_fastRetry;
@@ -206,8 +206,8 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
  _transitions=[context[@"transitions"] boolValue];_intent=context[@"intent"];_rate=1;_preferredRate=nil;
  _seq=[context[@"lastSeq"] longLongValue];_audibleSeq=0;
  _leaseUntil=Mono()+[context[@"leaseMs"] doubleValue]/1000.0;_nextReport=0;_reportEvery=10;_retryAt=0;_backoff=0;_audioCooldown=0;
- _reportNow=YES;_patchWanted=NO;_ended=NO;_endedReported=NO;_terminal=NO;_safetyPaused=NO;_interrupted=NO;_busy=NO;_resetEngine=NO;_rendering=NO;
- _routeReady=YES;_routeRevision=-1;_seekRevision=0;_sequence=0;_ackSequence=0;_transitionSequence=0;_failures=0;_commitTries=0;_actionRevision=0;
+ _reportNow=YES;_patchWanted=NO;_ended=NO;_endedReported=NO;_terminal=NO;_safetyPaused=NO;_engineFailed=NO;_interrupted=NO;_busy=NO;_resetEngine=NO;_rendering=NO;
+ _routeReady=YES;_routeRevision=-1;_seekRevision=0;_sequence=0;_ackSequence=0;_transitionSequence=0;_failures=0;_commitTries=0;_actionRevision=0;_intentRevision=0;
  _nativeSeek=@{@"revision":@(++_seekRevision),@"positionSeconds":@(MAX(0,[session[@"presentation"][@"startPositionMs"] doubleValue]/1000.0))};
  _lastFact=nil;_transition=nil;_prepared=nil;_committed=nil;_audioReady=NO;_commitWanted=NO;_audioAttempt=nil;_error=nil;_notice=nil;
  _playbackRun=ListeningNumber(context[@"playbackRun"],0,9007199254740991.0,YES)?context[@"playbackRun"]:nil;
@@ -317,18 +317,24 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
 }
 - (NSString *)sessionPath:(NSString *)suffix { return [NSString stringWithFormat:@"/v1/playback/sessions/%@%@",[_session[@"id"] stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet],suffix]; }
 - (NSString *)queuePath:(NSString *)command { return [NSString stringWithFormat:@"/v1/queues/%@:%@",[_queue[@"id"] stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet],command]; }
-/** 404/410 or `session_ended`: read why the server ended it, and stop with that. Nothing advances. */
+/** Events and 404/410 read the same session: reconcile controls, or learn its end. */
 - (void)learnEnd {
  NSString *session=_session[@"id"];
  [self send:@"GET" path:[self sessionPath:@""] body:nil headers:nil completion:^(NSInteger status,id value,double started,PorticoListeningRequest *request){
   if(![self->_session[@"id"] isEqual:session])return;
-  NSDictionary *end=V1Dictionary(V1Dictionary(value)[@"end"]);
-  if(status==200&&![value[@"state"] isEqual:@"ended"]){self->_retryAt=Mono()+1;return;}
-  // Ended as completed while a commit's answer was lost: that commit landed. Take its session.
-  if([end[@"reason"] isEqual:@"completed"]&&self->_lostCommit){[self replayLostCommit];return;}
-  self->_end=Text(end[@"reason"])?@{@"reason":end[@"reason"],@"message":Text(end[@"message"])?end[@"message"]:NSNull.null}:@{@"reason":@"stopped",@"message":NSNull.null};
-  [self fail:@"playback_session_ended" terminal:YES];
+  NSDictionary *answer=V1Dictionary(value);
+  if(status==200&&![answer[@"state"] isEqual:@"ended"]){if(![self reconcileSession:answer keepLocalIntent:self->_patchWanted])self->_retryAt=Mono()+1;return;}
+  [self serverEnded:answer];
  }];
+}
+- (void)serverEnded:(NSDictionary *)session {
+ NSDictionary *end=V1Dictionary(session[@"end"]);
+ // Ended as completed while a commit's answer was lost: that commit landed. Take its session.
+ if([end[@"reason"] isEqual:@"completed"]&&_lostCommit){[self replayLostCommit];return;}
+ // Our own accepted completion already drives the queue; it must not terminate this owner.
+ if([end[@"reason"] isEqual:@"ended"]&&_endedReported)return;
+ _end=Text(end[@"reason"])?@{@"reason":end[@"reason"],@"message":Text(end[@"message"])?end[@"message"]:NSNull.null}:@{@"reason":@"stopped",@"message":NSNull.null};
+ [self fail:@"playback_session_ended" terminal:YES];
 }
 - (BOOL)sessionGone:(NSInteger)status value:(id)value {
  return status==404||status==410||[@[@"session_ended",@"session_not_found",@"lease_expired"] containsObject:V1ErrorCode(value)];
@@ -393,29 +399,50 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
 }
 /** Pause and resume are the session's desired state (PATCH with If-Match); rate stays local. */
 - (void)patch {
- NSString *want=_intent,*session=_session[@"id"];
+ NSString *want=_intent,*session=_session[@"id"];NSInteger intentRevision=_intentRevision;
  [self send:@"PATCH" path:[self sessionPath:@""] body:@{@"state":want} headers:@{@"If-Match":_session[@"revision"],@"Content-Type":@"application/merge-patch+json"} completion:^(NSInteger status,id value,double started,PorticoListeningRequest *request){
   if(![self->_session[@"id"] isEqual:session])return;
-  if(status>=200&&status<300&&V1Session(value)){self->_session=[self keepPresentation:value];self->_patchWanted=![self->_intent isEqual:want];[self persist];[self emit];return;}
+  if(status>=200&&status<300&&[self reconcileSession:V1Dictionary(value) keepLocalIntent:self->_intentRevision!=intentRevision])return;
   if(status==412){
    // Adopt the server's current session; apply the intent again only if it still differs.
    NSDictionary *current=V1Dictionary(V1Dictionary(V1Dictionary(value)[@"error"])[@"current"]);
-   if(V1Session(current)&&[current[@"id"] isEqual:session]){self->_session=[self keepPresentation:current];self->_patchWanted=![current[@"state"] isEqual:self->_intent];}
-   else self->_patchWanted=NO;
+   if(![self reconcileSession:current keepLocalIntent:YES])self->_patchWanted=NO;
    return;
   }
   if([self sessionGone:status value:value]){self->_patchWanted=NO;[self learnEnd];return;}
   self->_patchWanted=NO;self->_error=@"playback_change_rejected";[self emit];
  }];
 }
-/** A PATCH answer carries the presentation the server has; a new generation is a new source. */
-- (NSDictionary *)keepPresentation:(NSDictionary *)session {
- NSDictionary *old=_session[@"presentation"],*fresh=session[@"presentation"];
- if([fresh[@"generation"] longLongValue]>[old[@"generation"] longLongValue]){
-  double position=[[_controller listeningSnapshot][@"positionSeconds"] doubleValue];
-  _nativeSeek=@{@"revision":@(++_seekRevision),@"positionSeconds":@(isfinite(position)?MAX(0,position):0)};_reportNow=YES;[self dropPrepared:nil];
+/** Assign before applying a new binding. Reads do not renew the lease or reset report seq. */
+- (BOOL)reconcileSession:(NSDictionary *)fresh keepLocalIntent:(BOOL)keepLocalIntent {
+ if(!V1Session(fresh)||![fresh[@"id"] isEqual:_session[@"id"]]||![fresh[@"itemId"] isEqual:_session[@"itemId"]])return NO;
+ NSDictionary *old=_session[@"presentation"],*presentation=fresh[@"presentation"];
+ if([presentation[@"generation"] longLongValue]<[old[@"generation"] longLongValue])return NO;
+ if([fresh[@"state"] isEqual:@"ended"]){_patchWanted=NO;[self serverEnded:fresh];return YES;}
+ if(![@[@"playing",@"paused"] containsObject:fresh[@"state"]]||!ListeningNumber(old[@"startPositionMs"],0,9007199254740991.0,NO)||!ListeningNumber(presentation[@"startPositionMs"],0,9007199254740991.0,NO))return NO;
+ BOOL sourceChanged=![presentation[@"generation"] isEqual:old[@"generation"]]||![presentation[@"url"] isEqual:old[@"url"]];
+ BOOL serverSeek=[presentation[@"startPositionMs"] doubleValue]!=[old[@"startPositionMs"] doubleValue];
+ NSString *intent=keepLocalIntent?_intent:fresh[@"state"];BOOL intentChanged=![intent isEqual:_intent];
+ NSDictionary *clock=[_controller listeningSnapshot],*binding=V1Dictionary(clock[@"binding"]);
+ double seconds=[presentation[@"startPositionMs"] doubleValue]/1000.0;
+ if(!serverSeek&&sourceChanged){
+  if(ListeningNumber(_nativeSeek[@"positionSeconds"],0,1e9,NO))seconds=[_nativeSeek[@"positionSeconds"] doubleValue];
+  else if(!_audible&&[clock[@"observed"] boolValue]&&[binding[@"sessionId"] isEqual:_session[@"id"]]&&[binding[@"generation"] isEqual:old[@"generation"]]&&ListeningNumber(clock[@"positionSeconds"],0,1e9,NO))seconds=[clock[@"positionSeconds"] doubleValue];
  }
- return [session copy];
+ _session=[fresh copy];_intent=intent;_patchWanted=keepLocalIntent&&![intent isEqual:fresh[@"state"]];
+ if(sourceChanged||serverSeek){
+  _nativeSeek=@{@"revision":@(++_seekRevision),@"positionSeconds":@(seconds)};
+  _ended=NO;_endedReported=NO;_audioAttempt=nil;_reportNow=YES;_pausedAt=0;
+  if(_audible){
+   // Retire the buffered old deck, retaining the successor's lease and report sequence.
+   _transition=@{@"previousSessionId":_transition[@"previousSessionId"]?:_audible[@"id"],@"queue":_queueHeader?:NSNull.null};_transitionSequence=_sequence+1;
+   _audible=nil;_committed=nil;_prepared=nil;_audioReady=NO;_commitWanted=NO;_rendering=NO;
+   _metadata=nil;[_metadataRequest cancel];_metadataRequest=nil;[self clearArtwork];
+   [_controller resetListeningEngine:_owner];[self loadCurrentMetadata];
+  }
+ }
+ if(sourceChanged||serverSeek||intentChanged){_reportNow=YES;[self dropPrepared:nil];}
+ [self persist];[self apply];[self emit];return YES;
 }
 
 #pragma mark Queue moves
@@ -510,7 +537,7 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
  if(previous||_transition){_transition=@{@"previousSessionId":_transition?_transition[@"previousSessionId"]:previous,@"queue":queue?:NSNull.null};_transitionSequence=_sequence+1;}
  _pausedAt=0;_wasPlaying=NO;_session=[session copy];_audible=nil;_seq=0;_leaseUntil=started+120;_nextReport=0;_reportNow=YES;_ended=NO;_endedReported=NO;_error=nil;_notice=nil;
  _prepared=nil;_committed=nil;_commitWanted=NO;_audioReady=NO;_renderFailures=0;_startPending=nil;_parkedCommit=nil;_replayTries=0;
- _pausedAt=0;_wasPlaying=NO;_intent=(_timerStopped||[session[@"state"] isEqual:@"paused"])?@"paused":@"playing";_safetyPaused=NO;_audioAttempt=nil;_rendering=NO;_policyRateKey=nil;
+ _pausedAt=0;_wasPlaying=NO;_intent=(_timerStopped||[session[@"state"] isEqual:@"paused"])?@"paused":@"playing";_safetyPaused=NO;_engineFailed=NO;_audioAttempt=nil;_rendering=NO;_policyRateKey=nil;
  _duration=[_render durationSeconds:session[@"presentation"]];
  _nativeSeek=@{@"revision":@(++_seekRevision),@"positionSeconds":@(MAX(0,[session[@"presentation"][@"startPositionMs"] doubleValue]/1000.0))};
  _lastFact=nil;_metadata=nil;[_metadataRequest cancel];_metadataRequest=nil;[self clearArtwork];
@@ -638,7 +665,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  [self carryTimerTo:_session automatic:YES];
  NSString *previous=_audible[@"id"]?:_session[@"id"];
  if(previous||_transition){_transition=@{@"previousSessionId":_transition?_transition[@"previousSessionId"]:previous,@"queue":_queueHeader?:NSNull.null};_transitionSequence=_sequence+1;}
- _audible=nil;_committed=nil;_prepared=nil;_audioReady=NO;_audioAttempt=nil;_lastFact=fact;_nativeSeek=nil;_ended=NO;_reportNow=YES;_policyRateKey=nil;_renderFailures=0;
+ _audible=nil;_committed=nil;_prepared=nil;_audioReady=NO;_audioAttempt=nil;_lastFact=fact;_nativeSeek=nil;_ended=NO;_engineFailed=NO;_reportNow=YES;_policyRateKey=nil;_renderFailures=0;
  _metadata=nil;[_metadataRequest cancel];_metadataRequest=nil;[self clearArtwork];
  // Rebind without a seek: the engine already made the buffered deck the primary.
  [self applyPreferredRate];[self persist];[self apply];[self emit];[self loadCurrentMetadata];
@@ -650,6 +677,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  NSDictionary *heard=[self heard],*binding=V1Dictionary(fact[@"binding"]);
  if(!_owner||_terminal||![binding[@"sessionId"] isEqual:heard[@"id"]]||![binding[@"generation"] isEqual:heard[@"presentation"][@"generation"]])return;
  NSString *type=fact[@"type"];_lastFact=fact;
+ if([type isEqual:@"ready"]&&[[_controller listeningSnapshot][@"ready"] boolValue])_engineFailed=NO;
  if([type isEqual:@"audioPrepared"]&&[_prepared[@"token"] isEqual:fact[@"token"]])_audioReady=YES;
  if([type isEqual:@"audioCommit"]&&_audioReady&&!_committed&&[_prepared[@"token"] isEqual:fact[@"token"]]){
   if([self mayAdvance]&&[_intent isEqual:@"playing"]&&[self allowed]){_commitWanted=YES;_commitTries=0;[self beginControlGrace];[self tick];}
@@ -669,7 +697,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
   _nativeSeek=@{@"revision":@(++_seekRevision),@"positionSeconds":@(isfinite(position)?MAX(0,position):0)};
   _notice=@"audio_gapless_unavailable";_reportNow=YES;[self apply];[self emit];return;
  }
- if([type isEqual:@"error"]||[type isEqual:@"audioRenderFailed"]){_safetyPaused=YES;_error=@"audio_render_failed";_reportNow=YES;[self dropPrepared:nil];[self apply];}
+ if([type isEqual:@"error"]||[type isEqual:@"audioRenderFailed"]){_engineFailed=YES;_safetyPaused=YES;_error=@"audio_render_failed";_reportNow=YES;[self dropPrepared:nil];[self apply];}
  if([type isEqual:@"progress"]){
   [self checkDeadlines];
   // While paused nothing moves: no snapshot per engine tick (INT T13).
@@ -702,7 +730,8 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  if([action isEqual:@"retry"]&&value&&(id)value!=NSNull.null&&!ListeningNumber(value,0,1e9,NO))return NO;
  if([@[@"next",@"previous"] containsObject:action])return [self advance:action entry:nil owner:owner];
  [self checkDeadlines];[self beginControlGrace];[self resetInactivity];
- if([action isEqual:@"resume"]&&_ended){action=@"retry";value=@0;}
+ if([action isEqual:@"resume"]&&(_ended||_engineFailed)){action=@"retry";value=_ended?@0:nil;}
+ if([@[@"pause",@"resume",@"retry"] containsObject:action])_intentRevision++;
  if([action isEqual:@"pause"]){if([_intent isEqual:@"playing"])_pausedAt=PauseClock();[self dropPrepared:nil];_intent=@"paused";_patchWanted=YES;_reportNow=YES;[self apply];}
  if([action isEqual:@"resume"]){_intent=@"playing";_safetyPaused=NO;_timerStopped=NO;_error=nil;_patchWanted=YES;_reportNow=YES;[self apply];}
  if([action isEqual:@"seek"])_pausedAt=0;
@@ -714,7 +743,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  if([action isEqual:@"rate"]){_preferredRate=value;_rate=value.doubleValue;if(!_committed)[self dropPrepared:nil];_reportNow=YES;[self apply];}
  if([action isEqual:@"retry"]){
   double seconds=[value isKindOfClass:NSNumber.class]?value.doubleValue:[[_controller listeningSnapshot][@"positionSeconds"] doubleValue];
-  [self dropPrepared:nil];_intent=@"playing";_safetyPaused=NO;_timerStopped=NO;_ended=NO;_endedReported=NO;_error=nil;_resetEngine=YES;_patchWanted=YES;_renderFailures=0;
+  [self dropPrepared:nil];_intent=@"playing";_safetyPaused=NO;_engineFailed=NO;_timerStopped=NO;_ended=NO;_endedReported=NO;_error=nil;_resetEngine=YES;_patchWanted=YES;_reportNow=YES;_renderFailures=0;
   [_controller resetListeningEngine:_owner];_resetEngine=NO;
   _nativeSeek=@{@"revision":@(++_seekRevision),@"positionSeconds":@(MAX(0,seconds))};[self apply];
  }
@@ -722,7 +751,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
 }
 - (BOOL)sessionUpdated:(NSString *)sessionId owner:(NSString *)owner {
  if(![_owner isEqual:owner]||_terminal)return NO;
- if([sessionId isEqual:_session[@"id"]]||[sessionId isEqual:_audible[@"id"]]){_checkEnd=YES;[self tick];}
+ if(([sessionId isEqual:_session[@"id"]]&&!_endedReported)||[sessionId isEqual:_audible[@"id"]]){_checkEnd=YES;[self tick];}
  return YES;
 }
 - (BOOL)credentials:(NSString *)token owner:(NSString *)owner {
@@ -868,7 +897,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
 - (void)expireListening {
  if(_timerStopped)return;
  _timerStopped=YES;[self finishPolicyTimer];[self installDeadline:@"passoutAtMs" value:NSNull.null];
- [self dropPrepared:nil];_intent=@"paused";_patchWanted=YES;_reportNow=YES;
+ [self dropPrepared:nil];_intentRevision++;_intent=@"paused";_patchWanted=YES;_reportNow=YES;
  [self beginControlGrace];[self persist];[self apply];[self emit];
 }
 - (void)checkDeadlines {
@@ -1011,7 +1040,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
  if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self interruption:notification];});return;}
  if(!_owner||_terminal)return;
  if([notification.userInfo[AVAudioSessionInterruptionTypeKey] unsignedIntegerValue]==AVAudioSessionInterruptionTypeBegan){_interrupted=YES;_interruptionRevision=_actionRevision;[self dropPrepared:nil];_reportNow=YES;[self apply];[self emit];}
- else{BOOL resume=([notification.userInfo[AVAudioSessionInterruptionOptionKey] unsignedIntegerValue]&AVAudioSessionInterruptionOptionShouldResume)!=0;_interrupted=NO;[self checkDeadlines];if(!resume){_intent=@"paused";_patchWanted=YES;}_reportNow=YES;[self apply];[self tick];[self emit];}
+ else{BOOL resume=([notification.userInfo[AVAudioSessionInterruptionOptionKey] unsignedIntegerValue]&AVAudioSessionInterruptionOptionShouldResume)!=0;_interrupted=NO;[self checkDeadlines];if(!resume){_intentRevision++;_intent=@"paused";_patchWanted=YES;}_reportNow=YES;[self apply];[self tick];[self emit];}
 }
 - (void)routeChanged:(NSNotification *)notification {
  if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self routeChanged:notification];});return;}
@@ -1022,7 +1051,7 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
 - (void)mediaReset:(NSNotification *)notification {
  if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self mediaReset:notification];});return;}
  if(!_owner||_terminal)return;
- _safetyPaused=YES;[self dropPrepared:nil];_error=@"audio_service_restarted";_reportNow=YES;[self apply];[self emit];
+ _engineFailed=YES;_safetyPaused=YES;[self dropPrepared:nil];_error=@"audio_service_restarted";_reportNow=YES;[self apply];[self emit];
 }
 - (void)foreground:(NSNotification *)notification {
  if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self foreground:notification];});return;}if(_owner&&!_terminal){[self checkDeadlines];[self emit];[self tick];}}

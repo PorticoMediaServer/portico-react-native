@@ -8,7 +8,7 @@ import test from 'node:test';
 import {audiobookPreferences} from '../../../packages/client-core/src/audiobook-preferences';
 import assert from 'node:assert/strict';
 import {screenModule, hooks} from './helpers/screen-harness.mjs';
-import {sameFence, playbackFence} from '../../../packages/player-core/src/index.ts';
+import {sameFence, playbackFence, localPlaybackFence} from '../../../packages/player-core/src/index.ts';
 import {qualityOptionSelected} from '../../../packages/client-core/src/playback-v1/quality.ts';
 import {nativeWatchTracks} from '../src-next/screens/watch/track-identity.ts';
 import {createNativeWatchPanelNames} from '../src-next/screens/watch/panel-names.ts';
@@ -63,6 +63,19 @@ test('chrome facts use current selected IDs and never a preferred version or an 
   assert.deepEqual(nativeWatchChromeFacts(live, names), {quality: '720p-high', audio: 'actual', subtitle: 'actual-subtitle'});
   assert.deepEqual(nativeWatchChromeFacts({...live, session: {...live.session, presentation: {...live.session.presentation, generation: 2}}}, names), {quality: ''});
   assert.deepEqual(nativeWatchChromeFacts({...live, session: {...live.session, presentation: {...live.session.presentation, audioTrackId: undefined, subtitle: undefined}}}, names), {quality: '720p-high', audio: undefined, subtitle: 'Off'});
+});
+
+test('chrome names actual downloaded selections and Off without a fabricated server version', () => {
+  const local = localPlaybackFence({kind: 'local', playback: {kind: 'local', scope: {authority: 'local', serverId: 'server', accountId: 'account', profileId: 'profile', sessionFamilyId: 'family'}, run: 1},
+    sessionId: 'local:copy:1', generation: 1, itemId: 'item', entryId: 'copy', playId: 'play', artifact: {sha256: 'a'.repeat(64), bytes: 100}});
+  const live: any = {fence: local, retired: false, dock: {local: {fence: local}}, playback: {intentId: 4},
+    localTracks: {binding: {intentId: 4, sessionId: local.sessionId, generation: 1}, audioTrackId: 'actual-audio', subtitleTrackId: 'saved', subtitleOffsetMs: 0, subtitleTimingSupported: true,
+      audio: [{id: 'actual-audio', codec: 'aac'}], subtitles: [{id: 'saved', format: 'vtt', source: 'sidecar'}]}};
+  assert.deepEqual(nativeWatchChromeFacts(live, names), {quality: '', audio: 'actual-audio', subtitle: 'saved'});
+  live.localTracks = {...live.localTracks, subtitleTrackId: null};
+  assert.deepEqual(nativeWatchChromeFacts(live, names), {quality: '', audio: 'actual-audio', subtitle: 'Off'});
+  live.playback.intentId = 5;
+  assert.deepEqual(nativeWatchChromeFacts(live, names), {quality: ''});
 });
 
 test('module preserves the genuine adapter/outlet, current preferences, body and retirement lifetime', async () => {

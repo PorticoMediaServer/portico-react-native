@@ -2,10 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {screenModule} from './helpers/screen-harness.mjs';
 
-async function factory({tv = false, supported = true, bridge = {localFile() {}}, override}: {
-  tv?: boolean; supported?: boolean; bridge?: Record<string, unknown> | null; override?: object;
+async function factory({tv = false, supported = true, bridge = {localFile() {}}, override, dynamicRange = false, keepCapabilities = false}: {
+  tv?: boolean; supported?: boolean; bridge?: Record<string, unknown> | null; override?: object; dynamicRange?: boolean; keepCapabilities?: boolean;
 } = {}) {
   let captured: any;
+  let onAppState: ((state: string) => void) | undefined;
+  const effects = {facts: 0, refresh: 0, flush: 0}, published: unknown[] = [];
   const deviceCalls: string[] = [], starts: unknown[][] = [];
   const device = {
     getSnapshot: () => {deviceCalls.push('snapshot');return {supported};},
@@ -15,20 +17,25 @@ async function factory({tv = false, supported = true, bridge = {localFile() {}},
   };
   const started = Promise.resolve();
   const runtime = {installSnapshotCapture() {}, startOffline: (...args: unknown[]) => {starts.push(args);return started;},
+    refreshAuthority: async () => {effects.refresh++;}, flush: async () => {effects.flush++;},
     queue: {playEntry: () => {assert.fail('unexpected queue.playEntry');}}};
+  const dynamicRangeMatching = await screenModule(new URL('../src-next/platform/playback/dynamic-range-matching.ts', import.meta.url), {
+    react: {default: {}}, 'react-native': {Platform: {OS: 'ios', isTV: tv}, NativeModules: {PorticoPlaybackModule: {dynamicRangeMatching: dynamicRange}}},
+  });
   const {createNativeShellPlaybackAdapter} = await screenModule(new URL('../src-next/platform/playback/native.ios.tsx', import.meta.url), {
     react: {default: {}},
     'react-native': {
-      NativeModules: {PorticoPlaybackModule: {}, PorticoRuntime: {playbackRequestId: () => 'request'}, ...(bridge ? {PorticoDownloads: bridge} : {})},
+      NativeModules: {PorticoPlaybackModule: {}, PorticoRuntime: {playbackRequestId: () => 'request'}, PorticoCapabilities: {facts: async () => ({probe: ++effects.facts})}, ...(bridge ? {PorticoDownloads: bridge} : {})},
       NativeEventEmitter: class {addListener() {return {remove() {}};}},
       Platform: {OS: 'ios', isTV: tv, Version: 27}, UIManager: {hasViewManagerConfig: () => true},
-      requireNativeComponent: () => 'PorticoPlayer', AppState: {addEventListener: () => ({remove() {}})},
+      requireNativeComponent: () => 'PorticoPlayer', AppState: {addEventListener: (_: string, listener: (state: string) => void) => {onAppState = listener;return {remove() {onAppState = undefined;}};}},
     },
-    '../../../../../packages/client-core/src/playback-v1/options': {CapabilityPublisher: class {async publish() {}}},
+    '../../../../../packages/client-core/src/playback-v1/options': {CapabilityPublisher: class {async publish(document: unknown) {published.push(document);}}},
     '../../../../../packages/client-core/src/playback-v1/local-http': {localV1Http: () => ({})},
     '../../../../../packages/client-core/src/presentation/service-text': {serviceText: (key: string) => key},
     './engine-choice': {parseEngineFeatures: () => ({})},
-    './capability-document.ios': {deviceCapabilityDocument: () => ({})},
+    './dynamic-range-matching': dynamicRangeMatching,
+    './capability-document.ios': {deviceCapabilityDocument: (input: {native: unknown}) => ({native: input.native})},
     './NativeListeningAdapter': {},
     './runtime': {NativePlaybackRuntime: class {constructor(options: unknown) {captured = options;return runtime;}}},
     './scope-http': {PlaybackScopeHttp: class {dispose() {}}},
@@ -42,9 +49,9 @@ async function factory({tv = false, supported = true, bridge = {localFile() {}},
     settings: () => ({engine: 'native'}), subscribeSettings: () => () => {},
     ...(override ? {offlineDevice: override} : {}),
   });
-  await Promise.resolve();
-  captured.disposeCapabilities();
-  return {adapter, captured, device, deviceCalls, runtime, starts, started};
+  await captured.capabilitiesReady();
+  if (!keepCapabilities) captured.disposeCapabilities();
+  return {adapter, captured, device, deviceCalls, runtime, starts, started, effects, published, appState: (state: string) => onAppState?.(state)};
 }
 
 test('Apple installs the same existing offline device and exact runtime forwarder without opening, adopting or connecting it', async () => {
@@ -81,4 +88,33 @@ test('an explicitly supplied offline device is preserved only behind the genuine
   assert.strictEqual(x.captured.offlineDevice, override);
   assert.strictEqual(x.adapter.startOffline, x.runtime.startOffline);
   assert.deepEqual(x.starts, []);
+});
+
+test('the Apple factory enables dynamic-range settings only for an implemented tvOS matching port', async () => {
+  const tv = await factory({tv: true, dynamicRange: true});
+  assert.equal(tv.captured.nativeDynamicRangeMatching, true);
+  for (const options of [{tv: true}, {dynamicRange: true}, {}]) {
+    const x = await factory(options);
+    assert.equal(x.captured.nativeDynamicRangeMatching, undefined);
+  }
+});
+
+test('Apple foreground probes and publishes current device facts and stops listening when disposed', async () => {
+  for (const tv of [false, true]) {
+    const x = await factory({tv, keepCapabilities: true});
+    try {
+      assert.deepEqual(x.published, [{native: {probe: 1}}]);
+      x.appState('background');
+      await x.captured.capabilitiesReady();
+      assert.deepEqual(x.effects, {facts: 1, refresh: 0, flush: 1});
+      x.appState('active');
+      await x.captured.capabilitiesReady();
+      assert.deepEqual(x.effects, {facts: 2, refresh: 1, flush: 1});
+      assert.deepEqual(x.published, [{native: {probe: 1}}, {native: {probe: 2}}]);
+      x.captured.disposeCapabilities();
+      x.appState('active');
+      await x.captured.capabilitiesReady();
+      assert.deepEqual(x.effects, {facts: 2, refresh: 1, flush: 1});
+    } finally {x.captured.disposeCapabilities();}
+  }
 });

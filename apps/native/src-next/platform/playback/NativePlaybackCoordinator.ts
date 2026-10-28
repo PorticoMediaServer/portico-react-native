@@ -3,6 +3,7 @@ import type {
   PlaybackSnapshot,
 } from '../../../../../packages/client-core/src/index';
 import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
+import type {PassthroughFormats} from './passthrough-formats';
 const isLocalSource = (url: string | undefined): boolean => !!url && url.startsWith('file://');
 export type NativeLease = Readonly<{ lease: string; instanceId: string }>;
 export type NativeBinding = Readonly<{
@@ -46,11 +47,13 @@ export class NativePlaybackCoordinator {
   private lastSemantic = '';
   private matchFrameRate?: 'auto' | 'off';
   private matchDynamicRange?: 'auto' | 'off';
+  private passthrough?: Readonly<{disabled: boolean; formats: PassthroughFormats}>;
   private barrier = 0;
   private rate = 1;
   private audio: unknown = null;
   private subtitles: unknown = null;
   private audioTrack: unknown = null;
+  private localAudioTrack: unknown = null;
   private engines?: EngineSelection;
   private engine = 'native';
   private engineEpoch = 0;
@@ -142,6 +145,10 @@ export class NativePlaybackCoordinator {
     if (this.matchFrameRate === value) return;
     this.matchFrameRate = value; this.schedule();
   }
+  setPassthroughPolicy(value: Readonly<{disabled: boolean; formats: PassthroughFormats}>) {
+    if (JSON.stringify(this.passthrough) === JSON.stringify(value)) return;
+    this.passthrough = Object.freeze({disabled: value.disabled, formats: Object.freeze({...value.formats})}); this.schedule();
+  }
   setOptions(rate: number, audio: unknown, subtitles: unknown = null) {
     this.rate = rate;
     this.audio = audio;
@@ -154,6 +161,8 @@ export class NativePlaybackCoordinator {
     this.audioTrack = value;
     this.schedule();
   }
+  /** Actual native track identity from this downloaded file's current catalogue. */
+  setLocalAudioTrack(value: unknown) {this.localAudioTrack = value; this.schedule();}
   /** Ask again which engine should be playing (the viewer changed the Player setting). */
   reconsiderEngine() {
     this.schedule();
@@ -254,6 +263,10 @@ export class NativePlaybackCoordinator {
     const trackBinding=(this.audioTrack as any)?.binding;
     const audioTrack=trackBinding && trackBinding.intentId===binding.intentId && trackBinding.sessionId===binding.sessionId && trackBinding.generation===binding.generation
       ? {revision:(this.audioTrack as any).revision,streamIndex:(this.audioTrack as any).streamIndex} : null;
+    const localTrackBinding=(this.localAudioTrack as any)?.binding;
+    const localAudioTrack=state.session.mode==='local' && localTrackBinding && localTrackBinding.intentId===binding.intentId
+      && localTrackBinding.sessionId===binding.sessionId && localTrackBinding.generation===binding.generation
+      ? {revision:(this.localAudioTrack as any).revision,catalogRevision:(this.localAudioTrack as any).catalogRevision,trackId:(this.localAudioTrack as any).trackId} : null;
     const candidate=this.connected()?this.source(state):'';
     if(candidate)this.routeSource=candidate;
     if(!this.routeSource)return;
@@ -261,6 +274,7 @@ export class NativePlaybackCoordinator {
       binding,
       ...(this.matchFrameRate ? {matchFrameRate: this.matchFrameRate} : {}),
       ...(this.matchDynamicRange ? {matchDynamicRange: this.matchDynamicRange} : {}),
+      ...(this.passthrough ? {passthrough: this.passthrough} : {}),
       listeningOwner:listening?.owner??null,
       source: this.routeSource,
       connectionState:this.connected()?'ready':'verifying',
@@ -283,6 +297,7 @@ export class NativePlaybackCoordinator {
       // Only an engine that switches a file's tracks itself is ever given this; the command an
       // engine without it receives is exactly what it always was.
       ...(audioTrack ? {audioTrack} : {}),
+      ...(localAudioTrack ? {localAudioTrack} : {}),
     };
     const encoded = JSON.stringify(semantic);
     if (encoded === this.lastSemantic) return;

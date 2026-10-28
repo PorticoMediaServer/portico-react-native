@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {HttpLocalApi} from '../../../packages/client-core/src/index.ts';
-import {playbackFence} from '../../../packages/player-core/src/index.ts';
+import {playbackFence, localPlaybackFence} from '../../../packages/player-core/src/index.ts';
 import {parseOptions} from '../../../packages/client-core/src/playback-v1/types.ts';
 import {NativeWatchPanelOptions} from '../src-next/screens/watch/panel-options.ts';
 import {nativeWatchPanelRows, type NativeWatchPanelNames} from '../src-next/screens/watch/panel-model.ts';
@@ -11,6 +11,30 @@ const offers = {itemId: 'item', versions: [{id: 'v1'}, {id: 'v2', audio: [{id: '
 const source = () => ({retired: false, fence, dock: {local: {fence, expanded: true}}, options: parseOptions(offers), session: {id: 'session', itemId: 'item', versionId: 'v2', queue: {entryId: 'entry'}, presentation: {generation: 3, audioTrackId: 'chosen', subtitle: {trackId: 'chosen'}, quality: {mode: 'automatic', id: '720p-high'}}}} as any);
 const names: NativeWatchPanelNames = {audio: track => ({primary: track.id, secondary: track.codec}), subtitle: track => ({primary: track.id, secondary: track.format}),
   quality: choice => ({primary: choice.id ?? choice.mode}), audioFooter: () => [], qualityFooter: () => []};
+
+test('downloaded rows come from the current local track catalogue without server options', () => {
+  const local = localPlaybackFence({kind: 'local', playback: {kind: 'local', scope: {authority: 'local', serverId: 's', accountId: 'a', profileId: 'p', sessionFamilyId: 'family'}, run: 1},
+    sessionId: 'local:copy:1', generation: 1, itemId: 'item', entryId: 'copy', playId: 'play', artifact: {sha256: 'a'.repeat(64), bytes: 100}});
+  const current: any = {fence: local, retired: false, dock: {local: {fence: local}}, playback: {intentId: 4},
+    localTracks: {binding: {intentId: 4, sessionId: local.sessionId, generation: 1}, audioTrackId: 'audio-2', subtitleTrackId: 'saved', subtitleOffsetMs: 0, subtitleTimingSupported: true,
+      audio: [{id: 'audio-1', codec: 'aac', default: true}, {id: 'audio-2', codec: 'aac'}],
+      subtitles: [{id: 'saved', format: 'vtt', source: 'sidecar'}, {id: 'unsupported', format: 'ass', source: 'sidecar', unavailable: true}]}};
+  const rows = nativeWatchPanelRows(current, undefined, names);
+  assert.deepEqual(rows.audio.map(row => [row.id, row.selected]), [['audio-1', false], ['audio-2', true]]);
+  assert.deepEqual(rows.subtitles.map(row => [row.id, row.selected, row.unavailable]), [['saved', true, undefined], ['unsupported', false, true]]);
+  assert.deepEqual(rows.qualities, []);
+  current.localTracks.binding = {...current.localTracks.binding, generation: 2};
+  assert.deepEqual(nativeWatchPanelRows(current, undefined, names), {audio: [], subtitles: [], qualities: []});
+});
+
+test('audio rows do not mark a requested mpv selection as applied before its matching native acknowledgement', () => {
+  const current = source(), offered = parseOptions({itemId: 'item', versions: [{id: 'v2', audio: [{id: 'a0'}, {id: 'a2'}]}]});
+  current.options = offered; current.session.presentation.audioTrackId = 'a2';
+  current.audioTrackSelection = {state: 'pending', command: {binding: {intentId: 4, sessionId: 'session', generation: 3}, revision: 1, streamIndex: 2}};
+  assert.ok(nativeWatchPanelRows(current, offered, names).audio.every(row => !row.selected));
+  current.audioTrackSelection.state = 'applied';
+  assert.deepEqual(nativeWatchPanelRows(current, offered, names).audio.map(row => [row.id, row.selected]), [['a0', false], ['a2', true]]);
+});
 
 test('fresh panel rows preserve actual offered order and exact current selections rather than defaults or previews', () => {
   const current = source(), rows = nativeWatchPanelRows(current, parseOptions(offers), names);

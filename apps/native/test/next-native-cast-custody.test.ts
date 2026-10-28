@@ -3,7 +3,7 @@ import test from 'node:test';
 import {castProofKey} from '../../../packages/client-core/src/cast/controller-proof.ts';
 import {CastController, sameCastRemote, parseCastEvent, type CastCommand} from '../../../packages/client-core/src/cast/index.ts';
 import {sameFence} from '../../../packages/player-core/src/index.ts';
-import {castOffered} from '../src/app/cast-offered.ts';
+import {castOffered} from '../src-next/platform/play-on/cast-offered.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const deferred = <T,>() => {
@@ -14,7 +14,7 @@ const deferred = <T,>() => {
 
 /** Real caller and shared controller; only the native SDK and server IO are held
  * at their public boundaries so the queue event can precede either ACK or status. */
-async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:Promise<void>;continuation?:Promise<void>}={}) {
+async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:Promise<void>;continuation?:Promise<void>;storage?:Promise<void>}={}) {
   const listeners = new Map<string, Set<(value?: any) => void>>();
   const emit = (name: string, value?: unknown) => {for (const listener of [...(listeners.get(name) ?? [])]) listener(value);};
   class Emitter {
@@ -30,7 +30,8 @@ async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:P
   const attachmentId='11111111-1111-4111-8111-111111111111';
   const stamp={bindingId:'cct_return',controllerGeneration:2,connectionGeneration:3},occurrence={sessionId:'receiver',generation:2,itemId:'song'};
   let selected=options.returning?{deviceName:'TV',deviceId:'sdk_device',attachmentId}:null;
-  const bridge = {applicationId: 'APP', available: async () => true,current:async()=>selected, choose() {}};
+  let chooserCalls = 0;
+  const bridge = {applicationId: 'APP', available: async () => true,current:async()=>selected, choose() {chooserCalls++;}};
   const transport = {
     send: async (value: CastCommand) => {
       sent.push(value);
@@ -80,7 +81,7 @@ async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:P
     react: {default: {}}, 'react-native': {NativeEventEmitter: Emitter, NativeModules: {PorticoCast: bridge}, Platform: {isTV: false}},
     '../../../../../packages/client-core/src/cast': {CastController,sameCastRemote,parseCastEvent},
     '../../../../../packages/player-core/src': {sameFence}, './cast-transport': {castTransport: transport,validCastAttachment:(value:unknown)=>value===attachmentId},
-    './cast-controller-storage': {castControllerStorage: {get: (key:string) => options.returning?records.get(key):undefined, set() {}}, castControllerStorageReady: Promise.resolve()},
+    './cast-controller-storage': {castControllerStorage: {get: (key:string) => options.returning?records.get(key):undefined, set() {}}, castControllerStorageReady: options.storage ?? Promise.resolve()},
     './cast-offered': {castOffered},
   });
   const session = {sessionFamilyId: 'family',deviceId:'device',serverIdentity:{publicKey:'a'.repeat(43),fingerprint:'b'.repeat(43)}, viewer: {...scope, role: 'member'}};
@@ -90,9 +91,10 @@ async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:P
   if (!caller.getSnapshot().cast.available) await ready.promise;
   off();
   const change = (patch: any) => {snapshot = {...snapshot, ...patch}; if (patch.dock) dock = patch.dock; for (const listener of [...playbackListeners]) listener();};
-  const choose = () => {selected={deviceName:'TV',deviceId:'sdk_device',attachmentId};emit('PorticoCastSession', {state: 'started',...selected});};
+  const connectCurrent = () => {selected={deviceName:'TV',deviceId:'sdk_device',attachmentId};};
+  const choose = () => {connectCurrent();emit('PorticoCastSession', {state: 'started',...selected});};
   const committed = {bootstrap: {transfer: {id: 'cbs_intent', state: 'committed', itemId: 'song', playbackState: 'playing'}}};
-  return {starts,stamp,occurrence,attachmentId,retireViewer:()=>{current=false;change({});},caller, fence, requests, sent, effects, loaded, read, receipt, cancellation, cancelReceipt, message, choose, change, committed, snapshot: () => ({...snapshot, dock})};
+  return {starts,stamp,occurrence,attachmentId,retireViewer:()=>{current=false;change({});},caller, fence, requests, sent, effects, loaded, read, receipt, cancellation, cancelReceipt, message, choose, connectCurrent, chooserCalls:()=>chooserCalls, change, committed, snapshot: () => ({...snapshot, dock})};
 }
 
 test('Root42 queue/header event before ACK and original receipt does not cancel the accepted target', async t => {
@@ -136,6 +138,39 @@ test('a changed queue before dispatch still refuses the captured chooser attempt
   assert.equal(f.sent.some(command => command.type === 'load'), false);
   assert.equal(f.effects.length, 0);
   assert.deepEqual(f.snapshot().fence, f.fence);
+});
+
+test('Cast dispatch uses the same source clock after the picker and storage wait', async t => {
+  const storage = deferred<void>(), f = await fixture({storage: storage.promise}); t.after(() => f.caller.dispose());
+  f.caller.start(); f.choose();
+  f.change({playback: {...f.snapshot().playback, positionSeconds: 81}});
+  storage.resolve();
+  const load = await f.loaded.promise;
+  assert.equal(load.startSeconds, 81);
+  assert.deepEqual(f.requests.find(request => request.method === 'POST')?.body.source,
+    {sessionId: 'original', generation: 1, queueId: 'queue', entryId: 'entry', queueRevision: '10'});
+  assert.equal(f.effects.length, 0, 'dispatch still does not retire the source before acceptance');
+});
+
+test('an already-connected receiver starts without waiting for a second SDK started event', async t => {
+  const f = await fixture(); t.after(() => f.caller.dispose());
+  f.connectCurrent(); f.caller.start();
+  const load = await f.loaded.promise;
+  assert.equal(load.startSeconds, 12);
+  assert.equal(f.chooserCalls(), 0);
+  f.choose(); await new Promise(setImmediate);
+  assert.equal(f.sent.filter(command => command.type === 'load').length, 1, 'a late started event cannot dispatch twice');
+  assert.equal(f.effects.length, 0);
+});
+
+test('an already-connected attachment still refuses a replaced source before dispatch', async t => {
+  const storage = deferred<void>(), f = await fixture({storage: storage.promise}); t.after(() => f.caller.dispose());
+  f.connectCurrent(); f.caller.start();
+  f.change({queue: {view: {queue: {...f.snapshot().queue.view.queue, revision: '11'}}}});
+  storage.resolve(); await new Promise(setImmediate);
+  assert.equal(f.requests.some(request => request.method === 'POST'), false);
+  assert.equal(f.sent.some(command => command.type === 'load'), false);
+  assert.equal(f.effects.length, 0);
 });
 
 test('Root50: a native returning caller adopts the validated receiver without a captured local source or retirement effect',async t=>{
