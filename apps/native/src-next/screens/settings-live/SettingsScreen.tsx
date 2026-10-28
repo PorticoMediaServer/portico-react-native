@@ -192,8 +192,8 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
     if (rest.length) groups.push(rest);
     return groups;
   };
-  const pageRow = (value: SettingsPage) => <Focusable key={value.id} focusId={value.id} testID={`settings-page-${value.id}`} accessibilityRole="button" accessibilityLabel={t(value.title)} accessibilityState={{selected: value.id === page.id}} onFocus={theme.isTV ? () => choose(value.id) : undefined} onPress={() => choose(value.id)} focusKind="row" focusRadius={14} style={{minHeight: theme.isTV ? 56 : 48, paddingHorizontal: compact ? 14 : 20, gap: compact ? 12 : 18, borderRadius: 14, flexDirection: 'row', alignItems: 'center', backgroundColor: value.id === page.id && !compact ? `${theme.colors.accent}29` : 'transparent'}}>
-    <View style={compact ? {width: 30, height: 30, borderRadius: 8, backgroundColor: theme.colors.raisedBright, alignItems: 'center', justifyContent: 'center'} : undefined}><Icon name={nativeSettingsIcon(value.icon)} size={theme.isTV ? 24 : 18}/></View><Text style={[shellType(theme.isTV ? 22 : 15.5), {color: theme.colors.text, flex: 1}]}>{t(value.title)}</Text>{compact && <Icon name="i-right" size={18} color={theme.colors.lineStrong}/>}
+  const pageRow = (value: SettingsPage) => <Focusable key={value.id} focusId={value.id} testID={`settings-page-${value.id}`} accessibilityRole="button" accessibilityLabel={t(value.title)} accessibilityState={{selected: value.id === page.id}} onFocus={theme.isTV ? () => choose(value.id) : undefined} onPress={() => choose(value.id)} focusKind="row" focusRadius={14} style={{minHeight: theme.isTV ? 56 : compact ? 44 : 48, paddingVertical: compact ? 6 : undefined, paddingHorizontal: compact ? 14 : 20, gap: compact ? 12 : 18, borderRadius: 14, flexDirection: 'row', alignItems: 'center', backgroundColor: value.id === page.id && !compact ? `${theme.colors.accent}29` : 'transparent'}}>
+    <View style={compact ? {width: 30, height: 30, borderRadius: 8, backgroundColor: theme.colors.raisedBright, alignItems: 'center', justifyContent: 'center'} : undefined}><Icon name={nativeSettingsIcon(value.icon)} size={theme.isTV ? 24 : 18} color={compact ? theme.colors.textSecondary : undefined}/></View><Text style={[shellType(theme.isTV ? 22 : 15.5), {color: theme.colors.text, flex: 1}]}>{t(value.title)}</Text>{compact && <Icon name="i-right" size={18} color={theme.colors.lineStrong}/>}
   </Focusable>;
   const [searching, setSearching] = useState(false), [searchRevision, setSearchRevision] = useState(0);
   const voiceSearch = useTVVoiceSearch(theme.isTV && searching, controller.lifetime, setQuery, runtime.reportError);
@@ -296,7 +296,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
                 <Focusable testID="settings-profile-card" accessibilityRole="button" accessibilityLabel={shell.profile.name} onPress={() => choose('profile')} focusKind="row" focusRadius={14} style={{marginHorizontal: 16, minHeight: 78, paddingVertical: 12, paddingHorizontal: 14, gap: 14, borderRadius: 14, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.raised}}>
                   <ProfileFace {...shell.profile} size={54} locked={shell.profile.pinRequired} scaleOnFocus={false}/>
                   <View style={{flex: 1, minWidth: 0}}>
-                    <Text numberOfLines={1} style={[shellType(18, 800), {color: theme.colors.text}]}>{shell.profile.name}</Text>
+                    <Text numberOfLines={1} style={[shellType(18, 800, 'normal', -.02), {color: theme.colors.text}]}>{shell.profile.name}</Text>
                     <Text numberOfLines={1} style={[shellType(13, 400, 17), {color: theme.colors.textTertiary, marginTop: 2}]}>{signedIn}</Text>
                   </View>
                   <Icon name="i-right" size={18} color={theme.colors.lineStrong}/>
