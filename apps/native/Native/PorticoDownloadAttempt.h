@@ -34,7 +34,9 @@ static inline NSURLRequest *PorticoDownloadArchivedRequest(NSData *archived) {
   return [request isKindOfClass:NSURLRequest.class] ? request : nil;
 }
 
-static inline NSData *PorticoDownloadRetargetResume(NSData *resume, NSURL *url) {
+// The archived requests also carry the current mobile-data choice, so a changed setting keeps
+// the partial file (JUSTIN-ANSWERS #17) instead of replaying the old policy.
+static inline NSData *PorticoDownloadRetargetResume(NSData *resume, NSURL *url, BOOL cellular) {
   if (resume.length == 0 || !url) return nil;
   @try {
     NSError *error = nil;
@@ -63,6 +65,8 @@ static inline NSData *PorticoDownloadRetargetResume(NSData *resume, NSURL *url) 
       if (!request) return nil;
       NSMutableURLRequest *moved = [request mutableCopy];
       moved.URL = url;
+      moved.allowsCellularAccess = cellular;
+      moved.allowsExpensiveNetworkAccess = cellular;
       NSData *again = [NSKeyedArchiver archivedDataWithRootObject:moved requiringSecureCoding:NO error:&error];
       if (!again) return nil;
       info[key] = again;

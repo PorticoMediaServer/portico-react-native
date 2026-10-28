@@ -680,34 +680,31 @@ static NSString *PorticoSafeFileName(NSString *value) {
   entry[@"state"] = @"downloading"; entry[@"error"] = @""; entry[@"waiting"] = @""; entry[@"intent"] = @"run";
   if (!entry[@"addedAt"]) entry[@"addedAt"] = @((long long)(NSDate.date.timeIntervalSince1970 * 1000));
   self->_entries[identifier] = entry;
-  // The same file normally continues under its saved request. Address renewal uses the
-  // existing retarget helper; policy changes must not discard a usable partial file.
   NSURL *resumeURL = [self resumeURLFor:identifier];
   NSData *resume = [NSData dataWithContentsOfURL:resumeURL];
   NSString *address = url.absoluteString;
-  // Apple's resume API takes only opaque data, not an updated request. A restrictive blob
-  // remains safe after loosening (but may still wait for Wi-Fi). A permissive/unknown blob
-  // cannot be replayed after tightening: keep it paused, never erase its partial bytes.
+  // Resume data carries its original request: address and mobile-data policy. Either change is
+  // written into the saved request so the bytes already here are kept (N12, JUSTIN-ANSWERS #17).
   BOOL samePolicy = PorticoDownloadResumePolicyMatches(entry, self->_cellular);
-  BOOL usablePolicy = samePolicy || self->_cellular;
-  if (sameFile && resume.length && !usablePolicy) {
-    [self->_activeTasks[identifier] cancel];
-    [self->_activeTasks removeObjectForKey:identifier];
-    [entry removeObjectForKey:@"taskIdentifier"];
-    entry[@"state"] = @"paused"; entry[@"waiting"] = @"wifi";
-    [self saveManifest]; [self changed:identifier force:YES];
-    resolve([self published:identifier]); return;
-  }
-  BOOL sameGrant = sameFile && usablePolicy && resume.length > 0 && [entry[@"grantUrl"] isKindOfClass:NSString.class] && [entry[@"grantUrl"] isEqual:address];
+  BOOL sameGrant = sameFile && samePolicy && resume.length > 0 && [entry[@"grantUrl"] isKindOfClass:NSString.class] && [entry[@"grantUrl"] isEqual:address];
   [entry removeObjectForKey:@"retargeted"];
   if (resume.length > 0 && !sameGrant) {
-    // The same file under a new address: the resume data is pointed at the new address, so
-    // the bytes already fetched are kept (N12). Anything else begins again.
-    NSData *moved = sameFile && usablePolicy ? PorticoDownloadRetargetResume(resume, url) : nil;
+    NSData *moved = sameFile ? PorticoDownloadRetargetResume(resume, url, self->_cellular) : nil;
     if (moved.length && [moved writeToURL:resumeURL options:NSDataWritingAtomic error:nil]) {
       resume = moved;
       entry[@"retargeted"] = @YES;
-    } else {
+      entry[@"cellularAllowed"] = @(self->_cellular);
+    } else if (sameFile && !samePolicy && !self->_cellular) {
+      // Data in a form this cannot rewrite may allow mobile data: never replay it under
+      // "Wi-Fi only", and never erase its partial bytes. It waits, paused, for the setting.
+      [self->_activeTasks[identifier] cancel];
+      [self->_activeTasks removeObjectForKey:identifier];
+      [entry removeObjectForKey:@"taskIdentifier"];
+      entry[@"state"] = @"paused"; entry[@"waiting"] = @"wifi";
+      [self saveManifest]; [self changed:identifier force:YES];
+      resolve([self published:identifier]); return;
+    } else if (!(sameFile && !samePolicy && self->_cellular && [entry[@"grantUrl"] isEqual:address])) {
+      // A Wi-Fi-only request stays safe after loosening; anything else begins again.
       [[NSFileManager defaultManager] removeItemAtURL:resumeURL error:nil];
       resume = nil;
     }
