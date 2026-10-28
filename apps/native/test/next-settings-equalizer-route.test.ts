@@ -24,6 +24,7 @@ async function fixture() {
     './server/TVServerPageMenu': {isTVServerPage: () => false},
     './EqualizerSettingsScreen': {NativeEqualizerSettingsScreen: () => null},
     './downloads-summary': {createNativeSettingsDownloads},
+    '../../platform/event-resync': {readEventState: (_events: unknown, _signal: AbortSignal, read: () => Promise<unknown>) => read()},
   });
   const renderer = module.createNativeEqualizerSettingsRenderer(context);
   const rendered = renderer.render({kind: 'settings-equalizer'}, {});

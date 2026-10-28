@@ -104,6 +104,7 @@ test('phone Notifications uses the shared transparent sheet while tablet retains
     '../../kit/overlays': {BottomSheet: 'BottomSheet', Menu: 'Menu'}, '../../kit/shell': {NotificationItem: 'NotificationItem'}, '../../kit/states': {StateView: 'StateView'},
     '../../kit/shell/visual': {shellType: () => ({})}, '../../kit/theme': {useTheme: () => ({...theme, platform: phone ? 'phone' : 'tablet'})},
     '../../shell/account': {}, '../../shell/model': {sameAuthority: (a: any, b: any) => a === b},
+    '../../platform/event-resync': {recoverEventState: () => () => {}},
   });
   const feed = {subscribe: () => () => {}, getSnapshot: () => ({})};
   const pending = h.render(() => NativeNotificationsScreen({context: {}, route: {kind: 'notifications'}, runtime: {text: {t}}, profileService: feed, adminService: feed, retirement: {subscribe: () => () => {}, getSnapshot: () => undefined}}));

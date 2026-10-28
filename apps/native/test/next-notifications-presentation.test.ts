@@ -26,6 +26,7 @@ test('notification sections use a count slot, intra-section separators and the a
     '../../kit/states': {StateView: 'StateView'}, '../../kit/shell/visual': {shellType},
     '../../kit/theme': {useTheme: () => theme}, '../../shell/account': {nativeMenuRouteAvailable: () => true},
     '../../shell/model': {sameAuthority: (a: any, b: any) => a.serverId === b.serverId},
+    '../../platform/event-resync': {recoverEventState: () => () => {}},
   });
   const item = (id: string, audience: string) => ({id, audience, read: false, archived: false, severity: 'info', revision: '1', source: 'downloads', actions: [], createdAt: '2026-10-01T00:00:00Z'});
   const service = (audience: string, items: unknown[]) => {

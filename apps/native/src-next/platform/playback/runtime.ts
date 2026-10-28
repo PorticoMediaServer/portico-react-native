@@ -373,7 +373,14 @@ export class NativePlaybackRuntime {
     }));
     this.offs.push(this.o.api.subscribeRoute(() => this.routeChanged()));
     this.offs.push(this.o.events.on('session.updated', event => { if (this.active() && event.resource?.kind === 'session') this.path.transport.sessionUpdated(event.resource.id, event.revision, event.data); }));
-    this.offs.push(this.o.events.onResync(() => { if (this.active()) { void this.queue.refresh().catch(() => {}); void this.refreshAuthority(); } }));
+    if (this.o.events.onResyncRead) {
+      // The queue registers its own bounded recovery (including native terminal
+      // authority). Keep this runtime's detail read in the same dispatcher.
+      const recovery = this.o.events.onResyncRead(async context => {
+        if (this.active() && !context.signal.aborted) await this.detail?.service.refresh();
+      }, {priority: 1});
+      this.offs.push(() => recovery.dispose());
+    } else this.offs.push(this.o.events.onResync(() => { if (this.active()) { void this.queue.refresh().catch(() => {}); void this.refreshAuthority(); } }));
     this.routeChanged();
     this.coordinator.start();
     void this.playback.startRecovery();
@@ -615,7 +622,7 @@ export class NativePlaybackRuntime {
     const close = () => { signal.removeEventListener('abort', abort); control?.close(); scoped.close(); rejectStart?.(new Error('stale_selection_context')); rejectStart = undefined; };
     try {
       // DELETE cleanup stays bound to its original authority after a Home context expires.
-      control = new V1ChannelControl({key: this.o.requestId, http: {send: async request => {
+      control = new V1ChannelControl({events: this.o.events, key: this.o.requestId, http: {send: async request => {
         if (request.method === 'DELETE') return this.http.send(request);
         if (!valid()) { control?.close(); throw new Error('stale_selection_context'); }
         const response = await this.http.send(adopted ? request : {...request, signal: scoped.signal});
