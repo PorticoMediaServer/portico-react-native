@@ -20,17 +20,18 @@ async function fixture(error = false) {
     }
   };
   const react = {...h.react, useEffect: effect, useLayoutEffect: effect};
-  const base = {apiRequestsPerMinute: 600};
+  const base = {apiRequestsPerMinute: 600,'integrations.compatibilityEnabled':false};
   let state: any = {draft: base, saved: base, dirty: false, saving: false, saveError: error ? new Error('save failed') : undefined};
+  const compatibilityWrites:boolean[]=[];
   const writes: number[] = [], edits: number[] = []; let loads = 0, discards = 0;
   const form = {
     getSnapshot: () => state,
-    set: (change: (draft: typeof base) => typeof base) => {const draft = change(state.draft); edits.push(draft.apiRequestsPerMinute); state = {...state, draft, dirty: draft.apiRequestsPerMinute !== base.apiRequestsPerMinute};},
+    set: (change: (draft: typeof base) => typeof base) => {const draft = change(state.draft); edits.push(draft.apiRequestsPerMinute); state = {...state, draft, dirty: draft.apiRequestsPerMinute !== base.apiRequestsPerMinute || draft['integrations.compatibilityEnabled']!==base['integrations.compatibilityEnabled']};},
     load: async () => {loads++;},
   };
   const group = {mount: 1, forms: {runtime: form}, set: {
     getSnapshot: () => state,
-    save: async () => {writes.push(state.draft.apiRequestsPerMinute); return true;},
+    save: async () => {writes.push(state.draft.apiRequestsPerMinute);compatibilityWrites.push(state.draft['integrations.compatibilityEnabled']); return true;},
     discard: () => {discards++; state = {...state, draft: base, dirty: false};},
   }};
   const module = await screenModule(new URL('../src-next/screens/settings-live/server/integrations/Advanced.tsx', import.meta.url), {
@@ -42,7 +43,7 @@ async function fixture(error = false) {
     },
     '../../../../../../../packages/client-core/src/presentation/settings-spec': {settingsRowIndex},
     '../../../../../../../packages/i18n/src': {defaultI18n: {number: String}},
-    '../../../../kit/controls': {Button: 'Button', TextField: 'TextField'}, '../../../../kit/shell': {SettingsRow: 'SettingsRow'},
+    '../../../../kit/controls': {Button: 'Button',Switch:'Switch', TextField: 'TextField'}, '../../../../kit/shell': {SettingsRow: 'SettingsRow'},
     '../../../../kit/theme': {useTheme: () => ({colors: {record: '#f00'}})}, '../../../../kit/states': {StateView: 'StateView'},
     '../AdvancedSection': {NativeAdvancedSection: 'NativeAdvancedSection'}, '../settings-values': {settingNumber, settingsSummary},
     '../storage/forms': {useStorageForms: () => group, useFormState: () => state, useStorageSet: () => state},
@@ -56,7 +57,7 @@ async function fixture(error = false) {
     }
     return tree;
   };
-  return {render, writes, edits, get loads() {return loads;}, get discards() {return discards;}, unmount: () => {for (const slot of effects) slot.current?.cleanup?.();}};
+  return {render, writes, compatibilityWrites,edits, get loads() {return loads;}, get discards() {return discards;}, unmount: () => {for (const slot of effects) slot.current?.cleanup?.();}};
 }
 
 test('Integration Advanced enforces the canonical ten-request step before editing or saving', async () => {
@@ -89,8 +90,17 @@ test('a retired Advanced opening cannot edit, save, discard or retry its old for
 
 test('Integration Advanced shares the canonical default and changed summary', async () => {
   const f = await fixture();
-  assert.equal(f.render().props.summary, 'All at defaults');
+  assert.equal(nodes(f.render()).find(node=>node.type==='NativeAdvancedSection')!.props.summary, 'All at defaults');
   input(f.render()).props.onChangeText('620');
-  assert.equal(f.render().props.summary, 'next.settingsSpec.server.integrations.advanced.groups.1.rows.0.label: 620');
+  assert.equal(nodes(f.render()).find(node=>node.type==='NativeAdvancedSection')!.props.summary, 'next.settingsSpec.server.integrations.advanced.groups.1.rows.0.label: 620');
   f.unmount();
+});
+
+
+test('integration compatibility uses the captured native settings form and retired callbacks cannot change it',async()=>{
+ const f=await fixture();let tree=f.render();const control=nodes(tree).find(node=>node.type==='Switch')!;
+ assert.equal(control.props.checked,false);control.props.onCheckedChange(true);tree=f.render();
+ assert.equal(nodes(tree).find(node=>node.type==='Switch')!.props.checked,true);
+ button(tree,'action.save').props.onPress();assert.deepEqual(f.compatibilityWrites,[true]);
+ f.unmount();control.props.onCheckedChange(false);assert.deepEqual(f.edits,[600]);
 });
