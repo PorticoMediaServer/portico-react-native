@@ -9,6 +9,22 @@ import org.junit.Test
 
 class PorticoCapabilityFactsTest {
   @Test
+  fun dolbyVisionProfilesStayWithTheirReportedBaseCodec() {
+    val reported = setOf(4, 5, 7, 8, 9, 10)
+    for ((codec, expected) in listOf("hevc" to setOf(4, 5, 7, 8), "h264" to setOf(9), "av1" to setOf(10), "vp9" to emptySet())) {
+      val decoder = PorticoVideoDecoder(codec)
+      decoder.addDolbyVisionProfiles(reported)
+      assertEquals(codec, expected, decoder.dolbyVision)
+    }
+    val hevc = PorticoVideoDecoder("hevc").apply { addDolbyVisionProfiles(setOf(10)) }
+    assertTrue("an AV1-only Dolby Vision report cannot qualify HEVC", hevc.decodedRanges().isEmpty())
+    val av1 = PorticoVideoDecoder("av1").apply { addDolbyVisionProfiles(setOf(8, 9)) }
+    assertTrue("AV1 needs an actual profile 10 report", av1.decodedRanges().isEmpty())
+    av1.addDolbyVisionProfiles(setOf(10))
+    assertEquals(listOf("dolby_vision"), av1.decodedRanges())
+  }
+
+  @Test
   fun everyDolbyVisionDecoderPublishesItsDecodedRangeWithoutADisplayGate() {
     for ((codec, profile) in listOf("hevc" to 8, "h264" to 9, "av1" to 10)) {
       val decoder = PorticoVideoDecoder(codec)

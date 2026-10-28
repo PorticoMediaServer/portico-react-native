@@ -151,9 +151,7 @@ class PorticoCapabilities(context: ReactApplicationContext) : PorticoEventModule
         if (entry.preferredOver(found[codec])) found[codec] = entry
       }
     }
-    found["hevc"]?.dolbyVision?.addAll(dolbyVision.filter { it != 9 })
-    found["h264"]?.dolbyVision?.addAll(dolbyVision.filter { it == 9 })
-    found["av1"]?.dolbyVision?.addAll(dolbyVision.filter { it == 10 })
+    for (entry in found.values) entry.addDolbyVisionProfiles(dolbyVision)
     val out = Arguments.createArray()
     for (entry in found.values) {
       if (entry.maxWidth <= 0 || entry.maxHeight <= 0) continue

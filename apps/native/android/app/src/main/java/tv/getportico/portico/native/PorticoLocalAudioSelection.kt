@@ -23,7 +23,28 @@ internal class PorticoLocalAudioSelection {
   }
   private data class Selection(val revision: Long, val catalogRevision: Long, val trackId: String)
   class Retained internal constructor(internal val identity: PorticoLocalAudioCatalogue.Identity<TrackGroup, Format>?, internal val commandRevision: Long)
-  private class Restoration(val target: Retained) { var applied = false; var failed = false; var errorSent = false }
+  internal class Restoration(
+    val target: Retained,
+    private val cancelTimeout: (Runnable) -> Unit,
+    private val stopPlayback: () -> Unit,
+    private val reportFailure: () -> Unit,
+  ) {
+    var applied = false
+    var active = true
+      private set
+    val timeout = Runnable { fail() }
+
+    fun cancel() { active = false; cancelTimeout(timeout) }
+
+    fun fail() {
+      if (!active) return
+      active = false
+      cancelTimeout(timeout)
+      // Stop before reporting/releasing the hold: a queued READY must not start default audio.
+      stopPlayback()
+      reportFailure()
+    }
+  }
 
   private val main = Handler(Looper.getMainLooper())
   private val catalogue = PorticoLocalAudioCatalogue<Option>()
@@ -36,18 +57,19 @@ internal class PorticoLocalAudioSelection {
   private var overrideGroup: TrackGroup? = null
   private val ownedOverrides = LinkedHashSet<TrackGroup>()
   private var restoration: Restoration? = null
-  private var restoreTimeout: Runnable? = null
   private var retiredCommandRevision = 0L
   val holdsPlayback: Boolean get() = restoration != null
+  var failed = false
+    private set
 
   fun invalidate() {
     val previous = player
     val groups = ownedOverrides.toList()
     ownedOverrides.clear()
     overrideGroup = null
-    restoreTimeout?.let { main.removeCallbacks(it) }
-    restoreTimeout = null
+    restoration?.cancel()
     restoration = null
+    failed = false
     retiredCommandRevision = 0
     timeout?.let { main.removeCallbacks(it) }
     timeout = null
@@ -108,25 +130,25 @@ internal class PorticoLocalAudioSelection {
   }
 
   private fun beginRestoration(target: Retained) {
-    restoreTimeout?.let { main.removeCallbacks(it) }
-    val restoring = Restoration(target)
+    restoration?.cancel()
+    val restoring = Restoration(target, { main.removeCallbacks(it) }, {
+      failed = true
+      player?.let { engine -> engine.playWhenReady = false; engine.stop() }
+    }, {
+      restoration = null
+      cancelPending()
+      // The seek-index read may still be pending, before the player has a current MediaItem.
+      onFact?.invoke(mapOf("type" to "error", "localAudioItemInstanceId" to item,
+          "error" to "This audio track is unavailable in the current player.", "uncertain" to true))
+    })
     restoration = restoring
     retiredCommandRevision = Math.max(retiredCommandRevision, target.commandRevision)
-    val task = Runnable { if (restoration === restoring) failRestoration(restoring) }
-    restoreTimeout = task
-    main.postDelayed(task, 15_000)
+    main.postDelayed(restoring.timeout, SELECTION_TIMEOUT_MS)
   }
 
   private fun failRestoration(restoring: Restoration) {
     if (restoration !== restoring) return
-    restoring.failed = true
-    restoreTimeout?.let { main.removeCallbacks(it) }
-    restoreTimeout = null
-    if (!restoring.errorSent && current() != null) {
-      restoring.errorSent = true
-      emit("error", mapOf("error" to "This audio track is unavailable in the current player.", "uncertain" to true))
-    }
-    // Keep playback held. A failed exact match must not silently start the default track.
+    restoring.fail()
   }
 
   fun apply(value: Map<String, Any?>?, engine: ExoPlayer?, itemInstanceId: String, local: Boolean) {
@@ -175,7 +197,7 @@ internal class PorticoLocalAudioSelection {
       if (item == capturedItem && player === engine && pending == next) { cancelPending(); failed(next) }
     }
     timeout = task
-    main.postDelayed(task, 15_000)
+    main.postDelayed(task, SELECTION_TIMEOUT_MS)
   }
 
   fun tracksChanged(tracks: Tracks) {
@@ -187,7 +209,7 @@ internal class PorticoLocalAudioSelection {
   }
 
   private fun refresh(tracks: Tracks, force: Boolean) {
-    if (current() == null) return
+    if (failed || current() == null) return
     val options = ArrayList<Option>()
     outer@ for (group in tracks.groups) {
       if (group.type != C.TRACK_TYPE_AUDIO) continue
@@ -212,8 +234,7 @@ internal class PorticoLocalAudioSelection {
     val restoring = restoration
     var restoredOption: Option? = null
     if (restoring != null) {
-      if (restoring.failed) failRestoration(restoring)
-      else {
+      if (restoring.active) {
         val identity = restoring.target.identity
         val matched = PorticoLocalAudioCatalogue.uniqueRetained(identity, options.map { it.identity })
         restoredOption = options.singleOrNull { it.identity === matched }
@@ -233,6 +254,7 @@ internal class PorticoLocalAudioSelection {
         }
       }
     }
+    if (restoring != null && (!restoring.active || restoration !== restoring)) return
     val selected = catalogue.tracks().filter { (_, option) ->
       tracks.groups.any { it.type == C.TRACK_TYPE_AUDIO && it.mediaTrackGroup === option.group && it.isTrackSelected(option.index) }
     }.keys.toList()
@@ -254,11 +276,10 @@ internal class PorticoLocalAudioSelection {
       cancelPending()
       emit("localAudioTrackApplied", selectionFact(wanted))
     }
-    if (restoring != null && restoration === restoring && !restoring.failed && restoring.applied && restoredOption != null) {
+    if (restoring != null && restoration === restoring && restoring.active && restoring.applied && restoredOption != null) {
       val restoredId = catalogue.tracks().entries.singleOrNull { it.value == restoredOption }?.key
       if (restoredId != null && selected == listOf(restoredId)) {
-        restoreTimeout?.let { main.removeCallbacks(it) }
-        restoreTimeout = null
+        restoring.cancel()
         restoration = null
         onRestored?.invoke(item)
       }
@@ -271,6 +292,7 @@ internal class PorticoLocalAudioSelection {
   private fun failed(value: Selection) = emit("localAudioTrackFailed", selectionFact(value) + ("error" to "This audio track is unavailable in the current player."))
 
   companion object {
+    internal const val SELECTION_TIMEOUT_MS = 15_000L
     private fun integer(value: Any?): Long? {
       val number = (value as? Number)?.toDouble() ?: return null
       return if (number.isFinite() && number >= 1 && number <= 9007199254740991.0 && number == Math.floor(number)) number.toLong() else null

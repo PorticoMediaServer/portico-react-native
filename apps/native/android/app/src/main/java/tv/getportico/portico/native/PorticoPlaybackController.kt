@@ -620,7 +620,7 @@ internal class PorticoPlaybackController(private val context: Context) {
     engine.clearMediaItems()
     val item = itemInstanceId
     PorticoSeekIndex.load(mediaClient, address, index!!) {
-      if (invalidated || player !== engine || itemInstanceId != item || source == null) return@load
+      if (invalidated || player !== engine || itemInstanceId != item || source == null || localAudioSelection.failed) return@load
       engine.setMediaItem(mediaItem, start)
       engine.prepare()
       applyRouteResume()
@@ -716,7 +716,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   }
 
   private fun becameReady() {
-    if (player?.playbackState != Player.STATE_READY) return
+    if (player?.playbackState != Player.STATE_READY || localAudioSelection.failed) return
     applyRouteResume()
     if (!readyAnnounced && !routeResume && !routeFailed && !localAudioSelection.holdsPlayback) { readyAnnounced = true; emit("ready", null) }
     finishSeek()
@@ -882,7 +882,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   /** Restore the retained position on this exact lease, session and presentation, then resume the desired state. */
   private fun applyRouteResume() {
     val engine = player ?: return
-    if (!routeResume || routeSuspended || routeSeeking || routeFailed || engine.playbackState != Player.STATE_READY) return
+    if (!routeResume || routeSuspended || routeSeeking || routeFailed || localAudioSelection.failed || engine.playbackState != Player.STATE_READY) return
     val target = routePosition
     if (timelineOriginMs != null) {
       val position = linearTarget(target) ?: return
@@ -906,7 +906,7 @@ internal class PorticoPlaybackController(private val context: Context) {
       return
     }
     routeResume = false
-    if (!localAudioSelection.holdsPlayback) { readyAnnounced = true; emit("ready", null) }
+    if (!localAudioSelection.holdsPlayback && !localAudioSelection.failed) { readyAnnounced = true; emit("ready", null) }
     applyIntent()
   }
 
@@ -987,7 +987,7 @@ internal class PorticoPlaybackController(private val context: Context) {
   private fun applyIntent() {
     val engine = player ?: return
     val pending = command?.get("pendingSeek") is Map<*, *>
-    if (desiredPaused || seeking || pending || displayHold || localAudioSelection.holdsPlayback || (!readyAnnounced && listeningOwner == null) || routeSuspended || routeResume || routeSeeking || routeFailed || (backgroundHold && listeningOwner == null) || (listeningOwner != null && !listeningAllowed)) {
+    if (desiredPaused || seeking || pending || displayHold || localAudioSelection.holdsPlayback || localAudioSelection.failed || (!readyAnnounced && listeningOwner == null) || routeSuspended || routeResume || routeSeeking || routeFailed || (backgroundHold && listeningOwner == null) || (listeningOwner != null && !listeningAllowed)) {
       engine.playWhenReady = false
       incoming?.playWhenReady = false
     } else if (heldAtEnd) {

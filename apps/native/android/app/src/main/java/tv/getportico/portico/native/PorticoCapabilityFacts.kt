@@ -17,6 +17,18 @@ internal class PorticoVideoDecoder(val codec: String) {
   val hdr = LinkedHashSet<String>()
   val dolbyVision = LinkedHashSet<Int>()
 
+  /** Dolby Vision profiles retain their base codec; profile 10 is AV1, never HEVC. */
+  fun addDolbyVisionProfiles(reported: Set<Int>) {
+    dolbyVision.addAll(reported.filter { profile ->
+      when (codec) {
+        "hevc" -> profile in setOf(4, 5, 7, 8)
+        "h264" -> profile == 9
+        "av1" -> profile == 10
+        else -> false
+      }
+    })
+  }
+
   /** Prefer the chip, then its largest operating point; never union another decoder's facts. */
   fun preferredOver(previous: PorticoVideoDecoder?): Boolean {
     if (maxWidth <= 0 || maxHeight <= 0) return false
