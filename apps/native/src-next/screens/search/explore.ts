@@ -96,13 +96,17 @@ export class NativeSearchGenreList {
     if (!this.current()) return;
     this.state = Object.freeze({...this.state, ...patch}); for (const listener of [...this.listeners]) listener();
   }
-  setActive = (active: boolean): void => {
-    if (!this.current() || this.active === active) return;
+  // Retained navigation keeps ready leases; app background retires them.
+  setActive = (active: boolean, releaseReady = true): void => {
+    if (!this.current()) return;
+    if (!active && releaseReady) {
+      for (const page of this.pages) releaseSearchGenres(page.lease);
+      this.resumeReload = this.pages.length > 0;
+    }
+    if (this.active === active) return;
     this.active = active;
     if (!active) {
       this.controller?.abort(); this.pending = undefined;
-      for (const page of this.pages) releaseSearchGenres(page.lease);
-      this.resumeReload = this.pages.length > 0;
       if (this.state.phase === 'loading') this.publish({phase: this.pages.length ? 'ready' : 'idle'});
     } else if (this.resumeReload) {this.resumeReload = false; void this.reload();}
     else if (this.started && this.state.phase === 'idle') void this.load();
@@ -157,7 +161,11 @@ export class NativeSearchGenreList {
       this.pages = pages; adopted = true; this.retry = undefined;
       this.publish({phase: 'ready', revision: result.revision, genres: Object.freeze(rows), previousCursor: pages[0].previousCursor, nextCursor: pages.at(-1)?.nextCursor});
     }).catch(error => {if (!controller.signal.aborted) this.publish({phase: 'error', error});})
-      .finally(() => {if (!adopted) releaseSearchGenres(returned);if (this.pending === task) this.pending = undefined;});
+      .finally(() => {
+        if (!adopted) releaseSearchGenres(returned);
+        if (this.pending === task) this.pending = undefined;
+        if (this.controller === controller) this.controller = undefined;
+      });
     this.pending = task; return task;
   }
   load = (): Promise<void> => {

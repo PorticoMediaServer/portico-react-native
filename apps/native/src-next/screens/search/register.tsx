@@ -77,7 +77,7 @@ export function createNativeSearchModule(context: NativeShellBootstrapContext): 
       }
     }
     roots.forEach(entry => entry.explore.setActive(foreground && visible(entry.route)));
-    all.forEach(entry => entry.explore.setActive(foreground && visible(entry.route)));
+    all.forEach(entry => entry.explore.setActive(foreground && visible(entry.route), !foreground));
   };
   const appState = AppState.addEventListener('change', state => {foreground = state === 'active'; reconcile();});
   const stops = [context.navigation.subscribe(reconcile), context.subscribeAuthority(reconcile), () => appState.remove()];
