@@ -18,7 +18,6 @@ import {useFormState, useStorageForms, useStorageSet, type StorageForms} from '.
 import {TVChoiceRow, TVEntryRow, TVSwitchRow, type TVChoice} from './TVSettingRows';
 import {TVFolderRow} from './TVFolderPicker';
 import {parseTranscodeCapacity, type TranscodeCapacity} from '../../../../../../packages/client-core/src/telemetry';
-import {transcodeLocationTarget} from '../../../../../../packages/client-core/src/presentation/transcode-location';
 import {tvCustomChoiceValue, tvPageForms, tvServerSettingFact, tvServerSettingGroups, tvServerSettingsSources, type TVChoiceModel, type TVEditablePage, type TVServerSettingsState, type TVSettingGroup, type TVSettingItem} from './tv-server-settings-model';
 
 type FormView = Readonly<{draft?: Readonly<Record<string, unknown>>; loading: boolean; loadError?: unknown}>;
@@ -54,14 +53,14 @@ function Page({page, group, ports, runtime}: {page: TVEditablePage; group: Stora
     void api.request(routePath('get_settings_configuration')).then(parseSettingsConfiguration).then(value => {if (lifetime.current()) {setConfiguration(value); setConfigurationError(undefined);}}, error => {if (lifetime.current()) setConfigurationError(error);});
   }, [api, lifetime]);
   useEffect(loadConfiguration, [loadConfiguration]);
-  // Streaming's Location and Device rows answer from the capacity read: the conversion directory
-  // and the adapters the hardware report found. Without it they are absent, never guessed.
+  // Capacity supplies memory admission and the adapters this host found.
+  // The location preference and disk folder remain independent runtime settings.
   const [capacity, setCapacity] = useState<TranscodeCapacity>();
   useEffect(() => {
     if (page !== 'streaming' || !lifetime.current()) return;
     const read = new AbortController();
     void api.request(routePath('get_admin_transcode_capacity'), 'GET', undefined, read.signal).then(parseTranscodeCapacity)
-      .then(value => {if (!read.signal.aborted && lifetime.current()) setCapacity(value);}, () => {/* the rows stay absent */});
+      .then(value => {if (!read.signal.aborted && lifetime.current()) setCapacity(value);}, () => {/* memory remains unavailable until measured */});
     return () => read.abort();
   }, [api, lifetime, page]);
   const section = settingsSpec.find(value => value.scope === 'server' && value.id === page);
@@ -75,19 +74,6 @@ function Page({page, group, ports, runtime}: {page: TVEditablePage; group: Stora
     if (!lifetime.current() || busy) return;
     setCustom(previous => {if (!previous.has(row.id)) return previous; const next = new Set(previous); next.delete(row.id); return next;});
     if (row.id === 'remote.secure') {forms.certificate.set(current => ({...current, enabled: value === true})); commit(); return;}
-    if (row.id === 'streaming.transcodeLocation') {
-      // "A folder" writes nothing until a folder is picked; the other choice writes its directory.
-      if (value === 'folder') {setCustom(previous => new Set(previous).add(row.id)); return;}
-      const target = value === 'separate' || value === 'memory' ? transcodeLocationTarget(value, capacity?.temporaryDirectory) : undefined;
-      if (target === undefined) return;
-      forms.runtime.set((current: Readonly<Record<string, unknown>>) => ({...current, temporaryDirectory: target})); commit(); return;
-    }
-    if (row.id === 'streaming.transcodeFolder') {
-      if (typeof value !== 'string' || !value) return;
-      forms.runtime.set((current: Readonly<Record<string, unknown>>) => ({...current, temporaryDirectory: value})); commit();
-      setCustom(previous => {if (!previous.has('streaming.transcodeLocation')) return previous; const next = new Set(previous); next.delete('streaming.transcodeLocation'); return next;});
-      return;
-    }
     const binding = settingsBinding(row.id);
     if (!binding) return;
     let patch;
