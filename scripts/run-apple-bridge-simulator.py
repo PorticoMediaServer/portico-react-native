@@ -9,12 +9,33 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import shutil
 import subprocess
 import time
+from urllib.parse import unquote, urlparse
 
 
 def command(*args):
     return subprocess.check_output(['xcrun', 'simctl', *args], text=True).strip()
+
+
+def snapshot_pixels(output):
+    """Check actual JPEG pixels against the authored red/blue video, using the Mac SDK."""
+    source = output / 'snapshot-pixels.swift'
+    source.write_text('''import AppKit
+import Foundation
+var passed = true
+for (index, path) in CommandLine.arguments.dropFirst().enumerated() {
+  let image = NSBitmapImageRep(data: try Data(contentsOf: URL(fileURLWithPath: path)))!
+  let color = image.colorAt(x: image.pixelsWide / 2, y: image.pixelsHigh / 2)!.usingColorSpace(.deviceRGB)!
+  let red = color.redComponent, blue = color.blueComponent
+  passed = passed && (index == 0 ? red > 0.7 && blue < 0.25 : blue > 0.7 && red < 0.25)
+}
+exit(passed ? 0 : 1)
+''')
+    executable = output / 'snapshot-pixels'
+    subprocess.run(['xcrun', 'swiftc', str(source), '-o', str(executable)], check=True, capture_output=True, timeout=60)
+    return subprocess.run([str(executable), str(output / 'red.jpg'), str(output / 'blue.jpg')], capture_output=True, timeout=15).returncode == 0
 
 
 def main():
@@ -22,6 +43,7 @@ def main():
     parser.add_argument('--app', type=Path, required=True)
     parser.add_argument('--bundle', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--video-fixture', type=Path, help='authored video for the real React snapshot probe')
     platform = parser.add_mutually_exclusive_group()
     platform.add_argument('--tvos', action='store_true')
     platform.add_argument('--ipad', action='store_true')
@@ -50,6 +72,11 @@ def main():
         container = Path(command('get_app_container', device, app_id, 'data'))
         events = container / 'tmp/portico-journey.jsonl'
         environment = dict(os.environ, SIMCTL_CHILD_PORTICO_TEST_BUNDLE_PATH=str(args.bundle.resolve()))
+        if args.video_fixture:
+            video = container / 'Library/Application Support/Downloads/snapshot-authored.mp4'
+            video.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(args.video_fixture, video)
+            environment['SIMCTL_CHILD_PORTICO_TEST_LOGIN_JSON'] = json.dumps({'snapshotUrl': video.as_uri()})
         with log_path.open('w') as log:
             process = subprocess.Popen(['xcrun', 'simctl', 'launch', '--console', device, app_id],
                                        env=environment, stdout=log, stderr=subprocess.STDOUT)
@@ -62,6 +89,13 @@ def main():
                             event = json.loads(line)
                         except ValueError:
                             continue  # a concurrently appended line may still be incomplete
+                        image = event.get('snapshotImage')
+                        if image and image.get('name') in ('red', 'blue'):
+                            source = Path(unquote(urlparse(image['image']['uri']).path))
+                            if not source.resolve().is_relative_to(container.resolve()):
+                                raise RuntimeError('snapshot escaped the disposable application container')
+                            if source.is_file():
+                                shutil.copy2(source, args.output / (image['name'] + '.jpg'))
                         if 'appleBridgeResult' in event:
                             result = event['appleBridgeResult']
                             break
@@ -75,6 +109,9 @@ def main():
         result['privateFilesRemaining'] = len(leftovers)
         passed = (result.get('failures') == 0 and result.get('assertions') and
                   all(row.get('passed') is True for row in result['assertions']) and not leftovers)
+        if args.video_fixture and passed:
+            result['authoredRedBluePixels'] = snapshot_pixels(args.output)
+            passed = passed and result['authoredRedBluePixels']
         (args.output / 'bridge-result.json').write_text(json.dumps(result, indent=2) + '\n')
         print(json.dumps({'passed': bool(passed), 'assertions': len(result['assertions']),
                           'privateFilesRemaining': len(leftovers), 'result': str(args.output / 'bridge-result.json')}))
