@@ -1,10 +1,11 @@
-import React, {useState, type ReactNode} from 'react';
+import React, {useRef, useState, type ReactNode} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import MaskedView from '@react-native-masked-view/masked-view';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Button, Chip, Segmented, TextField, Focusable} from '../controls';
 import {Icon} from '../Icon';
+import {Popover} from '../overlays';
 import {focusTestID} from '../focus';
 import {useTheme} from '../theme';
 import {alpha, browsePlatform, browseType, changeFacetSelection, nextFacetState} from './presentation';
@@ -102,6 +103,9 @@ export function FilterBuilder({model, labels, platform, focusPrefix, openFields,
     if (state.kind === 'toggle' && !desktop) return <View key={field.id} style={{minHeight: tv ? 64 : 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: tv ? 20 : 14, gap: 8, borderTopWidth: tv ? 0 : 1, borderTopColor: alpha(theme.colors.lineStrong, .5)}}>
       <Text style={[browseType(theme, tv ? 24 : 15), {color: theme.colors.text, flexShrink: 1}]}>{name}</Text><View style={{marginLeft: 'auto'}}>{control}</View>
     </View>;
+    // H10: on large screens a field opens in a popover anchored to its tile, so the two-column grid never reflows.
+    if (desktop) return <DesktopField key={field.id} label={name} open={open} onOpenChange={next => onFieldOpenChange(field.id, next)}
+      tile={<FieldTile focusPrefix={fieldPrefix} label={name} summary={summary} active={state.active} open={false} onOpenChange={() => onFieldOpenChange(field.id, !open)} platform={target}/>}>{control}</DesktopField>;
     return <View key={field.id} style={{width: desktop && !open ? '48.8%' : '100%', borderTopWidth: !desktop && !tv ? 1 : 0, borderTopColor: alpha(theme.colors.lineStrong, .5)}}><FieldTile focusPrefix={fieldPrefix} label={name} summary={summary} active={state.active} open={open} onOpenChange={next => onFieldOpenChange(field.id, next)} platform={target}>{control}</FieldTile></View>;
   };
   const content = <ScrollView testID={testID} style={{flex: 1}} contentContainerStyle={{paddingBottom: tv ? 120 : 20}} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -118,6 +122,14 @@ export function FilterBuilder({model, labels, platform, focusPrefix, openFields,
     {children}
   </ScrollView>;
   return tv ? <TVFilterFade>{content}</TVFilterFade> : content;
+}
+
+function DesktopField({label, open, onOpenChange, tile, children}: {label: string; open: boolean; onOpenChange: (open: boolean) => void; tile: ReactNode; children: ReactNode}) {
+  const anchor = useRef<View>(null);
+  return <View ref={anchor} collapsable={false} style={{width: '48.8%'}}>
+    {tile}
+    <Popover open={open} onOpenChange={next => onOpenChange(next)} anchorRef={anchor} title={label} showTitle placement="bottom-start" width={340}>{children}</Popover>
+  </View>;
 }
 
 function TVFilterFade({children}: {children: ReactNode}) {

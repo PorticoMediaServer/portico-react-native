@@ -44,7 +44,7 @@ async function fixture(isTV: boolean) {
   const {FilterBuilder} = await screenModule(new URL('../src-next/kit/browse/Filters.tsx', import.meta.url), {
     '@react-native-masked-view/masked-view': {default: 'MaskedView'}, 'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'LinearGradient', Rect: 'Rect', Stop: 'Stop'},
     react, 'react-native': native, '../../../../../packages/i18n/src': {defaultI18n}, '../controls': {Button, Chip, Segmented, TextField, Focusable},
-    '../Icon': {Icon: 'Icon'}, '../focus': focusModule, '../dev-observation': {useNativeObservation: (_facts: unknown, ref?: unknown) => ({ref, textProps: {}, recordFocus: () => {}})}, '../theme': themeModule, './presentation': presentation,
+    '../Icon': {Icon: 'Icon'}, '../overlays': {Popover: 'Popover'}, '../focus': focusModule, '../dev-observation': {useNativeObservation: (_facts: unknown, ref?: unknown) => ({ref, textProps: {}, recordFocus: () => {}})}, '../theme': themeModule, './presentation': presentation,
   });
   return {FilterBuilder, ...focusModule};
 }
@@ -63,7 +63,7 @@ async function mountTree(root: React.ReactNode) {
     return record;
   };
   host.root.forEach(collect);
-  return {controls: native.filter(node => node.type === 'Pressable' || node.type === 'TextInput'), dispose: () => host.unmount()};
+  return {nodes: native, controls: native.filter(node => node.type === 'Pressable' || node.type === 'TextInput'), dispose: () => host.unmount()};
 }
 
 function props(prefix?: string, reverse = false) {
@@ -146,4 +146,19 @@ test('retained selected chips keep their native focus hosts while loading and af
     nodes().find(node=>node.props.testID===original.props.testID)!.props.onPress({defaultPrevented:false});
     assert.deepEqual(data.calls.at(-1),['change','genre',{kind:'values',mode:'any',included:[],excluded:[]}]);
   }finally{await host.unmount();}
+});
+
+test('H10: on large screens an open field opens in a popover anchored to its tile, and the grid keeps its two columns', async () => {
+  const mod = await fixture(false), data = props();
+  const tree = await mountTree(React.createElement(mod.FilterBuilder, {...data.value, platform: 'desktop', openFields: ['genre']}));
+  try {
+    const popovers = tree.nodes.filter(node => node.type === 'Popover');
+    const open = popovers.filter(node => node.props.open);
+    assert.equal(open.length, 1, 'exactly the open field has an open popover');
+    assert.equal(open[0].props.title, 'genre');
+    assert.ok(text(open[0]).includes('Shared value'), 'the field options live in the popover');
+    const tiles = tree.nodes.filter(node => node.type === 'View' && node.props.style?.width === '48.8%' && node.children.some(child => typeof child === 'object' && child.type === 'Popover'));
+    assert.ok(tiles.length >= 6, 'every desktop field, open or not, keeps its half-width tile in the grid');
+    assert.ok(!tree.nodes.some(node => node.type === 'View' && node.props.style?.width === '100%' && text(node).startsWith('genre')), 'no field expands inline to full width');
+  } finally {await tree.dispose();}
 });
