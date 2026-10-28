@@ -1,3 +1,4 @@
+import {readReadingFacet} from '../../../../../packages/client-core/src/browse-preparation';
 import {BrowseQueryBuilder, browseContextFacetsPath, browseCountsPath, browseCountsRequest, parseBrowseCounts, parseBrowseFacets,
   type BrowseCapabilities, type BrowseCount, type BrowseFacetPage, type BrowseNode, type BrowseSortSelection} from '../../../../../packages/client-core/src/browse';
 import {filterControlOf, filterValuesField} from '../../../../../packages/client-core/src/presentation/browse-toolbar';
@@ -51,7 +52,7 @@ export class NativeLibraryFilterDraft {
     const next = Object.freeze([...fixed, ...predicates.filter(node => !keys.has(JSON.stringify(node)))]);
     this.query(next); // Refuse anything outside the current published vocabulary before I/O.
     this.revision++; this.cancelReads();
-    const facets = Object.fromEntries([...this.opened].map(id => [id, {phase: 'loading' as const, search: this.state.facets[id]?.search ?? ''}]));
+    const facets = Object.fromEntries([...this.opened].map(id => [id, {...this.state.facets[id], phase: 'loading' as const, search: this.state.facets[id]?.search ?? ''}]));
     this.publish({predicates: next, count: {phase: 'loading'}, facets});
     this.timer = setTimeout(() => {this.timer = undefined; this.refresh();}, 180);
   };
@@ -92,13 +93,17 @@ export class NativeLibraryFilterDraft {
     const facet = filterValuesField(field).facet;
     this.facetReads.get(id)?.abort(); const controller = new AbortController(), revision = this.revision; this.facetReads.set(id, controller);
     const publish = (value: NativeLibraryFacet) => this.publish({facets: Object.freeze({...this.state.facets, [id]: value})});
-    publish({phase: 'loading', search});
+    const previous = this.state.facets[id]?.value;
+    publish({phase: 'loading', search, value: previous});
     try {
       const path = browseContextFacetsPath(this.options.capabilities.library.id, facet, this.options.pivot, this.query(), search, 200);
-      const raw = await this.options.api.request<unknown>(path, 'GET', undefined, controller.signal);
+      const reading = this.options.capabilities.library.kind === 'book' || this.options.capabilities.library.kind === 'comic';
+      const page = reading ? await readReadingFacet(this.options.api, this.options.capabilities.library.id, path, facet,
+        {signal: controller.signal, isCurrent: () => this.current() && revision === this.revision})
+        : parseBrowseFacets(await this.options.api.request<unknown>(path, 'GET', undefined, controller.signal), facet);
       if (!this.current() || revision !== this.revision || controller.signal.aborted) return;
-      publish({phase: 'ready', search, value: parseBrowseFacets(raw, facet)});
-    } catch (error) {if (this.current() && revision === this.revision && !controller.signal.aborted) publish({phase: 'error', search, error});}
+      publish({phase: 'ready', search, value: page});
+    } catch (error) {if (this.current() && revision === this.revision && !controller.signal.aborted) publish({phase: 'error', search, error, value: previous});}
   }
   apply = (): boolean => {
     if (!this.current() || this.state.count.phase !== 'ready') return false;
