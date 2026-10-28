@@ -10,7 +10,10 @@ import test, {afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import {device, emit, NativeModules} from './react-native-stub.mjs';
 import type {DownloadsService} from '../../../packages/client-core/src/index';
-import type * as OfflineModule from '../src/bridge/offline-downloads.ts';
+import {parseDownloadPreparation} from '../../../packages/client-core/src/downloads.ts';
+import {parseDownloadRequest} from '../../../packages/client-core/src/download-requests.ts';
+import {OfflineDownloads} from '../platform/offline-downloads.ts';
+import type * as OfflineModule from '../platform/offline-downloads.ts';
 
 /** The native module's newer contract (batched meta writes, the files beside a download). The
  * shared stub predates the rewrite, so the four methods are added here. */
@@ -37,7 +40,12 @@ const VIEWER = {authority: 'local', accountId: 'account-a', profileId: 'profile-
 const OWNER = JSON.stringify([VIEWER.authority, VIEWER.accountId, VIEWER.profileId, VIEWER.serverId]);
 const REQUEST = 'request-1';
 const member = (n: number) => `item-${n}`;
-const ARTIFACT = {fileName: 'f.mp4', bytes: 10, sha256: 'a'.repeat(64), contentType: 'video/mp4'};
+const ARTIFACT = {kind: 'prepared', ref: 'file', fileName: 'f.mp4', bytes: 10, sha256: 'a'.repeat(64), contentType: 'video/mp4', container: 'mp4', estimated: false};
+const preparation = (itemId: string, ready = false) => ({id: 'prep-' + itemId, itemId, libraryId: 'lib', profileId: 'profile-a', quality: 'original', origin: 'container',
+  state: ready ? 'ready' : 'queued', reason: '', revision: 1, actions: ['remove'], batchId: '', artifact: ARTIFACT,
+  title: {kind: 'episode', title: itemId, year: 2026, durationMs: 1000, parentId: '', parentTitle: '', groupId: '', groupTitle: '', groupNumber: null, number: null, artist: '', onServer: true},
+  progress: {bytesDone: 0, bytesTotal: 10, bytesTotalEstimated: false, percent: 0, etaMs: null},
+  createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', readyAt: '', expiresAt: ''});
 
 /** The server's view of one container request: `total` members in order, read 100 at a time
  * after a member id, as `GET /v1/downloads/requests/{id}?limit&cursor` answers. */
@@ -45,7 +53,7 @@ function containerServer(initialTotal: number) {
   const state = {total: initialTotal, ready: 0, fail: undefined as ((cursor: string) => boolean) | undefined, stuck: false};
   const cursors: string[] = [];
   const page = (after: number) => {
-    const items = Array.from({length: Math.min(100, Math.max(0, state.total - after))}, (_, i) => ({itemId: member(after + i)}));
+    const items = Array.from({length: Math.min(100, Math.max(0, state.total - after))}, (_, i) => ({itemId: member(after + i), preparation: preparation(member(after + i), after + i < state.ready)}));
     const last = after + items.length;
     return {requestId: REQUEST, total: state.total, totalKnown: true, state: 'preparing', ready: state.ready, preparing: 0, queued: state.total - state.ready, failed: 0, paused: 0, items,
       ...(last < state.total ? {nextCursor: member(last - 1)} : {})};
@@ -56,6 +64,10 @@ function containerServer(initialTotal: number) {
     async request<T>(path: string): Promise<T> {
       if (path === '/v1/downloads/receipt-keys') return {keys: []} as T;
       const url = new URL('http://server.test' + path);
+      if (url.pathname.startsWith('/v1/downloads/preparations/prep-item-')) {
+        const item = url.pathname.slice('/v1/downloads/preparations/prep-'.length), index = Number(item.slice('item-'.length));
+        return preparation(item, index < state.ready) as T;
+      }
       if (url.pathname !== '/v1/downloads/requests/' + REQUEST) throw new Error('no route: ' + path);
       const cursor = url.searchParams.get('cursor') ?? '';
       cursors.push(cursor);
@@ -67,7 +79,7 @@ function containerServer(initialTotal: number) {
   const listeners = new Set<() => void>();
   let prepared: unknown[] = [];
   const service = {
-    getSnapshot: () => ({items: prepared, requests: [{request: page(0)}], busy: [] as string[], error: undefined}),
+    getSnapshot: () => ({items: prepared, requests: [{request: parseDownloadRequest(page(0))}], busy: [] as string[], error: undefined}),
     subscribe: (fn: () => void) => { listeners.add(fn); return () => listeners.delete(fn); },
     async grant(preparation: {id: string; itemId: string}) {
       return {preparationId: preparation.id, itemId: preparation.itemId, url: '/grant/' + preparation.id, token: 't', issuedAt: '', expiresAt: '', replayWindowSeconds: 60, artifact: ARTIFACT};
@@ -78,7 +90,7 @@ function containerServer(initialTotal: number) {
   /** The server finishes preparing the first `count` members. */
   const ready = (count: number) => {
     state.ready = count;
-    prepared = Array.from({length: count}, (_, i) => ({id: 'prep-' + i, itemId: member(i), libraryId: 'lib', quality: 'original', state: 'ready', reason: '', createdAt: '', updatedAt: '', expiresAt: '', bytesDone: 10, artifact: ARTIFACT}));
+    prepared = Array.from({length: count}, (_, i) => parseDownloadPreparation(preparation(member(i), true)));
     service.publish();
   };
   return {api, service, state, cursors, ready};
@@ -91,10 +103,7 @@ async function bridge(): Promise<OfflineBridge> {
   previous?.offlineDownloads.dispose();
   device.reset();
   extraStore.clear();
-  // The legacy bridge now re-exports the one platform owner. A query on the
-  // re-export cannot create a fresh owner; isolate real instances in this fixture.
-  const implementation = await import('../src/bridge/offline-downloads.ts');
-  previous = {offlineDownloads: new implementation.OfflineDownloads()};
+  previous = {offlineDownloads: new OfflineDownloads()};
   return previous;
 }
 /** `connect` starts a 60-second interval; nothing may be left running when a test ends. */
@@ -103,7 +112,7 @@ afterEach(() => {
   previous?.offlineDownloads.dispose();
   previous = undefined;
 });
-const wanted = (): string[] => Object.keys((JSON.parse(device.state || '{}').wanted ?? {})[OWNER] ?? {});
+const wanted = (): string[] => Object.values((JSON.parse(device.state || '{}').wanted ?? {})[OWNER] ?? {}).map(value => (value as {itemId: string}).itemId);
 /** Waits until no page has been asked for and nothing has been saved for a few turns. */
 async function quiet(cursors: string[]) {
   for (let calm = 0, seen = -1, saved = ''; calm < 5;) {
@@ -171,7 +180,9 @@ test('a change in the request\'s counts reads on from where the reading stopped,
   s.state.total = 1_480;
   s.service.publish();
   await quiet(s.cursors);
-  assert.equal(wanted().length, 1_480);
+  assert.equal(new Set([...wanted(), ...device.started.map((value: {itemId: string}) => value.itemId)]).size, 1_480);
+  assert.equal(wanted().length, 1_440);
+  assert.deepEqual(device.started.map((value: {itemId: string}) => value.itemId).sort(), Array.from({length: 40}, (_, i) => member(i)).sort());
   assert.deepEqual(s.cursors.slice(before + 1), [member(1_199), member(1_299), member(1_399)]);
 });
 
@@ -190,7 +201,9 @@ test('a failed page waits for its retry floor unless request counts change soone
   s.state.ready = 3;
   s.service.publish();
   await quiet(s.cursors);
-  assert.equal(wanted().length, 900);
+  assert.equal(new Set([...wanted(), ...device.started.map((value: {itemId: string}) => value.itemId)]).size, 900);
+  assert.equal(wanted().length, 897);
+  assert.deepEqual(device.started.map((value: {itemId: string}) => value.itemId), [member(0), member(1), member(2)]);
   assert.equal(s.cursors[before], member(499), 'the reading resumes at the page that failed');
 });
 
@@ -228,7 +241,7 @@ test('the backlog limit applies to first pages across many requests', async () =
   const snapshot = s.service.getSnapshot;
   s.service.getSnapshot = () => ({...snapshot(), requests: Array.from({length: 70}, (_, r) => ({request: {
     ...snapshot().requests[0]!.request, requestId: 'request-' + r,
-    items: Array.from({length: 100}, (_, i) => ({itemId: `item-${r}-${i}`})),
+    items: Array.from({length: 100}, (_, i) => ({itemId: `item-${r}-${i}`, preparation: parseDownloadPreparation(preparation(`item-${r}-${i}`))})),
   }}))});
   offlineDownloads.connect(s.api, s.service as unknown as DownloadsService, VIEWER);
   await quiet(s.cursors);

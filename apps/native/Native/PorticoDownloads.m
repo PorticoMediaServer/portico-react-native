@@ -101,6 +101,7 @@ static NSString *const PorticoDownloadChanged = @"PorticoDownloadChanged";
 // What JavaScript may ask, relayed by the module below.
 - (void)list:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)start:(NSDictionary *)request resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
+- (void)resume:(NSDictionary *)request resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)pause:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)remove:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
 - (void)remove:(NSString *)identifier generation:(NSString *)generation resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject;
@@ -138,6 +139,8 @@ static NSString *const PorticoDownloadChanged = @"PorticoDownloadChanged";
   // The manifest exists and could not be read although the device has been unlocked: calls from
   // JavaScript are refused instead of waiting for it. Every wake still tries again.
   BOOL _unreadable;
+  // Independent read admission for JS's settings/outbox document.
+  BOOL _stateReadable;
   // Work waiting for the manifest, in arrival order: each is @[work, refused or NSNull].
   NSMutableArray<NSArray *> *_pending;
   id _protectedDataObserver;
@@ -242,6 +245,21 @@ static BOOL PorticoSafeIdentifier(NSString *value) {
   NSCharacterSet *allowed = [NSCharacterSet characterSetWithCharactersInString:@"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"];
   return [value rangeOfCharacterFromSet:allowed.invertedSet].location == NSNotFound;
 }
+
+// An inaccessible path is not evidence that its record is absent.
+static BOOL PorticoDownloadMissingFile(NSError *error) {
+  return [error.domain isEqual:NSCocoaErrorDomain] && error.code == NSFileReadNoSuchFileError;
+}
+
+static BOOL PorticoDownloadValidEntry(NSString *identifier, NSDictionary *entry) {
+  if (!PorticoSafeIdentifier(identifier) || ![entry isKindOfClass:NSDictionary.class] || ![entry[@"id"] isEqual:identifier]) return NO;
+  if (![@[@"downloading", @"paused", @"failed", @"ready", @"removed"] containsObject:entry[@"state"] ?: NSNull.null]) return NO;
+  NSString *digest = entry[@"sha256"];
+  if (![digest isKindOfClass:NSString.class] || digest.length != 64 || [digest.lowercaseString rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdef"].invertedSet].location != NSNotFound) return NO;
+  NSNumber *bytes = entry[@"bytes"];
+  return [bytes isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)bytes) != CFBooleanGetTypeID()
+    && isfinite(bytes.doubleValue) && bytes.doubleValue >= 1 && bytes.doubleValue <= 9007199254740991.0 && floor(bytes.doubleValue) == bytes.doubleValue;
+}
 // A file name from the server is used as a path component, so it is reduced to its last
 // component and stripped of anything that could leave the download's own folder.
 static NSString *PorticoSafeFileName(NSString *value) {
@@ -257,23 +275,24 @@ static NSString *PorticoSafeFileName(NSString *value) {
 // what JavaScript asked is refused instead of left hanging; the manifest is still never written
 // over, and the system's events stay queued for a later wake that can read it.
 - (void)loadManifest {
+  _loaded = NO;
   NSError *error = nil;
   NSData *raw = [NSData dataWithContentsOfURL:[self manifestURL] options:0 error:&error];
-  if (!raw && [[NSFileManager defaultManager] fileExistsAtPath:[self manifestURL].path]) {
+  if (!raw && !PorticoDownloadMissingFile(error)) {
     if (self.protectedDataAvailable) [self refusePending];
     return;
   }
   NSMutableDictionary<NSString *, NSMutableDictionary *> *entries = [NSMutableDictionary new];
+  NSString *text = raw ? [[NSString alloc] initWithData:raw encoding:NSUTF8StringEncoding] : nil;
+  NSDictionary *stored = text ? [NSJSONSerialization JSONObjectWithData:raw options:0 error:&error] : nil;
+  if (raw && (![stored isKindOfClass:NSDictionary.class] || !text)) { [self refusePending]; return; }
+  for (NSString *key in stored) {
+    if (!PorticoDownloadValidEntry(key, stored[key])) { [self refusePending]; return; }
+    entries[key] = [stored[key] mutableCopy];
+  }
   // An extra that was being filed when the app stopped leaves its holding file behind.
   for (NSURL *file in [[NSFileManager defaultManager] contentsOfDirectoryAtURL:[self root] includingPropertiesForKeys:nil options:0 error:nil])
     if ([file.pathExtension isEqualToString:@"extra"]) [[NSFileManager defaultManager] removeItemAtURL:file error:nil];
-  NSDictionary *stored = raw ? [NSJSONSerialization JSONObjectWithData:raw options:0 error:nil] : nil;
-  if ([stored isKindOfClass:NSDictionary.class]) {
-    for (NSString *key in stored) {
-      NSDictionary *entry = stored[key];
-      if (PorticoSafeIdentifier(key) && [entry isKindOfClass:NSDictionary.class]) entries[key] = [entry mutableCopy];
-    }
-  }
   for (PorticoPublicationGeneration *generation in _publicationGenerations.allValues) generation.retired = YES;
   [_publicationGenerations removeAllObjects];
   _entries = entries;
@@ -356,6 +375,7 @@ static NSString *PorticoSafeFileName(NSString *value) {
   entry[@"publicationGeneration"] = [self publicationGeneration:identifier].value;
   [entry removeObjectForKey:@"grantUrl"];
   [entry removeObjectForKey:@"retargeted"];
+  [entry removeObjectForKey:@"resumed"];
   return entry;
 }
 - (BOOL)saveManifest {
@@ -569,12 +589,13 @@ static NSString *PorticoSafeFileName(NSString *value) {
     if (resume.length) {
       [[NSFileManager defaultManager] createDirectoryAtURL:[self directoryFor:identifier] withIntermediateDirectories:YES attributes:nil error:nil];
       [resume writeToURL:[self resumeURLFor:identifier] options:NSDataWritingAtomic error:nil];
-    } else if ([entry[@"retargeted"] boolValue] && error.code != NSURLErrorCancelled) {
-      // Moved resume data that failed without leaving new data is not tried again.
+    } else if ([entry[@"resumed"] boolValue] && !([error.domain isEqual:NSURLErrorDomain] && error.code == NSURLErrorCancelled)) {
+      // Any failed resume, including the same grant, must not replay an unusable old blob.
       [[NSFileManager defaultManager] removeItemAtURL:[self resumeURLFor:identifier] error:nil];
     }
     [entry removeObjectForKey:@"retargeted"];
-    BOOL cancelled = error.code == NSURLErrorCancelled;
+    [entry removeObjectForKey:@"resumed"];
+    BOOL cancelled = [error.domain isEqual:NSURLErrorDomain] && error.code == NSURLErrorCancelled;
     entry[@"state"] = cancelled ? @"paused" : @"failed";
     entry[@"waiting"] = @"";
     // Anything the network did is the network's to mend: the app starts the transfer again and
@@ -625,65 +646,90 @@ static NSString *PorticoSafeFileName(NSString *value) {
   }];
 }
 
+// Like conditional removal, recheck after task lookup and perform the operation in that
+// same owner turn. No queued continuation may recreate an absent or replaced entry.
+- (void)resume:(NSDictionary *)request resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+  NSString *identifier = request[@"id"];
+  NSString *generation = [request[@"expectedGeneration"] isKindOfClass:NSString.class] ? request[@"expectedGeneration"] : nil;
+  if (!PorticoSafeIdentifier(identifier) || ![self isGeneration:generation currentFor:identifier]
+      || [self->_entries[identifier][@"state"] isEqual:@"removed"]) {
+    reject(@"generation_changed", @"This download changed before it could be continued.", nil); return;
+  }
+  NSURL *url = [request[@"url"] isKindOfClass:NSString.class] ? [NSURL URLWithString:request[@"url"]] : nil;
+  if (!url || !([url.scheme isEqual:@"https"] || [url.scheme isEqual:@"http"])) { reject(@"invalid_download", @"The download request is invalid.", nil); return; }
+  [self taskFor:identifier then:^(NSURLSessionDownloadTask *existing) {
+    if (![self isGeneration:generation currentFor:identifier] || [self->_entries[identifier][@"state"] isEqual:@"removed"]) {
+      reject(@"generation_changed", @"This download changed before it could be continued.", nil); return;
+    }
+    [existing cancel];
+    [self beginTransfer:request identifier:identifier url:url resolve:resolve];
+  }];
+}
+
+// On the owner queue, without another dispatch between a generation check and mutation.
 - (void)beginTransfer:(NSDictionary *)request identifier:(NSString *)identifier url:(NSURL *)url resolve:(RCTPromiseResolveBlock)resolve {
-  dispatch_async(_queue, ^{
-    NSMutableDictionary *entry = self->_entries[identifier] ?: [NSMutableDictionary new];
-    if ([entry[@"state"] isEqual:@"ready"]) { self->_entries[identifier] = entry; resolve([self published:identifier]); return; }
-    [self retirePublicationGeneration:identifier];
-    // The bytes already fetched belong to one exact file.
-    NSString *wanted = [request[@"sha256"] isKindOfClass:NSString.class] ? [request[@"sha256"] lowercaseString] : @"";
-    BOOL sameFile = wanted.length > 0 && [entry[@"sha256"] isKindOfClass:NSString.class] && [[entry[@"sha256"] lowercaseString] isEqual:wanted];
-    for (NSString *key in @[@"itemId", @"title", @"subtitle", @"quality", @"fileName", @"sha256", @"contentType", @"meta"]) if ([request[key] isKindOfClass:NSString.class]) entry[key] = request[key];
-    entry[@"id"] = identifier;
-    entry[@"bytes"] = [request[@"bytes"] isKindOfClass:NSNumber.class] ? request[@"bytes"] : @0;
-    entry[@"state"] = @"downloading"; entry[@"error"] = @""; entry[@"waiting"] = @""; entry[@"intent"] = @"run";
-    if (!entry[@"addedAt"]) entry[@"addedAt"] = @((long long)(NSDate.date.timeIntervalSince1970 * 1000));
-    self->_entries[identifier] = entry;
-    // Resume data carries the request it was created from, address included, and nothing can
-    // put a different address into it. The app keeps the same address alive across attempts, so
-    // this is the ordinary case: same file, same address, carry on from the bytes already here.
-    // A different address, or a different file, means the system's partial cannot be continued
-    // and the transfer begins again.
-    NSURL *resumeURL = [self resumeURLFor:identifier];
-    NSData *resume = [NSData dataWithContentsOfURL:resumeURL];
-    NSString *address = url.absoluteString;
-    // Resume data contains its original request's cellular policy too. It cannot be tightened
-    // by requestFor:, so only reuse data created under the current preference.
-    BOOL samePolicy = PorticoDownloadResumePolicyMatches(entry, self->_cellular);
-    BOOL sameGrant = sameFile && samePolicy && resume.length > 0 && [entry[@"grantUrl"] isKindOfClass:NSString.class] && [entry[@"grantUrl"] isEqual:address];
-    [entry removeObjectForKey:@"retargeted"];
-    if (resume.length > 0 && !sameGrant) {
-      // The same file under a new address: the resume data is pointed at the new address, so
-      // the bytes already fetched are kept (N12). Anything else begins again.
-      NSData *moved = sameFile && samePolicy ? PorticoDownloadRetargetResume(resume, url) : nil;
-      if (moved.length && [moved writeToURL:resumeURL options:NSDataWritingAtomic error:nil]) {
-        resume = moved;
-        entry[@"retargeted"] = @YES;
-      } else {
-        [[NSFileManager defaultManager] removeItemAtURL:resumeURL error:nil];
-        resume = nil;
-      }
+  NSMutableDictionary *entry = self->_entries[identifier] ?: [NSMutableDictionary new];
+  if ([entry[@"state"] isEqual:@"ready"]) { self->_entries[identifier] = entry; resolve([self published:identifier]); return; }
+  [self retirePublicationGeneration:identifier];
+  // The bytes already fetched belong to one exact file.
+  NSString *wanted = [request[@"sha256"] isKindOfClass:NSString.class] ? [request[@"sha256"] lowercaseString] : @"";
+  BOOL sameFile = wanted.length > 0 && [entry[@"sha256"] isKindOfClass:NSString.class] && [[entry[@"sha256"] lowercaseString] isEqual:wanted];
+  for (NSString *key in @[@"itemId", @"title", @"subtitle", @"quality", @"fileName", @"sha256", @"contentType", @"meta"]) if ([request[key] isKindOfClass:NSString.class]) entry[key] = request[key];
+  entry[@"id"] = identifier;
+  entry[@"bytes"] = [request[@"bytes"] isKindOfClass:NSNumber.class] ? request[@"bytes"] : @0;
+  entry[@"state"] = @"downloading"; entry[@"error"] = @""; entry[@"waiting"] = @""; entry[@"intent"] = @"run";
+  if (!entry[@"addedAt"]) entry[@"addedAt"] = @((long long)(NSDate.date.timeIntervalSince1970 * 1000));
+  self->_entries[identifier] = entry;
+  NSURL *resumeURL = [self resumeURLFor:identifier];
+  NSData *resume = [NSData dataWithContentsOfURL:resumeURL];
+  NSString *address = url.absoluteString;
+  // Resume data carries its original request: address and mobile-data policy. Either change is
+  // written into the saved request so the bytes already here are kept (N12, JUSTIN-ANSWERS #17).
+  BOOL samePolicy = PorticoDownloadResumePolicyMatches(entry, self->_cellular);
+  BOOL sameGrant = sameFile && samePolicy && resume.length > 0 && [entry[@"grantUrl"] isKindOfClass:NSString.class] && [entry[@"grantUrl"] isEqual:address];
+  [entry removeObjectForKey:@"retargeted"];
+  if (resume.length > 0 && !sameGrant) {
+    NSData *moved = sameFile ? PorticoDownloadRetargetResume(resume, url, self->_cellular) : nil;
+    if (moved.length && [moved writeToURL:resumeURL options:NSDataWritingAtomic error:nil]) {
+      resume = moved;
+      entry[@"retargeted"] = @YES;
+      entry[@"cellularAllowed"] = @(self->_cellular);
+    } else if (sameFile && !samePolicy && !self->_cellular) {
+      // Data in a form this cannot rewrite may allow mobile data: never replay it under
+      // "Wi-Fi only", and never erase its partial bytes. It waits, paused, for the setting.
+      [self->_activeTasks[identifier] cancel];
+      [self->_activeTasks removeObjectForKey:identifier];
+      [entry removeObjectForKey:@"taskIdentifier"];
+      entry[@"state"] = @"paused"; entry[@"waiting"] = @"wifi";
+      [self saveManifest]; [self changed:identifier force:YES];
+      resolve([self published:identifier]); return;
+    } else if (!(sameFile && !samePolicy && self->_cellular && [entry[@"grantUrl"] isEqual:address])) {
+      // A Wi-Fi-only request stays safe after loosening; anything else begins again.
+      [[NSFileManager defaultManager] removeItemAtURL:resumeURL error:nil];
+      resume = nil;
     }
-    if (!resume.length) entry[@"bytesDone"] = @0;
-    entry[@"grantUrl"] = address;
+  }
+  if (!resume.length) entry[@"bytesDone"] = @0;
+  entry[@"grantUrl"] = address;
+  NSURLSessionDownloadTask *task = resume.length ? [[self session] downloadTaskWithResumeData:resume] : nil;
+  BOOL resumed = task != nil;
+  // Resume data the system will not take (a moved one included) is let go: the transfer begins again.
+  if (!task) {
+    if (resume.length) { [[NSFileManager defaultManager] removeItemAtURL:resumeURL error:nil]; entry[@"bytesDone"] = @0; [entry removeObjectForKey:@"retargeted"]; }
+    task = [[self session] downloadTaskWithRequest:[self requestFor:url]];
     entry[@"cellularAllowed"] = @(self->_cellular);
-    NSURLSessionDownloadTask *task = resume.length ? [[self session] downloadTaskWithResumeData:resume] : nil;
-    // Resume data the system will not take (a moved one included) is let go: the transfer begins again.
-    if (!task) {
-      if (resume.length) { [[NSFileManager defaultManager] removeItemAtURL:resumeURL error:nil]; entry[@"bytesDone"] = @0; [entry removeObjectForKey:@"retargeted"]; }
-      task = [[self session] downloadTaskWithRequest:[self requestFor:url]];
-    }
-    // Serial publication fences every callback from the previous attempt,
-    // including a late cancellation that carries the previous grant’s resume data.
-    [self->_activeTasks[identifier] cancel];
-    entry[@"taskIdentifier"] = @(task.taskIdentifier);
-    self->_activeTasks[identifier] = task;
-    task.taskDescription = identifier;
-    if ([request[@"bytes"] isKindOfClass:NSNumber.class]) task.countOfBytesClientExpectsToReceive = [request[@"bytes"] longLongValue];
-    [task resume];
-    [self saveManifest]; [self changed:identifier force:YES];
-    resolve([self published:identifier]);
-  });
+  }
+  entry[@"resumed"] = @(resumed);
+  // Serial publication fences every callback from the previous attempt,
+  // including a late cancellation that carries the previous grant’s resume data.
+  [self->_activeTasks[identifier] cancel];
+  entry[@"taskIdentifier"] = @(task.taskIdentifier);
+  self->_activeTasks[identifier] = task;
+  task.taskDescription = identifier;
+  if ([request[@"bytes"] isKindOfClass:NSNumber.class]) task.countOfBytesClientExpectsToReceive = [request[@"bytes"] longLongValue];
+  [task resume];
+  [self saveManifest]; [self changed:identifier force:YES];
+  resolve([self published:identifier]);
 }
 
 - (void)taskFor:(NSString *)identifier then:(void (^)(NSURLSessionDownloadTask *))work {
@@ -699,10 +745,19 @@ static NSString *PorticoSafeFileName(NSString *value) {
 }
 
 - (void)pause:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+  NSMutableDictionary *incarnation = self->_entries[identifier];
+  [self retirePublicationGeneration:identifier];
+  // Record the person's hold before task lookup yields, so policy reconciliation cannot
+  // restart this entry while the pause is waiting for the session's task list.
+  if (incarnation && ![incarnation[@"state"] isEqual:@"ready"]) {
+    incarnation[@"intent"] = @"hold";
+    [self saveManifest];
+  }
   [self taskFor:identifier then:^(NSURLSessionDownloadTask *task) {
     // The person paused it: it stays paused until they continue it, with or without a task
     // behind it right now.
     NSMutableDictionary *entry = self->_entries[identifier];
+    if (entry != incarnation) { reject(@"generation_changed", @"This download changed before it could be paused.", nil); return; }
     if (entry && ![entry[@"state"] isEqual:@"ready"]) {
       entry[@"intent"] = @"hold";
       if (!task && ![entry[@"state"] isEqual:@"failed"]) { entry[@"state"] = @"paused"; entry[@"waiting"] = @""; }
@@ -943,6 +998,7 @@ static BOOL PorticoPublicationStateName(NSString *name) {
 - (void)fetchExtra:(NSString *)identifier name:(NSString *)name url:(NSString *)address resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   dispatch_async(_queue, ^{
     NSURL *file = [self extraURL:identifier name:name];
+    NSMutableDictionary *incarnation = self->_entries[identifier];
     NSURL *url = [address isKindOfClass:NSString.class] ? [NSURL URLWithString:address] : nil;
     if (!file || !url || !([url.scheme isEqual:@"https"] || [url.scheme isEqual:@"http"])) { resolve(@"invalid"); return; }
     NSURLSessionDownloadTask *task = [PorticoServerTrust.session downloadTaskWithRequest:[self requestFor:url] completionHandler:^(NSURL *location, NSURLResponse *response, NSError *error) {
@@ -959,7 +1015,7 @@ static BOOL PorticoPublicationStateName(NSString *name) {
       }
       dispatch_async(self->_queue, ^{
         // The download may have been removed while this was in flight: leave nothing behind.
-        if (!holding || !self->_entries[identifier]) { if (holding) [[NSFileManager defaultManager] removeItemAtURL:holding error:nil]; resolve(outcome); return; }
+        if (!holding || self->_entries[identifier] != incarnation) { if (holding) [[NSFileManager defaultManager] removeItemAtURL:holding error:nil]; resolve(outcome); return; }
         [[NSFileManager defaultManager] createDirectoryAtURL:[self extrasFor:identifier] withIntermediateDirectories:YES attributes:nil error:nil];
         if ([name isEqual:@"publication.json"]) [self retirePublicationGeneration:identifier];
         [[NSFileManager defaultManager] removeItemAtURL:file error:nil];
@@ -985,33 +1041,60 @@ static BOOL PorticoPublicationStateName(NSString *name) {
   });
 }
 
+// On the owner queue, including paused policy waits that no longer have a session task.
+- (void)restartCellularWait:(NSString *)identifier entry:(NSMutableDictionary *)entry {
+  if (!self->_cellular || self->_entries[identifier] != entry || [entry[@"intent"] isEqual:@"hold"]
+      || ![entry[@"waiting"] isEqual:@"wifi"] || [entry[@"state"] isEqual:@"ready"] || [entry[@"state"] isEqual:@"removed"]) return;
+  NSURL *url = [entry[@"grantUrl"] isKindOfClass:NSString.class] ? [NSURL URLWithString:entry[@"grantUrl"]] : nil;
+  if (!url || !([url.scheme isEqual:@"https"] || [url.scheme isEqual:@"http"])) return;
+  [self beginTransfer:[entry copy] identifier:identifier url:url resolve:^(id row) {}];
+}
+
 - (void)setCellular:(BOOL)allowed resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   [[NSUserDefaults standardUserDefaults] setBool:allowed forKey:@"PorticoDownloadsCellular"];
-  BOOL tightened = self->_cellular && !allowed;
+  BOOL changed = self->_cellular != allowed;
   _cellular = allowed;
-  // Every transfer started from here on carries the new policy. A transfer
-  // already running was created under the old one, and "Never use mobile data"
-  // has to mean now rather than next launch — so turning Wi-Fi-only on suspends
-  // what is in flight, keeping its bytes. Continue restarts it under the new
-  // policy, and on Wi-Fi the system starts it again without waiting.
-  if (!tightened) { resolve(nil); return; }
+  if (!changed) { resolve(nil); return; }
   [[self session] getTasksWithCompletionHandler:^(NSArray *data, NSArray *uploads, NSArray<NSURLSessionDownloadTask *> *downloads) {
-    for (NSURLSessionDownloadTask *task in downloads) {
-      NSString *identifier = task.taskDescription;
-      if (!PorticoSafeIdentifier(identifier)) continue;
-      [task cancelByProducingResumeData:^(NSData *bytes) {
-        dispatch_async(self->_queue, ^{ [self whenLoaded:^{
-          NSMutableDictionary *entry = self->_entries[identifier];
-          if (!PorticoDownloadAcceptsTask(entry, task.taskIdentifier)) return;
-          if (bytes.length) [bytes writeToURL:[self resumeURLFor:identifier] options:NSDataWritingAtomic error:nil];
-          entry[@"state"] = @"paused";
-          [self saveManifest];
-          [self changed:identifier force:YES];
-        }]; });
-      }];
-    }
-    resolve(nil);
+    dispatch_async(self->_queue, ^{ [self whenLoaded:^{
+      for (NSString *identifier in self->_entries.allKeys) {
+        NSMutableDictionary *incarnation = self->_entries[identifier];
+        if ([incarnation[@"state"] isEqual:@"ready"] || [incarnation[@"state"] isEqual:@"removed"]) continue;
+        // Tightening stops existing work promptly. Loosening only restarts a Wi-Fi wait
+        // still meant to run, never a person's hold or an unrelated network failure.
+        if (self->_cellular && (![incarnation[@"waiting"] isEqual:@"wifi"] || [incarnation[@"intent"] isEqual:@"hold"])) continue;
+        NSURLSessionDownloadTask *task = self->_activeTasks[identifier];
+        if (task && !PorticoDownloadAcceptsTask(incarnation, task.taskIdentifier)) task = nil;
+        if (!task) for (NSURLSessionDownloadTask *candidate in downloads) {
+          if ([candidate.taskDescription isEqual:identifier] && PorticoDownloadAcceptsTask(incarnation, candidate.taskIdentifier)) { task = candidate; break; }
+        }
+        if (!task) { [self restartCellularWait:identifier entry:incarnation]; continue; }
+        BOOL resumed = [incarnation[@"resumed"] boolValue];
+        [task cancelByProducingResumeData:^(NSData *bytes) {
+          dispatch_async(self->_queue, ^{ [self whenLoaded:^{
+            NSMutableDictionary *entry = self->_entries[identifier];
+            if (entry != incarnation || !PorticoDownloadAcceptsTask(entry, task.taskIdentifier)) return;
+            NSURL *resumeURL = [self resumeURLFor:identifier];
+            if (bytes.length) [bytes writeToURL:resumeURL options:NSDataWritingAtomic error:nil];
+            [self->_activeTasks removeObjectForKey:identifier];
+            [entry removeObjectForKey:@"taskIdentifier"];
+            [self retirePublicationGeneration:identifier];
+            entry[@"state"] = @"paused"; entry[@"waiting"] = @"wifi";
+            [self saveManifest]; [self changed:identifier force:YES];
+            if (!self->_cellular || [entry[@"intent"] isEqual:@"hold"]) return;
+            // Only a task with no saved prefix can safely adopt the new request's policy.
+            // Otherwise beginTransfer reuses the blob unchanged, retaining its Wi-Fi rule.
+            if (!resumed && task.countOfBytesReceived == 0
+                && [entry[@"bytesDone"] isKindOfClass:NSNumber.class] && [entry[@"bytesDone"] longLongValue] == 0) {
+              [[NSFileManager defaultManager] removeItemAtURL:resumeURL error:nil];
+            }
+            [self restartCellularWait:identifier entry:entry];
+          }]; });
+        }];
+      }
+    }]; });
   }];
+  resolve(nil);
 }
 
 // One small JSON document for the JavaScript side's own bookkeeping (settings and the queue of
@@ -1019,12 +1102,24 @@ static BOOL PorticoPublicationStateName(NSString *name) {
 // removes both.
 - (void)readState:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   dispatch_async(_queue, ^{
-    NSData *raw = [NSData dataWithContentsOfURL:[self stateURL]];
-    resolve(raw ? [[NSString alloc] initWithData:raw encoding:NSUTF8StringEncoding] : @"");
+    self->_stateReadable = NO;
+    NSError *error = nil;
+    NSData *raw = [NSData dataWithContentsOfURL:[self stateURL] options:0 error:&error];
+    if (!raw && PorticoDownloadMissingFile(error)) { self->_stateReadable = YES; resolve(@""); return; }
+    NSString *text = raw ? [[NSString alloc] initWithData:raw encoding:NSUTF8StringEncoding] : nil;
+    NSDictionary *stored = text ? [NSJSONSerialization JSONObjectWithData:raw options:0 error:&error] : nil;
+    // JS validates the version and individual outbox/settings fields before its write barrier
+    // opens. Native must never turn unreadable bytes or a non-document into the empty sentinel.
+    if (!text || ![stored isKindOfClass:NSDictionary.class]) {
+      reject(@"read_failed", @"Download settings could not be read. Keep this device's data and try again after storage is available.", error); return;
+    }
+    self->_stateReadable = YES;
+    resolve(text);
   });
 }
 - (void)writeState:(NSString *)json resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   dispatch_async(_queue, ^{
+    if (!self->_stateReadable) { reject(@"read_failed", @"Read download settings successfully before saving changes.", nil); return; }
     if (json.length >= 1048576) { reject(@"too_large", @"Download settings are too large to keep.", nil); return; }
     NSError *error = nil;
     if (![[json dataUsingEncoding:NSUTF8StringEncoding] writeToURL:[self stateURL] options:NSDataWritingAtomic | NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication error:&error]) {
@@ -1079,7 +1174,7 @@ static BOOL PorticoPublicationStateName(NSString *name) {
 // (whose per-transfer bookkeeping waits for the manifest inside the owner) and nothing else are
 // independent of the manifest. Free space is too, but the space downloads use comes from it.
 static void PorticoRefuseUnreadable(RCTPromiseRejectBlock reject) {
-  reject(@"manifest_unreadable", @"Downloads on this device can't be read right now.", nil);
+  reject(@"manifest_unreadable", @"Downloads on this device can't be read. Keep this device's data and try again after storage is available.", nil);
 }
 
 // Cover-page uploads: the app sends only bounded image bytes; this module
@@ -1160,6 +1255,9 @@ RCT_EXPORT_METHOD(list:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectB
 }
 RCT_EXPORT_METHOD(start:(NSDictionary *)request resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
   [_owner whenLoaded:^{ [self->_owner start:request resolve:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];
+}
+RCT_EXPORT_METHOD(resume:(NSDictionary *)request resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
+  [_owner whenLoaded:^{ [self->_owner resume:request resolve:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];
 }
 RCT_EXPORT_METHOD(pause:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
   [_owner whenLoaded:^{ [self->_owner pause:identifier resolve:resolve reject:reject]; } otherwise:^{ PorticoRefuseUnreadable(reject); }];

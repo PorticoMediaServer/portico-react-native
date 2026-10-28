@@ -64,4 +64,53 @@ class PorticoDownloadWorkTest {
       check(!part.exists())
     } finally { directory.deleteRecursively() }
   }
+
+  @Test
+  fun aFinalFileIsRecoveredOnlyWithItsExactLengthAndDigest() {
+    val directory = Files.createTempDirectory("portico-download-final").toFile()
+    try {
+      val file = File(directory, "media")
+      val digest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+      check(!verifiedDownloadFile(file, 3, digest) { false })
+      file.writeText("abc")
+      check(verifiedDownloadFile(file, 3, digest) { false })
+      check(file.readText() == "abc")
+      check(!verifiedDownloadFile(file, 2, digest) { false })
+      check(!verifiedDownloadFile(file, 3, "0".repeat(64)) { false })
+      check(!verifiedDownloadFile(file, 3, digest) { true })
+      file.writeText("abd")
+      check(!verifiedDownloadFile(file, 3, digest) { false })
+      check(file.readText() == "abd")
+    } finally { directory.deleteRecursively() }
+  }
+
+  @Test
+  fun cancellationDuringTheFinalFileCheckNeverAdoptsIt() {
+    val directory = Files.createTempDirectory("portico-download-final-cancel").toFile()
+    try {
+      val file = File(directory, "media").apply { writeText("abc") }
+      var checks = 0
+      val digest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+      check(!verifiedDownloadFile(file, 3, digest) { ++checks > 1 })
+      check(checks == 2 && file.readText() == "abc")
+    } finally { directory.deleteRecursively() }
+  }
+
+  @Test
+  fun onlyUnverifiedFilesNeedNetworkAdmission() {
+    val directory = Files.createTempDirectory("portico-download-final-policy").toFile()
+    try {
+      val file = File(directory, "media").apply { writeText("abc") }
+      val digest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+      var networkChecks = 0
+      val onCellular = { networkChecks++; true }
+      check(downloadStart(verifiedDownloadFile(file, 3, digest) { false }, false, onCellular) == DownloadStart.ADOPT)
+      check(networkChecks == 0 && file.readText() == "abc")
+      file.writeText("abd")
+      check(downloadStart(verifiedDownloadFile(file, 3, digest) { false }, false, onCellular) == DownloadStart.WAIT_FOR_WIFI)
+      check(networkChecks == 1)
+      check(downloadStart(false, false) { false } == DownloadStart.TRANSFER)
+      check(downloadStart(false, true) { error("Cellular is allowed") } == DownloadStart.TRANSFER)
+    } finally { directory.deleteRecursively() }
+  }
 }

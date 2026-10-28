@@ -29,7 +29,6 @@ import java.net.ConnectException
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
-import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import okhttp3.Call
@@ -82,6 +81,8 @@ internal object PorticoDownloadCenter {
         PorticoDownloadCenter.changed(id, false)
       }
     }
+    // Bookkeeping-owned. Checking an existing final file does not use the network.
+    var networkStarted = false
   }
 
   private val work = Executors.newSingleThreadExecutor { Thread(it, "portico-downloads") }
@@ -106,12 +107,15 @@ internal object PorticoDownloadCenter {
     return PublicationGeneration(entry).also { publicationGenerations[id] = it }.value
   }
   private val active = HashMap<String, Transfer>()
+  private val removing = HashSet<String>()
   private val lastEmit = HashMap<String, Long>()
   private var attempts = 0.0
   private val extraAttempts = HashMap<Pair<String?, String?>, Any>()
   private var cellular = false
   private lateinit var app: Context
   private var loaded = false
+  private lateinit var manifest: PorticoDownloadRecord
+  private lateinit var state: PorticoDownloadRecord
   private val http: OkHttpClient by lazy {
     OkHttpClient.Builder().porticoTrust().followRedirects(false).followSslRedirects(false).cache(null)
         .connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).build()
@@ -122,24 +126,19 @@ internal object PorticoDownloadCenter {
   fun post(block: () -> Unit) { work.execute(block) }
 
   /** Reads the manifest once. A transfer the last process left running is paused, still meant to run. */
-  fun open(context: Context) {
-    if (loaded) return
-    loaded = true
+  fun open(context: Context): Boolean {
+    if (loaded) return true
     app = context.applicationContext
     cellular = app.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getBoolean("cellular", false)
+    manifest = PorticoDownloadRecord(File(root(), "manifest.json"))
+    state = PorticoDownloadRecord(File(root(), "state.json"))
+    val stored = try {
+      manifest.read { raw -> decodeDownloadManifest(if (raw == null) emptyMap<String, Any?>() else parseRecord(raw)) }
+    } catch (_: Exception) { return false }
+    entries.putAll(stored)
     root().listFiles()?.forEach { if (it.name.endsWith(".incoming")) it.delete() }
     root().listFiles()?.filter { it.name.startsWith(".") && it.name.endsWith(".removed") }?.forEach { removed ->
       transfers.execute { removed.deleteRecursively() }
-    }
-    @Suppress("UNCHECKED_CAST") val stored = try { PorticoListeningOwner.parse(File(root(), "manifest.json").readBytes()) as? Map<String, Any?> } catch (_: Exception) { null }
-    stored?.forEach { (key, value) ->
-      @Suppress("UNCHECKED_CAST") val entry = value as? Map<String, Any?> ?: return@forEach
-      if (!safeIdentifier(key)) return@forEach
-      val copy = HashMap(entry)
-      // The process that was moving it is gone. Its bytes are in partial.part; the app starts it
-      // again (it was not the person who stopped it).
-      if (copy["state"] == "downloading") { copy["state"] = "paused"; copy["error"] = ""; copy["waiting"] = "" }
-      entries[key] = copy
     }
     try {
       (app.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
@@ -149,10 +148,16 @@ internal object PorticoDownloadCenter {
         override fun onAvailable(network: Network) = post { networkChanged() }
       })
     } catch (_: Exception) {}
+    // Only the serial owner may publish a completely decoded manifest. A failed read above
+    // leaves both the original bytes and the not-loaded state intact for an explicit retry.
+    for ((id, entry) in entries.toList()) if (entry["state"] == "removed") finishRemoval(id, entry)
+    loaded = true
+    return true
   }
 
   private fun networkChanged() {
-    if (!cellular && onCellular()) { for ((id, transfer) in active.toList()) hold(id, transfer, "wifi"); return }
+    if (!loaded) return
+    if (!cellular && onCellular()) { for ((id, transfer) in active.toList()) if (transfer.networkStarted) hold(id, transfer, "wifi"); return }
     // Whatever was waiting for a network it may use starts again under the address it had. An
     // address that has run out answers 401, and the app then renews it.
     for ((id, entry) in entries.toList()) {
@@ -165,19 +170,20 @@ internal object PorticoDownloadCenter {
   private fun directory(id: String) = File(root(), id)
   private fun partial(id: String) = File(directory(id), "partial.part")
 
-  private fun save(): Boolean = try {
-    val target = File(root(), "manifest.json")
-    val holding = File(root(), "manifest.json.tmp")
-    FileOutputStream(holding).use { it.write(PorticoListeningOwner.json(entries).toByteArray(Charsets.UTF_8)); it.fd.sync() }
-    holding.renameTo(target)
-  } catch (_: Exception) { false }
+  private fun save(): Boolean = try { loaded && manifest.write(PorticoListeningOwner.json(entries)) } catch (_: Exception) { false }
+
+  private fun parseRecord(raw: String): Any? {
+    val parser = org.json.JSONTokener(raw)
+    check(parser.nextValue() is org.json.JSONObject && parser.nextClean() == '\u0000')
+    return PorticoListeningOwner.parse(raw.toByteArray(Charsets.UTF_8))
+  }
 
   private fun changed(id: String, force: Boolean) {
     // Progress arrives many times a second; the interface needs it about twice a second.
     val now = System.currentTimeMillis()
     if (!force && now - (lastEmit[id] ?: 0) < 500) return
     lastEmit[id] = now
-    onChanged?.invoke(entries[id]?.let { published(id, it) } ?: mapOf("id" to id, "state" to "removed"))
+    onChanged?.invoke(entries[id]?.takeUnless { it["state"] == "removed" }?.let { published(id, it) } ?: mapOf("id" to id, "state" to "removed"))
   }
 
   /** An entry as JavaScript sees it: what is stored, plus where its folder is right now. */
@@ -197,10 +203,14 @@ internal object PorticoDownloadCenter {
 
   // --- the JavaScript interface (all on the bookkeeping thread) --------------------------------
 
-  fun list(): List<Map<String, Any?>> = entries.map { (id, entry) -> published(id, entry) }
+  fun list(): List<Map<String, Any?>> {
+    check(loaded)
+    return entries.filterValues { it["state"] != "removed" }.map { (id, entry) -> published(id, entry) }
+  }
 
   /** The entry as it stands once the transfer has begun, or null for an invalid request. */
   fun start(request: Map<String, Any?>): Map<String, Any?>? {
+    if (!loaded) return null
     val id = request["id"] as? String
     val url = request["url"] as? String
     val wanted = (request["sha256"] as? String)?.lowercase() ?: ""
@@ -208,6 +218,7 @@ internal object PorticoDownloadCenter {
     if (!safeIdentifier(id) || !SHA256.matches(wanted) || bytes == null || url == null || !(url.startsWith("https://") || url.startsWith("http://"))) return null
     id!!
     val entry = entries[id] ?: HashMap()
+    if (entry["state"] == "removed") return null
     if (entry["state"] == "ready") return published(id, entry)
     retirePublicationGeneration(id)
     // Continue and retry both arrive here: an earlier transfer for the same download ends first.
@@ -229,6 +240,13 @@ internal object PorticoDownloadCenter {
     return published(id, entry)
   }
 
+  /** A delayed grant is not permission to recreate a removed or replaced download. */
+  fun resume(request: Map<String, Any?>): Map<String, Any?>? {
+    val id = request["id"] as? String ?: return null
+    if (!isGeneration(id, request["expectedGeneration"] as? String)) return null
+    return start(request)
+  }
+
   /** Starts, or starts again, moving one entry's bytes from `url`. */
   private fun begin(id: String, url: String, entry: MutableMap<String, Any?>) {
     active.remove(id)?.let { it.stopped = "superseded"; it.call?.cancel() }
@@ -247,24 +265,37 @@ internal object PorticoDownloadCenter {
     active[id] = transfer
     save()
     changed(id, true)
-    if (!cellular && onCellular()) { hold(id, transfer, "wifi"); return }
     running = active.size
     PorticoDownloadService.keepAlive(app)
     PorticoDownloadJob.schedule(app, cellular)
     directory(id).mkdirs()
+    val final = File(directory(id), safeFileName(entry["fileName"] as? String))
     // Cancellation closes the HTTP call asynchronously. The next attempt must wait for that
     // worker to close its file before inspecting, truncating or appending the partial file.
-    fileWork.execute(id) {
-      if (transfer.stopped == null) {
-        if (prepareDownloadPartial(directory(id), digest)) transfer(id, url, transfer)
-        else post { finish(id, transfer, partial(id), "storage_full", "") }
+    fileWork.execute(id) verifyFile@ {
+      if (transfer.stopped != null) return@verifyFile
+      val verified = verifiedDownloadFile(final, bytes, digest) { transfer.stopped != null }
+      post {
+        if (transfer.stopped != null || accepts(id, transfer) == null) return@post
+        when (downloadStart(verified, cellular, ::onCellular)) {
+          DownloadStart.ADOPT -> finish(id, transfer, final, null, digest)
+          DownloadStart.WAIT_FOR_WIFI -> hold(id, transfer, "wifi")
+          DownloadStart.TRANSFER -> {
+            transfer.networkStarted = true
+            fileWork.execute(id) fetchFile@ {
+              if (transfer.stopped != null) return@fetchFile
+              if (prepareDownloadPartial(directory(id), digest)) transfer(id, url, transfer)
+              else post { finish(id, transfer, partial(id), "storage_full", "") }
+            }
+          }
+        }
       }
     }
   }
 
   private fun accepts(id: String, transfer: Transfer): MutableMap<String, Any?>? {
     val entry = entries[id] ?: return null
-    return if (entry["state"] != "ready" && entry["taskIdentifier"] == transfer.attempt && active[id] === transfer) entry else null
+    return if (entry["state"] != "ready" && entry["state"] != "removed" && entry["taskIdentifier"] == transfer.attempt && active[id] === transfer) entry else null
   }
 
   /** Stops a transfer that is to carry on by itself: it stays "downloading", and says what it waits for. */
@@ -283,26 +314,37 @@ internal object PorticoDownloadCenter {
   }
 
   /** Stops a transfer for good until somebody starts it again. `intent` records who stopped it. */
-  private fun suspend(id: String, transfer: Transfer?, intent: String) {
+  private fun suspend(id: String, transfer: Transfer?, intent: String): Boolean {
+    val entry = if (transfer != null) accepts(id, transfer) else entries[id]
+    val paused = pausedDownloadEntry(entry, intent) ?: return true
+    if (!commitDownloadEntry(entries, id, paused, ::save)) return false
     transfer?.stopped = "paused"
     transfer?.call?.cancel()
-    val entry = (if (transfer != null) accepts(id, transfer) else entries[id]?.takeIf { it["state"] == "downloading" }) ?: return
     active.remove(id)
-    entry["state"] = "paused"
-    entry["waiting"] = ""
-    entry["error"] = ""
-    entry["intent"] = intent
-    save()
+    retirePublicationGeneration(id)
     changed(id, true)
     release()
+    return true
   }
 
   /** The person paused it: it stays paused until they continue it. */
-  fun pause(id: String?) { suspend(id ?: return, active[id], "hold") }
+  fun pause(id: String?): String? {
+    if (!loaded) return "read_failed"
+    if (!safeIdentifier(id)) return "invalid_download"
+    return if (suspend(id!!, active[id], "hold")) null else "write_failed"
+  }
 
   /** The system is ending the service (or the job) that keeps transfers alive: they stop, keeping their bytes, and the job or the app starts them again. */
   fun interruptAll() {
-    for ((id, transfer) in active.toList()) suspend(id, transfer, "run")
+    for ((id, transfer) in active.toList()) if (!suspend(id, transfer, "run")) {
+      // The system is stopping us even if storage refuses the paused record. Keep the bytes;
+      // the previous durable run intent still lets the next process continue them.
+      transfer.stopped = "paused"; transfer.call?.cancel(); active.remove(id)
+      entries[id]?.let { it["state"] = "paused"; it["waiting"] = ""; it["error"] = "transfer_failed" }
+      retirePublicationGeneration(id)
+      changed(id, true)
+      release()
+    }
     if (unfinished()) PorticoDownloadJob.schedule(app, cellular)
   }
 
@@ -319,7 +361,7 @@ internal object PorticoDownloadCenter {
    * address it had. False when there is nothing to carry on (the job then ends and is cancelled).
    */
   fun resumeUnfinished(): Boolean {
-    if (!cellular && onCellular()) return unfinished()
+    if (!loaded) return false
     for ((id, entry) in entries.toList()) {
       val url = entry["grantUrl"] as? String ?: continue
       if (active[id] == null && resumable(entry)) { entry["error"] = ""; begin(id, url, entry) }
@@ -344,30 +386,51 @@ internal object PorticoDownloadCenter {
     if (!safeIdentifier(id)) return "invalid_download"
     id!!
     if (!isGeneration(id, generation)) return "generation_changed"
-    return if (remove(id)) null else "invalid_download"
+    return remove(id)
   }
 
-  fun remove(id: String?): Boolean {
-    if (!safeIdentifier(id)) return false
+  /** A durable tombstone precedes cancellation or file removal, so a full disk cannot make
+   * removal appear successful and then resurrect the row on the next process start. */
+  fun remove(id: String?): String? {
+    if (!loaded) return "read_failed"
+    if (!safeIdentifier(id)) return "invalid_download"
     id!!
-    val folder = directory(id)
-    val removed = File(root(), ".$id-${java.util.UUID.randomUUID()}.removed")
-    if (folder.exists() && !folder.renameTo(removed)) return false
+    val entry = entries[id] ?: return null
+    if (entry["state"] == "removed") { finishRemoval(id, entry); return null }
+    val removed = HashMap(entry).apply { put("state", "removed"); remove("grantUrl") }
+    if (!commitDownloadEntry(entries, id, removed, ::save)) return "write_failed"
     retirePublicationGeneration(id)
     active.remove(id)?.let { it.stopped = "removed"; it.call?.cancel() }
-    entries.remove(id)
-    // Removing and immediately downloading again uses the same directory. Removal belongs
-    // between the old writer and the replacement writer, without blocking bookkeeping.
-    fileWork.execute(id) { removed.deleteRecursively() }
-    save()
+    finishRemoval(id, removed)
     changed(id, true)
     release()
-    return true
+    return null
+  }
+
+  private fun finishRemoval(id: String, tombstone: MutableMap<String, Any?>) {
+    if (entries[id] !== tombstone || !removing.add(id)) return
+    val folder = directory(id)
+    val removed = File(root(), ".$id-${java.util.UUID.randomUUID()}.removed")
+    val moved = try { !downloadPathExists(folder) || folder.renameTo(removed) } catch (_: Exception) { false }
+    if (moved) {
+      entries.remove(id)
+      removing.remove(id)
+      // The committed tombstone is sufficient until the next ordinary manifest save. A crash
+      // here cleans the renamed directory and the tombstone on the next open.
+      fileWork.execute(id) { removed.deleteRecursively() }
+    } else {
+      // Do not admit a replacement under this directory while the old writer is closing. The
+      // hidden tombstone survives a failed deletion and is retried on the next open/remove.
+      fileWork.execute(id) {
+        val deleted = folder.deleteRecursively()
+        post { removing.remove(id); if (deleted && entries[id] === tombstone) entries.remove(id) }
+      }
+    }
   }
 
   /** Null when saved; otherwise the rejection code. */
   fun setMeta(id: String?, meta: String?): String? {
-    val entry = entries[id] ?: return "not_found"
+    val entry = entries[id]?.takeUnless { it["state"] == "removed" } ?: return "not_found"
     if (meta == null || meta.length >= 65536) return "too_large"
     val previous = entry["meta"]
     if (previous != meta) retirePublicationGeneration(id!!)
@@ -380,11 +443,11 @@ internal object PorticoDownloadCenter {
   /** Several entries' details in one write of the manifest. Null when saved; otherwise the rejection code. */
   fun setMetas(metas: Map<String, Any?>): String? {
     for ((id, meta) in metas) {
-      if (entries[id] != null && (meta !is String || meta.length >= 65536)) return "too_large"
+      if (entries[id]?.get("state") != "removed" && entries[id] != null && (meta !is String || meta.length >= 65536)) return "too_large"
     }
     val previous = HashMap<String, Any?>()
     for ((id, meta) in metas) {
-      val entry = entries[id] ?: continue
+      val entry = entries[id]?.takeUnless { it["state"] == "removed" } ?: continue
       previous[id] = entry["meta"]
       if (entry["meta"] != meta) retirePublicationGeneration(id)
       entry["meta"] = meta
@@ -400,7 +463,7 @@ internal object PorticoDownloadCenter {
   // --- what travels with a download: its description, artwork and subtitles -------------------
 
   private fun extra(id: String?, name: String?): File? {
-    if (!safeIdentifier(id) || entries[id] == null || name == null || !EXTRA.matches(name)) return null
+    if (!safeIdentifier(id) || entries[id] == null || entries[id]?.get("state") == "removed" || name == null || !EXTRA.matches(name)) return null
     // All generic read/write/fetch paths reject reserved aliases even on case-insensitive storage.
     if (name.startsWith("reader-state-", ignoreCase = true) || (name.equals("publication.json", ignoreCase = true) && name != "publication.json")) return null
     return File(File(directory(id!!), "extras"), name)
@@ -589,13 +652,12 @@ internal object PorticoDownloadCenter {
     networkChanged()
   }
 
-  fun readState(): String = try { File(root(), "state.json").readText(Charsets.UTF_8) } catch (_: Exception) { "" }
+  fun readState(): String {
+    check(loaded)
+    return state.read { raw -> if (raw != null) parseRecord(raw); raw ?: "" }
+  }
 
-  fun writeState(json: String): Boolean = try {
-    val holding = File(root(), "state.json.tmp")
-    FileOutputStream(holding).use { it.write(json.toByteArray(Charsets.UTF_8)); it.fd.sync() }
-    holding.renameTo(File(root(), "state.json"))
-  } catch (_: Exception) { false }
+  fun writeState(json: String): Boolean = loaded && state.write(json)
 
   /** The file of a finished download, or the rejection code (`not_ready`, `missing_file`). */
   fun file(id: String?): Any {
@@ -725,8 +787,8 @@ internal object PorticoDownloadCenter {
     if (error == "verification_failed") part.delete()
     if (error == null) {
       val final = File(directory(id), safeFileName(entry["fileName"] as? String))
-      final.delete()
-      if (part.renameTo(final)) {
+      if (part != final) final.delete()
+      if (part == final || part.renameTo(final)) {
         val size = final.length().toDouble()
         entry["state"] = "ready"; entry["error"] = ""; entry["bytes"] = size; entry["bytesDone"] = size
         entry["file"] = final.name
@@ -761,19 +823,7 @@ internal object PorticoDownloadCenter {
     }
   }
 
-  private fun sha256(file: File, transfer: Transfer): String = try {
-    val digest = MessageDigest.getInstance("SHA-256")
-    file.inputStream().use { input ->
-      val buffer = ByteArray(1 shl 20)
-      while (true) {
-        if (transfer.stopped != null) return ""
-        val read = input.read(buffer)
-        if (read == -1) break
-        digest.update(buffer, 0, read)
-      }
-    }
-    PorticoRecordStore.hex(digest.digest())
-  } catch (_: Exception) { "" }
+  private fun sha256(file: File, transfer: Transfer): String = downloadFileDigest(file) { transfer.stopped != null }
 
   private fun safeIdentifier(value: String?): Boolean = value != null && IDENTIFIER.matches(value)
 
@@ -863,14 +913,16 @@ class PorticoDownloadJob : JobService() {
   @Volatile private var params: JobParameters? = null
 
   override fun onStartJob(params: JobParameters?): Boolean {
+    if (params == null) return false
     this.params = params
     running = true
     // A user-initiated data transfer (Android 14 and later) shows its notification for as long as it runs.
-    if (Build.VERSION.SDK_INT >= 34 && params != null && params.isUserInitiatedJob) {
+    if (Build.VERSION.SDK_INT >= 34 && params.isUserInitiatedJob) {
       try { setNotification(params, PorticoDownloadService.NOTIFICATION, PorticoDownloadService.notification(this), JOB_END_NOTIFICATION_POLICY_REMOVE) } catch (_: Exception) {}
     }
-    PorticoDownloadCenter.open(applicationContext)
     PorticoDownloadCenter.post {
+      if (this.params !== params) return@post
+      if (!PorticoDownloadCenter.open(applicationContext)) { finish(true); return@post }
       PorticoDownloadCenter.onIdle = { finish() }
       if (!PorticoDownloadCenter.resumeUnfinished()) finish()
     }
@@ -888,14 +940,14 @@ class PorticoDownloadJob : JobService() {
   }
 
   /** On the bookkeeping thread: nothing is moving any more. */
-  private fun finish() {
+  private fun finish(retry: Boolean = PorticoDownloadCenter.hasUnfinished()) {
     val current = params ?: return
     params = null
     running = false
     scheduledCellular = null
     scheduledUserInitiated = false
     PorticoDownloadCenter.onIdle = null
-    try { jobFinished(current, PorticoDownloadCenter.hasUnfinished()) } catch (_: Exception) {}
+    try { jobFinished(current, retry) } catch (_: Exception) {}
   }
 
   companion object {

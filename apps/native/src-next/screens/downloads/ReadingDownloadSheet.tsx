@@ -90,7 +90,7 @@ export function NativeReadingDownloadSheet({context, request}: {context: NativeS
     const policy = version.policy;
     if (!opening.current() || opening.pending || !opening.versions.includes(version) || !version.inventoryAvailable || !['epub', 'pdf', 'cbz'].includes(version.format) || !policy.policy.allowDownloads || !policy.source.available || !policy.options.some(value => value.quality === 'original' && value.available) || !Number.isSafeInteger(version.size) || version.size < 1 || version.size > 2 ** 31) return;
     const device = opening.lease.device.getSnapshot();
-    if (!device.ready || version.size > device.freeBytes || policy.storage.remainingBytes !== null && policy.storage.remainingBytes !== undefined && version.size > policy.storage.remainingBytes) return;
+    if (!device.ready || opening.lease.device.admission?.(version.size) || version.size > device.freeBytes || policy.storage.remainingBytes !== null && policy.storage.remainingBytes !== undefined && version.size > policy.storage.remainingBytes) return;
     opening.pending = true; setState(value => value.opening === opening && opening.current() ? {...value, busy: version.sourceId, error: undefined} : value);
     try {
       const operationId = 'reading_' + Array.from(nativeRouteCrypto.random(16), byte => byte.toString(16).padStart(2, '0')).join('');
@@ -117,16 +117,17 @@ export function NativeReadingDownloadSheet({context, request}: {context: NativeS
     // A retained event must retire with its exact opening before touching the
     // borrowed device; a stale opening's lease is already released.
     if (!opened || !opened.current()) return false;
-    const policy = version.policy;
-    return !!policy && version.inventoryAvailable && policy.policy.allowDownloads && policy.source.available
-      && policy.options.some(value => value.quality === 'original' && value.available) && version.size > 0 && !shown.busy
-      && version.size <= opened.lease.device.getSnapshot().freeBytes
+    const policy = version.policy, device = opened.lease.device.getSnapshot();
+    return device.ready && !!policy && version.inventoryAvailable && policy.policy.allowDownloads && policy.source.available
+      && policy.options.some(value => value.quality === 'original' && value.available) && Number.isSafeInteger(version.size) && version.size > 0 && version.size <= 2 ** 31 && !shown.busy
+      && !opened.lease.device.admission?.(version.size) && version.size <= device.freeBytes
       && (policy.storage.remainingBytes === undefined || policy.storage.remainingBytes === null || version.size <= policy.storage.remainingBytes);
   };
   // An explicit honest choice stays chosen even if it becomes unavailable; the
   // primary action then disables instead of silently switching the format.
   const selectedVersion = versions.find(value => value.sourceId === selected) ?? versions.find(ready) ?? versions[0];
   const opening = shown.opening, freeBytes = opening?.lease.device.getSnapshot().freeBytes;
+  const admission = selectedVersion && opening?.current() ? opening.lease.device.admission?.(selectedVersion.size) : undefined;
   const surface = {open: true as const, title: t('action.download'), description: request.title, testID: 'native-reading-download-sheet',
     onOpenChange: (open: boolean) => {if (!open) close(shown.opening);}};
   // tablet-read#1b/12b: the upright side panel draws its own radio rows and a
@@ -148,6 +149,7 @@ export function NativeReadingDownloadSheet({context, request}: {context: NativeS
       {!shown.versions && shown.error === undefined && nativePublicationReadsAvailable() && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('status.loading')}</Text>}
       {(!nativePublicationReadsAvailable() || shown.versions && !versions.length) && <StateView variant="inline" title={t('next.states.pageFailed')} body={t('next.states.pageFailedBody')}/>}
       {blocked && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{downloadReasonMessage(shown.policy!.policy.reason) || t('downloads.offForProfile')}</Text>}
+      {!blocked && !!admission && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{admission}</Text>}
       {shown.error !== undefined && <StateView variant="inline" title={t('next.states.pageFailed')} body={t('next.states.pageFailedBody')}
         primaryAction={{id: 'retry', label: t('next.states.tryAgain'), onPress: () => {if (shown.opening?.current() && !shown.opening.pending) setRetry(value => value + 1);}}}/>}
     </>;

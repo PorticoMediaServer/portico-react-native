@@ -38,17 +38,18 @@ int main(void) {
     NSData *plain = [NSPropertyListSerialization dataWithPropertyList:info format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil];
     NSData *keyed = [NSKeyedArchiver archivedDataWithRootObject:info requiringSecureCoding:NO error:nil];
     for (NSData *resume in @[plain, keyed]) {
-      NSData *moved = PorticoDownloadRetargetResume(resume, newURL);
+      NSData *moved = PorticoDownloadRetargetResume(resume, newURL, NO);
       NSCAssert(moved.length > 0, @"resume data was not moved");
       NSDictionary *read = resume == keyed ? [NSKeyedUnarchiver unarchivedObjectOfClasses:[NSSet setWithArray:@[NSDictionary.class, NSString.class, NSNumber.class, NSData.class]] fromData:moved error:nil] : [NSPropertyListSerialization propertyListWithData:moved options:0 format:NULL error:nil];
       NSCAssert([read[@"NSURLSessionDownloadURL"] isEqual:newURL.absoluteString], @"download address not moved");
       NSCAssert([read[@"NSURLSessionResumeBytesReceived"] isEqual:@1000], @"bytes received lost");
       NSURLRequest *current = PorticoDownloadArchivedRequest(read[@"NSURLSessionResumeCurrentRequest"]);
       NSCAssert([current.URL isEqual:newURL] && [[current valueForHTTPHeaderField:@"Range"] isEqual:@"bytes=1000-"], @"request not moved or its range lost");
+      NSCAssert(!current.allowsCellularAccess && !current.allowsExpensiveNetworkAccess, @"Wi-Fi-only choice not written into the saved request");
       NSCAssert([PorticoDownloadArchivedRequest(read[@"NSURLSessionResumeOriginalRequest"]).URL isEqual:newURL], @"original request not moved");
     }
-    NSCAssert(PorticoDownloadRetargetResume([@"not a plist" dataUsingEncoding:NSUTF8StringEncoding], newURL) == nil, @"garbage resume data accepted");
-    NSCAssert(PorticoDownloadRetargetResume([NSPropertyListSerialization dataWithPropertyList:@{@"other": @1} format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil], newURL) == nil, @"resume data without an address accepted");
+    NSCAssert(PorticoDownloadRetargetResume([@"not a plist" dataUsingEncoding:NSUTF8StringEncoding], newURL, YES) == nil, @"garbage resume data accepted");
+    NSCAssert(PorticoDownloadRetargetResume([NSPropertyListSerialization dataWithPropertyList:@{@"other": @1} format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil], newURL, YES) == nil, @"resume data without an address accepted");
     NSLog(@"PASS download attempt fencing: replacement, serialized restart, completed/removed files, missing identity, resume policy, moved address");
   }
 }

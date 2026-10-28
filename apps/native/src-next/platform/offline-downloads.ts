@@ -2,14 +2,16 @@ import {offlineDownloads, offlineOwnerKey, type OfflineDownloads, type OfflineEn
 import {serviceText} from '../../../../packages/client-core/src/presentation/service-text';
 
 export {groupOfflineEntries} from '../../platform/offline-downloads';
-export type {OfflineEntry, OfflineSettings, OfflineSnapshot, OfflineGroup, OfflinePlayabilityReason, OfflineEntryFacts, OfflineReadingFacts, OfflineOthersTarget} from '../../platform/offline-downloads';
+export type {OfflineEntry, OfflineSettings, OfflineSnapshot, OfflineGroup, OfflinePlayabilityReason, OfflineEntryFacts, OfflineReadingFacts, OfflineOthersTarget, OfflinePendingDownload} from '../../platform/offline-downloads';
 
 /** The shell alone binds the current viewer/server through adopt/connect/disconnect. */
 export {offlineDownloads};
 export type {OfflineDownloads};
 
-type DeviceDownloads = Pick<OfflineDownloads, 'getSnapshot' | 'subscribe' | 'open' | 'setSettings' | 'pause' | 'resume' | 'remove' | 'removeOthersConfirmed' | 'playable' | 'playabilityReason' | 'displayFacts' | 'note' | 'localMedia'> & Partial<Pick<OfflineDownloads, 'publicationSource' | 'readingFacts'>>;
+type DeviceDownloads = Pick<OfflineDownloads, 'getSnapshot' | 'subscribe' | 'open' | 'setSettings' | 'pause' | 'resume' | 'remove' | 'removeOthersConfirmed' | 'playable' | 'playabilityReason' | 'displayFacts' | 'note' | 'localMedia'> & Partial<Pick<OfflineDownloads, 'publicationSource' | 'readingFacts' | 'admission' | 'cancelPending'>>;
 export type NativeOfflineDownloadsAdapter = Readonly<{
+  admission?: OfflineDownloads['admission'];
+  cancelPending?: OfflineDownloads['cancelPending'];
   publicationSource?: OfflineDownloads['publicationSource'];
   readingFacts?: OfflineDownloads['readingFacts'];
   getSnapshot: DeviceDownloads['getSnapshot'];
@@ -46,6 +48,8 @@ export function createNativeOfflineDownloadsAdapter(
     return live;
   };
   return Object.freeze({
+    ...(device.admission ? {admission: (bytes: number) => device.admission!(bytes)} : {}),
+    ...(device.cancelPending ? {cancelPending: (id: string) => device.cancelPending!(id)} : {}),
     ...(device.publicationSource ? {publicationSource: (entry: OfflineEntry) => device.publicationSource!(entry)} : {}),
     ...(device.readingFacts ? {readingFacts: async (entry: OfflineEntry) => {
       const facts = await device.readingFacts!(current(entry)); current(entry); return facts;

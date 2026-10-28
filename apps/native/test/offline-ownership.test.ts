@@ -814,10 +814,10 @@ test('APP-02: a completed request from an old download sheet cannot enqueue for 
   await settle();
   offlineDownloads.connect(s.api, second as unknown as DownloadsService, B);
   await settle();
-  await offlineDownloads.want(['item-held'], {title: 'Old request'}, first as unknown as DownloadsService);
+  await offlineDownloads.want([next as any], {title: 'Old request'}, first as unknown as DownloadsService);
   await settle();
   assert.deepEqual(device.started, []);
-  assert.equal(JSON.parse(device.state).wanted[ownerKeyOf(B)]?.['item-held'], undefined);
+  assert.equal(JSON.parse(device.state).wanted[ownerKeyOf(B)]?.['prep-held'], undefined);
 });
 
 test('an acknowledgement cannot erase a newer observation made in the same millisecond', async t => {
@@ -898,9 +898,9 @@ test('network wake retries deferred progress and next-episode work without recon
   device.state = JSON.stringify({...JSON.parse(storedWithKeys()), settings: {autoNext: true},
     plays: {[owner]: {pending: {playId: 'pending', itemId: 'episode-1', positionSeconds: 10, observedAt}}},
     nextAfter: {[owner]: {'episode-1': {quality: 'original'}}}});
-  let offline = true, requested = 0;
+  let offline = true, requestedOnline = 0;
   const service = downloadsService();
-  service.request = async () => {requested++; if (offline) throw new Error('offline'); return service.nextBatch;};
+  service.request = async () => {if (offline) throw new Error('offline'); requestedOnline++; return service.nextBatch;};
   const s = server().route('/v1/downloads/receipt-keys', KEYS).route('/v1/downloads/progress', body => {if (offline) throw new Error('offline'); return APPLIED(body);});
   offlineDownloads.connect(s.api, service as unknown as DownloadsService, A);
   await settle();
@@ -909,7 +909,7 @@ test('network wake retries deferred progress and next-episode work without recon
   await settle();
   assert.deepEqual(JSON.parse(device.state).plays[owner], {});
   assert.deepEqual(JSON.parse(device.state).nextAfter[owner], {});
-  assert.equal(requested, 2);
+  assert.equal(requestedOnline, 1, 'one wake retries the next-episode request once');
 });
 
 test('a continuously connected viewer renews receipts on the next day, once per overlapping wake', async t => {

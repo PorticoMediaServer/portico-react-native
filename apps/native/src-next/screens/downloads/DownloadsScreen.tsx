@@ -123,7 +123,8 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
 
   const groups = downloadGroups(snapshot.entries), storage = downloadStorageSegments(snapshot);
   const requests = useSyncExternalStore(service ? service.subscribe : noSubscribe, service ? () => service.getSnapshot().requests : noRequests);
-  const empty = snapshot.ready && snapshot.entries.length === 0 && requests.length === 0;
+  const waiting = snapshot.pendingDownloads ?? [];
+  const empty = snapshot.ready && snapshot.entries.length === 0 && requests.length === 0 && waiting.length === 0;
   // tablet-read12 draws Saved › Downloads at the expanded width: what the device
   // holds and what is left, then the profile's actual reading publications and
   // everything else as two-column lists. Phone and medium keep today's page.
@@ -179,6 +180,7 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
     <ScrollView ref={scroll} style={{flex: 1}} contentContainerStyle={{paddingTop: inline ? 8 : 0, paddingBottom: 28}}>
       {!snapshot.supported ? <StateView title={t('downloads.unavailableOnDevice')}/> : <>
         {failure && <StateView {...runtime.error(failure, () => run(device.open))}/>}
+        {snapshot.error && <StateView title={snapshot.error} tone="error"/>}
         {empty && <View style={{paddingTop: 58, paddingHorizontal: 24, alignItems: 'center'}}>
           <View style={{width: 54, height: 54, borderRadius: 27, backgroundColor: alpha(theme.colors.text, .08), alignItems: 'center', justifyContent: 'center', marginBottom: 18}}><Icon name="i-dl" size={26} color={theme.colors.text}/></View>
           <Text accessibilityRole="header" style={[browseType(theme, 30, 800, -.035, 32.4), {color: theme.colors.text, textAlign: 'center', marginBottom: 10}]}>{t('next.states.native.noDownloads')}</Text>
@@ -214,6 +216,17 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
               <Text style={[browseType(theme, 13, 400), {color: theme.colors.textTertiary, marginTop: 3}]}>{requestText(tracked)}</Text>
             </View>)}
           </View>
+        </View>}
+        {waiting.length > 0 && <View testID="downloads-waiting" style={{marginTop: 18, marginHorizontal: 16, backgroundColor: theme.colors.raised, borderRadius: 14, overflow: 'hidden'}}>
+          {waiting.map((entry, index) => <View key={entry.id} testID={`downloads-waiting-${entry.id}`}
+            style={{paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: index ? 1 : 0, borderTopColor: alpha(theme.colors.lineStrong, .45), flexDirection: 'row', alignItems: 'center', gap: 12}}>
+            <View style={{flex: 1, minWidth: 0}}>
+              <Text numberOfLines={1} style={[browseType(theme, 15, 700), {color: theme.colors.text}]}>{entry.title}</Text>
+              {!!entry.subtitle && <Text style={[browseType(theme, 13, 400), {color: theme.colors.textTertiary, marginTop: 3}]}>{entry.subtitle}</Text>}
+              <Text style={[browseType(theme, 13, 400), {color: theme.colors.amber, marginTop: 3}]}>{entry.reason}</Text>
+            </View>
+            {device.cancelPending && <Chip testID={`downloads-cancel-${entry.id}`} disabled={pending} onPress={() => run(() => device.cancelPending!(entry.id))}>{t('action.cancel')}</Chip>}
+          </View>)}
         </View>}
         {expanded && !empty ? <View style={rulesBeside ? {flexDirection: 'row', alignItems: 'flex-start'} : undefined}>
           <View style={rulesBeside ? {flex: 1, minWidth: 0} : undefined}>

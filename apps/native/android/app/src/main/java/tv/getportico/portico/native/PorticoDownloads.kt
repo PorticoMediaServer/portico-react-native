@@ -63,7 +63,10 @@ class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(co
   }
 
   @ReactMethod
-  fun list(promise: Promise) = PorticoDownloadCenter.post { promise.resolve(Arguments.makeNativeArray(PorticoDownloadCenter.list())) }
+  fun list(promise: Promise) = PorticoDownloadCenter.post {
+    try { check(PorticoDownloadCenter.open(reactApplicationContext)); promise.resolve(Arguments.makeNativeArray(PorticoDownloadCenter.list())) }
+    catch (_: Exception) { promise.reject("read_failed", "Downloads could not be read.") }
+  }
 
   @ReactMethod
   fun start(request: ReadableMap?, promise: Promise) {
@@ -75,11 +78,31 @@ class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(co
   }
 
   @ReactMethod
-  fun pause(identifier: String?, promise: Promise) = PorticoDownloadCenter.post { PorticoDownloadCenter.pause(identifier); promise.resolve(null) }
+  fun resume(request: ReadableMap?, promise: Promise) {
+    val value = request?.toHashMap()
+    PorticoDownloadCenter.post {
+      val entry = value?.let { PorticoDownloadCenter.resume(it) }
+      if (entry != null) promise.resolve(Arguments.makeNativeMap(entry))
+      else promise.reject("generation_changed", "This download changed before it could be continued.")
+    }
+  }
+
+  @ReactMethod
+  fun pause(identifier: String?, promise: Promise) = PorticoDownloadCenter.post {
+    when (val error = PorticoDownloadCenter.pause(identifier)) {
+      null -> promise.resolve(null)
+      "write_failed" -> promise.reject(error, "This download could not be paused because its state could not be saved.")
+      else -> promise.reject(error, "The download could not be paused.")
+    }
+  }
 
   @ReactMethod
   fun remove(identifier: String?, promise: Promise) = PorticoDownloadCenter.post {
-    if (PorticoDownloadCenter.remove(identifier)) promise.resolve(null) else promise.reject("invalid_download", "The download is invalid.")
+    when (val error = PorticoDownloadCenter.remove(identifier)) {
+      null -> promise.resolve(null)
+      "write_failed" -> promise.reject(error, "This download could not be removed because its state could not be saved.")
+      else -> promise.reject(error, "The download could not be removed.")
+    }
   }
 
   @ReactMethod
@@ -87,6 +110,7 @@ class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(co
     when (PorticoDownloadCenter.removeGeneration(identifier, generation)) {
       null -> promise.resolve(null)
       "generation_changed" -> promise.reject("generation_changed", "This download changed before it could be removed.")
+      "write_failed" -> promise.reject("write_failed", "This download could not be removed because its state could not be saved.")
       else -> promise.reject("invalid_download", "The download is invalid.")
     }
   }
@@ -159,7 +183,10 @@ class PorticoDownloads(context: ReactApplicationContext) : PorticoEventModule(co
   fun setCellular(allowed: Boolean, promise: Promise) = PorticoDownloadCenter.post { PorticoDownloadCenter.setCellular(allowed); promise.resolve(null) }
 
   @ReactMethod
-  fun readState(promise: Promise) = PorticoDownloadCenter.post { promise.resolve(PorticoDownloadCenter.readState()) }
+  fun readState(promise: Promise) = PorticoDownloadCenter.post {
+    try { check(PorticoDownloadCenter.open(reactApplicationContext)); promise.resolve(PorticoDownloadCenter.readState()) }
+    catch (_: Exception) { promise.reject("read_failed", "Download settings could not be read.") }
+  }
 
   @ReactMethod
   fun writeState(json: String?, promise: Promise) = PorticoDownloadCenter.post {
