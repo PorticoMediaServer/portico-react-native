@@ -14,7 +14,7 @@ import {NativeAccountSecurity} from './account-security';
 type NotificationView = {epoch: number; cursors: (string | undefined)[]; index: number; next?: string};
 export type AccountWorkspacePage = 'menu' | 'security' | 'devices' | 'servers' | 'notifications';
 export type AccountWorkspaceSnapshot = Readonly<{page: AccountWorkspacePage; phase: 'idle' | 'loading' | 'ready' | 'failed' | 'ended';
-  failure?: string; mutationFailure?: string; pending?: string | null; retrySession?: string | null; notificationsNext?: boolean; notificationsPrevious?: boolean; sessionsNext?: boolean; sessionsPrevious?: boolean; security?: SecurityState; sessions?: readonly AccountSessionRow[]; servers?: readonly HostedServer[]; notifications?: readonly AccountNotification[]}>;
+  failure?: string; mutationFailure?: string; notice?: string; pending?: string | null; endingOthers?: boolean; retrySession?: string | null; retryOthers?: boolean; notificationsNext?: boolean; notificationsPrevious?: boolean; sessionsNext?: boolean; sessionsPrevious?: boolean; security?: SecurityState; sessions?: readonly AccountSessionRow[]; servers?: readonly HostedServer[]; notifications?: readonly AccountNotification[]}>;
 const changed = () => Object.assign(new Error('native_account_changed'), {code: 'account_changed'});
 
 /** Account-only workspace. No server authority or credentials enter its snapshot. */
@@ -101,7 +101,8 @@ export class NativeAccountWorkspace {
   }
   private sessionState(value: AccountSessionReviewSnapshot): AccountWorkspaceSnapshot {
     return value.phase === 'ready' ? {page: 'devices', phase: 'ready', sessions: value.items,
-      sessionsNext: !!value.nextCursor, sessionsPrevious: value.hasPrevious, pending: value.pending, retrySession: value.retryId, mutationFailure: value.mutationError?.message}
+      sessionsNext: !!value.nextCursor, sessionsPrevious: value.hasPrevious, pending: value.pending, endingOthers: value.endingOthers, retrySession: value.retryId, retryOthers: value.retryOthers,
+      mutationFailure: value.mutationError?.message, notice: value.notice || undefined}
       : {page: 'devices', phase: 'failed', failure: value.error?.message ?? presentError(new Error('native_account_read_failed'), 'portico-account').body};
   }
 
@@ -135,6 +136,27 @@ export class NativeAccountWorkspace {
       }
       this.publish(this.sessionState(result));
     } finally {if (this.current() && this.epoch === epoch) {this.mutation = false; if (this.state.pending) this.publish({...this.state, pending: null});}}
+  }
+
+  /** Signs out every other sign-in of this Portico Account in one request; this device stays signed in.
+   * An unconfirmed outcome is only ever retried as that same operation. */
+  async revokeOtherSessions() {
+    this.assert(); const review = this.sessionReview;
+    if (this.mutation || !review || this.state.page !== 'devices' || this.state.phase !== 'ready') throw changed();
+    const epoch = review.epoch; this.assertEpoch(epoch); this.mutation = true;
+    this.publish({...this.state, endingOthers: true, mutationFailure: undefined, notice: undefined});
+    try {
+      if (review.service.getSnapshot().retryOthers) await review.service.retryRevoke(); else await review.service.revokeOthers();
+      this.assertEpoch(epoch); if (this.sessionReview !== review) throw changed();
+      const result = review.service.getSnapshot();
+      if (result.phase === 'ended') {
+        // This sign-in is never among the ones ended, so a 401 means its bearer lapsed or was
+        // ended elsewhere. Re-read with the renewed session rather than signing it out.
+        await review.service.refresh(); this.assertEpoch(epoch);
+        this.publish({...this.sessionState(review.service.getSnapshot()), mutationFailure: presentError(new Error('native_account_session_outcome_unconfirmed'), 'portico-account').body}); return;
+      }
+      this.publish(this.sessionState(result));
+    } finally {if (this.current() && this.epoch === epoch) {this.mutation = false; if (this.state.endingOthers) this.publish({...this.state, endingOthers: false});}}
   }
 
   async leaveServer(row: HostedServer) {

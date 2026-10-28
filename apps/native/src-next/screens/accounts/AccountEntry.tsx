@@ -679,7 +679,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     else {memberMoveRef.current.cancel(); setStage('member-move');}
   };
   const requestReset = async () => {
-    await account.current!.forgot(username, email);
+    await account.current!.forgot(username);
     if (lifetime.current) {setPassword(''); setCode(''); setStage('forgot-sent');}
   };
   const inspect = async (origin = address) => {
@@ -1388,8 +1388,8 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     <LegalAgreement style={[theme.type.caption, {color: theme.colors.textSecondary, textAlign: 'center', marginTop: 6}]}
       linkStyle={{color: theme.colors.accent, textDecorationLine: 'underline'}} onOpenLink={openLegalLink}/></View>);
   if (stage === 'forgot') return layout(t('auth.forgotPasswordTitle'), t('auth.resetLinkLede'),
-    fields(field(t('auth.username'), username, setUsername), field(t('auth.email'), email, setEmail)),
-    action('request-reset', t('auth.resetLinkAction'), requestReset, !username.trim() || !/^\S+@\S+\.\S+$/.test(email.trim())),
+    fields(field(t('auth.usernameOrEmail'), username, setUsername, false, 'username')),
+    action('request-reset', t('auth.resetLinkAction'), requestReset, !username.trim()),
     <View style={{alignSelf: 'stretch', gap: 4, marginTop: 4}}>
       <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('auth.privacySameAnswer')}</Text>
       {/* collections 31 draws both privacy sentences on the phone's forgot screen. */}

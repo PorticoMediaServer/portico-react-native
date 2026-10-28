@@ -20,7 +20,7 @@ test('phone Portico sign-in offers account help and returns to its form', async 
   const forgotten: unknown[][] = [];
   class Portico {
     async prepare() {return {password: true, registration: true, recovery: true, providers: []};}
-    async forgot(username: string, email: string) {forgotten.push([username, email]);}
+    async forgot(...identifier: string[]) {forgotten.push(identifier);}
     async password() {throw new Error('not used');}
     dispose() {}
   }
@@ -64,10 +64,13 @@ test('phone Portico sign-in offers account help and returns to its form', async 
     assert.equal(tree.type, 'PhoneAccountSignIn'); assert.equal(tree.props.passwordEnabled, true); assert.equal(tree.props.recovery, true);
     await act(() => tree.props.onForgot());
     assert.equal(tree.props.title, defaultI18n.t('auth.forgotPasswordTitle'));
+    assert.equal(tree.props.body, defaultI18n.t('auth.resetLinkLede'));
+    // One field takes the username or the email on the account, never both.
     const fields = nodes(tree.props.beforeActions).filter(node => node.type === 'Field');
-    await act(() => {fields[0].props.onChangeText('nana_r'); fields[1].props.onChangeText('nana@example.com');});
+    assert.equal(fields.length, 1); assert.equal(fields[0].props.label, defaultI18n.t('auth.usernameOrEmail'));
+    await act(() => {fields[0].props.onChangeText('nana@example.com');});
     await act(() => tree.props.primaryAction.onPress());
-    assert.deepEqual(forgotten, [['nana_r', 'nana@example.com']]);
+    assert.deepEqual(forgotten, [['nana@example.com']]);
     assert.equal(tree.props.title, defaultI18n.t('auth.checkEmail'));
     assert.equal(tree.props.body, defaultI18n.t('auth.resetLinkSent'));
     await act(() => tree.props.primaryAction.onPress());

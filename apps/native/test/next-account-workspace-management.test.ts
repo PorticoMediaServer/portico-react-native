@@ -10,7 +10,7 @@ async function fixture() {
   const memberRow = {id: 'joined', name: 'Joined server', ownedByMe: false, role: 'member', presence: {online: false, lastSeenAt: '2026-01-01T00:00:00Z'}};
   const sessionRow = {id: 'other-family', status: 'active', current: false, mode: 'native', createdAt: '2026-01-01T00:00:00Z', expiresAt: '2027-01-01T00:00:00Z'};
   let sessions: any = {phase: 'ready', items: [sessionRow], pending: null, retryId: null, nextCursor: '', hasPrevious: false};
-  let revokeState: any, receipt: unknown = {};
+  let revokeState: any, othersState: any, receipt: unknown = {};
   const credentials = {getSnapshot: () => ({session}), subscribe: (listener: () => void) => {listeners.add(listener); return () => listeners.delete(listener);}};
   const guard = async (_: unknown, work: (value: typeof session) => Promise<unknown>, opening: any) => {
     if (!opening.isCurrent() || opening.signal.aborted) throw new Error('retired');
@@ -25,7 +25,10 @@ async function fixture() {
       async refresh() {await this.api.request('sessions', 'GET');}
       getSnapshot = () => sessions;
       async revoke(id: string) {calls.push(['revoke', id]); await this.api.request(`session/${id}`, 'DELETE'); sessions = revokeState ?? {...sessions, items: [], retryId: null};}
-      async retryRevoke() {calls.push(['retry', sessions.retryId]); await this.api.request(`session/${sessions.retryId}`, 'DELETE'); sessions = {...sessions, items: [], retryId: null};}
+      async retryRevoke() {
+        if (sessions.retryOthers) {calls.push(['retry-others']); await this.api.request('sessions/revoke-others', 'POST', {operationId: 'kept-operation'}); sessions = othersState ?? {...sessions, retryOthers: false}; return;}
+        calls.push(['retry', sessions.retryId]); await this.api.request(`session/${sessions.retryId}`, 'DELETE'); sessions = {...sessions, items: [], retryId: null};}
+      async revokeOthers() {calls.push(['others']); await this.api.request('sessions/revoke-others', 'POST', {operationId: 'new-operation'}); sessions = othersState ?? {...sessions, notice: 'Signed out of 1 other device.'};}
       dispose() {}
     }},
     '../../../../packages/client-core/src/account-notifications': {AccountNotificationsClient: class {}},
@@ -43,7 +46,7 @@ async function fixture() {
   });
   const service = new NativeAccountWorkspace({accountCredentials: () => credentials, signOutPorticoAccount: async () => {calls.push(['sign-out']);}}, {accountId: 'account', familyId: 'family'}, () => active);
   return {service, calls, sessions: (value: any) => {sessions = value;},
-    revoked: (state: any, value: unknown = {}) => {revokeState = state; receipt = value;},
+    revoked: (state: any, value: unknown = {}) => {revokeState = state; receipt = value;}, othersEnded: (state: any) => {othersState = state;},
     replace: () => {session = {...session, familyId: 'replacement'}; listeners.forEach(listener => listener());}, retire: () => {active = false;}};
 }
 
@@ -102,5 +105,46 @@ test('a confirmed current-family revocation retires exactly that signed-in accou
   f.revoked({phase: 'ended', items: [], pending: null, retryId: null}, {id: 'family', revoked: true, current: true});
   await f.service.revokeSession(f.service.getSnapshot().sessions[0]);
   assert.equal(f.calls.filter(value => value[0] === 'sign-out').length, 1);
+  f.service.dispose();
+});
+
+test('Sign out all other devices is one command that keeps this device signed in', async () => {
+  const f = await fixture(); await f.service.open('devices');
+  await f.service.revokeOtherSessions();
+  assert.deepEqual(f.calls.filter(value => value[0] === 'others'), [['others']]);
+  assert.ok(f.calls.some(value => value[0] === 'http' && value[1] === 'sessions/revoke-others' && value[2] === 'POST'));
+  assert.equal(f.calls.filter(value => value[0] === 'command').length, 1);
+  assert.equal(f.calls.filter(value => value[0] === 'revoke' || value[0] === 'sign-out').length, 0, 'never one device at a time, never this device');
+  assert.equal(f.service.getSnapshot().notice, 'Signed out of 1 other device.');
+  assert.ok(!f.service.getSnapshot().endingOthers);
+  f.service.dispose();
+});
+
+test('an unconfirmed Sign out all other devices is only ever retried as that same operation', async () => {
+  const f = await fixture(); f.sessions({phase: 'ready', items: [], pending: null, retryId: null, retryOthers: true, nextCursor: '', hasPrevious: false});
+  await f.service.open('devices');
+  assert.equal(f.service.getSnapshot().retryOthers, true);
+  await f.service.revokeOtherSessions();
+  assert.deepEqual(f.calls.filter(value => value[0] === 'others' || value[0] === 'retry-others'), [['retry-others']]);
+  f.service.dispose();
+});
+
+test('an ended result from Sign out all other devices never signs this device out', async () => {
+  const f = await fixture(); await f.service.open('devices');
+  f.othersEnded({phase: 'ended', items: [], pending: null, retryId: null});
+  await f.service.revokeOtherSessions();
+  assert.equal(f.calls.filter(value => value[0] === 'sign-out').length, 0);
+  assert.equal(f.service.current(), true);
+  assert.match(f.service.getSnapshot().mutationFailure, /outcome_unconfirmed/);
+  assert.equal(f.calls.filter(value => value[0] === 'others').length, 1, 'the command is not replayed');
+  f.service.dispose();
+});
+
+test('Sign out all other devices is refused for a replaced account or outside the Devices page', async () => {
+  const f = await fixture(); await f.service.open('servers');
+  await assert.rejects(f.service.revokeOtherSessions(), /changed/);
+  await f.service.open('devices'); f.replace();
+  await assert.rejects(f.service.revokeOtherSessions(), /changed/);
+  assert.equal(f.calls.filter(value => value[0] === 'others').length, 0);
   f.service.dispose();
 });

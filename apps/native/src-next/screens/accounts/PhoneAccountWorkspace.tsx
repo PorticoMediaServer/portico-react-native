@@ -7,7 +7,7 @@ import {BottomSheet} from '../../kit/overlays';
 import {useTheme} from '../../kit/theme';
 import {ColourBackdrop} from '../../kit/artwork';
 import type {NativeAccountWorkspace, AccountWorkspacePage, AccountWorkspaceSnapshot} from '../../platform/account-workspace';
-import type {AccountSessionRow} from '../../../../../packages/client-core/src/account-sessions';
+import {accountSessionDevice, type AccountSessionRow} from '../../../../../packages/client-core/src/account-sessions';
 import type {HostedServer} from '../../../../../packages/client-core/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import {PhoneAccountSecurity} from './PhoneAccountSecurity';
@@ -24,7 +24,7 @@ export function PhoneAccountWorkspace({createSource, username, onDone, onFind, o
   const theme = useTheme(), insets = useSafeAreaInsets(), t = defaultI18n.t;
   const opening = useRef<CommittedOpening | undefined>(undefined);
   const [ticket, setTicket] = useState<CommittedOpening>();
-  const [confirm, setConfirm] = useState<{kind: 'session'; row: AccountSessionRow} | {kind: 'server'; row: HostedServer}>();
+  const [confirm, setConfirm] = useState<{kind: 'session'; row: AccountSessionRow} | {kind: 'others'} | {kind: 'server'; row: HostedServer}>();
   const [commandFailure, setCommandFailure] = useState<string>();
   useLayoutEffect(() => {
     if (opening.current) {opening.current.active = false; opening.current.source?.dispose();}
@@ -43,8 +43,10 @@ export function PhoneAccountWorkspace({createSource, username, onDone, onFind, o
   const heading = state.page === 'security' ? t('account.security') : state.page === 'devices' ? t('devices.title')
     : state.page === 'servers' ? t('web.servers.title') : state.page === 'notifications' ? t('web.account.notifications') : t('settings.title');
   const label = (text: string, key?: string) => <Text key={key} style={[theme.type.body, {color: theme.colors.text}]}>{text}</Text>;
+  const caption = (text: string, key?: string) => <Text key={key} style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{text}</Text>;
+  const ending = !!state.pending || !!state.endingOthers, unresolved = !!state.retrySession || !!state.retryOthers;
   const command = (work: () => Promise<void>) => {
-    if (!current() || state.pending) return;
+    if (!current() || ending) return;
     setCommandFailure(undefined);
     void work().then(() => {if (ticket?.active && source?.current()) setConfirm(undefined);}, error => {
       if (ticket?.active && source?.current()) setCommandFailure(presentError(error, 'portico-account').body);
@@ -77,18 +79,30 @@ export function PhoneAccountWorkspace({createSource, username, onDone, onFind, o
         </>}
         {state.security && source && <PhoneAccountSecurity workspace={source} security={state.security}/>}
         {(commandFailure || state.mutationFailure) && <Text accessibilityRole="alert" style={[theme.type.body, {color: theme.colors.danger}]}>{commandFailure || state.mutationFailure}</Text>}
-        {state.sessions?.map(row => <View key={row.id} style={{padding: 16, gap: 8, borderRadius: 12, backgroundColor: theme.colors.raised}}>
-          {label(t(row.mode === 'native' ? 'web.hostedAccount.anApp' : 'web.hostedAccount.aBrowser'))}
-          {row.current && label(t('profile.current'))}
-          {label(t('web.hostedAccount.signedInOn', {date: defaultI18n.date(row.createdAt)}))}
-          {row.status !== 'active' && label(t('web.hostedAccount.ended'))}
-          {row.status === 'active' && <Button testID={`account-device-sign-out-${row.id}`} variant="glass" disabled={!!state.pending || !!state.retrySession} onPress={() => {if (current()) setConfirm({kind: 'session', row});}}>{t('action.signOut')}</Button>}
-        </View>)}
-        {state.retrySession && <Button disabled={!!state.pending} onPress={() => command(() => source!.revokeSession(state.retrySession!))}>{t('action.tryAgain')}</Button>}
-        {state.page === 'devices' && state.phase === 'ready' && <View style={{flexDirection: 'row', gap: 12}}>
-          <Button variant="glass" disabled={!!state.pending || !!state.retrySession || !state.sessionsPrevious} onPress={() => {if (current()) void source?.pageSessions('previous');}}>{t('web.hostedAccount.newer')}</Button>
-          <Button variant="glass" disabled={!!state.pending || !!state.retrySession || !state.sessionsNext} onPress={() => {if (current()) void source?.pageSessions('next');}}>{t('web.hostedAccount.older')}</Button>
-        </View>}
+        {state.notice && <Text accessibilityRole="alert" style={[theme.type.body, {color: theme.colors.text}]}>{state.notice}</Text>}
+        {state.sessions?.map(row => {
+          // Name, app and last use are what the device's app reported; an unknown fact is left out, never guessed.
+          const device = accountSessionDevice(row);
+          return <View key={row.id} testID={`account-device-${row.id}`} style={{padding: 16, gap: 8, borderRadius: 12, backgroundColor: theme.colors.raised}}>
+            {label(device.name)}
+            {row.current && caption(t('device.thisDevice'))}
+            {device.app && caption(device.app)}
+            {caption(t('web.hostedAccount.signedInOn', {date: defaultI18n.date(row.createdAt)}))}
+            {row.lastUsedAt && caption(t('web.hostedAccount.lastUsed', {when: defaultI18n.relativeTime(row.lastUsedAt)}))}
+            {row.status !== 'active' && label(t('web.hostedAccount.ended'))}
+            {row.status === 'active' && !row.current && <Button testID={`account-device-sign-out-${row.id}`} variant="glass" disabled={ending || unresolved} onPress={() => {if (current()) setConfirm({kind: 'session', row});}}>{t('action.signOut')}</Button>}
+          </View>;
+        })}
+        {state.retrySession && <Button disabled={ending} onPress={() => command(() => source!.revokeSession(state.retrySession!))}>{t('action.tryAgain')}</Button>}
+        {state.retryOthers && <Button disabled={ending} onPress={() => command(() => source!.revokeOtherSessions())}>{t('action.tryAgain')}</Button>}
+        {state.page === 'devices' && state.phase === 'ready' && <>
+          <Button testID="account-devices-sign-out-others" variant="glass" loading={!!state.endingOthers} disabled={ending || unresolved || !state.sessions?.some(row => row.status === 'active' && !row.current) && !state.sessionsNext}
+            onPress={() => {if (current()) setConfirm({kind: 'others'});}}>{t('web.hostedAccount.signOutOthers')}</Button>
+          <View style={{flexDirection: 'row', gap: 12}}>
+            <Button variant="glass" disabled={ending || unresolved || !state.sessionsPrevious} onPress={() => {if (current()) void source?.pageSessions('previous');}}>{t('web.hostedAccount.newer')}</Button>
+            <Button variant="glass" disabled={ending || unresolved || !state.sessionsNext} onPress={() => {if (current()) void source?.pageSessions('next');}}>{t('web.hostedAccount.older')}</Button>
+          </View>
+        </>}
         {state.servers?.map(row => <View key={row.id} style={{padding: 16, gap: 8, borderRadius: 12, backgroundColor: theme.colors.raised, opacity: row.presence?.online === false ? .62 : 1}}>
           {label(row.name)}
           {row.ownedByMe === true && label(t('web.hostedAccount.serverOwner'))}
@@ -112,12 +126,14 @@ export function PhoneAccountWorkspace({createSource, username, onDone, onFind, o
         </View>)}
       </>}
     </ScrollView>
-    <BottomSheet testID="account-workspace-confirm" open={!!confirm} onOpenChange={open => {if (!open && !state.pending) setConfirm(undefined);}}
-      title={confirm?.kind === 'server' ? t('web.hostedAccount.leaveTitle', {server: confirm.row.name}) : t('device.signOutThis')}
-      footer={<View style={{gap: 10}}><Button variant="glass" disabled={!!state.pending} onPress={() => setConfirm(undefined)}>{t('action.cancel')}</Button>
-        <Button variant="glass" loading={!!state.pending} style={{backgroundColor: `${theme.colors.danger}24`}} textStyle={{color: theme.colors.danger}} onPress={() => {const captured = confirm; if (!captured) return;
-          command(() => captured.kind === 'server' ? source!.leaveServer(captured.row) : source!.revokeSession(captured.row));}}>{confirm?.kind === 'server' ? t('web.hostedAccount.leaveServer') : t('action.signOut')}</Button></View>}>
-      {label(confirm?.kind === 'server' ? t('web.hostedAccount.leaveBody', {server: confirm.row.name}) : t('web.hostedAccount.signOutBody'))}
+    <BottomSheet testID="account-workspace-confirm" open={!!confirm} onOpenChange={open => {if (!open && !ending) setConfirm(undefined);}}
+      title={confirm?.kind === 'server' ? t('web.hostedAccount.leaveTitle', {server: confirm.row.name}) : confirm?.kind === 'others' ? t('web.hostedAccount.signOutOthersTitle')
+        : t('web.hostedAccount.signOutDeviceTitle', {device: confirm?.kind === 'session' ? accountSessionDevice(confirm.row).name : ''})}
+      footer={<View style={{gap: 10}}><Button variant="glass" disabled={ending} onPress={() => setConfirm(undefined)}>{t('action.cancel')}</Button>
+        <Button testID="account-workspace-confirm-action" variant="glass" loading={ending} style={{backgroundColor: `${theme.colors.danger}24`}} textStyle={{color: theme.colors.danger}} onPress={() => {const captured = confirm; if (!captured) return;
+          command(() => captured.kind === 'server' ? source!.leaveServer(captured.row) : captured.kind === 'others' ? source!.revokeOtherSessions() : source!.revokeSession(captured.row));}}>
+          {confirm?.kind === 'server' ? t('web.hostedAccount.leaveServer') : confirm?.kind === 'others' ? t('web.hostedAccount.signOutOthers') : t('action.signOut')}</Button></View>}>
+      {label(confirm?.kind === 'server' ? t('web.hostedAccount.leaveBody', {server: confirm.row.name}) : confirm?.kind === 'others' ? t('services.workspace.signOutOthersAppBody') : t('web.hostedAccount.signOutBody'))}
       {(commandFailure || state.mutationFailure) && <Text accessibilityRole="alert" style={[theme.type.body, {color: theme.colors.danger}]}>{commandFailure || state.mutationFailure}</Text>}
     </BottomSheet>
   </View>;

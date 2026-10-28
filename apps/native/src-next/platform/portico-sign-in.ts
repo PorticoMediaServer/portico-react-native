@@ -138,10 +138,11 @@ export class NativePorticoSignIn {
     }, callerLive);
   }
   /** Account help sends one reset link; the new password is chosen on that page,
-   * on any device. The service answers the same way whether or not it matched. */
-  async forgot(username: string, contactAddress: string) {
+   * on any device. One field names the account, its username or the email on it,
+   * never both. The service answers the same way whether or not it matched. */
+  async forgot(usernameOrEmail: string) {
     return this.api().request(hostedPath('account_recovery_request'), 'POST',
-      hostedBody('account_recovery_request', {username: username.trim().toLowerCase(), contactAddress: contactAddress.trim(),
+      hostedBody('account_recovery_request', {identifier: usernameOrEmail.trim().toLowerCase(),
         requestId: await this.bridge.newRequestId()}), this.abort.signal);
   }
   async provider(provider: IdentityProvider, callerCurrent?: () => boolean) {
