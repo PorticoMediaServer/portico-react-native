@@ -19,7 +19,8 @@ export class PlaybackScopeHttp implements V1Http {
   }
   /** Retain this exact caller's guard before another wrapper joins its signal. */
   capture(signal?: AbortSignal): (() => boolean) | undefined {return signal ? this.guards.get(signal) : undefined;}
-  send = async (request: V1Request) => {
+  /** A specialized transport (multipart uploads) shares this exact lifetime and guard. */
+  send = async (request: V1Request, transport: V1Http = this.inner) => {
     const guard = request.signal ? this.guards.get(request.signal) : undefined;
     const current = () => !this.closed && this.current() && (!guard || guard());
     if (!current() || request.signal?.aborted) throw new Error('Playback authority retired.');
@@ -29,7 +30,7 @@ export class PlaybackScopeHttp implements V1Http {
     if (request.signal?.aborted) controller.abort();
     this.controllers.add(controller);
     try {
-      const response = await this.inner.send({...request, signal: controller.signal});
+      const response = await transport.send({...request, signal: controller.signal});
       if (!current() || controller.signal.aborted) {
         // A transport may finish before its owner receives an authority notification.
         // Retire this exact request before releasing its cancellation registration.

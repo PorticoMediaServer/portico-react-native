@@ -1225,7 +1225,16 @@ export class NativePlaybackRuntime {
       void detail.select({itemId, libraryId: item.libraryId});
     }).catch(() => {});
     if (state.session && session?.kind === 'vod') {
-      const service = new SubtitleService({request: this.request}, {itemId, sessionId: state.session.id, generation: state.session.generation}, this.o.requestId,
+      const service = new SubtitleService({request: this.request, ...(typeof this.o.api.requestSubtitleUpload === 'function' ? {
+        requestSubtitleUpload: async <T>(path: string, method: 'POST' | 'PUT', body: FormData, signal?: AbortSignal): Promise<T> => {
+          // Use the same authority guard, abort registration and late-response fence as JSON,
+          // while the API owns the single-attempt multipart transport and its deadline.
+          const response = await this.http.send({path, method, body, signal}, {send: async request => ({
+            status: 200, headers: {}, body: await this.o.api.requestSubtitleUpload(request.path, method, body, request.signal),
+          })});
+          return response.body as T;
+        },
+      } : {})}, {itemId, sessionId: state.session.id, generation: state.session.generation}, this.o.requestId,
         {install: presentation => valid() && this.playback.installSubtitlePresentation(presentation)});
       this.subtitleService = service;
       // RN-05: no catalogue polling. The same source retries once the app returns to the
@@ -1704,7 +1713,7 @@ export class NativePlaybackRuntime {
     const current = () => this.matches(fence) && this.subtitleService === service && this.sourceEpoch === epoch && this.sourceKey === key
       && service.getSnapshot().plan?.sourceId === plan.sourceId;
     const picker = this.o.subtitleFilePicker, sourceSignal = this.sourceController?.signal;
-    return boundSubtitleControls(service, current, picker && sourceSignal ? async (metadata, caller) => {
+    return boundSubtitleControls(service, current, picker && service.canUpload && sourceSignal ? async (metadata, caller) => {
       if (!current()) return false;
       this.subtitleFileController?.abort();
       const controller = new AbortController(); this.subtitleFileController = controller;
@@ -1713,7 +1722,7 @@ export class NativePlaybackRuntime {
       if (sourceSignal.aborted) controller.abort();
       try {
         return await uploadPickedSubtitle(picker, async (input, lifetime) => {
-          await service.save(input, undefined, lifetime);
+          await service.upload(input, undefined, lifetime);
           if (service.getSnapshot().error) throw new Error(serviceText('player.subtitles.changeFailed'));
         }, {signal: controller.signal, isCurrent: current}, caller, metadata);
       } finally {

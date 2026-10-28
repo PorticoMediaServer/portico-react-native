@@ -1,5 +1,6 @@
 // @fabric-react
-import test from 'node:test';
+import test, {type TestContext} from 'node:test';
+import {SubtitleService} from '../../../packages/client-core/src/subtitles.ts';
 import * as React from 'react';
 import {screenModule} from './helpers/screen-harness.mjs';
 import {bindNativeTogether, type NativeTogetherPlaybackContext} from '../src-next/screens/settings-live/together-playback.ts';
@@ -39,6 +40,19 @@ import type {PlaybackInfoWords} from '../../../packages/client-core/src/playback
 
 // React Native supplies this compile-time flag; the Node fixture has no RN bootstrap.
 Object.assign(globalThis, {__DEV__: false});
+
+// RN FormData preserves native {uri,name,type} parts; Node's web FormData stringifies them.
+function nativeFormData(t: TestContext) {
+  class FileParts {
+    parts: [string, unknown][] = [];
+    append(name: string, value: unknown) {this.parts.push([name, value]);}
+    get(name: string) {return this.parts.find(part => part[0] === name)?.[1];}
+    entries() {return this.parts.values();}
+  }
+  const original = globalThis.FormData;
+  globalThis.FormData = FileParts as unknown as typeof FormData;
+  t.after(() => {globalThis.FormData = original;});
+}
 
 const settle = async (count = 40) => { for (let i = 0; i < count; i++) await new Promise(resolve => setImmediate(resolve)); };
 const versionLifetime = (isCurrent: () => boolean = () => true) => ({signal: new AbortController().signal, isCurrent});
@@ -86,7 +100,7 @@ const homeFence = 'a'.repeat(64), detailFence = 'b'.repeat(64);
 const itemKind = (id: string) => id.startsWith('song') ? 'song' as const : id.startsWith('episode') ? 'episode' as const : 'movie' as const;
 function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFilePicker, features: EngineFeatures = nativeEngineFeatures, pictureControls = false, offlineDevice?: NativeOfflinePlaybackDevice, engineKind: 'native' | 'mpv' = 'native') {
   const server = new FakePlaybackServer({audioItem: id => id.startsWith('song'), itemKind});
-  const engine = new Engine(), requests: FakeRequest[] = [];
+  const engine = new Engine(), requests: FakeRequest[] = [], uploads: FormData[] = [];
   let serial = 0;
   let resumePositionMs: number | null | undefined;
   let authority: PlaybackAuthority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch-1', viewerFence: homeFence};
@@ -103,7 +117,9 @@ function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFil
   let markers: readonly Marker[] = [{id: 'intro-1', type: 'intro', startMs: 10000, endMs: 70000, confidence: 'manual', automaticSafe: true}];
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input)), path = url.pathname + url.search;
-    const request: FakeRequest = {method: init?.method ?? 'GET', path, body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
+    const multipart = init?.body instanceof FormData ? init.body : undefined;
+    if (multipart) uploads.push(multipart);
+    const request: FakeRequest = {method: init?.method ?? 'GET', path, body: typeof init?.body === 'string' ? JSON.parse(init.body) : multipart ? JSON.parse(String(multipart.get('metadata'))) : undefined,
       headers: Object.fromEntries(new Headers(init?.headers)), signal: init?.signal ?? undefined};
     requests.push(request);
     await before?.(request);
@@ -168,7 +184,7 @@ function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFil
     },
   });
   const start = async (id: string, startSeconds = 30) => { await runtime.start({entry: {id, kind: itemKind(id), title: id, libraryId: 'library', playback: {itemId: id, startSeconds}}, target: {itemId: id, startSeconds}, startIntent: 'explicit'}); await settle(); };
-  return {server, engine, runtime, requests, scopedRequests, start, api,
+  return {server, engine, runtime, requests, uploads, scopedRequests, start, api,
     getAuthority: () => authority, getSession: () => session,
     subscribeAuthority: (listener: () => void) => {authorityListeners.add(listener);return () => {authorityListeners.delete(listener);};},
     groupedVersions: (value: boolean) => { groupedVersions = value; },
@@ -704,8 +720,16 @@ test('subtitle controls use the real source service and retire with its session 
   } finally { d.runtime.dispose(); }
 });
 
-test('the installed picker uploads through the actual current source service and preserves caller metadata', async () => {
-  const d = fixture(false, {pick: async () => ({data: 'SURYCg==', companion: 'U1VCCg==', format: 'idx', title: 'Chosen file'})});
+test('the installed picker uploads through the actual current source service and preserves caller metadata', async t => {
+  nativeFormData(t);
+  const uploadMethod = SubtitleService.prototype.upload;
+  let uploadCalls = 0;
+  t.mock.method(SubtitleService.prototype, 'upload', function (this: SubtitleService, ...args: Parameters<SubtitleService['upload']>) {
+    uploadCalls++;
+    assert.deepEqual(args[0].file, {uri: 'file:///private/staged/chosen.idx', name: 'chosen.idx', type: 'application/octet-stream'});
+    return uploadMethod.apply(this, args);
+  });
+  const d = fixture(false, {discard: async () => true, pick: async () => ({fileUri: 'file:///private/staged/chosen.idx', companionUri: 'file:///private/staged/chosen.sub', format: 'idx', title: 'Chosen file'})});
   d.respond(request => subtitleResponse(d, request));
   try {
     await d.start('movie-1');
@@ -714,13 +738,30 @@ test('the installed picker uploads through the actual current source service and
     assert.equal(await controls.addFile({language: 'fr', rights: 'Viewer supplied rights', scope: 'personal', offsetUs: '-500000'}, versionLifetime()), true);
     const upload = d.requests.find(request => request.method === 'POST' && request.path === '/v1/items/movie-1/subtitles');
     assert.ok(upload && record(upload.body));
-    assert.deepEqual(upload.body, {data: 'SURYCg==', companion: 'U1VCCg==', format: 'idx', title: 'Chosen file', language: 'fr', rights: 'Viewer supplied rights', scope: 'personal', offsetUs: '-500000', operationId: upload.body.operationId, sourceId: 'physical-source-1', expectedRevision: 0});
+    assert.equal(uploadCalls, 1);
+    assert.deepEqual([...d.uploads[0]!.entries()].map(([name]) => name), ['metadata', 'file', 'companion']);
+    assert.equal(upload.headers?.['content-type'], undefined);
+    assert.deepEqual([...d.uploads[0]!.entries()].slice(1), [
+      ['file', {uri: 'file:///private/staged/chosen.idx', name: 'chosen.idx', type: 'application/octet-stream'}],
+      ['companion', {uri: 'file:///private/staged/chosen.sub', name: 'chosen.sub', type: 'application/octet-stream'}],
+    ]);
+    assert.deepEqual(upload.body, {format: 'idx', title: 'Chosen file', language: 'fr', rights: 'Viewer supplied rights', scope: 'personal', offsetUs: '-500000', operationId: upload.body.operationId, sourceId: 'physical-source-1', expectedRevision: 0});
+  } finally {d.runtime.dispose();}
+});
+
+test('an API without multipart support never offers a picked-file upload', async () => {
+  const d = fixture(false, {discard: async () => true, pick: async () => {assert.fail('unsupported API cannot pick');}});
+  Object.defineProperty(d.api, 'requestSubtitleUpload', {value: undefined});
+  d.respond(request => subtitleResponse(d, request));
+  try {
+    await d.start('movie-1');
+    assert.equal(d.runtime.subtitleControls(d.runtime.getSnapshot().fence!)?.addFile, undefined);
   } finally {d.runtime.dispose();}
 });
 
 test('retiring the real source cancels its picker and a late native result cannot upload to the replacement', async () => {
-  let finish!: (value: {data: string; format: 'srt'; title: string}) => void, pickerSignal: AbortSignal | undefined;
-  const d = fixture(false, {pick: signal => {pickerSignal = signal; return new Promise(resolve => {finish = resolve;});}});
+  let finish!: (value: {fileUri: string; format: 'srt'; title: string}) => void, pickerSignal: AbortSignal | undefined;
+  const d = fixture(false, {discard: async () => true, pick: signal => {pickerSignal = signal; return new Promise(resolve => {finish = resolve;});}});
   d.respond(request => subtitleResponse(d, request));
   try {
     await d.start('movie-1');
@@ -728,13 +769,14 @@ test('retiring the real source cancels its picker and a late native result canno
     const pending = controls.addFile!({language: 'en', rights: '', scope: 'personal', offsetUs: '0'}, versionLifetime());
     await d.start('movie-2');
     assert.equal(pickerSignal?.aborted, true); assert.equal(await pending, false);
-    finish({data: 'U1JUCg==', format: 'srt', title: 'Late file'}); await settle();
+    finish({fileUri: 'file:///private/staged/chosen.srt', format: 'srt', title: 'Late file'}); await settle();
     assert.equal(d.requests.filter(request => request.method === 'POST' && /^\/v1\/items\/[^/]+\/subtitles$/.test(request.path)).length, 0);
   } finally {d.runtime.dispose();}
 });
 
-test('a sheet close during a real subtitle upload aborts its request and cannot acknowledge its late receipt', async () => {
-  const d = fixture(false, {pick: async () => ({data: 'U1JUCg==', format: 'srt', title: 'Chosen file'})});
+test('a sheet close during a real subtitle upload aborts its request and cannot acknowledge its late receipt', async t => {
+  nativeFormData(t);
+  const d = fixture(false, {discard: async () => true, pick: async () => ({fileUri: 'file:///private/staged/chosen.srt', format: 'srt', title: 'Chosen file'})});
   let finish!: (response: FakeResponse) => void, upload: FakeRequest | undefined;
   d.respond(request => {
     if (request.method === 'POST' && request.path === '/v1/items/movie-1/subtitles') {upload = request; return new Promise(resolve => {finish = resolve;});}
@@ -747,6 +789,31 @@ test('a sheet close during a real subtitle upload aborts its request and cannot 
     await settle(); assert.ok(upload); caller.abort(); assert.equal(upload.signal?.aborted, true);
     finish(subtitleResponse(d, upload)!); assert.equal(await pending, false);
   } finally {d.runtime.dispose();}
+});
+
+test('multipart requests retain the authority guard and discard files after a rejected late response', async t => {
+  nativeFormData(t);
+  for (const notify of [true, false]) {
+    const discarded: unknown[] = [];
+    const d = fixture(false, {discard: async uris => {discarded.push(uris);}, pick: async () => ({fileUri: 'file:///private/staged/chosen.srt', format: 'srt', title: 'Chosen file'})});
+    let finish!: (response: FakeResponse) => void, upload: FakeRequest | undefined;
+    d.respond(request => {
+      if (request.method === 'POST' && request.path === '/v1/items/movie-1/subtitles') {upload = request; return new Promise(resolve => {finish = resolve;});}
+      return subtitleResponse(d, request);
+    });
+    try {
+      await d.start('movie-1');
+      const pending = d.runtime.subtitleControls(d.runtime.getSnapshot().fence!)!.addFile!({language: 'en', rights: '', scope: 'personal', offsetUs: '0'}, versionLifetime());
+      await settle(); assert.ok(upload);
+      const receipt = subtitleResponse(d, upload)!;
+      d.authority({epoch: 'retired-upload'}, notify);
+      if (notify) assert.equal(upload.signal?.aborted, true);
+      finish(receipt);
+      assert.equal(await pending, false);
+      assert.deepEqual(discarded, [['file:///private/staged/chosen.srt']]);
+      assert.equal(d.uploads.length, 1, 'multipart writes are never replayed');
+    } finally {d.runtime.dispose();}
+  }
 });
 
 test('a start creates the actual queue and session and commands the native port at the requested position', async () => {

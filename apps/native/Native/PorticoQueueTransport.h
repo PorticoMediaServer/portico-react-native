@@ -11,10 +11,11 @@ typedef void (^PorticoTransportReject)(NSString *code,NSString *message,NSError 
 // player here; Reading also uses this same transport for bounded binary reads.
 //
 // PERF-04: every request used to open its own NSURLSession, so each API call paid a new TCP
-// connection and TLS handshake, and a 17th concurrent request was rejected outright. Now two
-// shared, ephemeral, cookie-less, cache-less session (so connections and TLS sessions are
+// connection and TLS handshake, and a 17th concurrent request was rejected outright. Now three
+// shared, ephemeral, cookie-less, cache-less sessions (so connections and TLS sessions are
 // reused), at most 12 requests in flight and up to 64 waiting, with control work first. The security bounds are
-// unchanged and enforced per task: no redirects, 1 MB controls / 8 MB API GETs / up to 32 MB Reading bytes, 15 s sessions.
+// unchanged and enforced per task: no redirects, 1 MB controls / 8 MB API GETs / up to 32 MB Reading bytes.
+// Ordinary sessions use 15 s; subtitle uploads have their own 60 s idle / 110 s total lane.
 @interface PorticoQueueRequest : NSObject
 @property(nonatomic,strong) NSURLSessionTask *task;
 @property(nonatomic,strong) NSURLRequest *wire;
@@ -27,6 +28,7 @@ typedef void (^PorticoTransportReject)(NSString *code,NSString *message,NSError 
 @property(nonatomic) BOOL completed;
 @property(nonatomic) BOOL started;
 @property(nonatomic) BOOL critical;
+@property(nonatomic) BOOL subtitleUpload;
 @property(nonatomic) NSUInteger responseLimit;
 @property(nonatomic) BOOL binaryResponse;
 @property(nonatomic) BOOL streamingResponse;
@@ -51,6 +53,7 @@ static NSMutableDictionary<NSString *,PorticoQueueRequest *> *PorticoQueueReques
 static NSMutableArray<PorticoQueueRequest *> *PorticoQueueWaiting;
 static NSInteger PorticoQueueActive, PorticoQueueReads;
 static const NSInteger PorticoQueueMaxActive=12;
+static const NSTimeInterval PorticoSubtitleUploadIdleTimeout=60,PorticoSubtitleUploadTimeout=110;
 static const NSUInteger PorticoStreamChunkLimit=1048576,PorticoStreamPullLimit=49152;
 
 static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
@@ -61,19 +64,23 @@ static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
 
 @interface PorticoQueueTransport : NSObject<NSURLSessionDataDelegate,NSURLSessionTaskDelegate> @end
 @implementation PorticoQueueTransport
-+ (NSURLSession *)sessionFor:(BOOL)critical {
- static NSURLSession *reads,*writes;static dispatch_once_t once;
++ (NSURLSession *)sessionFor:(BOOL)critical subtitleUpload:(BOOL)subtitleUpload {
+ static NSURLSession *reads,*writes,*uploads;static dispatch_once_t once;
  dispatch_once(&once,^{
   // Separate socket pools keep ten slow reads from occupying the control connections.
-  for(NSInteger lane=0;lane<2;lane++){
+  // Resource timeouts apply to every task in a session, so uploads need a separate lane.
+  for(NSInteger lane=0;lane<3;lane++){
    NSURLSessionConfiguration *configuration=NSURLSessionConfiguration.ephemeralSessionConfiguration;
-   configuration.timeoutIntervalForRequest=15;configuration.timeoutIntervalForResource=15;configuration.HTTPShouldSetCookies=NO;configuration.HTTPCookieStorage=nil;configuration.URLCredentialStorage=nil;configuration.URLCache=nil;configuration.requestCachePolicy=NSURLRequestReloadIgnoringLocalCacheData;configuration.HTTPMaximumConnectionsPerHost=lane?2:10;
-   NSOperationQueue *queue=[NSOperationQueue new];queue.maxConcurrentOperationCount=1;queue.name=lane?@"tv.getportico.control":@"tv.getportico.reads";
+   configuration.timeoutIntervalForRequest=lane==2?PorticoSubtitleUploadIdleTimeout:15;configuration.timeoutIntervalForResource=lane==2?PorticoSubtitleUploadTimeout:15;configuration.HTTPShouldSetCookies=NO;configuration.HTTPCookieStorage=nil;configuration.URLCredentialStorage=nil;configuration.URLCache=nil;configuration.requestCachePolicy=NSURLRequestReloadIgnoringLocalCacheData;configuration.HTTPMaximumConnectionsPerHost=lane?2:10;
+   NSOperationQueue *queue=[NSOperationQueue new];queue.maxConcurrentOperationCount=1;queue.name=lane==2?@"tv.getportico.subtitle-uploads":lane?@"tv.getportico.control":@"tv.getportico.reads";
    NSURLSession *session=[NSURLSession sessionWithConfiguration:configuration delegate:[PorticoQueueTransport new] delegateQueue:queue];
-   if(lane)writes=session;else reads=session;
+   if(lane==2)uploads=session;else if(lane)writes=session;else reads=session;
   }
  });
- return critical?writes:reads;
+ return subtitleUpload?uploads:critical?writes:reads;
+}
++ (NSURLSession *)sessionFor:(BOOL)critical {
+ return [self sessionFor:critical subtitleUpload:NO];
 }
 /** Caller holds the class lock. */
 + (void)start:(PorticoQueueRequest *)request {
@@ -95,7 +102,7 @@ static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
   } failure:^(NSError *error){PorticoQueueRequest *current=weakRequest;if(current)@synchronized(current){if(!current.completed)[current transportFailed:error];}}];
   return;
  }
- NSURLSessionDataTask *task=[[self sessionFor:request.critical] dataTaskWithRequest:request.wire];request.task=task;
+ NSURLSessionDataTask *task=[[self sessionFor:request.critical subtitleUpload:request.subtitleUpload] dataTaskWithRequest:request.wire];request.task=task;
  task.taskDescription=request.identifier;
  [task resume];
 }
@@ -115,7 +122,7 @@ static NSDictionary *PorticoQueueResponseHeaders(NSHTTPURLResponse *response) {
   if(PorticoQueueRequests[request.identifier]||PorticoQueueRequests.count>=76||(!request.critical&&reads>=66)){request.reject(domain,busy,nil);return;}
   PorticoQueueRequests[request.identifier]=request;[PorticoQueueWaiting addObject:request];[self pump];
   // Include queue residence in the operation's deadline. Cancellation releases admission once.
-  NSTimeInterval timeout=request.wire.timeoutInterval;
+  NSTimeInterval timeout=request.subtitleUpload?PorticoSubtitleUploadTimeout:request.wire.timeoutInterval;
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(timeout*NSEC_PER_SEC)),dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{@synchronized(request){if(!request.completed){request.failureCode=@"timeout";[request finish:@"The request took too long."];}}});
  }
 }

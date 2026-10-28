@@ -31,6 +31,27 @@
 }
 RCT_EXPORT_MODULE()
 + (BOOL)requiresMainQueueSetup{return YES;}
+- (NSURL *)stagingDirectory {return [[NSURL fileURLWithPath:NSTemporaryDirectory() isDirectory:YES] URLByAppendingPathComponent:@"portico-subtitle-uploads" isDirectory:YES];}
+- (void)clearStaging { [NSFileManager.defaultManager removeItemAtURL:[self stagingDirectory] error:nil]; }
+- (instancetype)init {if((self=[super init]))[self clearStaging];return self;}
+RCT_REMAP_METHOD(discard,discard:(NSArray *)uris resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ if(![uris isKindOfClass:NSArray.class]){resolve(@(NO));return;}
+ NSString *root=[self stagingDirectory].URLByResolvingSymlinksInPath.URLByStandardizingPath.path;
+ NSMutableArray<NSURL *> *files=[NSMutableArray new];
+ for(id value in uris){
+  NSURL *url=[value isKindOfClass:NSString.class]?[NSURL URLWithString:value]:nil;
+  NSURL *resolved=url.URLByResolvingSymlinksInPath.URLByStandardizingPath;
+  if(!url.isFileURL||url.host.length||url.query||url.fragment||![resolved.path hasPrefix:[root stringByAppendingString:@"/"]]){resolve(@(NO));return;}
+  [files addObject:resolved];
+ }
+ BOOL removed=YES;
+ for(NSURL *url in files){
+  if([NSFileManager.defaultManager fileExistsAtPath:url.path]&&![NSFileManager.defaultManager removeItemAtURL:url error:nil])removed=NO;
+  NSURL *parent=url.URLByDeletingLastPathComponent;
+  if(![parent.path isEqualToString:root]&&[NSFileManager.defaultManager contentsOfDirectoryAtPath:parent.path error:nil].count==0)[NSFileManager.defaultManager removeItemAtURL:parent error:nil];
+ }
+ resolve(@(removed));
+}
 - (dispatch_queue_t)methodQueue{return dispatch_get_main_queue();}
 - (void)finish:(PorticoSubtitlePickRequest *)request result:(NSDictionary *)result code:(NSString *)code {
  if(!request||_request!=request)return;
@@ -46,7 +67,7 @@ RCT_EXPORT_MODULE()
 }
 - (void)invalidate {
  if(!NSThread.isMainThread){dispatch_async(dispatch_get_main_queue(),^{[self invalidate];});return;}
- _invalidated=YES;[self finish:_request result:nil code:@"cancelled"];
+ _invalidated=YES;[self finish:_request result:nil code:@"cancelled"];[self clearStaging];
 }
 RCT_REMAP_METHOD(cancel,cancel:(NSString *)requestId resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
  BOOL current=[requestId isKindOfClass:NSString.class]&&[_request.identifier isEqualToString:requestId];
@@ -103,15 +124,30 @@ RCT_REMAP_METHOD(pick,pick:(NSString *)requestId resolver:(RCTPromiseResolveBloc
  if(pair)valid=valid&&paired.isFileURL&&[paired.lastPathComponent.lowercaseString isEqualToString:[[url.lastPathComponent stringByDeletingPathExtension].lowercaseString stringByAppendingString:@".sub"]];
  if(!valid){[self finish:request result:nil code:@"subtitle_format"];return;}
  // Every selected security-scoped URL is coordinated and bounded separately.
- // Only bytes cross the bridge; neither paths nor long-lived URL access escape.
+ // User paths and long-lived security-scoped access never escape; only our staged copy URI does.
  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{
   NSError *error=nil;NSUInteger limit=[format isEqualToString:@"sup"]?33554432:4194304;
   NSData *data=[self readSubtitle:url limit:limit progress:request.progress error:&error];NSData *companion=nil;
   if(data&&pair)companion=[self readSubtitle:paired limit:33554432-data.length progress:request.progress error:&error];
   NSMutableDictionary *result=nil;
-  if(data&&(!pair||companion)&&!error){result=[@{@"data":[data base64EncodedStringWithOptions:0],@"format":format,@"title":[url.lastPathComponent substringToIndex:MIN((NSUInteger)160,url.lastPathComponent.length)]} mutableCopy];if(companion)result[@"companion"]=[companion base64EncodedStringWithOptions:0];}
+  NSURL *directory=[[self stagingDirectory] URLByAppendingPathComponent:NSUUID.UUID.UUIDString isDirectory:YES];
+  if(data&&(!pair||companion)&&!error&&!request.progress.cancelled){
+   NSString *name=[[url.lastPathComponent.stringByDeletingPathExtension componentsSeparatedByCharactersInSet:[[NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"] invertedSet]] componentsJoinedByString:@"_"];
+   name=[[name substringToIndex:MIN((NSUInteger)150,name.length)] stringByAppendingPathExtension:format];
+   if(!name.length||[name isEqualToString:@"."]||[name isEqualToString:@".."])name=[@"subtitle." stringByAppendingString:format];
+   NSURL *file=[directory URLByAppendingPathComponent:name];
+   NSURL *second=companion?[directory URLByAppendingPathComponent:[[name stringByDeletingPathExtension] stringByAppendingPathExtension:@"sub"]]:nil;
+   if([NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:&error]&&
+      [data writeToURL:file options:NSDataWritingAtomic error:&error]&&(!companion||[companion writeToURL:second options:NSDataWritingAtomic error:&error])){
+    result=[@{@"fileUri":file.absoluteString,@"format":format,@"title":[url.lastPathComponent substringToIndex:MIN((NSUInteger)160,url.lastPathComponent.length)]} mutableCopy];
+    if(second)result[@"companionUri"]=second.absoluteString;
+   }
+  }
   dispatch_async(dispatch_get_main_queue(),^{
-   [self finish:request result:result code:@"subtitle_file"];
+   if(!result||request.progress.cancelled||self->_invalidated||self->_request!=request){
+    [NSFileManager.defaultManager removeItemAtURL:directory error:nil];
+    [self finish:request result:nil code:@"subtitle_file"];
+   }else [self finish:request result:result code:@"subtitle_file"];
   });
  });
 }

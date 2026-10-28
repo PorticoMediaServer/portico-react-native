@@ -12,6 +12,7 @@ import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.UiThreadUtil
 import com.facebook.react.bridge.WritableArray
 import java.io.File
+import java.net.URI
 import java.security.SecureRandom
 import java.util.UUID
 import java.util.concurrent.ExecutorService
@@ -148,6 +149,34 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
   @ReactMethod
   fun networkRequest(identifier: String?, url: String?, method: String?, headers: ReadableMap?, body: String?, promise: Promise) =
       boundedRequest(identifier, url, method, headers, body, fullAPI = true, promise)
+
+  /** Only subtitle endpoints can upload bytes, and only from the picker's private staging root. */
+  @ReactMethod
+  fun networkUploadRequest(identifier: String?, url: String?, method: String?, headers: ReadableMap?, metadata: String?, fileUri: String?, fileName: String?, companionUri: String?, companionName: String?, promise: Promise) {
+    try {
+      val target = PorticoTransport.target(url)
+      val path = target?.encodedPath ?: ""
+      val allowed = method == "POST" && Regex("^/v1/items/[A-Za-z0-9_-]+/subtitles$").matches(path) ||
+          method == "PUT" && Regex("^/v1/items/[A-Za-z0-9_-]+/subtitles/[A-Za-z0-9_-]+$").matches(path)
+      if (target == null || !allowed || identifier.isNullOrEmpty() || identifier.length > 128 || metadata == null || metadata.length > 16384 || metadata.toByteArray(Charsets.UTF_8).size > 16384)
+        throw IllegalArgumentException()
+      val root = File(reactApplicationContext.cacheDir, "portico-subtitle-uploads").canonicalFile
+      fun staged(uri: String?, name: String?): Pair<File, String> {
+        if (uri == null || name.isNullOrEmpty() || name.length > 1024 || name.toByteArray(Charsets.UTF_8).size > 1024) throw IllegalArgumentException()
+        val parsed = URI(uri)
+        if (parsed.scheme != "file" || !uri.startsWith("file://") || !parsed.rawAuthority.isNullOrEmpty() || parsed.rawQuery != null || parsed.rawFragment != null) throw IllegalArgumentException()
+        val file = File(parsed).canonicalFile
+        if (!file.path.startsWith(root.path + File.separator) || !file.isFile || file.length() <= 0) throw IllegalArgumentException()
+        val safeName = name.map { if (it == '"' || it == '\\' || it.isISOControl()) '_' else it }.joinToString("")
+        return Pair(file, safeName)
+      }
+      val files = mutableListOf(staged(fileUri, fileName))
+      if (companionUri != null || companionName != null) files.add(staged(companionUri, companionName))
+      if (files.sumOf { it.first.length() } > 33554432L) throw IllegalArgumentException()
+      val request = PorticoTransport.uploadRequest(target, method!!, headers, metadata, files) ?: throw IllegalArgumentException()
+      PorticoTransport.submit(this, identifier, request, PorticoTransport.DEFAULT_LIMIT, "queue_transport", "Too many queue requests.", promise)
+    } catch (_: Exception) { promise.reject("queue_transport", "Invalid subtitle upload request.") }
+  }
 
   /** Actual bounded Reading bytes over the existing trust/cancel transport. */
   @ReactMethod

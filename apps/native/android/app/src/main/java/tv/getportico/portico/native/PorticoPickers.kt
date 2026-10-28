@@ -22,10 +22,12 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import java.io.File
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
+import java.util.UUID
 import java.util.concurrent.Executors
 import tv.getportico.portico.TelevisionDisplay
 
@@ -131,11 +133,13 @@ class PorticoImagePicker(context: ReactApplicationContext) : ReactContextBaseJav
 
 /**
  * `NativeModules.PorticoSubtitleFiles.pick()`: one subtitle file (SRT, VTT, ASS/SSA, SUP) or a
- * matching IDX + SUB pair from the system picker, as bounded bytes. Phones and tablets; a
+ * matching IDX + SUB pair from the system picker, as private staged file URIs. Phones and tablets; a
  * television says the picker is unavailable, as tvOS does.
  */
 class PorticoSubtitleFiles(context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
   private var pending: Promise? = null
+  @Volatile private var closed = false
+  private val staging = File(context.cacheDir, "portico-subtitle-uploads")
 
   private val listener: ActivityEventListener = object : BaseActivityEventListener() {
     override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
@@ -152,11 +156,13 @@ class PorticoSubtitleFiles(context: ReactApplicationContext) : ReactContextBaseJ
     }
   }
 
-  init { context.addActivityEventListener(listener) }
+  init { staging.deleteRecursively(); context.addActivityEventListener(listener) }
 
   override fun getName(): String = "PorticoSubtitleFiles"
 
   override fun invalidate() {
+    closed = true
+    staging.deleteRecursively()
     reactApplicationContext.removeActivityEventListener(listener)
     pending?.reject("cancelled", "Subtitle file selection cancelled.")
     pending = null
@@ -164,7 +170,28 @@ class PorticoSubtitleFiles(context: ReactApplicationContext) : ReactContextBaseJ
   }
 
   @ReactMethod
+  fun discard(uris: com.facebook.react.bridge.ReadableArray, promise: Promise) {
+    try {
+      val root = staging.canonicalFile
+      val files = (0 until uris.size()).map { index ->
+        val uri = Uri.parse(uris.getString(index) ?: throw IllegalArgumentException())
+        require(uri.scheme == "file" && uri.authority.isNullOrEmpty() && uri.query == null && uri.fragment == null)
+        val file = File(uri.path ?: throw IllegalArgumentException()).canonicalFile
+        require(file.path.startsWith(root.path + File.separator))
+        file
+      }
+      var removed = true
+      files.forEach { file ->
+        if (file.exists() && !file.deleteRecursively()) removed = false
+        file.parentFile?.let { parent -> if (parent != root && parent.list()?.isEmpty() == true) parent.delete() }
+      }
+      promise.resolve(removed)
+    } catch (_: Exception) { promise.resolve(false) }
+  }
+
+  @ReactMethod
   fun pick(promise: Promise) {
+    if (closed) { promise.reject("bridge_closed", "bridge_closed"); return }
     if (TelevisionDisplay.isTelevision) { promise.reject("subtitle_picker_unavailable", "Manage subtitle files from the web or a phone."); return }
     if (pending != null) { promise.reject("subtitle_picker_busy", "Another subtitle file is being read."); return }
     val activity = reactApplicationContext.currentActivity
@@ -189,31 +216,53 @@ class PorticoSubtitleFiles(context: ReactApplicationContext) : ReactContextBaseJ
     var valid = main != null && chosen.size == (if (pair) 2 else 1) && format in FORMATS
     if (pair) valid = valid && companion != null && companion.second.lowercase() == main!!.second.substringBeforeLast('.').lowercase() + ".sub"
     if (!valid) { promise.reject("subtitle_format", "Choose one SRT, VTT, ASS/SSA, SUP file, or a matching IDX + SUB pair."); return }
-    val limit = if (format == "sup") 33554432 else 4194304
-    val data = bounded(context, main!!.first, limit)
-    val second = if (data != null && pair) bounded(context, companion!!.first, 33554432 - data.size) else null
-    if (data == null || (pair && second == null)) { promise.reject("subtitle_file", "Read failed or size limit exceeded. Text/index: 4 MiB; binary total: 32 MiB."); return }
-    val result = Arguments.createMap()
-    result.putString("data", Base64.encodeToString(data, Base64.NO_WRAP))
-    result.putString("format", format)
-    result.putString("title", main.second.take(160))
-    if (second != null) result.putString("companion", Base64.encodeToString(second, Base64.NO_WRAP))
-    promise.resolve(result)
+    val directory = File(staging, UUID.randomUUID().toString())
+    var delivered = false
+    try {
+      check(!closed && directory.mkdirs())
+      fun name(value: String, extension: String): String {
+        val safe = value.substringBeforeLast('.').replace(Regex("[^A-Za-z0-9._-]"), "_").take(150)
+        return if (safe.isEmpty() || safe == "." || safe == "..") "subtitle.$extension" else "$safe.$extension"
+      }
+      val file = File(directory, name(main!!.second, format))
+      val limit = if (format == "sup") 33554432 else 4194304
+      val size = bounded(context, main.first, file, limit)
+      val second = if (pair) File(directory, file.nameWithoutExtension + ".sub") else null
+      if (second != null) bounded(context, companion!!.first, second, 33554432 - size)
+      check(!closed)
+      val result = Arguments.createMap()
+      // Provider addresses and lasting access never escape; only private staged copies do.
+      result.putString("fileUri", Uri.fromFile(file).toString())
+      result.putString("format", format)
+      result.putString("title", main.second.take(160))
+      if (second != null) result.putString("companionUri", Uri.fromFile(second).toString())
+      promise.resolve(result)
+      delivered = true
+    } catch (_: Exception) {
+      promise.reject("subtitle_file", "Read failed or size limit exceeded. Text/index: 4 MiB; binary total: 32 MiB.")
+    } finally { if (!delivered || closed) directory.deleteRecursively() }
   }
 
-  /** The file's bytes, or null when it is empty, unreadable or larger than [limit]. */
-  private fun bounded(context: Context, uri: Uri, limit: Int): ByteArray? = try {
-    context.contentResolver.openInputStream(uri)?.use { input ->
-      val out = ByteArrayOutputStream()
-      val chunk = ByteArray(65536)
-      while (out.size() <= limit) {
-        val read = input.read(chunk, 0, Math.min(chunk.size, limit + 1 - out.size()))
-        if (read <= 0) break
-        out.write(chunk, 0, read)
+  /** Copy at most [limit] bytes with bounded memory; refuse empty or oversized input. */
+  private fun bounded(context: Context, uri: Uri, file: File, limit: Int): Int {
+    val input = context.contentResolver.openInputStream(uri) ?: throw IllegalArgumentException()
+    return input.use {
+      file.outputStream().use { output ->
+        val chunk = ByteArray(65536)
+        var size = 0
+        while (!closed && size <= limit) {
+          val read = input.read(chunk, 0, Math.min(chunk.size, limit + 1 - size))
+          if (read < 0) break
+          check(read > 0)
+          size += read
+          check(size <= limit)
+          output.write(chunk, 0, read)
+        }
+        check(!closed && size in 1..limit)
+        size
       }
-      if (out.size() in 1..limit) out.toByteArray() else null
     }
-  } catch (_: Exception) { null }
+  }
 
   private companion object {
     const val REQUEST = 0x5053

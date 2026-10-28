@@ -127,6 +127,54 @@ static NSData *PorticoAvatarUploadBody(NSString *body) {
  NSData *data=[[NSData alloc]initWithBase64EncodedString:envelope[@"nativeAvatarBase64"] options:0];
  return data.length>0&&data.length<=4194304?data:nil;
 }
+// The upload bridge carries only staged file references. Read and bound bytes natively.
+static NSURL *PorticoBoundedTarget(NSString *url,NSString *method,BOOL fullAPI) {
+ if(![url isKindOfClass:NSString.class]||![method isKindOfClass:NSString.class]||url.length>8192)return nil;
+ NSURL *target=[NSURL URLWithString:url];
+ if(!target||![@[@"http",@"https"] containsObject:target.scheme]||target.user.length||target.password.length||target.fragment.length||
+    (fullAPI?(![target.path hasPrefix:@"/v1/"]&&![target.path hasPrefix:@"/v2/"]):(![target.path hasPrefix:@"/v2/"]&&[target.path rangeOfString:@"^/v1/items/[A-Za-z0-9_-]+/playback/[A-Za-z0-9_-]+/subtitles$" options:NSRegularExpressionSearch].location==NSNotFound))||
+    ![(fullAPI?@[@"GET",@"POST",@"PUT",@"PATCH",@"DELETE",@"HEAD"]:@[@"GET",@"POST",@"PUT"]) containsObject:method])return nil;
+ return target;
+}
+static NSString *PorticoSubtitleUploadName(NSString *name) {
+ if(![name isKindOfClass:NSString.class]||!name.length||name.length>1024)return nil;
+ NSData *bytes=[name dataUsingEncoding:NSUTF8StringEncoding];if(!bytes||bytes.length>1024)return nil;
+ NSMutableCharacterSet *unsafe=[NSCharacterSet.controlCharacterSet mutableCopy];[unsafe addCharactersInString:@"\"\\"];
+ return [[name componentsSeparatedByCharactersInSet:unsafe] componentsJoinedByString:@"_"];
+}
+static NSURL *PorticoSubtitleUploadFile(NSString *uri) {
+ NSURL *url=[uri isKindOfClass:NSString.class]&&[uri hasPrefix:@"file://"]?[NSURL URLWithString:uri]:nil;
+ if(!url.isFileURL||url.host.length||url.query||url.fragment)return nil;
+ NSURL *resolved=url.URLByResolvingSymlinksInPath.URLByStandardizingPath;
+ NSString *root=[[[NSURL fileURLWithPath:NSTemporaryDirectory() isDirectory:YES] URLByAppendingPathComponent:@"portico-subtitle-uploads" isDirectory:YES] URLByResolvingSymlinksInPath].URLByStandardizingPath.path;
+ return [resolved.path hasPrefix:[root stringByAppendingString:@"/"]]?resolved:nil;
+}
+static void PorticoSubtitleAppendText(NSMutableData *body,NSString *text) {[body appendData:[text dataUsingEncoding:NSUTF8StringEncoding]];}
+static BOOL PorticoSubtitleAppendFile(NSMutableData *body,NSURL *url,NSString *name,NSString *field,NSString *boundary,NSUInteger *total,NSProgress *progress) {
+ if(![PorticoSubtitleUploadFile(url.absoluteString) isEqual:url])return NO;
+ NSDictionary *attributes=[NSFileManager.defaultManager attributesOfItemAtPath:url.path error:nil];
+ unsigned long long size=[attributes[NSFileSize] unsignedLongLongValue];
+ if(![attributes[NSFileType] isEqual:NSFileTypeRegular]||!size||size>33554432-*total||progress.cancelled)return NO;
+ PorticoSubtitleAppendText(body,[NSString stringWithFormat:@"--%@\r\nContent-Disposition: form-data; name=\"%@\"; filename=\"%@\"\r\nContent-Type: application/octet-stream\r\n\r\n",boundary,field,name]);
+ NSError *error=nil;NSFileHandle *file=[NSFileHandle fileHandleForReadingFromURL:url error:&error];if(!file)return NO;
+ NSUInteger count=0;
+ @try {
+  while(!progress.cancelled){@autoreleasepool {
+   NSData *chunk=[file readDataUpToLength:MIN((NSUInteger)65536,33554432-*total+1) error:&error];
+   if(!chunk||error)return NO;if(!chunk.length)break;
+   if(chunk.length>33554432-*total)return NO;
+   *total+=chunk.length;count+=chunk.length;[body appendData:chunk];
+  }}
+ } @finally {[file closeAndReturnError:nil];}
+ if(progress.cancelled||count!=size)return NO;
+ PorticoSubtitleAppendText(body,@"\r\n");return YES;
+}
+@interface PorticoSubtitleUploadPreparation : NSObject
+@property(nonatomic,strong) NSProgress *progress;
+@property(nonatomic,copy) RCTPromiseRejectBlock reject;
+@end
+@implementation PorticoSubtitleUploadPreparation @end
+
 static UIView *PorticoBootCoverView;
 static BOOL PorticoBootHandedOver;
 static double PorticoBootCoverInstalledAt;
@@ -155,11 +203,15 @@ static double PorticoLaunchStartedAt(void){
 }
 
 @interface PorticoRuntime : NSObject<RCTBridgeModule,RCTInvalidating> @end
-@implementation PorticoRuntime
+@implementation PorticoRuntime {
+ NSMutableDictionary<NSString *,PorticoSubtitleUploadPreparation *> *_subtitleUploads;
+ BOOL _invalidated;
+}
 RCT_EXPORT_MODULE()
 /** A JavaScript reload abandons its promises; release their transport slots at once instead of
  * leaving them to time out while the new JavaScript's first requests wait behind them. */
 - (void)invalidate {
+ @synchronized(self){_invalidated=YES;for(PorticoSubtitleUploadPreparation *pending in _subtitleUploads.allValues){[pending.progress cancel];pending.reject(@"cancelled",@"The app reloaded.",nil);}[_subtitleUploads removeAllObjects];}
  [PorticoQueueTransport cancelOwnedBy:self];
  NSArray<NSString *> *identifiers;@synchronized(PorticoEventStream.class){identifiers=[PorticoEventStreams allKeys];}
  for(NSString *identifier in identifiers){PorticoEventStream *stream;@synchronized(PorticoEventStream.class){stream=PorticoEventStreams[identifier];if(stream.owner!=self&&stream.owner!=nil)continue;[PorticoEventStreams removeObjectForKey:identifier];}[stream cancel];}
@@ -256,6 +308,38 @@ RCT_REMAP_METHOD(cancelNetworkStream,cancelNetworkStream:(NSString *)identifier)
 RCT_REMAP_METHOD(networkRequest,networkRequest:(NSString *)identifier url:(NSString *)url method:(NSString *)method headers:(NSDictionary *)headers body:(NSString *)body resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
  [self boundedRequest:identifier url:url method:method headers:headers body:body fullAPI:YES resolver:resolve rejecter:reject];
 }
+RCT_REMAP_METHOD(networkUploadRequest,networkUploadRequest:(NSString *)identifier url:(NSString *)url method:(NSString *)method headers:(NSDictionary *)headers metadata:(NSString *)metadata fileUri:(NSString *)fileUri fileName:(NSString *)fileName companionUri:(NSString *)companionUri companionName:(NSString *)companionName resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ NSURL *target=PorticoBoundedTarget(url,method,YES);
+ BOOL allowed=([method isEqual:@"POST"]&&[target.path rangeOfString:@"^/v1/items/[A-Za-z0-9_-]+/subtitles$" options:NSRegularExpressionSearch].location!=NSNotFound)||([method isEqual:@"PUT"]&&[target.path rangeOfString:@"^/v1/items/[A-Za-z0-9_-]+/subtitles/[A-Za-z0-9_-]+$" options:NSRegularExpressionSearch].location!=NSNotFound);
+ NSData *metadataBytes=[metadata isKindOfClass:NSString.class]&&metadata.length<=16384?[metadata dataUsingEncoding:NSUTF8StringEncoding]:nil;
+ NSString *name=PorticoSubtitleUploadName(fileName),*otherName=PorticoSubtitleUploadName(companionName);
+ NSURL *file=PorticoSubtitleUploadFile(fileUri),*other=PorticoSubtitleUploadFile(companionUri);
+ BOOL hasCompanion=companionUri!=nil||companionName!=nil;
+ if(!target||!target.host.length||!allowed||![identifier isKindOfClass:NSString.class]||!identifier.length||identifier.length>128||!metadataBytes||metadataBytes.length>16384||!file||!name||(hasCompanion&&(!other||!otherName))){reject(@"queue_transport",@"Invalid subtitle upload request.",nil);return;}
+ PorticoSubtitleUploadPreparation *pending=[PorticoSubtitleUploadPreparation new];pending.progress=[NSProgress progressWithTotalUnitCount:1];pending.reject=reject;
+ @synchronized(self){
+  if(_invalidated){reject(@"cancelled",@"The app reloaded.",nil);return;}
+  if(!_subtitleUploads)_subtitleUploads=[NSMutableDictionary new];
+  if(_subtitleUploads[identifier]||_subtitleUploads.count>=4){reject(@"queue_transport",@"Too many subtitle uploads.",nil);return;}
+  _subtitleUploads[identifier]=pending;
+ }
+ // Assembly is never on the main queue. Cancellation covers preparation as well as transport.
+ dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{@autoreleasepool {
+  NSString *boundary=[@"Portico-" stringByAppendingString:NSUUID.UUID.UUIDString];NSMutableData *body=[NSMutableData new];NSUInteger total=0;
+  PorticoSubtitleAppendText(body,[NSString stringWithFormat:@"--%@\r\nContent-Disposition: form-data; name=\"metadata\"\r\n\r\n",boundary]);[body appendData:metadataBytes];PorticoSubtitleAppendText(body,@"\r\n");
+  BOOL valid=PorticoSubtitleAppendFile(body,file,name,@"file",boundary,&total,pending.progress)&&(!hasCompanion||PorticoSubtitleAppendFile(body,other,otherName,@"companion",boundary,&total,pending.progress));
+  PorticoSubtitleAppendText(body,[NSString stringWithFormat:@"--%@--\r\n",boundary]);
+  @synchronized(self){
+   if(_subtitleUploads[identifier]!=pending)return;
+   [_subtitleUploads removeObjectForKey:identifier];
+   if(!valid){reject(@"queue_transport",@"Invalid staged subtitle file.",nil);return;}
+   NSMutableDictionary *wireHeaders=[NSMutableDictionary new];
+   for(id key in headers)if([key isKindOfClass:NSString.class]&&[headers[key] isKindOfClass:NSString.class]&&[key caseInsensitiveCompare:@"Content-Type"]!=NSOrderedSame&&[key caseInsensitiveCompare:@"Content-Length"]!=NSOrderedSame)wireHeaders[key]=headers[key];
+   wireHeaders[@"Content-Type"]=[@"multipart/form-data; boundary=" stringByAppendingString:boundary];
+   [self submitBoundedBytes:identifier target:target method:method headers:wireHeaders data:body fullAPI:YES subtitleUpload:YES resolver:resolve rejecter:reject];
+  }
+ }});
+}
 RCT_REMAP_METHOD(networkBytesRequest,networkBytesRequest:(NSString *)identifier url:(NSString *)url method:(NSString *)method headers:(NSDictionary *)headers byteLimit:(NSNumber *)byteLimit resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
  PorticoQueueRequest *request=PorticoReadingBytesRequest(identifier,url,method,headers,byteLimit,self,resolve,reject);
  if(request)[PorticoQueueTransport submit:request domain:@"queue_transport" busy:@"network_bytes_busy"];
@@ -271,13 +355,18 @@ RCT_REMAP_METHOD(networkStreamRead,networkStreamRead:(NSString *)identifier reso
 #endif
 - (void)boundedRequest:(NSString *)identifier url:(NSString *)url method:(NSString *)method headers:(NSDictionary *)headers body:(NSString *)body fullAPI:(BOOL)fullAPI resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject {
 
- NSURL *target=[NSURL URLWithString:url];BOOL avatar=PorticoAvatarUploadPath(target.path,method);NSData *data=avatar?PorticoAvatarUploadBody(body):[body dataUsingEncoding:NSUTF8StringEncoding];
- if(!target||![@[@"http",@"https"] containsObject:target.scheme]||target.user.length||target.password.length||target.fragment.length||url.length>8192||(fullAPI ? (![target.path hasPrefix:@"/v1/"]&&![target.path hasPrefix:@"/v2/"]) : (![target.path hasPrefix:@"/v2/"]&&[target.path rangeOfString:@"^/v1/items/[A-Za-z0-9_-]+/playback/[A-Za-z0-9_-]+/subtitles$" options:NSRegularExpressionSearch].location==NSNotFound))||![ (fullAPI ? @[@"GET",@"POST",@"PUT",@"PATCH",@"DELETE",@"HEAD"] : @[@"GET",@"POST",@"PUT"]) containsObject:method]||(avatar?!data:data.length>1048576)||identifier.length>128){reject(@"queue_transport",@"Invalid queue request.",nil);return;}
+ NSURL *target=PorticoBoundedTarget(url,method,fullAPI);BOOL avatar=PorticoAvatarUploadPath(target.path,method);NSData *data=avatar?PorticoAvatarUploadBody(body):[body dataUsingEncoding:NSUTF8StringEncoding];
+ if(!target||(avatar?!data:data.length>1048576)||identifier.length>128){reject(@"queue_transport",@"Invalid queue request.",nil);return;}
+ [self submitBoundedBytes:identifier target:target method:method headers:headers data:data fullAPI:fullAPI subtitleUpload:NO resolver:resolve rejecter:reject];
+}
+- (void)submitBoundedBytes:(NSString *)identifier target:(NSURL *)target method:(NSString *)method headers:(NSDictionary *)headers data:(NSData *)data fullAPI:(BOOL)fullAPI subtitleUpload:(BOOL)subtitleUpload resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject {
  PorticoQueueRequest *request=[PorticoQueueRequest new];request.identifier=identifier;request.resolve=resolve;request.reject=reject;request.data=[NSMutableData data];request.owner=self;
+ request.subtitleUpload=subtitleUpload;
  // PERF-S18: API reads that grow with the library (Home rows, queue views, admin pages) get 8 MB;
  // writes and the narrow queue-control surface keep the 1 MB bound.
  request.responseLimit=(fullAPI&&[method isEqualToString:@"GET"])?8388608:1048576;
  NSMutableURLRequest *wire=[NSMutableURLRequest requestWithURL:target];wire.HTTPMethod=method;wire.HTTPBody=data;wire.cachePolicy=NSURLRequestReloadIgnoringLocalCacheData;
+ if(subtitleUpload)wire.timeoutInterval=PorticoSubtitleUploadIdleTimeout;
  for(id name in headers){if([name isKindOfClass:NSString.class]&&[headers[name] isKindOfClass:NSString.class])[wire setValue:headers[name] forHTTPHeaderField:name];}
  request.wire=wire;[PorticoQueueTransport submit:request domain:@"queue_transport" busy:@"Too many queue requests."];
 }
@@ -291,6 +380,7 @@ RCT_REMAP_METHOD(profileRequest,profileRequest:(NSString *)identifier url:(NSStr
 }
 
 RCT_REMAP_METHOD(cancelQueueRequest,cancelQueueRequest:(NSString *)identifier){
+ @synchronized(self){PorticoSubtitleUploadPreparation *pending=_subtitleUploads[identifier];if(pending){[pending.progress cancel];[_subtitleUploads removeObjectForKey:identifier];pending.reject(@"cancelled",@"Queue request cancelled.",nil);}}
  PorticoQueueRequest *request;@synchronized(PorticoQueueRequest.class){request=PorticoQueueRequests[identifier];}@synchronized(request){if(request.streamingResponse&&request.owner!=self)return;if(!request.completed){request.failureCode=@"cancelled";[request finish:@"Queue request cancelled."];}}
 }
 
