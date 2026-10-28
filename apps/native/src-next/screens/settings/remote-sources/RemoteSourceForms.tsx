@@ -204,7 +204,11 @@ export function ReadingEditor({controller, t, source, onCancel, onSaved, onAccep
   };
   const save = async (stay = false) => {
     if (inFlight.current || !profile || !values || !owns() || unknown || accepted || consentDirty && !stay) return;
-    const command = {...values, ...(consentDirty && typeof consent === 'boolean' ? {allowAdvancedMediaAnalysis: consent} : {})};
+    // The read's own consent fact is dropped again here: an ordinary save omits
+    // the field, so it can neither grant nor revoke the recorded permission.
+    const {scanDepth, wholeFileReads, connections, requestsPerSecond, bytesPerSecond} = values;
+    const command = {scanDepth, wholeFileReads, connections, requestsPerSecond, bytesPerSecond,
+      ...(consentDirty && typeof consent === 'boolean' ? {allowAdvancedMediaAnalysis: consent} : {})};
     inFlight.current = true; setBusy(true); setError(undefined);
     try {
       const next = await controller.saveProfile(profile, command, owns);

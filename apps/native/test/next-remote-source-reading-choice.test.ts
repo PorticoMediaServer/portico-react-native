@@ -22,7 +22,7 @@ async function fixture() {
     getSnapshot: () => ({sources: {sources: [source], receipt: null, ambiguous: false}}),
     saveProfile: async (original: unknown, values: unknown) => {writes.push({original, values}); return profile;},
     saveProfileStartChoice: async (original: any, originalAdvanced: any, offered: any, opening: any) => {
-      assert.equal(original, profile); assert.equal(originalAdvanced, advanced); assert.ok(definitions.includes(offered)); assert.equal(opening.consentDirty, false); assert.equal(opening.isCurrent(), true);
+      assert.ok(original === profile); assert.ok(originalAdvanced === advanced); assert.ok(definitions.includes(offered)); assert.equal(opening.consentDirty, false); assert.equal(opening.isCurrent(), true);
       writes.push({offered, opening}); const command = choices.sourceChoiceCommand(original, originalAdvanced, offered)!; assert.ok(command);
       intent = {operationId: 'issued-intent', body: {}, command};
       const settings = {...profile, revision: 2, choiceBaseline: {sourceId: source.id, generation: '1', configurationGeneration: '1', name: offered.name, definitionRevision: 1, readRevision: 2, advancedRevision: 2, reading: offered.reading, advanced: offered.advanced, currentAdvanced: offered.advanced, applicableFields: choices.sourceChoiceFields, changedFields: []}};
@@ -55,6 +55,16 @@ test('Reading dispatches the original offered choice once and recovers its exact
     assert.equal(f.get('ReadingControls').props.disabled, true);
     f.button('next.remoteSources.checkResult').props.onPress(); await f.host.settle();
     assert.equal(f.recoveries.length, 1); assert.deepEqual(f.adopted, [source]); assert.equal(f.writes.length, 1);
+  } finally {await f.host.unmount();}
+});
+
+test('an unedited save omits the recorded consent so it is neither granted nor revoked', async () => {
+  const f = await fixture();
+  try {
+    f.button('next.remoteSources.save').props.onPress(); await f.host.settle();
+    assert.equal(f.writes.length, 1);
+    assert.equal(Object.hasOwn(f.writes[0].values, 'allowAdvancedMediaAnalysis'), false);
+    assert.equal(f.writes[0].values.connections, 4);
   } finally {await f.host.unmount();}
 });
 

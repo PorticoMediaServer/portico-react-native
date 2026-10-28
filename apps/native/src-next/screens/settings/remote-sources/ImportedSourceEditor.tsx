@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {Linking, Text} from 'react-native';
 import {s3SourceDraft, driveServiceAccountDraft, driveOAuthDraft, cloudTokenDraft, type CloudTokenFields, type DriveKeyFields, type S3SourceFields, type RemoteSource, type RcloneProgram, type RcloneTestResult} from '../../../../../../packages/client-core/src/remote-sources';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
@@ -8,7 +8,7 @@ import {TextField} from '../../../kit/controls/TextField';
 import {useTheme} from '../../../kit/theme';
 import {copyText} from '../../../platform/clipboard';
 import type {NativeRemoteSourcesController} from './controller';
-import {Page, Problem, receiptCheckRequired, remoteSourceError, useAttempt} from './RemoteSourceForms';
+import {Page, Problem, SourceWizardContext, receiptCheckRequired, remoteSourceError, useAttempt} from './RemoteSourceForms';
 
 type FormTicket = {live: boolean; scope: object};
 
@@ -17,7 +17,7 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
   controller: NativeRemoteSourcesController; source?: RemoteSource; form?: 'imported' | 's3' | 'drive' | 'cloud' | 'driveOAuth'; t: typeof defaultI18n.t;
   isCurrent: () => boolean; onCancel: () => void; onSaved: (source: RemoteSource) => void;
 }) {
-  const theme = useTheme(), current = useAttempt(isCurrent), flight = useRef(false), revision = useRef(0), testedDraft = useRef<Readonly<{name: string; remote: string; config: string}> | undefined>(undefined);
+  const theme = useTheme(), wizard = useContext(SourceWizardContext), current = useAttempt(isCurrent), flight = useRef(false), revision = useRef(0), testedDraft = useRef<Readonly<{name: string; remote: string; config: string}> | undefined>(undefined);
   const [name, setName] = useState(source?.name ?? ''), [remote, setRemote] = useState(''), [config, setConfig] = useState('');
   const [s3, setS3] = useState<S3SourceFields>({endpoint: '', region: '', accessKey: '', secretKey: '', bucket: '', folder: ''});
   const [drive, setDrive] = useState<DriveKeyFields>({keyJson: '', location: 'folder', locationId: ''});
@@ -146,7 +146,7 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
   const editable = !busy && !recovery && !snapshot.busy;
   return <Page title={source?.name ?? t(form === 's3' ? 'next.remoteSources.connectS3' : form === 'drive' || form === 'driveOAuth' ? 'next.remoteSources.connectDrive' : form === 'cloud' ? 'next.remoteSources.connectCloud' : 'next.remoteSources.kindRclone')} t={t} busy={busy} onCancel={onCancel}
     footer={recovery ? <Button disabled={busy} onPress={() => {void recover();}}>{t('next.remoteSources.checkResult')}</Button>
-      : <Button disabled={!editable || !valid || !tested} onPress={() => {void save();}}>{t('next.remoteSources.continue')}</Button>}>
+      : <Button disabled={!editable || !valid || !tested} onPress={() => {void save();}}>{t(wizard ? 'next.remoteSources.continue' : 'next.remoteSources.saveAndContinue')}</Button>}>
     <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{program?.available && program.version
       ? t('next.remoteSources.bundledVersion', {version: program.version}) : t('next.remoteSources.bundledProgram')}</Text>
     {program && !program.available && <Problem message={t('next.remoteSources.bundledUnavailable')}/>}
