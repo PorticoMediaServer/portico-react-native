@@ -1,5 +1,5 @@
 import React, {useSyncExternalStore} from 'react';
-import {ScrollView, Text, View} from 'react-native';
+import {Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {presentError} from '../../../../../../packages/client-core/src/presentation/errors';
@@ -7,6 +7,7 @@ import type {ContentEntry} from '../../../../../../packages/client-core/src/libr
 import {AmbientArt, Artwork} from '../../../kit/artwork';
 import {Button, Focusable} from '../../../kit/controls';
 import {FocusRegion} from '../../../kit/focus';
+import {MusicScrollView, MusicWindow} from '../music/MusicWindow';
 import {Icon} from '../../../kit/Icon';
 import {StateView} from '../../../kit/states';
 import {alpha, browseType} from '../../../kit/browse/presentation';
@@ -50,9 +51,10 @@ function ChapterRows({controller, entries, currentId, fraction, runtime, tv, foc
   controller: AudiobookScreenController; entries: readonly ContentEntry[]; currentId: string | undefined; fraction: number | undefined;
   runtime: NativeShellRuntime; tv: boolean; focusPrefix: string; onTail: () => void;
 }) {
-  const theme = useTheme();
+  const theme = useTheme(), playingIndex = currentId === undefined ? -1 : entries.findIndex(entry => entry.id === currentId);
+  // LR05: only the rows in view are mounted (fixed 68/54 rows; TV draws the playing one at 84).
   return <View style={{marginTop: tv ? 14 : 12}}>
-    {entries.map((entry, index) => {
+    <MusicWindow items={entries} itemHeight={tv ? 68 : 54} expanded={tv && playingIndex >= 0 ? {index: playingIndex, extra: 16} : undefined} renderItem={(entry, index) => {
       // collections 43: the row you are in is the one whose own id this profile
       // resumed — a chapter row is `file:chapter_index`, a part row is its file —
       // never a number counted across the book's files. The drawn number is the
@@ -80,7 +82,7 @@ function ChapterRows({controller, entries, currentId, fraction, runtime, tv, foc
           <View style={{width: `${Math.max(0, Math.min(1, fraction)) * 100}%`, height: tv ? 5 : 2, backgroundColor: theme.colors.accentStrong}}/>
         </View> : null}
       </Focusable>;
-    })}
+    }}/>
   </View>;
 }
 
@@ -225,9 +227,9 @@ export function BookScreen({controller, entry, runtime, actions, openEntry, onBa
       style={{position: 'absolute', top: insets.top + 6, left: 10, zIndex: 10, height: 44, width: 44}}/> : null}
     {!tv && <Button variant="icon" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title: entity.title})} onPress={() => actions.menu(entity, undefined, undefined, [{id: 'book-start-over', icon: 'i-restart', label: t('action.startOver'), onSelect: () => {void controller.startOver().catch(error => runtime.reportError(error));}}])}
       style={{position: 'absolute', top: insets.top + 6, right: 10, zIndex: 10, height: 44, width: 44}}/>}
-    <ScrollView onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent; if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 240) tail();}} scrollEventThrottle={200} contentContainerStyle={tv ? {paddingBottom: 64} : {paddingTop: Math.max(104, insets.top + 56), paddingBottom: 48}} showsVerticalScrollIndicator={false}>
+    <MusicScrollView onNearEnd={tail} contentContainerStyle={tv ? {paddingBottom: 64} : {paddingTop: Math.max(104, insets.top + 56), paddingBottom: 48}} showsVerticalScrollIndicator={false}>
       {tv ? <FocusRegion id={regionId} entry={resumeFocusId} orientation="free" style={{width: 1920, height: canvasHeight}}>{body}</FocusRegion>
         : <View style={{alignItems: 'center', paddingHorizontal: 20}}>{body}</View>}
-    </ScrollView>
+    </MusicScrollView>
   </View>;
 }

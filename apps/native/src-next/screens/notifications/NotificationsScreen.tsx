@@ -1,5 +1,5 @@
 import React, {useEffect, useLayoutEffect, useState, useSyncExternalStore} from 'react';
-import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
+import {FlatList, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {noticeWords, type Notification, type NotificationAction} from '../../../../../packages/client-core/src/notifications';
@@ -150,6 +150,14 @@ export function NativeNotificationsScreen({context, route, runtime, profileServi
     {id: 'profile', title: t('notifications.audience.profile'), tag: undefined, service: lease.profile, state: profile},
     ...(adminVisible ? [{id: 'admin', title: t('notifications.audience.admin'), tag: t('next.shell.ownerOnly'), service: lease.admin, state: admin}] : []),
   ].filter(section => section.state.items.length > 0);
+  type Section = (typeof sections)[number];
+  type Row = Readonly<{kind: 'heading'; key: string; section: Section}> | Readonly<{kind: 'more'; key: string; section: Section}> | Readonly<{kind: 'notice'; key: string; section: Section; notice: Notification; first: boolean; last: boolean}>;
+  const rows: Row[] = sections.flatMap(section => [
+    {kind: 'heading' as const, key: `heading:${section.id}`, section},
+    ...section.state.items.map((notice, index) => ({kind: 'notice' as const, key: `notice:${section.id}:${notice.id}`, section, notice,
+      first: index === 0, last: index === section.state.items.length - 1})),
+    ...(section.state.more ? [{kind: 'more' as const, key: `more:${section.id}`, section}] : []),
+  ]);
 
   const routeFor = (action: NotificationAction): NativeShellRoute | undefined => {
     if (action.kind === 'command') return action.command === 'open-download' ? {kind: 'downloads'} : undefined;
@@ -221,28 +229,34 @@ export function NativeNotificationsScreen({context, route, runtime, profileServi
       {value: 'all', label: t('notifications.view.all')},
       {value: 'archived', label: t('notifications.view.archived')},
     ]}/>
-    <ScrollView style={{flex: 1}} contentContainerStyle={{paddingBottom: theme.platform === 'phone' ? 0 : Math.max(24, insets.bottom + 16), paddingTop: 4}}>
-      {error !== undefined && items.length > 0 && <StateView tone="warning" title={error} primaryAction={{id: 'retry', label: t('action.tryAgain'), onPress: reload}} style={{paddingTop: 8, paddingBottom: 8}}/>}
-      {loading && !items.length && <StateView icon="i-bell" title={t('notifications.loading')}/>}
-      {!loading && !items.length && error !== undefined && <StateView icon="i-warn" title={t('notifications.error.load')} body={error} primaryAction={{id: 'retry', label: t('action.tryAgain'), onPress: reload}}/>}
-      {ready && !items.length && error === undefined && <StateView icon={view === 'archived' ? 'i-archive' : 'i-bell'} title={emptyTitle} body={t('notifications.emptyBody')}/>}
-      {sections.map(section => <View key={section.id} testID={`notifications-section-${section.id}`} style={{marginTop: 12}}>
-        <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 8, paddingHorizontal: 20, marginBottom: 8}}>
-          <Text style={[shellType(13, 700), {color: theme.colors.textTertiary}]}>{section.title}</Text>
-          {section.tag && <Text style={[shellType(12, 700), {color: theme.colors.textTertiary}]}>{section.tag}</Text>}
-        </View>
-        <View style={{marginHorizontal: 16, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
-          {section.state.items.map((notice, index) => {
-            const message = words(notice);
-            return <NotificationItem key={notice.id} testID={`notification-${notice.id}`} separator={index > 0} notification={notice} title={message.title} body={message.body} when={defaultI18n.relativeTime(notice.createdAt)}
-              subject={<Icon name={sourceIcon(notice.source)} size={18} color={notice.severity === 'critical' ? theme.colors.record : notice.severity === 'warning' ? theme.colors.amber : theme.colors.textSecondary}/>}
-              actions={actionsFor(notice, view)} menuLabel={t('next.shell.native.moreOptions')} onMenu={() => {const service = serviceFor(notice); if (!noticeLive(service, view, notice)) return; setChosen(notice);}} style={{opacity: notice.read && view !== 'archived' ? .7 : 1}}/>;
-          })}
-          {section.id === 'admin' && <View pointerEvents="none" accessible={false} style={{position: 'absolute', inset: 0, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(92,179,226,.28)'}}/>}
-        </View>
-        {section.state.more && <View style={{alignItems: 'center', marginTop: 10}}><Button testID={`notifications-more-${section.id}`} variant="glass" size="small" loading={section.state.busy} onPress={() => {if (!viewLive(section.service, view)) return; void section.service.more().catch(runtime.reportError);}}>{t('notifications.loadMore')}</Button></View>}
-      </View>)}
-    </ScrollView>
+    {/* LR09: one keyed row per heading, notice and Load more, on a viewport list; the
+        service keeps the fetched history, the list mounts only the rows in view. */}
+    <FlatList testID="notifications-list" style={{flex: 1}} data={rows} keyExtractor={row => row.key} initialNumToRender={12} windowSize={7}
+      contentContainerStyle={{paddingBottom: theme.platform === 'phone' ? 0 : Math.max(24, insets.bottom + 16), paddingTop: 4}}
+      ListHeaderComponent={<>
+        {error !== undefined && items.length > 0 && <StateView tone="warning" title={error} primaryAction={{id: 'retry', label: t('action.tryAgain'), onPress: reload}} style={{paddingTop: 8, paddingBottom: 8}}/>}
+        {loading && !items.length && <StateView icon="i-bell" title={t('notifications.loading')}/>}
+        {!loading && !items.length && error !== undefined && <StateView icon="i-warn" title={t('notifications.error.load')} body={error} primaryAction={{id: 'retry', label: t('action.tryAgain'), onPress: reload}}/>}
+        {ready && !items.length && error === undefined && <StateView icon={view === 'archived' ? 'i-archive' : 'i-bell'} title={emptyTitle} body={t('notifications.emptyBody')}/>}
+      </>}
+      renderItem={({item: row}) => {
+        if (row.kind === 'heading') return <View testID={`notifications-section-${row.section.id}`} style={{flexDirection: 'row', alignItems: 'baseline', gap: 8, paddingHorizontal: 20, marginTop: 12, marginBottom: 8}}>
+          <Text style={[shellType(13, 700), {color: theme.colors.textTertiary}]}>{row.section.title}</Text>
+          {row.section.tag && <Text style={[shellType(12, 700), {color: theme.colors.textTertiary}]}>{row.section.tag}</Text>}
+        </View>;
+        if (row.kind === 'more') return <View style={{alignItems: 'center', marginTop: 10}}><Button testID={`notifications-more-${row.section.id}`} variant="glass" size="small" loading={row.section.state.busy}
+          onPress={() => {if (!viewLive(row.section.service, view)) return; void row.section.service.more().catch(runtime.reportError);}}>{t('notifications.loadMore')}</Button></View>;
+        const {notice, first, last, section} = row, message = words(notice), radius = {
+          borderTopLeftRadius: first ? 14 : 0, borderTopRightRadius: first ? 14 : 0, borderBottomLeftRadius: last ? 14 : 0, borderBottomRightRadius: last ? 14 : 0};
+        // Each row draws its own slice of the section's raised card (and the admin outline).
+        return <View style={{marginHorizontal: 16, overflow: 'hidden', backgroundColor: theme.colors.raised, ...radius}}>
+          <NotificationItem testID={`notification-${notice.id}`} separator={!first} notification={notice} title={message.title} body={message.body} when={defaultI18n.relativeTime(notice.createdAt)}
+            subject={<Icon name={sourceIcon(notice.source)} size={18} color={notice.severity === 'critical' ? theme.colors.record : notice.severity === 'warning' ? theme.colors.amber : theme.colors.textSecondary}/>}
+            actions={actionsFor(notice, view)} menuLabel={t('next.shell.native.moreOptions')} onMenu={() => {const service = serviceFor(notice); if (!noticeLive(service, view, notice)) return; setChosen(notice);}} style={{opacity: notice.read && view !== 'archived' ? .7 : 1}}/>
+          {section.id === 'admin' && <View pointerEvents="none" accessible={false} style={{position: 'absolute', inset: 0, ...radius, borderColor: 'rgba(92,179,226,.28)',
+            borderLeftWidth: 1, borderRightWidth: 1, borderTopWidth: first ? 1 : 0, borderBottomWidth: last ? 1 : 0}}/>}
+        </View>;
+      }}/>
     <Menu testID="notification-actions" open={chosen !== undefined} onOpenChange={open => {if (!open) setChosen(undefined);}} presentation="sheet"
       title={chosenWords?.title} description={chosenWords?.body} items={menu}/>
   </NotificationsFrame>;

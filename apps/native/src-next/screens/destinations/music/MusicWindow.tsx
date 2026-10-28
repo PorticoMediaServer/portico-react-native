@@ -28,8 +28,10 @@ export function MusicScrollView({children, onNearEnd, ...props}: Omit<ScrollView
   </Animated.ScrollView></Viewport.Provider>;
 }
 
-export function MusicWindow<T extends {id: string}>({items, itemHeight, columns = 1, columnWidth, gap = 0, renderItem}: {
+export function MusicWindow<T extends {id: string}>({items, itemHeight, columns = 1, columnWidth, gap = 0, expanded, renderItem}: {
   items: readonly T[]; itemHeight: number; columns?: number; columnWidth?: number; gap?: number;
+  /** One single-column row drawn taller (the playing chapter); the rows after it move down by `extra`. */
+  expanded?: Readonly<{index: number; extra: number}>;
   renderItem: (item: T, index: number) => ReactNode;
 }) {
   const viewport = useContext(Viewport), root = useRef<View>(null), [top, setTop] = useState(0), [focused, setFocused] = useState<string>();
@@ -47,18 +49,22 @@ export function MusicWindow<T extends {id: string}>({items, itemHeight, columns 
   }, [viewport?.content, viewport?.origin]);
   useLayoutEffect(measure, [measure, viewport?.layout, ids, columns, stride]);
   const pin = focused === undefined ? undefined : ids.indexOf(focused);
-  const indices = viewport ? musicWindow(items.length, columns, stride, top, viewport.offset, viewport.height, pin) : ids.map((_, index) => index);
-  return <View ref={root} collapsable={false} onLayout={measure} style={{height: Math.max(0, Math.ceil(items.length / columns) * stride - gap), width: columnWidth ? columns * columnWidth + (columns - 1) * gap : '100%'}}>
+  const taller = columns === 1 && expanded && expanded.index >= 0 && expanded.index < items.length ? expanded : undefined;
+  const extra = taller?.extra ?? 0;
+  const at = (index: number) => Math.floor(index / columns) * stride + (taller && index > taller.index ? extra : 0);
+  // The taller row shifts the rest by less than a row; one more overscan row covers it.
+  const indices = viewport ? musicWindow(items.length, columns, stride, top + (extra ? stride : 0), viewport.offset, viewport.height + (extra ? stride : 0), pin) : ids.map((_, index) => index);
+  return <View ref={root} collapsable={false} onLayout={measure} style={{height: Math.max(0, Math.ceil(items.length / columns) * stride - gap + extra), width: columnWidth ? columns * columnWidth + (columns - 1) * gap : '100%'}}>
     {indices.map(index => {
-      const item = items[index]!;
+      const item = items[index]!, height = itemHeight + (taller?.index === index ? extra : 0);
       return <View key={item.id} onFocus={() => {
         setFocused(item.id);
         if (!viewport?.height) return;
-        const y = top + Math.floor(index / columns) * stride;
+        const y = top + at(index);
         if (y < viewport.offset + 24) viewport.scroll.current?.scrollTo({y: Math.max(0, y - 24), animated: true});
-        else if (y + itemHeight > viewport.offset + viewport.height - 24) viewport.scroll.current?.scrollTo({y: Math.max(0, y + itemHeight - viewport.height + 24), animated: true});
+        else if (y + height > viewport.offset + viewport.height - 24) viewport.scroll.current?.scrollTo({y: Math.max(0, y + height - viewport.height + 24), animated: true});
       }} onBlur={() => setFocused(value => value === item.id ? undefined : value)}
-        style={{position: 'absolute', top: Math.floor(index / columns) * stride, left: columnWidth ? index % columns * (columnWidth + gap) : 0, width: columnWidth ?? '100%', height: itemHeight}}>
+        style={{position: 'absolute', top: at(index), left: columnWidth ? index % columns * (columnWidth + gap) : 0, width: columnWidth ?? '100%', height}}>
         {renderItem(item, index)}
       </View>;
     })}

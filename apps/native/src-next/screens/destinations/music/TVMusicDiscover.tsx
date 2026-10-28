@@ -3,7 +3,9 @@ import {ScrollView, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
 import {serverTextLabel} from '../../../../../../packages/client-core/src/presentation/server-text';
-import {FocusRegion, useFocusRegistry} from '../../../kit/focus';
+import {useFocusRegistry} from '../../../kit/focus';
+import {Row, type LayoutItemContext, type LayoutSelection} from '../../../kit/layout';
+import {discoverCell} from '../../library/discover-cells';
 import {StateView} from '../../../kit/states';
 import {browseType} from '../../../kit/browse/presentation';
 import {useTheme} from '../../../kit/theme';
@@ -16,15 +18,19 @@ import {MusicMixesRow} from './MusicMixesRow';
 type Position = Readonly<{regionId: string; childId: string; y: number}>;
 // UI memory belongs to one real destination and vanishes with its authority.
 const positions = new WeakMap<NativeLibraryDestination, Position>();
+const entryId = (entry: ContentEntry) => entry.id;
 const noSubscribe = () => () => {};
 const noMixes = () => undefined;
+const noRowSelection: LayoutSelection = {active: false, isSelected: () => false, onToggle: () => {}, onEnter: () => {}};
 
 /** music-plus18: real library Discover, Recently played before profile Mixes.
- * Each server rail keeps its own bounded continuation and native focus region. */
+ * Each server rail keeps its own bounded continuation and native focus region, and
+ * mounts only the cards in view (LR05) through the kit Row, which keeps the focused
+ * and remembered cards mounted so focus and Back land where they were. */
 export function TVMusicDiscover({destination, state, runtime, active, anchor, onEntered, renderEntry}: {
   destination: NativeLibraryDestination; state: NativeLibrarySnapshot; runtime: NativeShellRuntime;
   active: NativeDestinationActivation; anchor?: boolean; onEntered: () => void;
-  renderEntry: (entry: ContentEntry, onFocus: () => void) => ReactNode;
+  renderEntry: (entry: ContentEntry, width: number, context: LayoutItemContext) => ReactNode;
 }) {
   const theme = useTheme(), registry = useFocusRegistry(), scroll = useRef<ScrollView>(null);
   const mixes = useSyncExternalStore(runtime.mixes?.subscribe ?? noSubscribe, runtime.mixes?.getSnapshot ?? noMixes);
@@ -69,20 +75,17 @@ export function TVMusicDiscover({destination, state, runtime, active, anchor, on
     {state.discover.projection?.empty && !sections.length && !hasMixes && <StateView title={serverTextLabel(defaultI18n, state.discover.projection.empty)}/>}
     {!recent && mixNode}
     {ordered.map(section => {
-      const id = `${prefix}.${section.id}`;
+      const id = `${prefix}.${section.id}`, width = section.entries.every(entry => entry.kind === 'category') ? 320 : 200, cell = discoverCell(theme, width, section.entries);
       return <React.Fragment key={section.id}>
         <View onLayout={event => measured.current.set(id, event.nativeEvent.layout.y)} style={{marginTop: section === ordered[0] ? 0 : 44}}>
           <Text accessibilityRole="header" style={[browseType(theme, 32, 700, -.019), {color: theme.colors.text, marginHorizontal: theme.gutter, marginBottom: 22}]}>{serverTextLabel(defaultI18n, section.heading)}</Text>
-          <FocusRegion id={id} enabled={active.visible} orientation="horizontal" entry={section.entries[0]!.id} order={section.entries.map(entry => entry.id)} edges={edges(id)}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEventThrottle={100}
-              contentContainerStyle={{paddingHorizontal: theme.gutter, paddingVertical: 16, gap: 28}}
-              onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
-                if (active.visible && section.nextCursor && contentOffset.x + layoutMeasurement.width >= contentSize.width - 2280)
-                  void destination.nextDiscover(section.id).catch(runtime.reportError);
-              }}>
-              {section.entries.map(entry => <React.Fragment key={entry.id}>{renderEntry(entry, () => focused(id, entry.id))}</React.Fragment>)}
-            </ScrollView>
-          </FocusRegion>
+          <Row title={serverTextLabel(defaultI18n, section.heading)} showHeading={false} items={section.entries} getKey={entryId}
+            itemWidth={width} itemHeight={cell.art} captionHeight={cell.caption} gap={28} gutter={theme.gutter} selection={noRowSelection}
+            focus={{id, enabled: active.visible, entry: section.entries[0]!.id, edges: edges(id)}}
+            onVisibleRange={(_first, last) => {
+              if (active.visible && section.nextCursor && last >= section.entries.length - 10) void destination.nextDiscover(section.id).catch(runtime.reportError);
+            }}
+            renderItem={(entry, context) => renderEntry(entry, width, {...context, onFocus: () => {context.onFocus(); focused(id, entry.id);}})}/>
         </View>
         {section === recent && mixNode}
       </React.Fragment>;

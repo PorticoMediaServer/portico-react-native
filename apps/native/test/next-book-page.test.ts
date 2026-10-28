@@ -2,6 +2,7 @@ import {audiobookAuthorInitials} from '../src-next/screens/destinations/audioboo
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {expandWindows, musicWindowStub} from './helpers/music-window-stub.ts';
 import {LibraryContentService} from '../../../packages/client-core/src/library-content';
 
 const entity = {id: 'book-1', libraryId: 'books', kind: 'book', title: 'The Martian', author: 'Andy Weir', narrators: ['R. C. Bray'],
@@ -263,6 +264,7 @@ test('author and series show a retryable error and retain Back, while ready-empt
     '../../../kit/controls': {Button: 'Button', Focusable: 'Focusable'}, '../../../kit/focus': {FocusRegion: 'FocusRegion'},
     '../../../kit/browse/presentation': {alpha: (value: string) => value, browseType: () => ({})},
     '../../../kit/theme': {useTheme: () => ({...theme, isTV: tv})}, './BookScreen': {AudiobookErrorState: ErrorView}, './presentation': {audiobookAuthorInitials},
+    '../music/MusicWindow': musicWindowStub,
   });
   const find = (node: any, predicate: (value: any) => boolean): any => {
     if (!node || typeof node !== 'object') return undefined;
@@ -276,8 +278,8 @@ test('author and series show a retryable error and retain Back, while ready-empt
     const {value} = await controller({kind, id: 'person-1', page: failed});
     await value.load(lease);
     let back = 0;
-    const render = () => ui.render(() => AuthorSeriesScreen({controller: {...value, getSnapshot: value.getSnapshot, subscribe: value.subscribe, load: () => value.load(lease), next: (id: string) => value.next(id, lease)}, entry: pageEntity,
-      runtime: {artwork: () => undefined, ambient: () => undefined}, actions: {menu() {}}, openEntry() {}, onBack: () => {back++;}}));
+    const render = () => expandWindows(ui.render(() => AuthorSeriesScreen({controller: {...value, getSnapshot: value.getSnapshot, subscribe: value.subscribe, load: () => value.load(lease), next: (id: string) => value.next(id, lease)}, entry: pageEntity,
+      runtime: {artwork: () => undefined, ambient: () => undefined}, actions: {menu() {}}, openEntry() {}, onBack: () => {back++;}})));
     const errorTree = render();
     const error = find(errorTree, node => node.type === ErrorView);
     assert.ok(error);
@@ -298,8 +300,9 @@ test('author and series show a retryable error and retain Back, while ready-empt
       const focusable = find(row.type(row.props), node => node.type === 'Focusable');
       focusable.props.onFocus();
     } else {
-      const scroll = find(readyTree, node => node.type === 'ScrollView');
-      scroll.props.onScroll({nativeEvent: {contentOffset: {y: 700}, layoutMeasurement: {height: 300}, contentSize: {height: 1000}}});
+      // The viewport list's own near-end signal asks for the next page.
+      const scroll = find(readyTree, node => node.type === 'MusicScrollView');
+      scroll.props.onNearEnd();
     }
     await Promise.resolve(); await Promise.resolve();
     assert.deepEqual(FakeLibraryContentService.nextCalls, ['books']);

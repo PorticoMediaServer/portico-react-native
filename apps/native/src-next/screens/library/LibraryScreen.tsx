@@ -20,7 +20,8 @@ import {FocusItem, FocusRegion, useFocusRegistry, type FocusRegionProps} from '.
 import {LibraryHeader, LibraryMenu, LibrarySwitcher, QuickToggle, ViewToggle, type BrowseLabels} from '../../kit/browse';
 import {browseType, alpha} from '../../kit/browse/presentation';
 import {Icon} from '../../kit/Icon';
-import {WindowedGrid, AlphabetRail, type LayoutSelection, type WindowedGridHandle} from '../../kit/layout';
+import {WindowedGrid, AlphabetRail, Row, type LayoutSelection, type WindowedGridHandle} from '../../kit/layout';
+import {discoverCell} from './discover-cells';
 import {GridSkeleton, SkeletonBlock, StateView, showSkeleton} from '../../kit/states';
 import {useTheme, type Theme} from '../../kit/theme';
 import {useMotion} from '../../kit/useMotion';
@@ -82,6 +83,8 @@ export type NativeLibraryScreenProps = Readonly<{
 const noSubscribe = () => () => {};
 const noSelection = () => undefined;
 const noFilterSnapshot = (): NativeLibraryFilterSnapshot | undefined => undefined;
+/** Discover shelves have no multi-select of their own. */
+const noRowSelection: LayoutSelection = {active: false, isSelected: () => false, onToggle: () => {}, onEnter: () => {}};
 const resourceFocusMemory = new WeakMap<NativeShellRuntime, Map<string, Readonly<{key: string; index: number}>>>();
 
 /** Screen-local geometry named for this lane. Numbers come from the phone frame's
@@ -411,23 +414,23 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
           : emptyShown ? <LibraryEmpty runtime={runtime} regionId={emptyRegion} upRegionId={ids.libraryTabs(state.library.id)} surface={state.tab.shows}/>
           : theme.isTV && state.library.kind === 'music' && state.tab.id === 'discover' ? <TVMusicDiscover
             destination={destination} state={state} runtime={runtime} active={active} anchor={props.mixAnchor} onEntered={onEntered}
-            renderEntry={(entry, onFocus) => <LibraryCard entry={entry} width={entry.kind === 'category' ? 320 : 200} runtime={runtime} actions={actions} focusId={entry.id} disabled={!active.visible} onFocus={onFocus}/>}/>
+            renderEntry={(entry, width, context) => <LibraryCard entry={entry} width={width} runtime={runtime} actions={actions} focusId={context.focusId} disabled={!active.visible} onFocus={context.onFocus} onBlur={context.onBlur}/>}/>
           : state.tab.shows === 'rows' ? <ScrollView ref={discoverScroll}>
             {state.discover.error && <StateView {...runtime.error(state.discover.error, destination.retry)}/>}
-            {state.discover.appended.map((section, index) => <View key={section.id}>
+            {state.discover.appended.map((section, index) => {const cardWidth = theme.isTV ? 200 : 112, cell = discoverCell(theme, cardWidth, section.entries);
+            return <View key={section.id}>
             <Text accessibilityRole="header" style={[browseType(theme, theme.isTV ? 32 : 19, 700), {color: theme.colors.text, marginHorizontal: screenGutter, marginTop: 28}]}>{serverTextLabel(defaultI18n, section.heading)}</Text>
-            <ScrollView horizontal scrollEventThrottle={100} contentContainerStyle={{paddingHorizontal: screenGutter, gap: theme.isTV ? 28 : 10, paddingVertical: 16}}
-              onScroll={event => {
-                if (!active.visible || !section.nextCursor) return;
-                const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
-                if (contentOffset.x + layoutMeasurement.width >= contentSize.width - 10 * (theme.isTV ? 228 : 122)) void destination.nextDiscover(section.id).catch(runtime.reportError);
-              }}>
-              {section.entries.map(entry => <LibraryCard key={nativeLibraryEntryKey(entry)} entry={entry} width={theme.isTV ? 200 : 112} runtime={runtime} actions={actions}/>) }
-            </ScrollView>
+            {/* LR05: the shelf mounts only the cards in view and asks for its next page ten cards early. */}
+            <Row title={serverTextLabel(defaultI18n, section.heading)} showHeading={false} items={section.entries} getKey={nativeLibraryEntryKey}
+              itemWidth={cardWidth} itemHeight={cell.art} captionHeight={cell.caption} gap={theme.isTV ? 28 : 10} gutter={screenGutter} rightGutter={screenGutter} selection={noRowSelection}
+              onVisibleRange={(_first, last) => {
+                if (active.visible && section.nextCursor && last >= section.entries.length - 10) void destination.nextDiscover(section.id).catch(runtime.reportError);
+              }}
+              renderItem={(entry, context) => <LibraryCard entry={entry} width={cardWidth} runtime={runtime} actions={actions} focusId={context.focusId} onFocus={context.onFocus} onBlur={context.onBlur}/>}/>
             {!theme.isTV && state.library.kind === 'music' && index === 0 && runtime.mixes ? <View onLayout={anchorMixes}>
               <MusicMixesRow focusScope={`${ids.libraryToolbar(state.library.id)}.${state.tab.id}.mixes`} port={runtime.mixes} artwork={runtime.artwork} reportError={runtime.reportError} title={defaultI18n.t('music.mixesForYou')} active={active.visible} onReady={scrollToMixes}/>
             </View> : null}
-          </View>)}
+          </View>;})}
             {!theme.isTV && state.library.kind === 'music' && !state.discover.appended.length && runtime.mixes ? <View onLayout={anchorMixes}>
               <MusicMixesRow focusScope={`${ids.libraryToolbar(state.library.id)}.${state.tab.id}.mixes`} port={runtime.mixes} artwork={runtime.artwork} reportError={runtime.reportError} title={defaultI18n.t('music.mixesForYou')} active={active.visible} onReady={scrollToMixes}/>
             </View> : null}

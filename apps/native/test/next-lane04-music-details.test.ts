@@ -2,6 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {expandWindows, musicWindowStub} from './helpers/music-window-stub.ts';
 import {audiobookAuthorInitials} from '../src-next/screens/destinations/audiobooks/presentation.ts';
 const nodes = (value: any): any[] => Array.isArray(value) ? value.flatMap(nodes) : value?.props ? [value, ...nodes(value.props.children)] : [];
 const content = (node: any): string => [node?.props?.children].flat(Infinity).filter(value => typeof value === 'string' || typeof value === 'number').join('');
@@ -85,7 +86,7 @@ async function audiobook(kind: 'book' | 'author') {
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0})}, '../../../../../../packages/i18n/src': {defaultI18n: i18n},
     '../../../kit/artwork': {AmbientArt: 'AmbientArt', Artwork: 'Artwork', PersonCircle: 'PersonCircle'}, '../../../kit/controls': {Button: 'Button', Focusable: 'Focusable'},
     '../../../kit/focus': {FocusRegion: 'FocusRegion'}, '../../../kit/browse/presentation': {alpha: (color: string, opacity: number) => `${color}/${opacity}`, browseType: type},
-    '../../../kit/theme': {useTheme: () => theme}};
+    '../../../kit/theme': {useTheme: () => theme}, '../music/MusicWindow': musicWindowStub};
   const screen = kind === 'book'
     ? await screenModule(new URL('../src-next/screens/destinations/audiobooks/BookScreen.tsx', import.meta.url), {...common,
       '../../../../../../packages/client-core/src/presentation/errors': {}, '../../../kit/Icon': {Icon: 'Icon'}, '../../../kit/states': {StateView: 'StateView'},
@@ -97,7 +98,7 @@ async function audiobook(kind: 'book' | 'author') {
   const books = ['a', 'b'].map(id => ({...entry, id, kind: 'book'}));
   let starts = 0, menu: any[] = [];
   const controller = {subscribe: () => () => {}, getSnapshot: () => ({phase: 'ready', entity: entry, sections: [{id: 'books', entries: books}], finished: false}), startOver: async () => {starts++;}};
-  const tree = ui.render(() => screen[kind === 'book' ? 'BookScreen' : 'AuthorSeriesScreen']({controller, entry, runtime, actions: {menu: (...args: any[]) => {menu = args;}}, openEntry() {}, onBack() {}}));
+  const tree = expandWindows(ui.render(() => screen[kind === 'book' ? 'BookScreen' : 'AuthorSeriesScreen']({controller, entry, runtime, actions: {menu: (...args: any[]) => {menu = args;}}, openEntry() {}, onBack() {}})));
   return {tree, ui, starts: () => starts, menu: () => menu};
 }
 

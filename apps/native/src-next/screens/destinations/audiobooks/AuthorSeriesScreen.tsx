@@ -1,11 +1,12 @@
 import React, {useSyncExternalStore} from 'react';
-import {ScrollView, Text, View} from 'react-native';
+import {Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
 import {AmbientArt, Artwork, PersonCircle} from '../../../kit/artwork';
 import {Button, Focusable} from '../../../kit/controls';
 import {FocusRegion} from '../../../kit/focus';
+import {MusicScrollView, MusicWindow} from '../music/MusicWindow';
 import {alpha, browseType} from '../../../kit/browse/presentation';
 import {useTheme} from '../../../kit/theme';
 import type {NativeShellRuntime} from '../../../shell/runtime';
@@ -40,7 +41,7 @@ function BookRow({entry, runtime, tv, position, separated, focusId, onOpen, onPl
   return <Focusable focusId={focusId} accessibilityRole="button" accessibilityLabel={entry.title} focusKind="row" focusRadius={tv ? 18 : 10}
     onFocus={onFocus} onPress={tv ? onPlay : onOpen} onLongPressAction={tv ? onMore : undefined}
     style={tv ? {height: 168, paddingHorizontal: 20, borderRadius: 18, flexDirection: 'row', alignItems: 'center', gap: 32}
-      : {minHeight: 86, flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 10, marginRight: -6}}>
+      : {height: '100%', flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 10, marginRight: -6}}>
     {!tv && separated ? <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 80, right: 0, height: 1, backgroundColor: alpha(theme.colors.line, .35)}}/> : null}
     <View style={{width: tv ? 128 : 66, height: tv ? 128 : 66, borderRadius: tv ? 10 : 7, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
       {art ? <Artwork source={art} width={tv ? 128 : 66} height={tv ? 128 : 66}/> : null}
@@ -54,7 +55,7 @@ function BookRow({entry, runtime, tv, position, separated, focusId, onOpen, onPl
       {tv ? <>
         {readBy ? <Text numberOfLines={1} style={[browseType(theme, 22, 400), {color: theme.colors.textTertiary}]}>{readBy}</Text> : null}
         {tvLine ? <Text numberOfLines={1} style={[browseType(theme, 22, 600), {color: theme.colors.accentStrong}]}>{tvLine}</Text> : null}
-      </> : readBy || left ? <View style={{flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', columnGap: 8, rowGap: 3}}>
+      </> : readBy || left ? <View style={{flexDirection: 'row', alignItems: 'baseline', columnGap: 8}}>
         {readBy ? <Text numberOfLines={1} style={[browseType(theme, 12.5, 400), {color: theme.colors.textTertiary, flexShrink: 1}]}>{readBy}</Text> : null}
         {left ? <Text style={[browseType(theme, 12.5, 700), {color: theme.colors.accentStrong}]}>{t('next.kit.remaining', {time: left})}</Text> : null}
       </View> : null}
@@ -107,6 +108,7 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
   // collections 44/45 draw the first rows at 560; a longer shelf keeps its rows
   // reachable by growing the canvas instead of clipping them at the frame's height.
   const canvasHeight = Math.max(1120, 560 + books.length * 168 + Math.max(0, books.length - 1) * 10 + 64);
+  const phoneRow = Math.ceil(86 * Math.max(1, theme.fontScale));
   const body = <>
     {tv && series ? <View style={{position: 'absolute', left: 200, top: 120, width: 380, height: 380}}>
       {runtime.ambient(coverPath) ? <View pointerEvents="none" style={{position: 'absolute', left: -26, top: -26, width: 432, height: 432, borderRadius: 18, overflow: 'hidden'}}>
@@ -164,9 +166,10 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
       </View> : null}
       {/* collections 41c/45: the rows keep the server's own order and only a
           server-sent series position is labelled; nothing is numbered by index. */}
-      {books.map((book, index) => <View key={book.id} style={{marginTop: tv && index ? 10 : 0}}>
+      {/* LR05: only the rows in view are mounted (fixed 168/86 rows, 10 apart on TV). */}
+      <MusicWindow items={books} itemHeight={tv ? 168 : phoneRow} gap={tv ? 10 : 0} renderItem={(book, index) =>
         <BookRow entry={book} runtime={runtime} tv={tv} separated={index > 0} focusId={`${bookFocus}-${book.id}`}
-          onFocus={() => {if (index >= books.length - 3) tail();}} position={series ? book.series?.[0]?.position : undefined} onOpen={() => open(book)} onPlay={() => playBook(book)} onMore={() => actions.menu(book)}/></View>)}
+          onFocus={() => {if (index >= books.length - 3) tail();}} position={series ? book.series?.[0]?.position : undefined} onOpen={() => open(book)} onPlay={() => playBook(book)} onMore={() => actions.menu(book)}/>}/>
       {!tv && !series && (narrators.length || entity.duration !== undefined) ? <View style={{marginTop: 20}}>
         <Text style={[browseType(theme, 20, 700), {color: theme.colors.text, marginBottom: 4}]}>{t('title.details')}</Text>
         <View style={{marginHorizontal: -4, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
@@ -193,9 +196,9 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
       style={{position: 'absolute', top: insets.top + 6, left: 10, zIndex: 10, height: 44, width: 44}}/> : null}
     {!tv ? <Button variant="icon" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title})} onPress={() => actions.menu(entity)}
       style={{position: 'absolute', top: insets.top + 6, right: 10, zIndex: 10, height: 44, width: 44}}/> : null}
-    <ScrollView onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent; if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 240) tail();}} scrollEventThrottle={200} contentContainerStyle={tv ? {paddingBottom: 64} : {paddingTop: Math.max(96, insets.top + 56), paddingBottom: 48}}>
+    <MusicScrollView onNearEnd={tail} contentContainerStyle={tv ? {paddingBottom: 64} : {paddingTop: Math.max(96, insets.top + 56), paddingBottom: 48}}>
       {tv ? <FocusRegion id={regionId} entry={failed ? retryFocusId : resumeFocusId} orientation="free" style={{width: 1920, height: canvasHeight}}>{body}</FocusRegion>
         : <View style={{alignItems: 'center', paddingHorizontal: 20}}>{body}</View>}
-    </ScrollView>
+    </MusicScrollView>
   </View>;
 }

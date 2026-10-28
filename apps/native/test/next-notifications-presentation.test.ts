@@ -9,7 +9,7 @@ const all = (node: any): any[] => Array.isArray(node) ? node.flatMap(all)
   // The phone sheet frame receives its authored header as a prop (SUP-001).
   : React.isValidElement<any>(node) ? [node, ...all(node.props.header), ...all(node.props.children)] : [];
 const flatten = (style: any): any => Array.isArray(style) ? Object.assign({}, ...style.map(flatten)) : style || {};
-const native = {View: 'View', Text: 'Text', ScrollView: 'ScrollView', StyleSheet: {absoluteFill: {}, create: (value: unknown) => value}};
+const native = {View: 'View', Text: 'Text', ScrollView: 'ScrollView', FlatList: 'FlatList', StyleSheet: {absoluteFill: {}, create: (value: unknown) => value}};
 const theme = {platform: 'phone', isTV: false, fontScale: 1, textScale: 1, gutter: 24,
   type: {tab: {}, button: {}}, colors: {ink: '#071018', raised: '#10212d', raisedBright: '#1d3848', text: '#edf5fa', textSecondary: '#bdccd6', lineStrong: '#3b5668'}};
 const i18n = {t: (key: string) => key, has: () => true, number: String, relativeTime: () => 'Yesterday'};
@@ -46,15 +46,25 @@ test('notification sections use a count slot, intra-section separators and the a
     const tabs = all(tree).find(node => node.type === 'Tabs');
     assert.equal(tabs.props.items[0].label, 'notifications.view.unread');
     assert.equal(tabs.props.items[0].count, '3');
-    const rows = all(tree).filter(node => node.type === 'NotificationItem');
+    // LR09: headings, notices and Load more are stable keyed rows of one viewport list.
+    const list = all(tree).find(node => node.type === 'FlatList');
+    assert.deepEqual(list.props.data.map((row: any) => list.props.keyExtractor(row)),
+      ['heading:profile', 'notice:profile:one', 'notice:profile:two', 'heading:admin', 'notice:admin:server']);
+    const drawn = list.props.data.map((row: any) => list.props.renderItem({item: row}));
+    const rows = all(drawn).filter(node => node.type === 'NotificationItem');
     assert.deepEqual(rows.map(node => [node.props.notification.id, node.props.separator]), [['one', false], ['two', true], ['server', false]]);
-    const profile = all(tree).find(node => node.props.testID === 'notifications-section-profile');
-    const admin = all(tree).find(node => node.props.testID === 'notifications-section-admin');
+    assert.ok(all(drawn[0]).some(node => node.props.testID === 'notifications-section-profile'));
+    assert.ok(all(drawn[3]).some(node => node.props.testID === 'notifications-section-admin'));
     const outlines = (node: any) => all(node).filter(child => flatten(child.props.style).borderColor === 'rgba(92,179,226,.28)');
-    assert.equal(outlines(profile).length, 0);
-    assert.equal(outlines(admin).length, 1);
-    assert.equal(flatten(outlines(admin)[0].props.style).borderWidth, 1);
-    assert.equal(outlines(admin)[0].props.pointerEvents, 'none');
+    assert.equal(outlines(drawn.slice(0, 3)).length, 0);
+    assert.equal(outlines(drawn[4]).length, 1);
+    const outline = flatten(outlines(drawn[4])[0].props.style);
+    assert.deepEqual([outline.borderLeftWidth, outline.borderRightWidth, outline.borderTopWidth, outline.borderBottomWidth], [1, 1, 1, 1], 'a one-notice section is outlined all round');
+    assert.equal(outlines(drawn[4])[0].props.pointerEvents, 'none');
+    // The section card is drawn in slices: rounded only at its first and last notice.
+    const card = (row: any) => flatten(row.props.style);
+    assert.equal(card(drawn[1]).borderTopLeftRadius, 14); assert.equal(card(drawn[1]).borderBottomLeftRadius, 0);
+    assert.equal(card(drawn[2]).borderTopLeftRadius, 0); assert.equal(card(drawn[2]).borderBottomLeftRadius, 14);
     assert.equal(flatten(all(tree).find(node => node.props.testID === 'notifications-mark-all').props.textStyle).fontSize, 15);
   } finally {host.unmount();}
 });
