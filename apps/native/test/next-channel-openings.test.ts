@@ -20,7 +20,7 @@ function layoutHost() {
   return {...host, flush: () => {for (const effect of effects.splice(0)) effect();}, dispose: () => {for (const value of cleanups) value.cleanup?.();}};
 }
 const source = (getSnapshot: () => any) => ({subscribe: () => () => {}, getSnapshot});
-const common = {'../../../../../../../packages/i18n/src': {defaultI18n: {t, date: String, number: String}},
+const common = {'../../../../../../../packages/i18n/src': {defaultI18n: {t, date: String, dateTime: String, number: String}},
   '../../../../kit/artwork': {ChannelMark: 'ChannelMark', Artwork: 'Artwork'}, '../../../../kit/controls': {Button: 'Button', Focusable: 'Focusable', Switch: 'Switch', Select: 'Select', TextField: 'TextField'},
   '../../../../kit/overlays': {BottomSheet: 'BottomSheet', MenuRow: 'MenuRow'}, './presentation': presentation, '../../../../kit/shell/visual': {shellType: () => ({})}, '../../../../kit/theme': {useTheme: () => theme}};
 

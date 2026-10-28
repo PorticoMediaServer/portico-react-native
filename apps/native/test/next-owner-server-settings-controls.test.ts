@@ -26,9 +26,9 @@ test('exact non-preset values stay Custom and dependent controls use actual boun
 
 test('Advanced summaries compare actual values and matrix defaults regardless of property order', () => {
   const matrix = row('segments.libraryModes');
-  assert.equal(settingsSummary([matrix], () => ({current: {movies: 'server', anime: 'server', tv: 'server'}, default: {tv: undefined, anime: undefined, movies: undefined}}), t), 'All at defaults');
-  assert.match(settingsSummary([matrix], () => ({current: {tv: 'server', anime: 'off', movies: 'server'}}), t), /Custom/);
-  assert.equal(settingsSummary([row('storage.analysisSpace')], () => ({current: '32'}), t), 'All at defaults');
+  assert.equal(settingsSummary([matrix], () => ({current: {movies: 'server', anime: 'server', tv: 'server'}, default: {tv: undefined, anime: undefined, movies: undefined}}), t), 'next.settings.allDefaults');
+  assert.match(settingsSummary([matrix], () => ({current: {tv: 'server', anime: 'off', movies: 'server'}}), t), /server.channels.custom/);
+  assert.equal(settingsSummary([row('storage.analysisSpace')], () => ({current: '32'}), t), 'next.settings.allDefaults');
   assert.match(settingsSummary([row('storage.analysisSpace')], () => ({current: '40'}), t), /40/);
 });
 

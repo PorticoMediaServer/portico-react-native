@@ -11,7 +11,7 @@ const common = {
   '../../../../../../../packages/i18n/src': {defaultI18n: {t, time: () => '12:30', has: () => true}},
   '../../../../kit/controls': {Button: 'Button', Chip: 'Chip', Select: 'Select', Switch: 'Switch', TextField: 'TextField'},
   '../../../../kit/overlays': {BottomSheet: 'BottomSheet', Menu: 'Menu'},
-  '../../../../kit/shell/visual': {shellType: () => ({})},
+  '../../../../kit/shell/visual': {shellType: () => ({}), alpha: (value: string) => value},
   '../../../../kit/theme': {useTheme: () => ({colors})},
   '../../lifetime': {}, '../storage/space-source': {},
 };

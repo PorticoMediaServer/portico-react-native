@@ -32,7 +32,7 @@ async function fixture(kind: 'key' | 'webhook') {
   const modules: any = {
     react: host.react,
     'react-native': {Text: 'Text', View: 'View', Share: {share: async () => {}}},
-    '../../../../../../../packages/i18n/src': {defaultI18n: {t, date: String, time: String, has: () => true}},
+    '../../../../../../../packages/i18n/src': {defaultI18n: {t, date: String, dateTime: String, time: String, has: () => true}},
     '../../../../platform/clipboard': {copyText: async () => {}},
     '../../../../kit/controls': {Button: 'Button', Focusable: 'Focusable', Switch: 'Switch', Select: 'Select', TextField: 'TextField'},
     '../../../../kit/overlays': {BottomSheet: 'BottomSheet', Menu: 'Menu'},
@@ -112,7 +112,7 @@ test('webhook menus consume their exact opening and reject retained actions or d
   const first = open();
   first.props.onOpenChange(false);
   const second = open();
-  for (const item of first.props.items) item.onSelect();
+  for (const item of first.props.items) if ('onSelect' in item) item.onSelect();
   first.props.onOpenChange(false);
   assert.equal(nodes(f.render()).find(node => node.type === 'Menu')!.props.open, true);
   assert.deepEqual(f.calls, []);

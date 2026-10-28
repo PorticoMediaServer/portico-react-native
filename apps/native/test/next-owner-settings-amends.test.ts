@@ -6,11 +6,13 @@ import {storageExtraSummary} from '../src-next/screens/settings-live/server/stor
 import {maintenance} from './helpers/owner-server-settings.mjs';
 
 const t = defaultI18n.t;
-test('channel states use the five approved labels and conservatively flag unknown/problem states', () => {
-  for (const state of ['ready', 'generating', 'stale', 'disabled', 'degraded']) assert.equal(channelStatus({state, healthCode: ''}).label, `server.channels.state.${state}`);
-  assert.equal(channelStatus({state: 'ready', healthCode: ''}).tone, 'healthy');
-  assert.equal(channelStatus({state: 'disabled', healthCode: ''}).tone, 'neutral');
-  for (const input of [{state: 'new-server-token', healthCode: ''}, {state: 'ready', healthCode: 'too_few_titles'}]) assert.deepEqual(channelStatus(input), {label: 'server.channels.state.degraded', tone: 'warning'});
+test('channel states use the five approved labels and never present a problem as on air', () => {
+  assert.deepEqual(channelStatus({state: 'healthy', healthCode: ''}), {label: 'server.channels.state.ready', tone: 'healthy'});
+  assert.deepEqual(channelStatus({state: 'generating', healthCode: ''}), {label: 'server.channels.state.generating', tone: 'building'});
+  assert.deepEqual(channelStatus({state: 'stale', healthCode: ''}), {label: 'server.channels.state.stale', tone: 'warning'});
+  assert.deepEqual(channelStatus({state: 'disabled', healthCode: ''}), {label: 'server.channels.state.disabled', tone: 'neutral'});
+  for (const state of ['no-eligible-media', 'unresolved-duration', 'new-server-token', '']) assert.deepEqual(channelStatus({state, healthCode: ''}), {label: 'server.channels.state.degraded', tone: 'danger'}, state);
+  assert.deepEqual(channelStatus({state: 'healthy', healthCode: 'too_few_titles'}), {label: 'server.channels.state.degraded', tone: 'danger'});
 });
 
 test('budget-limited counts and total duration stay lower bounds, including a partially counted rule', () => {
@@ -30,7 +32,7 @@ test('expert retention summaries include every category even when producers lack
   assert.match(summary, /9 days/); assert.match(summary, /Extra files: 45 days/); assert.match(summary, /18 days/); assert.match(summary, /4 days/);
   assert.doesNotMatch(summary, /Conversions|All at defaults/);
   assert.ok(storageExtraSummary(runtime, {...settings, retention: {extra: 0}}, doc, logs, t).includes('Extra files: Never'));
-  assert.ok(storageExtraSummary(undefined, settings, doc, logs, t).includes(t('status.loading')));
+  assert.deepEqual(storageExtraSummary(undefined, undefined, undefined, undefined, t), []);
 });
 
 test('missing rows distinguish completed removals and calendar policy dates without following unsaved settings', async () => {

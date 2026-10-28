@@ -45,7 +45,8 @@ function Storage({ports, runtime, compactHeader, group, onOpenPage}: {ports: Nat
     const binding = settingsBinding(row.id); return binding ? readSettingsBinding(binding, sources, row.id) : undefined;
   }, t);
   const extra = storageExtraSummary(runtimeState.draft, maintenanceState.draft, maintenanceState.status, logsState.draft, t);
-  const summary = [specSummary === 'All at defaults' ? '' : specSummary, ...extra].filter(Boolean).join(' · ') || specSummary;
+  const allDefaults = t('next.settings.allDefaults'), loaded = !!runtimeState.draft && !!maintenanceState.draft && !!maintenanceState.status && !!logsState.draft;
+  const summary = [specSummary === allDefaults ? '' : specSummary, ...extra].filter(Boolean).join(' · ') || (loaded ? allDefaults : t('status.loading'));
   return <View style={{flex:1}}><ScrollView contentContainerStyle={{paddingHorizontal:20,paddingBottom:40}}>
     <ServerHeader serverName={context.serverName} viewerRole={viewerRole} audience={viewerRole === 'administrator' ? 'administrators' : 'owner'} variant="phone" style={{marginBottom:12}}/>
     {!compactHeader && <Text accessibilityRole="header" style={[shellType(28,800,33,-.03),{color:theme.colors.text}]}>{t('settings.server.storage')}</Text>}

@@ -12,6 +12,5 @@ export function storageExtraSummary(runtime: RuntimeSettings | undefined, mainte
     if (!['conversions', 'prepared', 'downloads', 'subtitles', 'trickplay'].includes(category.retentionKey)) days(category.name, maintenance.retention[category.retentionKey] ?? 0);
   }
   if (logs) for (const entry of logs.retention) days(t('settings.server.retention.logs', {category: t(`server.logCategory.${entry.category}` as MessageId)}), entry.days);
-  if (!runtime || !maintenance || !document || !logs) parts.push(t('status.loading'));
   return parts;
 }

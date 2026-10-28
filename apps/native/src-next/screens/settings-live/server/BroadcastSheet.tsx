@@ -1,4 +1,4 @@
-import React, {useLayoutEffect, useRef, useState} from 'react';
+import React, {useCallback, useLayoutEffect, useRef, useState} from 'react';
 import {Text, View} from 'react-native';
 import {broadcastBody, broadcastProblem, utf8Length} from '../../../../../../packages/client-core/src/server-admin/panel-logic';
 import {presentError} from '../../../../../../packages/client-core/src/presentation/errors';
@@ -28,7 +28,7 @@ export function NativeBroadcastSheet({ports, runtime, open, onOpenChange}: {port
   const theme = useTheme(), t = runtime.text.t, {api, lifetime} = useSettingsRequestScope(ports.context);
   const active = useRef<Opening | undefined>(undefined), choices = useRef<Pick<BroadcastDraft, 'audience' | 'severity'>>({audience: 'profile', severity: 'info'});
   const [, render] = useState(0), changed = () => render(value => value + 1);
-  const allowed = () => lifetime.current() && nativeStorageOwner(ports.context) && !runtime.retirementSignal?.aborted;
+  const allowed = useCallback(() => lifetime.current() && nativeStorageOwner(ports.context) && !runtime.retirementSignal?.aborted, [lifetime, ports.context, runtime.retirementSignal]);
   const retire = (target: Opening) => {
     target.retired = true; target.flight?.abort(); target.flight = undefined; target.draft = emptyDraft; target.problem = undefined;
     if (active.current === target) active.current = undefined;
@@ -44,7 +44,7 @@ export function NativeBroadcastSheet({ports, runtime, open, onOpenChange}: {port
     runtime.retirementSignal?.addEventListener('abort', stop, {once: true});
     if (!allowed()) stop();
     return () => {off(); runtime.retirementSignal?.removeEventListener('abort', stop); retire(next);};
-  }, [open, ports, lifetime, runtime.retirementSignal]);
+  }, [open, ports, lifetime, runtime.retirementSignal, allowed]);
   const opening = active.current;
   const held = opening && opening.ports === ports && opening.lifetime === lifetime && opening.retirement === runtime.retirementSignal && !opening.retired ? opening : undefined;
   const draft = held?.draft, {title, body, audience, severity} = draft ?? emptyDraft, busy = !!held?.flight, problem = held?.problem;

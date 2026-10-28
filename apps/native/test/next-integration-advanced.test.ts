@@ -47,7 +47,7 @@ async function fixture(error = false) {
     '../AdvancedSection': {NativeAdvancedSection: 'NativeAdvancedSection'}, '../settings-values': {settingNumber, settingsSummary},
     '../storage/forms': {useStorageForms: () => group, useFormState: () => state, useStorageSet: () => state},
   });
-  const runtime = {text: {t: (id: string) => id}, reportError() {}, error: (_error: unknown, retry: () => void) => ({primaryAction: {onPress: retry}})};
+  const runtime = {text: {t: (id: string) => id === 'next.settings.allDefaults' ? 'All at defaults' : id}, reportError() {}, error: (_error: unknown, retry: () => void) => ({primaryAction: {onPress: retry}})};
   const child = module.NativeIntegrationAdvanced({ports: {}, runtime}) as Node;
   const render = () => {
     let tree = h.render(() => child.type(child.props));
