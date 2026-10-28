@@ -69,5 +69,8 @@ test('leaves are capped at 500 per segment and exceeding real segment limits nev
   assert.equal(segments.length, 2);
   assert.equal('items' in segments[0]!.source && segments[0]!.source.items.ids.length, 500);
   assert.deepEqual(segments[1], {source: {items: {ids: ['movie-500']}}});
-  assert.throws(() => selectionSegments(Array.from({length: 17}, (_, i) => entry(`show-${i}`, 'show', `episode-${i}`)), false), /queue_too_large/);
+  const shows = Array.from({length: 17}, (_, i) => entry(`show-${i}`, 'show', `episode-${i}`));
+  // SIM-04, as on the web: Play replaces the queue and is capped; adding to it is not.
+  assert.throws(() => selectionSegments(shows, true), /queue_too_large/);
+  assert.equal(selectionSegments(shows, false).length, 17);
 });

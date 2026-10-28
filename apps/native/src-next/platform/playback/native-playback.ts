@@ -25,6 +25,7 @@
  * control) and downloads (no server session) are not this path's: the controller is never
  * attached to them.
  */
+import {playerFailureCommand} from '../../../../../packages/client-core/src/player-failure-command';
 import {QueueSelectionRegistrations, type QueueSelectionRegistration} from '../../../../../packages/client-core/src/playback-v1/selection-registration';
 import type {PlaybackApi, PlaybackService, PlaybackSession, PlaybackSnapshot, SessionEndInfo} from '../../../../../packages/client-core/src/index';
 import type {PlayerFailureCode} from '../../../../../packages/client-core/src/client-profile';
@@ -544,19 +545,12 @@ export class NativePlayback {
       },
       // The engine could not play the presentation: the server is told, and re-plans the same
       // session another way where the picture was. The queue and its place are untouched.
-      async reportPlayerFailure(sessionId: string, code: PlayerFailureCode, detail: string, positionSeconds: number) {
-        if (self.controller.getSnapshot().session?.id !== sessionId) return {escalates: false};
-        try {
-          const updated = await self.controller.change({failure: {code, detail: detail.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 500)}, positionMs: Math.max(0, Math.round(positionSeconds * 1000))});
-          if (!updated) return {escalates: false};
-          const session = self.keep(updated);
-          for (const listener of self.changedListeners) listener(session);
-          return {escalates: true, session: toPlaybackSession(session, 0)};
-        } catch (e) {
-          // unsupported_media: that was the last way to deliver the file.
-          if (e instanceof PlaybackApiError && (e.code === 'unsupported_media' || e.status === 404 || e.status === 410)) return {escalates: false};
-          return null;
-        }
+      reportPlayerFailure(sessionId: string, code: PlayerFailureCode, detail: string, positionSeconds: number) {
+        // SIM-17: the one shared engine-failure adaptation; native keeps its own ports.
+        return playerFailureCommand({current: () => self.controller.getSnapshot().session?.id,
+          change: (failure, positionMs) => self.controller.change({failure, positionMs}), retain: session => self.keep(session),
+          changed: session => {for (const listener of self.changedListeners) listener(session);}, playback: session => toPlaybackSession(session, 0)},
+        {sessionId, code, detail, positionSeconds});
       },
       onSessionChanged(listener: (session: Session) => void) {
         self.changedListeners.add(listener);
