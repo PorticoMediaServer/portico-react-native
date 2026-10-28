@@ -224,7 +224,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
   // prefix, its retry and each receipt.
   const openDestination = (kind: 'playlist' | 'collection', view: SelectionSnapshot<BrowseSelectionContext>) => {
     // The rendered snapshot must still be the live one before anything is captured.
-    if (view !== snapshot()) return;
+    if (view !== snapshot() || kind === 'playlist' && nativeSelectionActionUnavailable(view.summary, 'playlist')) return;
     const current = producer, model = current?.model;
     // A personal operation still in flight, its result set, or a picker already
     // open owns the surface: a retained callback never opens behind it.
