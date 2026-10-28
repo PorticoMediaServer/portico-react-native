@@ -38,7 +38,7 @@ test('Native Sign-in reads server facts and opens only the selected server web s
     f.render(); assert.equal(f.reads(), 1); assert.deepEqual(f.visits, []);
     assert.equal(f.options[0].serverId, 'server'); assert.equal(f.options[0].isCurrent(), true);
     await f.reply(); const tree = f.render();
-    assert.ok(words(tree).includes('Sign-in move complete')); assert.ok(!words(tree).includes('Moving to local sign-in'));
+    assert.ok(words(tree).includes('accounts.settings.moveComplete')); assert.ok(!words(tree).includes('Moving to local sign-in'));
     const open = nodes(tree).find(node => node.props.testID === 'server-signin-open-web')!;
     assert.ok(open); open.props.onPress();
     assert.deepEqual(f.visits, ['http://selected-server.invalid:8096/settings?scope=server&section=signin']);

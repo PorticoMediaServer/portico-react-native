@@ -109,7 +109,7 @@ function MetadataPage({ports, runtime, compactHeader, onLibraries, controller, c
       <NativeAdvancedSection testID="server-metadata-advanced" summary={`${artworkLimitText(settings.localArtworkLimitBytes)} GB · ${settings.artworkMaxEdge} px`}>
         <LibraryGroup>
           {select('metadata.artworkLimit', artworkLimitText(settings.localArtworkLimitBytes), value => ({localArtworkLimitBytes: Number(value) * 2 ** 30}), true,
-            `${artworkLimitText(settings.localArtworkUsedBytes)} GB used. When full, new images wait.`)}
+            t('server.metadata.artworkUsedHelp', {used: artworkLimitText(settings.localArtworkUsedBytes)}))}
           {select('metadata.artworkSize', settings.artworkMaxEdge === 1280 ? 'small' : settings.artworkMaxEdge === 2560 ? 'large' : 'standard', value => ({artworkMaxEdge: value === 'small' ? 1280 : value === 'large' ? 2560 : 1920}))}
         </LibraryGroup>
       </NativeAdvancedSection>
@@ -123,7 +123,7 @@ function MetadataPage({ports, runtime, compactHeader, onLibraries, controller, c
       <TextField testID="metadata-credential-value" label={editing ? t(editing.row.label) : ''} value={text} onChangeText={setText} editable={!disabled} secureTextEntry={editing?.row.control.secret}
         autoCapitalize="none" autoCorrect={false} autoComplete="off" placeholder={editing?.row.control.placeholder ? t(editing.row.control.placeholder) : undefined}
         description={editing?.row.help ? t(editing.row.help) : undefined}/>
-      <Text style={[theme.type.caption, {color: theme.colors.textSecondary, marginTop: 8}]}>Save an empty value to clear the saved value.</Text>
+      <Text style={[theme.type.caption, {color: theme.colors.textSecondary, marginTop: 8}]}>{t('server.metadata.clearValueHelp')}</Text>
       {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {setEditing(undefined); setText(''); void controller.load();})}/>}
     </BottomSheet>
   </View>;

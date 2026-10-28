@@ -93,19 +93,19 @@ export function NativeAccountSecurityPanel({kind, context, lifetime, t, runtime}
   const label = t(kind === 'password' ? 'settings.row.password' : kind === 'twoStep' ? 'settings.row.twoStep' : 'settings.section.devices');
   const strength = passwordStrength(nextPassword), matching = !confirmation || confirmation === nextPassword;
   const bodyText = (value: string) => <Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary}]}>{value}</Text>;
-  const passwordField = <TextField testID="account-security-current-password" label={kind === 'password' ? 'Current password' : t('auth.password')} value={password} onChangeText={edit(setPassword)} secureTextEntry autoCapitalize="none" autoCorrect={false} autoComplete="current-password" textContentType="password" editable={!busy}/>;
-  const codeField = <TextField testID="account-security-code" label={t('auth.verificationCode')} description={enrolment ? undefined : 'Or one of your recovery codes.'} value={code} onChangeText={edit(setCode)} autoCapitalize="none" autoCorrect={false} autoComplete="one-time-code" textContentType="oneTimeCode" editable={!busy}/>;
+  const passwordField = <TextField testID="account-security-current-password" label={kind === 'password' ? t('account.currentPassword') : t('auth.password')} value={password} onChangeText={edit(setPassword)} secureTextEntry autoCapitalize="none" autoCorrect={false} autoComplete="current-password" textContentType="password" editable={!busy}/>;
+  const codeField = <TextField testID="account-security-code" label={t('auth.verificationCode')} description={enrolment ? undefined : t('web.twoStep.orRecoveryCode')} value={code} onChangeText={edit(setCode)} autoCapitalize="none" autoCorrect={false} autoComplete="one-time-code" textContentType="oneTimeCode" editable={!busy}/>;
   let title = label, description: string | undefined, body: React.ReactNode = null, actions: React.ReactNode = null;
   if (codes) {
-    title = 'Save your recovery codes'; description = 'Each code works once if you lose your authenticator. They aren’t shown again.';
+    title = t('confirm.recoveryCodes.title'); description = t('confirm.recoveryCodes.body');
     body = <Text testID="account-security-recovery-codes" selectable style={[shellType(17, 700, 28), {color: theme.colors.text, fontVariant: ['tabular-nums']}]}>{codes.join('\n')}</Text>;
-    actions = <><Button testID="account-security-copy-codes" variant="glass" onPress={() => void copyCodes()}>{t('web.twoStep.copy')}</Button><Button testID="account-security-codes-saved" onPress={() => {if (current(held)) close();}}>I’ve saved them</Button></>;
+    actions = <><Button testID="account-security-copy-codes" variant="glass" onPress={() => void copyCodes()}>{t('web.twoStep.copy')}</Button><Button testID="account-security-codes-saved" onPress={() => {if (current(held)) close();}}>{t('confirm.recoveryCodes.action')}</Button></>;
   } else if (kind === 'password' && factor) {
     title = t('web.reset.submit');
     body = <>{passwordField}
       <TextField testID="account-security-new-password" label={t('accounts.settings.changeOwnerLocalPassword')} value={nextPassword} onChangeText={edit(setNextPassword)} secureTextEntry autoCapitalize="none" autoCorrect={false} autoComplete="new-password" textContentType="newPassword" editable={!busy}/>
       {nextPassword && <View accessibilityLabel={strength.label} style={{gap: 5}}><View style={{height: 4, flexDirection: 'row', gap: 3}}>{[1, 2, 3, 4].map(level => <View key={level} style={{flex: 1, borderRadius: 2, backgroundColor: level <= strength.level ? theme.colors.accentStrong : theme.colors.line}}/>)}</View>{bodyText([strength.label, strength.hint].filter(Boolean).join(' · '))}</View>}
-      <TextField testID="account-security-confirm-password" label={t('accounts.signIn.confirmPassword')} value={confirmation} onChangeText={edit(setConfirmation)} secureTextEntry autoCapitalize="none" autoCorrect={false} autoComplete="new-password" textContentType="newPassword" editable={!busy} error={!matching ? 'The new passwords don’t match.' : undefined}/>
+      <TextField testID="account-security-confirm-password" label={t('accounts.signIn.confirmPassword')} value={confirmation} onChangeText={edit(setConfirmation)} secureTextEntry autoCapitalize="none" autoCorrect={false} autoComplete="new-password" textContentType="newPassword" editable={!busy} error={!matching ? t('account.passwordMismatch') : undefined}/>
       {factor.enabled && codeField}</>;
     actions = <Button testID="account-security-save-password" loading={busy} disabled={busy || !password || !strength.acceptable || !confirmation || !matching || factor.enabled && !code.trim()} onPress={() => {
       if (!password || !strength.acceptable || confirmation !== nextPassword || factor.enabled && !code.trim()) return;
@@ -113,17 +113,17 @@ export function NativeAccountSecurityPanel({kind, context, lifetime, t, runtime}
     }}>{t('action.save')}</Button>;
   } else if (kind === 'twoStep' && factor) {
     if (mode === 'confirm-disable') {
-      title = t('web.twoStep.turnOffConfirmTitle'); description = 'Anyone with the password will be able to sign in. Existing recovery codes stop working.';
+      title = t('web.twoStep.turnOffConfirmTitle'); description = t('security.twoStep.turnOffBody');
       actions = <Button testID="account-security-confirm-disable" variant="danger" loading={busy} disabled={busy} onPress={() => void perform(client => client.disableTwoFactor(password, code.trim()), () => saved('Two-step verification turned off.'))}>{t('web.hostedSecurity.turnOff')}</Button>;
     } else if (mode === 'disable' || mode === 'replace') {
-      title = mode === 'disable' ? t('web.twoStep.turnOffTitle') : 'Replace recovery codes';
-      description = mode === 'replace' ? 'Your existing recovery codes will stop working. Save the new codes when they appear.' : t('web.twoStep.confirmPasswordShort');
+      title = mode === 'disable' ? t('web.twoStep.turnOffTitle') : t('web.twoStep.replaceCodes');
+      description = mode === 'replace' ? t('web.twoStep.replaceCodesBody') : t('web.twoStep.confirmPasswordShort');
       body = <>{passwordField}{codeField}</>;
       actions = <Button testID="account-security-factor-submit" loading={busy} disabled={busy || !password || !code.trim()} onPress={() => {
         if (!stageCurrent() || busyRef.current || !password || !code.trim()) return;
         if (mode === 'disable') {setMode('confirm-disable'); return;}
         void perform((client, scope) => client.replaceRecoveryCodes(password, code.trim(), scope.signal), value => {revealCodes(value); setPassword(''); setCode(''); setMode('main');});
-      }}>{mode === 'disable' ? t('action.continue') : 'Replace codes'}</Button>;
+      }}>{mode === 'disable' ? t('action.continue') : t('web.twoStep.replaceCodesAction')}</Button>;
     } else if (enrolment) {
       title = t('web.twoStep.scanTitle'); description = t('web.twoStep.scanBody');
       body = <><View style={{alignSelf: 'center', padding: 12, borderRadius: 14, backgroundColor: theme.colors.white}}><QRCode value={enrolment.uri} size={180}/></View>{bodyText(t('web.twoStep.cantScan'))}
@@ -133,21 +133,21 @@ export function NativeAccountSecurityPanel({kind, context, lifetime, t, runtime}
         void perform(async client => {const value = await client.verifyTwoFactor(password, verificationCode); if (!value.enabled) throw new Error('invalid_two_factor_state'); return value;}, value => {
           setFactor(value); revealCodes(enrolment.recoveryCodes); setEnrolment(undefined); setPassword(''); setCode('');
         });
-      }}>Verify</Button>;
+      }}>{t('security.twoStep.verify')}</Button>;
     } else if (!factor.enabled) {
-      title = t('web.twoStep.turnOnTitle'); description = 'First, confirm this account’s password.'; body = passwordField;
+      title = t('web.twoStep.turnOnTitle'); description = t('security.twoStep.confirmPassword'); body = passwordField;
       actions = <Button testID="account-security-enrol" loading={busy} disabled={busy || !password} onPress={() => {if (password) void perform(client => client.enrolTwoFactor(password), value => {setEnrolment(value); setCode('');});}}>{t('action.continue')}</Button>;
     } else {
       body = <>{bodyText(t('web.hostedSecurity.on'))}{bodyText(t('web.hostedSecurity.codesLeft', {count: factor.recoveryCodesRemaining}))}</>;
-      actions = <><Button testID="account-security-disable" variant="glass" onPress={() => go('disable')}>{t('web.hostedSecurity.turnOff')}</Button><Button testID="account-security-replace-codes" variant="glass" onPress={() => go('replace')}>Replace recovery codes</Button></>;
+      actions = <><Button testID="account-security-disable" variant="glass" onPress={() => go('disable')}>{t('web.hostedSecurity.turnOff')}</Button><Button testID="account-security-replace-codes" variant="glass" onPress={() => go('replace')}>{t('web.twoStep.replaceCodes')}</Button></>;
     }
   } else if (kind === 'devices' && devices) {
     if (mode === 'confirm-all') {
-      title = 'Sign out everywhere?'; description = t('web.devices.everywhereBody');
-      actions = <Button testID="account-security-confirm-all" variant="danger" loading={busy} disabled={busy} onPress={() => void perform(async (client, scope) => {await client.signOutEverywhere(); await signOutHere(scope);}, () => close())}>Sign out everywhere</Button>;
+      title = t('account.signOutEverywhere.title'); description = t('web.devices.everywhereBody');
+      actions = <Button testID="account-security-confirm-all" variant="danger" loading={busy} disabled={busy} onPress={() => void perform(async (client, scope) => {await client.signOutEverywhere(); await signOutHere(scope);}, () => close())}>{t('account.signOutEverywhere.action')}</Button>;
     } else if (device) {
-      title = mode === 'confirm-remove' ? `Remove ${device.name}?` : device.name;
-      description = mode === 'confirm-remove' ? 'It will need to sign in again.' : t('web.devices.firstSeen', {date: defaultI18n.date(device.firstSeen)});
+      title = mode === 'confirm-remove' ? t('confirm.removeDevice.title', {device: device.name}) : device.name;
+      description = mode === 'confirm-remove' ? t('confirm.removeDevice.body') : t('web.devices.firstSeen', {date: defaultI18n.date(device.firstSeen)});
       if (mode === 'confirm-remove') actions = <Button testID="account-security-confirm-remove" variant="danger" loading={busy} disabled={busy} onPress={() => {
         if (device.current) return;
         void perform(async (client, scope) => {await client.removeDevice(device.id); return refreshDevices(client, scope);}, value => {setDevices(value); setDevice(undefined); setMode('main');});
@@ -156,7 +156,7 @@ export function NativeAccountSecurityPanel({kind, context, lifetime, t, runtime}
         body = <TextField testID="account-security-device-name" label={t('profile.name')} value={deviceName} onChangeText={edit(setDeviceName)} maxLength={120} editable={!busy}/>;
         actions = <><Button testID="account-security-sign-out-device" variant="glass" disabled={busy} onPress={() => void perform(async (client, scope) => {
           await client.signOutDevice(device.id); if (device.current) {await signOutHere(scope); return undefined;} return refreshDevices(client, scope);
-        }, value => {if (value) {setDevices(value); setDevice(undefined);} else close();})}>{device.current ? 'Sign out this device' : 'Sign this device out'}</Button>
+        }, value => {if (value) {setDevices(value); setDevice(undefined);} else close();})}>{device.current ? t('device.signOutThis') : t('device.signOutOtherAction')}</Button>
           {!device.current && <Button testID="account-security-remove-device" variant="danger" disabled={busy} onPress={() => go('confirm-remove')}>{t('web.devices.removeAction')}</Button>}
           <Button testID="account-security-save-device" loading={busy} disabled={busy || !deviceName.trim() || deviceName.trim() === device.name} onPress={() => {
             if (!deviceName.trim() || deviceName.trim() === device.name) return;
@@ -166,7 +166,7 @@ export function NativeAccountSecurityPanel({kind, context, lifetime, t, runtime}
     } else {
       body = <View>{devices.length ? devices.map((row, index) => <SettingsRow key={row.id} first={index === 0} testID={`account-security-device-${row.id}`} label={row.name}
         value={row.current ? t('settings.thisDevice') : undefined} description={[row.platform, row.app, defaultI18n.date(row.lastSeen), row.sessions ? t('web.devices.sessions', {count: row.sessions}) : 'Signed out'].filter(Boolean).join(' · ')}
-        onPress={() => {if (stageCurrent() && !busyRef.current) {setDevice(row); setDeviceName(row.name); setMode('main'); setError(undefined);}}}/>) : bodyText('No signed-in devices.')}</View>;
+        onPress={() => {if (stageCurrent() && !busyRef.current) {setDevice(row); setDeviceName(row.name); setMode('main'); setError(undefined);}}}/>) : bodyText(t('web.devices.noneSignedIn'))}</View>;
       actions = <Button testID="account-security-sign-out-all" variant="glass" disabled={busy} onPress={() => go('confirm-all')}>{t('next.settingsSpec.server.people.panels.person.tabs.3.groups.0.rows.1.control.label')}</Button>;
     }
   }
@@ -294,7 +294,7 @@ export function NativeAccessTokensPanel({context, lifetime, t, runtime}: NativeS
         {busy && !page ? bodyText(t('status.loading')) : null}
         {page && !page.items.length ? bodyText(t('api.tokens.none')) : null}
         {page?.items.length ? <View>{page.items.map((token, index) => <SettingsRow key={token.id} first={index === 0} testID={`access-token-${token.id}`} label={token.name}
-          description={[token.scopes.map(scope => t(`api.scope.${scope}` as MessageId)).join(', '), `Created ${defaultI18n.date(token.createdAt)}`, token.lastUsedAt ? t('api.credential.lastUsed', {when: defaultI18n.date(token.lastUsedAt)}) : t('api.credential.neverUsed')].join(' · ')}
+          description={[token.scopes.map(scope => t(`api.scope.${scope}` as MessageId)).join(', '), t('api.credential.created', {when: defaultI18n.date(token.createdAt)}), token.lastUsedAt ? t('api.credential.lastUsed', {when: defaultI18n.date(token.lastUsedAt)}) : t('api.credential.neverUsed')].join(' · ')}
           value={token.state === 'active' ? undefined : t(`api.credential.state.${token.state}` as MessageId)}
           onPress={credentialWorks(token) ? () => {if (current(held) && !busyRef.current) {setRevoking(token); setView('revoke'); setError(undefined);}} : undefined}/>)}</View> : null}
         {page?.nextCursor ? <Button size="compact" variant="glass" disabled={busy} onPress={() => {if (current(held) && !busyRef.current && page?.nextCursor) load(held, page.nextCursor, true);}}>{t('action.showMore')}</Button> : null}

@@ -118,7 +118,7 @@ function Backups({group, t, children, advancedContent, advancedSummary, advanced
       onPress={() => {if (current() && !view.flight && source.getSnapshot().document?.backups.includes(backup)) setMenu(backup);}} focusKind="row" focusRadius={12}
       style={{padding:12,gap:8,borderRadius:12,backgroundColor:theme.colors.raised}}>
       <Text style={[shellType(15,700),{color:theme.colors.text}]}>{when(Date.parse(backup.createdAt))}</Text>
-      <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 12}}><Text style={{color:theme.colors.textSecondary}}>{backupKind(backup, t)}</Text><Text style={{color:theme.colors.textSecondary}}>{defaultI18n.bytes(backup.bytes)}</Text><Text style={{color:theme.colors.textTertiary}}>Schema {backup.schemaVersion}</Text><Text style={{color:theme.colors.textTertiary}}>{t('accounts.brand')} {backup.serverVersion}</Text></View>
+      <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 12}}><Text style={{color:theme.colors.textSecondary}}>{backupKind(backup, t)}</Text><Text style={{color:theme.colors.textSecondary}}>{defaultI18n.bytes(backup.bytes)}</Text><Text style={{color:theme.colors.textTertiary}}>{t('web.maintenance.backupSchema', {version: backup.schemaVersion})}</Text><Text style={{color:theme.colors.textTertiary}}>{t('accounts.brand')} {backup.serverVersion}</Text></View>
       <Text selectable style={[shellType(12.5), {color: theme.colors.textTertiary, fontFamily: 'monospace'}]}>{backup.path}</Text>
     </Focusable>)}
     <Menu testID="server-backup-actions" open={!!menu && current() && !!state.document?.backups.includes(menu)} onOpenChange={value => {if (!value) setMenu(undefined);}} presentation="sheet" title={menu ? when(Date.parse(menu.createdAt)) : undefined} items={menu ? [

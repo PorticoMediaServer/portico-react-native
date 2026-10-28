@@ -52,7 +52,7 @@ export function NativeServerSignIn({ports, runtime, compactHeader = false, onOpe
         <SettingsRow label={t('accounts.settings.owner')} value={value.owner.username} description={value.owner.email}/>
       </View>
       {value.move && <View style={{padding: 14, gap: 8, backgroundColor: theme.colors.raised, borderRadius: 14}}>
-        <Text style={[shellType(15, 700), {color: theme.colors.text}]}>{value.move.stage === 'preview' ? 'Sign-in move preview' : value.move.stage === 'complete' ? 'Sign-in move complete' : value.move.stage === 'cancelled' ? 'Sign-in move cancelled' : t(value.move.to === 'local' ? 'accounts.settings.movingToLocal' : 'accounts.settings.movingToPortico')}</Text>
+        <Text style={[shellType(15, 700), {color: theme.colors.text}]}>{value.move.stage === 'preview' ? t('accounts.settings.movePreview') : value.move.stage === 'complete' ? t('accounts.settings.moveComplete') : value.move.stage === 'cancelled' ? t('accounts.settings.moveCancelled') : t(value.move.to === 'local' ? 'accounts.settings.movingToLocal' : 'accounts.settings.movingToPortico')}</Text>
         <Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary}]}>{t('accounts.settings.waiting', {waiting: value.move.waiting, total: value.move.people})}</Text>
         {(value.move.stage === 'moving_to_local' || value.move.stage === 'moving_to_portico') && <>
           <Text style={[shellType(13, 400, 18), {color: theme.colors.textSecondary}]}>{t('accounts.settings.codesOnWeb')}</Text>

@@ -208,7 +208,7 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
         <Text selectable style={[theme.type.body, {color: theme.colors.text}]}>{driveResult.draft.email}</Text>
         <Button variant="glass" size="small" icon="i-copy" onPress={() => {void copyEmail();}}>{t('web.twoStep.copy')}</Button>
         {copiedEmail && <Text style={[theme.type.caption, {color: theme.colors.healthy}]}>{t('api.credential.copied')}</Text>}
-        {copyError && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.record}]}>Couldn’t copy the email address. Select it to copy.</Text>}
+        {copyError && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.record}]}>{t('next.remoteSources.driveEmailCopyFailed')}</Text>}
         <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.driveEmailHelp')}</Text>
       </>}
       {drive.keyJson !== '' && driveResult && !driveResult.ok && <Problem message={t(({json: 'next.remoteSources.driveKeyNotJson', oauth: 'next.remoteSources.driveKeyOAuth',

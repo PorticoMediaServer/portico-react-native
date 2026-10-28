@@ -112,7 +112,7 @@ async function backupsFixture() {
 
 test('Backups paints actual progress/metadata and keeps typed deletion behind the row menu', async () => {
   const fixture = await backupsFixture(), tree = fixture.render();
-  assert.match(content(nodes(tree)), /50%/);assert.match(content(nodes(tree)), /Schema\s+4/);assert.match(content(nodes(tree)), /Scheduled/);
+  assert.match(content(nodes(tree)), /50%/);assert.match(content(nodes(tree)), /web\.maintenance\.backupSchema/);assert.match(content(nodes(tree)), /Scheduled/);
   assert.equal(nodes(tree).filter((node: any) => node.type === 'Advanced').length, 1);
   nodes(tree).find((node: any) => node.props.testID === 'server-backup-backup-1').props.onPress();
   const menu = nodes(fixture.render()).find((node: any) => node.type === 'Menu');menu.props.items.find((item: any) => item.id === 'delete').onSelect();

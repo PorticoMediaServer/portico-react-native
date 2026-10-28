@@ -76,7 +76,7 @@ export function FolderExplorer({open, onOpenChange, api, title, subtitle, chosen
   return <BottomSheet open={open} onOpenChange={next => onOpenChange(next)} title={title} description={subtitle} testID={testID}
     detents={[Math.round(theme.width * 1.55) > 760 ? 760 : Math.round(theme.width * 1.55)]} scrollable={false}
     footer={<View style={{flexDirection: 'row', gap: 10}}><Button variant="glass" size="small" onPress={() => onOpenChange(false)}>{t('action.cancel')}</Button>
-      <Button size="small" disabled={!picked.length} onPress={use} style={{flex: 1}}>{useLabel ?? (selectionMode === 'file-or-folder' ? 'Use selected path' : t(picked.length === 1 ? 'next.ownerLibraries.explorer.useFolder' : 'next.ownerLibraries.explorer.useFolders', {count: picked.length}))}</Button></View>}>
+      <Button size="small" disabled={!picked.length} onPress={use} style={{flex: 1}}>{useLabel ?? (selectionMode === 'file-or-folder' ? t('next.ownerLibraries.explorer.usePath') : t(picked.length === 1 ? 'next.ownerLibraries.explorer.useFolder' : 'next.ownerLibraries.explorer.useFolders', {count: picked.length}))}</Button></View>}>
     <FlatList data={folders} keyExtractor={entry => entry.path} extraData={picked}
       initialNumToRender={16} maxToRenderPerBatch={16} windowSize={7} keyboardShouldPersistTaps="handled"
       contentContainerStyle={{paddingBottom: 8}}
@@ -105,13 +105,13 @@ export function FolderExplorer({open, onOpenChange, api, title, subtitle, chosen
       </LibraryGroup>}
 
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 2}}>
-        <Text style={[shellType(13, 700), {color: theme.colors.textTertiary, flex: 1}]}>{selectionMode === 'file-or-folder' ? 'Files and folders' : t('next.ownerLibraries.explorer.folders')}</Text>
+        <Text style={[shellType(13, 700), {color: theme.colors.textTertiary, flex: 1}]}>{selectionMode === 'file-or-folder' ? t('next.ownerLibraries.explorer.filesAndFolders') : t('next.ownerLibraries.explorer.folders')}</Text>
         <Text style={[shellType(12.5, 600), {color: theme.colors.textTertiary}]}>{t('next.ownerLibraries.explorer.showHidden')}</Text>
         <Switch testID={testID ? `${testID}-hidden` : undefined} checked={hidden} accessibilityLabel={t('next.ownerLibraries.explorer.showHidden')} onCheckedChange={setHidden}/>
       </View>
 
       </View>}
-      ListEmptyComponent={page || loading ? <LibraryGroup><LibraryRow first label={loading ? t('next.ownerLibraries.explorer.reading') : selectionMode === 'file-or-folder' ? 'No files or folders here' : t('next.ownerLibraries.explorer.noFolders')}/></LibraryGroup> : null}
+      ListEmptyComponent={page || loading ? <LibraryGroup><LibraryRow first label={loading ? t('next.ownerLibraries.explorer.reading') : selectionMode === 'file-or-folder' ? t('next.ownerLibraries.explorer.noFilesOrFolders') : t('next.ownerLibraries.explorer.noFolders')}/></LibraryGroup> : null}
       ListFooterComponent={<View style={{gap: 12, paddingTop: 8}}>
         {page?.nextCursor ? <LibraryGroup><LibraryRow first label={t(loading ? 'next.ownerLibraries.explorer.reading' : 'next.ownerLibraries.explorer.more')} onPress={loading ? undefined : loadMore}/></LibraryGroup> : null}
 

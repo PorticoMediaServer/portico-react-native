@@ -73,7 +73,7 @@ test('The token list names each token, when it was made, when it was last used a
     await f.open();
     const row = f.find('access-token-token-1');
     assert.equal(row.props.label, 'Laptop script');
-    assert.deepEqual(row.props.description, 'api.scope.read · Created date(2026-10-01) · api.credential.lastUsed');
+    assert.deepEqual(row.props.description, 'api.scope.read · api.credential.created · api.credential.lastUsed');
     assert.equal(f.find('access-tokens').props.open, true);
   } finally {f.dispose();}
 });

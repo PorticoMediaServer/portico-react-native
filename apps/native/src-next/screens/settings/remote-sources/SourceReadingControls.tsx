@@ -53,11 +53,11 @@ export function SourceReadingControls({values, profile, comparison, baseline, di
       </Focusable>;
     })}
     {definitions.length > 0 && !selected && <Text style={[theme.type.caption, {color: theme.colors.accentStrong}]}>{t(`${readLabel}.4.label` as never)}</Text>}
-    <SectionTitle action={onReset && baseline && (readingChanged || !!comparison?.changedFields.length) ? <Button variant="text" size="xs" disabled={choicesDisabled} onPress={onReset}>{t('next.remoteSources.resetAll')}</Button> : undefined}>Connection limits</SectionTitle>
+    <SectionTitle action={onReset && baseline && (readingChanged || !!comparison?.changedFields.length) ? <Button variant="text" size="xs" disabled={choicesDisabled} onPress={onReset}>{t('next.remoteSources.resetAll')}</Button> : undefined}>{t('next.remoteSources.connectionLimits')}</SectionTitle>
     <LibraryGroup>{fields.map((field, index) => {
       const changed = baseline !== undefined && comparison?.applicableFields.includes(field) && values[field] !== baseline[field];
       return <View key={field} style={changed ? {borderWidth: 1, borderColor: theme.colors.accentStrong, borderRadius: 10} : undefined}>
-        <LibraryRow first={index === 0} label={label(field)} value={valueText(field, values[field])} help={changed ? `Changed · ${valueText(field, baseline![field])}` : undefined}
+        <LibraryRow first={index === 0} label={label(field)} value={valueText(field, values[field])} help={changed ? t('next.remoteSources.limitChanged', {value: valueText(field, baseline![field])}) : undefined}
           onPress={disabled ? undefined : () => {setEditing(field); setText(String(field === 'bytesPerSecond' ? values[field] / 1000000 : values[field]));}}/>
       </View>;
     })}</LibraryGroup>

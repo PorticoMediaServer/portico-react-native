@@ -245,7 +245,7 @@ export function ReadingEditor({controller, t, source, onCancel, onSaved, onAccep
         onLimit={(field, value) => {if (blocked || !owns()) return; revision.current++; setValues({...values, [field]: value});}}
         onReset={reset ? () => {void select(reset);} : undefined}/>
       <SourceAnalysisConsent value={consent} disabled={blocked} t={t} onChange={value => {if (!blocked && owns()) {revision.current++; setConsent(value); setConsentDirty(true);}}}/>
-      {consentDirty && <Button variant="glass" disabled={blocked} onPress={() => {void save(true);}}>Save analysis consent</Button>}
+      {consentDirty && <Button variant="glass" disabled={blocked} onPress={() => {void save(true);}}>{t('next.remoteSources.saveAnalysisConsent')}</Button>}
     </>}
     {!profile && !busy && <Button variant="glass" onPress={() => {void load();}}>{t('next.remoteSources.retry')}</Button>}
     <Problem message={error}/>

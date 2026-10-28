@@ -76,7 +76,7 @@ test('edited consent blocks choices and is saved explicitly without granting or 
     assert.equal(f.button('next.remoteSources.save').props.disabled, true);
     f.button('next.remoteSources.save').props.onPress(); await f.host.settle(); assert.equal(f.writes.length, 0, 'consent is resolved through its separate explicit action');
     f.get('ReadingControls').props.onSelect(f.definitions[3]); await f.host.settle(); assert.equal(f.writes.length, 0);
-    f.button('Save analysis consent').props.onPress(); await f.host.settle();
+    f.button('next.remoteSources.saveAnalysisConsent').props.onPress(); await f.host.settle();
     assert.equal(f.writes.length, 1); assert.equal(f.writes[0].original, f.profile);
     assert.equal(f.writes[0].values.allowAdvancedMediaAnalysis, false); assert.equal(f.writes[0].values.connections, 4);
     assert.deepEqual(f.adopted, [source]);

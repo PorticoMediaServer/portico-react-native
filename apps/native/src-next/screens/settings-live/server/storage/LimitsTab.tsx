@@ -65,7 +65,7 @@ export function LimitsTab({group, t, customBackupKeep = false, onOpenPage}: {gro
     if (row.control.type === 'select' && row.control.options && binding.codec === 'number-choice') {
       const shown = settingChoice(row, current), limits = bounds[row.id] ?? [1, maintenanceState.status?.retentionMaxima[binding.key.replace(/^retention\./, '')] ?? 3650];
       const options = row.control.options.filter(option => option.value !== 'custom').map(option => ({value: String(option.value), label: t(option.label)}));
-      if (shown === 'custom') options.push({value: 'custom', label: `Custom (${current})`});
+      if (shown === 'custom') options.push({value: 'custom', label: t('next.settings.customValue', {value: String(current)})});
       options.push({value: 'custom-edit', label: t('next.settingsSpec.server.general.groups.2.rows.0.control.options.2.label')});
       return <Select key={row.id} testID={row.id} rowLabel={t(row.label)} description={row.help ? t(row.help) : undefined} value={shown} options={options} disabled={state.saving}
         onValueChange={next => next === 'custom-edit' ? open(t(row.label), Number(current), limits[0], limits[1], number => change(row, String(number))) : change(row, next)}/>;
@@ -76,7 +76,7 @@ export function LimitsTab({group, t, customBackupKeep = false, onOpenPage}: {gro
   const retention = (label: string, current: number, maximum: number, done: (value: number) => void, minimum = 1) => {
     const choices = [0, 1, 7, 14, 30, 60, 90, 180, 365, 1095].filter(number => number >= minimum && number <= maximum);
     const options = choices.map(number => ({value: String(number), label: number === 0 ? t('pref.value.playback.introSkip.off') : `${defaultI18n.number(number)} ${t('settings.unit.days')}`}));
-    if (!choices.includes(current)) options.push({value: 'custom', label: `Custom (${current})`});
+    if (!choices.includes(current)) options.push({value: 'custom', label: t('next.settings.customValue', {value: current})});
     options.push({value: 'custom-edit', label: t('next.settingsSpec.server.general.groups.2.rows.0.control.options.2.label')});
     return <Select rowLabel={label} value={choices.includes(current) ? String(current) : 'custom'} options={options} disabled={state.saving}
       onValueChange={next => {if (state.saving || !nativeStorageOwner(group.context)) return;if (next === 'custom-edit') open(label, current, minimum, maximum, done);else if (choices.includes(Number(next))) done(Number(next));}}/>;
