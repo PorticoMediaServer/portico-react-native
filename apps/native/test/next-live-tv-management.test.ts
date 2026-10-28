@@ -105,6 +105,7 @@ async function fixture({isTV = true, role = 'owner', primary = 'main', canManage
     '../../platform/platformPosture': {usePlatformPosture: () => ({status: 'unavailable'})}, '../../shell/model': shellModel, './RecordingsScreen': recordingModule, '../../tv/layout/guide-focus': {},
     '../destinations/useTVPageBack': {useTVPageBack: (_r: unknown, _d: unknown, enabled: boolean, page: any) => {pageBack.enabled = enabled; pageBack.page = page;}},
     '../destinations/useEntryFocus': {useDestinationEntryFocus: (...args: any[]) => entries.push(args)}, './guide-presentation': guidePresentation,
+    '../../kit/useScreenReader': {useScreenReader: () => false},
     './useGuideTimePan': {useGuideTimePan: () => ({active: false, position: {value: 0}})}, './guide-pan-model': guidePan, './LivePhonePicker': {NativeLivePhonePicker: 'PhonePicker'},
     './LiveOwnerScreen': {NativeLiveOwnerScreen: (props: any) => {editors.push(`owner:${props.initialAction}`); return jsx('OwnerEditor', props);}},
     './LiveSeriesRule': {NativeSeriesRuleSheet: 'SeriesRule'}, './server/tv-server-reader': {nativeServerAdmission}, '../../tv/auth': handoff, '../../tv/auth/TVHandoff': handoff,

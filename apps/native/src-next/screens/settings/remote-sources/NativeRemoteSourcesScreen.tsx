@@ -12,7 +12,7 @@ import {StateView} from '../../../kit/states';
 import {shellType} from '../../../kit/shell/visual';
 import {useTheme} from '../../../kit/theme';
 import {NativeRemoteSourcesController} from './controller';
-import {ConnectionEditor, DisconnectEditor, ReadingEditor, Page, receiptCheckRequired, remoteSourceError} from './RemoteSourceForms';
+import {ConnectionEditor, DisconnectEditor, ReadingEditor, Page, SourceWizardContext, receiptCheckRequired, remoteSourceError} from './RemoteSourceForms';
 
 import {SourceLibraryAssignment, type ChosenSourceFolder} from './SourceLibraryAssignment';
 import {SourceAdvancedEditor} from './SourceAdvancedEditor';
@@ -20,15 +20,16 @@ import {SourceFolderBrowser} from './SourceFolderBrowser';
 import {SourceStatusPanel} from './SourceStatusPanel';
 import {AccountConfigEditor} from './AccountConfigEditor';
 import {ImportedSourceEditor} from './ImportedSourceEditor';
+import {currentSourceGeneration, sourceBackMode, sourceWizardStep, type SourceMode as Mode, type SourceConnectionForm} from './source-flow';
+import {SourceCompletion} from './SourceCompletion';
 
-type Props = {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; onBackHandlerChange?: (handler: (() => boolean) | undefined) => void};
-type FoldersMode = {kind: 'folders'; source: RemoteSource; chosen: readonly ChosenSourceFolder[]; from: 'detail' | 'assignment'};
-type Mode = {kind: 'assignment'; source: RemoteSource; folders: readonly ChosenSourceFolder[]} | FoldersMode | {kind: 'choose' | 'accountConfig'} | {kind: 'connection' | 'imported' | 's3' | 'drive' | 'cloud' | 'driveOAuth'; source?: RemoteSource} | {kind: 'detail' | 'reading' | 'disconnect' | 'advanced'; source: RemoteSource};
+type Props = {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; onBackHandlerChange?: (handler: (() => boolean) | undefined) => void;
+  initialCreate?: boolean; multipleFolders?: boolean; onDismiss?: () => void; onChooseFolders?: (source: RemoteSource, folders: readonly ChosenSourceFolder[]) => void | Promise<void>};
 /** One drawn subpage and its owner. A callback may only move the exact opening it was drawn for. */
-type Opening = Readonly<{id: number; mode: Mode; owner: {live: boolean}; mounted: {live: boolean}}>;
+type Opening = Readonly<{id: number; mode: Mode; owner: {live: boolean}; mounted: {live: boolean}; completed: {value: boolean}}>;
 
 /** Canonical WebDAV and imported source management. Settings owns the entry. */
-export function NativeRemoteSourcesScreen({ports, runtime, onBackHandlerChange}: Props) {
+export function NativeRemoteSourcesScreen({ports, runtime, onBackHandlerChange, initialCreate, multipleFolders, onDismiss, onChooseFolders}: Props) {
   const next = useRef(0), currentPorts = useRef(ports);
   currentPorts.current = ports;
   const [owned, setOwned] = useState<{controller: NativeRemoteSourcesController; ports: NativeSettingsLivePorts; key: number}>();
@@ -38,11 +39,11 @@ export function NativeRemoteSourcesScreen({ports, runtime, onBackHandlerChange}:
     void controller.load();
     return () => controller.dispose();
   }, [ports]);
-  return owned && owned.ports === ports ? <Viewport key={owned.key} controller={owned.controller} ports={owned.ports} runtime={runtime} onBackHandlerChange={onBackHandlerChange}/>
+  return owned && owned.ports === ports ? <Viewport key={owned.key} controller={owned.controller} ports={owned.ports} runtime={runtime} onBackHandlerChange={onBackHandlerChange} initialCreate={initialCreate} multipleFolders={multipleFolders} onDismiss={onDismiss} onChooseFolders={onChooseFolders}/>
     : <StateView title={runtime.text.t('next.remoteSources.loading')}/>;
 }
 
-function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {controller: NativeRemoteSourcesController}) {
+function Viewport({controller, ports, runtime, onBackHandlerChange, initialCreate, multipleFolders, onDismiss, onChooseFolders}: Props & {controller: NativeRemoteSourcesController}) {
   const theme = useTheme(), t = runtime.text.t as typeof defaultI18n.t;
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [opening, setOpening] = useState<Opening>(), [error, setError] = useState<string>();
@@ -54,7 +55,7 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
   const show = useCallback((next: Mode) => {
     const previous = openingRef.current;
     if (previous) previous.owner.live = false;
-    const created: Opening = {id: ++attempt.current, mode: next, owner: {live: true}, mounted: mounted.current};
+    const created: Opening = {id: ++attempt.current, mode: next, owner: {live: true}, mounted: mounted.current, completed: {value: false}};
     rootRevision.current++;
     openingRef.current = created; setOpening(created); setError(undefined);
   }, []);
@@ -70,8 +71,8 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
   const closeFrom = useCallback((from: Opening) => {
     if (!from.owner.live || !from.mounted.live || openingRef.current !== from) return;
     from.owner.live = false; openingRef.current = undefined; attempt.current++; rootRevision.current++;
-    setOpening(undefined); setError(undefined);
-  }, []);
+    setOpening(undefined); setError(undefined); onDismiss?.();
+  }, [onDismiss]);
   const navigate = useCallback((from: Opening, next: Mode) => {
     if (!from.owner.live || !from.mounted.live || openingRef.current !== from) return;
     const fromSource = 'source' in from.mode ? from.mode.source : undefined;
@@ -79,8 +80,7 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
     if (fromSource && nextSource && (fromSource.id !== nextSource.id || fromSource.generation !== nextSource.generation)) return;
     // If the live list knows this source at another generation, a retained opening is stale.
     if (fromSource) {
-      const rows = controller.getSnapshot().sources.sources;
-      if (rows.some(row => row.id === fromSource.id) && !rows.some(row => row.id === fromSource.id && row.generation === fromSource.generation)) return;
+      if (!currentSourceGeneration(fromSource, controller.getSnapshot().sources)) return;
     }
     show(next);
   }, [controller, show]);
@@ -90,17 +90,14 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
     if (!from.owner.live || !from.mounted.live || openingRef.current !== from) return;
     const fromSource = 'source' in from.mode ? from.mode.source : undefined;
     if (fromSource && fromSource.id !== source.id) return;
-    show({kind: 'reading', source});
+    const connection = ['connection', 'imported', 's3', 'drive', 'cloud', 'driveOAuth'].includes(from.mode.kind) ? from.mode.kind as SourceConnectionForm : 'imported';
+    show({kind: 'reading', source, wizard: from.mode.wizard, connection});
   };
   const back = useCallback(() => {
     const current = openingRef.current;
     if (!current || !current.owner.live || !current.mounted.live) return;
-    if (current.mode.kind === 'folders') {
-      if (current.mode.from === 'assignment') navigate(current, {kind: 'assignment', source: current.mode.source, folders: current.mode.chosen});
-      else navigate(current, {kind: 'detail', source: current.mode.source});
-    } else if (current.mode.kind === 'assignment') {
-      navigate(current, {kind: 'detail', source: current.mode.source});
-    } else closeFrom(current);
+    const previous = sourceBackMode(current.mode, current.completed.value);
+    if (previous) navigate(current, previous); else closeFrom(current);
   }, [closeFrom, navigate]);
   useLayoutEffect(() => {
     const token = {live: true};
@@ -117,6 +114,7 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
       }
     };
   }, []);
+  useEffect(() => {if (initialCreate && committedMount.live && attempt.current === 0) show({kind: 'choose', wizard: true});}, [initialCreate, committedMount, show]);
   const subpage = snapshot.allowed && !!opening;
   useEffect(() => {
     onBackHandlerChange?.(subpage ? () => {if (!openingRef.current) return false; back(); return true;} : undefined);
@@ -128,35 +126,47 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
     const problem = presentError({code: 'forbidden'}, 'server-console');
     return <StateView title={problem.title} body={problem.body} tone="error"/>;
   }
-  if (mode?.kind === 'choose') return <Page title={t('next.remoteSources.whatToConnect')} t={t} busy={false} onCancel={() => closeFrom(opening!)} footer={null}>
-    <Button variant="glass" onPress={() => navigate(opening!, {kind: 'connection'})}>{t('next.remoteSources.connectWebdav')}</Button>
-    <Button variant="glass" onPress={() => navigate(opening!, {kind: 'cloud'})}>{t('next.remoteSources.connectCloud')}</Button>
-    <Button variant="glass" onPress={() => navigate(opening!, {kind: 'driveOAuth'})}>{t('next.remoteSources.driveOAuth')}</Button>
-    <Button variant="glass" onPress={() => navigate(opening!, {kind: 'drive'})}>{t('next.remoteSources.connectDrive')}</Button>
-    <Button variant="glass" onPress={() => navigate(opening!, {kind: 's3'})}>{t('next.remoteSources.connectS3')}</Button>
-    <Button variant="glass" onPress={() => navigate(opening!, {kind: 'imported'})}>{t('next.remoteSources.connectRclone')}</Button>
-    <Button variant="glass" onPress={() => navigate(opening!, {kind: 'accountConfig'})}>{t('next.remoteSources.connectFromConfig')}</Button>
-  </Page>;
-  if (mode?.kind === 'accountConfig') return <AccountConfigEditor controller={controller} t={t} isCurrent={isCurrent} onCancel={() => closeFrom(opening!)}
-    onSaved={source => saved(opening!, source)}/>;
-  if (mode?.kind === 'imported' || mode?.kind === 's3' || mode?.kind === 'drive' || mode?.kind === 'driveOAuth' || mode?.kind === 'cloud') return <ImportedSourceEditor form={mode.kind} key={mode.source?.id ?? mode.kind} controller={controller} source={mode.source} t={t} isCurrent={isCurrent}
-    onCancel={() => closeFrom(opening!)} onSaved={source => saved(opening!, source)}/>;
-  if (mode?.kind === 'connection') return <ConnectionEditor key={mode.source?.id ?? 'new'} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={() => closeFrom(opening!)}
-    onSaved={source => saved(opening!, source)}/>;
-  if (mode?.kind === 'assignment') return <SourceLibraryAssignment controller={controller} source={mode.source} folders={mode.folders} t={t} isCurrent={isCurrent}
-    onCancel={() => navigate(opening!, {kind: 'detail', source: mode.source})}
-    onChooseFolders={() => navigate(opening!, {kind: 'folders', source: mode.source, chosen: mode.folders, from: 'assignment'})}
+  const step = sourceWizardStep(mode);
+  const page = (child: React.ReactNode) => <SourceWizardContext.Provider value={step === undefined ? undefined : {step, back}}>{child}</SourceWizardContext.Provider>;
+  if (mode?.kind === 'choose') return page(<Page title={t('next.remoteSources.whatToConnect')} t={t} busy={false} onCancel={() => closeFrom(opening!)} footer={null}>
+    <Button variant="glass" onPress={() => navigate(opening!, {kind: 'connection', wizard: true})}>{t('next.remoteSources.connectWebdav')}</Button>
+    <Button variant="glass" onPress={() => navigate(opening!, {kind: 'cloud', wizard: true})}>{t('next.remoteSources.connectCloud')}</Button>
+    <Button variant="glass" onPress={() => navigate(opening!, {kind: 'driveOAuth', wizard: true})}>{t('next.remoteSources.driveOAuth')}</Button>
+    <Button variant="glass" onPress={() => navigate(opening!, {kind: 'drive', wizard: true})}>{t('next.remoteSources.connectDrive')}</Button>
+    <Button variant="glass" onPress={() => navigate(opening!, {kind: 's3', wizard: true})}>{t('next.remoteSources.connectS3')}</Button>
+    <Button variant="glass" onPress={() => navigate(opening!, {kind: 'imported', wizard: true})}>{t('next.remoteSources.connectRclone')}</Button>
+    <Button variant="glass" onPress={() => navigate(opening!, {kind: 'accountConfig', wizard: true})}>{t('next.remoteSources.connectFromConfig')}</Button>
+  </Page>);
+  if (mode?.kind === 'accountConfig') return page(<AccountConfigEditor controller={controller} t={t} isCurrent={isCurrent} onCancel={() => closeFrom(opening!)}
+    onSaved={source => saved(opening!, source)}/>);
+  if (mode?.kind === 'imported' || mode?.kind === 's3' || mode?.kind === 'drive' || mode?.kind === 'driveOAuth' || mode?.kind === 'cloud') return page(<ImportedSourceEditor form={mode.kind} key={mode.source?.id ?? mode.kind} controller={controller} source={mode.source} t={t} isCurrent={isCurrent}
+    onCancel={() => closeFrom(opening!)} onSaved={source => saved(opening!, source)}/>);
+  if (mode?.kind === 'connection') return page(<ConnectionEditor key={mode.source?.id ?? 'new'} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={() => closeFrom(opening!)}
+    onSaved={source => saved(opening!, source)}/>);
+  if (mode?.kind === 'assignment') return page(<SourceLibraryAssignment controller={controller} source={mode.source} folders={mode.folders} t={t} isCurrent={isCurrent}
+    onCancel={() => closeFrom(opening!)}
+    onCompleted={() => {if (opening!.owner.live && openingRef.current === opening) opening!.completed.value = true;}}
+    onChooseFolders={() => navigate(opening!, {kind: 'folders', source: mode.source, chosen: mode.folders, from: 'assignment', wizard: mode.wizard, connection: mode.connection})}
     onOpen={() => navigate(opening!, {kind: 'detail', source: mode.source})}
-    onAddAnother={() => navigate(opening!, {kind: 'choose'})}/>;
-  if (mode?.kind === 'advanced') return <SourceAdvancedEditor key={`${mode.source.id}:${mode.source.generation}`} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={() => closeFrom(opening!)}/>;
-  if (mode?.kind === 'folders') return <SourceFolderBrowser key={`${mode.source.id}:${mode.source.generation}`} controller={controller} source={mode.source} t={t} isCurrent={isCurrent}
-    initial={mode.chosen}
-    onCancel={() => mode.from === 'assignment'
-      ? navigate(opening!, {kind: 'assignment', source: mode.source, folders: mode.chosen})
-      : navigate(opening!, {kind: 'detail', source: mode.source})}
-    onChoose={folders => navigate(opening!, {kind: 'assignment', source: mode.source, folders})}/>;
-  if (mode?.kind === 'reading') return <ReadingEditor key={mode.source.id} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={() => closeFrom(opening!)} onSaved={() => closeFrom(opening!)}/>;
-  if (mode?.kind === 'disconnect') return <DisconnectEditor key={mode.source.id} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={() => closeFrom(opening!)} onSaved={() => closeFrom(opening!)}/>;
+    onAddAnother={() => navigate(opening!, {kind: 'choose', wizard: true})}/>);
+  if (mode?.kind === 'advanced') return page(<SourceAdvancedEditor key={`${mode.source.id}:${mode.source.generation}`} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={() => closeFrom(opening!)}/>);
+  if (mode?.kind === 'folders') return page(<SourceFolderBrowser key={`${mode.source.id}:${mode.source.generation}`} controller={controller} source={mode.source} t={t} isCurrent={isCurrent}
+    initial={mode.chosen} multiple={multipleFolders}
+    onCancel={() => closeFrom(opening!)}
+    onLater={mode.wizard && !onChooseFolders ? () => navigate(opening!, {kind: 'complete', source: mode.source, wizard: true}) : undefined}
+    onChoose={folders => {
+      if (!opening!.owner.live || openingRef.current !== opening || !isCurrent()) return;
+      if (onChooseFolders) return onChooseFolders(mode.source, folders);
+      else navigate(opening!, {kind: 'assignment', source: mode.source, folders, wizard: mode.wizard, connection: mode.connection});
+    }}/>);
+  if (mode?.kind === 'reading') return page(<ReadingEditor key={mode.source.id} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={() => closeFrom(opening!)} onSaved={source => {
+      if (!opening!.owner.live || openingRef.current !== opening || !isCurrent() || source.id !== mode.source.id) return;
+      void controller.load();
+      if (mode.wizard) show({kind: 'folders', source, chosen: [], from: 'reading', wizard: true, connection: mode.connection});
+      else closeFrom(opening!);
+    }}/>);
+  if (mode?.kind === 'disconnect') return page(<DisconnectEditor key={mode.source.id} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={() => closeFrom(opening!)} onSaved={() => closeFrom(opening!)}/>);
+  if (mode?.kind === 'complete') return page(<SourceCompletion source={mode.source} controller={controller} t={t} isCurrent={isCurrent} onCancel={() => closeFrom(opening!)} onOpen={() => navigate(opening!, {kind: 'detail', source: mode.source})} onAddAnother={() => navigate(opening!, {kind: 'choose', wizard: true})}/>);
   const state = snapshot.sources, rootMount = committedMount, rootRevisionAtRender = rootRevision.current;
   const needsReceipt = receiptCheckRequired(state), blocked = state.busy || needsReceipt;
   const recover = async () => {
@@ -165,7 +175,8 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
     catch (problem) {if (controller.getSnapshot().allowed) setError(remoteSourceError(t, problem));}
   };
   const detail = mode?.kind === 'detail' ? mode.source : undefined;
-  const selected = detail ? state.sources.find(source => source.id === detail.id) ?? detail : undefined;
+  const listed = detail ? state.sources.find(source => source.id === detail.id) : undefined;
+  const selected = detail ? listed && listed.generation >= detail.generation ? listed : detail : undefined;
   return <ScrollView testID="native-remote-sources" contentContainerStyle={{padding: 20, paddingBottom: 40, gap: 16}}>
     <ServerHeader serverName={ports.serverName()} viewerRole="owner" audience="owner" variant="phone"/>
     <Text accessibilityRole="header" style={[shellType(28, 800, 33, -.03), {color: theme.colors.text}]}>{selected?.name ?? t('settings.server.remoteSources')}</Text>
@@ -184,7 +195,7 @@ function Viewport({controller, ports, runtime, onBackHandlerChange}: Props & {co
         <Button variant="text" disabled={blocked} onPress={() => navigate(opening!, {kind: 'disconnect', source: selected})}>{t('next.remoteSources.disconnect')}</Button>
       </>}
     </> : <>
-      <Button disabled={blocked} onPress={() => showRoot({kind: 'choose'}, state, rootMount, rootRevisionAtRender)}>{t('next.remoteSources.add')}</Button>
+      <Button disabled={blocked} onPress={() => showRoot({kind: 'choose', wizard: true}, state, rootMount, rootRevisionAtRender)}>{t('next.remoteSources.add')}</Button>
       <Button variant="text" disabled={blocked || state.loading} onPress={() => {void controller.load();}}>{t('next.remoteSources.refresh')}</Button>
       {state.loading && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.loading')}</Text>}
       {!state.loading && !state.error && !state.sources.length && <StateView title={t('next.remoteSources.empty')} body={t('next.remoteSources.emptyHelp')}/>}

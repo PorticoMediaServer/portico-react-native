@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {NativeScreenLifetime} from '../src-next/screens/settings-live/lifetime';
 import {NativeLiveOwnerController} from '../src-next/screens/settings-live/live-owner-controller';
-import {parseChannelMapPage, parseLiveSources, parseSourceDocument, parseTunerDiscovery, millisOf, secondsOf, listOf} from '../src-next/screens/settings-live/live-owner-model';
+import {parseChannelMapPage, parseLiveDefaults, parseLiveSources, parseSourceDocument, parseTunerDiscovery, millisOf, secondsOf, listOf} from '../src-next/screens/settings-live/live-owner-model';
 import {appendRecordingPage, needsRuleOwner, rulePaddingChoice, rulePaddingFromChoice, parseAdminRulePage, parseAdminRules, parseDVRDocument, parseTunerView} from '../src-next/screens/settings-live/recording-owner-model';
 import type {ShellAuthority} from '../src-next/shell/model';
 
@@ -37,7 +37,7 @@ test('one source document keeps null overrides distinct from zero and refuses un
   assert.equal(value.settings.retryWindowMs, 30000);
   assert.equal(value.effective.streamBufferMs, 8000);
   assert.deepEqual(value.settings.filters.keywords.values, ['HD']);
-  assert.throws(() => parseSourceDocument({protocolVersion: '1.0', serverId: 'server', result: {sourceId: 's1', sourceName: 'x', revision: 4, settings: {...settings, filters: {}}, effective: defaults, availableKinds: [], tunerCount: 0}}, 'server'), /invalid_response/);
+  assert.throws(() => parseSourceDocument({protocolVersion: '1.0', serverId: 'server', result: {sourceId: 's1', sourceName: 'x', revision: 4, digest: 'abc', settings: {...settings, filters: {}}, effective: defaults, availableKinds: [], tunerCount: 0}}, 'server'), {code: 'invalid_administration_response'});
 });
 
 test('channel map pages and tuner discovery read only named fields', () => {
@@ -49,7 +49,7 @@ test('channel map pages and tuner discovery read only named fields', () => {
 });
 
 test('recording documents read the server vocabulary and keep signed priorities', () => {
-  const dvr = parseDVRDocument({protocolVersion: '1.0', serverId: 'server', result: {revision: 9, settings: {prePaddingMs: 60000, postPaddingMs: 180000, keepPolicy: {mode: 'keep-count', keepCount: 10, keepDays: 0, keepUntilWatched: false}, conversion: {mode: 'none', ladderId: '', deleteOriginal: false}, folderTemplate: '', movieFolderTemplate: '', recordingProfile: 'original', sidecars: {nfo: false, poster: false, fanart: false, thumbnail: false}, tunerPreference: 'first-available', liveTunerConflict: 'keep-watching'}, enumerations: {keepMode: ['keep-all', 'keep-count', 'keep-days']}}}, 'server');
+  const dvr = parseDVRDocument({protocolVersion: '1.0', serverId: 'server', result: {revision: 9, digest: 'dvr-digest', folderTokens: [], settings: {prePaddingMs: 60000, postPaddingMs: 180000, keepPolicy: {mode: 'keep-count', keepCount: 10, keepDays: 0, keepUntilWatched: false}, conversion: {mode: 'none', ladderId: '', deleteOriginal: false}, folderTemplate: '', movieFolderTemplate: '', recordingProfile: 'original', sidecars: {nfo: false, poster: false, fanart: false, thumbnail: false}, tunerPreference: 'first-available', liveTunerConflict: 'keep-watching'}, enumerations: {keepMode: ['keep-all', 'keep-count', 'keep-days']}}}, 'server');
   assert.equal(dvr.settings.keepPolicy.keepCount, 10);
   assert.deepEqual(dvr.enumerations.keepMode, ['keep-all', 'keep-count', 'keep-days']);
   const rules = parseAdminRules({protocolVersion: '1.0', serverId: 'server', result: {items: [{id: 'r1', revision: 2, owner: {authority: 'local', accountId: 'a', profileId: 'p'}, status: '', kind: 'series', name: 'The Clockmakers', match: 'clock', sourceId: 's1', enabled: true, options: {prePaddingMs: null, postPaddingMs: null, keepPolicy: null, newEpisodesOnly: true, priority: -5, folderTemplate: ''}}]}}, 'server');
@@ -225,4 +225,68 @@ test('last original owner predicate aborting a command caller inside the real li
    {signal:caller.signal,isCurrent:()=>{if(insideRequest)armed=true;return true;}}),{name:'AbortError'});
   assert.equal(armed,true);assert.equal(caller.signal.aborted,true);assert.equal(requests,0,'no API dispatch, acceptance or shared refresh after nested caller abort');assert.equal(lifetime.current(),true);
  }finally{controller.dispose();lifetime.dispose();}
+});
+
+
+test('native live documents accept the shared 100,000-choice limit and retain rewind', () => {
+  const enabled = Array.from({length: 100000}, (_, index) => `channel-${index}`);
+  const result = {sourceId: 's1', sourceName: 'Large source', revision: 4, digest: 'abc', settings: {...settings, enabledGroups: enabled, enabledChannels: enabled}, effective: {...defaults, timeshiftMinutes: 120}, availableKinds: ['playlist'], tunerCount: 2};
+  const value = parseSourceDocument({serverId: 'server', result}, 'server');
+  assert.equal(value.settings.enabledChannels.length, 100000);
+  assert.equal(value.settings.enabledGroups.length, 100000);
+  assert.equal(value.settings.enabledChannels[99999], 'channel-99999');
+  assert.equal(value.effective.timeshiftMinutes, 120);
+  assert.throws(() => parseSourceDocument({serverId: 'other', result}, 'server'), /invalid_response/);
+  assert.throws(() => parseSourceDocument({serverId: 'server', result: {...result, settings: {...result.settings, enabledChannels: [...enabled, 'too-many']}}}, 'server'), {code: 'invalid_administration_response'});
+  assert.throws(() => parseSourceDocument({serverId: 'server', result: {...result, settings: {...settings, kind: 'xmltv-guide', streamBufferMs: 8000}}}, 'server'), {code: 'invalid_administration_response'});
+  const live = parseLiveDefaults({serverId: 'server', result: {scope: 'server', revision: 1, digest: 'defaults', settings: {...defaults, timeshiftMinutes: 60}}}, 'server');
+  assert.equal(live.settings.timeshiftMinutes, 60);
+});
+
+test('native DVR defaults refuse deleting the only original and unknown conversion modes', () => {
+  const result = {revision: 1, digest: 'dvr', folderTokens: [], enumerations: {}, settings: {prePaddingMs: 60000, postPaddingMs: 180000,
+    keepPolicy: {mode: 'keep-count', keepCount: 10, keepDays: 0, keepUntilWatched: false},
+    conversion: {mode: 'none', ladderId: '', deleteOriginal: false}, folderTemplate: '{Title}', movieFolderTemplate: '{Title} ({Year})',
+    recordingProfile: 'original', sidecars: {nfo: false, poster: false, fanart: false, thumbnail: false}, tunerPreference: 'first-available', liveTunerConflict: 'keep-watching'}};
+  const document = (conversion: typeof result.settings.conversion) => ({serverId: 'server', result: {...result, settings: {...result.settings, conversion}}});
+  assert.equal(parseDVRDocument(document(result.settings.conversion), 'server').settings.folderTemplate, '{Title}');
+  assert.throws(() => parseDVRDocument(document({...result.settings.conversion, deleteOriginal: true}), 'server'), {code: 'invalid_administration_response'});
+  assert.throws(() => parseDVRDocument(document({...result.settings.conversion, mode: 'unexpected'}), 'server'), {code: 'invalid_administration_response'});
+  assert.equal(parseDVRDocument(document({...result.settings.conversion, mode: 'remux', deleteOriginal: true}), 'server').settings.conversion.deleteOriginal, true);
+  assert.throws(() => parseDVRDocument({...document(result.settings.conversion), serverId: 'other'}, 'server'), /invalid_response/);
+});
+
+
+test('guide owner Hide preserves the source mapping and uses its revision', async () => {
+  const calls: {path: string; method?: string; body?: unknown}[] = [];
+  const configuration = {sourceId: 's1', sourceName: 'Source', revision: 4, digest: 'configuration', settings, effective: defaults, availableKinds: ['playlist'], tunerCount: 2};
+  const channel = {channelId: 'c1', name: 'News', sourceNumber: '101', number: '12', group: 'News', guideChannelId: 'epg-news', hidden: false, position: 0, overridden: true};
+  const api = {request: async <T,>(path: string, method = 'GET', body?: unknown) => {
+    calls.push({path, method, body});
+    const result = path.endsWith('/configuration') ? configuration : {sourceId: 's1', generation: 'g1', items: [channel], nextCursor: ''};
+    return {serverId: 'server', result} as T;
+  }};
+  const lifetime = new NativeScreenLifetime(authority()), controller = new NativeLiveOwnerController(lifetime, api, () => 'hide-operation');
+  try {
+    assert.equal(await controller.hideChannel('s1', 'c1', {signal: lifetime.signal, isCurrent: () => true}), true);
+    assert.deepEqual(calls.find(call => call.method === 'PUT'), {path: '/v1/admin/live-sources/s1/channel-map', method: 'PUT', body: {expectedRevision: 4, operationId: 'hide-operation', overrides: [{channelId: 'c1', number: '12', guideChannelId: 'epg-news', hidden: true}]}});
+    assert.equal(calls.some(call => call.path.includes('/preferences')), false);
+  } finally {controller.dispose(); lifetime.dispose();}
+});
+
+test('retiring the guide menu during its mapping read prevents owner Hide', async () => {
+  const calls: string[] = [], lifetime = new NativeScreenLifetime(authority()), caller = new AbortController();
+  const configuration = {sourceId: 's1', sourceName: 'Source', revision: 4, digest: 'configuration', settings, effective: defaults, availableKinds: ['playlist'], tunerCount: 2};
+  let finish!: (value: unknown) => void;
+  const controller = new NativeLiveOwnerController(lifetime, {request: async <T,>(path: string) => {
+    calls.push(path);
+    if (path.endsWith('/configuration')) return {serverId: 'server', result: configuration} as T;
+    return await new Promise(resolve => {finish = resolve;}) as T;
+  }}, () => 'hide-operation');
+  try {
+    const hidden = controller.hideChannel('s1', 'c1', {signal: caller.signal, isCurrent: () => !caller.signal.aborted});
+    for (let turn = 0; turn < 8 && !finish; turn++) await Promise.resolve();
+    assert.ok(finish); caller.abort(); finish({serverId: 'server', result: {sourceId: 's1', generation: 'g1', items: [], nextCursor: ''}});
+    assert.equal(await hidden, undefined); assert.equal(calls.length, 2);
+  } finally {controller.dispose(); lifetime.dispose();}
 });

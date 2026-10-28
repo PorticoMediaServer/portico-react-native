@@ -96,7 +96,7 @@ export function OwnerSubheading({children, first = false}: {children: React.Reac
 export function OwnerJobGroup({children}: {children: React.ReactNode}) {
   const theme = useTheme(), rows = React.Children.toArray(children).filter(Boolean);
   return <View style={{borderRadius: 14, backgroundColor: theme.colors.raised, overflow: 'hidden'}}>
-    {rows.map((row, index) => <View key={index} style={index ? {borderTopWidth: 1, borderTopColor: theme.colors.lineSoft, marginLeft: 72} : undefined}>{row}</View>)}
+    {rows.map((row, index) => <View key={index}>{row}{index > 0 && <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 72, right: 0, height: 1, backgroundColor: theme.colors.lineSoft}}/>}</View>)}
   </View>;
 }
 

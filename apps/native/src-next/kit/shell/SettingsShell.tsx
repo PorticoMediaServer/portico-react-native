@@ -40,7 +40,8 @@ export function SettingsSheet({profile, shortcuts, children, ...surface}: Omit<B
   const theme = useTheme();
   const {height} = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  return <BottomSheet {...surface} title={defaultI18n.t('web.shell.settings')} detents={surface.detents ?? [height - Math.max(insets.top, 62)]} contentStyle={[{backgroundColor: theme.colors.ink}, surface.contentStyle]} style={[{backgroundColor: theme.colors.ink, borderTopLeftRadius: 16, borderTopRightRadius: 16}, surface.style]} headerAction={<Button testID={controlID(surface.testID, 'done')} variant="text" size="small" onPress={() => surface.onOpenChange(false, 'close-button')} style={{height: 32, paddingHorizontal: 8}} textStyle={shellType(16, 700)}>{defaultI18n.t('action.done')}</Button>}>
+  const page = surface.host === 'inline' && surface.presentation === 'page';
+  return <BottomSheet {...surface} title={defaultI18n.t('web.shell.settings')} detents={surface.detents ?? [height - Math.max(insets.top, 62)]} contentStyle={[{backgroundColor: theme.colors.ink}, surface.contentStyle]} style={[{backgroundColor: theme.colors.ink}, page ? undefined : {borderTopLeftRadius: 16, borderTopRightRadius: 16}, surface.style]} headerAction={<Button testID={controlID(surface.testID, 'done')} variant="text" size="small" onPress={() => surface.onOpenChange(false, 'close-button')} style={{height: 32, paddingHorizontal: 8}} textStyle={shellType(16, 700)}>{defaultI18n.t('action.done')}</Button>}>
     {profile}{shortcuts}{children}
   </BottomSheet>;
 }

@@ -1,3 +1,6 @@
+import type {LibraryContentApi} from '../../../../../../packages/client-core/src/library-content';
+import {EpisodeThumbnailsRow} from './EpisodeThumbnailsRow';
+import type {AnalysisPolicy} from '../../../../../../packages/client-core/src/remote-sources';
 import {MissingTitlesTab} from '../server/storage/MissingTitlesTab';
 import {loadInitialOwnerLibrary} from './initial-library';
 import type {NativeScreenLifetime} from '../lifetime';
@@ -22,7 +25,7 @@ import {CoverFan} from '../../../kit/artwork';
 import {BottomSheet} from '../../../kit/overlays/BottomSheet';
 import {Menu} from '../../../kit/overlays/Menu';
 import {Icon} from '../../../kit/Icon';
-import {StateView} from '../../../kit/states';
+import {SkeletonBlock, StateView} from '../../../kit/states';
 import {ServerHeader} from '../../../kit/shell/ServerIdentity';
 import {alpha, shellType} from '../../../kit/shell/visual';
 import {useTheme} from '../../../kit/theme';
@@ -31,6 +34,8 @@ import type {NativeShellRuntime} from '../../../shell/runtime';
 import {AddFolderPage} from './AddFolderPage';
 import {AddLibraryPage, MetadataAgentChoice} from './AddLibraryPage';
 import {LibraryGroup, LibraryRow, SectionTitle} from './controls';
+import {LibrarySettingsRows} from './LibrarySettingsRows';
+import {libraryListState} from './library-settings-model';
 import {NativeOwnerLibrariesController, sonicPageLease, type NativeOwnerLibrariesSnapshot, type SonicPageLease} from './controller';
 import {ownerFolderLocation, ownerFolderState, ownerIssueReason, ownerLibraryAudience, ownerLibraryCounts, ownerLibraryInterval, ownerLibraryKind, ownerLibraryScan, ownerLibrarySquare, ownerLibraryState, ownerSkippedFiles} from './presentation';
 
@@ -75,22 +80,23 @@ export function NativeOwnerLibrariesPanel({ports, runtime, initialLibraryId, lif
     return () => subscription.remove();
   }, [back]);
 
-  if (adding) return <AddLibraryPage api={api} serverName={context.serverName} busy={state.busy} error={state.error}
+  if (adding) return <AddLibraryPage api={api} serverName={context.serverName} ports={ports} runtime={runtime} busy={state.busy} error={state.error}
     onCancel={() => setAdding(false)}
     onCreate={input => {void controller.create(input).then(id => {if (!id) return; setAdding(false); open(id);});}}/>;
 
-  if (folderForm && document) return <AddFolderPage api={api} serverName={context.serverName} source={folderForm.source} expectedRevision={state.inventory?.revision}
+  if (folderForm && document) return <AddFolderPage api={api} serverName={context.serverName} ports={ports} runtime={runtime} source={folderForm.source} expectedRevision={state.inventory?.revision}
     busy={state.busy} error={state.error} onCancel={() => setFolderForm(undefined)}
     onSave={input => {void controller.saveFolder(folderForm.source?.id, input).then(ok => {if (ok) setFolderForm(undefined);});}}/>;
 
   if (library) return <>
-    <LibraryPage library={library} document={document} state={state} tab={tab} tabChange={setTab} t={t} runtime={runtime} serverName={context.serverName} viewerRole={viewerRole}
+    <LibraryPage api={api} library={library} document={document} state={state} tab={tab} tabChange={setTab} t={t} runtime={runtime} serverName={context.serverName} viewerRole={viewerRole}
       back={() => setOpenId(undefined)} menu={() => {setMenuOnPage(true); setLibraryMenu(library);}} scan={() => {void controller.scanNow();}} cancel={() => {void controller.cancelScan();}}
       dashboard={() => {context.navigation.open({kind: 'server-dashboard'}, authority);}}
       renameLibrary={() => setRename(true)} removeLibrary={() => setLeaving(true)} addFolder={() => setFolderForm({})} folderMenu={setFolderMenu} skipped={() => setSkipped(true)}
       moreUnmatched={() => {void controller.loadUnmatchedMore();}}
       save={patch => {void controller.save(patch);}} saveAgent={id => {void controller.saveAgent(id);}} scanAll={() => {void controller.scanAll();}}
       parentCurrent={parentCurrent}
+      strmChange={(enabled, document, policy, lease) => {void controller.setStrm(enabled, document, policy, lease);}} strmRetry={document => {void controller.reloadStrm(document);}}
       sonicToggle={(enabled, document, sonic, lease) => {void controller.setSonicEnabled(enabled, document, sonic, lease);}}
       sonicRetry={(document, sonic, lease) => {void controller.retrySonic(document, sonic, lease);}}
       sonicReload={(document, sonic, lease) => {void controller.reloadSonic(document, sonic, lease);}}/>
@@ -119,13 +125,13 @@ export function NativeOwnerLibrariesPanel({ports, runtime, initialLibraryId, lif
       </View>
       <MissingTitlesTab ports={ports} runtime={runtime} t={runtime.text.t as Translate}/>
       {state.directory.phase === 'error' && <StateView {...runtime.error(state.directory.error, () => {void controller.refresh();})}/>}
-      {!libraries.length && <LibraryGroup style={{marginTop: 12}}>
+      {libraryListState(state.directory.phase, libraries.length) === 'empty' && <LibraryGroup style={{marginTop: 12}}>
         <LibraryRow first label={t('next.ownerLibraries.empty')} help={t('next.ownerLibraries.emptyHelp')}/>
       </LibraryGroup>}
       <LibraryGroup style={{marginTop: 14}}>
         {libraries.map((value: ManagedLibrary, index: number) => <LibraryListRow key={value.id} library={value} first={index === 0} t={t} runtime={runtime}
           state={ownerLibraryState(value, {t, locale: runtime.text.locale, short: true})} onOpen={() => open(value.id)} onMenu={() => {setMenuOnPage(false); setLibraryMenu(value);}}/>)}
-        {state.directory.phase === 'loading' && !libraries.length && <LibraryRow first label={t('next.ownerLibraries.loading')}/>}
+        {libraryListState(state.directory.phase, libraries.length) === 'loading' && <View accessibilityLabel={t('next.ownerLibraries.loading')} accessibilityRole="progressbar" style={{padding: 14, gap: 16}}>{[0, 1, 2].map(row => <View key={row} style={{flexDirection: 'row', alignItems: 'center', gap: 12}}><SkeletonBlock width={62} height={66}/><View style={{flex: 1, gap: 8}}><SkeletonBlock width="70%" height={18}/><SkeletonBlock width="45%" height={13}/></View></View>)}</View>}
       </LibraryGroup>
       <Text style={[shellType(12, 500, 17), {color: theme.colors.textTertiary, marginTop: 12, paddingHorizontal: 4}]}>{t('next.ownerLibraries.moveHint')}</Text>
     </ScrollView>
@@ -136,7 +142,7 @@ export function NativeOwnerLibrariesPanel({ports, runtime, initialLibraryId, lif
       ] : [
         {id: 'edit', label: t('next.ownerLibraries.rename'), icon: 'i-sliders', onSelect: () => open(libraryMenu.id)},
         {id: 'scan', label: t('web.libraries.scanNow'), icon: 'i-refresh', disabled: !libraryMenu.actions.includes('scan'), onSelect: () => {void controller.scanLibrary(libraryMenu.id);}},
-        {id: 'attention', label: t('next.ownerLibraries.tab.attention'), icon: 'i-link', onSelect: () => {open(libraryMenu.id); setTab('attention');}},
+        {id: 'attention', label: t('next.ownerLibraries.tab.attention'), icon: 'i-link', onSelect: () => {open(libraryMenu.id); setTab('metadata');}},
         {id: 'more-separator', separator: true},
         {id: 'moveUp', label: t('server.libraries.moveUp'), icon: 'i-up', onSelect: () => {void controller.move(libraryMenu.id, -1).then(() => setLibraryMenu(undefined));}},
         {id: 'moveDown', label: t('server.libraries.moveDown'), icon: 'i-down', onSelect: () => {void controller.move(libraryMenu.id, 1).then(() => setLibraryMenu(undefined));}},
@@ -162,19 +168,21 @@ function LibraryListRow({library, first, t, runtime, state, onOpen, onMenu}: {li
   </View>;
 }
 
-function LibraryPage({library, document, state, tab, tabChange, t, runtime, serverName, viewerRole, back, menu, scan, cancel, dashboard, renameLibrary, removeLibrary, addFolder, folderMenu, skipped, moreUnmatched, save, saveAgent, scanAll, parentCurrent, sonicToggle, sonicRetry, sonicReload}: {
-  library: ManagedLibrary; document?: LibraryAdminDocument; state: NativeOwnerLibrariesSnapshot; tab: string; tabChange: (id: string) => void;
+function LibraryPage({api, library, document, state, tab, tabChange, t, runtime, serverName, viewerRole, back, menu, scan, cancel, dashboard, renameLibrary, removeLibrary, addFolder, folderMenu, skipped, moreUnmatched, save, saveAgent, scanAll, parentCurrent, strmChange, strmRetry, sonicToggle, sonicRetry, sonicReload}: {
+  api: LibraryContentApi; library: ManagedLibrary; document?: LibraryAdminDocument; state: NativeOwnerLibrariesSnapshot; tab: string; tabChange: (id: string) => void;
   t: Translate; runtime: NativeShellRuntime; serverName: string; viewerRole: ViewerRole; back: () => void; menu: () => void; scan: () => void; cancel: () => void; dashboard: () => void;
   renameLibrary: () => void; removeLibrary: () => void; addFolder: () => void; folderMenu: (source: InventorySource) => void; skipped: () => void; moreUnmatched: () => void;
   save: (patch: Partial<LibrarySettings>) => void; saveAgent: (id: string) => void; scanAll: () => void; parentCurrent: () => boolean;
+  strmChange: (enabled: boolean, document: LibraryAdminDocument, policy: AnalysisPolicy, lease: SonicPageLease) => void;
+  strmRetry: (document: LibraryAdminDocument) => void;
   sonicToggle: (enabled: boolean, document: LibraryAdminDocument, sonic: LibrarySonicDocument, lease: SonicPageLease) => void;
   sonicRetry: (document: LibraryAdminDocument, sonic: LibrarySonicDocument, lease: SonicPageLease) => void;
   sonicReload: (document: LibraryAdminDocument, sonic: LibrarySonicDocument, lease: SonicPageLease) => void;
 }) {
   const theme = useTheme(), active = ownerLibraryScan(library), status = ownerLibraryState(library, {t, locale: runtime.text.locale});
   const counts = ownerLibraryCounts(library, t);
-  const tabs = [{id: 'general', label: t('next.ownerLibraries.tab.general')}, {id: 'metadata', label: t('next.ownerLibraries.tab.metadata')},
-    {id: 'attention', label: t('next.ownerLibraries.tab.attention')}, {id: 'scanning', label: t('next.ownerLibraries.tab.scanning')}, {id: 'advanced', label: t('next.ownerLibraries.tab.advanced')}];
+  const tabs = [{id: 'general', label: t('next.ownerLibraries.tab.general')}, {id: 'folders', label: t('next.ownerLibraries.folders')}, {id: 'metadata', label: t('next.ownerLibraries.tab.metadata')},
+    {id: 'scanning', label: t('next.ownerLibraries.tab.scanning')}, {id: 'advanced', label: t('next.ownerLibraries.tab.advanced')}];
   return <View style={{flex: 1}}>
     <ScrollView contentContainerStyle={{paddingBottom: 32}}>
       <View style={{flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingTop: 4}}>
@@ -198,33 +206,40 @@ function LibraryPage({library, document, state, tab, tabChange, t, runtime, serv
       <View style={{paddingHorizontal: 20, paddingTop: 8}}>
         {state.detail === 'loading' && !document && <Text style={[shellType(13.5, 500), {color: theme.colors.textTertiary}]}>{t('web.libraries.loadingOne')}</Text>}
         {state.detail === 'error' && <StateView {...runtime.error(state.detailError, () => {void runtime.reportError(state.detailError);})}/>}
-        {tab === 'general' && <GeneralTab library={library} document={document} t={t} renameLibrary={renameLibrary} removeLibrary={removeLibrary} addFolder={addFolder} folderMenu={folderMenu} busy={state.busy} save={save}/>}
-        {tab === 'metadata' && <MetadataTab document={document} metadata={state.metadata} busy={state.busy} t={t} save={save} saveAgent={saveAgent}/>}
-        {tab === 'attention' && <AttentionTab state={state} t={t} more={moreUnmatched}/>}
-        {tab === 'scanning' && <ScanningTab library={library} document={document} metadata={state.metadata} state={state} t={t} locale={runtime.text.locale ?? defaultI18n.region.formatLocale} skipped={skipped} cancel={cancel} dashboard={dashboard} save={save} scanAll={scanAll} parentCurrent={parentCurrent} sonicToggle={sonicToggle} sonicRetry={sonicRetry} sonicReload={sonicReload}/>}
+        {state.error !== undefined && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.record}]}>{presentError(state.error, 'library', {operation: 'save'}).body}</Text>}
+        {tab === 'general' && <GeneralTab library={library} document={document} t={t} renameLibrary={renameLibrary} removeLibrary={removeLibrary} busy={state.busy} save={save}/>}
+        {tab === 'folders' && <FoldersTab document={document} t={t} addFolder={addFolder} folderMenu={folderMenu}/>}
+        {tab === 'metadata' && <><MetadataTab document={document} metadata={state.metadata} busy={state.busy} t={t} save={save} saveAgent={saveAgent}/><SectionTitle>{t('next.ownerLibraries.tab.attention')}</SectionTitle><AttentionTab state={state} t={t} more={moreUnmatched}/></>}
+        {tab === 'scanning' && <ScanningTab api={api} library={library} document={document} metadata={state.metadata} state={state} t={t} locale={runtime.text.locale ?? defaultI18n.region.formatLocale} skipped={skipped} cancel={cancel} dashboard={dashboard} save={save} scanAll={scanAll} parentCurrent={parentCurrent} strmChange={strmChange} strmRetry={strmRetry} sonicToggle={sonicToggle} sonicRetry={sonicRetry} sonicReload={sonicReload}/>}
         {tab === 'advanced' && <AdvancedTab document={document} t={t} owner={viewerRole === 'owner'} busy={state.busy} save={save}/>}
       </View>
     </ScrollView>
   </View>;
 }
 
-function GeneralTab({library, document, t, renameLibrary, removeLibrary, addFolder, folderMenu, busy, save}: {library: ManagedLibrary; document?: LibraryAdminDocument; t: Translate; renameLibrary: () => void; removeLibrary: () => void; addFolder: () => void; folderMenu: (source: InventorySource) => void; busy: boolean; save: (patch: Partial<LibrarySettings>) => void}) {
-  const theme = useTheme(), source = document?.sources ?? [];
+function GeneralTab({library, document, t, renameLibrary, removeLibrary, busy, save}: {library: ManagedLibrary; document?: LibraryAdminDocument; t: Translate; renameLibrary: () => void; removeLibrary: () => void; busy: boolean; save: (patch: Partial<LibrarySettings>) => void}) {
   return <>
     <LibraryGroup>
       <LibraryRow first label={t('next.ownerLibraries.nameLabel')} value={library.name} onPress={renameLibrary}/>
       <LibraryRow label={t('web.libraries.type')} value={t(ownerLibraryKind(library.kind).label)}/>
       <LibraryRow label={t('next.ownerLibraries.whoCanSee')} help={ownerLibraryAudience(library, t)}/>
     </LibraryGroup>
-    <SectionTitle action={<Focusable accessibilityRole="button" accessibilityLabel={t('web.libraries.addFolder')} onPress={addFolder} focusKind="chip" focusRadius={8} hitSlop={10}><Text style={[shellType(13.5, 700), {color: theme.colors.accentStrong}]}>{t('web.libraries.addFolder')}</Text></Focusable>}>{t('next.ownerLibraries.folders')}</SectionTitle>
-    <LibraryGroup>
-      {!source.length && <LibraryRow first label={t('web.libraries.noFolders')}/>}
-      {source.map((folder, index) => <LibraryRow key={folder.id} first={index === 0} icon="i-folder" label={folder.name || folder.path} help={`${folder.path} · ${ownerFolderLocation(folder, t)}`} value={ownerFolderState(folder, t)} onPress={() => folderMenu(folder)}/>)}
-    </LibraryGroup>
+    {document && <LibrarySettingsRows tab="general" document={document} busy={busy} t={t} save={save}/>}
     {document && <ContinueWatchingGroup document={document} busy={busy} t={t} save={save}/>}
     <SectionTitle>{t('server.library.remove')}</SectionTitle>
     <LibraryGroup>
       <LibraryRow first icon="i-trash" tone="danger" minHeight={64} label={t('server.library.removeRow')} help={t('server.library.removeHelp')} onPress={removeLibrary}/>
+    </LibraryGroup>
+  </>;
+}
+
+function FoldersTab({document, t, addFolder, folderMenu}: {document?: LibraryAdminDocument; t: Translate; addFolder: () => void; folderMenu: (source: InventorySource) => void}) {
+  const theme = useTheme(), source = document?.sources ?? [];
+  return <>
+    <SectionTitle action={<Focusable accessibilityRole="button" accessibilityLabel={t('web.libraries.addFolder')} onPress={addFolder} focusKind="chip" focusRadius={8} hitSlop={10}><Text style={[shellType(13.5, 700), {color: theme.colors.accentStrong}]}>{t('web.libraries.addFolder')}</Text></Focusable>}>{t('next.ownerLibraries.folders')}</SectionTitle>
+    <LibraryGroup>
+      {!source.length && <LibraryRow first label={t('web.libraries.noFolders')}/>}
+      {source.map((folder, index) => <LibraryRow key={folder.id} first={index === 0} icon="i-folder" label={folder.name || folder.path} help={`${folder.path} · ${ownerFolderLocation(folder, t)}`} value={ownerFolderState(folder, t)} onPress={() => folderMenu(folder)}/>)}
     </LibraryGroup>
   </>;
 }
@@ -264,23 +279,13 @@ function ContinueWatchingGroup({document, busy, t, save}: {document: LibraryAdmi
 function MetadataTab({document, metadata, busy, t, save, saveAgent}: {document?: LibraryAdminDocument; metadata?: LibraryMetadataAgent; busy: boolean; t: Translate; save: (patch: Partial<LibrarySettings>) => void; saveAgent: (id: string) => void}) {
   const theme = useTheme();
   if (!document) return null;
-  const providers = document.settings.providers.map(selection => document.availableProviders.find(provider => provider.id === selection.provider)?.name ?? selection.provider);
-  const music = document.libraryKind === 'music';
   return <>
     {metadata && metadata.agents.length > 0 && <>
       <SectionTitle>{t('next.ownerLibraries.metadataSource')}</SectionTitle>
       <LibraryGroup>{metadata.agents.map((option, index) => <MetadataAgentChoice key={option.id} option={option} first={index === 0} checked={option.id === metadata.agent} onPress={() => {if (!busy && option.id !== metadata.agent) saveAgent(option.id);}}/>)}</LibraryGroup>
       <Text style={[shellType(12.5, 500, 17.5), {color: theme.colors.textTertiary, marginTop: 8, paddingHorizontal: 4}]}>{t('next.ownerLibraries.metadataHelp')}</Text>
     </>}
-    {providers.length > 0 && <>
-      <SectionTitle>{t('next.ownerLibraries.matching')}</SectionTitle>
-      <LibraryGroup>{providers.map((name, index) => <LibraryRow key={name} first={index === 0} label={t(ownerLibraryKind(document.libraryKind).label)} help={t('next.ownerLibraries.providerHelp', {provider: name})} value={name}/>)}</LibraryGroup>
-    </>}
-    {music && <>
-      <SectionTitle>{t('next.ownerLibraries.lyrics')}</SectionTitle>
-      <LibraryGroup><LibraryRow first label={t('web.libraries.fetchLyrics')} help={t('next.ownerLibraries.lyricsHelp')}
-        trailing={<Switch testID="owner-libraries-lyrics" checked={document.settings.lyricsSource === 'lrclib'} disabled={busy} accessibilityLabel={t('web.libraries.fetchLyrics')} onCheckedChange={next => save({lyricsSource: next ? 'lrclib' : 'files'})}/>}/></LibraryGroup>
-    </>}
+    <LibrarySettingsRows tab="metadata" document={document} busy={busy} t={t} save={save}/>
     <LibraryGroup style={{marginTop: 18}}><LibraryRow first label={t('server.library.ownKeys')} help={t('server.library.ownKeysHelp')}/></LibraryGroup>
   </>;
 }
@@ -297,7 +302,9 @@ function AttentionTab({state, t, more}: {state: NativeOwnerLibrariesSnapshot; t:
   </>;
 }
 
-function ScanningTab({library, document, metadata, state, t, locale, skipped, cancel, dashboard, save, scanAll, parentCurrent, sonicToggle, sonicRetry, sonicReload}: {library: ManagedLibrary; document?: LibraryAdminDocument; metadata?: LibraryMetadataAgent; state: NativeOwnerLibrariesSnapshot; t: Translate; locale: string; skipped: () => void; cancel: () => void; dashboard: () => void; save: (patch: Partial<LibrarySettings>) => void; scanAll: () => void; parentCurrent: () => boolean;
+function ScanningTab({api, library, document, metadata, state, t, locale, skipped, cancel, dashboard, save, scanAll, parentCurrent, strmChange, strmRetry, sonicToggle, sonicRetry, sonicReload}: {api: LibraryContentApi; library: ManagedLibrary; document?: LibraryAdminDocument; metadata?: LibraryMetadataAgent; state: NativeOwnerLibrariesSnapshot; t: Translate; locale: string; skipped: () => void; cancel: () => void; dashboard: () => void; save: (patch: Partial<LibrarySettings>) => void; scanAll: () => void; parentCurrent: () => boolean;
+  strmChange: (enabled: boolean, document: LibraryAdminDocument, policy: AnalysisPolicy, lease: SonicPageLease) => void;
+  strmRetry: (document: LibraryAdminDocument) => void;
   sonicToggle: (enabled: boolean, document: LibraryAdminDocument, sonic: LibrarySonicDocument, lease: SonicPageLease) => void;
   sonicRetry: (document: LibraryAdminDocument, sonic: LibrarySonicDocument, lease: SonicPageLease) => void;
   sonicReload: (document: LibraryAdminDocument, sonic: LibrarySonicDocument, lease: SonicPageLease) => void}) {
@@ -330,16 +337,22 @@ function ScanningTab({library, document, metadata, state, t, locale, skipped, ca
       <LibraryRow label={t('next.ownerLibraries.filesSkippedTitle')} help={t('next.ownerLibraries.filesSkippedHelp')} value={t('next.ownerLibraries.filesCount', {count: skippedCount})} onPress={skipped}/>
     </LibraryGroup>
     <LibraryGroup style={{marginTop: 12}}>
-      <LibraryRow first label={t('web.libraries.scanDepth')} trailing={<Select testID="owner-libraries-scan-depth" accessibilityLabel={t('web.libraries.scanDepth')} value={settings.scanDepth}
-        options={[{value: 'file_list_only', label: t('next.ownerLibraries.scanDepth.fileListOnly')}, {value: 'basic', label: t('next.ownerLibraries.scanDepth.basic')}, {value: 'complete', label: t('next.ownerLibraries.scanDepth.complete')},
-          ...(settings.scanDepth === 'custom' ? [{value: 'custom', label: t('next.ownerLibraries.scanDepth.custom'), disabled: true}] : [])]}
-        onValueChange={value => {if (value !== 'custom') save({scanDepth: value as LibrarySettings['scanDepth']});}} style={{backgroundColor: 'transparent', paddingHorizontal: 0}}/>}/>
-      <LibraryRow label={t('next.ownerLibraries.watch')} help={t('next.ownerLibraries.watchHelp')} trailing={<Switch testID="owner-libraries-watch" checked={settings.monitorChanges} accessibilityLabel={t('next.ownerLibraries.watch')} onCheckedChange={next => save({monitorChanges: next})}/>}/>
-      <LibraryRow label={t('next.ownerLibraries.introsAndCredits')} trailing={<Select testID="owner-libraries-segments" accessibilityLabel={t('next.ownerLibraries.introsAndCredits')} value={settings.segmentDetection}
+      <LibraryRow first label={t('next.ownerLibraries.introsAndCredits')} trailing={<Select testID="owner-libraries-segments" accessibilityLabel={t('next.ownerLibraries.introsAndCredits')} value={settings.segmentDetection}
         options={[{value: 'server', label: t('next.ownerLibraries.introsFollow')}, {value: 'standard', label: t('settings.server.segmentMode.standard')}, {value: 'thorough', label: t('settings.server.segmentMode.thorough')}, {value: 'off', label: t('settings.server.segmentMode.off')}]}
         onValueChange={value => save({segmentDetection: value as LibrarySettings['segmentDetection']})} style={{backgroundColor: 'transparent', paddingHorizontal: 0}}/>}/>
       <LibraryRow label={t('next.ownerLibraries.metadataSource')} value={metadata?.agent === 'local' ? t('next.ownerLibraries.metadataLocal') : t('next.ownerLibraries.on')}/>
     </LibraryGroup>
+    <LibrarySettingsRows tab="scanning" document={document} busy={state.busy} t={t} save={save}/>
+    {(document.libraryKind === 'tv' || document.libraryKind === 'anime') && <EpisodeThumbnailsRow api={api} libraryId={document.libraryId} parentCurrent={parentCurrent} disabled={state.busy} t={t}/>}
+    {(state.strm || state.strmError !== undefined) && <LibraryGroup style={{marginTop: 12}}>
+      <LibraryRow first label={t('next.settingsSpec.server.libraries.panels.library.tabs.4.groups.0.rows.1.label')}
+        help={state.strmError !== undefined ? presentError(state.strmError, 'library').body : t('next.settingsSpec.server.libraries.panels.library.tabs.4.groups.0.rows.1.help')}
+        trailing={state.strm ? <Switch testID="libraries.strm" checked={state.strm.enabled} disabled={state.busy || !pageLease || state.strmError !== undefined}
+          accessibilityLabel={t('next.settingsSpec.server.libraries.panels.library.tabs.4.groups.0.rows.1.label')}
+          onCheckedChange={enabled => {if (pageLease && state.strm) strmChange(enabled, document, state.strm, pageLease);}}/>
+          : undefined}/>
+      {state.strmError !== undefined && <LibraryRow label={t('action.tryAgain')} onPress={state.busy ? undefined : () => strmRetry(document)}/>}
+    </LibraryGroup>}
     {(toggle || sonicLine || sonicErrorText || (state.sonicNeedsReload && sonic)) && <LibraryGroup style={{marginTop: 12}}>
       {toggle && <LibraryRow first label={t('next.settingsSpec.server.libraries.panels.library.tabs.3.groups.0.rows.5.label')} help={t('next.settingsSpec.server.libraries.panels.library.tabs.3.groups.0.rows.5.help')}
         trailing={<Switch testID="owner-libraries-sonic" checked={toggle.current === true} disabled={state.sonicBusy || state.sonicNeedsReload} accessibilityLabel={t('next.settingsSpec.server.libraries.panels.library.tabs.3.groups.0.rows.5.label')} onCheckedChange={enabled => {if (pageLease) sonicToggle(enabled, document, sonic!, pageLease);}}/>}/>}

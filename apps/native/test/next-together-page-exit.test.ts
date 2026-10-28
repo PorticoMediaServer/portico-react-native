@@ -12,6 +12,7 @@ import {nativeTogetherPages} from '../src-next/screens/settings-live/together-pa
 const react = {...React, default: React};
 const module = await screenModule(new URL('../src-next/screens/settings-live/TogetherScreen.tsx', import.meta.url), {
   react, 'react-native': {ScrollView: 'ScrollView', Share: {}, Text: 'Text', View: 'View'},
+  'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'LinearGradient', Rect: 'Rect', Stop: 'Stop'},
   'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0})},
   '../../../../../packages/i18n/src': {defaultI18n: {t: (s: string) => s}},
   '../../../../../packages/client-core/src/media-item': {}, '../../../../../packages/contracts/src/routes': {},

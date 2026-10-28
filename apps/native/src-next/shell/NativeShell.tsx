@@ -44,6 +44,13 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   /** The sidebar's own breakpoint, captured so the hook reads a plain value. */
   const wideSidebar = dimensions.width >= 1024;
   const destination = snapshot.destination, registry = useFocusRegistry(), ids = useMemo(() => tvFocusIds(snapshot.authority), [snapshot.authority]);
+  // Compact Settings is a modal over the last committed destination. Keep that
+  // native subtree mounted so its scroll position and painted content survive.
+  const previousPage = useRef<ShellDestination>({kind: 'home'});
+  const settingsPage = !theme.isTV && destination.kind === 'settings';
+  const settingsSheet = settingsPage && theme.width < 600;
+  const paintedDestination = settingsPage ? previousPage.current : destination;
+  useLayoutEffect(() => {if (destination.kind !== 'settings') previousPage.current = destination;}, [destination]);
   useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
   const [tvListeningPresent, setTVListeningPresent] = useState(false);
   const pageFocus = useRef<FocusSnapshot | undefined>(undefined), pageFocusDestination = useRef<string | undefined>(undefined);
@@ -232,12 +239,13 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const railDestination = snapshot.railDestination ?? destination;
   const notifications = snapshot.account.actions.find(action => action.id === 'notifications');
   const content = <>
-    <Animated.View style={[{flex: 1}, sideNavigation ? {paddingLeft: sideWidth} : null, pageStyle]}>
-      {destination.kind === 'home' ? <HomeScreen runtime={runtime} authority={snapshot.authority} active={!snapshot.mediaExpanded && snapshot.homeVisible} heroObscured={snapshot.homeObscured} railExpanded={railExpanded} bottomInset={homeBottom} onScrolledChange={setHomeScrolled} holdRailDim={holdRailDim} releaseRailDim={releaseRailDim}/>
+    <Animated.View pointerEvents={settingsPage ? 'none' : 'auto'} accessibilityElementsHidden={settingsPage} importantForAccessibility={settingsPage ? 'no-hide-descendants' : 'auto'} style={[{flex: 1}, settingsPage && !settingsSheet ? {display: 'none'} : null, sideNavigation ? {paddingLeft: sideWidth} : null, settingsPage ? undefined : pageStyle]}>
+      {paintedDestination.kind === 'home' ? <HomeScreen runtime={runtime} authority={snapshot.authority} active={!settingsPage && !snapshot.mediaExpanded && snapshot.homeVisible} heroObscured={settingsPage || snapshot.homeObscured} railExpanded={railExpanded} bottomInset={homeBottom} onScrolledChange={setHomeScrolled} holdRailDim={holdRailDim} releaseRailDim={releaseRailDim}/>
         : <View style={{flex: 1, paddingBottom: pageBottom}}>
-          {runtime.renderDestination(destination, openLibrary)}
+          {runtime.renderDestination(paintedDestination, openLibrary)}
         </View>}
     </Animated.View>
+    {settingsPage && <Animated.View style={[{position: 'absolute', inset: 0, paddingLeft: sideNavigation ? sideWidth : 0, paddingBottom: settingsSheet ? 0 : pageBottom}, pageStyle]}>{runtime.renderDestination(destination, openLibrary)}</Animated.View>}
     {theme.isTV && <Animated.View pointerEvents="none" style={[{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink, zIndex: theme.layers.navigation - 1}, dimStyle]}/>}
     {!snapshot.selectionActive && snapshot.contentVisible !== false && !chromeHidden && (theme.isTV ? <TVRail authority={snapshot.authority} returnTo={currentPageFocus} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={snapshot.railDestination ?? destination} profile={snapshot.profile} unread={snapshot.unreadNotifications} dimmed={destination.kind === 'home' && snapshot.homeVisible && !snapshot.mediaExpanded && !!railDim && !railDim.retired} onNavigate={next => {if (snapshot.contentVisible !== false && sameDestination(next, destination)) {expanded(false); runtime.scrollToTop(destination);} else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
       onProfile={() => setAccountOpen(true)} profileRef={avatarRef} onExpandedChange={expanded}/>

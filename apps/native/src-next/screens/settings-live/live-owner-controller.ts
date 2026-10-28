@@ -117,6 +117,35 @@ export class NativeLiveOwnerController extends NativeScreenStore<LiveOwnerSnapsh
     return current;
   }, () => undefined);
   channelMap = async (id: string, cursor = '') => parseChannelMapPage(await this.request<unknown>(sourcePath(id, `/channel-map?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`)), this.lifetime.authority.serverId);
+  /** Guide owner action: preserve the current mapping and use the source revision, never a viewer preference. */
+  hideChannel = (sourceId: string, channelId: string, caller: NativeRecordingCommandLifetime): Promise<boolean | undefined> => this.act(async () => {
+    const current = () => this.current() && !caller.signal.aborted && caller.isCurrent() && !caller.signal.aborted && this.current();
+    const request = async <T,>(path: string, method = 'GET', body?: unknown): Promise<T> => {
+      if (!current()) throw screenScopeEnded();
+      const value = await this.lifetime.request(signal => {if (!current()) throw screenScopeEnded(); return this.api.request<T>(path, method, body, signal);}, caller.signal);
+      if (!current()) throw screenScopeEnded();
+      return value;
+    };
+    const document = parseSourceDocument(await request(sourcePath(sourceId, '/configuration')), this.lifetime.authority.serverId);
+    if (document.sourceId !== sourceId) throw new Error('invalid_response');
+    const seen = new Set<string>();
+    let cursor = '', readCount = 0;
+    do {
+      const page = parseChannelMapPage(await request(sourcePath(sourceId, `/channel-map?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`)), this.lifetime.authority.serverId);
+      if (page.sourceId !== sourceId || page.nextCursor && (page.nextCursor === cursor || seen.has(page.nextCursor))) throw new Error('invalid_response');
+      readCount += page.items.length;
+      if (readCount > 100000 || page.nextCursor && page.items.length === 0) throw new Error('invalid_response');
+      const channel = page.items.find(value => value.channelId === channelId);
+      if (channel) {
+        if (channel.hidden) return true;
+        const receipt = parseChannelMapPage(await request(sourcePath(sourceId, '/channel-map'), 'PUT', {expectedRevision: document.revision, operationId: this.operationId(), overrides: [{channelId, number: channel.number, guideChannelId: channel.guideChannelId, hidden: true}]}), this.lifetime.authority.serverId);
+        if (receipt.sourceId !== sourceId) throw new Error('invalid_response');
+        return true;
+      }
+      seen.add(cursor); cursor = page.nextCursor;
+    } while (cursor);
+    throw new Error('channel_not_found');
+  }, () => undefined, caller);
   saveChannelMap = async (id: string, revision: number, edits: readonly Readonly<{channelId: string; override: ChannelMapEdit}>[]) => this.act(async () => {
     const batches: typeof edits[number][][] = [];
     for (let index = 0; index < edits.length; index += 200) batches.push(edits.slice(index, index + 200));

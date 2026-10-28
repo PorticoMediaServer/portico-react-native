@@ -1,3 +1,4 @@
+import {NativeIntegrationAdvanced} from './integrations/Advanced';
 import React, {useCallback, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {ScrollView, Share, Text, View} from 'react-native';
 import {assistantAddress} from '../../../../../../packages/client-core/src/server-admin/api-words';
@@ -35,6 +36,7 @@ export function NativeServerIntegrations({ports, runtime, compactHeader = false}
       {tab === 'keys' && keys?.context === context && keys.current() && <NativeApiKeys group={keys} runtime={runtime} createRequest={keyCreateRequest} consumeCreateRequest={consumeKeyCreate}/>}
       {tab === 'webhooks' && <NativeWebhooks ports={ports} runtime={runtime}/>}
       {tab === 'assistants' && <AssistantsTab ports={ports} t={t} openCreateKey={openCreateKey} isCurrent={() => keys?.context === context && keys.current()}/>}
+      <NativeIntegrationAdvanced ports={ports} runtime={runtime}/>
     </ScrollView>
   </View>;
 }
@@ -53,7 +55,7 @@ function AssistantsTab({ports, t, openCreateKey, isCurrent}: {ports: NativeSetti
     <Text style={[shellType(14, 700), {color: theme.colors.text, marginTop: 16}]}>{t('api.mcp.address')}</Text>
     <Text style={[shellType(12.5, 400, 17), {color: theme.colors.textTertiary, marginTop: 2}]}>{t('api.mcp.addressHelp')}</Text>
     <View style={{marginTop: 8, borderRadius: 12, padding: 12, backgroundColor: alpha(theme.colors.ink, .55), borderWidth: 1, borderColor: theme.colors.lineSoft}}>
-      <Text selectable style={[shellType(13, 500, 18), {color: theme.colors.text}]}>{address}</Text>
+      <Text selectable style={[shellType(13, 500, 18), {color: theme.colors.text, fontFamily: 'monospace'}]}>{address}</Text>
     </View>
     <View style={{flexDirection: 'row', gap: 8, marginTop: 10}}><Button size="compact" variant="glass" icon="i-copy" onPress={() => {void copy();}}>{t('web.twoStep.copy')}</Button><Button size="compact" variant="glass" icon="i-link" onPress={() => {void share();}}>{t('api.mcp.shareAddress')}</Button></View>{copied && <Text style={[shellType(13,500),{color:theme.colors.accentStrong}]}>{t('api.credential.copied')}</Text>}{failed && <Text accessibilityRole="alert" style={[shellType(13,500),{color:theme.colors.record}]}>{t('error.unavailable')}</Text>}
     <Text style={[shellType(12.5, 400, 17), {color: theme.colors.textSecondary, marginTop: 14}]}>{t('api.mcp.keyHelp')}</Text><Button size="compact" variant="glass" onPress={() => {if (current()) openCreateKey();}}>{t('web.access.createKey')}</Button>

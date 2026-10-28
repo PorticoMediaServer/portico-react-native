@@ -53,7 +53,7 @@ export function SourceAdvancedEditor({controller, source, t, isCurrent, onCancel
   const label = (suffix: string) => t(`${spec}.${suffix}` as never);
   const intervals = [900, 3600, 21600, 86400, 604800, 0], days = [7, 14, 30, 0], cache = [0, 2, 4, 8, 16, 32, 64], floors = [1, 2, 4, 8, 16];
   const switches = [
-    ['watchForChanges', 'tabs.3.groups.0.rows.1.label'], ['scanOnStart', 'tabs.3.groups.0.rows.2.label'],
+    ['watchForChanges', 'tabs.3.groups.0.rows.1.label'], ['scanOnStart', 'tabs.3.groups.0.rows.2.label'], ['doubleCheckFolders', 'tabs.3.groups.0.rows.4.label'],
     ['seekPreviews', 'tabs.3.groups.1.rows.2.control.items.0.label'], ['chapterImages', 'tabs.3.groups.1.rows.2.control.items.1.label'],
     ['waveforms', 'tabs.3.groups.1.rows.2.control.items.2.label'], ['loudness', 'tabs.3.groups.1.rows.2.control.items.3.label'],
     ['checksums', 'tabs.3.groups.1.rows.2.control.items.4.label'],
@@ -73,6 +73,9 @@ export function SourceAdvancedEditor({controller, source, t, isCurrent, onCancel
         options={days.map((value, index) => ({value: String(value), label: label(`tabs.3.groups.0.rows.3.control.options.${index}.label`)}))}
         onValueChange={value => {const next = Number(value); if (days.includes(next)) set('fullRecheckDays', next);}}/>
       {switches.map(([key, copy]) => <Switch key={key} checked={values[key]} disabled={busy} onCheckedChange={value => set(key, value)}>{label(copy)}</Switch>)}
+      <Select disabled={busy} label={label('tabs.3.groups.1.rows.3.label')} value={values.introsMode}
+        options={(['off', 'inherit', 'sound', 'picture'] as const).map((value, index) => ({value, label: label(`tabs.3.groups.1.rows.3.control.options.${index}.label`)}))}
+        onValueChange={value => {if (value === 'off' || value === 'inherit' || value === 'sound' || value === 'picture') set('introsMode', value);}}/>
       {settings.cacheSupported && <>
         <Select disabled={busy} label={label('tabs.1.groups.0.rows.1.label')} value={String(values.cacheBytes / GIB)}
           options={cache.map((value, index) => ({value: String(value), label: label(`tabs.1.groups.0.rows.1.control.options.${index}.label`)}))}

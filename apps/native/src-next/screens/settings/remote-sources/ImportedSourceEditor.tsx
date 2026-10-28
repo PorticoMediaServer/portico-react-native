@@ -6,6 +6,7 @@ import {Button} from '../../../kit/controls/Button';
 import {Select} from '../../../kit/controls/Select';
 import {TextField} from '../../../kit/controls/TextField';
 import {useTheme} from '../../../kit/theme';
+import {copyText} from '../../../platform/clipboard';
 import type {NativeRemoteSourcesController} from './controller';
 import {Page, Problem, receiptCheckRequired, remoteSourceError, useAttempt} from './RemoteSourceForms';
 
@@ -57,6 +58,7 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
   const driveResult = useMemo(() => form === 'drive' ? driveServiceAccountDraft(drive) : undefined, [form, drive]);
   const built = useMemo(() => form === 's3' ? s3SourceDraft(s3) : cloudResult?.ok ? cloudResult.draft : oauthResult?.ok ? oauthResult.draft : driveResult?.ok ? driveResult.draft : undefined, [form, s3, driveResult, oauthResult, cloudResult]);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string>(), [tested, setTested] = useState<RcloneTestResult>();
+  const [copiedEmail, setCopiedEmail] = useState(false), [copyError, setCopyError] = useState(false);
   const [program, setProgram] = useState<RcloneProgram>(), [providers, setProviders] = useState<readonly string[]>([]);
   const draft = useMemo(() => Object.freeze({name, remote: form !== 'imported' ? built?.remote ?? '' : remote, config: form !== 'imported' ? built?.config ?? '' : config}), [name, remote, config, built, form]);
   const latestDraft = useRef(draft); latestDraft.current = draft;
@@ -64,7 +66,7 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
   const renderedRevision = revision.current;
   const renderedLease = oauth.current;
   const ownsDraft = () => admitted() && revision.current === renderedRevision && latestDraft.current === draft && (form !== 'driveOAuth' || oauth.current === renderedLease);
-  const invalidate = () => {retireOAuth(); setOAuthVersion(value => value + 1); revision.current++; testedDraft.current = undefined; setTested(undefined); setError(undefined);};
+  const invalidate = () => {setCopiedEmail(false); setCopyError(false); retireOAuth(); setOAuthVersion(value => value + 1); revision.current++; testedDraft.current = undefined; setTested(undefined); setError(undefined);};
   const facts = async () => {
     if (flight.current || !admitted()) return;
     flight.current = true; setBusy(true); setError(undefined);
@@ -135,6 +137,12 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
     catch (problem) {if (admitted()) setError(remoteSourceError(t, problem));}
     finally {if (form !== 'driveOAuth' || renderedForm?.live && activeForm.current === renderedForm) flight.current = false; if (admitted()) setBusy(false);}
   };
+  const copyEmail = async () => {
+    if (!admitted() || !driveResult?.ok) return;
+    const captured = revision.current, email = driveResult.draft.email;
+    try {await copyText(email); if (admitted() && revision.current === captured) {setCopiedEmail(true); setCopyError(false);}}
+    catch {if (admitted() && revision.current === captured) setCopyError(true);}
+  };
   const editable = !busy && !recovery && !snapshot.busy;
   return <Page title={source?.name ?? t(form === 's3' ? 'next.remoteSources.connectS3' : form === 'drive' || form === 'driveOAuth' ? 'next.remoteSources.connectDrive' : form === 'cloud' ? 'next.remoteSources.connectCloud' : 'next.remoteSources.kindRclone')} t={t} busy={busy} onCancel={onCancel}
     footer={recovery ? <Button disabled={busy} onPress={() => {void recover();}}>{t('next.remoteSources.checkResult')}</Button>
@@ -198,6 +206,9 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
       {driveResult?.ok && <>
         <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('next.remoteSources.driveEmailHeading')}</Text>
         <Text selectable style={[theme.type.body, {color: theme.colors.text}]}>{driveResult.draft.email}</Text>
+        <Button variant="glass" size="small" icon="i-copy" onPress={() => {void copyEmail();}}>{t('web.twoStep.copy')}</Button>
+        {copiedEmail && <Text style={[theme.type.caption, {color: theme.colors.healthy}]}>{t('api.credential.copied')}</Text>}
+        {copyError && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.record}]}>Couldn’t copy the email address. Select it to copy.</Text>}
         <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.driveEmailHelp')}</Text>
       </>}
       {drive.keyJson !== '' && driveResult && !driveResult.ok && <Problem message={t(({json: 'next.remoteSources.driveKeyNotJson', oauth: 'next.remoteSources.driveKeyOAuth',

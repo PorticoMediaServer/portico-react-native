@@ -1,3 +1,5 @@
+import {ProfileRoute} from '../accounts/AccountRoutes';
+import {NativeAccountSecurityPanel} from './NativeAccountSecurityPanels';
 import {DeviceAboutPanel} from './DeviceAboutPanel';
 import {nativeEqualizer} from '../../platform/playback/equalizer';
 import {IntroCreditsReview} from './owner-libraries/IntroCreditsReview';
@@ -52,6 +54,12 @@ function PorticoAccountPanel({context, t}: NativeSettingsPanelDeps) {
   return <SettingsRow first testID="settings-panel-portico-account" label={t('settings.row.porticoAccount')}
     value={t(hosted ? 'accounts.session.portico' : 'accounts.session.local')}
     description={t(hosted ? 'accounts.settings.porticoPrivacy' : 'accounts.settings.localPrivacy')}/>;
+}
+
+function ProfilesPanel({context, t, openRoute}: NativeSettingsPanelDeps) {
+  const theme = useTheme();
+  return theme.isTV ? <SettingsRow first testID="settings-panel-profiles" label={t('settings.section.profiles')} onPress={() => openRoute({kind: 'profiles'})}/>
+    : <ProfileRoute context={context} route={context.navigation.getSnapshot().route} onBack={() => {}} embedded/>;
 }
 
 function ServersPanel({context, t, openRoute}: NativeSettingsPanelDeps) {
@@ -189,7 +197,8 @@ export function renderNativeSettingsPanel(id: SettingsCustomId, deps: NativeSett
     }
     case 'server.segments': return <IntroCreditsReview {...deps} runtime={_runtime}/>;
     case 'identity': return <IdentityPanel {...deps}/>;
-    case 'profiles': return <SettingsRow first testID="settings-panel-profiles" label={deps.t('settings.section.profiles')} onPress={() => deps.openRoute({kind: 'profiles'})}/>;
+    case 'profiles': return <ProfilesPanel {...deps}/>;
+    case 'password': case 'twoStep': case 'devices': return <NativeAccountSecurityPanel {...deps} kind={id} runtime={_runtime}/>;
     case 'servers': return <ServersPanel {...deps}/>;
     case 'porticoAccount': return <PorticoAccountPanel {...deps}/>;
     case 'about': return <DeviceAboutPanel {...deps} runtime={_runtime}/>;

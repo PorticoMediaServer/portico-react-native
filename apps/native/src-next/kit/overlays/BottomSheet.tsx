@@ -14,16 +14,17 @@ import {releaseSheet, resistSheet, sheetHeights} from './geometry';
 import {alpha, FocusBoundary, PanelBackground, SurfaceHeader, usePresence} from './surface';
 import type {BottomSheetProps, OverlayReason} from './types';
 
-export function BottomSheet({open, onOpenChange, title, description, children, footer, headerAction, headerContext, headerContent, initialFocusRef, returnFocusRef, restoreFocus = true, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, detents, width, detent, defaultDetent = 0, onDetentChange, dismissOnOutsidePress = true, dismissOnBack = true, dismissOnGesture = true, scrollable = true, showClose = true, fitContent = false, contentFooterGap = 16, keyboardAvoiding = false, footerPadding, showFooterSeparator = true, backdropOpacity = 0.64}: BottomSheetProps) {
+export function BottomSheet({open, onOpenChange, title, description, children, footer, headerAction, headerContext, headerContent, initialFocusRef, returnFocusRef, restoreFocus = true, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, detents, width, detent, defaultDetent = 0, onDetentChange, dismissOnOutsidePress = true, dismissOnBack = true, dismissOnGesture = true, scrollable = true, showClose = true, fitContent = false, contentFooterGap = 16, keyboardAvoiding = false, footerPadding, showFooterSeparator = true, backdropOpacity = 0.64, host = 'modal', presentation = 'sheet'}: BottomSheetProps) {
   const theme = useTheme(), paint = useOverlayPaintMode();
-  const side = theme.platform !== 'phone';
+  const page = host === 'inline' && presentation === 'page';
+  const side = !page && theme.platform !== 'phone';
   const sideWidth = width ?? (theme.isTV ? 640 : 440);
   const motion = useMotion();
   const viewport = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [windowHeight, setWindowHeight] = useState(viewport.height);
   const [keyboardTop, setKeyboardTop] = useState<number>();
-  const avoidKeyboard = keyboardAvoiding && !side;
+  const avoidKeyboard = keyboardAvoiding && !side && !page;
   useEffect(() => {
     if (!avoidKeyboard || !open) {setKeyboardTop(undefined); return;}
     const show = Keyboard.addListener('keyboardDidShow', event => setKeyboardTop(event.endCoordinates.screenY));
@@ -77,7 +78,7 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
     done.current = reason === 'close-button' || reason === 'action';
     onOpenChange(false, reason);
   }, [onOpenChange, dismissOnBack]);
-  useOverlayLifecycle(present, true, dismiss, initialFocusRef ?? closeRef, returnFocusRef, motion.reduce ? 160 : theme.isTV ? 320 : 500, testID, restoreFocus);
+  useOverlayLifecycle(present && !page, true, dismiss, initialFocusRef ?? closeRef, returnFocusRef, motion.reduce ? 160 : theme.isTV ? 320 : 500, testID, restoreFocus && !page);
   useEffect(() => {
     opacity.value = motion.reduce ? withTiming(open ? 1 : 0, motion.timing()) : open ? withTiming(1, motion.timing('standard')) : 1;
     const target = open ? heights[index] : 0;
@@ -103,7 +104,7 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
     const result = releaseSheet(height, velocityY, heights);
     if (result.closed && dismissOnGesture) {closeVelocity.current = velocityY; dismiss('gesture');} else choose(result.index, velocityY);
   }, [heights, dismissOnGesture, dismiss, choose]);
-  const pan = Gesture.Pan().enabled(!side && open && paint.interactive).onBegin(() => {cancelAnimation(shown); start.value = shown.value;}).onUpdate(event => {
+  const pan = Gesture.Pan().enabled(!page && !side && open && paint.interactive).onBegin(() => {cancelAnimation(shown); start.value = shown.value;}).onUpdate(event => {
     shown.value = resistSheet(start.value - event.translationY, max);
   }).onEnd((event, success) => {if (success) runOnJS(released)(shown.value, event.velocityY);}).onFinalize((_event, success) => {
     if (!success) runOnJS(choose)(index);
@@ -114,20 +115,19 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
   const tvStyle = useAnimatedStyle(() => ({opacity: opacity.value, transform: motion.reduce ? [] : [{translateX: (1 - sideProgress.value) * sideWidth}]}));
   const close = <Button testID={testID ? `${testID}-close` : undefined} focusId="close" ref={closeRef} variant="text" size="small" style={theme.isTV ? undefined : {height: 24, paddingHorizontal: 0}} textStyle={{color: theme.colors.textSecondary}} hitSlop={theme.isTV ? undefined : 10} onPress={() => dismiss('close-button')}>{defaultI18n.t('action.done')}</Button>;
   if (!present || !paint.visible) return null;
-  const body = <View style={[styles.body, contentStyle]}>{scrollable ? <ScrollView ref={scrollRef} onLayout={revealFocusedInput} onScroll={event => {scrollOffset.current = event.nativeEvent.contentOffset.y;}} scrollEventThrottle={16} onContentSizeChange={(_width, height) => setBodyHeight(Math.max(0, height - contentPadding))} scrollEnabled={side || settled === heights.length - 1} keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingBottom: contentPadding}}>{children}</ScrollView> : <View style={fitContent ? undefined : [styles.body, {paddingBottom: side ? 0 : contentPadding}]} onLayout={event => setBodyHeight(event.nativeEvent.layout.height)}>{children}</View>}</View>;
-  return <OverlayPaintDescendants><Modal transparent visible animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={() => dismiss('back')} supportedOrientations={['portrait', 'landscape']}>
-    <TVDesignCanvas><View pointerEvents={paint.interactive ? 'auto' : 'none'} accessibilityElementsHidden={!paint.interactive} importantForAccessibility={paint.interactive ? 'auto' : 'no-hide-descendants'} style={styles.root} onLayout={event => setWindowHeight(event.nativeEvent.layout.height)}><View testID={testID ? `${testID}-keyboard-boundary` : undefined} style={[styles.root, {marginBottom: keyboardInset}]} accessibilityViewIsModal onAccessibilityEscape={() => dismiss('escape')}>
-      <Animated.View style={[StyleSheet.absoluteFill, {backgroundColor: alpha(theme.isTV ? theme.colors.ink : '#03080c', backdropOpacity)}, scrimStyle]} pointerEvents="none"/>
-      <View style={StyleSheet.absoluteFill} onStartShouldSetResponder={() => true} onResponderRelease={() => {if (dismissOnOutsidePress) dismiss('outside');}} accessible={false}/>
+  const body = <View style={[styles.body, contentStyle]}>{scrollable ? <ScrollView ref={scrollRef} onLayout={revealFocusedInput} onScroll={event => {scrollOffset.current = event.nativeEvent.contentOffset.y;}} scrollEventThrottle={16} onContentSizeChange={(_width, height) => setBodyHeight(Math.max(0, height - contentPadding))} scrollEnabled={page || side || settled === heights.length - 1} keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingBottom: page ? 0 : contentPadding}}>{children}</ScrollView> : <View style={fitContent ? undefined : [styles.body, {paddingBottom: page || side ? 0 : contentPadding}]} onLayout={event => setBodyHeight(event.nativeEvent.layout.height)}>{children}</View>}</View>;
+  const surface = <TVDesignCanvas><View pointerEvents={paint.interactive ? 'auto' : 'none'} accessibilityElementsHidden={!paint.interactive} importantForAccessibility={paint.interactive ? 'auto' : 'no-hide-descendants'} style={styles.root} onLayout={event => setWindowHeight(event.nativeEvent.layout.height)}><View testID={testID ? `${testID}-keyboard-boundary` : undefined} style={[styles.root, {marginBottom: keyboardInset}]} accessibilityViewIsModal={!page} onAccessibilityEscape={() => {if (!page) dismiss('escape');}}>
+      <Animated.View style={[StyleSheet.absoluteFill, {backgroundColor: alpha(theme.isTV ? theme.colors.ink : '#03080c', backdropOpacity)}, scrimStyle, page ? {display: 'none'} : undefined]} pointerEvents="none"/>
+      <View style={[StyleSheet.absoluteFill, page ? {display: 'none'} : undefined]} pointerEvents={page ? 'none' : 'auto'} onStartShouldSetResponder={() => !page} onResponderRelease={() => {if (!page && dismissOnOutsidePress) dismiss('outside');}} accessible={false}/>
       {/* One native content ancestry across compact/medium. Changing geometry
           cannot recreate the ScrollView or a focused TextInput/IME session. */}
-      <Animated.View testID={testID} accessibilityLabel={accessibilityLabel} style={[side ? styles.tv : styles.sheet,
-        side ? {width: sideWidth, paddingTop: theme.isTV ? 64 : 24, paddingRight: theme.isTV ? 96 : 20, paddingBottom: theme.isTV ? 56 : 20, paddingLeft: theme.isTV ? 56 : 20}
+      <Animated.View testID={testID} accessibilityLabel={accessibilityLabel} style={[page ? styles.root : side ? styles.tv : styles.sheet,
+        page ? undefined : side ? {width: sideWidth, paddingTop: theme.isTV ? 64 : 24, paddingRight: theme.isTV ? 96 : 20, paddingBottom: theme.isTV ? 56 : 20, paddingLeft: theme.isTV ? 56 : 20}
           : {height: max, borderColor: alpha(theme.colors.text, 0.08)},
-        {backgroundColor: theme.colors.raised}, side ? tvStyle : sheetStyle, style]}>
+        {backgroundColor: theme.colors.raised}, page ? undefined : side ? tvStyle : sheetStyle, style]}>
         {theme.isTV && <PanelBackground/>}
-        <FocusBoundary modal testID={testID} style={styles.root}>
-          <GestureDetector gesture={pan}><Animated.View onLayout={event => setHeaderHeight(event.nativeEvent.layout.height)}>
+        <FocusBoundary modal={!page} testID={testID} style={styles.root}>
+          <GestureDetector gesture={pan}><Animated.View style={page ? {display: 'none'} : undefined} onLayout={event => setHeaderHeight(event.nativeEvent.layout.height)}>
             <View style={side ? {display: 'none'} : undefined} accessible={!side} accessibilityRole="adjustable" accessibilityLabel={accessibilityLabel ?? (typeof title === 'string' ? title : undefined)} accessibilityValue={{min: 1, max: heights.length, now: index + 1, text: defaultI18n.t('next.overlays.native.sheetPosition', {position: index + 1, count: heights.length})}}
               accessibilityActions={[{name: 'increment', label: defaultI18n.t('next.overlays.native.expandSheet')}, {name: 'decrement', label: defaultI18n.t('next.overlays.native.collapseSheet')}, ...(dismissOnGesture ? [{name: 'dismiss' as const, label: defaultI18n.t('action.close')}] : [])]}
               onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'dismiss') {if (dismissOnGesture) dismiss('gesture');} else choose(index + (event.nativeEvent.actionName === 'increment' ? 1 : -1));}}>
@@ -136,14 +136,14 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
             {headerContext}{headerContent !== undefined ? headerContent : <SurfaceHeader side={side} inset={!side} title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle} action={headerAction ?? (!side && showClose ? close : undefined)}/>}
           </Animated.View></GestureDetector>
           {body}
-          {(footer != null || side && showClose) && <Animated.View onLayout={event => setFooterHeight(event.nativeEvent.layout.height)}
+          {!page && (footer != null || side && showClose) && <Animated.View onLayout={event => setFooterHeight(event.nativeEvent.layout.height)}
             style={[side ? {paddingTop: 20} : styles.footer,
               side ? undefined : {backgroundColor: theme.colors.raised, paddingTop: footerPadding?.top ?? 14, paddingBottom: footerPadding ? keyboardTop !== undefined ? footerPadding.keyboardBottom : Math.max(insets.bottom, footerPadding.bottom) : (keyboardInset > 0 ? 0 : insets.bottom) + 16,
                 borderTopWidth: showFooterSeparator ? 1 : 0, borderTopColor: alpha(theme.colors.text, 0.08)}, footerStyle]}>{footer ?? close}</Animated.View>}
         </FocusBoundary>
       </Animated.View>
-    </View></View></TVDesignCanvas>
-  </Modal></OverlayPaintDescendants>;
+    </View></View></TVDesignCanvas>;
+  return <OverlayPaintDescendants>{host === 'inline' ? surface : <Modal transparent visible animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={() => dismiss('back')} supportedOrientations={['portrait', 'landscape']}>{surface}</Modal>}</OverlayPaintDescendants>;
 }
 const styles = StyleSheet.create({
   root: {flex: 1}, body: {flex: 1, minHeight: 0},

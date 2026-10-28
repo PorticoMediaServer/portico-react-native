@@ -7,12 +7,13 @@ import {Button} from '../../../kit/controls/Button';
 import {Select} from '../../../kit/controls/Select';
 import {TextField} from '../../../kit/controls/TextField';
 import {useTheme} from '../../../kit/theme';
+import {LibraryKindTiles} from '../../settings-live/owner-libraries/LibraryKindTiles';
 import type {NativeRemoteSourcesController} from './controller';
 import {Page, Problem, remoteSourceError, sourceReadPresetLabel, useAttempt} from './RemoteSourceForms';
 export type ChosenSourceFolder = Pick<RemoteFolder, 'name' | 'path' | 'relative'>;
 type Props = {controller: NativeRemoteSourcesController; source: RemoteSource; folders: readonly ChosenSourceFolder[];
   t: typeof defaultI18n.t; isCurrent: () => boolean; onCancel: () => void;
-  onChooseFolders: () => void; onOpen: () => void; onAddAnother: () => void};
+  onChooseFolders: () => void; onOpen: () => void; onAddAnother: () => void; onCompleted?: () => void};
 
 export function SourceLibraryAssignment(props: Props) {
   const current = useAttempt(props.isCurrent), [service, setService] = useState<LibraryManagementService>(), [error, setError] = useState<string>();
@@ -29,7 +30,7 @@ export function SourceLibraryAssignment(props: Props) {
     : <Page title={props.t('next.remoteSources.attachTo')} t={props.t} busy={false} onCancel={props.onCancel} footer={null}><Problem message={error}/></Page>;
 }
 
-function Assignment({controller, source, folders, service, t, isCurrent, onCancel, onChooseFolders, onOpen, onAddAnother}: Props & {service: LibraryManagementService}) {
+function Assignment({controller, source, folders, service, t, isCurrent, onCancel, onChooseFolders, onOpen, onAddAnother, onCompleted}: Props & {service: LibraryManagementService}) {
   const theme = useTheme(), snapshot = useSyncExternalStore(service.subscribe, service.getSnapshot), current = useAttempt(isCurrent);
   const flight = useRef(false), revision = useRef(0), renderedRevision = revision.current;
   const [mode, setMode] = useState<'new' | 'existing'>('new'), [name, setName] = useState(source.name), [kind, setKind] = useState<ManagedLibrary['kind']>('movie');
@@ -38,7 +39,6 @@ function Assignment({controller, source, folders, service, t, isCurrent, onCance
   const draft = useMemo(() => Object.freeze({mode, name, kind, target, source, folders}), [mode, name, kind, target, source, folders]);
   const latestDraft = useRef(draft); latestDraft.current = draft;
   const owns = () => current() && revision.current === renderedRevision && latestDraft.current === draft;
-  const kinds: readonly ManagedLibrary['kind'][] = ['movie', 'tv', 'anime', 'music', 'audiobook', 'book', 'comic'];
   const selected = snapshot.directory.data?.items.find(value => value.id === target);
   const [ambiguous, setAmbiguous] = useState(false);
   const valid = folders.length > 0 && folders.length <= 64 && (mode === 'new' ? !!name.trim() && new TextEncoder().encode(name.trim()).length <= 100 : !!selected);
@@ -65,18 +65,18 @@ function Assignment({controller, source, folders, service, t, isCurrent, onCance
           const result = operation.getSnapshot().mutation;
           if (result.phase === 'ambiguous') setAmbiguous(true);
           if (result.phase !== 'complete') throw Object.assign(new Error('library_assignment_failed'), {code: result.error?.code});
-          setDone(draft.name.trim());
+          setDone(draft.name.trim()); onCompleted?.();
         } finally {operation.dispose();}
         void readSummary();
       } else if (selected) {
         for (const folder of folders) {if (!owns()) return; await controller.attachFolder(source, selected.id, folder, owns);}
-        if (owns()) {setDone(selected.name); void readSummary();}
+        if (owns()) {setDone(selected.name); onCompleted?.(); void readSummary();}
       }
     } catch (problem) {if (owns()) setError(remoteSourceError(t, problem));}
     finally {flight.current = false; if (current()) setBusy(false);}
   };
   const preset = profile ? sourceReadPresetName(profile.values) : undefined;
-  return <Page title={t('next.remoteSources.attachTo')} t={t} busy={busy} onCancel={onCancel}
+  return <Page title={t('next.remoteSources.attachTo')} t={t} busy={busy} onCancel={onCancel} wizardStep={done ? 5 : undefined}
     footer={done ? <View style={{flexDirection: 'row', gap: 12}}>
       <Button style={{flex: 1}} onPress={onOpen}>{t('next.remoteSources.openSource', {name: source.name})}</Button>
       <Button variant="glass" style={{flex: 1}} onPress={onAddAnother}>{t('next.remoteSources.addAnother')}</Button>
@@ -94,9 +94,9 @@ function Assignment({controller, source, folders, service, t, isCurrent, onCance
       ]} onValueChange={value => {if (value === 'new' || value === 'existing') edit(() => setMode(value));}}/>
       {mode === 'new' ? <>
         <TextField label={t('next.remoteSources.libraryName')} value={name} editable={!busy} onChangeText={value => edit(() => setName(value))}/>
-        <Select label={t('next.remoteSources.libraryKind')} value={kind} disabled={busy}
-          options={kinds.map((value, index) => ({value, label: t(`next.settingsSpec.server.libraries.panels.newLibrary.tabs.0.groups.0.rows.1.control.options.${index}.label` as never)}))}
-          onValueChange={value => {if (kinds.includes(value as ManagedLibrary['kind'])) edit(() => setKind(value as ManagedLibrary['kind']));}}/>
+        <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('next.remoteSources.libraryKind')}</Text>
+        <LibraryKindTiles kind={kind} disabled={busy} t={t} onChange={value => edit(() => setKind(value))}/>
+
       </> : <>
         <Select label={t('next.remoteSources.existingLibrary')} value={target} disabled={busy || snapshot.directory.phase !== 'ready'}
           options={(snapshot.directory.data?.items ?? []).map(value => ({value: value.id, label: value.name}))}
