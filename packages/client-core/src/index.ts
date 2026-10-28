@@ -1,15 +1,17 @@
 import {linkAbortSignals, throwIfAborted} from './abort-lifetime.ts';
 export {linkAbortSignals, throwIfAborted} from './abort-lifetime.ts';
 export * from './reading-mark-all.ts';
+export {contentEntrySubject} from './presentation/content-entry-subject.ts';
 export * from './reading-reread.ts';
 export * from './reading-indexed-search.ts';
 import type {MusicTechnicalFacts} from './music-facts.ts';
 import {routeBody} from "../../contracts/src/routes.ts";
 import {ReadingClient, type ReadingScope} from './reading.ts';
 export * from './reading.ts';
-import type {RouteResponse} from "../../contracts/src/routes.ts";
+import type {RouteResponse} from "../../contracts/src/route-paths.ts";
 import {routePath as hostedRoutePath} from "../../contracts/src/hosted/routes.ts";
-import {routePrefix, routePath, apiRoot, encodedRoutePath} from "../../contracts/src/routes.ts";
+import {routePrefix, apiRoot} from "../../contracts/src/routes.ts";
+import {routePath, encodedRoutePath} from "../../contracts/src/route-paths.ts";
 import {parseMediaItem} from './media-item.ts';
 import {parseConnectionDocument,type ConnectionDocument} from './server-administration.ts';
 import {trackName} from './presentation/language.ts';
@@ -616,8 +618,8 @@ export class HttpLocalApi {
       name,
     })).then(value=>parseLocalSession(value,{authority:'local'}));
   }
-  me() {
-    return this.request<{ viewer: Viewer }>(routePath("get_me"));
+  me(signal?: AbortSignal) {
+    return this.request<{ viewer: Viewer }>(routePath("get_me"), "GET", undefined, signal);
   }
   logout() {
     return this.request<void>(routePath("delete_sessions_current"), "DELETE");
