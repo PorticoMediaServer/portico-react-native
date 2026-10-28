@@ -1456,3 +1456,31 @@ for (const role of ['administrator', 'owner'] as const) test(`TV Dashboard ${rol
     } finally {await errorView.host.unmount();}
   } finally {await panel.host.unmount(); controller.dispose(); feedback.dispose(); lifetime.dispose();}
 });
+
+test('phone and TV selection actions retain disabled sort reasons and Queue explanations without executors', async () => {
+  const previous = state.theme;
+  const calls: string[] = [], reason = 'Unavailable with this sort order.';
+  try {
+    for (const isTV of [false, true]) {
+      state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
+      const props: SelectionBarProps = {count: 201, onCancel() {}, menu: 'queue', onMenuChange() {}, onAction: id => calls.push(id), actions: [
+        {id: 'play', disabled: true, reason}, {id: 'queue', reason}, {id: 'playNext', disabled: true, reason}, {id: 'playLater', disabled: true, reason},
+      ]};
+      const bar = await mount(SelectionBar, props);
+      try {
+        if (isTV) {
+          const play = elements(bar.tree).find(element => element.props.accessibilityHint === reason && element.props.disabled);
+          assert.ok(play);play.props.onPress();assert.deepEqual(calls, []);
+        }
+        const node = elements(bar.tree).find(element => element.props.menu === 'queue' && element.type !== SelectionBar)!;
+        const menu = await mount(node.type, node.props);
+        try {
+          const rows = elements(menu.tree).filter(element => element.props.description === reason && element.props.onPress);
+          assert.equal(rows.length, 2);
+          for (const row of rows) {assert.equal(row.props.disabled, true);row.props.onPress();}
+          assert.deepEqual(calls, []);
+        } finally {await menu.host.unmount();}
+      } finally {await bar.host.unmount();}
+    }
+  } finally {state.theme = previous;}
+});

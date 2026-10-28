@@ -21,7 +21,12 @@ export function nativeSelectionOffers(rules: SelectionActionRules, reason: (reas
     offers.push({id, ...(rule.state === 'disabled' ? {disabled: true} : {}), ...('reason' in rule ? {reason: reason(rule.reason)} : {})});
   }
   const queued = offers.filter(offer => offer.id === 'playNext' || offer.id === 'playLater');
-  if (queued.length) offers.push({id: 'queue', ...(queued.every(offer => offer.disabled) ? {disabled: true} : {})});
+  const sortUnavailable = ['play-next', 'play-later'].every(action => {
+    const rule = rules[action as CoreAction];
+    return rule.state === 'disabled' && rule.reason === 'unsupported-sort';
+  });
+  if (queued.length) offers.push({id: 'queue', ...(queued.every(offer => offer.disabled) && !sortUnavailable ? {disabled: true} : {}),
+    ...(sortUnavailable ? {reason: reason('unsupported-sort')} : {})});
   if (offers.some(offer => ['watched', 'unwatched', 'collection', 'favorite', 'download', 'removeMyList', 'edit', 'refresh', 'delete'].includes(offer.id))) offers.push({id: 'more'});
   return offers;
 }
