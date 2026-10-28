@@ -52,7 +52,7 @@ function Panel({controller, current, runtime}: {controller: NativeMetadataContro
   };
   // Keys and passwords are written and never read back. A username is shown, unless it is an
   // email address, which a shared screen never draws.
-  const secret = (id: string, key: 'tmdbReadToken' | 'tvdbProjectKey' | 'openSubtitlesApiKey' | 'openSubtitlesPassword', configured: boolean, unset?: string) =>
+  const secret = (id: string, key: 'tmdbReadToken' | 'tvdbProjectKey' | 'openSubtitlesApiKey' | 'openSubtitlesPassword' | 'acoustidKey', configured: boolean, unset?: string) =>
     <TVEntryRow key={id} {...copy(id)} kind="secret" configured={configured} unset={unset} t={t} onSave={value => {if (typeof value === 'string' && value) save({[key]: value});}}/>;
   const username = settings.openSubtitlesUsername;
   const group = (title: number, rows: React.ReactNode[]) => {
@@ -65,6 +65,7 @@ function Panel({controller, current, runtime}: {controller: NativeMetadataContro
     </View>;
   };
   const subtitles = openSubtitlesSummary(settings.openSubtitles, {...defaultI18n, t});
+  const extra = settings.advanced;
   return <View testID="tv-server-metadata-settings">
     {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {void controller.load();})}/>}
     {group(0, [
@@ -100,6 +101,12 @@ function Panel({controller, current, runtime}: {controller: NativeMetadataContro
       {select('metadata.artworkLimit', artworkLimitText(settings.localArtworkLimitBytes), value => ({localArtworkLimitBytes: Number(value) * 2 ** 30}),
         t('server.metadata.artworkUsedHelp', {used: artworkLimitText(settings.localArtworkUsedBytes)}))}
       {select('metadata.artworkSize', settings.artworkMaxEdge === 1280 ? 'small' : settings.artworkMaxEdge === 2560 ? 'large' : 'standard', value => ({artworkMaxEdge: value === 'small' ? 1280 : value === 'large' ? 2560 : 1920}))}
+      {/* Refresh all is an action, and actions stay off TV (Q37). */}
+      {extra && select('metadata.refresh', extra.refreshPolicy, value => ({refreshPolicy: value as typeof extra.refreshPolicy}))}
+      {extra && select('metadata.fallbackLanguage', extra.fallbackLanguage, value => ({fallbackLanguage: value as typeof extra.fallbackLanguage}))}
+      {extra && select('metadata.animeTitles', extra.animeTitles, value => ({animeTitles: value as typeof extra.animeTitles}))}
+      {toggle('metadata.castPhotos', extra?.castPhotos, castPhotos => ({castPhotos}))}
+      {extra && secret('metadata.acoustid', 'acoustidKey', extra.acoustidKeyConfigured, extra.acoustidKeySource === 'environment' ? t('server.metadata.acoustidServer') : undefined)}
     </View>}
   </View>;
 }

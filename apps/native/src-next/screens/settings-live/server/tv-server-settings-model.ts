@@ -3,7 +3,10 @@ import {readSettingsBinding, settingsBinding, type SettingsBindingSources, type 
 import {settingsRowIndex, type SettingsGroup, type SettingsRow} from '../../../../../../packages/client-core/src/presentation/settings-spec';
 import type {ServerFormId} from '../../../../../../packages/client-core/src/server-admin/server-forms';
 import type {MessageId} from '../../../../../../packages/i18n/src';
-import {settingEnabled, withheldServerRows} from './settings-values';
+import {settingEnabled} from './settings-values';
+import type {TranscodeCapacity} from '../../../../../../packages/client-core/src/telemetry';
+import {transcodeLocationChoice} from '../../../../../../packages/client-core/src/presentation/transcode-location';
+import {hardwareSelectionChoices} from '../../../../../../packages/client-core/src/presentation/hardware-selection';
 
 /** The Server pages a TV owner edits through the same revisioned forms as the phone. */
 export type TVEditablePage = 'general' | 'history' | 'libraries' | 'segments' | 'people' | 'integrations' | 'streaming' | 'storage' | 'remote';
@@ -21,12 +24,14 @@ export const tvPageForms: Readonly<Record<TVEditablePage, readonly ServerFormId[
 /** The configuration fact a derived choice is checked against (settings-bindings' own aliases). */
 const policyId = (id: string) => id === 'general.updateChecks' ? 'general.updateFeed' : id === 'streaming.awayQuality' ? 'streaming.awayExact' : id === 'storage.backupKeep' ? 'storage.backupKeepExact' : id;
 
-export type TVChoiceModel = Readonly<{value: string; label: MessageId | string; hint?: MessageId; disabled?: boolean}>;
+/** `plain` labels are already words (an adapter's driver name), never catalogue ids. */
+export type TVChoiceModel = Readonly<{value: string; label: MessageId | string; hint?: MessageId | string; disabled?: boolean; plain?: boolean}>;
 export type TVSettingItem = Readonly<{id: string; row: SettingsRow; dependent: boolean} & (
   | {kind: 'switch'; checked: boolean}
   | {kind: 'choice'; value: string; options: readonly TVChoiceModel[]}
   | {kind: 'number' | 'text'; value: string}
   | {kind: 'secret'; configured: boolean}
+  | {kind: 'folder'; value: string}
   | {kind: 'matrix'; values: Readonly<Record<string, unknown>>; items: readonly Readonly<{id: string; label: MessageId; value: string}>[]; columns: readonly TVChoiceModel[]}
 )>;
 export type TVSettingGroup = Readonly<{title?: MessageId; items: readonly TVSettingItem[]}>;
@@ -39,6 +44,8 @@ export type TVServerSettingsState = Readonly<{
   custom: ReadonlySet<string>;
   /** Remote access through Portico Services: present only for a claimed, account-linked server. */
   secure?: boolean;
+  /** Streaming: the capacity read that names the adapters and the conversion directory. */
+  capacity?: TranscodeCapacity;
 }>;
 
 /** Values come from the drafts. Only the release-list fact is read from the configuration, with
@@ -73,10 +80,22 @@ export function tvServerSettingRead(state: TVServerSettingsState, id: string): u
 export function tvServerSettingGroups(state: TVServerSettingsState, groups: readonly SettingsGroup[] | undefined): readonly TVSettingGroup[] {
   const read = (id: string) => tvServerSettingRead(state, id);
   const visit = (row: SettingsRow, dependent: boolean): TVSettingItem[] => {
-    if (withheldServerRows.has(row.id) || row.platforms && !row.platforms.includes('tv')) return [];
+    if (row.platforms && !row.platforms.includes('tv')) return [];
     if (row.enableWhen && !settingEnabled(row, read)) return [];
     const children = () => (row.children ?? []).flatMap(child => visit(child, true));
     if (row.id === 'remote.secure') return state.secure === undefined ? [] : [{id: row.id, row, dependent, kind: 'switch', checked: state.secure}, ...children()];
+    if (row.id === 'streaming.transcodeLocation') {
+      // One stored directory drawn as the spec's choices; "a folder" reveals the folder row.
+      // "In memory" is not offered (the server writes conversions to disk), but a directory
+      // already stored there still reads as it is.
+      const directory = state.capacity?.temporaryDirectory, stored = state.drafts.runtime?.temporaryDirectory;
+      if (!directory || typeof stored !== 'string') return [];
+      const located = transcodeLocationChoice(directory, stored), value = state.custom.has(row.id) ? 'folder' : located.value;
+      const options: TVChoiceModel[] = (row.control.options ?? []).filter(option => option.value !== 'memory' || located.memoryAvailable || value === 'memory')
+        .map(option => ({value: String(option.value), label: option.label, hint: option.hint, disabled: option.value === 'memory'}));
+      const folder = row.children?.find(child => child.id === 'streaming.transcodeFolder');
+      return [{id: row.id, row, dependent, kind: 'choice', value, options}, ...(value === 'folder' && folder ? [{id: folder.id, row: folder, dependent: true, kind: 'folder' as const, value: stored}] : [])];
+    }
     const fact = tvServerSettingFact(state, row);
     if (!fact) return children();
     const control = row.control;
@@ -84,7 +103,11 @@ export function tvServerSettingGroups(state: TVServerSettingsState, groups: read
     let item: TVSettingItem | undefined;
     if (control.type === 'toggle' && typeof current === 'boolean') item = {id: row.id, row, dependent, kind: 'switch', checked: current};
     else if ((control.type === 'select' || control.type === 'segmented') && control.options) {
-      const value = String(current), options: TVChoiceModel[] = control.options.map(option => ({value: String(option.value), label: option.label, hint: option.hint, disabled: option.locked}));
+      const value = String(current), options: TVChoiceModel[] = row.id === 'streaming.hardware'
+        // Automatic, Processor only, then each adapter the hardware report found.
+        ? hardwareSelectionChoices(state.capacity?.hardware.devices ?? [], current, ((id: string) => id) as never).map(choice => ({value: choice.value, label: choice.label, disabled: choice.locked,
+          plain: !(control.options ?? []).some(option => String(option.value) === choice.value) && choice.label !== 'next.settings.hardware.deviceGone'}))
+        : control.options.map(option => ({value: String(option.value), label: option.label, hint: option.hint, disabled: option.locked}));
       // An exact server value is never rounded to the nearest named choice.
       if (!options.some(option => option.value === value)) options.push({value, label: value, disabled: true});
       item = {id: row.id, row, dependent, kind: 'choice', value, options};
