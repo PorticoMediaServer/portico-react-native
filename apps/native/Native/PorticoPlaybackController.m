@@ -171,12 +171,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  if(frame){[self clearCapturedVideoFrame];_capturedVideoFrame=frame;_capturedVideoTime=actual;}
  // A paused frame may have already been consumed by a previous request. Reuse only the
  // actual decoded buffer from this same item/binding and within one frame's coarse budget.
- if(!_capturedVideoFrame||!CMTIME_IS_NUMERIC(_capturedVideoTime)||fabs(CMTimeGetSeconds(CMTimeSubtract(now,_capturedVideoTime)))>.25||item!=_player.currentItem||![binding isEqual:self.externalPresentationBinding]){
-  // An unusable buffer has no cache lifetime. Release it before the next pull instead
-  // of retaining a decoder-owned surface while waiting for a current sample.
-  [self clearCapturedVideoFrame];
-  return NULL;
- }
+ if(!_capturedVideoFrame||!CMTIME_IS_NUMERIC(_capturedVideoTime)||fabs(CMTimeGetSeconds(CMTimeSubtract(now,_capturedVideoTime)))>.25||item!=_player.currentItem||![binding isEqual:self.externalPresentationBinding])return NULL;
  if(displayTime)*displayTime=_capturedVideoTime;
  if(transform){*transform=CGAffineTransformIdentity;for(AVPlayerItemTrack *track in item.tracks)if([track.assetTrack.mediaType isEqual:AVMediaTypeVideo]){*transform=track.assetTrack.preferredTransform;break;}}
  return CVPixelBufferRetain(_capturedVideoFrame);

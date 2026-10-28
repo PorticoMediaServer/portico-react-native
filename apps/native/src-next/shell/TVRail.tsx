@@ -1,3 +1,4 @@
+import {headerWordmark} from '../kit/shell/brand';
 import React, {useCallback, useMemo, useRef, useSyncExternalStore} from 'react';
 import {motionRules} from '@portico/design';
 import {findNodeHandle, Image, ScrollView, Text, View} from 'react-native';
@@ -89,7 +90,7 @@ export function TVRail({libraries, hasLiveTV, destination, profile, unread = fal
     <Animated.View style={[{flex: 1, width: spec.openWidth, paddingLeft: spec.insetLeft, paddingTop: spec.paddingTop, paddingBottom: spec.paddingBottom}, panel]}>
       <Animated.View style={[{flex: 1}, counter, dimmed && !open ? {opacity: .5} : null]}>
         <View accessible={false} style={{height: 40, marginLeft: 16, marginBottom: 64}}>
-          {open ? <Image source={require('../../assets/wordmark.png')} resizeMode="contain" style={{width: 130, height: 30, marginTop: 5}}/> : <RailBrandSymbol/>}
+          {open ? <Image source={require('../../assets/wordmark.png')} resizeMode="contain" style={{...headerWordmark.tvRail, flexShrink: 0, position: 'absolute', top: (40 - headerWordmark.tvRail.height) / 2}}/> : <RailBrandSymbol/>}
         </View>
         <ScrollView style={{flex: 1, marginLeft: -24}} contentContainerStyle={{gap: spec.itemGap, paddingLeft: 24}} showsVerticalScrollIndicator={false}>{entries.map(item)}</ScrollView>
         <View style={{gap: spec.itemGap, paddingTop: 8}}>

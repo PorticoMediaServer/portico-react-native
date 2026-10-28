@@ -73,13 +73,7 @@ static int runTests(UIWindow *window){@autoreleasepool{
  ok=expect(waitFor(^BOOL{return controller.currentSourcePosition>5.25;},8),"decoded timeline advances while bounds missing")&&ok;
  ok=expect(release(module,@"before-bounds")&&![files fileExistsAtPath:redPath],"release removes retained private JPEG")&&ok;
  CMTime captureStart=item.currentTime;CMTimebaseRef originalTimebase=item.timebase;if(originalTimebase)CFRetain(originalTimebase);float captureRate=player.rate;
- AVPlayerItemVideoOutput *policyOutput=nil;BOOL oldPolicy=NO;
- if([NSProcessInfo.processInfo.environment[@"PORTICO_TEST_SNAPSHOT_OUTPUT_POLICY"] isEqual:@"late"]){
-  for(AVPlayerItemOutput *output in item.outputs)if([output isKindOfClass:AVPlayerItemVideoOutput.class])policyOutput=(AVPlayerItemVideoOutput *)output;
-  oldPolicy=policyOutput.suppressesPlayerRendering;policyOutput.suppressesPlayerRendering=YES;
- }
  NSDictionary *blue=capture(module,@"missing-bounds",source,&failure);
- if(policyOutput)policyOutput.suppressesPlayerRendering=oldPolicy;
  NSArray *bluePixel=pixel(blue);double during=controller.currentSourcePosition;
  ok=expect(blue&&bluePixel.count==3&&[bluePixel[2]intValue]>180&&[bluePixel[0]intValue]<60,"fresh actual blue frame captured with zero bounds")&&ok;
  ok=expect(CMTimeCompare(item.currentTime,captureStart)>=0,"snapshot refresh never moves the playing clock backwards")&&ok;
