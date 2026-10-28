@@ -319,3 +319,102 @@ internal class PorticoRecordStore(
     }
   }
 }
+
+/** P2-51: a single native transaction owns the aggregate and its commit manifest.
+ * Inactive bounded pages are prepared first; atomic encrypted manifest replacement
+ * commits all entries and the global quota together. JS never emulates this lock. */
+internal object PorticoUserMutationStore {
+  private const val PREFIX = "user-mutations-v1:"
+  private const val PAGE = 180000
+  private fun read(store: PorticoRecordStore, key: String): org.json.JSONObject? = when(val value = store.read(PorticoRecordStore.QUEUES, PREFIX + key)) {
+    RecordRead.Missing -> null
+    RecordRead.Unreadable -> error("mutation_store_unavailable")
+    is RecordRead.Value -> org.json.JSONObject(String(value.bytes, Charsets.UTF_8))
+  }
+  private fun write(store: PorticoRecordStore, key: String, value: org.json.JSONObject) {
+    check(store.write(PorticoRecordStore.QUEUES, PREFIX + key, value.toString().toByteArray(Charsets.UTF_8))) { "mutation_store_unavailable" }
+  }
+  private fun scopeEqual(a: org.json.JSONObject?, b: org.json.JSONObject?): Boolean = a != null && b != null &&
+      listOf("serverId", "origin", "authority", "accountId", "profileId", "familyId", "deviceId").all { a.opt(it) == b.opt(it) }
+  fun transact(store: PorticoRecordStore, operation: String, payload: org.json.JSONObject): Any = store.transaction {
+    val manifest = read(store, "manifest")
+    val bank = manifest?.getInt("bank") ?: 0
+    check(bank == 0 || bank == 1)
+    val state = if(manifest == null) org.json.JSONObject("{\"version\":1,\"revision\":0,\"entries\":[]}") else {
+      val count = manifest.getInt("pages"); check(count in 1..47)
+      val data = java.io.ByteArrayOutputStream()
+      for(i in 0 until count) {
+        val page = read(store, "$bank:$i") ?: error("mutation_store_damaged")
+        val part = android.util.Base64.decode(page.getString("data"), android.util.Base64.NO_WRAP)
+        check(part.size <= PAGE); data.write(part)
+      }
+      check(data.size() <= 8388608)
+      org.json.JSONObject(String(data.toByteArray(), Charsets.UTF_8)).also { check(it.getLong("revision") == manifest.getLong("revision")) }
+    }
+    check(state.getInt("version") == 1 && state.getJSONArray("entries").length() <= 256)
+    if(operation == "read") return@transaction state.toString()
+    if(operation == "authorizeStop") {
+      val entry=payload.getJSONObject("entry")
+      if(!scopeEqual(read(store,"active")?.optJSONObject("scope"),entry.optJSONObject("scope"))) return@transaction false
+      val entries=state.getJSONArray("entries")
+      return@transaction (0 until entries.length()).any { val saved=entries.getJSONObject(it); saved.getString("key") == entry.getString("key") && saved.getString("state") == "pending" && saved.optString("leaseOwner") == entry.getString("leaseOwner") && saved.optLong("leaseUntilMs") > System.currentTimeMillis() }
+    }
+    val next: org.json.JSONObject
+    var result: Any = true
+    if(operation == "cas") {
+      if(payload.getLong("expectedRevision") != state.getLong("revision")) return@transaction false
+      next = payload.getJSONObject("next")
+    } else {
+      next = org.json.JSONObject(state.toString())
+      val entries = next.getJSONArray("entries")
+      when(operation) {
+        "scope" -> {
+          val scope = payload.optJSONObject("scope")
+          for(i in 0 until entries.length()) {
+            val entry = entries.getJSONObject(i)
+            if(entry.getString("state") == "pending" && !scopeEqual(entry.optJSONObject("scope"), scope)) {
+              entry.put("state", "quarantined").put("errorCode", "mutation_scope_changed"); entry.remove("leaseOwner"); entry.remove("leaseUntilMs")
+            }
+          }
+          write(store, "active", org.json.JSONObject().put("scope", scope ?: org.json.JSONObject.NULL))
+        }
+        "reserveStop" -> {
+          val entry = payload.getJSONObject("entry")
+          check(entry.getString("operation") == "stop_playback_session" && entry.getString("method") == "DELETE")
+          check(scopeEqual(read(store,"active")?.optJSONObject("scope"),entry.optJSONObject("scope"))) { "mutation_scope_changed" }
+          for(i in 0 until entries.length()) {
+            val prior = entries.getJSONObject(i)
+            if(scopeEqual(prior.optJSONObject("scope"), entry.optJSONObject("scope")) && prior.getString("intentId") == entry.getString("intentId")) return@transaction prior.toString()
+          }
+          val activeCount=(0 until entries.length()).count { val prior=entries.getJSONObject(it); prior.getString("state") == "pending" && prior.optLong("leaseUntilMs") > System.currentTimeMillis() }
+          if(activeCount >= 2) { entry.remove("leaseOwner"); entry.remove("leaseUntilMs"); entry.put("attempts",0) }
+          check(entries.length() < 256) { "mutation_not_queued" }; entries.put(entry); result = entry.toString()
+        }
+        "finishStop" -> {
+          var found = false
+          for(i in 0 until entries.length()) {
+            val entry = entries.getJSONObject(i)
+            if(entry.getString("key") == payload.getString("key") && entry.getString("state") == "pending" && entry.optString("leaseOwner") == payload.getString("leaseOwner")) {
+              found = true
+              val change = payload.getJSONObject("change")
+              for(field in listOf("state","receipt","errorCode","dueMs","terminalProof")) if(change.has(field)) entry.put(field,change.get(field))
+              entry.remove("leaseOwner"); entry.remove("leaseUntilMs")
+              if(entry.getString("state") == "confirmed") { entry.remove("body"); entry.put("fingerprint","").put("headers",org.json.JSONObject().put("Idempotency-Key",entry.getString("key"))) }
+            }
+          }
+          if(!found) return@transaction false
+        }
+        else -> error("mutation_store_operation")
+      }
+      next.put("revision", state.getLong("revision") + 1)
+    }
+    check(next.getInt("version") == 1 && next.getLong("revision") == state.getLong("revision") + 1 && next.getJSONArray("entries").length() <= 256)
+    val bytes = next.toString().toByteArray(Charsets.UTF_8)
+    val reserve=if(operation == "reserveStop") { val entries=next.getJSONArray("entries"); (0 until entries.length()).count { entries.getJSONObject(it).getString("state") == "pending" } * 2048 } else 0
+    check(bytes.size+reserve <= 8388608) { "mutation_not_queued" }
+    val target = 1-bank; val count = (bytes.size + PAGE - 1) / PAGE
+    for(i in 0 until count) write(store,"$target:$i",org.json.JSONObject().put("data",android.util.Base64.encodeToString(bytes.copyOfRange(i*PAGE,minOf(bytes.size,(i+1)*PAGE)),android.util.Base64.NO_WRAP)))
+    write(store,"manifest",org.json.JSONObject().put("bank",target).put("pages",count).put("revision",next.getLong("revision")))
+    result
+  }
+}

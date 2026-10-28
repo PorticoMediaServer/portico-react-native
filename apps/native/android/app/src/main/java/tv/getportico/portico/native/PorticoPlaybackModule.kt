@@ -29,6 +29,7 @@ class PorticoPlaybackModule(context: ReactApplicationContext) : PorticoEventModu
   /** The native listening owner (Playback v1): music and audiobooks. */
   private val listeningStore = lazy {
     PorticoListeningOwner(reactApplicationContext.applicationContext, controller).also { made ->
+      made.onUserMutation = { status -> if (!invalidated) emit("PorticoUserMutationStatus", Arguments.makeNativeMap(status)) }
       made.onSnapshot = { snapshot -> if (!invalidated) emit("PorticoListeningSnapshot", Arguments.makeNativeMap(snapshot)) }
       PorticoListeningOwner.shared = made
       PorticoListeningSession.attach(reactApplicationContext.applicationContext, made)
@@ -238,7 +239,8 @@ class PorticoPlaybackModule(context: ReactApplicationContext) : PorticoEventModu
   fun retireListening(owner: String?, stop: Boolean, promise: Promise) {
     main.post {
       if (!invalidated) listening.retire(owner, stop)
-      promise.resolve(true)
+      val status = listening.stopDisposition
+      promise.resolve(status?.let { Arguments.makeNativeMap(it) } ?: true)
     }
   }
 

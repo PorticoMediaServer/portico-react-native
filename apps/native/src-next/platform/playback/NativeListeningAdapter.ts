@@ -1,3 +1,4 @@
+import {UserMutationError, parseUserMutationReceipt, type UserMutationTerminalProof, type UserMutationScope} from '../../../../../packages/client-core/src/user-mutations';
 import {nativeListeningStatus} from './listening-status';
 import type {RouteSnapshot} from '../../../../../packages/client-core/src/route-connection';
 import {listeningDeadline,type NativeListeningV1Context,type NativeListeningV1Control,type NativeListeningV1Event,type NativeQueueAdvance,type ListeningAction,type NativeListeningCommandTarget,type ListeningDeadlines,type NativeListeningPolicy} from '../../../../../packages/client-core/src/playback/native-listening.ts';
@@ -83,9 +84,12 @@ function capturedPolicy(value:NativeListeningPolicy):NativeListeningPolicy {
 export class NativeListeningV1Adapter implements NativeListeningV1Control {
  private bridge:NativeListeningBridge;private principal:ListeningPrincipal;private bearer:()=>string;private id:()=>string;private subscribe:(sink:(event:unknown)=>void)=>()=>void;
  private route?:{getSnapshot:()=>RouteSnapshot;subscribe:(listener:()=>void)=>()=>void};
+ private originalMutationScope?:UserMutationScope;
+ private mutationClock?:()=>Promise<number>;
+ private mutationScope?:()=>UserMutationScope|undefined;
  private epoch=0;private policyAttempt=0;private policy?:NativeListeningPolicy;
  private current?:{owner:string;sessionId:string;sink:(event:NativeListeningV1Event)=>void;sequence:number;last?:NativeListeningV1Event;ancestor?:string;unsubscribe:()=>void};
- constructor(options:{route?:{getSnapshot:()=>RouteSnapshot;subscribe:(listener:()=>void)=>()=>void};bridge:NativeListeningBridge;principal:ListeningPrincipal;bearer:()=>string;id:()=>string;subscribe:(sink:(event:unknown)=>void)=>()=>void}){this.route=options.route;this.bridge=options.bridge;this.principal=listeningPrincipal(options.principal);this.bearer=options.bearer;this.id=options.id;this.subscribe=options.subscribe;}
+ constructor(options:{mutationClock?:()=>Promise<number>;mutationScope?:()=>UserMutationScope|undefined;route?:{getSnapshot:()=>RouteSnapshot;subscribe:(listener:()=>void)=>()=>void};bridge:NativeListeningBridge;principal:ListeningPrincipal;bearer:()=>string;id:()=>string;subscribe:(sink:(event:unknown)=>void)=>()=>void}){this.originalMutationScope=options.mutationScope?.();this.mutationClock=options.mutationClock;this.mutationScope=options.mutationScope;this.route=options.route;this.bridge=options.bridge;this.principal=listeningPrincipal(options.principal);this.bearer=options.bearer;this.id=options.id;this.subscribe=options.subscribe;}
  async adopt(context:NativeListeningV1Context,sink:(event:NativeListeningV1Event)=>void){
   if(!this.bridge.adoptListeningSession)throw new Error('This app version can’t hand audio to the system player.');
   const playbackRun=context.playbackRun,epoch=++this.epoch,previous=this.current;this.current=undefined;
@@ -95,8 +99,14 @@ export class NativeListeningV1Adapter implements NativeListeningV1Control {
   active.unsubscribe=this.subscribe(raw=>{if(this.current!==active||(raw as any)?.owner!==active.owner)return;try{this.accept(active,raw);}catch(error){this.fail(active,error);}});
   const route=this.route?.getSnapshot();
   try{
+   const offset=this.mutationClock?await this.mutationClock():0;
+   if(!Number.isSafeInteger(offset))throw new Error('mutation_clock');
+   if(this.current!==active)return;
+   const scope=this.mutationScope?.();
+   if(this.mutationScope&&(!scope||!this.originalMutationScope||(['serverId','origin','authority','accountId','profileId','familyId','deviceId'] as const).some(key=>scope[key]!==this.originalMutationScope![key])))throw new UserMutationError('mutation_scope_changed');
+   const capturedScope=scope?Object.freeze({...scope}):undefined;
    const raw=await this.bridge.adoptListeningSession({owner:active.owner,origin:this.principal.origin,transport:route?{ready:route.phase==='ready',origin:route.origin,revision:route.revision}:undefined,principalKey:principalKey(this.principal),
-    session:context.session,...(playbackRun===undefined?{}:{playbackRun}),queueId:context.queueId,queueRevision:context.queueRevision,durationSeconds:context.durationSeconds,lastSeq:context.lastSeq,...(context.observerEpoch?{observerEpoch:context.observerEpoch}:{}),leaseMs:context.leaseMs,transitions:context.transitions,intent:context.intent,policy:this.policy??null,accessToken:this.bearer()});
+    mutationClockOffsetMs:offset,mutationScope:capturedScope,session:context.session,...(playbackRun===undefined?{}:{playbackRun}),queueId:context.queueId,queueRevision:context.queueRevision,durationSeconds:context.durationSeconds,lastSeq:context.lastSeq,...(context.observerEpoch?{observerEpoch:context.observerEpoch}:{}),leaseMs:context.leaseMs,transitions:context.transitions,intent:context.intent,policy:this.policy??null,accessToken:this.bearer()});
    if(this.current!==active)return;
    this.accept(active,raw);
    if(this.route){const update=()=>{if(this.current!==active)return;const r=this.route!.getSnapshot();if(!this.bridge.listeningRoute){this.fail(active,new Error('Native route handoff is unavailable.'));return;}void this.bridge.listeningRoute(active.owner,{ready:r.phase==='ready',origin:r.origin,revision:r.revision}).catch(error=>this.fail(active,error));};const off=this.route.subscribe(update),offEvent=active.unsubscribe;active.unsubscribe=()=>{off();offEvent();};update();}
@@ -156,6 +166,13 @@ export class NativeListeningV1Adapter implements NativeListeningV1Control {
   // replacement ownership or a newer policy must never acknowledge this older command.
   return accepted===true&&this.current===active&&this.epoch===epoch&&this.policyAttempt===attempt&&this.policy===original;
  }
- async detach(stop:boolean){++this.epoch;const active=this.current;this.current=undefined;if(active){active.unsubscribe();await this.bridge.retireListening(active.owner,stop);}}
+ async detach(stop:boolean){
+  ++this.epoch;const active=this.current;this.current=undefined;if(!active)return;active.unsubscribe();
+  const result=await this.bridge.retireListening(active.owner,stop);
+  if(stop&&result&&typeof result==='object'&&'state' in result){
+   const status=result as {state:string;key?:string;code?:string;receipt?:unknown;terminalProof?:UserMutationTerminalProof;draft?:unknown};
+   if(status.state!=='confirmed')throw Object.assign(new UserMutationError(status.code|| (status.state==='pending'?'mutation_pending':'mutation_needs_review'),status.key,status.receipt&&status.key?parseUserMutationReceipt(status.receipt,{key:status.key,operation:'stop_playback_session'}):undefined,undefined,status.terminalProof??undefined),{draft:status.draft});
+  }
+ }
  async sessionUpdated(sessionId:string){const active=this.current;if(!active||active.sessionId!==sessionId||!this.bridge.listeningSessionUpdated)return;await this.bridge.listeningSessionUpdated(active.owner,sessionId);}
 }

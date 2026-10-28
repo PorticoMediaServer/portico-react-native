@@ -86,4 +86,70 @@ static NSDictionary *Query(NSString *key) { return @{(__bridge id)kSecClass:(__b
   if(error)*error=StoreError();return nil;
  }
 }
+
+/** One manifest is the commit point. Inactive pages never replace the currently
+ * committed bank; process death before the manifest leaves its prior state intact.
+ * This SAME lock covers JS CAS and native Stop reservation/disposition. */
++ (id)userMutationTransaction:(NSString *)operation payload:(NSDictionary *)p error:(NSError **)error {
+ @synchronized(self) {
+  NSString *prefix=@"user-mutations-v1:";
+  id manifest=[self read:[prefix stringByAppendingString:@"manifest"] error:error];if(!manifest)return nil;
+  NSDictionary *state=@{@"version":@1,@"revision":@0,@"entries":@[]};NSInteger bank=0;
+  if(manifest!=NSNull.null){
+   if(![manifest isKindOfClass:NSDictionary.class]||![manifest[@"bank"] isKindOfClass:NSNumber.class]||![manifest[@"pages"] isKindOfClass:NSNumber.class]){if(error)*error=StoreError();return nil;}
+   bank=[manifest[@"bank"] integerValue];NSInteger pages=[manifest[@"pages"] integerValue];if((bank!=0&&bank!=1)||pages<1||pages>47){if(error)*error=StoreError();return nil;}
+   NSMutableData *data=[NSMutableData new];
+   for(NSInteger i=0;i<pages;i++){id page=[self read:[NSString stringWithFormat:@"%@%ld:%ld",prefix,(long)bank,(long)i] error:error];if(![page isKindOfClass:NSString.class]){if(error)*error=StoreError();return nil;}NSData *part=[[NSData alloc]initWithBase64EncodedString:page options:0];if(!part||part.length>180000){if(error)*error=StoreError();return nil;}[data appendData:part];}
+   if(data.length>8388608){if(error)*error=StoreError();return nil;}
+   state=[NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingMutableContainers error:nil];
+   if(![state isKindOfClass:NSDictionary.class]||![state[@"version"] isEqual:@1]||![state[@"revision"] isEqual:manifest[@"revision"]]||![state[@"entries"] isKindOfClass:NSArray.class]){if(error)*error=StoreError();return nil;}
+  }
+  if([operation isEqual:@"read"])return state;
+  if([operation isEqual:@"authorizeStop"]){
+   NSDictionary *entry=p[@"entry"];id active=[self read:[prefix stringByAppendingString:@"active"] error:error];if(!active)return nil;
+   if(![entry[@"scope"] isEqual:active])return @NO;
+   for(NSDictionary *saved in state[@"entries"])if([saved[@"key"] isEqual:entry[@"key"]]&&[saved[@"state"] isEqual:@"pending"]&&[saved[@"leaseOwner"] isEqual:entry[@"leaseOwner"]]&&[saved[@"leaseUntilMs"] doubleValue]>NSDate.date.timeIntervalSince1970*1000)return @YES;
+   return @NO;
+  }
+
+  NSMutableDictionary *next=nil;id result=@YES;
+  if([operation isEqual:@"cas"]){
+   if(![p[@"expectedRevision"] isEqual:state[@"revision"]])return @NO;
+   if(![p[@"next"] isKindOfClass:NSDictionary.class]){if(error)*error=StoreError();return nil;}next=[p[@"next"] mutableCopy];
+  } else {
+   next=[state mutableCopy];NSMutableArray *entries=[NSMutableArray new];for(NSDictionary *entry in state[@"entries"])[entries addObject:[entry mutableCopy]];next[@"entries"]=entries;
+   if([operation isEqual:@"scope"]){
+    id scope=p[@"scope"]?:NSNull.null;
+    for(NSMutableDictionary *e in entries)if([e[@"state"] isEqual:@"pending"]&&![e[@"scope"] isEqual:scope]){e[@"state"]=@"quarantined";e[@"errorCode"]=@"mutation_scope_changed";[e removeObjectForKey:@"leaseOwner"];[e removeObjectForKey:@"leaseUntilMs"];}
+    // Live authorization binding is deliberately separate from the general outbox.
+    if(![self write:[prefix stringByAppendingString:@"active"] value:scope error:error])return nil;
+   } else if([operation isEqual:@"reserveStop"]){
+    NSDictionary *e=p[@"entry"];if(![e isKindOfClass:NSDictionary.class]||![e[@"operation"] isEqual:@"stop_playback_session"]||![e[@"method"] isEqual:@"DELETE"]){if(error)*error=StoreError();return nil;}
+    id active=[self read:[prefix stringByAppendingString:@"active"] error:error];if(![active isEqual:e[@"scope"]]){if(error)*error=StoreError();return nil;}
+    for(NSDictionary *prior in entries)if([prior[@"scope"] isEqual:e[@"scope"]]&&[prior[@"intentId"] isEqual:e[@"intentId"]])return prior;
+    NSMutableDictionary *candidate=[e mutableCopy];NSInteger activeCount=0;double now=NSDate.date.timeIntervalSince1970*1000;
+    for(NSDictionary *prior in entries)if([prior[@"state"] isEqual:@"pending"]&&[prior[@"leaseUntilMs"] doubleValue]>now)activeCount++;
+    if(activeCount>=2){[candidate removeObjectForKey:@"leaseOwner"];[candidate removeObjectForKey:@"leaseUntilMs"];candidate[@"attempts"]=@0;}e=candidate;
+    if(entries.count>=256){if(error)*error=StoreError();return nil;}[entries addObject:[e mutableCopy]];result=e;
+   } else if([operation isEqual:@"finishStop"]){
+    BOOL found=NO;for(NSMutableDictionary *e in entries)if([e[@"key"] isEqual:p[@"key"]]&&[e[@"state"] isEqual:@"pending"]&&[e[@"leaseOwner"] isEqual:p[@"leaseOwner"]]){
+     found=YES;NSDictionary *change=p[@"change"];if(![change isKindOfClass:NSDictionary.class]){if(error)*error=StoreError();return nil;}
+     for(NSString *field in @[@"state",@"receipt",@"errorCode",@"dueMs",@"terminalProof"])if(change[field])e[field]=change[field];
+     [e removeObjectForKey:@"leaseOwner"];[e removeObjectForKey:@"leaseUntilMs"];
+     if([e[@"state"] isEqual:@"confirmed"]){[e removeObjectForKey:@"body"];e[@"fingerprint"]=@"";e[@"headers"]=@{@"Idempotency-Key":e[@"key"]};}
+    }if(!found)return @NO;
+   }else {if(error)*error=StoreError();return nil;}
+   next[@"revision"]=@([state[@"revision"] longLongValue]+1);
+  }
+  if(![next[@"version"] isEqual:@1]||![next[@"revision"] isKindOfClass:NSNumber.class]||[next[@"revision"] longLongValue]!=[state[@"revision"] longLongValue]+1||![next[@"entries"] isKindOfClass:NSArray.class]||[next[@"entries"] count]>256){if(error)*error=StoreError();return nil;}
+  NSData *bytes=[NSJSONSerialization dataWithJSONObject:next options:0 error:nil];NSUInteger reserve=0;
+  if([operation isEqual:@"reserveStop"]){for(NSDictionary *e in next[@"entries"])if([e[@"state"] isEqual:@"pending"])reserve+=2048;}
+  if(!bytes||bytes.length+reserve>8388608){if(error)*error=StoreError();return nil;}
+  NSInteger target=1-bank,pages=(bytes.length+179999)/180000;
+  for(NSInteger i=0;i<pages;i++){NSData *part=[bytes subdataWithRange:NSMakeRange(i*180000,MIN(180000,bytes.length-i*180000))];if(![self write:[NSString stringWithFormat:@"%@%ld:%ld",prefix,(long)target,(long)i] value:[part base64EncodedStringWithOptions:0] error:error])return nil;}
+  if(![self write:[prefix stringByAppendingString:@"manifest"] value:@{@"bank":@(target),@"pages":@(pages),@"revision":next[@"revision"]} error:error])return nil;
+  return result;
+
+ }
+}
 @end

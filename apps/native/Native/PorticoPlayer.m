@@ -19,6 +19,7 @@
 #import "PorticoServerTrust.h"
 #import "PorticoVideoSnapshot.h"
 #import "PorticoQueueTransport.h"
+#import "PorticoQueuePlaybackStore.h"
 
 // Pull-based event responses share one bounded lifetime and never follow redirects.
 @interface PorticoEventStream : NSObject<NSURLSessionDataDelegate>
@@ -251,6 +252,15 @@ RCT_REMAP_METHOD(recordTestEvent,recordTestEvent:(NSString *)json){
  NSFileHandle *file=[NSFileHandle fileHandleForWritingAtPath:path];[file seekToEndOfFile];[file writeData:[[json stringByAppendingString:@"\n"] dataUsingEncoding:NSUTF8StringEncoding]];[file closeFile];
 }
 #endif
+RCT_REMAP_METHOD(userMutationTransaction,userMutationTransaction:(NSString *)operation json:(NSString *)json resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
+ dispatch_async(PorticoStorageQueue(), ^{
+  if(PorticoPrepareInstallationStorage()!=errSecSuccess){reject(@"mutation_store_unavailable",@"User changes could not be saved.",nil);return;}
+  NSDictionary *payload=[NSJSONSerialization JSONObjectWithData:[json dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];NSError *error=nil;
+  id result=[PorticoQueuePlaybackStore userMutationTransaction:operation payload:payload error:&error];
+  if(result)resolve([result isKindOfClass:NSDictionary.class]?[[NSString alloc]initWithData:[NSJSONSerialization dataWithJSONObject:result options:0 error:nil] encoding:NSUTF8StringEncoding]:result);
+  else reject(@"mutation_store_unavailable",@"User changes could not be saved.",error);
+ });
+}
 RCT_REMAP_METHOD(loadQueueRecord,loadQueueRecord:(NSString *)key resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject){
  dispatch_async(PorticoStorageQueue(), ^{
  if(PorticoPrepareInstallationStorage()!=errSecSuccess){reject(@"secure_storage",@"This installation’s saved records could not be prepared.",nil);return;}

@@ -337,6 +337,12 @@ class PorticoRuntime(context: ReactApplicationContext) : ReactContextBaseJavaMod
    * failure, a Keystore that will not answer included, stays `secure_storage`: not readable now.
    */
   @ReactMethod
+  fun userMutationTransaction(operation: String, json: String, promise: Promise) = storage.execute {
+    try { promise.resolve(PorticoUserMutationStore.transact(store, operation, org.json.JSONObject(json))) }
+    catch(e: Exception) { promise.reject("mutation_store_unavailable", "User changes could not be saved.", e) }
+  }
+
+  @ReactMethod
   fun loadQueueRecord(key: String?, promise: Promise) = storage.execute {
     val failure = "Queue recovery could not be read."
     if (key == null) promise.reject("secure_storage", failure)
