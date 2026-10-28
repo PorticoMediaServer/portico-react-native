@@ -1,26 +1,31 @@
 /**
  * Component lifecycle source for the approved non-gating LoadingPaint.
  *
- * This drives the real presenter through the repo's existing element/hook
- * harness (`createHookHost` + `act` from hook-driver, the same seam as
- * next-selection-render). Only the native host, the animation driver and a
- * controlled timer queue are replaced, so the presenter's own hooks, effects
- * and cleanup order run unchanged.
+ * This drives the real presenter through the installed Fabric renderer
+ * (`helpers/fabric-host.mjs`), so React itself owns commits, effect ordering,
+ * keyed remount identity and unmount. Only the native host, the animation
+ * driver and a controlled timer queue are replaced, so the presenter's own
+ * hooks, effects and cleanup order run unchanged.
  *
- * It intentionally makes no claim about native child mount preservation: the
- * element/hook harness describes elements and never mounts a host, so that
- * assertion needs a reconciler (see SB8-MOBILE_SAVED-01 handback).
+ * It makes no claim about native layout or pixels: host nodes here are React's
+ * committed native hosts, not measured views.
  */
 import test, {after} from 'node:test';
 import assert from 'node:assert/strict';
-import type {ReactNode} from 'react';
-import {registerHooks} from 'node:module';
+import {createRequire, registerHooks} from 'node:module';
 import {readFileSync} from 'node:fs';
-import {fileURLToPath} from 'node:url';
+import {dirname, join} from 'node:path';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 import {transformSync} from 'rolldown/utils';
-import {act, createHookHost} from './hook-driver.ts';
+import {fabricHost, React} from './helpers/fabric-host.mjs';
 
-type Element = {type: unknown; props: Record<string, any>};
+// The Fabric helper runs react.production.js, so the components under test must
+// share that exact React instance; the default condition would give them the
+// development copy, whose hook dispatcher the production renderer never fills.
+const require = createRequire(import.meta.url);
+const productionReact = pathToFileURL(join(dirname(require.resolve('react')), 'cjs/react.production.js')).href;
+
+type HostNode = {tag: number; type: unknown; props: Record<string, any>; children: HostNode[]};
 type PaintValue = {value: number};
 /** The presenter reads only the reduced flag and a named standard duration. */
 type MotionPolicy = {reduce: boolean; duration: (name: string) => number};
@@ -76,6 +81,7 @@ const paintMode = dataModule(`export const useOverlayPaintMode = () => globalThi
 registerHooks({
   resolve(specifier, context, next) {
     if (specifier === 'react-native') return {url: native, shortCircuit: true};
+    if (specifier === 'react' && context.parentURL?.endsWith('.tsx')) return {url: productionReact, shortCircuit: true};
     if (specifier.endsWith('/OverlayPaintContext')) return {url: paintMode, shortCircuit: true};
     if (specifier.startsWith('.') && context.parentURL?.startsWith('file:') && /\/kit\/useMotion(?:\.ts)?$/.test(new URL(specifier, context.parentURL).pathname)) return {url: motion, shortCircuit: true};
     try {return next(specifier, context);} catch (error) {
@@ -109,46 +115,42 @@ const live = () => [...timers.entries()];
 const liveTimer = () => live().at(-1)![0];
 const invoke = (id: number) => {const timer = timers.get(id); assert.ok(timer, `timer ${id} must exist before invoking it`); timers.delete(id); timer.fn();};
 
-function mountPaint(props: any) {
-  let tree: any;
-  const host = createHookHost(() => {tree = LoadingPaint(props);});
-  host.mount();
-  return {host, get tree() {return tree as Element;}, update(next: any) {props = next; host.rerender();}};
+/** The real component mounted on the Fabric renderer; each update is one React commit. */
+async function mount(component: any, initial: any) {
+  const host = await fabricHost();
+  const element = (props: any) => React.createElement(component, props);
+  await host.render(element(initial));
+  return {host, get tree() {return host.root[0] as HostNode;},
+    async update(next: any) {await host.render(element(next));},
+    async act(work: () => void | Promise<void>) {await work(); await host.settle();},
+    unmount: () => host.unmount()};
 }
-const shape = {type: 'Shape', props: {}} as unknown as ReactNode;
-const child = {type: 'ChildHost', props: {}} as unknown as ReactNode;
-/** Only real rendered element nodes count; `cond && <X/>` leaves false in the array. */
-function rendered(tree: Element): Element[] {
-  return (tree.props.children as unknown[]).filter((node): node is Element => !!node && typeof node === 'object' && 'type' in (node as Element) && !!(node as Element).type);
-}
-function contentView(tree: Element): Element {
-  return rendered(tree).filter(node => node.type === 'AnimatedView')[0]!;
-}
-function overlay(tree: Element): Element | undefined {
-  return rendered(tree).filter(node => node.type === 'AnimatedView')[1];
-}
+const mountPaint = (props: any) => mount(LoadingPaint, props);
+
+const shape = React.createElement('Shape'), child = React.createElement('ChildHost');
+/** The content view is the first committed child; the overlay is the optional second. */
+function contentView(tree: HostNode): HostNode {return tree.children[0]!;}
+function overlay(tree: HostNode): HostNode | undefined {return tree.children[1];}
 /** The Value actually rendered as the content opacity, not a discarded render-local one. */
-function paintValue(tree: Element): PaintValue {
+function paintValue(tree: HostNode): PaintValue {
   return contentView(tree).props.style.opacity as PaintValue;
 }
 
 test('a cached initial ready mount paints immediately with no quiet timer', async () => {
-  const paint = mountPaint({ready: true, immediate: true, skeleton: shape, children: child});
+  const paint = await mountPaint({ready: true, immediate: true, skeleton: shape, children: child});
   try {
     assert.equal(live().length, 0, 'cached ready queues no quiet timer');
     assert.equal(state.timings.length, 0, 'cached ready starts no fade');
     assert.equal(paintValue(paint.tree).value, 1, 'cached ready paints at full opacity');
     assert.equal(overlay(paint.tree), undefined);
 
-    paint.update({ready: false, immediate: true, skeleton: shape, children: child});
-    await act(() => {});
+    await paint.update({ready: false, immediate: true, skeleton: shape, children: child});
     assert.equal(live().length, 1, 'the next loading cycle starts its own quiet window');
     assert.equal(overlay(paint.tree), undefined, 'quiet hides the shape until the window elapses');
-    await act(() => {invoke(liveTimer());});
+    await paint.act(() => {invoke(liveTimer());});
     assert.ok(overlay(paint.tree), 'the later loading cycle paints the shape');
 
-    paint.update({ready: true, immediate: true, skeleton: shape, children: child});
-    await act(() => {});
+    await paint.update({ready: true, immediate: true, skeleton: shape, children: child});
     assert.equal(overlay(paint.tree), undefined);
     const fade = state.timings.at(-1)!;
     assert.equal(fade.config.duration, 180, 'cached is not sticky: later content fades');
@@ -156,28 +158,26 @@ test('a cached initial ready mount paints immediately with no quiet timer', asyn
     assert.equal(fade.value, paintValue(paint.tree), 'the fade drives the rendered opacity Value');
     fade.finish();
     assert.equal(paintValue(paint.tree).value, 1);
-  } finally {paint.host.unmount();}
+  } finally {await paint.unmount();}
 });
 
 test('a retired quiet completion cannot paint in the next cycle, cannot hide the current shape, and is inert after unmount', async () => {
-  const paint = mountPaint({ready: false, skeleton: shape, children: child});
+  const paint = await mountPaint({ready: false, skeleton: shape, children: child});
   const retired = timers.get(liveTimer())!.fn;
   try {
-    paint.update({ready: true, skeleton: shape, children: child});
-    await act(() => {});
-    paint.update({ready: false, skeleton: shape, children: child});
+    await paint.update({ready: true, skeleton: shape, children: child});
+    await paint.update({ready: false, skeleton: shape, children: child});
     const current = liveTimer();
-    await act(() => {});
     assert.equal(overlay(paint.tree), undefined, 'still quiet in the new cycle');
-    await act(() => {retired();});
+    await paint.act(() => {retired();});
     assert.equal(overlay(paint.tree), undefined, 'the retired completion reveals nothing');
-    await act(() => {invoke(current);});
+    await paint.act(() => {invoke(current);});
     assert.ok(overlay(paint.tree), 'only the current cycle completion paints');
     // Exercise the published live-timer guard even when cancellation loses a race.
-    await act(() => {retired();});
+    await paint.act(() => {retired();});
     assert.ok(overlay(paint.tree), 'a late retired timer leaves the current shape visible');
   } finally {
-    paint.host.unmount();
+    await paint.unmount();
     const timings = state.timings.length, queued = live().length;
     assert.doesNotThrow(() => {retired();}, 'the captured retired callback is inert after unmount');
     assert.equal(state.timings.length, timings, 'a late retired callback starts no animation');
@@ -186,25 +186,23 @@ test('a retired quiet completion cannot paint in the next cycle, cannot hide the
 });
 
 test('changing the motion policy during quiet never restarts the 300 ms window', async () => {
-  const paint = mountPaint({ready: false, skeleton: shape, children: child});
+  const paint = await mountPaint({ready: false, skeleton: shape, children: child});
   try {
     const [timerId, timer] = live()[0]!;
     assert.equal(timer.delay, 300);
     state.motion = {reduce: true, duration: (name: string) => (name === 'standard' ? 160 : 0)};
-    paint.update({ready: false, skeleton: shape, children: child});
-    await act(() => {});
+    await paint.update({ready: false, skeleton: shape, children: child});
     assert.equal(live().length, 1, 'no second quiet timer');
     assert.equal(live()[0]![0], timerId, 'the original timer is still the live one');
-    await act(() => {invoke(timerId);});
+    await paint.act(() => {invoke(timerId);});
     assert.ok(overlay(paint.tree), 'the original window still reveals the shape');
-  } finally {paint.host.unmount(); state.motion = baseline;}
+  } finally {await paint.unmount(); state.motion = baseline;}
 });
 
 test('a policy change retargets the painted value, and a retired completion leaves its successor live', async () => {
-  const paint = mountPaint({ready: false, skeleton: shape, children: child});
+  const paint = await mountPaint({ready: false, skeleton: shape, children: child});
   try {
-    paint.update({ready: true, skeleton: shape, children: child});
-    await act(() => {});
+    await paint.update({ready: true, skeleton: shape, children: child});
     const first = state.timings.at(-1)!;
     assert.equal(first.config.duration, 180);
     assert.deepEqual(first.config.easing, {bezier: [0.2, 0.8, 0.2, 1]}, 'default motion uses the out curve');
@@ -214,8 +212,7 @@ test('a policy change retargets the painted value, and a retired completion leav
     const resets = state.setValues.length;
 
     state.motion = {reduce: true, duration: (name: string) => (name === 'standard' ? 160 : 0)};
-    paint.update({ready: true, skeleton: shape, children: child});
-    await act(() => {});
+    await paint.update({ready: true, skeleton: shape, children: child});
     const second = state.timings.at(-1)!;
     assert.equal(second.config.duration, 160, 'reduced motion retargets at 160');
     assert.equal(second.config.easing, 'linear');
@@ -233,8 +230,7 @@ test('a policy change retargets the painted value, and a retired completion leav
     assert.equal(paintValue(paint.tree).value, 0.9, 'the successor holds its own partial paint');
 
     state.motion = baseline;
-    paint.update({ready: true, skeleton: shape, children: child});
-    await act(() => {});
+    await paint.update({ready: true, skeleton: shape, children: child});
     const third = state.timings.at(-1)!;
     assert.equal(third.config.duration, 180, 'a later retarget still owns the fade');
     assert.deepEqual(third.config.easing, {bezier: [0.2, 0.8, 0.2, 1]});
@@ -242,67 +238,66 @@ test('a policy change retargets the painted value, and a retired completion leav
     assert.equal(paintValue(paint.tree).value, 0.9, 'the retarget starts from the painted value');
     third.finish();
     assert.equal(paintValue(paint.tree).value, 1, 'the live successor reaches full opacity');
-  } finally {paint.host.unmount(); state.motion = baseline;}
+  } finally {await paint.unmount(); state.motion = baseline;}
 });
 
 
-// Source vectors only. The hook driver observes rendered elements and the
-// presentation effects; it does not measure a native layout or reconcile hosts.
+// Source vectors only. The native hosts below are React's committed nodes; they
+// are not measured layout.
 test('a quiet boundary keeps its supplied footprint and rejects a retired timer', async () => {
-  let props = {ready: false, skeleton: shape, children: child};
-  let tree: any;
-  const host = createHookHost(() => {tree = LoadingBoundary(props);});
-  host.mount();
+  const boundary = await mount(LoadingBoundary, {ready: false, skeleton: shape, children: child});
   const stale = timers.get(liveTimer())!.fn;
   try {
-    assert.equal(tree.type, 'AnimatedView');
-    assert.equal(tree.props.children.props.children, shape);
-    assert.equal(tree.props.children.key, 'quiet');
-    assert.deepEqual(tree.props.children.props.style, {opacity: 0});
+    const quiet = boundary.tree.children[0]!;
+    assert.equal(boundary.tree.type, 'AnimatedView');
+    assert.equal(quiet.type, 'View');
+    assert.equal(quiet.children[0]!.type, 'Shape');
+    assert.deepEqual(quiet.props.style, {opacity: 0});
     assert.equal(timers.get(liveTimer())!.delay, 300);
-    props = {...props, ready: true}; host.rerender(); await act(() => {});
-    props = {...props, ready: false}; host.rerender(); await act(() => {});
-    await act(() => {invoke(liveTimer());});
-    assert.equal(tree.props.children.key, 'skeleton');
-    assert.equal(tree.props.children.props.style, undefined);
-    await act(() => {stale();});
-    assert.equal(tree.props.children.key, 'skeleton');
-    assert.equal(tree.props.children.props.children, shape);
-  } finally {host.unmount();}
+    await boundary.update({ready: true, skeleton: shape, children: child});
+    assert.equal(boundary.tree.children[0]!.type, 'ChildHost', 'ready content replaces the quiet shape');
+    await boundary.update({ready: false, skeleton: shape, children: child});
+    await boundary.act(() => {invoke(liveTimer());});
+    const skeleton = boundary.tree.children[0]!;
+    assert.equal(skeleton.type, 'View');
+    assert.notEqual(skeleton.tag, quiet.tag, 'the boundary key replaces the quiet host with the shape host');
+    assert.equal(skeleton.props.style, undefined);
+    assert.equal(skeleton.children[0]!.type, 'Shape');
+    await boundary.act(() => {stale();});
+    assert.equal(boundary.tree.children[0]!.type, 'View');
+    assert.equal(boundary.tree.children[0]!.tag, skeleton.tag, 'a retired timer cannot replace the current host');
+    assert.equal(boundary.tree.children[0]!.children[0]!.type, 'Shape');
+  } finally {await boundary.unmount();}
 });
 
 test('outgoing inert loading paint cancels its quiet window without changing the supplied child', async () => {
-  const paint = mountPaint({ready: false, skeleton: shape, children: child});
+  const paint = await mountPaint({ready: false, skeleton: shape, children: child});
   const stale = timers.get(liveTimer())!.fn;
   try {
     state.paint = {visible: true, interactive: false, root: true};
-    paint.update({ready: false, skeleton: shape, children: child});
-    await act(() => {});
+    await paint.update({ready: false, skeleton: shape, children: child});
     assert.equal(live().length, 0);
-    await act(() => {stale();});
+    await paint.act(() => {stale();});
     assert.equal(overlay(paint.tree), undefined);
-    assert.equal(contentView(paint.tree).props.children, child);
-  } finally {paint.host.unmount(); state.paint = {visible: true, interactive: true, root: true};}
+    assert.equal(contentView(paint.tree).children[0]!.type, 'ChildHost');
+  } finally {await paint.unmount(); state.paint = {visible: true, interactive: true, root: true};}
 });
 
 test('outgoing inert boundary stops a partial content fade at its current paint', async () => {
-  let tree: any;
   const props = {ready: true, skeleton: shape, children: child};
-  const host = createHookHost(() => {tree = LoadingBoundary(props);});
-  host.mount();
+  const boundary = await mount(LoadingBoundary, props);
   try {
-    // A ready mount leaves its quiet start on the commit that follows mount, and
-    // only then does the content fade exist. Read the fade after that commit so
-    // the partial paint below is the one the boundary actually renders.
-    await act(() => {});
+    // A ready mount reaches content on its own commit and only then does the
+    // content fade exist. Read the fade after that commit so the partial paint
+    // below is the one the boundary actually renders.
     const fade = state.timings.at(-1)!;
-    assert.equal(fade.value, tree.props.style[1].opacity, 'the fade drives the rendered opacity value');
+    assert.equal(fade.value, boundary.tree.props.style[1].opacity, 'the fade drives the rendered opacity value');
     fade.tick(0.42);
-    assert.equal(tree.props.style[1].opacity.value, 0.42, 'the boundary renders the partial paint');
+    assert.equal(boundary.tree.props.style[1].opacity.value, 0.42, 'the boundary renders the partial paint');
     state.paint = {visible: true, interactive: false, root: true};
-    host.rerender(); await act(() => {});
+    await boundary.update(props);
     assert.equal(fade.stopped, true);
-    assert.equal(tree.props.style[1].opacity.value, 0.42);
-    assert.equal(tree.props.children, child);
-  } finally {host.unmount(); state.paint = {visible: true, interactive: true, root: true};}
+    assert.equal(boundary.tree.props.style[1].opacity.value, 0.42);
+    assert.equal(boundary.tree.children[0]!.type, 'ChildHost', 'the supplied child is the committed content');
+  } finally {await boundary.unmount(); state.paint = {visible: true, interactive: true, root: true};}
 });
