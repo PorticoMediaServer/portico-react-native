@@ -14,6 +14,7 @@ test('actual collection presenter sends its current member through the fenced pr
   class Controller {
     subscribe = (fn: () => void) => {listeners.add(fn); return () => listeners.delete(fn);};
     getSnapshot = () => ({entries}); open = async () => {}; dispose() {};
+    contains = (entry: unknown) => entries.includes(entry); resident = () => ({entries, positions: entries.map((_, index) => index)});
   }
   const {createNativeEntryActions} = await screenModule(new URL('../src-next/screens/destinations/entry-actions.ts', import.meta.url), {
     react: {...React, default: React}, './lifetime': {nativeDestinationLifetime}, '../read/reading-books-open': {openNativeReadingBookEntry: async () => false},
@@ -22,6 +23,7 @@ test('actual collection presenter sends its current member through the fenced pr
   });
   const {createNativeCollectionRenderer} = await screenModule(new URL('../src-next/screens/collections/register.tsx', import.meta.url), {
     react: {...React, default: React}, '../../shell/route-registry': {nativeShellRoutes: {registerRoute() {}}}, '../../shell/model': {authorityKey, sameAuthority},
+    'react-native': {View: 'View'}, '../../kit/focus': {useFocusRegistry: () => ({capture: () => undefined, subscribe: () => () => {}, retain: () => () => {}, restore() {}})},
     '../selection/native-selection': {catalogueSelectionSource: (source: unknown) => source, createNativeSelection: () => ({dispose() {}})},
     '../destinations/entry-actions': {createNativeEntryActions}, './controller': {NativeCollectionController: Controller}, './CollectionScreen': {NativeCollectionScreen: 'CollectionScreen'},
   });
@@ -31,8 +33,16 @@ test('actual collection presenter sends its current member through the fenced pr
   let resolve!: () => void;
   const context = {navigation, authority: () => authority, current: () => true, subscribeAuthority: navigation.subscribe,
     session: () => ({viewer: {...authority, authority: 'local'}}), api: {}, playback: {start: (input: any) => {starts.push(input); return new Promise<void>(done => {resolve = done;});}}};
-  const renderer = createNativeCollectionRenderer(context), element = renderer.render(route, {reportError: assert.fail});
-  let tree: any; const host = createHookHost(() => {tree = element.type(element.props);}); host.mount();
+  // The page is retained (it stays mounted under a title opened from it): its route renders
+  // nothing and the retained outlet draws the real host.
+  const renderer = createNativeCollectionRenderer(context), runtime = {reportError: assert.fail};
+  assert.equal(renderer.render(route, runtime), null);
+  let tree: any; const host = createHookHost(() => {
+    const outlet = renderer.renderRetained(runtime), pages = outlet.type(outlet.props);
+    const page = React.Children.toArray(pages.props.children)[0] as any, view = page.type(page.props);
+    assert.equal(page.props.active, true);
+    tree = view.props.children.type(view.props.children.props);
+  }); host.mount();
   try {
     tree.props.onOpen(song); assert.equal(starts.length, 1); assert.equal(starts[0].target, song.playback);
     entries = []; for (const notify of listeners) notify();

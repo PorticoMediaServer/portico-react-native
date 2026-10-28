@@ -58,6 +58,11 @@ function Grid<T>({collection, getKey, renderItem, renderPlaceholder, renderNativ
   const stickyOffset = contentStickyOffset + (stickyHeader ? toolbarHeight : 0);
   const [scroll, setScroll] = useState(0), [focused, setFocused] = useState<number>();
   const anchor = useFocusAnchor(false, focused !== undefined);
+  // The last focused card keeps its page in memory until another card takes focus, so
+  // a covered page, an interrupted scroll, Back or Undo always finds it (never on blur:
+  // opening a title blurs the card it came from).
+  useEffect(() => {if (focused !== undefined) collection.pin(focused);}, [collection, focused]);
+  useEffect(() => () => collection.pin(undefined), [collection]);
   const snapshot = useSyncExternalStore(collection.subscribe, collection.getSnapshot, collection.getSnapshot);
   const columns = Math.max(1, Math.floor((viewport.width - leading - trailing + columnGap) / (itemWidth + columnGap)));
   const stride = itemHeight + verticalGap;

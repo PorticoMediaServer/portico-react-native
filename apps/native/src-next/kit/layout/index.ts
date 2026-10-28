@@ -10,6 +10,8 @@ export {FlowSections} from './FlowSections';
 export type {FlowSection, FlowSectionsProps} from './FlowSections';
 export {WindowedGrid} from './WindowedGrid';
 export type {WindowedGridHandle, WindowedGridProps} from './WindowedGrid';
+export {WindowedRow} from './WindowedRow';
+export type {WindowedRowProps} from './WindowedRow';
 export {AlphabetRail} from './AlphabetRail';
 export type {AlphabetRailProps} from './AlphabetRail';
 export {useFocusAnchor, focusAnchorOffset} from './FocusAnchor';

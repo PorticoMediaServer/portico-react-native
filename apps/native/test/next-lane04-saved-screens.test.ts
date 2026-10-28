@@ -30,7 +30,7 @@ function fixture(phone = true) {
     './presentation': {exactDurationSeconds: () => undefined, personalMosaic: () => [], playlistEntryMosaic: () => [], savedDuration: String,
       savedItemCount: String, savedLibraryName: () => undefined, savedPlaylistEyebrow: 'playlist', savedResourceEyebrow: () => 'collection',
       savedTitleCount: String, savedViewCount: String, savedViewConditionCount: () => 1, savedVisibility: () => undefined, savedVisibilityHelp: () => ''},
-    '../saved/presentation': {savedDuration: String}, '../../tv/layout/TVShelf': {TVShelf: 'TVShelf'},
+    '../saved/presentation': {savedDuration: String}, '../../tv/layout/TVShelf': {TVShelf: 'TVShelf'}, '../../kit/layout': {WindowedGrid: 'WindowedGrid', WindowedRow: 'WindowedRow'},
     '../../platform/offline-downloads': {groupOfflineEntries: () => []}, './model': {}, './SavedDownloadCard': {SavedDownloadCard: 'SavedDownloadCard'},
     '../downloads/playback': {openNativeSavedDownload() {}},
   };
@@ -120,14 +120,19 @@ test('Saved resource menus keep membership commands beside canonical selection, 
 
 test('Phone collection uses the centred 300-point hero, full-width play and actual metadata rows', async () => {
   const f = fixture(), {NativeCollectionScreen} = await f.load('collections/CollectionScreen');
-  const state = {phase: 'ready', title: 'Collection', totalCount: 1, entries: [entry], sorts: [], projection: {entity: {origin: 'automatic'}}};
-  const tree = f.host.render(() => NativeCollectionScreen({state, runtime, focusScope: 'collection', onBack() {}, onOpen() {}, onPlay() {}, onShuffle() {}, onMore() {}, onSort() {}, onRetry() {}}));
+  const collection = {itemAt: () => entry};
+  const state = {phase: 'ready', title: 'Collection', totalCount: 1, collection, first: entry, complete: [entry], sorts: [], projection: {entity: {origin: 'automatic'}}};
+  const page = f.host.render(() => NativeCollectionScreen({state, runtime, focusScope: 'collection', onBack() {}, onOpen() {}, onPlay() {}, onShuffle() {}, onSort() {}, onRetry() {}}));
+  // The members are one windowed list; the hero, actions and note scroll as its header.
+  const list = nodes(page).find(node => node.type === 'WindowedGrid');
+  assert.equal(list.props.testID, 'collection-list'); assert.equal(list.props.collection, collection); assert.equal(list.props.itemHeight, 98);
+  const tree = [page, list.props.header];
   assert.ok(nodes(tree).some(node => node.type === 'View' && node.props.style?.height === 300));
   assert.equal(find(tree, 'collection-back').props.style.top, 30);
   assert.deepEqual(find(tree, 'collection-play-all').props.style, {flex: 1, height: 48});
   assert.equal(find(tree, 'collection-shuffle').props.iconOnly, true); assert.ok(find(tree, 'collection-menu'));
   assert.ok(text(tree).includes('Portico put this together from the films’ details'));
-  const row = nodes(tree).find(node => node.type?.name === 'CollectionRow'); assert.equal(row.props.entry, entry);
+  const row = list.props.renderItem(entry, {index: 0, id: 'movie:e', onFocus() {}, onBlur() {}}); assert.equal(row.type.name, 'CollectionRow'); assert.equal(row.props.entry, entry);
 });
 
 test('Person adds the known-for ambient wash without advertising unsupported owner or sort actions', async () => {

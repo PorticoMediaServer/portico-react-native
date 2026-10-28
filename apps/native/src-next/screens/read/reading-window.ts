@@ -79,6 +79,8 @@ export class NativeReadingWindow<T> implements WindowedCollection<T> {
       this.failure = error; this.changed();
     });
   };
+  /** Every fetched item stays resident here (the source owns the list), so nothing needs pinning. */
+  pin = (_index: number | undefined): void => {};
   indexOfLetter = (_letter: string): number | undefined => undefined;
   invalidate = (fetchPage?: FetchPage<T>): void => {
     if (fetchPage) throw new Error('reading_window_source_owned');

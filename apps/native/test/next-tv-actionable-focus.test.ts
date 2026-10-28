@@ -338,16 +338,17 @@ for (const kind of ['person', 'collection'] as const) test(`${kind} actual entit
     '../../kit/cards': {PosterCard: 'Poster'}, '../../kit/cards/primitives': {CardFrame: 'CardFrame'},
     '../../kit/selection': {SelectionCircle: 'SelectionCircle'}, '../saved/presentation': {savedDuration: (value: number) => String(value)}, '../../kit/controls': {Button: o.Button, Chip: 'Chip', Focusable: b.Focusable},
     '../../kit/overlays': o.menu, '../../tv/layout/TVShelf': {TVShelf: 'Shelf'}, '../../kit/Icon': {Icon: 'Icon'},
-    '../../kit/states': {StateView: 'State'}, '../../kit/browse/presentation': presentation, '../../kit/theme': {useTheme: () => b.theme}};
+    '../../kit/states': {StateView: 'State'}, '../../kit/browse/presentation': presentation, '../../kit/theme': {useTheme: () => b.theme},
+    '../../kit/layout': {WindowedGrid: 'WindowedGrid', WindowedRow: 'WindowedRow'}};
   const mod = await screenModule(new URL(kind === 'person' ? '../src-next/screens/people/PersonScreen.tsx' : '../src-next/screens/collections/CollectionScreen.tsx', import.meta.url), modules);
   const component = kind === 'person' ? mod.TVPerson : mod.NativeCollectionScreen;
   let tree: any, scope = `${kind}:original-authority:original-entity`, commands = 0;
   const person = {page: {person: {id: 'person', name: 'Person', roles: [], knownFor: []}, pageInfo: {total: 0}}, role: 'all',
     collection: {pageOf: () => 0, subscribe: () => () => {}, subscribePage: () => () => {}, getSnapshot: () => ({generation: 1, total: 0, status: 'ready'}), getPageVersion: () => 0, ensureRange() {}},
     actions: {menuState: {subscribe: () => () => {}, getSnapshot: () => 0}, isMenuOpen: () => false}, onRole: () => {commands++;}};
-  const collection = {state: {phase: 'ready', title: 'Collection', entries: [], totalCount: 0,
+  const collection = {state: {phase: 'ready', title: 'Collection', collection: person.collection, totalCount: 0,
     sorts: [{id: 'title', labelKey: 'next.browse.native.sort', directions: ['asc']}, {id: 'added', labelKey: 'next.browse.native.sort', directions: ['desc']}], sort: 'title'},
-    onPlay() {}, onShuffle() {}, onSort: () => {commands++;}, onOpen() {}, onRetry() {}, onMore() {}};
+    onPlay() {}, onShuffle() {}, onSort: () => {commands++;}, onOpen() {}, onRetry() {}};
   const props = {...(kind === 'person' ? person : collection), runtime: {ambient: () => undefined, artwork: () => undefined}, onBack() {}};
   const source = createHookHost(() => {tree = component({...props, focusScope: scope});}); source.mount();
   try {

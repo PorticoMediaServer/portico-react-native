@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState, useSyncExternalStore, type RefObject} from 'react';
+import React, {useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject} from 'react';
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
@@ -9,6 +9,7 @@ import {CardFrame} from '../../kit/cards/primitives';
 import {SelectionCircle} from '../../kit/selection';
 import {Button, Chip, Focusable} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
+import {WindowedGrid, WindowedRow} from '../../kit/layout';
 import {Menu, type MenuEntry} from '../../kit/overlays';
 import {StateView} from '../../kit/states';
 import {browseType} from '../../kit/browse/presentation';
@@ -21,6 +22,8 @@ import type {NativeCollectionSort, NativeCollectionState} from './controller';
 
 export type NativeCollectionScreenProps = Readonly<{
   focusScope: string; state: NativeCollectionState;
+  /** False while a title opened from this page covers it (the page stays mounted). */
+  active?: boolean;
   runtime: NativeShellRuntime;
   onPlay: () => void;
   onShuffle: () => void;
@@ -28,38 +31,44 @@ export type NativeCollectionScreenProps = Readonly<{
   onOpen: (entry: ContentEntry) => void;
   onBack: () => void;
   onRetry: () => void;
-  onMore: () => void;
   actions?: Readonly<{menuState?: NativeEntryMenuState; menu: (entry: ContentEntry, anchor?: RefObject<View | null>, select?: () => void) => void;
     isMenuOpen?: (entry: ContentEntry) => boolean}>;
   selection?: NativeSavedSelectionPort;
 }>;
 
+/** The window's own key for a member (the controller's `keyOf`). */
+const nativeCollectionEntryKey = (entry: ContentEntry) => `${entry.kind}:${entry.id}`;
 const sortLabel = (sort: NativeCollectionSort) => defaultI18n.has(sort.labelKey) ? defaultI18n.t(sort.labelKey as never) : sort.id;
+/** The year span, only when every member is in memory: a partial window never guesses it. */
 const years = (state: NativeCollectionState) => {
-  if (!state.totalCount || state.entries.length < state.totalCount) return undefined;
-  const values = state.entries.map(entry => entry.year).filter((year): year is number => Number.isFinite(year));
+  if (!state.totalCount || !state.complete) return undefined;
+  const values = state.complete.map(entry => entry.year).filter((year): year is number => Number.isFinite(year));
   if (!values.length) return undefined;
   const min = Math.min(...values), max = Math.max(...values);
   return min === max ? String(min) : `${min} – ${max}`;
 };
 
-/** tv-detail#11 / phone-detail#8: the collection's own member order and progress. */
+/** tv-detail#11 / phone-detail#8: the collection's own member order and progress.
+ * Members render from a bounded window (LR05): only the cards in view are mounted,
+ * and the focused card's page stays in memory. */
 export function NativeCollectionScreen(props: NativeCollectionScreenProps) {
   const {state, runtime, onBack, actions, selection} = props, theme = useTheme(), t = defaultI18n.t, dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   useSyncExternalStore(actions?.menuState?.subscribe ?? (() => () => {}), actions?.menuState?.getSnapshot ?? (() => 0));
   useSyncExternalStore(selection?.subscribe ?? (() => () => {}), selection?.getSnapshot ?? (() => 0));
   const tv = theme.isTV, compact = !tv && theme.platform === 'phone', [sortOpen, setSortOpen] = useState(false), [pageMenu, setPageMenu] = useState(false);
+  const active = props.active !== false;
   useEffect(() => {
-    if (!tv) return;
+    if (!tv || !active) return;
     return runtime.registerTVPageBack?.(() => {onBack(); return true;});
-  }, [onBack, runtime, tv]);
-  const entries = state.entries, first = entries[0], backdrop = first?.backdropUrl;
+  }, [active, onBack, runtime, tv]);
+  const collection = state.collection, backdrop = state.first?.backdropUrl;
   const ambient = runtime.ambient(backdrop), foreground = runtime.artwork(backdrop);
   const facts = [t('next.browse.filmCount', {count: state.totalCount}), years(state)].filter((value): value is string => !!value);
   const sort = state.sorts.find(value => value.id === state.sort);
   const sortItems: MenuEntry[] = state.sorts.map(value => ({id: value.id, label: sortLabel(value), selected: value.id === state.sort,
     onSelect: () => props.onSort(value.id, value.directions[0] ?? 'asc')}));
   const cardWidth = tv ? 214 : Math.max(120, (dimensions.width - 50) / 2), error = state.error;
+  const empty = state.phase === 'ready' && state.totalCount === 0, failed = !!error && !state.totalCount;
   const controls = <View style={{flexDirection: 'row', alignItems: 'center', gap: tv ? 18 : 10, marginTop: tv ? 30 : compact ? 18 : 16,
     ...(compact ? {paddingHorizontal: 20} : {})}}>
     <Button testID="collection-play-all" focusId="collection-play-all" hasTVPreferredFocus={tv} icon="i-play" onPress={props.onPlay}
@@ -70,47 +79,56 @@ export function NativeCollectionScreen(props: NativeCollectionScreenProps) {
     {compact && <Button testID="collection-menu" variant="glass" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title: state.title})}
       onPress={() => setPageMenu(true)} style={{width: 48, height: 48, borderRadius: 24}}/>}
   </View>;
+  const hero = <View style={{height: tv ? 620 : compact ? 300 : 360}}>
+    <AmbientArt source={ambient} foreground={foreground} treatment="title" height={tv ? 760 : 460}/>
+    <View style={{position: 'absolute', left: tv ? 200 : 20, right: tv ? 200 : 20, bottom: tv ? 70 : compact ? 4 : 26, alignItems: compact ? 'center' : undefined}}>
+      <Text style={[browseType(theme, tv ? 24 : compact ? 13 : 12, 700), {color: theme.colors.accentStrong}]}>{t('next.home.collection')}</Text>
+      <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, tv ? 76 : compact ? 46 : 40, 800, -.035), {color: theme.colors.text, marginTop: tv ? 6 : compact ? 8 : 4, marginBottom: compact ? 10 : undefined, textAlign: compact ? 'center' : 'left'}]}>{state.title}</Text>
+      <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: tv ? 20 : 12, justifyContent: compact ? 'center' : 'flex-start', marginTop: tv ? 12 : compact ? 0 : 6}}>
+        {facts.map((fact, index) => <Text key={index} style={[browseType(theme, tv ? 24 : 13, index === 0 ? 700 : 500), {color: theme.colors.textSecondary}]}>{fact}</Text>)}
+      </View>
+      {!compact && controls}
+    </View>
+  </View>;
+  const automatic = compact && state.projection?.entity?.origin === 'automatic' ? <View style={{flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginHorizontal: 20, marginTop: 12}}>
+    <Icon name="i-info" size={16} color={theme.colors.textTertiary}/>
+    <Text style={[browseType(theme, 12.5, 400, 0, 18), {color: theme.colors.textTertiary, flex: 1}]}>{t('next.collection.automaticDescription')}</Text>
+  </View> : null;
+  const toolbar = <View style={{flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: tv ? 28 : compact ? 8 : 14, ...(compact ? {paddingHorizontal: 20} : {})}}>
+    {compact && <Text style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary}]}>{facts[0]}</Text>}
+    {compact && <View style={{flex: 1}}/>}
+    {state.sorts.length > 1 && <Chip testID="collection-sort" onPress={() => setSortOpen(true)}>{sort ? sortLabel(sort) : defaultI18n.t('web.filters.sortBy')}</Chip>}
+    {!compact && <View style={{flex: 1}}/>}
+    {!tv && !compact && selection?.start && <Chip icon="i-check" onPress={() => selection.start?.()}>{t('next.selection.select')}</Chip>}
+    {state.phase === 'loading' ? <Text style={[browseType(theme, tv ? 22 : 13, 500), {color: theme.colors.textTertiary}]}>{t('status.loading')}</Text> : null}
+  </View>;
+  const status: ReactNode = failed ? <StateView variant="inline" {...runtime.error(error, props.onRetry)}/>
+    : empty ? <StateView variant="inline" title={t('next.collection.empty')} body=""/>
+    // A failed page further along keeps the members already shown and offers to try again.
+    : error ? <StateView variant="inline" {...runtime.error(error, props.onRetry)}/> : null;
+  const placeholder = () => <View style={{flex: 1, borderRadius: compact ? 0 : 8, backgroundColor: compact ? 'transparent' : theme.colors.raised}}/>;
   return <View style={{flex: 1, backgroundColor: theme.colors.ink}} testID="native-collection">
     {!tv && <Focusable testID="collection-back" accessibilityLabel={t('action.back')} onPress={props.onBack} focusRadius={20}
       style={{position: 'absolute', left: 10, top: insets.top + 6, width: 40, height: 40, alignItems: 'center', justifyContent: 'center', zIndex: 5}}>
       <Icon name="i-left" size={22} color={theme.colors.text}/></Focusable>}
-    <ScrollView onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
-      if (state.phase === 'ready' && contentSize.height - contentOffset.y - layoutMeasurement.height < (compact ? 980 : layoutMeasurement.height)) props.onMore();}} scrollEventThrottle={64}>
-      <View style={{height: tv ? 620 : compact ? 300 : 360}}>
-        <AmbientArt source={ambient} foreground={foreground} treatment="title" height={tv ? 760 : 460}/>
-        <View style={{position: 'absolute', left: tv ? 200 : 20, right: tv ? 200 : 20, bottom: tv ? 70 : compact ? 4 : 26, alignItems: compact ? 'center' : undefined}}>
-          <Text style={[browseType(theme, tv ? 24 : compact ? 13 : 12, 700), {color: theme.colors.accentStrong}]}>{t('next.home.collection')}</Text>
-          <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, tv ? 76 : compact ? 46 : 40, 800, -.035), {color: theme.colors.text, marginTop: tv ? 6 : compact ? 8 : 4, marginBottom: compact ? 10 : undefined, textAlign: compact ? 'center' : 'left'}]}>{state.title}</Text>
-          <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: tv ? 20 : 12, justifyContent: compact ? 'center' : 'flex-start', marginTop: tv ? 12 : compact ? 0 : 6}}>
-            {facts.map((fact, index) => <Text key={index} style={[browseType(theme, tv ? 24 : 13, index === 0 ? 700 : 500), {color: theme.colors.textSecondary}]}>{fact}</Text>)}
-          </View>
-          {!compact && controls}
-        </View>
-      </View>
-      {compact && controls}
-      {compact && state.projection?.entity?.origin === 'automatic' && <View style={{flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginHorizontal: 20, marginTop: 12}}>
-        <Icon name="i-info" size={16} color={theme.colors.textTertiary}/>
-        <Text style={[browseType(theme, 12.5, 400, 0, 18), {color: theme.colors.textTertiary, flex: 1}]}>{t('next.collection.automaticDescription')}</Text>
-      </View>}
-      <View style={{paddingLeft: tv ? 200 : compact ? 0 : 20, paddingRight: tv ? 96 : compact ? 0 : 20, paddingTop: tv ? 34 : compact ? 14 : 18, paddingBottom: 80}}>
-        <View style={{flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: tv ? 28 : compact ? 8 : 14, ...(compact ? {paddingHorizontal: 20} : {})}}>
-          {compact && <Text style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary}]}>{facts[0]}</Text>}
-          {compact && <View style={{flex: 1}}/>}
-          {state.sorts.length > 1 && <Chip testID="collection-sort" onPress={() => setSortOpen(true)}>{sort ? sortLabel(sort) : defaultI18n.t('web.filters.sortBy')}</Chip>}
-          {!compact && <View style={{flex: 1}}/>}
-          {!tv && !compact && selection?.start && <Chip icon="i-check" onPress={() => selection.start?.()}>{t('next.selection.select')}</Chip>}
-          {state.phase === 'loading' && entries.length === 0 ? <Text style={[browseType(theme, tv ? 22 : 13, 500), {color: theme.colors.textTertiary}]}>{t('status.loading')}</Text> : null}
-        </View>
-        {error && entries.length === 0 ? <StateView variant="inline" {...runtime.error(error, props.onRetry)}/> : null}
-        {!error && state.phase === 'ready' && entries.length === 0 ? <StateView variant="inline" title={t('next.collection.empty')} body=""/> : null}
-        {entries.length > 0 && (compact ? <View>{entries.map(entry => <CollectionRow key={`${entry.kind}:${entry.id}`} entry={entry} runtime={runtime}
-          onOpen={props.onOpen} actions={actions} selection={selection?.item(entry)}/>)}</View>
-          : tv ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 28, paddingRight: 24}}>
-            {entries.map(entry => <CollectionCard key={`${entry.kind}:${entry.id}`} entry={entry} width={214} runtime={runtime} onOpen={props.onOpen} actions={actions} selection={selection?.item(entry)}/>)}</ScrollView>
-            : <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, rowGap: 18}}>
-              {entries.map(entry => <CollectionCard key={`${entry.kind}:${entry.id}`} entry={entry} width={cardWidth} runtime={runtime} onOpen={props.onOpen} actions={actions} selection={selection?.item(entry)}/>)}</View>)}
-      </View>
-    </ScrollView>
+    {tv ? <ScrollView>{hero}<View style={{paddingLeft: 200, paddingRight: 96, paddingTop: 34, paddingBottom: 80}}>
+      {toolbar}
+      {status}
+      {!failed && !empty && <WindowedRow testID="collection-row" collection={collection} getKey={nativeCollectionEntryKey} itemWidth={214} itemHeight={321} captionHeight={72}
+        gap={28} gutter={0} rightGutter={24} renderPlaceholder={placeholder}
+        renderItem={(entry, context) => <CollectionCard entry={entry} width={214} runtime={runtime} onOpen={props.onOpen} actions={actions}
+          selection={selection?.item(entry)} onFocus={context.onFocus} onBlur={context.onBlur}/>}/>}
+    </View></ScrollView>
+      : <WindowedGrid testID={compact ? 'collection-list' : 'collection-grid'} collection={collection} getKey={nativeCollectionEntryKey}
+        header={<>{hero}{compact && controls}{automatic}
+          <View style={{paddingHorizontal: compact ? 0 : 20, paddingTop: compact ? 14 : 18}}>{toolbar}{status}</View></>}
+        itemWidth={compact ? dimensions.width : cardWidth} itemHeight={compact ? 98 : cardWidth * 1.5} captionHeight={compact ? 0 : 46}
+        gap={compact ? 0 : 10} rowGap={compact ? 0 : 18} gutter={compact ? 0 : 20} rightGutter={compact ? 0 : 20} paddingBottom={80}
+        renderPlaceholder={failed || empty ? () => null : placeholder}
+        renderItem={(entry, context) => compact
+          ? <CollectionRow entry={entry} runtime={runtime} onOpen={props.onOpen} actions={actions} selection={selection?.item(entry)}/>
+          : <CollectionCard entry={entry} width={cardWidth} runtime={runtime} onOpen={props.onOpen} actions={actions} selection={selection?.item(entry)}
+            onFocus={context.onFocus} onBlur={context.onBlur}/>}/>}
     {selection?.render()}
     <Menu testID={`${props.focusScope}.sort-menu`} open={sortOpen} onOpenChange={setSortOpen} title={defaultI18n.t('web.filters.sortBy')} items={sortItems}/>
     <Menu testID="collection-page-menu" open={pageMenu} onOpenChange={setPageMenu} title={state.title} items={[
@@ -121,13 +139,14 @@ export function NativeCollectionScreen(props: NativeCollectionScreenProps) {
   </View>;
 }
 
-export function CollectionCard({entry, width, runtime, onOpen, actions, selection}: {entry: ContentEntry; width: number; runtime: NativeShellRuntime;
-  onOpen: (entry: ContentEntry) => void; actions?: NativeCollectionScreenProps['actions']; selection?: CardSelection}) {
+export function CollectionCard({entry, width, runtime, onOpen, actions, selection, onFocus, onBlur}: {entry: ContentEntry; width: number; runtime: NativeShellRuntime;
+  onOpen: (entry: ContentEntry) => void; actions?: NativeCollectionScreenProps['actions']; selection?: CardSelection; onFocus?: () => void; onBlur?: () => void}) {
   const anchor = useRef<View>(null);
   return <PosterCard testID={`collection-item-${entry.id}`} title={entry.displayTitle || entry.title} width={width}
     artwork={runtime.artwork(entry.posterUrl)} watched={entry.watched} isNew={entry.new} selection={selection} menuAnchorRef={anchor}
     progress={entry.duration && entry.progressSeconds ? Math.min(1, entry.progressSeconds / entry.duration) : undefined}
     caption={entry.year === undefined ? [] : [{id: 'year', text: String(entry.year), role: 'context'}]}
+    onFocus={onFocus} onBlur={onBlur}
     onNavigate={() => onOpen(entry)} onMore={actions ? () => actions.menu(entry, anchor, selection?.onEnter) : undefined} moreExpanded={actions?.isMenuOpen?.(entry)}/>;
 }
 

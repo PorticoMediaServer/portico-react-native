@@ -80,7 +80,8 @@ export type NativeCatalogueSelectionSnapshot = Readonly<{
   key: string;
   witness?: unknown;
   context: SelectionContext | null;
-  sections: readonly Readonly<{id: string; entries: readonly ContentEntry[]; start?: number}>[];
+  /** `positions` gives each entry's absolute index in a sparse window; otherwise entries start at `start`. */
+  sections: readonly Readonly<{id: string; entries: readonly ContentEntry[]; start?: number; positions?: readonly number[]}>[];
 }>;
 export function catalogueSelectionSource(destination: Readonly<{subscribe: (listener: () => void) => () => void; getSnapshot: () => NativeCatalogueSelectionSnapshot}>,
   activation: NativeDestinationActivationPort): NativeSelectionSource {
@@ -90,7 +91,7 @@ export function catalogueSelectionSource(destination: Readonly<{subscribe: (list
     getSnapshot: () => {
       const snapshot = destination.getSnapshot();
       return {key: snapshot.key, witness: snapshot.witness, context: snapshot.context,
-        groups: snapshot.sections.map(section => ({id: section.id, offset: section.start, items: section.entries}))};
+        groups: snapshot.sections.map(section => ({id: section.id, offset: section.start, ...(section.positions ? {positions: section.positions} : {}), items: section.entries}))};
     },
   };
 }
