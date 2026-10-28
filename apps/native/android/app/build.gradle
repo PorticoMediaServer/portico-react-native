@@ -199,7 +199,7 @@ dependencies {
     // Google Cast: only in the build for devices with Google Play services (never Fire OS).
     googleImplementation "com.google.android.gms:play-services-cast-framework:22.1.0"
     // The provider sign-in browser (PorticoAccountAuth).
-    implementation("androidx.browser:browser:1.8.0")
+    implementation("androidx.browser:browser:1.10.0")
     implementation("androidx.core:core-splashscreen:1.0.1")
     // Read-only window/fold facts; no presentation or playback ownership in this module.
     implementation("androidx.window:window:1.5.1")
