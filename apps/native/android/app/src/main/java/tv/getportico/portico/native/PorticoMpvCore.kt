@@ -163,12 +163,12 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
     queue.post { setNow(name, value) }
   }
 
-  fun selectAudioTrack(track: Int, revision: Long, expectedEpoch: Int) {
-    queue.post {
+  fun selectAudioTrack(track: Int, revision: Long, expectedEpoch: Int): Boolean {
+    return queue.post {
       // The command belongs to a load that is gone (or has not started). Answer it so the
       // controller fails the choice honestly instead of waiting for a readback that can
       // never arrive; an old epoch's answer is dropped by the controller's own load fence.
-      if (!started || epoch != expectedEpoch) { deliver(PorticoMpvEvent.AudioTrackReadback(revision, -2)); return@post }
+      if (!started || epoch != expectedEpoch) { deliver(PorticoMpvEvent.AudioTrackReadback(revision, -2), expectedEpoch); return@post }
       val code = setNow("aid", track.toString())
       deliver(PorticoMpvEvent.AudioTrackReadback(revision, code))
     }
@@ -393,9 +393,8 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
       cacheDuration = double("demuxer-cache-duration") ?: Double.NaN,
       fileFormat = string("file-format") ?: "")
 
-  private fun deliver(event: PorticoMpvEvent) {
+  private fun deliver(event: PorticoMpvEvent, load: Int = epoch) {
     val snapshot = readSnapshot()
-    val load = epoch
     main.post { onEvent?.invoke(load, event, snapshot) }
   }
 

@@ -1311,7 +1311,11 @@ internal class PorticoMpvController(private val context: Context) {
     cancelAudioTrackTimeout()
     audioTrackPending = Triple(revision, track, index)
     audioTrackReadbackRevision = -1
-    core.selectAudioTrack(track, revision, loadEpoch)
+    if (!core.selectAudioTrack(track, revision, loadEpoch)) {
+      // A stopped Handler rejected the post. Keep the revision retryable.
+      audioTrackPending = null
+      return
+    }
     audioTrackHandled = revision
     // A guard-dropped command is answered with a failure readback. An `aid` mpv accepts but
     // coerces never produces the exact readback, so bound the wait like the native path.
