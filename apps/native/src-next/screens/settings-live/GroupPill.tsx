@@ -9,6 +9,7 @@ import {SidePanel} from '../../kit/overlays';
 import {useTheme} from '../../kit/theme';
 import {browseType} from '../../kit/browse/presentation';
 import {groupPort, subscribeGroupPort, type NativeGroupPort} from './group-port';
+import {memberNames} from './together-presentation';
 
 type Opening = Readonly<{owner: NativeGroupPort; groupId: string; viewer: string}>;
 
@@ -52,7 +53,7 @@ export function NativeTVGroupPill({onHost, onSheetChange}: {onHost?: (host: numb
   }, [group, onHost]);
   if (!group || !owner) return null;
   const joined = group.members.filter(member => member.state === 'joined');
-  const memberName = (member: (typeof joined)[number]) => member.private ? t('together.privateViewer') : member.displayName;
+  const memberName = (member: (typeof joined)[number]) => memberNames(member, t('together.privateViewer')).primary;
   const waiting = joined.find(member => member.id !== group.viewerMemberId && member.readiness === 'buffering');
   // Drawn states come only from the service's own readiness, presence and room phase.
   const pillState = snapshot?.phase === 'reconnecting' ? t('web.together.pill.reconnecting')
@@ -110,17 +111,25 @@ export function NativeTVGroupPill({onHost, onSheetChange}: {onHost?: (host: numb
         <Text testID="player-group-people" style={[browseType(theme, 20, 600), {color: theme.colors.textSecondary}]}>
           {t('web.together.pill.people', {count: joined.length})}
         </Text>
-        {joined.map(member => <View key={member.id} style={{flexDirection: 'row', alignItems: 'center', gap: 20, height: 88, paddingHorizontal: 22, borderRadius: 16}}>
-          {face(member, 64)}
-          <Text style={[browseType(theme, 22, 700), {color: theme.colors.text, flex: 1}]}>
-            {member.private ? memberName(member) : member.id === group.viewerMemberId ? t('web.together.you', {name: member.displayName}) : member.displayName}
-          </Text>
-          <Text style={[browseType(theme, 18, 600), {color: member.role === 'host' ? theme.colors.accentStrong : theme.colors.textTertiary}]}>
-            {member.role === 'host' ? t('web.together.hostStatus', {status: memberState(member)}) : memberState(member)}
-          </Text>
-          {permissions.isHost && member.role !== 'host' && <Button variant="glass" size="small" focusId={`group-host-${member.id}`}
-            onPress={() => makeHost(member.id, currentSheet)}>{t('web.together.makeHost')}</Button>}
-        </View>)}
+        {joined.map(member => {
+          const names = memberNames(member, t('together.privateViewer'));
+          const primary = member.private || member.id !== group.viewerMemberId ? names.primary : t('web.together.you', {name: names.primary});
+          return <View key={member.id} style={{flexDirection: 'row', alignItems: 'center', gap: 20, height: 88, paddingHorizontal: 22, borderRadius: 16}}>
+            {face(member, 64)}
+            <View style={{flex: 1, minWidth: 0}}>
+              <Text style={[browseType(theme, 22, 700), {color: theme.colors.text}]}>
+                {primary}
+              </Text>
+              {names.secondary && <Text numberOfLines={1} style={[browseType(theme, 18, 600), {color: theme.colors.textSecondary}]}>
+                {names.secondary}
+              </Text>}
+            </View>
+            <Text style={[browseType(theme, 18, 600), {color: member.role === 'host' ? theme.colors.accentStrong : theme.colors.textTertiary}]}>
+              {member.role === 'host' ? t('web.together.hostStatus', {status: memberState(member)}) : memberState(member)}
+            </Text>
+            {permissions.isHost && member.role !== 'host' && <Button variant="glass" size="small" focusId={`group-host-${member.id}`}
+              onPress={() => makeHost(member.id, currentSheet)}>{t('web.together.makeHost')}</Button>}
+          </View>;})}
         {canClaim && <Button variant="primary" focusId="group-claim-host" hasTVPreferredFocus onPress={() => makeHost(group.viewerMemberId, currentSheet)}>
           {t('web.together.becomeHost')}</Button>}
         {!permissions.canControl && <Text testID="player-group-host-controls" style={[browseType(theme, 18, 600), {color: theme.colors.textTertiary}]}>

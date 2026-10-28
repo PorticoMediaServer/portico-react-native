@@ -9,6 +9,7 @@ import {GroupSessionService} from '../../../packages/client-core/src/group-sessi
 import {NativeScreenLifetime} from '../src-next/screens/settings-live/lifetime.ts';
 import {NativeShellNavigation} from '../src-next/shell/routes';
 import {nativeTogetherPages} from '../src-next/screens/settings-live/together-page';
+import {memberNames} from '../src-next/screens/settings-live/together-presentation';
 const react = {...React, default: React};
 const module = await screenModule(new URL('../src-next/screens/settings-live/TogetherScreen.tsx', import.meta.url), {
   react, 'react-native': {ScrollView: 'ScrollView', Share: {}, Text: 'Text', View: 'View'},
@@ -21,7 +22,7 @@ const module = await screenModule(new URL('../src-next/screens/settings-live/Tog
   '../../kit/artwork': {AmbientArt: 'AmbientArt', Artwork: 'Artwork', ProfileFace: 'ProfileFace'}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/states': {StateView: 'StateView'},
   '../../kit/shell/visual': {alpha: () => '', shellType: () => ({})}, '../../kit/theme': {useTheme: () => ({isTV: false, width: 390, colors: {raised: 'a', text: 'b', textSecondary: 'c', textTertiary: 'd', line: 'e', raisedHigh: 'f'}})},
   '../../shell/tv-focus': {tvFocusIds: () => ({surface: (s: string) => s, rail: 'rail'})}, '../destinations': {NativeTVKeyboard: 'Keyboard'},
-  './Screen': {Screen: 'Screen', ScreenText: 'ScreenText', useScreenEntry: () => {}}, './together-presentation': {nativeTogetherLobbyFaces: () => []},
+  './Screen': {Screen: 'Screen', ScreenText: 'ScreenText', useScreenEntry: () => {}}, './together-presentation': {memberNames, nativeTogetherLobbyFaces: () => []},
   './TogetherTVRoom': {NativeTogetherTVRoom: 'TVRoom'},
 });
 const find = (node: any, id: string): any => {
