@@ -75,6 +75,8 @@ export function NativeQuerySelectionActionSurface({action, kind, onClose, ownerH
     {!terminal && state.phase !== 'idle' && <Button {...footerButton} testID="query-action-cancel" variant="glass" disabled={state.phase === 'cancelling'} onPress={cancel}>{t('action.cancel')}</Button>}
     {state.phase === 'uncertain' && <Button {...footerButton} testID="query-action-retry" onPress={retry}>{t('action.tryAgain')}</Button>}
     {!job && state.phase !== 'uncertain' && state.phase !== 'idle' && <Button {...footerButton} testID="query-action-confirm"
+      // select.html#22: Delete is the same red button as the explicit selection's dialog.
+      {...(kind === 'delete' ? {variant: 'text' as const, style: [footerButton.style, {backgroundColor: theme.colors.record}], textStyle: [footerButton.textStyle, {color: '#2a0808'}]} : {})}
       disabled={!ready || kind === 'delete' && state.confirmation !== preview?.confirmation}
       loading={state.phase === 'submitting' || state.phase === 'confirming'} onPress={confirm}>{t(kind === 'delete' ? 'next.selection.native.delete' : 'action.download')}</Button>}
   </View>;
@@ -96,7 +98,7 @@ export function NativeQuerySelectionActionSurface({action, kind, onClose, ownerH
             description={t(removeFiles ? 'next.selection.native.irrecoverable' : 'next.selection.native.filesStay')}
             onCheckedChange={value => open(() => action.openDelete(value))}>{t('next.selection.native.removeFiles')}</Switch>
           <TextField testID="query-action-confirmation" value={state.confirmation} editable={ready} autoCapitalize="none" autoCorrect={false}
-            appearance="selection" keyboardType={preview.confirmationKind === 'count' ? 'number-pad' : 'default'}
+            appearance="selection" keyboardType={theme.platform !== 'phone' && preview.confirmationKind === 'count' ? 'number-pad' : 'default'}
             label={t(preview.confirmationKind === 'title' ? 'next.selection.native.typeTitle' : 'next.selection.native.typeCount', {count: preview.confirmation})}
             description={preview.confirmationKind === 'title' ? preview.confirmation : undefined}
             onChangeText={value => {if (current()) action.controller.setConfirmation(value);}}/>
