@@ -227,7 +227,9 @@ export class NativePorticoSignIn {
         const linked = linkNativeAbortSignals([this.abort.signal, caller?.signal, signal]);
         try {
           if (!callerLive()) throw new CodedError('cancelled', 'native_provider_changed');
-          return await this.api().complete(transaction.transactionId, {username, displayName, factor, onboardingToken: transaction.onboardingToken}, linked.signal);
+          // A browser sign-in is finished with the one-use code it came back with (SEC-01).
+          return await this.api().complete(transaction.transactionId, {username, displayName, factor, onboardingToken: transaction.onboardingToken,
+            ...(attempt?.completionCode ? {completionCode: attempt.completionCode} : {})}, linked.signal);
         } finally {linked.dispose();}
       }, admitted);
       this.providerRefresh = undefined;
