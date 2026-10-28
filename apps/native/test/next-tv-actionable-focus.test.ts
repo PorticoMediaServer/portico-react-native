@@ -16,6 +16,8 @@ import * as controlModel from '../src-next/kit/controls/control-model';
 import {useTVBusyEntryRevision} from '../src-next/tv/auth/entry-revision';
 import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
+import * as selectionUnavailableActions from '../src-next/screens/library/selection-unavailable-actions.ts';
+import * as wholeQueryUnavailable from '../src-next/screens/library/whole-query-unavailable.ts';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
 const flush = async () => {await act(() => {});};
@@ -907,16 +909,19 @@ for (const failed of [false, true]) test(`actual Library selection result footer
     '../../kit/theme': {useTheme: () => b.theme}, '../../kit/overlays': o.surface, '../../kit/controls': {Button: o.Button},
     '../destinations/lifetime': scope, '../native-screen-services': {nativeScreenServices: () => ({})}, '../destinations/DestinationPicker': {NativeDestinationPicker: 'Picker'},
     '../search/loaded-destinations': {NativeLoadedDestinations: class {}}, '../destinations/bulk-media': {NativeBulkMedia: class {}}, './model': {},
+    './selection-unavailable-actions': selectionUnavailableActions, './whole-query-unavailable': wholeQueryUnavailable,
     './play-selection': {createNativeLibraryPlaySelection() {throw new Error('footer vector must not create a producer');}}});
   const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'original', viewerFence: 'viewer'};
   const context = {session: () => ({viewer: {...authority, authority: 'local'}}), authority: () => authority, current: () => true, subscribeAuthority: () => () => {}};
-  const port = module.createNativeLibrarySelection(context, {}, {subscribe: () => () => {}, getSnapshot: (() => {const snapshot = {visible: true}; return () => snapshot;})()});
+  const libraryListeners = new Set<() => void>(), librarySnapshot = {phase: 'loading'};
+  const librarySource = {getSnapshot: () => librarySnapshot, subscribe: (listener: () => void) => {libraryListeners.add(listener); return () => libraryListeners.delete(listener);}};
+  const port = module.createNativeLibrarySelection(context, librarySource, {subscribe: () => () => {}, getSnapshot: (() => {const snapshot = {visible: true}; return () => snapshot;})()});
   const element = port.render(); // Obtain the real private presenter through its public factory.
   let busy = false, token = 1, active = true, clears = 0, retries = 0, tree: any, panel: any;
   const view = {active: true, selectedKeys: ['original'], target: {mode: 'explicit'}, summary: {count: 1, types: [{kind: 'movie', count: 1}], every: {}}};
   // The selection operation port is controlled; all presenter guards and kit bindings are real.
   const store = {subscribe: () => () => {}, getSnapshot: () => 1, snapshot: () => view, active: () => active, personal: () => ({results: [{key: 'original', title: 'Original', status: failed ? 'failed' : 'saved'}]}),
-    personalBusy: () => busy, busy: () => busy, resultsToken: () => token, whole: () => undefined, destination: () => undefined, destinationKind: () => undefined, bulk: () => undefined,
+    personalBusy: () => busy, busy: () => busy, resultsToken: () => token, whole: () => undefined, wholeUnavailable: () => undefined, destination: () => undefined, destinationKind: () => undefined, bulk: () => undefined,
     queueControl: () => false, loadedCount: () => 1, entries: () => [], clear() {clears++; active = false;}, async retryPersonal() {retries++;}};
   const source = createFabricHookHost(() => {tree = element.type({...element.props, store});});
   let renderer: Awaited<ReturnType<typeof createFabricHookHost>> | undefined;
@@ -950,5 +955,5 @@ for (const failed of [false, true]) test(`actual Library selection result footer
     for (const target of targets) await target.dispose(); await guide.dispose();
     await source.rerender(); assert.equal(tree, null); await renderer.unmount();
     assert.equal(clears, 1); assert.equal(opener.calls, 1, 'actual panel teardown restores the original captured library opener');
-  } finally {await renderer?.unmount(); await source.unmount(); port.dispose(); await b.dispose(); t.mock.timers.reset();}
+  } finally {await renderer?.unmount(); await source.unmount(); port.dispose(); assert.equal(libraryListeners.size, 0); await b.dispose(); t.mock.timers.reset();}
 });
