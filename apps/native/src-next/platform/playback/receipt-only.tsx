@@ -95,9 +95,9 @@ export function createNativeReceiptOnlyPlayback(options: Readonly<{
       const previous = tracks?.getSnapshot().binding;
       if (!previous || previous.intentId !== state.intentId || previous.sessionId !== state.session.id || previous.generation !== state.session.generation)
         tracks = new NativeOfflineTracks(source.media, {intentId: state.intentId, sessionId: state.session.id, generation: state.session.generation});
-      const engine = coordinator.getEngine() as EngineKind, rendering = engine === 'native' ? ['text'] : features[engine]?.subtitleRendering ?? ['text'];
+      const engine = coordinator.getEngine() as EngineKind, rendering = features[engine]?.subtitleRendering ?? ['text'];
       const available = settings.engine !== 'native' && transports.mpv ? [...new Set([...rendering, ...(features.mpv?.subtitleRendering ?? [])])] : rendering;
-      tracks!.configure(engine, coordinator.getInstanceId(), rendering, available, engine === 'mpv' || Platform.OS === 'android');
+      tracks!.configure(engine, coordinator.getInstanceId(), rendering, available, true);
     } else tracks = undefined;
     coordinator.setAudioTrack(tracks?.audioCommand() ?? null); coordinator.setLocalAudioTrack(tracks?.localAudioCommand() ?? null);
     coordinator.setOptions(rate, null, tracks?.subtitleCommand(captionStyle(settings.subtitles), true)

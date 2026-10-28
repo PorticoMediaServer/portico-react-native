@@ -1,3 +1,4 @@
+import {recoverEventState} from '../../platform/event-resync';
 import React, {useEffect, useMemo, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -35,7 +36,11 @@ export function NativeDashboardScreen({controller, ports, runtime, deniedFallbac
     void controller.refresh();
     // A resync means admin.sessions hints may have been missed: read the Dashboard as it is now.
     const refresh = () => {void controller.refresh();};
-    const offs = [ports.context.events.on('admin.sessions', refresh), ports.context.events.onResync(refresh)];
+    const offs = [ports.context.events.on('admin.sessions', refresh), recoverEventState(ports.context.events, async ({signal}) => {
+      if (signal.aborted || !controller.lifetime.current()) return;
+      await controller.refresh();
+      if (!signal.aborted && controller.lifetime.current() && controller.getSnapshot().error) throw controller.getSnapshot().error;
+    })];
     return () => {for (const off of offs) off();};
   }, [controller, ports]);
   useEffect(() => {

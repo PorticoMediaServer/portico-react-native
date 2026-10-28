@@ -72,7 +72,11 @@ async function fixture(engine = 'mpv', local = false, withOptions = true) {
     fail(id, message) {assert.equal(id, state.intentId); state.phase = 'error'; state.intent = 'paused'; state.error = message;},
     pause() {state.intent = 'paused';}, engineLost() {},
   };
-  const transport = {acquire: async () => ({lease: 'lease', instanceId: 'instance'}), release: async () => {},
+  let instances = 0, currentInstance = 'instance';
+  const transport = {acquire: async () => {
+    currentInstance = ++instances === 1 ? 'instance' : `${engine}-${instances}`;
+    return {lease: `lease-${instances}`, instanceId: currentInstance};
+  }, release: async () => {},
     command: async command => {commands.push(command);}, subscribe(fn) {listener = fn; return () => {listener = undefined;};}};
   const coordinator = new NativePlaybackCoordinator(service, transport, () => 'owner', () => state.session.streamUrl, fact => runtime.acceptFact(fact),
     {initial: engine, choose: () => engine, transport: () => transport});
@@ -90,9 +94,13 @@ async function fixture(engine = 'mpv', local = false, withOptions = true) {
   });
   const off = coordinator.subscribe(() => runtime.applyOptions());
   runtime.applyOptions(); coordinator.start(); await drain();
-  const emit = (type, extra = {}) => {const command = commands.at(-1); listener({type, instanceId: 'instance', binding: command.binding,
+  const emit = (type, extra = {}) => {const command = commands.at(-1); listener({type, instanceId: currentInstance, binding: command.binding,
     lastCommandRevision: command.commandRevision, factSequence: ++sequence, position: state.positionSeconds, paused: state.intent === 'paused', ...extra});};
   return {runtime, coordinator, state, accepted, commands, timers, observations, emit, settings,
+    async switchTo(next) {engine = next; coordinator.reconsiderEngine(); await drain();},
+    captureFacts() {const send = listener, command = commands.at(-1), instanceId = currentInstance;
+      return (type, extra = {}) => send({type, instanceId, binding: command.binding,
+        lastCommandRevision: command.commandRevision, factSequence: ++sequence, position: state.positionSeconds, paused: false, ...extra});},
     reportedAudio: () => reportedAudio, probes: () => probes, retire: () => {current = false; runtime.recovery.clear();},
     dispose() {runtime.recovery.clear(); off(); coordinator.stop();}};
 }
@@ -148,9 +156,8 @@ test('local subtitle and Media3 audio commands use admitted local facts and the 
   f.settings.overrides = {disablePassthrough: true}; f.runtime.applyOptions(); await drain(); assert.equal(f.commands.at(-1).passthrough.disabled, true);
 });
 
-test('Apple local subtitles use saved VTT without unsupported rich-file or timing commands', async t => {
+test('Apple local subtitles use the supported rich renderer, saved VTT fallback and session timing', async t => {
   const f = await fixture('native', true); t.after(() => f.dispose());
-  delete f.runtime.o.nativeLocalSubtitleTiming;
   f.runtime.o.engines.transport = () => undefined;
   f.runtime.o.engineFeatures = () => ({subtitleRendering: ['text', 'ass', 'pgs']});
   f.runtime.localTracks = new offline.NativeOfflineTracks({entryId: 'copy', itemId: 'item', playId: 'play', fileUrl: f.state.session.streamUrl,
@@ -163,13 +170,55 @@ test('Apple local subtitles use saved VTT without unsupported rich-file or timin
   const tracks = f.runtime.localTracks;
   tracks.choose({subtitleTrackId: 'captions'}); f.runtime.applyOptions(); await drain();
   const command = f.commands.at(-1).subtitles;
-  assert.equal(command.documentUrl, 'file:///Downloads/copy/extras/sub.vtt'); assert.equal(command.render, undefined); assert.equal(command.offsetUs, '0');
-  assert.equal(tracks.getSnapshot().subtitleTimingSupported, false);
-  assert.throws(() => tracks.choose({subtitleOffsetMs: 500})); assert.throws(() => tracks.choose({subtitleTrackId: 'image'}));
+  assert.equal(command.documentUrl, 'file:///Downloads/copy/extras/sub.vtt');
+  assert.deepEqual(plain(command.render), {kind: 'ass', url: 'file:///Downloads/copy/extras/sub.ass'});
+  assert.equal(command.offsetUs, '0'); assert.equal(tracks.getSnapshot().subtitleTimingSupported, true);
+  tracks.choose({subtitleOffsetMs: 500}); f.runtime.applyOptions(); await drain();
+  assert.equal(f.commands.at(-1).subtitles.offsetUs, '500000');
+  assert.equal(f.commands.at(-1).subtitles.localSessionOffsetUs, '500000');
+  tracks.choose({subtitleTrackId: 'image'}); f.runtime.applyOptions(); await drain();
+  assert.deepEqual(plain(f.commands.at(-1).subtitles.render), {kind: 'pgs', url: 'file:///Downloads/copy/extras/sub.pgs'});
+  tracks.choose({subtitleTrackId: null}); f.runtime.applyOptions(); await drain();
+  assert.equal(f.commands.at(-1).subtitles.mode, 'off');
+  assert.equal(tracks.getSnapshot().subtitleOffsetMs, 0);
 });
 
 test('the coordinator drops old-source audio acknowledgements before they reach the runtime', async t => {
   const f = await fixture(); t.after(() => f.dispose()); const command = f.commands.at(-1);
   f.emit('audioTrackApplied', {audioTrackRevision: command.audioTrack.revision, streamIndex: 7, binding: {...command.binding, generation: 0}});
   assert.equal(f.runtime.audioTrackSelection.getSnapshot().state, 'pending'); assert.equal(f.reportedAudio(), undefined);
+});
+
+test('offline runtime preserves a proven source choice across engines and fences old engine readback', async t => {
+  const f = await fixture('native', true); t.after(() => f.dispose());
+  f.runtime.localTracks = new offline.NativeOfflineTracks({entryId: 'copy', itemId: 'item', playId: 'play', fileUrl: f.state.session.streamUrl,
+    durationSeconds: 60, startSeconds: 0}, {intentId: 1, sessionId: f.state.session.id, generation: 1});
+  const identity = trackId => ({container: 'isobmff', trackId});
+  f.runtime.applyOptions(); await drain();
+  f.emit('mediaInfo', {audioTrackCatalogRevision: 5, audioTracks: [
+    {id: 'local-1', selected: true, sourceTrackIdentity: identity('137')}, {id: 'local-2', sourceTrackIdentity: identity('902')},
+  ]});
+  f.runtime.localTracks.choose({audioTrackId: 'local-2'}); f.runtime.applyOptions(); await drain();
+  const native = f.commands.at(-1).localAudioTrack, retired = f.captureFacts();
+  f.emit('localAudioTrackApplied', {audioTrackRevision: native.revision, catalogRevision: 5, trackId: 'local-2'});
+  await f.switchTo('mpv');
+  assert.equal(f.commands.at(-1).localAudioTrack, undefined); assert.equal(f.commands.at(-1).audioTrack, undefined);
+  retired('mediaInfo', {audioTrackCatalogRevision: 9, audioTracks: [{id: 'foreign', sourceTrackIdentity: identity('902')}]});
+  assert.deepEqual(f.runtime.localTracks.getSnapshot().audio, []);
+  f.emit('mediaInfo', {audioTracks: [{streamIndex: 7, selected: true, sourceTrackIdentity: identity('137')},
+    {streamIndex: 1, sourceTrackIdentity: identity('902')}]}); await drain();
+  const mpv = f.commands.at(-1).audioTrack;
+  assert.equal(mpv.streamIndex, 1); assert.ok(mpv.revision > native.revision);
+  retired('localAudioTrackApplied', {audioTrackRevision: native.revision, catalogRevision: 5, trackId: 'local-2'});
+  f.emit('audioTrackApplied', {audioTrackRevision: native.revision, streamIndex: 1});
+  assert.equal(f.runtime.localTracks.getSnapshot().audioTrackId, undefined);
+  f.emit('audioTrackApplied', {audioTrackRevision: mpv.revision, streamIndex: 1});
+  assert.equal(f.runtime.localTracks.getSnapshot().audioTrackId, 'a1');
+  await f.switchTo('native');
+  f.emit('mediaInfo', {audioTrackCatalogRevision: 1, audioTracks: [{id: 'replacement', selected: true, sourceTrackIdentity: identity('902')}]});
+  await drain(); const restored = f.commands.at(-1).localAudioTrack;
+  assert.equal(restored.catalogRevision, 1); assert.equal(restored.trackId, 'replacement'); assert.ok(restored.revision > mpv.revision);
+  assert.equal(f.commands.at(-1).audioTrack, undefined); assert.equal(f.runtime.localTracks.getSnapshot().audioTrackId, undefined);
+  f.emit('localAudioTrackApplied', {audioTrackRevision: restored.revision, catalogRevision: 1, trackId: restored.trackId});
+  assert.equal(f.runtime.localTracks.getSnapshot().audioTrackId, 'replacement');
 });

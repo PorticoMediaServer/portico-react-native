@@ -15,7 +15,7 @@ import type {FocusTarget} from '../overlays/types';
 import {useTheme} from '../theme';
 import {selectionText} from './copy';
 import {selectionControlID as controlID} from './focus-ids';
-import {changeList, changeScalar, failedSelectionIds, removeFieldChange, setListChange} from './presentation';
+import {bulkFieldHint, bulkFieldStateLabel, changeList, changeScalar, failedSelectionIds, removeFieldChange, setListChange} from './presentation';
 import {selectionFooterProps, SelectionSurface, SelectionText} from './surface';
 import type {BulkEditorProps} from './types';
 
@@ -25,7 +25,8 @@ function ListField({field, fieldRef, ...props}: FieldProps) {
   const [draft, setDraft] = useState('');
   const change = props.changes[field.field];
   const list = change && 'add' in change ? change : {add: [], remove: []};
-  const existing = props.values[field.field]?.entries ?? [];
+  const current = props.values[field.field];
+  const existing = current?.entries ?? [];
   const values = [...existing.map(entry => ({...entry, added: false})), ...list.add.filter(value => !existing.some(entry => entry.value === value)).map(value => ({value, count: props.count, added: true}))];
   const addLabel = field.field === 'genres' ? defaultI18n.t('next.selection.addGenre') : field.field === 'tags' ? defaultI18n.t(values.length ? 'next.selection.addTag' : 'next.selection.emptyTag') : field.field === 'labels' ? defaultI18n.t(values.length ? 'next.selection.addLabel' : 'next.selection.emptyLabel') : selectionText('next.selection.native.addFieldValue', {field: props.fieldLabel(field)});
   const add = () => {const value = draft.trim(); if (validBulkListEntry(value) && !props.pending) {props.onChangesChange(changeList(props.changes, field.field, value, 'add')); setDraft('');}};
@@ -44,6 +45,7 @@ function ListField({field, fieldRef, ...props}: FieldProps) {
       <View style={{minWidth: 100, flex: 1, ...(isTV ? {width: '100%', flexBasis: '100%'} as const : {})}}><TextField appearance="selection" testID={controlID(props.testID, 'field', field.field, 'add-input')} ref={fieldRef} accessibilityLabel={addLabel} value={draft} onChangeText={setDraft} onSubmitEditing={add} editable={!props.pending} placeholder={addLabel} maxLength={field.maxLength} returnKeyType="done" fieldStyle={isTV ? {backgroundColor: colors.ink} : {height: 28, minHeight: 28, borderWidth: 0, paddingHorizontal: 4, backgroundColor: 'transparent'}} style={isTV ? {fontSize: type.body.fontSize} : {fontSize: 12.5}} /></View>
       {draft.trim() ? <Button testID={controlID(props.testID, 'field', field.field, 'add')} variant="text" size="small" disabled={!validBulkListEntry(draft.trim()) || props.pending} onPress={add}>{selectionText('next.selection.native.add')}</Button> : null}
     </View>
+    {current?.state === 'many' ? <SelectionText secondary>{bulkFieldStateLabel(current)}</SelectionText> : null}
   </View>;
 }
 function ScalarField({field, fieldRef, ...props}: FieldProps) {
@@ -53,9 +55,9 @@ function ScalarField({field, fieldRef, ...props}: FieldProps) {
   const change = props.changes[field.field];
   const changed = change !== undefined && 'value' in change;
   const value = changed ? change.value : current?.state === 'shared' ? current.value ?? '' : '';
-  const hint = changed ? current?.state === 'mixed' ? selectionText('next.selection.native.wasMixed') : '' : current?.state === 'shared' && current.value !== undefined ? selectionText('next.selection.native.all', {count: props.count}) : current?.state === 'mixed' ? selectionText('next.selection.native.distinct', {count: current.distinctCount}) : '';
+  const hint = bulkFieldHint(current, props.count, changed);
   const update = (next: string) => {if (!props.pending) props.onChangesChange(changeScalar(props.changes, field.field, next));};
-  if (field.type === 'enum' || props.fieldOptions?.[field.field]) return <Select testID={controlID(props.testID, 'field', field.field, 'input')} ref={fieldRef} value={value} onValueChange={update} disabled={props.pending} accessibilityLabel={props.fieldLabel(field)} placeholder={current?.state === 'mixed' && !changed ? selectionText('next.selection.native.mixed') : changed || current?.value !== undefined ? selectionText('next.selection.native.notSet') : ''}
+  if (field.type === 'enum' || props.fieldOptions?.[field.field]) return <Select testID={controlID(props.testID, 'field', field.field, 'input')} ref={fieldRef} value={value} onValueChange={update} disabled={props.pending} accessibilityLabel={props.fieldLabel(field)} placeholder={current && current.state !== 'shared' && !changed ? bulkFieldStateLabel(current) : changed || current?.value !== undefined ? selectionText('next.selection.native.notSet') : ''}
     description={isTV && hint ? hint : undefined} error={props.fieldErrors?.[field.field]} options={props.fieldOptions?.[field.field] ?? (field.allowed ?? []).map(option => ({value: option, label: props.fieldValueLabel?.(field, option) ?? option}))} />;
   return <View>
     <TextField appearance="selection" testID={controlID(props.testID, 'field', field.field, 'input')} ref={fieldRef} error={props.fieldErrors?.[field.field]} value={value} onChangeText={update} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} editable={!props.pending}
@@ -63,7 +65,7 @@ function ScalarField({field, fieldRef, ...props}: FieldProps) {
       placeholder={changed || current?.state === 'shared' && current.value !== undefined ? selectionText('next.selection.native.notSet') : undefined}
       fieldStyle={{height: isTV ? fieldSpec.height[platform] : 44, borderRadius: isTV ? fieldSpec.radius[platform] : 10, backgroundColor: colors.ink, paddingHorizontal: isTV ? fieldSpec.paddingX[platform] : 12, borderWidth: changed || isTV ? 2 : 1, borderColor: changed ? colors.accentStrong : colors.line}}
       selection={!focused ? {start: 0, end: 0} : undefined} style={{fontSize: isTV ? type.body.fontSize : 14.5, paddingRight: isTV ? 0 : hint === selectionText('next.selection.native.wasMixed') ? 66 : hint ? 32 : 0}} />
-    {!focused && !changed && current?.state === 'mixed' ? <View pointerEvents="none" style={{position: 'absolute', left: isTV ? 20 : 12, top: isTV ? 14 : 10, borderRadius: 6, backgroundColor: 'rgba(237,245,250,.09)', paddingHorizontal: 9, paddingVertical: 3}}><SelectionText size={isTV ? 22 : 13.5} weight={700}>{selectionText('next.selection.native.mixed')}</SelectionText></View> : null}
+    {!focused && !changed && current && current.state !== 'shared' ? <View pointerEvents="none" style={{position: 'absolute', left: isTV ? 20 : 12, top: isTV ? 14 : 10, borderRadius: 6, backgroundColor: 'rgba(237,245,250,.09)', paddingHorizontal: 9, paddingVertical: 3}}><SelectionText size={isTV ? 22 : 13.5} weight={700}>{bulkFieldStateLabel(current)}</SelectionText></View> : null}
     {hint ? <View pointerEvents="none" style={isTV ? {marginTop: 8} : {position: 'absolute', right: 12, top: 15}}><SelectionText size={isTV ? 20 : 11.5} secondary style={{color: changed ? colors.accentStrong : colors.textTertiary}}>{hint}</SelectionText></View> : null}
   </View>;
 }

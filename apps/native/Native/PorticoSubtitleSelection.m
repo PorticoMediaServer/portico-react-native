@@ -1,4 +1,5 @@
 #import "PorticoSubtitleSelection.h"
+#import "PorticoLocalSubtitle.h"
 #import "PorticoServerTrust.h"
 #import <Foundation/Foundation.h>
 #import <MediaAccessibility/MediaAccessibility.h>
@@ -119,13 +120,14 @@ static BOOL PlainText(id value){
  // A downloaded title: its subtitles are a WebVTT file beside it, inside the app's Downloads
  // folder. Only a download may name one, and only there.
  if(url.isFileURL){
-  if(!media.isFileURL||!self.allowsLocalFile||!self.allowsLocalFile(url)||!self.allowsLocalFile(media)||![url.pathExtension.lowercaseString isEqual:@"vtt"]){[self invalidate];[self status:@"subtitle_source_invalid"];return;}
-  // Downloaded WebVTT already contains the server's complete correction. Only the raw
-  // source-relative cue document/original overlay uses a selection offset here.
-  offset=0;
+  if(!PorticoLocalSubtitleURL(url.absoluteString,source,self.allowsLocalFile)||![url.pathExtension.lowercaseString isEqual:@"vtt"]){[self invalidate];[self status:@"subtitle_source_invalid"];return;}
+  // offsetUs may describe a correction already baked into this saved VTT. Only the
+  // explicit current-session delta is applied here; older commands default to zero.
+  if(!DecimalUS(command[@"localSessionOffsetUs"]?:@"0",600000000,YES,&offset)){[self invalidate];[self status:@"subtitle_command_invalid"];return;}
+  if(_item==item&&_local&&[_command[@"binding"]isEqual:command[@"binding"]]&&[command[@"revision"]integerValue]<_revision)return;
   if(_item==item&&_local&&[_url isEqual:url]&&[_command[@"binding"] isEqual:command[@"binding"]]){_command=[command copy];_revision=[command[@"revision"] integerValue];_offset=offset;[self tick:_time];return;}
   [self invalidate];_item=item;_url=url;_local=YES;_command=[command copy];_revision=[command[@"revision"] integerValue];_offset=offset;
-  [self disableEmbedded:item];[self readLocal:url];return;
+  [self disableEmbedded:item];[self readLocal:url source:source];return;
  }
  NSArray *mediaParts=media.path.pathComponents;
  NSString *grant=mediaParts.count>=4?mediaParts[3]:@"";
@@ -161,11 +163,10 @@ static BOOL PlainText(id value){
 }
 /** Reads a download's WebVTT file off the main thread and keeps its cues. Tags are dropped (the
  * line is plain text, italic when the cue is), and a cue that cannot be read costs only itself. */
-- (void)readLocal:(NSURL *)url {
- NSInteger epoch=_localEpoch;__weak PorticoSubtitleSelection *weakSelf=self;
+- (void)readLocal:(NSURL *)url source:(NSString *)source {
+ NSInteger epoch=_localEpoch;BOOL (^allowed)(NSURL *)=[self.allowsLocalFile copy];__weak PorticoSubtitleSelection *weakSelf=self;
  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{
-  NSNumber *size=nil;[url getResourceValue:&size forKey:NSURLFileSizeKey error:nil];
-  NSData *data=size&&size.unsignedIntegerValue<=SubtitleByteLimit?[NSData dataWithContentsOfURL:url options:NSDataReadingMappedIfSafe error:nil]:nil;
+  NSData *data=PorticoReadLocalSubtitle(url,source,SubtitleByteLimit,allowed);
   NSString *text=data?[[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding]:nil;
   NSMutableArray *cues=[NSMutableArray new];
   if(text){

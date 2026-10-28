@@ -10,6 +10,7 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
 import tv.getportico.portico.policy.PorticoLocalAudioCatalogue
+import tv.getportico.portico.policy.PorticoIsoAudioIdentity
 
 /** Embedded audio choices read from the currently loaded download. Main thread only. */
 internal class PorticoLocalAudioSelection {
@@ -48,6 +49,7 @@ internal class PorticoLocalAudioSelection {
 
   private val main = Handler(Looper.getMainLooper())
   private val catalogue = PorticoLocalAudioCatalogue<Option>()
+  private val sourceIdentity = PorticoIsoAudioIdentity.Cache()
   private var player: ExoPlayer? = null
   private var item = ""
   private var handled: Selection? = null
@@ -79,6 +81,7 @@ internal class PorticoLocalAudioSelection {
     item = ""
     observed = emptyList()
     catalogue.clear()
+    sourceIdentity.clear()
     // This is a playback-session choice. A reused ExoPlayer must not carry it into another file.
     if (previous != null && groups.isNotEmpty()) {
       val parameters = previous.trackSelectionParameters.buildUpon()
@@ -261,8 +264,13 @@ internal class PorticoLocalAudioSelection {
     val publish = force || changed || observed != selected
     observed = selected
     if (publish) {
+      val proof = sourceIdentity.get(current()?.currentMediaItem?.localConfiguration?.uri?.toString())
+      val formatIds = catalogue.tracks().values.groupingBy { it.format.id }.eachCount()
       val choices = catalogue.tracks().map { (id, option) ->
         val choice = hashMapOf<String, Any?>("id" to id, "selected" to (id in selected))
+        if (formatIds[option.format.id] == 1) proof.media3(option.format.containerMimeType, option.format.id)?.let {
+          choice["sourceTrackIdentity"] = it
+        }
         option.format.language?.takeIf { it.isNotEmpty() && it.length <= 128 }?.let { choice["language"] = it }
         option.format.label?.takeIf { it.isNotEmpty() && it.length <= 4096 }?.let { choice["title"] = it }
         (option.format.codecs ?: option.format.sampleMimeType)?.takeIf { it.isNotEmpty() && it.length <= 128 }?.let { choice["codec"] = it }

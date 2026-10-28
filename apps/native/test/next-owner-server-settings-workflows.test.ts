@@ -5,7 +5,8 @@ import {bindingModule, formsFixture as untypedFormsFixture, lifecycleHooks, main
 import * as values from '../src-next/screens/settings-live/server/settings-values.ts';
 import {secureConnectionView} from '../../../packages/client-core/src/server-admin/secure-connection.ts';
 import {certificateProblemMessage, retryCertificate} from '../../../packages/client-core/src/certificates.ts';
-import {restoreRecoveryNotice} from '../../../packages/client-core/src/backups.ts';
+import {restoreRecoveryDetails, restoreRecoveryNotice} from '../../../packages/client-core/src/backups.ts';
+import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 
 import type {DraftForm} from '../../../packages/client-core/src/server-admin/draft-form.ts';
 import * as transcodeLocation from '../../../packages/client-core/src/presentation/transcode-location.ts';
@@ -89,7 +90,7 @@ test('Remote access edits the certificate switch, keeps own address on main, and
   host.dispose();fixture.stop();
 });
 
-async function backupsFixture() {
+async function backupsFixture(translate = t) {
   const host = lifecycleHooks(), backup = {id: 'backup-1', createdAt: '2026-10-01T00:00:00Z', kind: 'scheduled', schemaVersion: 4, serverVersion: '0.1-test', bytes: 1024, path: '/backups/one.ptb'};
   let active = true, prepared: unknown, restored: unknown, deleted: unknown, cancelled = 0;
   const state: any = {busy: false, document: {backups: [backup], running: {jobId: 'j', phase: 'copying_database', bytesDone: 500, bytesTotal: 1000}}};
@@ -102,12 +103,12 @@ async function backupsFixture() {
   }
   class Lifetime {current = () => active;request = (run: any) => run(new AbortController().signal);dispose() {active = false;}}
   const module = await screenModule(new URL('../src-next/screens/settings-live/server/storage/BackupsTab.tsx', import.meta.url), {
-    react: host.react, 'react-native': {Text: 'Text', View: 'View'}, '../../../../../../../packages/client-core/src/server-admin/backup-source': {SettingsBackupSource: Source}, '../../../../../../../packages/client-core/src/backups': {isAuthenticationFailure: () => false, restoreRecoveryNotice}, '../../../../../../../packages/contracts/src/routes': {routePath: (id: string) => id}, '../../../../../../../packages/client-core/src/presentation/settings-spec': specification,
+    react: host.react, 'react-native': {Text: 'Text', View: 'View'}, '../../../../../../../packages/client-core/src/server-admin/backup-source': {SettingsBackupSource: Source}, '../../../../../../../packages/client-core/src/backups': {isAuthenticationFailure: () => false, restoreRecoveryDetails, restoreRecoveryNotice}, '../../../../../../../packages/contracts/src/routes': {routePath: (id: string) => id}, '../../../../../../../packages/client-core/src/presentation/settings-spec': specification,
     '../../../../../../../packages/client-core/src/administration': {backupProgressFraction: (value: any) => value.bytesTotal > 0 ? value.bytesDone / value.bytesTotal : undefined}, '../../../../../../../packages/client-core/src/server-admin/console-words': {sentence: (value: string) => value.replaceAll('_', ' '), when: String}, '../../../../../../../packages/i18n/src': {defaultI18n: i18n},
     '../../../../kit/controls': {Button: 'Button', Focusable: 'Focusable', TextField: 'TextField'}, '../../../../kit/overlays': {BottomSheet: 'BottomSheet', Menu: 'Menu'}, '../../owner-libraries/FolderExplorer': {FolderExplorer: 'FolderExplorer'}, '../AdvancedSection': {NativeAdvancedSection: 'Advanced'}, '../../../../kit/shell/visual': {shellType: () => ({})}, '../../../../kit/theme': {useTheme: () => theme}, '../../lifetime': {NativeScreenLifetime: Lifetime, screenScopeEnded: () => new Error('ended')}, './space-source': {nativeStorageOwner: () => active}, './BackupFolder': {NativeBackupFolder: 'BackupFolder'}, './BackupProtection': {NativeBackupProtection: 'Protection'},
   });
   const ports = {context: {authority: () => ({serverId: 'server'}), api: {request: async () => ({})}}, requestId: () => 'operation'};
-  const render = () => host.render(() => {const outer = module.BackupsTab({ports, runtime, t, advancedContent: {type: 'Limits', props: {}}});return outer ? outer.type(outer.props) : null;});
+  const render = () => host.render(() => {const outer = module.BackupsTab({ports, runtime, t: translate, advancedContent: {type: 'Limits', props: {}}});return outer ? outer.type(outer.props) : null;});
   render();host.flush();render();host.flush();
   return {host, state, render, selection, backup, snapshot: () => ({prepared, restored, deleted, cancelled}), stop: () => {active = false;host.dispose();}};
 }
@@ -141,6 +142,29 @@ test('Backups shows the manual pause warning, pressure failure and recovery outc
     fixture.state.document.lastRestore = {outcome: 'restored', recovery};
     assert.ok(content(nodes(fixture.render())).includes(`web.maintenance.${message}`));
   }
+  fixture.stop();
+});
+
+test('Backups exposes bounded precise manifest damage in completed and restarting restores', async () => {
+  const fixture = await backupsFixture(defaultI18n.t);
+  const recovery = {indexesRebuilt: true, manifestDamage: {count: 25, missingFiles: 2, regionsTruncated: true, unverifiedDatabase: true,
+    regions: Array.from({length: 20}, () => ({firstLine: 4, lastLine: 4, startByte: 500, endByte: 600, reason: 'payload_hash_mismatch'}))}};
+  fixture.state.document.running = undefined;
+  fixture.state.document.lastRestore = {outcome: 'restored', recovery};
+  const assertDamage = () => {
+    const tree = fixture.render(), copy = content(nodes(tree));
+    assert.match(copy, /Portico restored the readable parts of this backup/);
+    assert.match(copy, /Backup damage: 25 regions; 2 files could not be restored/);
+    assert.equal(nodes(tree).filter((node: any) => node.type === 'Text' && content(node) === 'Lines 4–4, bytes [500, 600): Payload hash mismatch.').length, 20);
+    assert.match(copy, /Showing 20 of 25 damaged regions/);
+    assert.match(copy, /could not be verified against the backup manifest/);
+    assert.doesNotMatch(copy, /Nothing was lost|recovered all of it/);
+  };
+  assertDamage();
+  fixture.state.restorePhase = 'restarting';fixture.state.staged = {validation: {recovery}};
+  fixture.state.document.lastRestore = undefined;assertDamage();
+  fixture.state.restorePhase = undefined;fixture.state.document.lastRestore = {outcome: 'rolled_back', recovery};
+  assert.doesNotMatch(content(nodes(fixture.render())), /Backup damage|readable parts/);
   fixture.stop();
 });
 

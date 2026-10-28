@@ -168,7 +168,7 @@ export type NativePlaybackRuntimeOptions = Readonly<{
   authority: () => PlaybackAuthority;
   session: () => LocalSession | undefined;
   subscribeAuthority: (listener: () => void) => () => void;
-  events: Pick<EventsClient, 'on' | 'onResync'>;
+  events: Pick<EventsClient, 'on' | 'onResync'> & {onResyncRead?(read: (context: {signal: AbortSignal; isCurrent(): boolean}) => Promise<void>, options?: {priority?: number}): {dispose(): void}};
   settings: () => NativePlaybackSettings;
   subscribeSettings: (listener: () => void) => () => void;
   requestId: () => string;

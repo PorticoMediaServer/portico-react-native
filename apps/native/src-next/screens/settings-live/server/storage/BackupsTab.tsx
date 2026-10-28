@@ -1,7 +1,7 @@
 import React, {useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {Text, View} from 'react-native';
 import {SettingsBackupSource, type SettingsRestoreSelection} from '../../../../../../../packages/client-core/src/server-admin/backup-source';
-import {isAuthenticationFailure, restoreRecoveryNotice, type BackupTransport} from '../../../../../../../packages/client-core/src/backups';
+import {isAuthenticationFailure, restoreRecoveryDetails, restoreRecoveryNotice, type BackupTransport} from '../../../../../../../packages/client-core/src/backups';
 import {settingsRowIndex} from '../../../../../../../packages/client-core/src/presentation/settings-spec';
 import {routePath} from '../../../../../../../packages/contracts/src/routes';
 import {backupProgressFraction, type BackupSummary, type RestoreSource} from '../../../../../../../packages/client-core/src/administration';
@@ -107,7 +107,8 @@ function Backups({group, t, children, advancedContent, advancedSummary, advanced
   const running = state.document?.running, fraction = running ? backupProgressFraction(running) : undefined;
   const result = state.document?.lastRestore;
   const progress = state.document?.restore?.jobId === state.restoreJobId ? state.document?.restore : undefined;
-  const recovery = restoreRecoveryNotice(state.restorePhase ? (progress?.result ?? state.staged)?.validation.recovery : result?.outcome === 'restored' ? result.recovery : undefined);
+  const report = state.restorePhase ? (progress?.result ?? state.staged)?.validation.recovery : result?.outcome === 'restored' ? result.recovery : undefined;
+  const recovery = restoreRecoveryNotice(report), details = restoreRecoveryDetails(report, t);
   return <View style={{marginTop:22,gap:12}} testID="server-storage-backups">
     <Text style={[shellType(17,800),{color:theme.colors.text}]}>{t('web.maintenance.backups')}</Text>
     {state.settings && <NativeBackupFolder source={source} settings={state.settings} api={group.api} current={group.current} failure={group.failure} t={t}/>}
@@ -123,7 +124,8 @@ function Backups({group, t, children, advancedContent, advancedSummary, advanced
     {!running && state.document?.lastBackup?.outcome === 'failed' && <Text accessibilityRole="alert" style={{color: theme.colors.record}}>{t(state.document.lastBackup.errorCode === 'backup_busy' ? 'web.maintenance.backupBusy' : state.document.lastBackup.errorCode === 'insufficient_disk' ? 'web.maintenance.backupNoSpace' : 'web.console.jobFailed')}</Text>}
     {state.restorePhase && <Text style={{color:theme.colors.textSecondary}}>{t(state.restorePhase === 'restarting' ? 'web.maintenance.restartingTitle' : 'web.maintenance.restoreTitle')}</Text>}
     {!state.restorePhase && result && <Text accessibilityLiveRegion="polite" style={{color: result.outcome === 'rolled_back' ? theme.colors.record : theme.colors.textSecondary}}>{t(result.outcome === 'rolled_back' ? 'web.maintenance.restoreRolledBack' : 'web.maintenance.restored')}</Text>}
-    {recovery && <Text accessibilityLiveRegion="polite" style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{t(restoreRecoveryMessage[recovery])}</Text>}
+    {recovery && <Text accessibilityLiveRegion="polite" style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{t(report?.manifestDamage ? 'web.maintenance.restoreBackupPartial' : restoreRecoveryMessage[recovery])}</Text>}
+    {details.length > 0 && <View style={{gap: 4}}>{details.map((detail, index) => <Text key={index} selectable style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{detail}</Text>)}</View>}
     <View style={{flexDirection:'row',gap:8}}><Button size="compact" disabled={state.busy || group.backupSubmitted || !state.document || !!running || !!state.document.restore} onPress={() => {void start();}}>{running || state.busy && group.backupSubmitted ? t('web.maintenance.backingUp') : t('web.maintenance.backUpNow')}</Button><Button size="compact" variant="glass" disabled={state.busy} onPress={load}>{t('action.tryAgain')}</Button></View>
     {state.document?.backups.length === 0 && <Text style={{color:theme.colors.textSecondary}}>{t('web.maintenance.noBackups')}</Text>}
     {state.document?.backups.map(backup => <Focusable key={backup.id} testID={`server-backup-${backup.id}`} accessibilityRole="button" accessibilityLabel={`${when(Date.parse(backup.createdAt))}, ${backupKind(backup, t)}`} disabled={state.busy}

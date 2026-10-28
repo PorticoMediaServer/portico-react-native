@@ -1,3 +1,4 @@
+import {readEventState} from '../../platform/event-resync';
 import React from 'react';
 import {Platform} from 'react-native';
 import {InboxService} from '../../../../../packages/client-core/src/inbox';
@@ -75,7 +76,9 @@ export function createNativeNotificationsRenderer(context: NativeShellBootstrapC
     };
     const api = {request: async <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
       if (retired) throw scopeChanged();
-      const raw = await lifetime.request(next => context.api.request<T>(path, method, body, next), signal);
+      const raw = await lifetime.request(next => (!method || method === 'GET')
+        ? readEventState(context.events, next, () => context.api.request<T>(path, method, body, next))
+        : context.api.request<T>(path, method, body, next), signal);
       // A concurrent response may have retired this session while this read was
       // in flight. Never hand that raw body to the service or the retained screen.
       if (retired) throw scopeChanged();

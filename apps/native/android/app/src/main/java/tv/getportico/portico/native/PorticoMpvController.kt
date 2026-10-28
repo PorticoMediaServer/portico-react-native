@@ -594,6 +594,7 @@ internal class PorticoMpvController(private val context: Context) {
     seekInFlight = null
     audioTrackPending = null
     tracks = emptyList()
+    localAudioIdentity.clear()
     chapters = emptyList()
     videoParams = emptyMap()
     directRefused = false
@@ -1126,10 +1127,14 @@ internal class PorticoMpvController(private val context: Context) {
 
   private fun selectedVideo(): Map<String, Any?>? = PorticoMpvSupport.tracks(tracks, "video").firstOrNull { it["selected"] == true }
 
+  private val localAudioIdentity = tv.getportico.portico.policy.PorticoIsoAudioIdentity.Cache()
+
   /** What the file turned out to hold: its length, chapters, picture and tracks. */
   private fun publishMediaInfo() {
     if (onFact == null || !ready()) return
     val video = selectedVideo()
+    val proof = localAudioIdentity.get(if (localSource()) source else null)
+    val sourceIds = PorticoMpvSupport.tracks(tracks, "audio").filter { it["external"] != true }.groupingBy { it["src-id"] }.eachCount()
     val picture = HashMap<String, Any?>()
     picture["dynamicRange"] = sourceRange()
     picture["hardwareDecoding"] = snapshot.hwdec != "no" && snapshot.hwdec.isNotEmpty()
@@ -1143,6 +1148,9 @@ internal class PorticoMpvController(private val context: Context) {
       out["selected"] = track["selected"] == true
       out["external"] = track["external"] == true
       PorticoMpvSupport.streamIndex(track)?.let { out["streamIndex"] = it }
+      if (track["type"] == "audio" && sourceIds[track["src-id"]] == 1) {
+        proof.mpv(snapshot.fileFormat, track["src-id"], track["external"] == true)?.let { out["sourceTrackIdentity"] = it }
+      }
       (track["lang"] as? String)?.let { out["language"] = it }
       (track["title"] as? String)?.let { out["title"] = it }
       (track["codec"] as? String)?.let { out["codec"] = it }

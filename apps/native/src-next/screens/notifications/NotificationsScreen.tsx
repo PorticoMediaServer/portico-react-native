@@ -1,3 +1,4 @@
+import {recoverEventState} from '../../platform/event-resync';
 import React, {useEffect, useLayoutEffect, useState, useSyncExternalStore} from 'react';
 import {FlatList, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -107,7 +108,19 @@ export function NativeNotificationsScreen({context, route, runtime, profileServi
       void lease.profile.load('profile', view);
       if (context.account.account.role === 'owner') void lease.admin.load('account-admin', view);
     };
-    const offs = [context.events.on('notification.changed', refresh), context.events.onResync(refresh)];
+    const recover = async (service: InboxService, audience: 'profile' | 'account-admin', signal: AbortSignal) => {
+      const live = lease.live.value && sameAuthority(lease.authority, context.authority())
+        && context.navigation.getSnapshot().revision === lease.revision && context.navigation.getSnapshot().route === lease.route
+        && lease.retirement.getSnapshot() === undefined;
+      if (!live || signal.aborted) return;
+      await service.load(audience, view);
+      if (signal.aborted || !lease.live.value) return;
+      const error = service.getSnapshot().error;
+      if (error) throw error;
+    };
+    const offs = [context.events.on('notification.changed', refresh),
+      recoverEventState(context.events, ({signal}) => recover(lease.profile, 'profile', signal))];
+    if (context.account.account.role === 'owner') offs.push(recoverEventState(context.events, ({signal}) => recover(lease.admin, 'account-admin', signal)));
     return () => {for (const off of offs) off();};
   }, [context, lease, retired, view]);
 

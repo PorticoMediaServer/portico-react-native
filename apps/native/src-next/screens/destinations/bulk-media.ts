@@ -6,7 +6,7 @@ import type {BulkChanges, BulkFieldValue, BulkResultView} from '../../kit/select
 import {routePath} from '../../../../../packages/contracts/src/routes';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {CatalogueSelectionOptions} from '../../../../../packages/client-core/src/catalogue-selection';
-import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
+import type {ContentEntry, LibraryContentApi} from '../../../../../packages/client-core/src/library-content';
 
 const unavailable = (code = 'selection-admin-unavailable') => Object.assign(new Error(code), {code});
 const cancelled = () => Object.assign(new Error('cancelled'), {name: 'AbortError', code: 'cancelled'});
@@ -40,10 +40,8 @@ export type NativeBulkMediaSnapshot = Readonly<{
 
 const fieldValue = (preview: BulkMetadataPreview): Readonly<Record<string, BulkFieldValue>> => Object.fromEntries(preview.schema.map(spec => {
   const field = preview.fields[spec.field];
-  return [spec.field, field
-    ? {state: field.state, distinctCount: field.distinctCount, ...(field.value !== undefined ? {value: field.value} : {}),
-        values: field.values, entries: field.entries, truncated: field.truncated}
-    : {state: 'mixed' as const, distinctCount: 0, values: [], entries: [], truncated: false}];
+  if (!field) throw unavailable('invalid-metadata-preview');
+  return [spec.field, field];
 }));
 const envelope = (raw: unknown, serverId: string): unknown => {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw unavailable('invalid-admin-envelope');
@@ -123,12 +121,11 @@ export class NativeBulkMedia {
     return value;
   }
   private previewApi(epoch: number): HomeApi {
-    return {request: async <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
-      this.assertLive(epoch);
-      const value = await this.options.api.request<T>(path, method, body, signal ?? this.signal(epoch));
-      this.assertLive(epoch);
-      return value;
-    }} as unknown as HomeApi;
+    this.assertLive(epoch);
+    const api = this.options.api as typeof this.options.api & Pick<LibraryContentApi, 'requestRaw'>;
+    // The preparation owner checks currentness and observes late pending handles.
+    // Cleanup must still reach this captured API after close/retirement.
+    return {request: api.request.bind(api), ...(api.requestRaw ? {requestRaw: api.requestRaw.bind(api)} : {})};
   }
   /** The preview must describe exactly the captured leaves (never a parent expansion). */
   private assertTargets(preview: BulkMetadataPreview, targets: readonly BulkMetadataPreviewTarget[]): void {
@@ -139,8 +136,14 @@ export class NativeBulkMedia {
     if (this.previewFence !== undefined && preview.viewerFence !== this.previewFence) throw unavailable('metadata-authority-changed');
     this.previewFence = preview.viewerFence;
   }
-  private readPreview(epoch: number, targets: readonly BulkMetadataPreviewTarget[]): Promise<BulkMetadataPreview> {
-    return fetchBulkMetadataPreview(this.previewApi(epoch), {targets}, this.options.scope.serverId, this.signal(epoch));
+  private async readPreview(epoch: number, targets: readonly BulkMetadataPreviewTarget[]): Promise<BulkMetadataPreview> {
+    const signal = this.signal(epoch), outer = this.options.signal, controller = new AbortController();
+    const cancel = () => controller.abort();
+    signal.addEventListener('abort', cancel, {once: true}); outer.addEventListener('abort', cancel, {once: true});
+    if (signal.aborted || outer.aborted) cancel();
+    try {
+      return await fetchBulkMetadataPreview(this.previewApi(epoch), {targets}, this.options.scope.serverId, controller.signal, {isCurrent: () => this.live(epoch)});
+    } finally {signal.removeEventListener('abort', cancel); outer.removeEventListener('abort', cancel);}
   }
 
   openEditor = async (): Promise<void> => {

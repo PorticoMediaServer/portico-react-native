@@ -6,6 +6,7 @@ import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import type {NativeReadOrigin} from './eligibility';
 import {nativeRouteCrypto} from '../../platform/server-connections';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
+import {ReadingCollection} from '../../../../../packages/client-core/src/reading-collection';
 import {NativeBulkMedia} from '../destinations/bulk-media';
 import {nativeDestinationLifetime} from '../destinations/lifetime';
 import {nativeScreenServices} from '../native-screen-services';
@@ -27,6 +28,7 @@ export type NativeReadingActionState = Readonly<{
   selected: readonly NativeReadingActionOffer[];
   /** The owner's bulk editor over exactly the selected publications, while open. */
   edit?: NativeBulkMedia;
+  collection?: ReadingCollection;
 }>;
 const operationId = (): string => Array.from(nativeRouteCrypto.random(16), byte => byte.toString(16).padStart(2, '0')).join('');
 const unavailable = () => Object.assign(new Error('reading_action_unavailable'), {code: 'unavailable'});
@@ -49,6 +51,7 @@ export class NativeReadingActions {
   private ticket?: object;
   private listedOffers = new WeakMap<ReadingListMembership, NativeReadingActionOffer>();
   private editing?: Readonly<{bulk: NativeBulkMedia; abort: AbortController; stop: () => void}>;
+  private collecting?: Readonly<{controller: ReadingCollection; abort: AbortController; stop: () => void}>;
   private disposed = false;
   constructor(context: NativeShellBootstrapContext, report: (error: unknown) => void) {this.context = context; this.report = report;}
   arm = (): boolean => {
@@ -66,7 +69,7 @@ export class NativeReadingActions {
     return true;
   };
   release = (): void => {
-    this.closeEditor();
+    this.closeEditor(); this.closeCollection();
     this.life?.abort(); this.life = undefined; this.ticket = undefined;
     for (const client of this.clients) client.dispose(); this.clients.clear();
     for (const stop of this.stops) stop(); this.stops = [];
@@ -108,7 +111,7 @@ export class NativeReadingActions {
     const navigation = this.context.navigation.getSnapshot();
     if (this.origin && (navigation.route !== this.origin.route || navigation.revision !== this.origin.revision)) {
       // Navigation retires the opening and its IO, not the retained page owner.
-      this.closeEditor();
+      this.closeEditor(); this.closeCollection();
       this.origin = undefined;
       this.life?.abort(); this.life = new AbortController(); this.ticket = undefined;
       for (const client of this.clients) client.dispose(); this.clients.clear();
@@ -119,7 +122,7 @@ export class NativeReadingActions {
     const selected = this.state.selected.filter(this.offered), menu = this.state.menu;
     if (selected.length !== this.state.selected.length || menu && !this.offered(menu)) {
       // The editor covers exactly the selection it opened over.
-      if (selected.length !== this.state.selected.length) this.closeEditor();
+      if (selected.length !== this.state.selected.length) {this.closeEditor(); this.closeCollection();}
       this.publish({...this.state, selected, ...(menu && !this.offered(menu) ? {menu: undefined, listed: undefined, mark: undefined, loading: false} : {})});
     }
   };
@@ -171,7 +174,7 @@ export class NativeReadingActions {
   open = (offer: NativeReadingActionOffer): void => {if (!this.ticket && this.state.menu === offer && this.offered(offer)) {this.dismiss(offer); if (this.offered(offer)) offer.open();}};
   download = (offer: NativeReadingActionOffer): void => {if (!this.ticket && this.state.menu === offer && this.offered(offer)) {this.dismiss(offer); if (this.offered(offer)) offer.download?.();}};
   start = (): void => {if (!this.ticket && this.current()) this.publish({...this.state, selecting: true});};
-  cancel = (): void => {if (!this.ticket && !this.editing && this.current()) this.publish({...this.state, selecting: false, selected: []});};
+  cancel = (): void => {if (!this.ticket && !this.editing && !this.collecting && this.current()) this.publish({...this.state, selecting: false, selected: []});};
   /** Edit details is the owner's one selection action (phone-read 2, desktop-read 2b). The
    * selection must be 1–200 current publications of one kind (books or comics); the server's
    * own preview and per-target revisions decide everything else. */
@@ -190,9 +193,9 @@ export class NativeReadingActions {
   };
   /** Members never see Edit details; the server enforces it again. */
   owner = (): boolean => this.current() && this.context.session()?.viewer.role === 'owner';
-  canEdit = (rendered: NativeReadingActionState): boolean => !this.ticket && !this.editing && !!this.editEntries(rendered);
+  canEdit = (rendered: NativeReadingActionState): boolean => !this.ticket && !this.editing && !this.collecting && !!this.editEntries(rendered);
   openEditor = (rendered: NativeReadingActionState): void => {
-    if (this.ticket || this.editing || this.state !== rendered) return;
+    if (this.ticket || this.editing || this.collecting || this.state !== rendered) return;
     const entries = this.editEntries(rendered);
     if (!entries) return;
     const abort = new AbortController(), life = this.life, selected = rendered.selected, authority = nativeDestinationLifetime(this.context);
@@ -212,8 +215,45 @@ export class NativeReadingActions {
     editing.abort.abort(); editing.stop(); editing.bulk.dispose();
     if (this.state.edit === editing.bulk) this.publish({...this.state, edit: undefined});
   };
+  private collectionEntries = (rendered: NativeReadingActionState) => {
+    if (!this.current() || !rendered.selecting || !rendered.selected.length || rendered.selected.length > 200 || !rendered.selected.every(this.offered)) return;
+    const libraries = this.context.libraries();
+    const entries = rendered.selected.map(offer => {
+      const library = libraries.find(candidate => candidate.id === offer.item.libraryId);
+      const kind = library?.kind === 'comic' ? 'comic' as const : library?.kind === 'book' ? 'ebook' as const : undefined;
+      return kind && offer.item.libraryId ? {id: offer.item.id, libraryId: offer.item.libraryId, title: offer.item.title, kind} : undefined;
+    });
+    if (entries.some(entry => !entry) || new Set(entries.map(entry => entry!.id)).size !== entries.length) return;
+    return entries.filter((entry): entry is NonNullable<typeof entry> => !!entry);
+  };
+  canCollect = (rendered: NativeReadingActionState): boolean => !this.ticket && !this.editing && !this.collecting && !!this.collectionEntries(rendered);
+  openCollection = (rendered: NativeReadingActionState): void => {
+    if (this.ticket || this.editing || this.collecting || this.state !== rendered) return;
+    const entries = this.collectionEntries(rendered); if (!entries) return;
+    const abort = new AbortController(), life = this.life, selected = rendered.selected, authority = nativeDestinationLifetime(this.context);
+    const current = () => !abort.signal.aborted && this.life === life && authority.current() && this.current()
+      && this.state.selected === selected && selected.every(this.offered);
+    const controller = new ReadingCollection({api: this.context.api, scope: authority.scope, requestId: nativeScreenServices(this.context).requestId,
+      signal: abort.signal, isCurrent: current, canCreate: this.owner()}, entries);
+    const stop = controller.subscribe(() => {if (this.collecting?.controller === controller) this.publish({...this.state});});
+    this.collecting = {controller, abort, stop};
+    this.publish({...this.state, collection: controller, menu: undefined, listed: undefined, mark: undefined, loading: false});
+    void controller.load().catch(error => {if (this.collecting?.controller === controller && current()) this.report(error);});
+  };
+  viewCollection = (expected?: ReadingCollection): void => {
+    const held = this.collecting, destination = expected?.getSnapshot().destination;
+    if (!held || held.controller !== expected || !destination || !this.current()) return;
+    const authority = this.context.authority();
+    this.closeCollection(expected);
+    if (this.current()) this.context.navigation.open({kind: 'saved-view', view: {view: 'resource', resourceId: destination.id}}, authority);
+  };
+  closeCollection = (expected?: ReadingCollection): void => {
+    const held = this.collecting; if (!held || expected && held.controller !== expected) return;
+    this.collecting = undefined; held.abort.abort(); held.stop(); held.controller.dispose();
+    if (this.state.collection === held.controller) this.publish({...this.state, collection: undefined});
+  };
   toggle = (offer: NativeReadingActionOffer): void => {
-    if (this.ticket || this.editing || !this.offered(offer)) return;
+    if (this.ticket || this.editing || this.collecting || !this.offered(offer)) return;
     const selected = this.state.selected.filter(this.offered), found = selected.some(value => value.item.id === offer.item.id && value.item.libraryId === offer.item.libraryId);
     this.publish({...this.state, selecting: true, selected: found ? selected.filter(value => value.item.id !== offer.item.id || value.item.libraryId !== offer.item.libraryId) : [...selected, offer],
       menu: undefined, listed: undefined, mark: undefined, loading: false});
@@ -251,7 +291,7 @@ export class NativeReadingActions {
   /** Small explicit batches keep each item's own revision. A failed write stops
    * the batch and leaves that item and the remaining items selected for review. */
   apply = async (rendered: NativeReadingActionState, action: 'list' | 'unlist' | 'read' | 'unread'): Promise<void> => {
-    if (this.ticket || this.editing || this.state !== rendered || !rendered.selecting || !rendered.selected.length) return;
+    if (this.ticket || this.editing || this.collecting || this.state !== rendered || !rendered.selecting || !rendered.selected.length) return;
     const ticket = {}; this.ticket = ticket;
     try {
       if (!this.current() || !rendered.selected.every(this.offered)) return;
