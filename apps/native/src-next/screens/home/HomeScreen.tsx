@@ -12,7 +12,7 @@ import {serverTextLabel} from '../../../../../packages/client-core/src/presentat
 import {programmeFactParts, programmeTimeRange, type FactPart} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {ArtworkPlacementContext} from '../../platform/ArtworkPipeline';
 import {usePlatformPosture} from '../../platform/platformPosture';
-import {AmbientArt, Artwork} from '../../kit/artwork';
+import {AmbientArt, Artwork, ArtworkArrivalContext} from '../../kit/artwork';
 import {Button} from '../../kit/controls';
 import {useTVPageBack} from '../destinations/useTVPageBack';
 import {FocusItem, FocusRegion, useFocusRegistry, type FocusRegionProps} from '../../kit/focus';
@@ -233,6 +233,8 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   boxesRef.current = rowBoxes;
   const capturedRegion = registry.capture()?.regionId;
   const mountedRows = homeMountedRows(rows.length, visibleRange[0], visibleRange[1], [rows.findIndex(row => row.id === focus?.rowId), rows.findIndex(row => ids.row(row.id) === capturedRegion)]);
+  // F04: only rows that are mounted (visible, overscan or focus-pinned) ask the server for their shelf.
+  const rowDemand = JSON.stringify(rows.filter((_row, index) => mountedRows.has(index)).map(row => row.id));
   const mixes = useSyncExternalStore(runtime.mixes?.subscribe ?? noMixesSubscription, runtime.mixes?.getSnapshot ?? noMixesSnapshot);
   const hasMixes = mixes?.phase === 'ready' && mixes.rows.length > 0;
   const regionMap = tvHomeRegionMap(authority, [...rows.map(row => row.id), ...(hasMixes ? [mixesFocusRow] : [])]);
@@ -255,6 +257,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const ranges = useRef(new Map<string, {first: number; last: number; keys?: readonly string[]}>());
   const viewportHeight = windowHeight, viewportWidth = windowWidth;
 
+  useEffect(() => {if (current()) runtime.home.setRowDemand(JSON.parse(rowDemand) as string[]);}, [current, rowDemand, runtime]);
   useEffect(() => {if (current()) void runtime.home.load();}, [current, runtime]);
   useEffect(() => {const sub = AppState.addEventListener('change', state => setForeground(state === 'active')); return () => sub.remove();}, []);
   useEffect(() => {
@@ -513,12 +516,13 @@ function HomeCard({runtime, row, entry, rank, context, width, rowIndex, visible,
     accessibilityState: {expanded: !!runtime.selection(row.id).isMenuOpen?.(entry.id)},
     onMore: () => {if (current()) runtime.actions.more(entry, row.id, anchor);}};
   const art = runtime.artwork(row.artworkShape === 'landscape' ? entry.backdropUrl ?? entry.posterUrl : entry.posterUrl);
-  return <ArtworkPlacementContext.Provider value={{row: rowIndex + 1, column: context.index, group: row.id}}>
+  // BOOT-014: Home card art fades in over the approved 240 ms.
+  return <ArtworkPlacementContext.Provider value={{row: rowIndex + 1, column: context.index, group: row.id}}><ArtworkArrivalContext.Provider value={240}>
     {rank ? <RankedCard {...props} rank={rank} artwork={art} isNew={entry.new} watched={entry.watched}/>
       : row.artworkShape === 'landscape' ? <WideCard {...props} artwork={art} progress={cardText.progress} watched={entry.watched}/>
       : row.artworkShape === 'square' ? <SquareCard {...props} artwork={art} progress={cardText.progress} watched={entry.watched} isNew={entry.new}/>
       : <PosterCard {...props} artwork={art} watched={entry.watched} isNew={entry.new}/>}
-  </ArtworkPlacementContext.Provider>;
+  </ArtworkArrivalContext.Provider></ArtworkPlacementContext.Provider>;
 }
 
 function HomeCollectionCard({row, runtime, width, visible, current, onFocus}: {row: HomeRow; runtime: NativeShellRuntime; width: number; visible: boolean; current: () => boolean; onFocus: () => void}) {

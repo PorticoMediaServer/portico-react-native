@@ -2,20 +2,11 @@ import type {ContentEntry} from '../../../../../packages/client-core/src/library
 import type {HomeDocument, HomeRow} from '../../../../../packages/client-core/src/home';
 import {homeRowPresentation} from '../../../../../packages/client-core/src/presentation/home-spotlight';
 import {cardText, type CardSubject, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
+import {contentEntrySubject} from '../../../../../packages/client-core/src/presentation/content-entry-subject';
 import type {ShellAuthority} from '../../shell/model';
 
-export function homeSubject(entry: ContentEntry): CardSubject {
-  return {
-    id: entry.id, kind: entry.kind, title: entry.displayTitle || entry.title, year: entry.year,
-    contentRating: entry.contentRating, genres: entry.genres, durationSeconds: entry.duration,
-    positionSeconds: entry.progressSeconds, seasonCount: entry.seasonCount, seasonNumber: entry.seasonNumber,
-    artist: entry.artist?.name, album: entry.album?.name, author: entry.author,
-    ...(entry.show ? {show: {id: entry.show.id, title: entry.show.name}} : {}),
-    ...(entry.kind !== 'episode' ? {} : {episode: entry.absoluteNumber !== undefined ? {mode: 'absolute' as const, number: entry.absoluteNumber}
-      : entry.seasonNumber === 0 ? {mode: 'special' as const}
-      : {mode: 'seasonal' as const, season: entry.seasonNumber, episode: entry.episodeNumber}}),
-  };
-}
+/** SIM-01: the canonical subject (date-based, absolute, air-date-only, special, seasonal). */
+export const homeSubject: (entry: ContentEntry) => CardSubject = contentEntrySubject;
 
 export const homeCardText = (entry: ContentEntry, continuation: boolean, env: TextEnvironment) => cardText(homeSubject(entry), continuation ? 'continuation' : 'ordinary', env);
 export function authorizedHome(document: HomeDocument | undefined, authority: ShellAuthority): HomeDocument | undefined {

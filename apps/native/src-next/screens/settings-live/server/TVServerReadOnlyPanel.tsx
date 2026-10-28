@@ -64,7 +64,7 @@ export function TVServerReadOnlyPanel({page, ports, runtime, lifetime}: {page: P
         const keys = await tvServerCredentialCount(cursor => listApiKeys(api, cursor, abort.signal), current);
         const webhooks = await listWebhooks(api, abort.signal);
         return {facts: [
-          {id: 'integrations.apiKeys', label: label('integrations.apiKeys'), value: `${keys.complete ? '' : '≥ '}${defaultI18n.number(keys.count)}`},
+          {id: 'integrations.apiKeys', label: label('integrations.apiKeys'), value: defaultI18n.number(keys)},
           {id: 'integrations.webhooks', label: label('integrations.webhooks'), value: defaultI18n.number(webhooks.items.length)},
         ]};
       }

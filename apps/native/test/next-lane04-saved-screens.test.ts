@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import {savedNearEnd} from '../src-next/screens/saved/paging.ts';
 
-const i18n = {t: (key: string, values?: any) => key === 'web.group.ownOrder' ? defaultI18n.t(key, values) : values?.count === undefined ? key : `${key}:${values.count}`, has: () => true,
+const i18n = {t: (key: string, values?: any) => ['web.group.ownOrder', 'next.saved.reordering', 'next.collection.automaticDescription'].includes(key) ? defaultI18n.t(key as never, values) : values?.count === undefined ? key : `${key}:${values.count}`, has: () => true,
   number: String, bytes: String, list: (items: string[]) => items.join(', '), date: String};
 const palette = {ink: '#000000', text: '#ffffff', textSecondary: '#cccccc', textTertiary: '#999999', raised: '#111111', raisedBright: '#222222', line: '#333333', lineStrong: '#444444', accent: '#0088cc', accentStrong: '#0099dd'};
 const theme = (phone = true) => ({isTV: false, platform: phone ? 'phone' : 'tablet', gutter: 20, colors: palette, type: {}, reduceMotion: true,
@@ -106,7 +106,7 @@ test('Saved resource menus keep membership commands beside canonical selection, 
   assert.equal(orderChip.props.style.borderRadius, 10);
   assert.equal(orderChip.props.style.paddingHorizontal, 14);
   find(tree, 'saved-reorder').props.onPress(); tree = f.host.render(() => SavedResourceScreen(props));
-  assert.equal(text(tree).includes('Reordering'), false, 'pending copy stays withheld while the reorder controls remain'); assert.ok(find(tree, 'saved-reorder-done')); assert.equal(find(tree, 'saved-play'), undefined);
+  assert.ok(text(tree).includes('Reordering')); assert.ok(find(tree, 'saved-reorder-done')); assert.equal(find(tree, 'saved-play'), undefined);
   const list = nodes(tree).find(node => node.type === 'SavedReorderList');
   list.props.onPlace(list.props.rows[0], 'occ-b', ['occ-a', 'occ-b']); await Promise.resolve(); await Promise.resolve();
   assert.deepEqual(calls[1], ['command', {action: 'reorder', entryIds: ['occ-a'], afterEntryId: 'occ-b'}]);
@@ -123,8 +123,7 @@ test('Phone collection uses the centred 300-point hero, full-width play and actu
   assert.equal(find(tree, 'collection-back').props.style.top, 30);
   assert.deepEqual(find(tree, 'collection-play-all').props.style, {flex: 1, height: 48});
   assert.equal(find(tree, 'collection-shuffle').props.iconOnly, true); assert.ok(find(tree, 'collection-menu'));
-  assert.equal(text(tree).includes("Portico put this together from the films' details"), false, 'automatic-description copy waits for its catalogue key');
-  assert.ok(nodes(tree).some(node => node.type === 'Icon' && node.props.name === 'i-info'), 'the automatic-description layout is retained');
+  assert.ok(text(tree).includes('Portico put this together from the films’ details'));
   const row = nodes(tree).find(node => node.type?.name === 'CollectionRow'); assert.equal(row.props.entry, entry);
 });
 

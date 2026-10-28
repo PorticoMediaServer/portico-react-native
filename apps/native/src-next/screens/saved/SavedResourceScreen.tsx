@@ -437,7 +437,7 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
           style={{width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: alpha(theme.colors.ink, .45)}}>
           <Icon name="i-left" size={22} color={theme.colors.text}/>
         </Focusable>
-        {/* // Copy pending catalogue key next.saved.reordering */}
+        {reordering && <Text accessibilityRole="header" style={[browseType(theme, 17, 700), {color: theme.colors.text, marginLeft: 12}]}>{t('next.saved.reordering')}</Text>}
         {reordering ? <Button testID="saved-reorder-done" variant="glass" size="small" disabled={busy || dragging} onPress={() => setReordering(false)} style={{marginLeft: 'auto'}}>{t('order.done')}</Button> : !stateError && <View style={{marginLeft: 'auto'}}>
           <Button testID="saved-resource-menu" focusId="saved-resource-menu" variant="glass" icon="i-more" iconOnly size="small"
             accessibilityLabel={t(isPlaylist ? 'web.saved.playlistOptions' : 'web.saved.collectionOptions')} accessibilityState={{expanded: pageMenu}} onPress={openPageMenu}

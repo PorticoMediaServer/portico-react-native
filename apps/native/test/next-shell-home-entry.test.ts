@@ -57,7 +57,7 @@ async function fixture() {
   const listeners = new Set<() => void>();
   let snapshot: any = {phase: 'loading'}, currentAuthority = authority, selectionActive = false;
   const home = {subscribe: (listener: () => void) => {listeners.add(listener); return () => {listeners.delete(listener);};}, getSnapshot: () => snapshot,
-    load: async () => {}, registerWindow() {}, subscribeRowPages: () => () => {}, rowPageReceipt: () => undefined};
+    load: async () => {}, setRowDemand() {}, registerWindow() {}, subscribeRowPages: () => () => {}, rowPageReceipt: () => undefined};
   const runtime = {home, getSnapshot: () => ({authority: currentAuthority, libraries: [], selectionActive}), text: {t: defaultI18n.t, locale: 'en-US'},
     registerScrollToTop: () => () => {}, registerTVPageBack: () => () => {}, reportError(error: unknown) {throw error;}, actions: {}, playback: {}};
   const useFocusAnchor = () => React.useMemo(() => ({scrollRef: {current: null}, offset: {value: 0}, repeating: false, stop() {}, move() {}, anchor() {}}), []);
@@ -73,7 +73,7 @@ async function fixture() {
     '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src/presentation/home-spotlight': homePresentation,
     '../../../../../packages/client-core/src/home-selection': homeCapabilities, '../../../../../packages/client-core/src/presentation/server-text': serverText,
     '../../../../../packages/client-core/src/presentation/errors': {presentError},
-    '../../../../../packages/client-core/src/presentation/kit-model': {}, '../../platform/ArtworkPipeline': {}, '../../kit/artwork': {},
+    '../../../../../packages/client-core/src/presentation/kit-model': {}, '../../platform/ArtworkPipeline': {}, '../../kit/artwork': {ArtworkArrivalContext: React.createContext(undefined)},
     '../../platform/platformPosture': {usePlatformPosture: () => ({status: 'unavailable'})}, '../destinations/useTVPageBack': {useTVPageBack() {}},
     '../../kit/focus/initial-entry': {createInitialRegionEntry},
     '../../kit/controls': {Button: 'Button'}, '../../kit/cards': {}, '../../kit/focus': {...focus, useFocusRegistry: () => registry},

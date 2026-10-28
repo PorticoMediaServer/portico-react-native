@@ -1,4 +1,4 @@
-export {Artwork, MediaArt, BookSpine} from './Artwork';
+export {Artwork, ArtworkArrivalContext, MediaArt, BookSpine} from './Artwork';
 export type {MediaArtProps, MediaArtKind} from './Artwork';
 export {AmbientArt, ColourBackdrop} from './Surfaces';
 export {GeneratedArt, GeneratedCover} from './Generated';

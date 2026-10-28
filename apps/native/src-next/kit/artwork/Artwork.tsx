@@ -1,4 +1,4 @@
-import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
+import React, {createContext, useContext, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {Animated, Image, PixelRatio, StyleSheet, View, type LayoutChangeEvent} from 'react-native';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {sizedUri, useArtworkPlacement, useArtworkSlot} from '../../platform/ArtworkPipeline';
@@ -9,6 +9,9 @@ import {artworkArrivalDuration, artworkAttemptSource, artworkFrame} from './mode
 import type {ArtworkProps, ArtworkSource} from './types';
 
 type ScheduledProps = ArtworkProps & {source: ArtworkSource; boxWidth: number; boxHeight: number};
+/** A surface's authored picture fade (Home cards: 240 ms). An explicit prop wins;
+ * reduced motion and cached art keep their own timing. */
+export const ArtworkArrivalContext = createContext<number | undefined>(undefined);
 // RN 0.83's ImageProps.js and Android native Image both support this decode
 // option; its bundled Image.d.ts omits it. This aliases the same Image host.
 const DecodedImage = Image as React.ComponentType<React.ComponentProps<typeof Image> & {resizeMultiplier?: number}>;
@@ -18,8 +21,9 @@ function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resize
   const slot = useArtworkSlot(source.cacheKey, placement, priority);
   const reduced = useReducedMotion();
   const theme = useTheme();
-  const arrivalMotion = useRef({arrivalDurationMs, standard: theme.motion.standard, reduced});
-  arrivalMotion.current = {arrivalDurationMs, standard: theme.motion.standard, reduced};
+  const surfaceArrival = useContext(ArtworkArrivalContext), arrivalMs = arrivalDurationMs ?? surfaceArrival;
+  const arrivalMotion = useRef({arrivalDurationMs: arrivalMs, standard: theme.motion.standard, reduced});
+  arrivalMotion.current = {arrivalDurationMs: arrivalMs, standard: theme.motion.standard, reduced};
   const [decoded, setDecoded] = useState(false);
   const [admitted, setAdmitted] = useState(slot.cached);
   const cachedAtMount = useRef(slot.cached).current;

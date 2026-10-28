@@ -28,14 +28,12 @@ test('only the approved server name is admitted as free text; raw configuration/
   }
 });
 
-test('integrations count has a bounded lower bound, follows continuations and rejects loops or retirement', async () => {
+test('integrations count is the exact server total from one page and refuses retirement or a bad total', async () => {
   const calls: string[] = [];
-  const exact = await tvServerCredentialCount(async cursor => {calls.push(cursor); return cursor ? {items: [1]} : {items: [1, 2], nextCursor: 'next'};}, () => true);
-  assert.deepEqual(exact, {count: 3, complete: true}); assert.deepEqual(calls, ['', 'next']);
-  let pages = 0;
-  assert.deepEqual(await tvServerCredentialCount(async () => ({items: [1], nextCursor: String(++pages)}), () => true), {count: 10, complete: false});
-  assert.equal(pages, 10);
-  await assert.rejects(tvServerCredentialCount(async () => ({items: [], nextCursor: 'loop'}), () => true), /invalid_api_key_continuation/);
+  assert.equal(await tvServerCredentialCount(async cursor => {calls.push(cursor); return {total: 1234};}, () => true), 1234);
+  assert.deepEqual(calls, [''], 'one read; no client-side paging to count');
+  await assert.rejects(tvServerCredentialCount(async () => ({total: -1}), () => true), /invalid_api_key_total/);
+  await assert.rejects(tvServerCredentialCount(async () => ({total: 1.5}), () => true), /invalid_api_key_total/);
   let current = true;
-  await assert.rejects(tvServerCredentialCount(async () => {current = false; return {items: [1]};}, () => current), /native_tv_server_read_ended/);
+  await assert.rejects(tvServerCredentialCount(async () => {current = false; return {total: 1};}, () => current), /native_tv_server_read_ended/);
 });

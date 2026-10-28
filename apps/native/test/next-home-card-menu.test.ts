@@ -1,3 +1,4 @@
+import * as React from 'react';
 import * as homeWindow from '../src-next/screens/home/home-window';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -60,7 +61,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Continue car
     '../../../../../packages/client-core/src/presentation/kit-model': {}, '../../platform/ArtworkPipeline': {ArtworkPlacementContext: {Provider: 'ArtworkPlacement'}},
     '../../platform/platformPosture': {usePlatformPosture: () => ({status: 'unavailable'})}, '../destinations/useTVPageBack': {useTVPageBack() {}},
     '../../kit/focus/initial-entry': {createInitialRegionEntry},
-    '../../kit/artwork': {}, '../../kit/controls': {}, '../../kit/cards': {WideCard: 'WideCard'},
+    '../../kit/artwork': {ArtworkArrivalContext: React.createContext(undefined)}, '../../kit/controls': {}, '../../kit/cards': {WideCard: 'WideCard'},
     '../../kit/focus': {useFocusRegistry: () => registry}, '../../shell/tv-focus': tvFocus, '../../shell/home-paging': {NativeHomePaging}, './tv-presentation': {tvHomeRows},
     '../../kit/layout': {Row: 'Row', Hero: 'Hero'}, '../../kit/layout/types': {itemSelection},
     '../../kit/layout/FocusAnchor': {useFocusAnchor: () => ({offset: {value: 0}, scrollRef: {current: null}})},

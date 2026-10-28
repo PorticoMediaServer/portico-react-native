@@ -90,7 +90,7 @@ export function NativeCollectionScreen(props: NativeCollectionScreenProps) {
       {compact && controls}
       {compact && state.projection?.entity?.origin === 'automatic' && <View style={{flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginHorizontal: 20, marginTop: 12}}>
         <Icon name="i-info" size={16} color={theme.colors.textTertiary}/>
-        {/* // Copy pending catalogue key next.collection.automaticDescription */}
+        <Text style={[browseType(theme, 12.5, 400, 0, 18), {color: theme.colors.textTertiary, flex: 1}]}>{t('next.collection.automaticDescription')}</Text>
       </View>}
       <View style={{paddingLeft: tv ? 200 : compact ? 0 : 20, paddingRight: tv ? 96 : compact ? 0 : 20, paddingTop: tv ? 34 : compact ? 14 : 18, paddingBottom: 80}}>
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: tv ? 28 : compact ? 8 : 14, ...(compact ? {paddingHorizontal: 20} : {})}}>

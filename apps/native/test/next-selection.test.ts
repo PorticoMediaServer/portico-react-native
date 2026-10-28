@@ -30,17 +30,17 @@ const preview: DeletePreview = {
 };
 const valid = {owner: true, selectionCount: 4, preview, confirmation: '4'};
 test('deletion requires an exact preview and confirmation, with one library and no safety blocks', () => {
-  assert.equal(deleteSelectionGate(valid), null);
-  assert.equal(deleteSelectionGate({...valid, owner: false}), 'owner');
-  assert.equal(deleteSelectionGate({...valid, preview: null}), 'preview');
-  assert.equal(deleteSelectionGate({...valid, selectionCount: 5}), 'preview');
-  assert.equal(deleteSelectionGate({...valid, confirmation: ' 4'}), 'confirmation');
-  assert.equal(deleteSelectionGate({...valid, confirmation: ''}), 'confirmation');
-  assert.equal(deleteSelectionGate({...valid, pending: true}), 'pending');
-  assert.equal(deleteSelectionGate({...valid, selectionCount: 240}), 'limit');
-  assert.equal(deleteSelectionGate({...valid, preview: {...preview, blocked: ['one']}}), 'blocked');
-  assert.equal(deleteSelectionGate({...valid, preview: {...preview, targets: preview.targets.map((target, index) => index ? target : {...target, libraryId: 'two'})}}), 'libraries');
-  assert.equal(deleteSelectionGate({...valid, preview: {...preview, targets: preview.targets.map((target, index) => index ? target : {...target, allowMediaDeletion: false})}}), 'blocked');
+  assert.deepEqual(deleteSelectionGate(valid), {allowed: true});
+  assert.equal(deleteSelectionGate({...valid, owner: false}).reason, 'owner');
+  assert.equal(deleteSelectionGate({...valid, preview: null}).reason, 'preview');
+  assert.equal(deleteSelectionGate({...valid, selectionCount: 5}).reason, 'preview');
+  assert.equal(deleteSelectionGate({...valid, confirmation: ' 4'}).reason, 'confirmation');
+  assert.equal(deleteSelectionGate({...valid, confirmation: ''}).reason, 'confirmation');
+  assert.equal(deleteSelectionGate({...valid, pending: true}).reason, 'pending');
+  assert.equal(deleteSelectionGate({...valid, selectionCount: 240}).reason, 'limit');
+  assert.equal(deleteSelectionGate({...valid, preview: {...preview, blocked: ['one']}}).reason, 'blocked');
+  assert.equal(deleteSelectionGate({...valid, preview: {...preview, targets: preview.targets.map((target, index) => index ? target : {...target, libraryId: 'two'})}}).reason, 'libraries');
+  assert.equal(deleteSelectionGate({...valid, preview: {...preview, targets: preview.targets.map((target, index) => index ? target : {...target, allowMediaDeletion: false})}}).reason, 'blocked');
 });
 test('partial retries retain only failed ids, without repeating prior successes', () => {
   assert.deepEqual(failedSelectionIds([{id: 'a', ok: true}, {id: 'b', ok: false}, {id: 'c', ok: true}, {id: 'b', ok: false}]), ['b']);
@@ -66,9 +66,9 @@ test('undoing the last list change leaves the field entirely untouched', () => {
 
 test('a refreshed preview changes the confirmation instead of reusing a prior title', () => {
   const single = {...preview, confirmationKind: 'title' as const, confirmation: 'Current title', targets: preview.targets.slice(0, 1)};
-  assert.equal(deleteSelectionGate({owner: true, selectionCount: 1, preview: single, confirmation: 'Old title'}), 'confirmation');
-  assert.equal(deleteSelectionGate({owner: true, selectionCount: 1, preview: single, confirmation: 'Current title'}), null);
-  assert.equal(deleteSelectionGate({owner: true, selectionCount: 1, preview: single, confirmation: 'Current title', loading: true}), 'preview');
+  assert.equal(deleteSelectionGate({owner: true, selectionCount: 1, preview: single, confirmation: 'Old title'}).reason, 'confirmation');
+  assert.equal(deleteSelectionGate({owner: true, selectionCount: 1, preview: single, confirmation: 'Current title'}).allowed, true);
+  assert.equal(deleteSelectionGate({owner: true, selectionCount: 1, preview: single, confirmation: 'Current title', loading: true}).reason, 'loading');
 });
 
 test('bulk results project latest real target outcomes without an aggregate operation id', () => {
@@ -86,7 +86,8 @@ test('picker success requires supplied insertion and failure facts rather than p
   const result = {destination: {id: 'real-destination', title: 'Actual destination'}, complete: true, processed: 200, total: 200, failures: []};
   assert.equal(pickerResultSucceeded(result), false);
   assert.equal(pickerResultSucceeded({...result, inserted: 20}), false);
-  assert.equal(pickerResultSucceeded({...result, inserted: 20, failed: 0, alreadyIn: 180}), true);
+  const withExisting = {...result, inserted: 20, failed: 0, alreadyIn: 180};
+  assert.equal(pickerResultSucceeded(withExisting), true);
   assert.equal(pickerResultSucceeded({...result, inserted: 20, failed: 1}), false);
   assert.equal(pickerResultSucceeded({...result, inserted: 20, failed: 0, unknown: 1}), false);
   assert.equal(pickerResultSucceeded({...result, inserted: 20, failed: 0, pending: true}), false);

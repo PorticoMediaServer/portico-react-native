@@ -3,21 +3,13 @@ import type {MessageId} from '../../../../../../packages/i18n/src';
 
 export type TVServerFact = Readonly<{id: string; label: string; value: string; detail?: string}>;
 
-/** The current list contract has no total. Bound reads on large servers and
- * return an explicit lower bound rather than claiming the first page is total. */
-export async function tvServerCredentialCount(read: (cursor: string) => Promise<Readonly<{items: readonly unknown[]; nextCursor?: string}>>, current: () => boolean): Promise<Readonly<{count: number; complete: boolean}>> {
-  let count = 0, next = '';
-  const seen = new Set<string>();
-  for (let page = 0; page < 10; page++) {
-    if (!current()) throw new Error('native_tv_server_read_ended');
-    const result = await read(next);
-    if (!current()) throw new Error('native_tv_server_read_ended');
-    count += result.items.length; next = result.nextCursor ?? '';
-    if (next && seen.has(next) || !Number.isSafeInteger(count)) throw new Error('invalid_api_key_continuation');
-    if (!next) return {count, complete: true};
-    seen.add(next);
-  }
-  return {count, complete: false};
+/** The credential list reports its exact server-scoped total, so one page is enough. */
+export async function tvServerCredentialCount(read: (cursor: string) => Promise<Readonly<{total: number}>>, current: () => boolean): Promise<number> {
+  if (!current()) throw new Error('native_tv_server_read_ended');
+  const page = await read('');
+  if (!current()) throw new Error('native_tv_server_read_ended');
+  if (!Number.isSafeInteger(page.total) || page.total < 0) throw new Error('invalid_api_key_total');
+  return page.total;
 }
 
 /** Shared televisions display reviewed scalar values, never raw configuration
