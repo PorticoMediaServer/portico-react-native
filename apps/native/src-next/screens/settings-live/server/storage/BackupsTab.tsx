@@ -1,7 +1,7 @@
 import React, {useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {Text, View} from 'react-native';
 import {SettingsBackupSource, type SettingsRestoreSelection} from '../../../../../../../packages/client-core/src/server-admin/backup-source';
-import {isAuthenticationFailure, type BackupTransport} from '../../../../../../../packages/client-core/src/backups';
+import {isAuthenticationFailure, restoreRecoveryNotice, type BackupTransport} from '../../../../../../../packages/client-core/src/backups';
 import {settingsRowIndex} from '../../../../../../../packages/client-core/src/presentation/settings-spec';
 import {routePath} from '../../../../../../../packages/contracts/src/routes';
 import {backupProgressFraction, type BackupSummary, type RestoreSource} from '../../../../../../../packages/client-core/src/administration';
@@ -22,6 +22,11 @@ import {NativeBackupFolder} from './BackupFolder';
 import {NativeBackupProtection} from './BackupProtection';
 
 type Translate = typeof defaultI18n.t;
+const restoreRecoveryMessage = {
+  repaired: 'web.maintenance.restoreRepaired',
+  recovered: 'web.maintenance.restoreRecovered',
+  partial: 'web.maintenance.restorePartial',
+} as const;
 function createBackups(context: NativeShellBootstrapContext, operationId: () => string, reportError: NativeShellRuntime['reportError']) {
   const lifetime = new NativeScreenLifetime(context), listeners = new Set<() => void>();
   const current = () => lifetime.current() && nativeStorageOwner(context);
@@ -100,6 +105,9 @@ function Backups({group, t, children, advancedContent, advancedSummary, advanced
     try {const done = await source.remove(captured.listed.id, captured.abort.signal);if (done && current() && view.remove === captured) {group.removeUncertain = false;closeRemove();}} catch (error) {group.failure(error);if (current() && view.remove === captured) setProblem(true);} finally {if (view.flight === flight) view.flight = undefined;}
   };
   const running = state.document?.running, fraction = running ? backupProgressFraction(running) : undefined;
+  const result = state.document?.lastRestore;
+  const progress = state.document?.restore?.jobId === state.restoreJobId ? state.document?.restore : undefined;
+  const recovery = restoreRecoveryNotice(state.restorePhase ? (progress?.result ?? state.staged)?.validation.recovery : result?.outcome === 'restored' ? result.recovery : undefined);
   return <View style={{marginTop:22,gap:12}} testID="server-storage-backups">
     <Text style={[shellType(17,800),{color:theme.colors.text}]}>{t('web.maintenance.backups')}</Text>
     {state.settings && <NativeBackupFolder source={source} settings={state.settings} api={group.api} current={group.current} failure={group.failure} t={t}/>}
@@ -110,8 +118,12 @@ function Backups({group, t, children, advancedContent, advancedSummary, advanced
       <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{sentence(running.phase)}</Text>
       <Text style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{defaultI18n.bytes(running.bytesDone)}{running.bytesTotal > 0 ? ` / ${defaultI18n.bytes(running.bytesTotal)}` : ''}</Text>
       {fraction !== undefined && <View accessible accessibilityRole="progressbar" accessibilityLabel={t('web.maintenance.backingUp')} accessibilityValue={{min: 0, max: 100, now: Math.round(fraction * 100)}} style={{height: 5, borderRadius: 3, overflow: 'hidden', backgroundColor: theme.colors.lineSoft}}><View style={{height: 5, width: `${fraction * 100}%`, backgroundColor: theme.colors.accent}}/></View>}
+      {running.kind === 'manual' && <Text style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{t('web.maintenance.backupMayPause')}</Text>}
     </View>}
+    {!running && state.document?.lastBackup?.outcome === 'failed' && <Text accessibilityRole="alert" style={{color: theme.colors.record}}>{t(state.document.lastBackup.errorCode === 'backup_busy' ? 'web.maintenance.backupBusy' : state.document.lastBackup.errorCode === 'insufficient_disk' ? 'web.maintenance.backupNoSpace' : 'web.console.jobFailed')}</Text>}
     {state.restorePhase && <Text style={{color:theme.colors.textSecondary}}>{t(state.restorePhase === 'restarting' ? 'web.maintenance.restartingTitle' : 'web.maintenance.restoreTitle')}</Text>}
+    {!state.restorePhase && result && <Text accessibilityLiveRegion="polite" style={{color: result.outcome === 'rolled_back' ? theme.colors.record : theme.colors.textSecondary}}>{t(result.outcome === 'rolled_back' ? 'web.maintenance.restoreRolledBack' : 'web.maintenance.restored')}</Text>}
+    {recovery && <Text accessibilityLiveRegion="polite" style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{t(restoreRecoveryMessage[recovery])}</Text>}
     <View style={{flexDirection:'row',gap:8}}><Button size="compact" disabled={state.busy || group.backupSubmitted || !state.document || !!running || !!state.document.restore} onPress={() => {void start();}}>{running || state.busy && group.backupSubmitted ? t('web.maintenance.backingUp') : t('web.maintenance.backUpNow')}</Button><Button size="compact" variant="glass" disabled={state.busy} onPress={load}>{t('action.tryAgain')}</Button></View>
     {state.document?.backups.length === 0 && <Text style={{color:theme.colors.textSecondary}}>{t('web.maintenance.noBackups')}</Text>}
     {state.document?.backups.map(backup => <Focusable key={backup.id} testID={`server-backup-${backup.id}`} accessibilityRole="button" accessibilityLabel={`${when(Date.parse(backup.createdAt))}, ${backupKind(backup, t)}`} disabled={state.busy}
