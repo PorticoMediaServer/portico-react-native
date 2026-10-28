@@ -53,7 +53,7 @@ export class NativePorticoSignIn {
     if (callerCurrent && !callerCurrent()) throw new CodedError('cancelled', 'native_portico_changed');
     this.check();
   }
-  private async checkpoint(update: Partial<NativeAccountContinuation>, callerCurrent?: () => boolean) {
+  private async checkpoint(update: Partial<NativeAccountContinuation>, callerCurrent?: () => boolean, settledCurrent = callerCurrent) {
     this.checkCaller(callerCurrent);
     const original = this.continuation;
     if (!original) throw new Error('native_continuation_missing');
@@ -63,7 +63,7 @@ export class NativePorticoSignIn {
       current(); await this.bridge.saveContinuation(hostedUrl, bytes); current();
       this.continuation = next;
     });
-    this.checkCaller(callerCurrent);
+    this.checkCaller(settledCurrent);
   }
   async prepare() {
     await serializeContinuation(hostedUrl, async () => {
@@ -85,7 +85,7 @@ export class NativePorticoSignIn {
     return options;
   }
   private api() {this.check(); if (!this.client) throw new Error('native_continuation_missing'); return this.client;}
-  private async authenticate(work: (signal: AbortSignal) => Promise<HostedSession>, callerCurrent?: () => boolean) {
+  private async authenticate(work: (signal: AbortSignal) => Promise<HostedSession>, callerCurrent?: () => boolean, settledCurrent = callerCurrent) {
     this.check(); if (this.authenticating) throw Object.assign(new Error('native_account_attempt_active'), {name: 'AbortError'});
     this.authenticating = true;
     // Every admission carries this source's own lifetime, whether or not the caller
@@ -99,9 +99,9 @@ export class NativePorticoSignIn {
     };
     try {
       const result = await nativeAccounts.authenticatePorticoAccount(async signal => {this.check(); return work(signal);}, admitted);
-      await this.checkpoint({mfa: undefined, transactionId: undefined, completionCode: undefined}, callerCurrent); return result;
+      await this.checkpoint({mfa: undefined, transactionId: undefined, completionCode: undefined}, callerCurrent, settledCurrent); return result;
     } catch (error) {
-      if (error instanceof MFARequiredError) await this.checkpoint({mfa: error.challenge}, callerCurrent);
+      if (error instanceof MFARequiredError) await this.checkpoint({mfa: error.challenge}, callerCurrent, settledCurrent);
       throw error;
     } finally {this.authenticating = false;}
   }
@@ -129,13 +129,16 @@ export class NativePorticoSignIn {
     const issued = this.factorWitness;
     if (!witness || !caller || !issued || witness !== issued.witness || issued.challenge !== challenge
       || !(Date.parse(challenge.expiresAt) > Date.now())) throw new CodedError('cancelled', 'native_factor_changed');
-    const callerLive = () => !this.abort.signal.aborted && this.isCurrent() && caller.isCurrent() && !caller.signal.aborted
-      && this.continuation?.mfa === challenge;
+    const formLive = () => !this.abort.signal.aborted && this.isCurrent() && caller.isCurrent() && !caller.signal.aborted;
+    const callerLive = () => formLive() && this.continuation?.mfa === challenge;
+    // Admission and the pre-write checks require the original challenge. Our own
+    // successful checkpoint consumes it; settlement still requires the same live
+    // form, source and signal, without requiring the challenge we just cleared.
     return this.authenticate(async signal => {
       if (!callerLive()) throw new CodedError('cancelled', 'native_factor_changed');
       const linked = linkNativeAbortSignals([this.abort.signal, caller.signal, signal]);
       try {return await this.api().mfa(challenge, code, linked.signal);} finally {linked.dispose();}
-    }, callerLive);
+    }, callerLive, formLive);
   }
   /** Account help sends one reset link; the new password is chosen on that page,
    * on any device. One field names the account, its username or the email on it,

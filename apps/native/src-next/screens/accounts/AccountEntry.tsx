@@ -1324,15 +1324,14 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     // needs the exact challenge, which a successful factor clears before it resolves.
     const formLive = () => lifetime.current && stageRef.current === 'factor' && !!opening && opening.owner.live
       && account.current === opening.source && registerDraftRev.current === revision;
-    const admitted = () => formLive() && !!opening && opening.source.factorChallengeIdentity() === opening.witness;
     const edit = (apply: (next: string) => void) => (next: string) => {registerDraftRev.current++; apply(next);};
     return layout(t('auth.enterVerificationCode'), t('services.signin.twoStep'),
       fields(recovery ? field(t('services.signin.recovery'), entered, edit(setRecoveryCode)) : codeField(t('auth.verificationCode'), entered, edit(setCode))),
       action('factor', t('action.continue'), async () => {
         const source = opening?.source;
-        if (!opening || !source || !entered || !admitted()) return;
+        if (!opening || !source || !entered || !formLive() || source.factorChallengeIdentity() !== opening.witness) return;
         try {
-          await source.factor(entered, {signal: opening.life.signal, isCurrent: admitted}, opening.witness);
+          await source.factor(entered, {signal: opening.life.signal, isCurrent: formLive}, opening.witness);
         } catch (refusal) {
           // A retired form publishes nothing; only the live original may surface a refusal.
           if (!formLive()) return;
