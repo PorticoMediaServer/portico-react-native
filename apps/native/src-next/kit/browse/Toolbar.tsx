@@ -40,8 +40,8 @@ export function CardSizeButton({value, options, onValueChange}: NonNullable<Brow
   </>;
 }
 
-export function SortMenu({scope, sorts, value, label, onValueChange, onReshuffle, open: suppliedOpen, onOpenChange}: {
-  scope?: string; sorts: readonly BrowseSortCapability[]; value: BrowseToolbarModel['sort']; label: (sort: BrowseSortCapability) => string;
+export function SortMenu({scope, focusId, sorts, value, label, onValueChange, onReshuffle, open: suppliedOpen, onOpenChange}: {
+  scope?: string; /** The trigger's stable id inside a focus region. */ focusId?: string; sorts: readonly BrowseSortCapability[]; value: BrowseToolbarModel['sort']; label: (sort: BrowseSortCapability) => string;
   onValueChange: (value: BrowseSortSelection) => void; onReshuffle?: () => void; open?: boolean; onOpenChange?: (open: boolean) => void;
 }) {
   const theme = useTheme(), anchorRef = useRef<View>(null), [localOpen, setLocalOpen] = useState(false);
@@ -58,7 +58,7 @@ export function SortMenu({scope, sorts, value, label, onValueChange, onReshuffle
     setOpen(false);
   };
   return <>
-    <Focusable ref={anchorRef} focusKind="chip" focusRadius={theme.isTV ? 14 : 10} accessibilityRole="button" accessibilityLabel={t('next.browse.native.sort')} accessibilityState={{expanded: open}} onPress={() => setOpen(!open)} style={{height: theme.isTV ? 64 : theme.platform === 'phone' ? 34 : 40, borderRadius: theme.isTV ? 14 : 10, paddingHorizontal: theme.isTV ? 26 : 14, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.isTV ? alpha(theme.colors.text, .08) : theme.colors.raisedHigh}}>
+    <Focusable ref={anchorRef} focusId={focusId} focusKind="chip" focusRadius={theme.isTV ? 14 : 10} accessibilityRole="button" accessibilityLabel={t('next.browse.native.sort')} accessibilityState={{expanded: open}} onPress={() => setOpen(!open)} style={{height: theme.isTV ? 64 : theme.platform === 'phone' ? 34 : 40, borderRadius: theme.isTV ? 14 : 10, paddingHorizontal: theme.isTV ? 26 : 14, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.isTV ? alpha(theme.colors.text, .08) : theme.colors.raisedHigh}}>
       <Icon name="i-sort" size={theme.isTV ? 26 : 18} color={theme.colors.textTertiary}/>
       <View style={{flexDirection: 'row', gap: 7, alignItems: 'center'}}>
         {active && <Text style={[browseType(theme, theme.isTV ? 22 : 14.5, 700), {color: theme.colors.text}]}>{label(active)}</Text>}

@@ -21,7 +21,7 @@ const projection = () => ({
     {id: 'favorites', labelKey: 'saved.favorites', view: 'favorites'},
     {id: 'playlists', labelKey: 'saved.playlists', view: 'playlists'},
   ],
-  query: {sort: 'position', direction: 'asc', category: '', q: '', limit: 40, searchMode: 'none'},
+  query: {sort: 'position', direction: 'asc', category: 'all', q: '', limit: 40, searchMode: 'none'},
   sorts: [], filters: [],
   sections: [{id: 'entries', type: 'list', heading: {key: 'saved.entries', fallback: 'Entries'}, entries: [occurrence(0)], totalCount: 2, nextCursor: ''}],
 });

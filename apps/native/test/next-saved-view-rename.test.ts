@@ -56,7 +56,7 @@ class SavedFixture {
       if (!match) throw new Error(`unexpected read ${path}`);
       const view = this.views.get(decodeURIComponent(match[1]!));
       if (!view) throw new Error(`unknown view ${match[1]}`);
-      return {nextCursor: '', resource: resourceOf(view), browse: browse(), entries: []};
+      return {nextCursor: '', resource: resourceOf(view), browse: browse(), entries: [], query: {sort: 'position', direction: 'asc', category: 'all', q: '', limit: 40, searchMode: 'none'}, sorts: [], filters: [], totalCount: 0, start: 0};
     }
     if (method === 'PATCH') return await this.patch((body ?? {}) as Readonly<Record<string, unknown>>);
     throw new Error(`unexpected ${method} ${path}`);

@@ -54,7 +54,7 @@ function fixture() {
     if (url.pathname === routePath('get_saved_pins_order')) return {serverId: 'server', viewerFence: 'pins-fence', revision: 1, order: []};
     if (url.pathname.includes('/saved-resources/') && url.pathname.endsWith('/content')) {
       const resource = resourceFor(decodeURIComponent(url.pathname.split('/').at(-2)!));
-      return resource.kind === 'view' ? {resource, browse: browse(), nextCursor: ''} : {resource, entries: [], nextCursor: ''};
+      return resource.kind === 'view' ? {resource, browse: browse(), nextCursor: ''} : {resource, entries: [], nextCursor: '', query: {sort: 'position', direction: 'asc', category: 'all', q: '', limit: 40, searchMode: 'none'}, sorts: [], filters: [], totalCount: 0, start: 0};
     }
     if (url.pathname.includes('/saved-resources')) return {serverId: 'server', viewerFence: 'directory-fence', revision: 1, resources: [directoryRow], nextCursor: ''};
     const view = url.searchParams.get('view') ?? 'watchlist';

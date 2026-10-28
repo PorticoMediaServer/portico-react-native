@@ -1,4 +1,5 @@
 import test from 'node:test';
+import * as savedCore from '../../../packages/client-core/src/saved.ts';
 import {defaultI18n} from '../../../packages/i18n/src';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
@@ -24,6 +25,7 @@ function fixture(phone = true) {
     '../../shell/model': {sameAuthority: (a: any, b: any) => a === b}, '../destinations/focus': {nativeDestinationFocusIds: () => ({rail: 'rail'})},
     '../home/model': {homeCardText: () => ({caption: []})}, '../read/platform': {isReadingLibraryKind: () => false},
     './SavedForms': {SavedConfirmSheet: 'SavedConfirmSheet', SavedNameSheet: 'SavedNameSheet'}, './SavedSortMenu': {SavedSortMenu: 'SavedSortMenu'},
+    '../../../../../packages/client-core/src/saved': savedCore, 
     './SavedLoading': {SavedLoading: 'SavedLoading', SavedTail: 'SavedTail'}, './SavedReorderList': {SavedReorderList: 'SavedReorderList'}, './paging': {savedNearEnd},
     './presentation': {exactDurationSeconds: () => undefined, personalMosaic: () => [], playlistEntryMosaic: () => [], savedDuration: String,
       savedItemCount: String, savedLibraryName: () => undefined, savedPlaylistEyebrow: 'playlist', savedResourceEyebrow: () => 'collection',
@@ -89,7 +91,9 @@ test('Saved list carries selection to cards and prefetches before its loaded end
 test('Saved resource menus keep membership commands beside canonical selection, and manual reorder commits guarded occurrence IDs', async () => {
   const f = fixture(), {SavedResourceScreen} = await f.load('saved/SavedResourceScreen'), calls: any[] = [], selected = {active: false, selected: false, onEnter() {}, onToggle() {}};
   const other = {...entry, id: 'movie-b'}, occurrence = {id: 'occ-a', kind: 'playlist_entry', media: entry}, second = {id: 'occ-b', kind: 'playlist_entry', media: other};
-  let snapshot: any = {phase: 'ready', saved: {playlist: {name: 'Playlist', entryCount: 2, actions: ['reorder', 'remove']}, projection: {...projection, sections: [{id: 'items', entries: [occurrence, second]}]}, pagination: {next: []}}};
+  const sorts = [{id: 'position', labelKey: 'sort.position', directions: ['asc']}, {id: 'title', labelKey: 'sort.title', directions: ['asc', 'desc']}];
+  let snapshot: any = {phase: 'ready', saved: {playlist: {name: 'Playlist', entryCount: 2, revision: 3, actions: ['reorder', 'remove']},
+    projection: {...projection, playlistRevision: 3, sorts, sections: [{id: 'items', entries: [occurrence, second], start: 0, order: {last: 'occ-b'}}]}, pagination: {next: []}}};
   let visible = true;
   const active = {subscribe: () => () => {}, getSnapshot: () => ({visible, revision: 1, intent: 'enter'})};
   const destination = {subscribe: () => () => {}, getSnapshot: () => snapshot, mutateSaved: async (command: unknown) => {calls.push(['command', command]);}};
@@ -100,11 +104,10 @@ test('Saved resource menus keep membership commands beside canonical selection, 
   assert.equal(row.props.selection, selected); row.props.onMore(anchor);
   assert.equal(calls[0][1], entry); assert.equal(calls[0][2], anchor); assert.equal(calls[0][3], selected.onEnter);
   assert.ok(calls[0][4].some((action: any) => action.id === 'remove-entry'));
-  const orderChip = find(tree, 'saved-resource-sort');
-  assert.ok(text(orderChip).includes('Playlist order'));
-  assert.equal(orderChip.props.style.height, 34);
-  assert.equal(orderChip.props.style.borderRadius, 10);
-  assert.equal(orderChip.props.style.paddingHorizontal, 14);
+  // collections.html 18: the sort chip names the playlist's own order and offers the server's sorts.
+  const orderChip = nodes(tree).find(node => node.type === 'SavedSortMenu');
+  assert.equal(orderChip.props.sort, 'position'); assert.deepEqual(orderChip.props.sorts, sorts);
+  assert.ok(orderChip.props.label(sorts[0]).includes('Playlist order'));
   find(tree, 'saved-reorder').props.onPress(); tree = f.host.render(() => SavedResourceScreen(props));
   assert.ok(text(tree).includes('Reordering')); assert.ok(find(tree, 'saved-reorder-done')); assert.equal(find(tree, 'saved-play'), undefined);
   const list = nodes(tree).find(node => node.type === 'SavedReorderList');

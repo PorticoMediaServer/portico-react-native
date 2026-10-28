@@ -44,8 +44,11 @@ class CollectionFixture {
     this.calls.push({path, method, ...(method === 'PATCH' ? {body} : {})});
     if (method === 'GET') {
       const cursor = new URL(path, 'https://saved.test').searchParams.get('cursor');
-      if (cursor === null) return {resource: this.resource(), nextCursor: 'page-2', entries: [entry('e1', 'm1', 'First page title')]};
-      if (cursor === 'page-2') return {resource: this.resource(), nextCursor: '', entries: [entry('e2', 'm2', 'Second page title')]};
+      // A collection page echoes its query and offers its orders and filters (P2-25).
+      const page = (start: number) => ({query: {sort: 'position', direction: 'asc', category: 'all', q: '', limit: 40, searchMode: 'none'},
+        sorts: [{id: 'position', labelKey: 'sort.position', directions: ['asc']}], filters: [], totalCount: 2, start});
+      if (cursor === null) return {resource: this.resource(), nextCursor: 'page-2', entries: [entry('e1', 'm1', 'First page title')], ...page(0), order: {next: 'e2', last: 'e2'}};
+      if (cursor === 'page-2') return {resource: this.resource(), nextCursor: '', entries: [entry('e2', 'm2', 'Second page title')], ...page(1), order: {previous: 'e1', last: 'e2'}};
       throw new Error(`unexpected cursor ${cursor}`);
     }
     if (method === 'PATCH') {

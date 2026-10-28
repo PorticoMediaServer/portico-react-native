@@ -6,7 +6,7 @@ import {presentError} from '../../../../../packages/client-core/src/presentation
 import type {Library} from '../../../../../packages/client-core/src/index';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {PersonalResource, PersonalSavedSnapshot, PersonalSavedIntent} from '../../../../../packages/client-core/src/personal-saved';
-import type {PlaylistOccurrence, SavedRoute, SavedSnapshot} from '../../../../../packages/client-core/src/saved';
+import {resourceContentManual, resourceContentQuery, type PlaylistOccurrence, type ResourceContentQuery, type ResourceOrderWitness, type SavedRoute, type SavedSnapshot} from '../../../../../packages/client-core/src/saved';
 import {Button, Chip, Focusable, Switch} from '../../kit/controls';
 import {AmbientArt, Artwork, MediaArt} from '../../kit/artwork';
 import {CardFrame, Parts} from '../../kit/cards/primitives';
@@ -28,6 +28,7 @@ import type {NativeWatchMenuExtra} from '../watch/factory';
 import {SavedLoading, SavedTail} from './SavedLoading';
 import {savedNearEnd} from './paging';
 import {SavedReorderList} from './SavedReorderList';
+import {SavedSortMenu} from './SavedSortMenu';
 import {homeCardText} from '../home/model';
 import {SavedConfirmSheet, SavedNameSheet} from './SavedForms';
 import {isReadingLibraryKind} from '../read/platform';
@@ -74,6 +75,20 @@ type PageWitness = Readonly<{epoch: number; authority: ShellAuthority}>;
 
 /** The page's membership rows, from whichever snapshot the caller holds: the render and a
  * command dispatched later must both read the same thing. */
+/** Where a page of the resource's own order sits, and the entries the server witnessed around it
+ * at the resource's revision. A sorted or filtered page has no witness, so it moves nothing. */
+function pageOrder(isPlaylist: boolean, state: Readonly<{saved?: SavedSnapshot; personal?: PersonalSavedSnapshot}>): Readonly<{start: number; witness?: ResourceOrderWitness}> {
+  if (!isPlaylist) return {start: state.personal?.page?.start ?? 0, witness: state.personal?.page?.order};
+  const section = state.saved?.projection?.sections[0];
+  return {start: section?.start ?? 0, witness: state.saved?.projection?.playlistRevision === state.saved?.playlist?.revision ? section?.order : undefined};
+}
+const contentQuery = (route: SavedRoute | undefined): ResourceContentQuery => {
+  if (route?.view !== 'playlist' && route?.view !== 'resource') return {};
+  try {return resourceContentQuery(route);} catch {return {};}
+};
+/** The page's own sorts: the resource's order by its group's name, the rest by the Saved words. */
+const resourceSortKeys = {title: 'web.saved.sort.title', year: 'web.saved.sort.year', duration: 'web.saved.sort.duration'} as const;
+
 function membershipRows(isPlaylist: boolean, state: Readonly<{saved?: SavedSnapshot; personal?: PersonalSavedSnapshot}>): readonly Row[] {
   return isPlaylist
     ? (state.saved?.projection?.sections ?? []).flatMap(section => section.entries.flatMap(entry => entry.kind === 'playlist_entry' && !entry.hidden ? [{id: entry.id, media: entry.media}] : []))
@@ -116,7 +131,20 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
   const duration = exactDurationSeconds(media), artwork = isPlaylist ? playlistEntryMosaic((saved?.projection?.sections ?? []).flatMap(section => section.entries).filter((entry): entry is PlaylistOccurrence => entry.kind === 'playlist_entry')) : personalMosaic(resource);
   const name = isPlaylist ? playlist?.name : resource?.name;
   const eyebrow = isPlaylist ? savedPlaylistEyebrow : resource ? savedResourceEyebrow(resource) : undefined;
-  const canReorder = isPlaylist ? playlist?.actions.includes('reorder') === true : resource?.kind === 'collection' && resource.actions.includes('reorder') === true;
+  // collections.html 18/20: the sort chip and Filters set a temporary page query on the selected
+  // route; the server reads it. Only the resource's own order over every entry can move one.
+  const shown = snapshot.route ?? route, query = contentQuery(shown), manual = resourceContentManual(query), order = pageOrder(isPlaylist, snapshot);
+  const offers = isPlaylist ? {sorts: saved?.projection?.sorts ?? [], filters: saved?.projection?.filters ?? []} : {sorts: personal?.page?.sorts ?? [], filters: personal?.page?.filters ?? []};
+  const [filtersOpen, setFiltersOpen] = useState(false), filtersAnchor = useRef<View>(null);
+  const chooseQuery = (next: ResourceContentQuery) => {
+    const own = !next.sort || next.sort === 'position', narrowed = next.filter && next.filter !== 'all' ? {filter: next.filter} : {};
+    const sorted = own ? {} : {sort: next.sort, ...(next.direction ? {direction: next.direction} : {})};
+    const target: SavedRoute | undefined = route.view === 'playlist' ? {view: 'playlist', playlistId: route.playlistId, ...sorted, ...narrowed}
+      : route.view === 'resource' && route.resourceId ? {view: 'resource', resourceId: route.resourceId, ...sorted, ...narrowed} : undefined;
+    if (target) void destination.select(target).catch(report);
+  };
+  const reorderGranted = isPlaylist ? playlist?.actions.includes('reorder') === true : resource?.kind === 'collection' && resource.actions.includes('reorder') === true;
+  const canReorder = reorderGranted && manual && !!order.witness;
   useEffect(() => {if (!canReorder) setReordering(false);}, [canReorder]);
   const visibility = resource?.kind === 'collection' ? savedVisibility(resource, theme.isTV) : undefined;
   const report = (error: unknown) => runtime.reportError(error);
@@ -178,7 +206,7 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
   /** The page as the server last stated it, for a sheet that has outlived a refresh. */
   const page = () => {
     const state = destination.getSnapshot();
-    return {rows: membershipRows(isPlaylist, state), playlist: state.saved?.playlist ?? null, resource: state.personal?.resource ?? null};
+    return {rows: membershipRows(isPlaylist, state), order: pageOrder(isPlaylist, state), playlist: state.saved?.playlist ?? null, resource: state.personal?.resource ?? null};
   };
   /** A press acts only from the exact opening that drew it, while this page is on screen. */
   const openingLive = (menu: RowMenu): boolean =>
@@ -258,32 +286,39 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
       : live.resource?.kind === 'collection' && live.resource.actions.includes('reorder') === true;
     // The membership row and the reorder it asks for are the current page's, not the render's.
     if (index < 0 || !reorderable) {closeOpening(menu); return;}
-    const row = live.rows[index]!;
+    const row = live.rows[index]!, {start, witness: seen} = live.order;
+    // The front of this page is the resource's front only on its first page; past it, the entry
+    // the server witnessed just before the page. The bottom is the witnessed last entry.
+    const front = start === 0 ? '' : seen?.previous;
+    if (!seen) return;
+    if (where === 'up' && index === 0) {if (seen.previous) place(menu, row, undefined, keepSheetOpen, [row.id, seen.previous]); return;}
     let after: string | undefined;
-    if (where === 'up') {if (index === 0) return; after = index === 1 ? '' : ids[index - 2];}
-    else if (where === 'down') {if (index === ids.length - 1) return; after = ids[index + 1];}
-    else if (where === 'top') {if (index !== 0) after = '';}
-    else {if (index !== ids.length - 1) after = ids[ids.length - 1];}
+    if (where === 'up') after = index === 1 ? front : ids[index - 2];
+    else if (where === 'down') after = index === ids.length - 1 ? seen.next : ids[index + 1];
+    else if (where === 'top') {if (index !== 0 || start !== 0) after = '';}
+    else if (seen.last && seen.last !== row.id) after = seen.last;
     if (after === undefined) return;
     place(menu, row, after, keepSheetOpen);
   };
-  const place = (menu: RowMenu, row: Row, after: string, keepSheetOpen = false) => {
+  /** Moves one entry after `after` ("" the front); without `after`, swaps `entryIds` among their places. */
+  const place = (menu: RowMenu, row: Row, after: string | undefined, keepSheetOpen = false, entryIds: readonly string[] = [row.id]) => {
     if (!openingLive(menu)) return;
+    const intent = after === undefined ? {action: 'reorder' as const, entryIds} : {action: 'reorder' as const, entryIds, afterEntryId: after};
     void run(async still => {
       if (isPlaylist) {
-        try {await destination.mutateSaved({action: 'reorder', entryIds: [row.id], afterEntryId: after});}
+        try {await destination.mutateSaved(intent);}
         catch (error) {
           const code = (error as {code?: string}).code;
           if (code !== 'playlist_conflict' && code !== 'revision_mismatch') throw error;
           await destination.loadOrder();
           if (!still() || !openingLive(menu)) return;
           const current = page();
-          if (!current.playlist?.actions.includes('reorder') || !current.rows.some(value => value.id === row.id)
+          if (!current.playlist?.actions.includes('reorder') || after === undefined || !current.rows.some(value => value.id === row.id)
             || after !== '' && !current.rows.some(value => value.id === after)) return;
-          await destination.mutateSaved({action: 'reorder', entryIds: [row.id], afterEntryId: after});
+          await destination.mutateSaved(intent);
         }
       } else {
-        await changePersonal({action: 'reorder', entryIds: [row.id], afterEntryId: after}, still);
+        await changePersonal(intent, still);
       }
     }).then(result => {if (result === 'failed' && keepSheetOpen) closeOpening(menu);});
   };
@@ -310,6 +345,8 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
   };
   const rowMenuEntries = (menu: RowMenu): readonly MenuEntry[] => {
     const index = rows.findIndex(row => row.id === menu.entryId), last = rows.length - 1;
+    // Past the page's edge only through the witnessed neighbour.
+    const atFirst = index < 0 || index === 0 && !order.witness?.previous, atLast = index < 0 || index >= last && !order.witness?.next;
     // G33 permits the same retained Move up/down sheet on authorized collections.
     // Every press re-checks the live membership and grants before it dispatches.
     const tvMoves = theme.isTV, moves = canReorder;
@@ -320,16 +357,16 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
       ...(theme.isTV && selection?.item(menu.entry) ? [{id: 'select', label: t('next.selection.select'), icon: 'i-check' as const,
         onSelect: () => {if (!openingLive(menu)) return; closeOpening(menu); selection.item(menu.entry)?.onEnter();}}] : []),
       ...(moves && !tvMoves ? [
-        {id: 'top', label: t('order.moveTop'), icon: 'i-up', disabled: index <= 0, onSelect: () => move(menu, 'top')},
-        {id: 'up', label: t('player.queueMoveUp'), icon: 'i-up', disabled: index <= 0, onSelect: () => move(menu, 'up')},
-        {id: 'down', label: t('player.queueMoveDown'), icon: 'i-down', disabled: index < 0 || index >= last, onSelect: () => move(menu, 'down')},
-        {id: 'bottom', label: t('order.moveBottom'), icon: 'i-down', disabled: index < 0 || index >= last, onSelect: () => move(menu, 'bottom')},
+        {id: 'top', label: t('order.moveTop'), icon: 'i-up', disabled: index < 0 || index === 0 && order.start === 0, onSelect: () => move(menu, 'top')},
+        {id: 'up', label: t('player.queueMoveUp'), icon: 'i-up', disabled: atFirst, onSelect: () => move(menu, 'up')},
+        {id: 'down', label: t('player.queueMoveDown'), icon: 'i-down', disabled: atLast, onSelect: () => move(menu, 'down')},
+        {id: 'bottom', label: t('order.moveBottom'), icon: 'i-down', disabled: index < 0 || !order.witness?.last || order.witness.last === menu.entryId, onSelect: () => move(menu, 'bottom')},
       ] as const : []),
       // A TV sheet keeps its move rows attached while a command runs: disabling the row the
       // person is on would move focus away from it. The flight refusal above is the guard.
       ...(moves && tvMoves ? [
-        {id: 'up', label: t('player.queueMoveUp'), icon: 'i-up', disabled: index <= 0, closeOnSelect: false, onSelect: () => move(menu, 'up')},
-        {id: 'down', label: t('player.queueMoveDown'), icon: 'i-down', disabled: index < 0 || index >= last, closeOnSelect: false, onSelect: () => move(menu, 'down')},
+        {id: 'up', label: t('player.queueMoveUp'), icon: 'i-up', disabled: atFirst, closeOnSelect: false, onSelect: () => move(menu, 'up')},
+        {id: 'down', label: t('player.queueMoveDown'), icon: 'i-down', disabled: atLast, closeOnSelect: false, onSelect: () => move(menu, 'down')},
       ] as const : []),
       // The page's current membership row, not the object captured when the sheet opened: the
       // refresh after each move replaces the projection's objects while the sheet stays open.
@@ -365,7 +402,9 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
     const live = page();
     if (ids.length !== live.rows.length || live.rows.some((value, index) => value.id !== ids[index]) || after === row.id
       || after !== '' && !live.rows.some(value => value.id === after)) return;
-    const next = reorderOpening(row); if (next) place(next, row, after);
+    const anchor = after === '' && live.order.start !== 0 ? live.order.witness?.previous : after;
+    if (anchor === undefined) return;
+    const next = reorderOpening(row); if (next) place(next, row, anchor);
   };
   const stateError = snapshot.error ?? saved?.error ?? personal?.error;
   const menuItems: readonly MenuEntry[] = (() => {
@@ -496,7 +535,8 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
             {theme.isTV && <Button testID="saved-resource-menu" focusId="saved-resource-menu" variant="glass" icon="i-more" iconOnly
               accessibilityLabel={t(isPlaylist ? 'web.saved.playlistOptions' : 'web.saved.collectionOptions')} accessibilityState={{expanded: pageMenu}}
               onPress={openPageMenu} style={{width: 72, height: 72, borderRadius: 14}}/>}
-            {canReorder && !theme.isTV && <Button testID="saved-reorder" focusId="saved-reorder" variant={reordering ? 'primary' : 'glass'} icon={reordering ? 'i-check' : 'i-updown'}
+            {reorderGranted && !theme.isTV && <Button testID="saved-reorder" focusId="saved-reorder" variant={reordering ? 'primary' : 'glass'} icon={reordering ? 'i-check' : 'i-updown'}
+              disabled={!canReorder} accessibilityHint={manual ? undefined : t('order.ownOrderOnly', {group: isPlaylist ? 'playlist' : 'collection'})}
               onPress={() => setReordering(value => !value)}>{t(reordering ? 'order.done' : 'order.reorder')}</Button>}
           </View>
           </>}
@@ -504,8 +544,14 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
             {!isPlaylist && resource?.kind === 'view' ? <>
               <Text style={[browseType(theme, 14.5, 700), {color: theme.colors.text}]}>{viewSortLabel(resource)}</Text>
               <Chip focusId="saved-view-info" icon="i-info" count={savedViewConditionCount(resource)} countStyle="badge" onPress={() => setInfoOpen(true)}>{t('web.saved.savedView')}</Chip>
-            </> : <View testID="saved-resource-sort" style={{height: theme.platform === 'phone' ? 34 : 40, borderRadius: 10, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.colors.raisedHigh}}><Icon name="i-sort" size={18} color={theme.colors.textTertiary}/>
-              <Text style={[browseType(theme, 14.5, 700), {color: theme.colors.text}]}>{t('web.group.ownOrder', {group: isPlaylist ? 'playlist' : 'collection'})}</Text></View>}
+            </> : <>
+              {!!offers.sorts.length && <SavedSortMenu scope="saved-resource" focusId="saved-resource-sort" sorts={offers.sorts} sort={query.sort ?? 'position'} direction={query.direction}
+                label={value => value.id === 'position' ? t('web.group.ownOrder', {group: isPlaylist ? 'playlist' : 'collection'}) : t(resourceSortKeys[value.id as keyof typeof resourceSortKeys] ?? 'web.saved.sort.other')}
+                onChange={(sort, direction) => chooseQuery({sort: sort as ResourceContentQuery['sort'], direction, filter: query.filter})}/>}
+              {offers.filters.some(filter => filter.options.length > 1) && <View ref={filtersAnchor} collapsable={false}>
+                <Chip testID="saved-resource-filters" focusId="saved-resource-filters" icon="i-filter" selected={(query.filter ?? 'all') !== 'all'} onPress={() => setFiltersOpen(true)}>{t('next.browse.filters')}</Chip>
+              </View>}
+            </>}
             {!theme.isTV && theme.platform !== 'phone' && !reordering && selection?.start && <Chip testID="saved-resource-select" onPress={() => selection.start?.()}>{t('next.selection.select')}</Chip>}
             <Text style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary, marginLeft: 'auto'}]}>{countText}</Text>
           </View>}
@@ -533,6 +579,9 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
       </ScrollView>
     </FocusRegion>
     {!reordering && selection?.render()}
+    <Menu open={!stateError && filtersOpen} onOpenChange={setFiltersOpen} anchorRef={filtersAnchor} presentation="sheet" title={t('next.browse.filters')} testID="saved-resource-filter-menu"
+      items={offers.filters.flatMap(filter => filter.options.map(option => ({id: `${filter.id}:${option.id}`, label: option.label, trailing: defaultI18n.number(option.count),
+        selected: (query.filter ?? 'all') === option.id, onSelect: () => {setFiltersOpen(false); chooseQuery({...query, filter: option.id as ResourceContentQuery['filter']});}})))}/>
     <Menu open={!stateError && pageMenu} onOpenChange={open => {if (!open) pageOpening.current = undefined; setPageMenu(open);}} presentation={theme.isTV ? 'sideSheet' : 'sheet'} title={t(isPlaylist ? 'web.saved.playlistOptions' : 'web.saved.collectionOptions')}
       items={menuItems} testID="saved-resource-page-menu"/>
     <Menu open={!stateError && !!rowMenu} onOpenChange={open => {if (!open && rowMenu) closeOpening(rowMenu);}} presentation={theme.isTV ? 'sideSheet' : 'sheet'} title={rowMenu?.entry.title ?? ''}
