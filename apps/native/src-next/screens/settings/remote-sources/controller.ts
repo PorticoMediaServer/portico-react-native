@@ -38,12 +38,26 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
         && account.account.id === lifetime.authority.accountId
         && account.account.primaryProfileId === lifetime.authority.profileId;
     };
+    const originalApi = ports.context.api;
+    const requireCurrent = () => {if (!admitted()) throw screenScopeEnded();};
     const service = new RemoteSourceService({
+      ...(originalApi.acknowledgeUserMutation ? {acknowledgeUserMutation: async (id: string) => {
+        requireCurrent(); await originalApi.acknowledgeUserMutation(id); requireCurrent();
+      }} : {}),
+      ...(originalApi.awaitUserMutationsReady ? {awaitUserMutationsReady: async () => {
+        requireCurrent(); await originalApi.awaitUserMutationsReady(); requireCurrent();
+      }} : {}),
+      ...(originalApi.getUserMutationCoordinator ? {getUserMutationCoordinator: () => {
+        requireCurrent(); const value = originalApi.getUserMutationCoordinator(); requireCurrent(); return value;
+      }} : {}),
+      ...(originalApi.getUserMutationScope ? {getUserMutationScope: () => {
+        requireCurrent(); const value = originalApi.getUserMutationScope(); requireCurrent(); return value;
+      }} : {}),
       request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => {
         if (!admitted()) return Promise.reject(screenScopeEnded());
         return lifetime.request(async current => {
           try {
-            const result = await ports.context.api.request<T>(path, method, body, current);
+            const result = await originalApi.request<T>(path, method, body, current);
             if (!admitted()) throw screenScopeEnded();
             return result;
           } catch (error) {
@@ -108,14 +122,31 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
   }
 
   private assignmentApi(guard: () => boolean): LibraryContentApi {
-    return {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
+    const originalApi = this.ports.context.api;
+    const requireCurrent = () => {this.assertAllowed(); if (!guard()) throw screenScopeEnded();};
+    return {
+      ...(originalApi.awaitUserMutationsReady ? {awaitUserMutationsReady: async () => {
+        requireCurrent(); await originalApi.awaitUserMutationsReady(); requireCurrent();
+      }} : {}),
+      ...(originalApi.getUserMutationCoordinator ? {getUserMutationCoordinator: () => {
+        requireCurrent(); const value = originalApi.getUserMutationCoordinator(); requireCurrent(); return value;
+      }} : {}),
+      ...(originalApi.getUserMutationScope ? {getUserMutationScope: () => {
+        requireCurrent(); const value = originalApi.getUserMutationScope(); requireCurrent(); return value;
+      }} : {}),
+      ...(originalApi.acknowledgeUserMutation ? {acknowledgeUserMutation: async (id: string) => {
+        this.assertAllowed(); if (!guard()) throw screenScopeEnded();
+        await originalApi.acknowledgeUserMutation(id);
+        this.assertAllowed(); if (!guard()) throw screenScopeEnded();
+      }} : {}),
+      request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
       this.assertAllowed();
       if (!guard()) return Promise.reject(screenScopeEnded());
       return this.lifetime.request(async current => {
         try {
           this.assertAllowed();
           if (!guard()) throw screenScopeEnded();
-          const result = await this.ports.context.api.request<T>(path, method, body, current);
+          const result = await originalApi.request<T>(path, method, body, current);
           this.assertAllowed();
           if (!guard()) throw screenScopeEnded();
           return result;

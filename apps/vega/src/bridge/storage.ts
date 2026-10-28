@@ -50,7 +50,7 @@ function parse(slot: Slot, text: string): Version | null {
 const encode = (sequence: number, body: string | null) => `v1 ${sequence} ${body === null ? '-' : digest(body)}\n${body ?? ''}`;
 
 /** The newest complete version, and how many slot files exist at all. */
-async function current(path: string): Promise<{version: Version | null; present: Slot[]}> {
+async function current(path: string, strict = false): Promise<{version: Version | null; present: Slot[]}> {
   let version: Version | null = null;
   const present: Slot[] = [];
   for (const slot of SLOTS) {
@@ -61,14 +61,15 @@ async function current(path: string): Promise<{version: Version | null; present:
   }
   // One damaged slot alone is a first write that never completed: there is no record. Two slots
   // with no complete version between them is damage, and must not read as "nothing saved".
-  if (!version && present.length === SLOTS.length) throw new Error('The record is damaged.');
+  if (!version && (present.length === SLOTS.length || strict && present.length > 0)) throw new Error('The record is damaged.');
   return {version, present};
 }
 
-/** The record, or null when there is none. Throws when storage cannot be read. */
-export function readRecord(service: Service, account: string): Promise<string | null> {
+/** The record, or null when absent. Strict owners also reject one existing
+ * damaged slot: a committed single-slot record must never reset to missing. */
+export function readRecord(service: Service, account: string, options?: {strict?: boolean}): Promise<string | null> {
   const path = base(service, account);
-  return serialized('record:' + path, async () => (await current(path)).version?.body ?? null);
+  return serialized('record:' + path, async () => (await current(path, options?.strict)).version?.body ?? null);
 }
 
 /**

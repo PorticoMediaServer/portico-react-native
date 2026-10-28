@@ -13,6 +13,10 @@ import {readLibrarySonic, retryLibrarySonic, saveLibrarySonic, type LibrarySonic
 import {patchLibrarySonicSettingsBinding, readLibrarySonicSettingsBinding} from '../../../../../../packages/client-core/src/presentation/settings-bindings';
 import type {ContentScope, LibraryContentApi} from '../../../../../../packages/client-core/src/library-content';
 
+import {sameUserMutationScope, UserMutationError, type UserMutationScope} from '../../../../../../packages/client-core/src/user-mutations';
+
+type PendingSettings = {document: LibraryAdminDocument; settings: string; patch: string; operationId: string; scope?: UserMutationScope; dispatched: boolean};
+
 export type NativeOwnerLibrariesSnapshot = Readonly<{
   directory: LibraryManagementSnapshot['directory'];
   selectedId?: string;
@@ -67,6 +71,7 @@ export class NativeOwnerLibrariesController {
   private remotePolicy: RemoteSourceService;
   private inventory?: LibraryInventoryService;
   private api: LibraryContentApi;
+  private settingsPending = new Map<string, PendingSettings>();
   private scope: ContentScope;
   private state: NativeOwnerLibrariesSnapshot = empty;
   private listeners = new Set<() => void>();
@@ -386,10 +391,53 @@ export class NativeOwnerLibrariesController {
 
   /** One save of the library's own settings document; the whole document goes back with its revision. */
   async save(patch: Partial<LibrarySettings>): Promise<boolean> {
-    const document = this.state.document;
-    if (!document) return false;
-    const next = Object.freeze({...document.settings, ...patch});
-    const done = await this.command(() => saveLibrarySettings(this.api, document, next, this.requestId()).then(value => {this.publish({document: value, saved: this.state.saved + 1}); return true;}));
+    const libraryId = this.state.selectedId, generation = this.generation;
+    if (!libraryId || this.disposed || this.state.busy) return false;
+    const requireCurrent = () => {if (this.disposed || generation !== this.generation || this.state.selectedId !== libraryId) throw new UserMutationError('mutation_scope_changed');};
+    const done = await this.command(async () => {
+      let pending = this.settingsPending.get(libraryId);
+      if (pending?.dispatched && pending.scope && this.api.awaitUserMutationsReady && this.api.getUserMutationCoordinator && this.api.getUserMutationScope) {
+        requireCurrent(); await this.api.awaitUserMutationsReady?.(); requireCurrent();
+        const scope = this.api.getUserMutationScope(); requireCurrent();
+        if (!scope || !sameUserMutationScope(scope, pending.scope)) throw new UserMutationError('mutation_scope_changed');
+        const coordinator = this.api.getUserMutationCoordinator(); requireCurrent();
+        const retained = coordinator && await coordinator.inspectIntent(pending.operationId); requireCurrent();
+        if (coordinator && !retained) {
+          this.settingsPending.delete(libraryId); pending = undefined;
+        }
+      }
+      const draft = JSON.stringify(patch);
+      if (pending && pending.patch !== draft) throw new UserMutationError('mutation_needs_review');
+      if (!pending) {
+        const document = this.state.document;
+        if (!document || document.libraryId !== libraryId) return false;
+        requireCurrent(); const scope = this.api.getUserMutationScope?.(); requireCurrent();
+        pending = {document: JSON.parse(JSON.stringify(document)), settings: JSON.stringify({...document.settings, ...patch}), patch: draft, operationId: this.requestId(), scope: scope && {...scope}, dispatched: false};
+        this.settingsPending.set(libraryId, pending);
+      }
+      requireCurrent();
+      const api: LibraryContentApi = {
+        ...(this.api.awaitUserMutationsReady ? {awaitUserMutationsReady: async () => {
+          requireCurrent(); await this.api.awaitUserMutationsReady!(); requireCurrent();
+        }} : {}),
+        ...(this.api.getUserMutationCoordinator ? {getUserMutationCoordinator: () => {
+          requireCurrent(); const value = this.api.getUserMutationCoordinator!(); requireCurrent(); return value;
+        }} : {}),
+        ...(this.api.getUserMutationScope ? {getUserMutationScope: () => {
+          requireCurrent(); const value = this.api.getUserMutationScope!(); requireCurrent(); return value;
+        }} : {}),
+        request: async <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
+          requireCurrent(); pending!.dispatched = true;
+          const value = await this.api.request<T>(path, method, body, signal); requireCurrent(); return value;
+        },
+        ...(this.api.acknowledgeUserMutation ? {acknowledgeUserMutation: async (id: string) => {
+          requireCurrent(); await this.api.acknowledgeUserMutation!(id); requireCurrent();
+        }} : {}),
+      };
+      const value = await saveLibrarySettings(api, pending.document, JSON.parse(pending.settings) as LibrarySettings, pending.operationId);
+      requireCurrent(); this.settingsPending.delete(libraryId);
+      this.publish({document: value, saved: this.state.saved + 1}); return true;
+    });
     return done === true;
   }
 

@@ -4,6 +4,7 @@
 #import "PorticoQueuePlaybackStore.h"
 #import "PorticoListeningPolicy.h"
 #import <AVFoundation/AVFoundation.h>
+#import <Security/Security.h>
 #import <MediaPlayer/MediaPlayer.h>
 #import <UIKit/UIKit.h>
 #import <math.h>
@@ -154,10 +155,11 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
  // Observations: the epoch this owner reports under (claimed, or handed over by JS), its own
  // clocks since the claim; the seek serial is _seekRevision. The latest goes once a second.
  NSString *_epoch,*_replaces;long long _observed;double _claimedAt,_playClock,_playingSince;
+ double _mutationIssuedBaseMs,_mutationClockMono;
  double _leaseUntil,_nextReport,_reportEvery,_retryAt,_backoff,_audioCooldown;
  BOOL _reportNow,_patchWanted,_ended,_endedReported,_terminal,_safetyPaused,_engineFailed,_interrupted,_busy,_invalidated,_emitting,_routeReady,_resetEngine,_rendering;
  NSInteger _routeRevision,_seekRevision,_sequence,_ackSequence,_transitionSequence,_failures,_commitTries,_interruptionRevision,_actionRevision,_intentRevision;
- NSDictionary *_nativeSeek,*_lastFact,*_transition;
+ NSDictionary *_nativeSeek,*_lastFact,*_transition,*_mutationScope,*_stopDisposition;
  // §18: the prepared next entry {token, expiresAtMs, entryId, itemId, presentation}; the committed answer.
  NSDictionary *_prepared,*_committed;BOOL _audioReady,_commitWanted,_fastRetry;
  // A commit whose answer never came may have landed: its token is kept and replayed (idempotent)
@@ -207,6 +209,8 @@ static NSDictionary *V1DecodePlan(NSDictionary *presentation){
  if(queueId!=NSNull.null&&queueId&&(!V1ID(queueId)||!V1Revision(queueRevision))){if(error)*error=ListeningError(@"listening_queue_invalid");return NO;}
  if(!ListeningNumber(context[@"lastSeq"],0,9007199254740991.0,YES)||!ListeningNumber(context[@"leaseMs"],0,120000,NO)||!ListeningNumber(context[@"durationSeconds"],0,1e9,NO)||![@[@"playing",@"paused"] containsObject:context[@"intent"]]||!ListeningBool(context[@"transitions"])){if(error)*error=ListeningError(@"listening_handover_invalid");return NO;}
  if(_owner)[self retire:_owner stop:NO];
+ _mutationIssuedBaseMs=Wall()*1000+[context[@"mutationClockOffsetMs"] doubleValue];_mutationClockMono=Mono();
+ _mutationScope=V1Dictionary(context[@"mutationScope"]);_stopDisposition=nil;
  _owner=[owner copy];_origin=[origin copy];_token=[token copy];_journalKey=[@"listening-v1:" stringByAppendingString:principal];
  _pausedAt=0;_wasPlaying=NO;_session=[session copy];_audible=nil;_end=nil;_queueHeader=nil;
  _queue=V1ID(queueId)?[@{@"id":queueId,@"revision":queueRevision} mutableCopy]:nil;
@@ -1096,21 +1100,106 @@ static BOOL ListeningConsecutiveOnAlbum(NSString *album,NSInteger disc,NSInteger
 
 #pragma mark Retirement
 
+/** Stop shares the coordinator's entry and lease. There is no native retry queue:
+ * a lost answer remains pending here and JS takes over the same key after expiry. */
+- (void)publishStop:(NSDictionary *)status {
+ _stopDisposition=status;if(self.onUserMutation)self.onUserMutation(status);
+}
+- (BOOL)stopAuthorized:(NSDictionary *)entry {
+ NSError *error=nil;id allowed=[PorticoQueuePlaybackStore userMutationTransaction:@"authorizeStop" payload:@{@"entry":entry} error:&error];if(error)[self publishStop:@{@"key":entry[@"key"],@"state":@"pending",@"code":@"mutation_store_unavailable"}];return [allowed boolValue];
+}
+- (void)finishStop:(NSDictionary *)entry change:(NSDictionary *)change {
+ NSError *error=nil;
+ id saved=[PorticoQueuePlaybackStore userMutationTransaction:@"finishStop" payload:@{@"key":entry[@"key"],@"leaseOwner":entry[@"leaseOwner"],@"change":change} error:&error];
+ NSString *state=saved&&[saved boolValue]?change[@"state"]:@"pending";
+ [self publishStop:@{@"key":entry[@"key"],@"intentId":entry[@"intentId"],@"state":state,@"code":error?@"mutation_store_unavailable":[saved boolValue]?(change[@"errorCode"]?:@""):@"mutation_pending",@"receipt":[saved boolValue]?(change[@"receipt"]?:NSNull.null):NSNull.null,@"terminalProof":[saved boolValue]?(change[@"terminalProof"]?:NSNull.null):NSNull.null}];
+}
+- (double)stopRetryFloor:(NSDictionary *)headers {
+ double delay=1000;NSString *retry=nil;for(NSString *field in headers)if([field caseInsensitiveCompare:@"Retry-After"]==NSOrderedSame)retry=headers[field];
+ if(retry){NSScanner *scan=[NSScanner scannerWithString:retry];long long seconds=0;if([scan scanLongLong:&seconds]&&scan.isAtEnd&&seconds>=0)delay=MAX(delay,seconds*1000.0);else{NSDateFormatter *f=[NSDateFormatter new];f.locale=[[NSLocale alloc]initWithLocaleIdentifier:@"en_US_POSIX"];f.timeZone=[NSTimeZone timeZoneForSecondsFromGMT:0];f.dateFormat=@"EEE, dd MMM yyyy HH:mm:ss zzz";NSDate *date=[f dateFromString:retry];if(date)delay=MAX(delay,date.timeIntervalSince1970*1000-(_mutationIssuedBaseMs+(Mono()-_mutationClockMono)*1000));}}
+ return delay;
+}
+- (void)lookupStop:(NSDictionary *)entry token:(NSString *)token origin:(NSString *)origin floor:(double)floor {
+ if(![self stopAuthorized:entry]){[self publishStop:@{@"key":entry[@"key"],@"state":@"quarantined",@"code":@"mutation_scope_changed"}];return;}
+ PorticoListeningRequest *request=[PorticoListeningRequest new];request.timeout=10;request.byteLimit=65536;
+ __weak PorticoListeningRequest *weak=request;
+ request.completion=^(NSInteger status,id value,double started){
+  NSDictionary *raw=V1Dictionary(value);if(V1Dictionary(raw[@"data"]))raw=raw[@"data"];
+  NSArray *statuses=@[@"applied",@"already_stopped",@"deleted",@"removed",@"partial",@"conflict",@"invalid",@"terminal"];
+  BOOL fields=YES;for(NSString *field in @[@"revision",@"generation",@"positionMs"])if(raw[field]&&!ListeningNumber(raw[field],0,9007199254740991.0,YES))fields=NO;
+  if(raw[@"generation"]&&[raw[@"generation"] doubleValue]>2147483647)fields=NO;
+  if(raw[@"targetId"]&&(!Text(raw[@"targetId"])||[raw[@"targetId"] lengthOfBytesUsingEncoding:NSUTF8StringEncoding]>128))fields=NO;
+  if(raw[@"positionStatus"]&&![@[@"",@"applied",@"already_stopped",@"not_renderer",@"policy_rejected",@"unchanged"] containsObject:raw[@"positionStatus"]])fields=NO;
+  if(fields&&status>=200&&status<300&&[raw[@"key"] isEqual:entry[@"key"]]&&[raw[@"operation"] isEqual:@"stop_playback_session"]&&[statuses containsObject:raw[@"status"]]&&ListeningNumber(raw[@"committedMs"],0,9007199254740991.0,YES)&&ListeningNumber(raw[@"expiresMs"],[raw[@"committedMs"] doubleValue],9007199254740991.0,YES)){
+   NSMutableDictionary *receipt=[NSMutableDictionary new];for(NSString *field in @[@"key",@"operation",@"status",@"targetId",@"revision",@"generation",@"positionMs",@"positionStatus",@"committedMs",@"expiresMs"])if(raw[field])receipt[field]=raw[field];
+   BOOL rejected=[@[@"partial",@"conflict",@"invalid",@"terminal"] containsObject:raw[@"status"]]||[raw[@"positionStatus"] isEqual:@"policy_rejected"];
+   [self finishStop:entry change:@{@"state":rejected?@"review":@"confirmed",@"receipt":receipt,@"errorCode":[raw[@"positionStatus"] isEqual:@"policy_rejected"]?@"final_position_rejected":rejected?@"mutation_needs_review":@""}];return;
+  }
+  NSString *code=V1ErrorCode(value);
+  if(status>=400&&status<500&&status!=429&&!(status==404&&[code isEqual:@"receipt_unknown"])){
+   [self finishStop:entry change:@{@"state":(status==401||status==403)?@"quarantined":@"review",@"errorCode":code.length?code:@"mutation_needs_review"}];return;
+  }
+  double delay=MAX(floor,[self stopRetryFloor:weak.responseHeaders]);
+  [self finishStop:entry change:@{@"state":@"pending",@"dueMs":@(MIN(9007199254740991.0,Wall()*1000+delay)),@"errorCode":@"mutation_pending"}];
+ };
+ [request start:[NSURL URLWithString:[origin stringByAppendingFormat:@"/v1/user-mutations/%@",entry[@"key"]]] token:token body:nil method:@"GET"];
+}
+- (NSDictionary *)reserveStop:(NSString *)owner position:(double)position {
+ NSDictionary *scope=_mutationScope;NSString *session=_session[@"id"];id generation=_session[@"presentation"][@"generation"];
+ if(!scope||!V1ID(session)||!ListeningNumber(generation,0,9007199254740991.0,YES)){[self publishStop:@{@"state":@"not_queued",@"code":@"mutation_scope_changed"}];return nil;}
+ uint8_t random[16];if(SecRandomCopyBytes(kSecRandomDefault,sizeof(random),random)!=errSecSuccess){[self publishStop:@{@"state":@"not_queued",@"code":@"mutation_random_unavailable"}];return nil;}
+ NSMutableString *nonce=[NSMutableString new];for(NSUInteger i=0;i<16;i++)[nonce appendFormat:@"%02x",random[i]];
+ long long now=llround(Wall()*1000),issued=llround(_mutationIssuedBaseMs+(Mono()-_mutationClockMono)*1000);NSString *key=[NSString stringWithFormat:@"p251_%lld_%@",issued,nonce],*identity=[NSString stringWithFormat:@"stop:%@:%@",session,generation],*path=[@"/v1/playback/sessions/" stringByAppendingString:session];
+ NSDictionary *engine=[_controller listeningSnapshot],*binding=V1Dictionary(engine[@"binding"]);
+ BOOL evidence=[binding[@"sessionId"] isEqual:session]&&[binding[@"generation"] isEqual:generation]&&[engine[@"observed"] boolValue]&&![engine[@"seeking"] boolValue];
+ NSDictionary *body=evidence?@{@"generation":generation,@"positionMs":@((long long)llround(MAX(0,isfinite(position)?position:0)*1000))}:@{@"generation":generation};
+ NSDictionary *input=@{@"operation":@"stop_playback_session",@"method":@"DELETE",@"path":path,@"target":identity,@"body":body,@"headers":@{}};
+ NSString *fingerprint=[[NSString alloc]initWithData:[NSJSONSerialization dataWithJSONObject:input options:(NSJSONWritingSortedKeys|NSJSONWritingWithoutEscapingSlashes) error:nil] encoding:NSUTF8StringEncoding];
+ NSDictionary *entry=@{@"nativeStopOwner":owner,@"key":key,@"operation":@"stop_playback_session",@"method":@"DELETE",@"path":path,@"target":identity,@"intentId":identity,@"fingerprint":fingerprint,@"scope":scope,@"body":body,@"headers":@{@"Idempotency-Key":key},@"state":@"pending",@"attempts":@1,@"dueMs":@(now),@"leaseOwner":[@"native:" stringByAppendingString:key],@"leaseUntilMs":@(now+30000)};
+ NSError *error=nil;NSDictionary *saved=[PorticoQueuePlaybackStore userMutationTransaction:@"reserveStop" payload:@{@"entry":entry} error:&error];
+ if(!saved){[self publishStop:@{@"state":@"not_queued",@"key":key,@"code":@"mutation_not_queued",@"draft":entry}];return nil;}
+ [self publishStop:@{@"key":saved[@"key"],@"intentId":identity,@"state":saved[@"state"],@"code":saved[@"errorCode"]?:@"mutation_pending",@"receipt":saved[@"receipt"]?:NSNull.null}];
+ return [saved[@"key"] isEqual:key]&&saved[@"leaseOwner"]?saved:nil;
+}
+- (void)sendStop:(NSDictionary *)entry token:(NSString *)token origin:(NSString *)origin ready:(BOOL)ready {
+ if(!ready||!token.length){[self finishStop:entry change:@{@"state":@"pending",@"errorCode":@"mutation_pending"}];return;}
+ if(![self stopAuthorized:entry])return;
+ PorticoListeningRequest *request=[PorticoListeningRequest new];request.timeout=10;request.headers=entry[@"headers"];request.byteLimit=65536;
+ __weak PorticoListeningRequest *weak=request;
+ request.completion=^(NSInteger status,id value,double started){
+  if(status>=400&&status<500&&status!=429){NSMutableDictionary *change=[@{@"state":(status==401||status==403)?@"quarantined":@"review",@"errorCode":V1ErrorCode(value).length?V1ErrorCode(value):@"mutation_needs_review"} mutableCopy];if([@[@400,@409,@412,@422] containsObject:@(status)])change[@"terminalProof"]=@{@"kind":@"refused",@"httpStatus":@(status),@"code":change[@"errorCode"]};[self finishStop:entry change:change];return;}
+  // A response alone is never the persisted result; even a timeout is looked up.
+  [self lookupStop:entry token:token origin:origin floor:[self stopRetryFloor:weak.responseHeaders]];
+ };
+ [request start:[NSURL URLWithString:[origin stringByAppendingString:entry[@"path"]]] token:token body:entry[@"body"] method:@"DELETE"];
+}
+- (NSDictionary *)stopDisposition {return _stopDisposition;}
+/** A known Stop result is consumed only after this occurrence is no longer a
+ * local native owner. This also re-proves consumption after JS/app restart. */
+- (BOOL)consumeStop:(NSString *)key error:(NSError **)error {
+ NSDictionary *state=[PorticoQueuePlaybackStore userMutationTransaction:@"read" payload:@{} error:error];if(!state)return NO;
+ NSDictionary *entry=nil;for(NSDictionary *e in state[@"entries"])if([e[@"key"] isEqual:key]){entry=e;break;}
+ if(!Text(entry[@"nativeStopOwner"])||![entry[@"operation"] isEqual:@"stop_playback_session"])return NO;
+ if(_owner){for(NSDictionary *session in @[_session?:@{},_audible?:@{}]){NSString *target=[NSString stringWithFormat:@"stop:%@:%@",session[@"id"],session[@"presentation"][@"generation"]];if([target isEqual:entry[@"target"]])return NO;}}
+ id saved=[PorticoQueuePlaybackStore userMutationTransaction:@"consumeStop" payload:@{@"key":key,@"owner":entry[@"nativeStopOwner"]} error:error];
+ if([saved boolValue]&&self.onUserMutation)self.onUserMutation(@{@"key":key,@"state":entry[@"state"],@"nativeStopConsumed":@YES});
+ return [saved boolValue];
+}
+
+
 - (void)retire:(NSString *)owner stop:(BOOL)stop {
  if(![_owner isEqual:owner])return;
  NSString *origin=_origin,*token=_token,*session=_session[@"id"];BOOL ready=_routeReady;
  double position=[[_controller listeningSnapshot][@"positionSeconds"] doubleValue];
+ NSDictionary *stopEntry=stop&&!_terminal?[self reserveStop:owner position:position]:nil;
  // Fence locally before any network cleanup: nothing below can play or publish.
  _safetyPaused=YES;[_metadataRequest cancel];_metadataRequest=nil;[self clearArtwork];[_timer invalidate];_timer=nil;[_request cancel];_request=nil;_busy=NO;
  [_controller clearListeningOwner:owner];[self removeRemoteCommands];MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo=nil;
  if(_journalKey&&!_commitWanted)[PorticoQueuePlaybackStore write:_journalKey value:@{@"version":@1,@"sessionId":session?:NSNull.null,@"retired":@YES} error:nil];
  [self endControlGrace];
  _owner=nil;_token=nil;_actions=nil;_transition=nil;_metadata=nil;_prepared=nil;_committed=nil;_audible=nil;_policy=nil;_timerCustody=nil;_commitWanted=NO;
- if(stop&&token&&ready&&V1ID(session)&&!_terminal){
-  // DELETE is idempotent; the last position is the listener's.
-  PorticoListeningRequest *cleanup=[PorticoListeningRequest new];
-  [cleanup start:[NSURL URLWithString:[origin stringByAppendingFormat:@"/v1/playback/sessions/%@",[session stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet]]] token:token body:@{@"positionMs":@((long long)llround(MAX(0,isfinite(position)?position:0)*1000))} method:@"DELETE"];
- }
+ if(stop&&Text(_stopDisposition[@"key"])) {NSError *error=nil;[self consumeStop:_stopDisposition[@"key"] error:&error];if(error)[self publishStop:@{@"key":_stopDisposition[@"key"],@"state":@"pending",@"code":@"mutation_store_unavailable"}];}
+ if(stopEntry)[self sendStop:stopEntry token:token origin:origin ready:ready];
  // Not while the other player engine has started a video: the session is its to keep.
  [[AVAudioSession sharedInstance] setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:nil];
 }

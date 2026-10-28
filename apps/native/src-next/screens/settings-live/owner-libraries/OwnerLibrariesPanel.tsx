@@ -4,7 +4,7 @@ import {EpisodeThumbnailsRow} from './EpisodeThumbnailsRow';
 import type {AnalysisPolicy} from '../../../../../../packages/client-core/src/remote-sources';
 import {MissingTitlesTab} from '../server/storage/MissingTitlesTab';
 import {loadInitialOwnerLibrary} from './initial-library';
-import type {NativeScreenLifetime} from '../lifetime';
+import {screenScopeEnded, type NativeScreenLifetime} from '../lifetime';
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {BackHandler, ScrollView, Text, View} from 'react-native';
 import type {ManagedLibrary} from '../../../../../../packages/client-core/src/library-management';
@@ -46,7 +46,33 @@ type ViewerRole = 'owner' | 'administrator' | 'member';
 /** Settings › Server › Libraries: the owner's list and one library's page, on the phone. */
 export function NativeOwnerLibrariesPanel({ports, runtime, initialLibraryId, lifetime}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; initialLibraryId?: string; lifetime?: NativeScreenLifetime}) {
   const theme = useTheme(), t = runtime.text.t, context = ports.context, authority = context.authority();
-  const api = useMemo(() => ({request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => lifetime ? lifetime.request(next => context.api.request<T>(path, method, body, next), signal) : context.api.request<T>(path, method, body, signal)}), [context, lifetime]);
+  const transport = useMemo(() => {
+    const originalApi = context.api;
+    let active = true;
+    const requireCurrent = () => {if (!active || !context.current() || context.authority() !== authority) throw screenScopeEnded();lifetime?.assert();};
+    const api: LibraryContentApi = {
+      ...(originalApi.acknowledgeUserMutation ? {acknowledgeUserMutation: async (id: string) => {
+        requireCurrent(); await originalApi.acknowledgeUserMutation(id); requireCurrent();
+      }} : {}),
+      ...(originalApi.awaitUserMutationsReady ? {awaitUserMutationsReady: async () => {
+        requireCurrent(); await originalApi.awaitUserMutationsReady(); requireCurrent();
+      }} : {}),
+      ...(originalApi.getUserMutationCoordinator ? {getUserMutationCoordinator: () => {
+        requireCurrent(); const value = originalApi.getUserMutationCoordinator(); requireCurrent(); return value;
+      }} : {}),
+      ...(originalApi.getUserMutationScope ? {getUserMutationScope: () => {
+        requireCurrent(); const value = originalApi.getUserMutationScope(); requireCurrent(); return value;
+      }} : {}),
+      request: async <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
+        requireCurrent();
+        const value = await (lifetime ? lifetime.request(next => originalApi.request<T>(path, method, body, next), signal) : originalApi.request<T>(path, method, body, signal));
+        requireCurrent(); return value;
+      },
+    };
+    return {api, retire: () => {active = false;}};
+  }, [context, lifetime, authority]);
+  const api = transport.api;
+  useLayoutEffect(() => transport.retire, [transport]);
   const scope = useMemo(() => ({serverId: authority.serverId, viewerId: JSON.stringify([authority.epoch, authority.accountId, authority.profileId])}), [authority]);
   const controller = useMemo(() => new NativeOwnerLibrariesController(api, scope, ports.requestId), [api, scope, ports]);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);

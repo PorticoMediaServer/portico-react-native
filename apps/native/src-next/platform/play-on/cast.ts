@@ -16,7 +16,7 @@ type Source = Readonly<{id: string; adapter: NativePlaybackAdapter; snapshot: Na
 type Report = Readonly<{itemId: string; versionId?: string; positionSeconds: number; durationSeconds: number; paused: boolean}>;
 export type NativeCastState = Readonly<{cast: CastSnapshot; source?: Source; resumed?:Readonly<{id:string}>;control?:CastDockIdentity;displayKind?:'music'|'audiobook'|'video';receiver?: Report; title?: string; posterUrl?: string; stopped?:boolean}>;
 export type NativeCastOptions = Readonly<{
-  api: Readonly<{baseUrl?: string; request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>}>;
+  api: Readonly<{baseUrl?: string; createUserMutationKey?():Promise<string>; request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>}>;
   session: () => LocalSession | undefined; playback: () => NativePlaybackAdapter | undefined;
   current: () => boolean; deviceName: () => string; reportError: (error: unknown) => void;
 }>;
@@ -82,7 +82,13 @@ export class NativeCastCaller {
         while(this.descriptions.size>4)this.descriptions.delete(this.descriptions.keys().next().value!);
         return title;
       },
-      api: {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => this.request<T>(path, method, body, signal)}});
+      api: {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => this.request<T>(path, method, body, signal),
+        ...(options.api.createUserMutationKey ? {createUserMutationKey: async () => {
+          if (!this.viewerCurrent()) throw cancelled();
+          const key = await options.api.createUserMutationKey!();
+          if (!this.viewerCurrent()) throw cancelled();
+          return key;
+        }} : {})}});
     this.controller = controller;
     this.offController = controller.subscribe(this.changed);
     this.offPlayback = options.playback()?.subscribe(() => {
