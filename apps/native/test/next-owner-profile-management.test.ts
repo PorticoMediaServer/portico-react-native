@@ -1,3 +1,4 @@
+import {profileEditorFields} from './helpers/profile-editor-fields.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
@@ -5,7 +6,7 @@ import * as accountFormValues from '../src-next/screens/accounts/account-form-va
 
 function nodes(value: any): any[] {
   if (Array.isArray(value)) return value.flatMap(nodes);
-  return value?.props ? [value, ...nodes(value.props.children), ...nodes(value.props.footer), ...nodes(value.props.beforeActions)] : [];
+  return value?.props ? [value, ...nodes(value.props.children), ...nodes(value.props.footer), ...nodes(value.props.beforeActions), ...nodes(value.props.control)] : [];
 }
 const byID = (tree: any, id: string) => {const found = nodes(tree).find(node => node.props.testID === id); assert.ok(found, id); return found;};
 const dialog = (tree: any, id: string) => {const found = nodes(tree).find(node => node.type === 'Dialog' && node.props.testID === id); assert.ok(found, id); return found;};
@@ -54,6 +55,7 @@ async function fixture(main = true, pinRequired = false) {
     '../../../../../packages/client-core/src/route-identity': {routeOrigin: (value: string) => value},
     '../../platform/accounts': {}, '../../platform/app-session-storage': {}, '../../platform/profile-selection': {}, '../../platform/profile-recovery': {}, '../../platform/account-authority': {},
     '../../platform/profile-avatars': {profileAvatarUpload: () => ({}), profilePictureSource: () => undefined}, '../../platform/server-connections': {},
+    '../settings-live/ProfileEditorFields': await profileEditorFields(react, {colors, type, isTV: false}),
     '../settings-live/lifetime': {NativeScreenLifetime: class {current = () => true; dispose() {}}},
     '../../shell/model': {sameAuthority: (left: unknown, right: unknown) => left === right},
     '../../shell/route-registry': {nativeShellRoutes: {registerRoute() {}}},
@@ -65,7 +67,13 @@ async function fixture(main = true, pinRequired = false) {
   };
   const {ProfileRoute} = await screenModule(new URL('../src-next/screens/accounts/AccountRoutes.tsx', import.meta.url), modules);
   const render = () => {renderingHost = host; return host.render(() => ProfileRoute({context, route, onBack() {}, embedded: true}));};
-  const renderLimits = (element: any) => {renderingHost = limitsHost; try {return limitsHost.render(() => element.type(element.props));} finally {renderingHost = host;}};
+  const renderLimits = (element: any) => {renderingHost = limitsHost; try {
+    return limitsHost.render(() => {
+      const tree = element.type(element.props);
+      const fields = nodes(tree).find(node => typeof node.type === 'function' && node.type.name === 'ProfileRestrictionsFields');
+      return fields ? {...tree, props: {...tree.props, children: [tree.props.children, fields.type(fields.props)]}} : tree;
+    });
+  } finally {renderingHost = host;}};
   render(); // Publish the committed profile lease before interacting.
   return {render, renderLimits, writes, primary, other, preview, context};
 }

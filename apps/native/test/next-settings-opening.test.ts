@@ -5,7 +5,7 @@ import * as tvSettingsFocus from '../src-next/screens/settings-live/tv-settings-
 
 const nodes = (tree: any): any[] => Array.isArray(tree) ? tree.flatMap(nodes) : tree && typeof tree === 'object' ? [tree, ...nodes(tree.props?.children), ...nodes(tree.props?.headerContent)] : [];
 const find = (tree: any, id: string) => nodes(tree).find(node => node.props?.testID === id);
-async function fixture(initialRoute: any = {kind: 'shell', destination: {kind: 'settings'}}, initialWidth = 390) {
+async function fixture(initialRoute: any = {kind: 'shell', destination: {kind: 'settings'}}, initialWidth = 390, role = 'owner') {
   const host = hooks(), pending: (() => void)[] = [], effects = new Set<{cleanup?: () => void}>();
   const useLayoutEffect = (fn: () => void | (() => void), deps: any[]) => {
     const slot = host.react.useRef(undefined);
@@ -18,7 +18,7 @@ async function fixture(initialRoute: any = {kind: 'shell', destination: {kind: '
   let navigation: any = {revision: 1, route: initialRoute}, lifetime = true, contextCurrent = true, backs = 0, retiredReads = 0, remoteBacks = 0;
   const retirement = new AbortController(), opens: any[] = [], shortcutCalls: string[] = [];
   const guarded = <T,>(value: T) => {if (retirement.signal.aborted) {retiredReads++; throw new Error('retired accessor');} return value;};
-  const context: any = {current: () => guarded(contextCurrent), account: {account: {role: 'owner', username: 'Viewer'}, canManage: true, capabilities: {manageSignIn: true}}, authority: () => guarded({serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'fence'}),
+  const context: any = {current: () => guarded(contextCurrent), account: {account: {role, username: 'Viewer'}, canManage: true, capabilities: {manageSignIn: role === 'owner', managePeople: role === 'owner' || role === 'admin'}}, authority: () => guarded({serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'fence'}),
     navigation: {subscribe: () => () => {}, getSnapshot: () => guarded(navigation), isCurrent: () => guarded(true),
       back: () => {backs++; navigation = {revision: navigation.revision + 1, route: {kind: 'shell', destination: {kind: 'home'}}};},
       open: (route: any) => {opens.push(route); navigation = {revision: navigation.revision + 1, route};}}};
@@ -173,4 +173,18 @@ test('Owner Settings mounts each newly available native server page', async () =
       f.header().props.onBack(); f.render();
     }
   } finally {f.unmount();}
+});
+
+
+test('Administrator Settings exposes People on phone and tablet without exposing owner pages', async () => {
+  for (const width of [390, 800]) {
+    const f = await fixture(undefined, width, 'admin');
+    try {
+      assert.ok(f.find('settings-page-people'));
+      assert.equal(f.find('settings-page-history'), undefined);
+      assert.equal(f.find('settings-page-metadata'), undefined);
+      f.find('settings-page-people').props.onPress(); f.render();
+      assert.ok(f.nodes().some(node => node.type === 'People'));
+    } finally {f.unmount();}
+  }
 });

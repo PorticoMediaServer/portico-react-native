@@ -7,7 +7,7 @@ const row = {accountId: 'member-fixture', username: 'member', role: 'member', re
 const person = {...row, disabled: false, notes: '', limits: {allowRemote: true}};
 const page = (items = [row]) => ({items, totalCount: items.length, matchedCount: items.length, nextCursor: '', limit: 40});
 const tick = async () => {await Promise.resolve(); await Promise.resolve();};
-async function fixture(deferPerson = false) {
+async function fixture(deferPerson = false, callerRole = 'owner') {
   const reads: any[] = [], details: any[] = [], deviceReads: any[] = [], writes: any[] = [], reported: unknown[] = [];
   let active = true, failNotes = false;
   const preview = {accountId: row.accountId, username: row.username, revision: 4, role: 'member', profiles: 2, devices: 1, savedResources: 3};
@@ -41,9 +41,9 @@ async function fixture(deferPerson = false) {
       deleteMember: async (_: any, captured: any) => {writes.push({kind: 'delete', captured});},
     },
     '../lifetime': {NativeScreenLifetime: class {live = true; request = (call: any, signal: any) => call(signal); current = () => active && this.live; dispose = () => {this.live = false;};}, screenScopeEnded: () => new Error('ended')},
-    './storage/space-source': {nativeStorageOwner: () => active},
+    './storage/space-source': {nativeStorageOwner: (candidate: any) => active && candidate.account.account.role === 'owner'},
   });
-  const context = {api: {baseUrl: 'http://selected-server.invalid:8096', request(path: string, method: string, body: unknown, signal: AbortSignal) {const next = deferred(); deviceReads.push({path, method, body, signal, ...next}); return next.promise;}}, account: {account: {id: 'owner-fixture'}, capabilities: {managePeople: true}}};
+  const context = {authority: () => ({serverId: 'server', accountId: 'owner-fixture', profileId: 'primary'}), api: {baseUrl: 'http://selected-server.invalid:8096', request(path: string, method: string, body: unknown, signal: AbortSignal) {const next = deferred(); deviceReads.push({path, method, body, signal, ...next}); return next.promise;}}, account: {serverId: 'server', account: {id: 'owner-fixture', role: callerRole, primaryProfileId: 'primary', disabled: false}, capabilities: {managePeople: true}}};
   const source = new module.NativePeopleSource(context, () => 'operation-fixture', (error: unknown) => reported.push(error));
   const load = async () => {const pending = source.load(); reads.at(-1).resolve(page()); await pending;};
   return {source, reads, details, deviceReads, writes, reported, preview, load, retire: () => {active = false;}, failNotes: () => {failNotes = true;}};
@@ -198,4 +198,14 @@ test('A new invitation opens its ready card; a waiting one opens it to share, an
   f.source.closeInvitation();
   await assert.rejects(f.source.invitationShortCode(shared, 'closed', signal));
   f.source.dispose();
+});
+
+
+test('administrator People lifetime permits member profile navigation but keeps existing owner commands closed', async () => {
+  const f = await fixture(false, 'admin');
+  assert.equal(f.source.current(), true); assert.equal(f.source.ownerControls(), false);
+  await f.load(); await f.source.open(row); assert.equal(f.source.getSnapshot().person, person);
+  assert.equal(await f.source.enabled(person, false), false); f.source.beginInvitation();
+  assert.equal(f.source.getSnapshot().invitationOpening, undefined); assert.equal(f.writes.length, 0);
+  f.retire(); assert.equal(f.source.current(), false); f.source.dispose();
 });

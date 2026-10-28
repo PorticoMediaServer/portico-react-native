@@ -22,6 +22,7 @@ import {NativeSettingControl} from './SettingControl';
 import {useStorageForms, useStorageSet, useFormState, type StorageForms} from './storage/forms';
 import {NativePeopleSource, type InvitationOpening} from './people-source';
 import {InvitationReadySheet} from './InvitationReadySheet';
+import {PeopleMemberProfiles} from './PeopleMemberProfiles';
 import {settingsPageHeading, settingsPageInset} from './page-layout';
 
 type Props = {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean};
@@ -64,7 +65,7 @@ function People({ports, runtime, compactHeader, source}: Props & {source: Native
   const page = state.tab === 'people' ? state.people : state.invitations;
   const rows: readonly (SettingsPersonRow | ServerInvitation)[] = state.tab === 'people' ? state.people?.items ?? [] : state.invitations?.items ?? [];
   const header = <View style={{gap: 14, marginBottom: 12}}>
-    <ServerHeader serverName={ports.context.serverName} viewerRole="owner" audience="owner" variant="phone"/>
+    <ServerHeader serverName={ports.context.serverName} viewerRole={source.ownerControls() ? 'owner' : 'administrator'} audience={source.ownerControls() ? 'owner' : 'administrators'} variant="phone"/>
     {!compactHeader && <Text accessibilityRole="header" style={[settingsPageHeading(theme), {color: theme.colors.text}]}>{t('settings.server.people')}</Text>}
     <Tabs value={state.tab} onValueChange={tab => {if (current() && !loading && (tab === 'people' || tab === 'invitations')) {setCursors(['']); source.select(tab);}}} items={[{value: 'people', label: t('settings.server.people')}, {value: 'invitations', label: t('settings.server.invitations')}]}/>
     <TextField testID="people-search" accessibilityLabel={t('web.shell.search')} value={search} maxLength={160} returnKeyType="search" editable={!state.busy} onChangeText={setSearch} onSubmitEditing={() => choose({search: search.trim()})}/>
@@ -82,7 +83,7 @@ function People({ports, runtime, compactHeader, source}: Props & {source: Native
           options={(['asc', 'desc'] as const).map(value => ({value, label: t('web.filters.direction', {kind: 'other', dir: value})}))}
           onValueChange={direction => {if (direction === 'asc' || direction === 'desc') choose({direction});}}/>
       </>}
-      <Button testID="people-invite" variant="glass" size="compact" disabled={loading} onPress={() => {if (current()) source.beginInvitation();}}>{t('web.access.inviteSomeone')}</Button>
+      {source.ownerControls() && <Button testID="people-invite" variant="glass" size="compact" disabled={loading} onPress={() => {if (current()) source.beginInvitation();}}>{t('web.access.inviteSomeone')}</Button>}
       <Button variant="text" size="compact" icon="i-refresh" disabled={loading} onPress={() => {if (current()) void source.load(state.cursor);}}>{t('action.refresh')}</Button>
     </View>
     {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {if (current()) void source.load(state.cursor);})}/>}
@@ -101,13 +102,13 @@ function People({ports, runtime, compactHeader, source}: Props & {source: Native
       </Focusable> : <View style={{paddingVertical: 14, borderTopWidth: 1, borderTopColor: theme.colors.lineSoft, gap: 5}}>
         <Text style={[shellType(15, 700), {color: theme.colors.text}]}>{item.notes || roleLabel(t, item.role)}</Text>
         <Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary}]}>{roleLabel(t, item.role)} · {invitationState(t, item.state)} · {defaultI18n.date(item.expiresAt)}</Text>
-        {item.state === 'pending' && <Button variant="glass" size="compact" disabled={loading} onPress={() => {if (current()) source.beginInvitation(item);}}>{t('next.selection.edit')}</Button>}
-        {item.state === 'pending' && <Button size="compact" variant="danger" disabled={loading} onPress={() => ask({action: 'revoke', invitation: item})}>{t('web.access.revoke')}</Button>}
+        {source.ownerControls() && item.state === 'pending' && <Button variant="glass" size="compact" disabled={loading} onPress={() => {if (current()) source.beginInvitation(item);}}>{t('next.selection.edit')}</Button>}
+        {source.ownerControls() && item.state === 'pending' && <Button size="compact" variant="danger" disabled={loading} onPress={() => ask({action: 'revoke', invitation: item})}>{t('web.access.revoke')}</Button>}
       </View>}
       ListFooterComponent={<View style={{gap: 16, marginTop: 12}}><View style={{flexDirection: 'row', gap: 8}}>
         {cursors.length > 1 && <Button variant="glass" disabled={loading} onPress={() => {if (!current() || loading) return; const next = cursors.slice(0, -1); setCursors(next); void source.load(next[next.length - 1]);}}>{t('action.back')}</Button>}
         {!!page?.nextCursor && <Button variant="glass" disabled={loading} onPress={() => {if (!current() || loading || page !== (source.getSnapshot().tab === 'people' ? source.getSnapshot().people : source.getSnapshot().invitations)) return; setCursors([...cursors, page.nextCursor]); void source.load(page.nextCursor);}}>{t('action.showMore')}</Button>}
-      </View><PeopleAdvanced ports={ports} runtime={runtime}/></View>}/>
+      </View>{source.ownerControls() && <PeopleAdvanced ports={ports} runtime={runtime}/>}</View>}/>
     <BottomSheet scrollable={false} open={!!state.selected} onOpenChange={open => {if (!open && current() && source.getSnapshot().selected === state.selected) source.closePerson();}} title={state.selected?.username} dismissOnBack={!state.busy} dismissOnGesture={!state.busy} dismissOnOutsidePress={!state.busy}>
       {state.opening && <Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary}]}>{t('next.settings.loading')}</Text>}
       {state.person && <PersonDetails key={`${state.person.accountId}:${state.person.revision}:${state.person.limitsRevision}`} source={source} person={state.person} runtime={runtime} ask={ask}/>}
@@ -129,7 +130,7 @@ function PersonDetails({source, person, runtime, ask}: {source: NativePeopleSour
   const [tab, setTab] = useState('account'), [notes, setNotes] = useState(person.notes ?? ''), [limits, setLimits] = useState<MemberLimits>(person.limits);
   const [allLibraries, setAllLibraries] = useState(!person.allowedLibraries.length), [libraries, setLibraries] = useState<readonly string[]>(person.allowedLibraries);
   const streamLimit = peopleStreamLimits.read({limits}), streamChoices = ['default', 'unlimited', '1', '2', '3', '4', '6'];
-  const managed = person.role !== 'owner' && person.accountId !== source.context.account.account.id;
+  const managed = source.ownerControls() && person.role !== 'owner' && person.accountId !== source.context.account.account.id;
   const current = () => source.current() && source.getSnapshot().person === person && !source.getSnapshot().busy;
   const tabTitles = ['next.settingsSpec.server.people.panels.person.tabs.0.title', 'next.settingsSpec.server.people.panels.person.tabs.1.title', 'next.settingsSpec.server.people.panels.person.tabs.2.title', 'next.settingsSpec.server.people.panels.person.tabs.3.title', 'next.settingsSpec.server.people.panels.person.tabs.4.title'] as const;
   const tabs = <Tabs testID="people-person-tabs" value={tab} items={['account', 'access', 'profiles', 'devices', 'advanced'].map((value, index) => ({value, label: t(tabTitles[index]!)}))} onValueChange={value => {
@@ -155,7 +156,7 @@ function PersonDetails({source, person, runtime, ask}: {source: NativePeopleSour
       <SettingsRow first label={t('next.settingsSpec.server.people.panels.person.tabs.1.groups.1.rows.1.label')} control={<Switch accessibilityLabel={t('next.settingsSpec.server.people.panels.person.tabs.1.groups.1.rows.1.label')} checked={limits.allowRemote} disabled={!managed || state.busy} onCheckedChange={allowRemote => {if (current() && managed) setLimits({...limits, allowRemote});}}/>}/>
       <Select label={t('web.access.maxStreams')} value={streamLimit} disabled={!managed || state.busy} options={[...(!streamChoices.includes(streamLimit) ? [{value: streamLimit, label: streamLimit, disabled: true}] : []), ...streamChoices.map(value => ({value, label: value === 'default' ? t('next.settingsSpec.server.people.panels.person.tabs.1.groups.1.rows.0.control.options.0.label') : value === 'unlimited' ? t('settings.server.unlimited') : value}))]} onValueChange={value => {if (current() && managed) setLimits(peopleStreamLimits.patch({limits}, value));}}/>
     </>}
-    {tab === 'profiles' && (person.profileNames ?? []).map((name, index) => <SettingsRow key={index} first={index === 0} label={name}/>)}
+    {tab === 'profiles' && <PeopleMemberProfiles people={source} person={person} runtime={runtime}/>}
     {tab === 'devices' && <>
       <FlatList style={{flex: 1}} testID="people-devices" data={state.devices?.person === person ? state.devices.items : []} keyExtractor={device => device.id}
         renderItem={({item: device}) => <View style={{paddingVertical: 12, gap: 6, borderBottomWidth: 1, borderBottomColor: theme.colors.lineSoft}}>

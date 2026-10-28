@@ -1,9 +1,8 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {BackHandler, Dimensions, NativeModules, Platform, Text, View} from 'react-native';
-import {profileArtColors} from '@portico/design';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
-import {ManagedProfilesClient, type ManagedProfile, type ProfileArt, type ProfileDeletion, PROFILE_ART} from '../../../../../packages/client-core/src/profile-management';
+import {ManagedProfilesClient, type ManagedProfile, type ProfileArt, type ProfileDeletion} from '../../../../../packages/client-core/src/profile-management';
 import {IdentityClient} from '../../../../../packages/client-core/src/identity-client';
 import type {ProfileRestrictions, RatingSystem} from '../../../../../packages/client-core/src/identity-restrictions';
 import {HttpHostedApi} from '../../../../../packages/client-core/src';
@@ -22,11 +21,12 @@ import {nativeNetworkFetch} from '../../platform/server-connections';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRoute} from '../../shell/routes';
 import {NativeScreenLifetime} from '../settings-live/lifetime';
+import {ProfileColorPicker, ProfileRestrictionsFields} from '../settings-live/ProfileEditorFields';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {nativeShellRoutes, type NativeRouteFactory} from '../../shell/route-registry';
 import {StateLayout, StateView} from '../../kit/states';
 import {ProfileFace, ProfilePicker} from '../../kit/artwork';
-import {Button, Focusable, Select, Switch, TextField} from '../../kit/controls';
+import {Button, Focusable, TextField} from '../../kit/controls';
 import {BottomSheet, Dialog} from '../../kit/overlays';
 import {Icon} from '../../kit/Icon';
 import {offlineDownloads, offlineOwnerKey} from '../../../platform/offline-downloads';
@@ -34,7 +34,7 @@ import {useTheme} from '../../kit/theme';
 import {AccountEntry} from './AccountEntry';
 import {createAccountDownloadsEntry, type AccountDownloadsEntry} from './downloads-entry';
 import {PhonePINEntry} from './PhonePINEntry';
-import {addHiddenLabel, completeTVLinkCode, formatTVLinkCode} from './account-form-values';
+import {completeTVLinkCode, formatTVLinkCode} from './account-form-values';
 import {PhoneProfileRecovery} from './PhoneProfileRecovery';
 import {PhoneServerChooser} from './PhoneServerChooser';
 import {TVTrustedCertificates} from './TVTrustedCertificates';
@@ -423,31 +423,6 @@ function ProfileActionRow({label, description, onPress, testID}: {label: string;
   </Focusable>;
 }
 
-const profileArtLabels = {
-  blue: 'next.settingsSpec.account.profile.groups.1.rows.1.control.options.0.label',
-  violet: 'next.settingsSpec.account.profile.groups.1.rows.1.control.options.1.label',
-  mint: 'next.settingsSpec.account.profile.groups.1.rows.1.control.options.2.label',
-  coral: 'next.settingsSpec.account.profile.groups.1.rows.1.control.options.3.label',
-  gold: 'next.settingsSpec.account.profile.groups.1.rows.1.control.options.4.label',
-  slate: 'next.settingsSpec.account.profile.groups.1.rows.1.control.options.5.label',
-  rose: 'next.settingsSpec.account.profile.groups.1.rows.1.control.options.6.label',
-  sky: 'next.settingsSpec.account.profile.groups.1.rows.1.control.options.7.label',
-} as const;
-
-function ProfileColorPicker({value, onChange, disabled, testID}: {value: ProfileArt; onChange: (value: ProfileArt) => void; disabled: boolean; testID: string}) {
-  const theme = useTheme();
-  return <View testID={testID} style={{gap: 10, marginTop: 16}}>
-    <Text style={[theme.type.captionStrong, {color: theme.colors.text}]}>{t('next.settingsSpec.account.profile.groups.1.rows.1.label')}</Text>
-    <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 6}}>{PROFILE_ART.map(art => <Focusable key={art} testID={`${testID}-${art}`}
-      accessibilityRole="radio" accessibilityLabel={t(profileArtLabels[art])} accessibilityState={{selected: art === value}}
-      disabled={disabled} onPress={() => onChange(art)} focusRadius={24} style={{width: 46, height: 46, alignItems: 'center', justifyContent: 'center'}}>
-      <View style={{width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: art === value ? 2 : 0, borderColor: theme.colors.text}}>
-        <View style={{width: 34, height: 34, borderRadius: 17, backgroundColor: profileArtColors[art]}}/>
-      </View>
-    </Focusable>)}</View>
-  </View>;
-}
-
 type ProfileLimitsOwner = {
   /** Private witness: the opening names only the id and revision it was drawn for. The sheet's
    * copy and its own save guard keep reading the original profile prop. */
@@ -459,12 +434,10 @@ type ProfileLimitsOwner = {
 };
 
 function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {profile: ManagedProfile; lease: ProfileLease; identityFor: (controller: AbortController) => IdentityClient; onClose: () => void; onSaved: () => void}) {
-  const theme = useTheme();
   const [owner, setOwner] = useState<ProfileLimitsOwner>();
   const ownerRef = useRef<ProfileLimitsOwner | undefined>(undefined);
   const [restrictions, setRestrictions] = useState<ProfileRestrictions>(), [systems, setSystems] = useState<readonly RatingSystem[]>();
   const [draft, setDraft] = useState<ProfileRestrictions>(), [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false);
-  const [labelsOpen, setLabelsOpen] = useState(false), [labelsDraft, setLabelsDraft] = useState<readonly string[]>([]), [labelDraft, setLabelDraft] = useState('');
   const draftRef = useRef<ProfileRestrictions | undefined>(undefined), busyRef = useRef(false);
   const profileId = profile.id, profileRevision = profile.revision;
   const current = (candidate: ProfileLimitsOwner) => candidate === ownerRef.current && !candidate.retired && candidate.profile.id === profileId
@@ -477,7 +450,7 @@ function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {pr
     ownerRef.current = next;
     setOwner(next);
     draftRef.current = undefined; busyRef.current = false;
-    setRestrictions(undefined); setSystems(undefined); setDraft(undefined); setError(undefined); setBusy(false); setLabelsOpen(false); setLabelsDraft([]); setLabelDraft('');
+    setRestrictions(undefined); setSystems(undefined); setDraft(undefined); setError(undefined); setBusy(false);
     const live = () => next === ownerRef.current && !next.retired && next.profile.id === profileId
       && next.profile.revision === profileRevision && next.lease.current();
     const identity = identityFor(controller);
@@ -495,8 +468,6 @@ function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {pr
     };
   }, [identityFor, lease, profileId, profileRevision]);
 
-  const system = systems?.find(value => value.id === draft?.ratingSystem);
-  const ratingOptions = [{value: '', label: t('limits.noLimit')}, ...(system?.values.map(value => ({value: value.code, label: value.label})) ?? [])];
   const updateDraft = (change: Partial<ProfileRestrictions>) => {
     if (!owner || !current(owner) || busyRef.current || !draft || draftRef.current !== draft) return;
     const next = {...draft, ...change}; draftRef.current = next; setDraft(next);
@@ -530,32 +501,9 @@ function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {pr
   return <BottomSheet open onOpenChange={open => {if (!open) close();}} title={t('limits.title', {name: profile.name})} description={t('limits.subtitle')}
     testID="profile-limits" footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={busy} onPress={close}>{t('action.cancel')}</Button><Button focusId="save" loading={busy} disabled={!draft || !owner || !current(owner)} onPress={save}>{t('limits.save')}</Button></View>}>
     {error ? <StateView title={presentError(error, 'profiles').title} body={presentError(error, 'profiles').body}/> : !draft ? <StateView title={t('status.loading')}/> : <View style={{gap: 14}}>
-      {system ? <Select focusId="maximum-age-rating" testID="profile-limits-maximum-age-rating" label={t('limits.highestRating')} description={t('limits.highestRatingHelp')} value={draft.maximumAgeRating} options={ratingOptions}
-        onValueChange={value => updateDraft({maximumAgeRating: value})}/> : null}
-      <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}><Switch focusId="allow-unrated" checked={draft.allowUnrated} onCheckedChange={value => updateDraft({allowUnrated: value})}/><Text style={[theme.type.body, {color: theme.colors.text}]}>{t('limits.allowUnrated')}</Text></View>
-      <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('limits.allowUnratedHelp')}</Text>
-      {theme.isTV ? draft.blockedLabels.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('limits.hiddenLabels', {labels: draft.blockedLabels.join(', ')})}</Text> : null : <ProfileActionRow testID="profile-hidden-labels" label={t('web.limits.hiddenLabels')} description={draft.blockedLabels.join(', ') || t('web.dvr.none')} onPress={() => {
-        if (busy || !owner || !current(owner)) return;
-        setLabelsDraft([...draft.blockedLabels]); setLabelDraft(''); setLabelsOpen(true);
-      }}/>}
-      <Text style={[theme.type.captionStrong, {color: theme.colors.textTertiary, marginTop: 6}]}>{t('limits.features')}</Text>
-      {([['allowDownloads', 'limits.feature.downloads'], ['allowLiveTv', 'limits.feature.liveTv'], ['allowDvr', 'limits.feature.dvr'], ['allowWatchTogether', 'limits.feature.watchTogether']] as const).map(([key, label]) =>
-        <View key={key} style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12}}><Text style={[theme.type.body, {color: theme.colors.text}]}>{t(label)}</Text>
-          <Switch focusId={`feature:${key}`} checked={draft[key]} onCheckedChange={value => updateDraft({[key]: value})}/></View>)}
-
+      <ProfileRestrictionsFields draft={draft} systems={systems ?? []} disabled={busy} current={() => !!owner && current(owner)} onChange={updateDraft}/>
     </View>}
-    <Dialog testID="profile-hidden-labels-picker" open={labelsOpen} onOpenChange={setLabelsOpen} title={t('web.limits.hiddenLabels')} description={t('next.settingsSpec.account.profile.groups.3.rows.2.help')}
-      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" onPress={() => setLabelsOpen(false)}>{t('action.cancel')}</Button>
-        <Button onPress={() => {if (!owner || !current(owner) || busy) return; updateDraft({blockedLabels: [...labelsDraft]}); setLabelsOpen(false);}}>{t('action.done')}</Button></View>}>
-      <View style={{gap: 10}}>
-        {labelsDraft.length ? labelsDraft.map(label => <View key={label.toLowerCase()} style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-          <Text style={[theme.type.body, {color: theme.colors.text, flex: 1}]}>{label}</Text>
-          <Button variant="text" accessibilityLabel={t('web.metadata.removeLabel', {label})} onPress={() => setLabelsDraft(values => values.filter(value => value !== label))}>{t('action.remove')}</Button>
-        </View>) : <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('web.dvr.none')}</Text>}
-        <TextField label={t('web.metadata.addLabelChip')} value={labelDraft} onChangeText={setLabelDraft} maxLength={120} autoCorrect={false}/>
-        <Button variant="glass" disabled={!addHiddenLabel(labelsDraft, labelDraft)} onPress={() => {const next = addHiddenLabel(labelsDraft, labelDraft); if (next) {setLabelsDraft(next); setLabelDraft('');}}}>{t('web.metadata.addLabelChip')}</Button>
-      </View>
-    </Dialog>
+
   </BottomSheet>;
 }
 

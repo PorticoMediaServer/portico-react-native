@@ -1,3 +1,4 @@
+import {profileEditorFields} from './helpers/profile-editor-fields.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -39,6 +40,7 @@ async function fixture() {
     '../../platform/account-authority': {hostedUrl: 'https://accounts.example.invalid'},
     '../../platform/profile-avatars': {profileAvatarUpload: () => ({}), profilePictureSource: () => undefined},
     '../../platform/server-connections': {nativeNetworkFetch: () => {throw new Error('unexpected network');}},
+    '../settings-live/ProfileEditorFields': await profileEditorFields(React, theme),
     '../settings-live/lifetime': {NativeScreenLifetime: class {current = () => true; dispose() {} request = (work: () => unknown) => work();}},
     '../../shell/model': {sameAuthority: (a: unknown, b: unknown) => a === b},
     '../../shell/route-registry': {nativeShellRoutes: {registerRoute(kind: string, factory: unknown) {factories[kind] = factory;}}},
@@ -99,7 +101,11 @@ test('Hidden labels picker saves the chosen labels with the original restriction
   const f = await fixture(); await act(() => f.host.mount()); let sheet: any;
   await act(() => byID(f.tree(), 'profile-limits').props.onPress());
   const element = nodes(f.tree()).find(value => typeof value.type === 'function' && value.type.name === 'ProfileLimitsSheet');
-  const host = createHookHost(() => {sheet = element.type(element.props);}); await act(() => host.mount());
+  const host = createHookHost(() => {
+    sheet = element.type(element.props);
+    const fields = nodes(sheet).find(value => typeof value.type === 'function' && value.type.name === 'ProfileRestrictionsFields');
+    if (fields) sheet = {...sheet, props: {...sheet.props, children: [sheet.props.children, fields.type(fields.props)]}};
+  }); await act(() => host.mount());
   try {
     assert.equal(byID(sheet, 'profile-hidden-labels').props.description, 'web.dvr.none');
     await act(() => byID(sheet, 'profile-hidden-labels').props.onPress());

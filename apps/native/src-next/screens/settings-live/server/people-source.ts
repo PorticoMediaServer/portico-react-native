@@ -48,7 +48,15 @@ export class NativePeopleSource {
     this.api = api;
   }
   private readonly api: {request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>};
-  current = () => this.lifetime.current() && nativeStorageOwner(this.context) && this.context.account.capabilities.managePeople;
+  /** Existing account/invitation controls remain owner-only. Administrators
+   * reach People to manage member profiles through its separate tiered source. */
+  ownerControls = () => nativeStorageOwner(this.context);
+  current = () => {
+    const {account} = this.context, authority = this.context.authority();
+    const administrator = account.account.role === 'admin' && !account.account.disabled && account.serverId === authority.serverId
+      && account.account.id === authority.accountId && account.account.primaryProfileId === authority.profileId;
+    return this.lifetime.current() && (this.ownerControls() || administrator) && account.capabilities.managePeople;
+  };
   getSnapshot = (): Snapshot => this.current() ? this.state : initial;
   subscribe = (listener: () => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   private publish(patch: Partial<Snapshot>) {if (this.current()) {this.state = Object.freeze({...this.state, ...patch}); for (const listener of this.listeners) listener();}}
@@ -96,7 +104,7 @@ export class NativePeopleSource {
     finally {if (owns()) this.publish({opening: false}); if (this.personFlight === flight) this.personFlight = undefined;}
   };
   closePerson = () => {if (this.state.busy) return; this.deviceFlight?.abort(); this.personFlight?.abort(); this.personFlight = undefined; this.deletion = undefined; this.publish({selected: undefined, person: undefined, opening: false, devices: undefined, devicesLoading: false, devicesError: undefined});};
-  private owns(person: AccessMember) {return this.current() && !this.state.busy && !this.state.loading && this.state.person === person && person.role !== 'owner' && person.accountId !== this.context.account.account.id;}
+  private owns(person: AccessMember) {return this.ownerControls() && this.current() && !this.state.busy && !this.state.loading && this.state.person === person && person.role !== 'owner' && person.accountId !== this.context.account.account.id;}
   private async change(person: AccessMember, action: () => Promise<unknown>): Promise<boolean> {
     if (!this.owns(person)) return false;
     const token = this.mutation = {}; this.deletion = undefined; this.publish({busy: true, error: undefined});
@@ -158,11 +166,13 @@ export class NativePeopleSource {
     finally {if (this.current() && this.mutation === token) {this.mutation = undefined; this.publish({busy: false}); if (saved) void this.loadDevices(person);}}
   };
   beginInvitation = (invitation?: ServerInvitation) => {
+    if (!this.ownerControls()) return;
     if (!this.current() || this.state.busy || this.state.loading || invitation && (!this.state.invitations?.items.includes(invitation) || invitation.state !== 'pending')) return;
     this.closePerson(); this.publish({invitationOpening: Object.freeze({invitation}), invitationLink: undefined, error: undefined});
   };
   closeInvitation = () => {if (!this.state.busy) {this.publish({invitationOpening: undefined, invitationLink: undefined});}};
   saveInvitation = async (opening: InvitationOpening, draft: InvitationDraft): Promise<boolean> => {
+    if (!this.ownerControls()) return false;
     if (!this.current() || this.state.busy || this.state.loading || this.state.invitationOpening !== opening || ![1, 3, 7, 30].includes(draft.days) || !['member', 'admin'].includes(draft.role)) return false;
     const token = this.mutation = {}; this.publish({busy: true, error: undefined});
     const owns = () => this.current() && this.mutation === token && this.state.invitationOpening === opening;
@@ -180,11 +190,13 @@ export class NativePeopleSource {
   newOperationId = (): string => this.operationId();
   /** Opens the share card for a waiting invitation. */
   shareInvitation = (opening: InvitationOpening) => {
+    if (!this.ownerControls()) return;
     if (!this.current() || this.state.busy || this.state.invitationOpening !== opening || opening.invitation?.state !== 'pending') return;
     this.publish({invitationOpening: Object.freeze({invitation: opening.invitation, ready: 'shared' as const}), invitationLink: undefined, error: undefined});
   };
   /** One short-code issuance for the card's own invitation; the issuer owns the operation ID. */
   invitationShortCode = async (opening: InvitationOpening, operationId: string, signal: AbortSignal) => {
+    if (!this.ownerControls()) throw screenScopeEnded();
     const invitation = opening.invitation;
     if (!this.current() || this.state.invitationOpening !== opening || !opening.ready || invitation?.state !== 'pending') throw new DOMException('Invitation closed', 'AbortError');
     const result = await this.invitations.shortCode(invitation, operationId, signal);
@@ -192,6 +204,7 @@ export class NativePeopleSource {
     return result;
   };
   invitationShareLink = async (opening: InvitationOpening): Promise<string | undefined> => {
+    if (!this.ownerControls()) return;
     if (!this.current() || this.state.busy || this.state.invitationOpening !== opening || opening.invitation?.state !== 'pending') return;
     const token = this.mutation = {}; this.publish({busy: true, error: undefined});
     try {
@@ -232,6 +245,7 @@ export class NativePeopleSource {
     finally {if (this.current() && this.mutation === token) {this.mutation = undefined; this.publish({busy: false}); if (removed) void this.load();}}
   };
   revoke = async (invitation: ServerInvitation): Promise<void> => {
+    if (!this.ownerControls()) return;
     if (!this.current() || this.state.busy || this.state.loading || !this.state.invitations?.items.includes(invitation) || invitation.state !== 'pending') return;
     const token = this.mutation = {}; this.publish({busy: true, error: undefined});
     let revoked = false;

@@ -160,7 +160,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   // a native renderer. The shared structure predates its Sign-in entry.
   const serverPages = useMemo(() => {
     if (theme.isTV) return [];
-    const pages = (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'dashboard' || value.id === 'libraries' || value.id === 'storage' || value.id === 'troubleshooting' || managesServer && (value.id === 'general' || value.id === 'history' || value.id === 'metadata' || value.id === 'people' || value.id === 'remote' || value.id === 'live' || value.id === 'integrations' || value.id === 'segments' || value.id === 'remote-sources' || value.id === 'streaming'));
+    const pages = (structure.headings.find(heading => heading.id === 'server')?.pages ?? []).filter(value => value.id === 'dashboard' || value.id === 'libraries' || value.id === 'storage' || value.id === 'troubleshooting' || value.id === 'people' && ports.context.account.capabilities.managePeople || managesServer && (value.id === 'general' || value.id === 'history' || value.id === 'metadata' || value.id === 'people' || value.id === 'remote' || value.id === 'live' || value.id === 'integrations' || value.id === 'segments' || value.id === 'remote-sources' || value.id === 'streaming'));
     const signIn = settingsSpec.find(value => value.scope === 'server' && value.id === 'signin');
     if (managesServer && ports.context.account.capabilities.manageSignIn && signIn) pages.push({id: 'signin', title: signIn.title, icon: signIn.icon as SettingsPage['icon'], sections: []});
     return [...pages].sort((a, b) => {

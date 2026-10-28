@@ -146,7 +146,8 @@ test('TV profile-switch hand-off preserves its current family, selection control
     '@portico/design': {profileArtColors}, './account-form-values': accountFormValues,
     './TVServerChooser': {TVServerChooser: 'TVServerChooser'}, './TVTrustedCertificates': {TVTrustedCertificates: 'TVTrustedCertificates'}, './PhoneServerChooser': {PhoneServerChooser: 'PhoneServerChooser'},
     '../../../../../packages/client-core/src/profile-management': profileManagement, '../../../../../packages/client-core/src/identity-client': identityClient,
-    '../../platform/profile-avatars': profileAvatars, '../settings-live/lifetime': lifetime, '../../shell/model': shellModel,
+    '../../platform/profile-avatars': profileAvatars, '../settings-live/ProfileEditorFields': {ProfileColorPicker: 'ProfileColorPicker', ProfileRestrictionsFields: 'ProfileRestrictionsFields'},
+    '../settings-live/lifetime': lifetime, '../../shell/model': shellModel,
     ...shared(back), '../../platform/account-work': accountWork, '../../platform/accounts': {nativeAccounts: {}}, '../../platform/app-session-storage': {},
     '../../platform/profile-selection': {nativeProfileSelection: (server: string, family: string) => {
       assert.equal(server, 'server'); assert.equal(family, current.sessionFamilyId); created++;
