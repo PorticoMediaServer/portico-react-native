@@ -4,7 +4,6 @@
 #if !TARGET_OS_SIMULATOR
 #error This conformance check covers simulator refusal only; physical feedback is a separate check.
 #endif
-void RCTRegisterModule(Class moduleClass) {}
 @interface NSObject (PorticoHapticsTest)
 - (void)contextMenu:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject;
 - (void)selection:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject;
