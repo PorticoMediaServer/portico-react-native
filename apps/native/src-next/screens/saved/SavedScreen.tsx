@@ -10,8 +10,9 @@ import {presentError} from '../../../../../packages/client-core/src/presentation
 import {PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
 import {CardFrame, Parts} from '../../kit/cards/primitives';
 import {Artwork} from '../../kit/artwork';
-import {Button, Chip, Focusable, Tabs} from '../../kit/controls';
+import {Chip, Focusable, Tabs} from '../../kit/controls';
 import {Menu} from '../../kit/overlays';
+import {SelectionCircle} from '../../kit/selection';
 import {StateView} from '../../kit/states';
 import {Icon, type IconName} from '../../kit/Icon';
 import {browseType, alpha} from '../../kit/browse/presentation';
@@ -20,6 +21,8 @@ import {groupOfflineEntries, type NativeOfflineDownloadsDevice} from '../../plat
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {homeCardText} from '../home/model';
 import {NativeSavedDestination} from './model';
+import {SavedLoading, SavedTail} from './SavedLoading';
+import {savedNearEnd} from './paging';
 import {SavedDownloadCard, type NativeSavedDownloadsCopy} from './SavedDownloadCard';
 import {openNativeSavedDownload} from '../downloads/playback';
 import type {NativeDestinationActivationPort} from '../destinations/focus';
@@ -29,7 +32,7 @@ const t = defaultI18n.t;
 const content = (entry: SavedEntry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry' && entry.kind !== 'reading_group';
 export type NativeSavedActions = Readonly<{
   menuState?: NativeEntryMenuState;
-  openView: (view: SavedRoute) => void; openEntry: (entry: ContentEntry) => void; menuEntry: (entry: ContentEntry, anchorRef?: RefObject<View | null>) => void;
+  openView: (view: SavedRoute) => void; openEntry: (entry: ContentEntry) => void; menuEntry: (entry: ContentEntry, anchorRef?: RefObject<View | null>, select?: () => void) => void;
   isMenuOpen?: (entry: ContentEntry) => boolean;
   openDownloads: () => void; openPin: (pin: PinnedResource) => void; editPins: () => void;
   /** The wider My List grid re-reads the real watchlist by server sort/filter/shape. */
@@ -42,9 +45,11 @@ export type NativeSavedActions = Readonly<{
 }>;
 export type NativeSavedSelectionPort = Readonly<{
   /** Enter the page's real current selection context without selecting an item. */
-  start?: (rendered: SavedSnapshot) => void;
+  start?: (rendered?: unknown) => void;
+  subscribe?: (listener: () => void) => () => void;
+  getSnapshot?: () => number;
   register: (snapshot: SavedSnapshot) => () => void;
-  item: (entry: ContentEntry) => CardSelection;
+  item: (entry: ContentEntry) => CardSelection | undefined;
   render: (artwork?: (path?: string) => React.ReactNode) => React.ReactNode;
 }>;
 export type NativeSavedScreenProps = Readonly<{
@@ -54,11 +59,13 @@ export type NativeSavedScreenProps = Readonly<{
   activation: NativeDestinationActivationPort;
   /** Saved's own Downloads tab body. Present on handhelds that draw the wider Saved chrome. */
   downloads?: (runtime: NativeShellRuntime) => React.ReactNode;
+  tabBody?: (tab: 'favorites' | 'playlists' | 'collections' | 'views' | 'history', runtime: NativeShellRuntime) => React.ReactNode;
 }>;
 
 /** phone-app9: Saved is the genuine hub, with My List and actual device downloads.
  * Every other row opens its existing SavedRoute; pins keep the producer's order. */
-export function SavedScreen({destination, runtime, device, actions, selection, onThisPhone, downloadsCopy, activation, downloads}: NativeSavedScreenProps) {
+export function SavedScreen({destination, runtime, device, actions, selection, onThisPhone, downloadsCopy, activation, downloads, tabBody}: NativeSavedScreenProps) {
+  useSyncExternalStore(selection?.subscribe ?? (() => () => {}), selection?.getSnapshot ?? (() => 0));
   useSyncExternalStore(actions.menuState?.subscribe ?? (() => () => {}), actions.menuState?.getSnapshot ?? (() => 0));
   const theme = useTheme(), insets = useSafeAreaInsets(), scroll = useRef<ScrollView>(null);
   const snapshot = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
@@ -72,9 +79,9 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
   // the same routes. Downloads is the last tab and draws inside this page, so the shell
   // sidebar and this chrome stay in place; phone keeps the pushed page.
   const tablet = !theme.isTV && theme.platform !== 'phone';
-  const [savedTab, setSavedTab] = useState<'watchlist' | 'downloads'>('watchlist');
+  const [savedTab, setSavedTab] = useState<'watchlist' | 'favorites' | 'playlists' | 'collections' | 'views' | 'history' | 'downloads'>('watchlist');
   const [gridWidth, setGridWidth] = useState(0), [sortOpen, setSortOpen] = useState(false), [filterOpen, setFilterOpen] = useState(false), [listMode, setListMode] = useState(false);
-  const sortRef = useRef<View>(null), filterRef = useRef<View>(null);
+  const sortRef = useRef<View>(null), filterRef = useRef<View>(null), viewport = useRef({offset: 0, height: 0, extent: 0});
   // A retained but hidden Saved page must never change its local tab or open a
   // downloadable view; the same current activation gates the existing actions.
   const visible = () => activation.getSnapshot().visible;
@@ -85,18 +92,17 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
   }, [activation, actions, tablet]);
   const chooseTab = (value: string) => {
     if (!visible()) return;
-    if (value === 'downloads') {setSavedTab('downloads'); return;}
-    setSavedTab('watchlist');
-    if (value === 'watchlist') return;
-    actions.openView({view: value as 'favorites' | 'playlists' | 'collections' | 'views' | 'history'});
+    setFilterOpen(false); setSortOpen(false);
+    if (value === 'watchlist' || value === 'downloads' || value === 'favorites' || value === 'playlists' || value === 'collections' || value === 'views' || value === 'history') setSavedTab(value);
   };
   const downloadsOpen = tablet && !!downloads && savedTab === 'downloads';
+  const otherTab = tablet && savedTab !== 'watchlist' && savedTab !== 'downloads' ? savedTab : undefined;
   const myListColumns = theme.platform === 'tablet' ? 4 : 5;
   useEffect(() => {
-    if (!downloadsOpen || !active.visible) return;
+    if (!tablet || savedTab === 'watchlist' || !active.visible) return;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {if (!activation.getSnapshot().visible) return false; setSavedTab('watchlist'); return true;});
     return () => subscription.remove();
-  }, [active.visible, activation, downloadsOpen]);
+  }, [active.visible, activation, savedTab, tablet]);
   const tabItems = [
     {value: 'watchlist', label: t('saved.tab.watchlist')}, {value: 'favorites', label: t('saved.tab.favorites')},
     {value: 'playlists', label: t('saved.tab.playlists')}, {value: 'collections', label: t('saved.tab.collections')},
@@ -150,6 +156,13 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
     if (now.phase !== 'ready' || current !== projection) return;
     void actions.nextMyList(shape, sectionId);
   };
+  const nextPosters = () => {
+    const section = posterProjection?.sections.find(value => value.nextCursor);
+    const stride = listMode ? 88 : Math.max(118, gridWidth / myListColumns) * 1.5 + 58;
+    if (tablet && savedTab === 'watchlist' && section && savedNearEnd(viewport.current.offset, viewport.current.height, viewport.current.extent, stride, listMode ? 1 : myListColumns)) {
+      nextMyListPage('posters', posterProjection!, section.id);
+    }
+  };
   const rows: readonly {id: string; label: MessageId; icon: IconName; count?: number; view: SavedRoute}[] = [
     {id: 'favorites', label: 'saved.tab.favorites', icon: 'i-heart', count: summary && summary.favorites.posters + summary.favorites.squares, view: {view: 'favorites'}},
     {id: 'playlists', label: 'saved.tab.playlists', icon: 'i-queue', count: summary?.playlists, view: {view: 'playlists'}},
@@ -165,10 +178,13 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
     importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
     {tablet && <View style={{paddingTop: Math.max(insets.top, 10)}}>
       <Text accessibilityRole="header" style={[browseType(theme, 32, 800, -.035, 36.8), {color: theme.colors.text, marginHorizontal: theme.gutter}]}>{t('saved.title')}</Text>
-      <Tabs items={tabItems} value={downloadsOpen ? 'downloads' : 'watchlist'} onValueChange={chooseTab} accessibilityLabel={t('saved.title')} testID="saved-tablet-tabs" style={{marginTop: 8}}/>
+      <Tabs items={tabItems} value={savedTab} onValueChange={chooseTab} accessibilityLabel={t('saved.title')} testID="saved-tablet-tabs" style={{marginTop: 8}}/>
     </View>}
     {downloadsOpen ? <View style={{flex: 1}}>{downloads(runtime)}</View>
-      : <ScrollView ref={scroll} contentContainerStyle={{paddingTop: tablet ? 8 : Math.max(58, insets.top), paddingBottom: 28}}>
+      : otherTab ? <View style={{flex: 1}}>{tabBody?.(otherTab, runtime)}</View>
+      : <ScrollView ref={scroll} onLayout={event => {viewport.current.height = event.nativeEvent.layout.height; nextPosters();}}
+        onContentSizeChange={(_width, height) => {viewport.current.extent = height; nextPosters();}}
+        onScroll={event => {viewport.current.offset = event.nativeEvent.contentOffset.y; nextPosters();}} scrollEventThrottle={64} contentContainerStyle={{paddingTop: tablet ? 8 : Math.max(58, insets.top), paddingBottom: 28}}>
       {!tablet && <View style={{paddingHorizontal: theme.gutter, paddingBottom: 12}}>
         <Text accessibilityRole="header" style={[browseType(theme, 32, 800, -.035, 36.8), {color: theme.colors.text}]}>{t('saved.title')}</Text>
       </View>}
@@ -195,25 +211,31 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
           {filterOptions.map(option => <Chip key={`${option.field}:${option.id}`} variant="quick" selected={posterProjection?.query.category === option.id} count={option.count}
             onPress={() => applyMyList({filter: option.id as SavedListFilter})}>{option.label}</Chip>)}
         </ScrollView>}
-        {snapshot.phase !== 'ready' || !posterProjection ? (snapshot.phase === 'loading' ? <View style={{paddingVertical: 32}}><Text style={[theme.type.body, {color: theme.colors.textTertiary, textAlign: 'center'}]}>{t('saved.loading')}</Text></View> : null)
+        {snapshot.phase !== 'ready' || !posterProjection ? ((snapshot.phase === 'idle' || snapshot.phase === 'loading') ? <SavedLoading columns={myListColumns}/> : null)
           : !posterEntries.length && !squareEntries.length ? <StateView variant="inline" title={t('web.saved.empty.watchlist')} body={t('web.saved.empty.watchlistBody')}/>
-          : listMode ? <View style={{marginTop: 8}}>{posterEntries.map(entry => <SavedMyListRow key={entry.id} entry={entry} runtime={runtime} actions={actions}/>)}</View>
+          : listMode ? <View style={{marginTop: 8}}>{posterEntries.map(entry => <SavedMyListRow key={entry.id} entry={entry} runtime={runtime} actions={actions} selection={admitted ? selection?.item(entry) : undefined}/>)}</View>
           : <View onLayout={event => setGridWidth(event.nativeEvent.layout.width)} style={{flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: theme.gutter - 5, marginTop: 8}}>
             {posterEntries.map(entry => <View key={entry.id} style={{width: `${100 / myListColumns}%`, padding: 5}}>
               <SavedMyListCard entry={entry} runtime={runtime} actions={actions} selection={admitted ? selection?.item(entry) : undefined} width={gridWidth ? Math.floor(gridWidth / myListColumns - 10) : undefined}/>
             </View>)}
           </View>}
-        {(() => {const section = snapshot.phase === 'ready' ? posterProjection?.sections.find(value => value.nextCursor) : undefined; return section ? <View style={{alignItems: 'center', paddingVertical: 12}}>
-          <Button variant="glass" size="compact" onPress={() => nextMyListPage('posters', posterProjection!, section.id)}>{t('action.showMore')}</Button></View> : null;})()}
-        {!!squareEntries.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: theme.gutter, paddingTop: 12, gap: 12}}>
-          {squareEntries.map(entry => <SavedMyListCard key={entry.id} entry={entry} runtime={runtime} actions={actions} width={132}/>)}
+        {snapshot.myList.phase === 'loading' && !!posterEntries.length && <View style={{marginHorizontal: theme.gutter, marginTop: 12}}><SavedTail width={gridWidth ? gridWidth / myListColumns - 10 : 118}/></View>}
+        {!!squareEntries.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEventThrottle={64}
+          onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
+            const section = squareProjection?.sections.find(value => value.nextCursor);
+            if (section && savedNearEnd(contentOffset.x, layoutMeasurement.width, contentSize.width, 144)) nextMyListPage('squares', squareProjection!, section.id);}}
+          contentContainerStyle={{paddingHorizontal: theme.gutter, paddingTop: 12, gap: 12}}>
+          {squareEntries.map(entry => <SavedMyListCard key={entry.id} entry={entry} runtime={runtime} actions={actions} width={132} selection={admitted ? selection?.item(entry) : undefined}/>)}
+          {snapshot.myListSquares.phase === 'loading' && <SavedTail width={132} square/>}
         </ScrollView>}
-        {(() => {const section = snapshot.phase === 'ready' ? squareProjection?.sections.find(value => value.nextCursor) : undefined; return section ? <View style={{alignItems: 'center', paddingVertical: 12}}>
-          <Button variant="glass" size="compact" onPress={() => nextMyListPage('squares', squareProjection!, section.id)}>{t('action.showMore')}</Button></View> : null;})()}
       </View> : <SavedSection first>
         <SavedRowHeading testID="saved-my-list" title={t('saved.tab.watchlist')} detail={summary ? t('next.selection.titles', {count: summary.myList.posters + summary.myList.squares}) : undefined} onPress={() => actions.openView({view: 'watchlist'})}/>
-        {!!items.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={track}>
+        {(snapshot.phase === 'idle' || snapshot.phase === 'loading') && !items.length && <SavedLoading kind="shelf"/>}
+        {!!items.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEventThrottle={64}
+          onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent; const section = posterProjection?.sections.find(value => value.nextCursor);
+            if (section && savedNearEnd(contentOffset.x, layoutMeasurement.width, contentSize.width, theme.spec.shelf.gap[theme.platform] + 118)) nextMyListPage('posters', posterProjection!, section.id);}} contentContainerStyle={track}>
           {items.map(entry => <SavedMyListCard key={entry.id} entry={entry} runtime={runtime} actions={actions} selection={admitted ? selection?.item(entry) : undefined}/>)}
+          {snapshot.myList.phase === 'loading' && <SavedTail width={118}/>}
         </ScrollView>}
       </SavedSection>}
       {!tablet && deviceState.supported && <SavedSection>
@@ -234,7 +256,7 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
           icon={pin.kind === 'playlist' ? 'i-queue' : pin.kind === 'collection' ? 'i-stack' : 'i-filter'} separator={index > 0} onPress={() => actions.openPin(pin)}/>)}
       </View>}
     </ScrollView>}
-    {!downloadsOpen && admitted && selection?.render()}
+    {!downloadsOpen && !otherTab && admitted && selection?.render()}
     <Menu testID="saved-my-list-filter-menu" open={admitted && filterOpen} onOpenChange={setFilterOpen} anchorRef={filterRef} returnFocusRef={filterRef} title={t('filter.title')} items={filterItems}/>
     <Menu testID="saved-my-list-sort-menu" open={admitted && sortOpen} onOpenChange={setSortOpen} anchorRef={sortRef} returnFocusRef={sortRef} title={t('next.browse.native.sort')} items={sortItems}/>
   </View>;
@@ -247,12 +269,13 @@ function SavedSection({first = false, children}: {first?: boolean; children: Rea
   return <View style={{marginTop: first ? 2 : theme.spec.shelf.marginTop[theme.platform]}}>{children}</View>;
 }
 
-function SavedMyListRow({entry, runtime, actions}: {entry: ContentEntry; runtime: NativeShellRuntime; actions: NativeSavedActions}) {
+function SavedMyListRow({entry, runtime, actions, selection}: {entry: ContentEntry; runtime: NativeShellRuntime; actions: NativeSavedActions; selection?: CardSelection}) {
   const theme = useTheme(), text = homeCardText(entry, false, runtime.text), menuAnchorRef = useRef<View>(null);
   return <View style={{marginHorizontal: 16, borderBottomWidth: 1, borderBottomColor: alpha(theme.colors.lineStrong, .45)}}>
     <CardFrame title={entry.displayTitle || entry.title} menuAnchorRef={menuAnchorRef} moreExpanded={actions.isMenuOpen?.(entry)} testID={`saved-my-list-row-${encodeURIComponent(entry.id)}`}
-      onNavigate={() => actions.openEntry(entry)} onMore={() => actions.menuEntry(entry, menuAnchorRef)} pressableStyle={{flexDirection: 'row', alignItems: 'center', gap: 13, paddingVertical: 9}}>
+      onNavigate={() => actions.openEntry(entry)} onMore={() => actions.menuEntry(entry, menuAnchorRef, selection?.onEnter)} selection={selection} pressableStyle={{flexDirection: 'row', alignItems: 'center', gap: 13, paddingVertical: 9}}>
       {() => <>
+        {selection?.active && <SelectionCircle selected={selection.selected} selecting interactive={false} variant="row" size={24} accessibilityLabel={t('card.select', {title: entry.displayTitle || entry.title})}/>}
         <Artwork source={runtime.artwork(entry.posterUrl)} width={46} height={69} style={{borderRadius: 6}}/>
         <View style={{flex: 1, minWidth: 0}}><Text numberOfLines={1} style={[browseType(theme, 15, 700), {color: theme.colors.text}]}>{entry.displayTitle || entry.title}</Text>
           <Parts parts={text.caption} gap={8} style={[browseType(theme, 12.5, 400), {color: theme.colors.textTertiary, marginTop: 2}]}/></View>
@@ -264,7 +287,7 @@ function SavedMyListRow({entry, runtime, actions}: {entry: ContentEntry; runtime
 function SavedMyListCard({entry, runtime, actions, selection, width}: {entry: ContentEntry; runtime: NativeShellRuntime; actions: NativeSavedActions; selection?: CardSelection; width?: number}) {
   const menuAnchorRef = useRef<View>(null), text = homeCardText(entry, false, runtime.text);
   const props = {testID: `saved-my-list-${encodeURIComponent(entry.id)}`, title: entry.displayTitle || entry.title, caption: text.caption, ...(width === undefined ? {} : {width}),
-    artwork: runtime.artwork(entry.posterUrl), onNavigate: () => actions.openEntry(entry), onMore: () => actions.menuEntry(entry, menuAnchorRef), selection,
+    artwork: runtime.artwork(entry.posterUrl), onNavigate: () => actions.openEntry(entry), onMore: () => actions.menuEntry(entry, menuAnchorRef, selection?.onEnter), selection,
     menuAnchorRef, moreExpanded: actions.isMenuOpen?.(entry)};
   return entry.kind === 'song' || entry.kind === 'album' || entry.kind === 'book' || entry.kind === 'audiobook_file' ? <SquareCard {...props}/> : <PosterCard {...props}/>;
 }

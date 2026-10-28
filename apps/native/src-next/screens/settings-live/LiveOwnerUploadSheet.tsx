@@ -163,7 +163,7 @@ export function UploadSourceSheet({controller, runtime, open, onOpenChange, onSa
         onChangeText={value => {const count = Number(value);if (current && Number.isSafeInteger(count) && count >= 0 && count <= 64) edit(current, {tunerCount: count});}}/>
       {current && current.error !== undefined && <StateView testID="live-owner-upload-error" {...runtime.error(current.error, () => {if (active.current === current && !current.retired) {current.error = undefined;changed();}})}/>}
       {preview && <View testID="live-owner-upload-preview" style={{backgroundColor: theme.colors.raisedHigh, borderRadius: 12, padding: 14, gap: 6}}>
-        <Text style={[shellType(15, 700), {color: theme.colors.text}]}>{[t('server.live.channelCount', {count: preview.value.channels}), t('server.live.programCount', {count: preview.value.programmes})].join(' · ')}</Text>
+        <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, rowGap: 3}}>{[t('server.live.channelCount', {count: preview.value.channels}), t('server.live.programCount', {count: preview.value.programmes})].filter(Boolean).map((part, index) => <Text key={index} style={[shellType(15, 700), {color: theme.colors.text}]}>{part}</Text>)}</View>
         {!!preview.value.names.length && <Text numberOfLines={3} style={[shellType(13), {color: theme.colors.textSecondary}]}>{preview.value.names.slice(0, 6).join(', ')}{preview.value.names.length > 6 ? '…' : ''}</Text>}
       </View>}
     </ScrollView>

@@ -1,3 +1,4 @@
+import * as homeWindow from '../src-next/screens/home/home-window';
 import {createInitialRegionEntry} from '../src-next/kit/focus/initial-entry.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -48,7 +49,7 @@ test('phone Home rows take the drawn 28 px rhythm while the hero keeps its own h
   assert.deepEqual(home.homeRowSpacing(desktopTheme), {marginBottom: 18});
   assert.equal(home.homeHeroBlock(tvTheme, 1080, false), 820);
   assert.equal(home.homeHeroBlock(tvTheme, 1080, true), 588);
-  assert.equal(home.homeHeroBlock(desktopTheme, 560, false), 520);
+  assert.equal(home.homeHeroBlock(desktopTheme, 560, false), 560);
   assert.equal(home.homeRowSubtitle(tvTheme).fontSize, tvTheme.type.rowSubtitle.fontSize);
   assert.equal(home.homeRowSubtitle(desktopTheme).fontSize, desktopTheme.type.rowSubtitle.fontSize);
   assert.equal(home.homeContentBottom(tvTheme, 0), 96);
@@ -172,7 +173,7 @@ async function homeModule(theme: typeof phoneTheme | (() => typeof phoneTheme), 
   return screenModule(new URL('../src-next/screens/home/HomeScreen.tsx', import.meta.url), {
     react: {...react, useLayoutEffect: react.useLayoutEffect ?? react.useEffect}, '@portico/design': {heroSpec},
     'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, RefreshControl: 'RefreshControl', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
-    'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (fn: unknown) => fn, useAnimatedScrollHandler: (fn: unknown) => fn},
+    'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (fn: unknown) => fn, useAnimatedScrollHandler: (fn: unknown) => fn, useSharedValue: (value: unknown) => react.useRef({value}).current},
     '../../../../../packages/i18n/src': {defaultI18n},
     '../../../../../packages/client-core/src/home': {},
     '../../../../../packages/client-core/src/library-content': {},
@@ -185,7 +186,7 @@ async function homeModule(theme: typeof phoneTheme | (() => typeof phoneTheme), 
     '../../kit/cards': {CollectionBanner: 'CollectionBanner', LiveCard: 'LiveCard', PosterCard: 'PosterCard', RankedCard: 'RankedCard', SquareCard: 'SquareCard', WideCard: 'WideCard'},
     '../../kit/focus': {FocusItem: 'FocusItem', FocusRegion: 'FocusRegion', useFocusRegistry: () => registry},
     '../../kit/focus/initial-entry': {createInitialRegionEntry},
-    '../../shell/tv-focus': {tvFocusIds, tvHomeRegionMap}, '../../shell/home-paging': {NativeHomePaging}, './tv-presentation': {tvHomeRows}, './home-start': homeStart,
+    '../../shell/tv-focus': {tvFocusIds, tvHomeRegionMap}, '../../shell/home-paging': {NativeHomePaging}, './tv-presentation': {tvHomeRows}, './home-window': homeWindow, './home-start': homeStart,
     '../../kit/layout': {Hero: 'Hero', FocusPreviewHero: 'FocusPreviewHero', Row: 'Row'},
     '../../kit/layout/FocusAnchor': {useFocusAnchor: () => ({scrollRef: {}, offset: {value: 0}, repeating: false, stop() {}, move() {}, anchor() {}})},
     '../../kit/layout/types': {itemSelection: () => ({})},

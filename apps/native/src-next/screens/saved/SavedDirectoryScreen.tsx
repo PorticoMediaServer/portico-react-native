@@ -1,13 +1,12 @@
-import React, {useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject} from 'react';
+import React, {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject} from 'react';
 import {ScrollView, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import type {Library} from '../../../../../packages/client-core/src/index';
-import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {PersonalResource} from '../../../../../packages/client-core/src/personal-saved';
 import type {PlaylistCard, PlaylistListFilter, SavedRoute} from '../../../../../packages/client-core/src/saved';
-import {Button, Chip, Focusable} from '../../kit/controls';
+import {Chip, Focusable} from '../../kit/controls';
 import {Artwork, type ArtworkSource} from '../../kit/artwork';
 
 import {Icon, type IconName} from '../../kit/Icon';
@@ -20,6 +19,9 @@ import type {NativeEntryMenuState} from '../destinations/entry-actions';
 import type {NativeDestinationActivationPort} from '../destinations/focus';
 import type {NativeSavedViewDestination} from './view-model';
 import {SavedConfirmSheet, SavedNameSheet} from './SavedForms';
+import {SavedSortMenu} from './SavedSortMenu';
+import {SavedLoading, SavedTail} from './SavedLoading';
+import {savedNearEnd} from './paging';
 import {savedItemCount, savedLibraryName, personalMosaic, savedTitleCount, savedViewCount, savedVisibility} from './presentation';
 import type {NativeSavedViewSummaries} from './state';
 import type {NativeSavedDirectoryCommands, SavedDirectoryCommandLease} from './directory-commands';
@@ -49,11 +51,12 @@ export type NativeSavedDirectoryProps = Readonly<{
   commands?: NativeSavedDirectoryCommands;
   /** The exact host route is still current, from the owning Saved route host. */
   routeCurrent?: () => boolean;
+  inline?: boolean;
 }>;
 
 /** collections.html 10a–10c. Each directory is the server's own bounded page;
  * the + sends the real create command and the rows open the pushed pages. */
-export function SavedDirectoryScreen({route, destination, activation, runtime, libraries, back, open, changed, summaries, commands, routeCurrent}: NativeSavedDirectoryProps) {
+export function SavedDirectoryScreen({route, destination, activation, runtime, libraries, back, open, changed, summaries, commands, routeCurrent, inline}: NativeSavedDirectoryProps) {
   const theme = useTheme(), insets = useSafeAreaInsets();
   useSyncExternalStore(summaries?.subscribe ?? noSummarySubscribe, summaries?.getSnapshot ?? noSummaryRevision);
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
@@ -61,14 +64,14 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
   const [creating, setCreating] = useState(false), [busy, setBusy] = useState(false), [problem, setProblem] = useState<string>();
   const [menu, setMenu] = useState<{target: DirectoryTarget; anchor: RefObject<View | null>; opening: object}>(), [renaming, setRenaming] = useState<DirectoryTarget>(),
     [removing, setRemoving] = useState<DirectoryTarget>(), [commandBusy, setCommandBusy] = useState(false);
-  const [paneWidth, setPaneWidth] = useState(0);
+  const [paneWidth, setPaneWidth] = useState(0), viewport = useRef({offset: 0, height: 0, extent: 0});
   const commandTicket = useRef<Readonly<{ticket: object; lease: SavedDirectoryCommandLease}> | undefined>(undefined);
   const mounted = useRef(false);
   const renameOpening = useRef<DirectoryTarget | undefined>(undefined), removeOpening = useRef<DirectoryTarget | undefined>(undefined), menuOpening = useRef<object | undefined>(undefined);
   useEffect(() => {void destination.select(route).catch(runtime.reportError);}, [destination, route, runtime]);
   const saved = snapshot.saved, personal = snapshot.personal;
   const error = snapshot.error ?? saved?.error ?? personal?.error;
-  const loading = snapshot.phase === 'loading' && !saved?.projection && !personal?.resources.length;
+  const loading = (snapshot.phase === 'idle' || snapshot.phase === 'loading') && !saved?.projection && !personal?.resources.length;
   // A refused or unreadable directory retires the tile menu and its command sheets at
   // layout, so a retained callback from that projection has no opening to dispatch.
   useLayoutEffect(() => {
@@ -152,18 +155,26 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
     const opening = {};
     menuOpening.current = opening; setMenu({target, anchor, opening});
   };
+  const next = () => {
+    if (!activation.getSnapshot().visible || routeCurrent?.() === false || destination.getSnapshot().phase !== 'ready') return;
+    const hasMore = route.view === 'playlists' ? !!saved?.pagination.next.length : !!personal?.nextCursor;
+    if (hasMore && savedNearEnd(viewport.current.offset, viewport.current.height, viewport.current.extent, tablet ? tileWidth + 110 : 80, tablet ? tileColumns : 1)) {
+      void destination.next(route.view === 'playlists' ? saved?.pagination.next[0]?.sectionId : undefined).catch(runtime.reportError);
+    }
+  };
   const empty = (id: MessageId, body: MessageId) => <StateView variant="inline" title={t(id)} body={t(body)}/>;
   return <View testID={`native-saved-directory-${route.view}`} pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
     importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
-    <View style={{paddingTop: insets.top, backgroundColor: alpha(theme.colors.ink, .94), borderBottomColor: alpha(theme.colors.text, .07), borderBottomWidth: 1}}>
+    <View style={{paddingTop: inline ? 0 : insets.top, backgroundColor: alpha(theme.colors.ink, .94), borderBottomColor: alpha(theme.colors.text, .07), borderBottomWidth: 1}}>
       <View style={{height: 44, paddingLeft: 12, paddingRight: 10, flexDirection: 'row', alignItems: 'center'}}>
-        <Focusable testID="saved-directory-back" accessibilityRole="button" onPress={back} accessibilityLabel={t('saved.title')} style={{height: 38, marginLeft: -4, paddingRight: 6, justifyContent: 'center'}}>
+        {!inline && <><Focusable testID="saved-directory-back" accessibilityRole="button" onPress={back} accessibilityLabel={t('saved.title')} style={{height: 38, marginLeft: -4, paddingRight: 6, justifyContent: 'center'}}>
           <View style={{flexDirection: 'row', alignItems: 'center'}}><Icon name="i-left" size={22} color={theme.colors.textSecondary}/>
             <Text style={[browseType(theme, 16, 600), {color: theme.colors.textSecondary}]}>{t('saved.title')}</Text></View>
         </Focusable>
         <View pointerEvents="none" style={{position: 'absolute', left: 118, right: 118, top: 0, height: 44, alignItems: 'center', justifyContent: 'center'}}>
           <Text numberOfLines={1} style={[browseType(theme, 17, 700), {color: theme.colors.text}]}>{title}</Text>
         </View>
+        </>}
         {createEnabled && <View style={{marginLeft: 'auto'}}>
           <Focusable testID={`saved-new-${route.view}`} accessibilityRole="button" accessibilityLabel={t(route.view === 'playlists' ? 'web.saved.newPlaylist' : 'web.saved.newCollection')}
             onPress={() => setCreating(true)} style={{width: 38, height: 38, alignItems: 'center', justifyContent: 'center'}}>
@@ -172,21 +183,24 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
         </View>}
       </View>
     </View>
-    <ScrollView contentContainerStyle={{paddingBottom: 28 + insets.bottom}}>
-      {route.view === 'playlists' && !error && !!filters.length && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: theme.gutter, paddingTop: 10, paddingBottom: 10, gap: 8}}>
-        {!!sorts.length && <Chip focusId="dir-sort" icon="i-sort" trailingIcon="i-down" onPress={() => {
-          const current = sorts.find(sort => sort.id === (saved?.projection?.query.sort ?? sorts[0]?.id)) ?? sorts[0]!;
-          const direction = saved?.projection?.query.direction === 'asc' ? 'desc' : 'asc';
-          void destination.select({view: 'playlists', sort: current.id, direction, ...(route.filter ? {filter: route.filter} : {})}).catch(runtime.reportError);
-        }}>{playlistSortLabel(saved?.projection?.query.sort)}</Chip>}
+    <ScrollView onLayout={event => {viewport.current.height = event.nativeEvent.layout.height; next();}}
+      onContentSizeChange={(_width, height) => {viewport.current.extent = height; next();}}
+      onScroll={event => {viewport.current.offset = event.nativeEvent.contentOffset.y; next();}} scrollEventThrottle={64} contentContainerStyle={{paddingBottom: 28 + insets.bottom}}>
+      {route.view === 'playlists' && !error && (!!filters.length || !!sorts.length) && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: theme.gutter, paddingTop: 10, paddingBottom: 10, gap: 8}}>
+        {!!sorts.length && <SavedSortMenu scope="saved-directory" sorts={sorts} sort={saved?.projection?.query.sort} direction={saved?.projection?.query.direction}
+          onChange={(sort, direction) => {
+            if (!activation.getSnapshot().visible || destination.getSnapshot().saved?.projection !== saved?.projection) return;
+            const filter = saved?.projection?.query.category as PlaylistListFilter | undefined;
+            void destination.select({view: 'playlists', sort, direction, ...(filter ? {filter} : {})}).catch(runtime.reportError);
+          }}/>}
         {filters.map(filter => filter.options.map(option => <Chip key={`${filter.id}:${option.id}`} focusId={`dir-filter-${option.id}`}
-          selected={(route.filter ?? 'all') === option.id} count={option.count} onPress={() => {void destination.select({view: 'playlists', filter: option.id as PlaylistListFilter,
+          selected={(saved?.projection?.query.category ?? 'all') === option.id} count={option.count} onPress={() => {void destination.select({view: 'playlists', filter: option.id as PlaylistListFilter,
             ...(saved?.projection?.query.sort ? {sort: saved.projection.query.sort, direction: saved.projection.query.direction as 'asc' | 'desc'} : {})}).catch(runtime.reportError);}}>
           {option.label}</Chip>))}
       </ScrollView>}
       {route.view === 'views' && <Text style={[browseType(theme, 13, 400, 0, 19.5), {color: theme.colors.textTertiary, marginHorizontal: theme.gutter, marginTop: 12, marginBottom: 4}]}>{t('next.saved.viewsHelp')}</Text>}
       {problem !== '' && <View style={{paddingHorizontal: theme.gutter, paddingTop: 10}}><Banner variant="notice" tone="error" placement="inline" message={problem} action={{label: t('action.dismiss'), onPress: () => setProblem('')}}/></View>}
-      {error && !loading ? <StateView variant="inline" {...runtime.error(error, retry)}/> : loading ? <View style={{paddingVertical: 32}}><Text style={[theme.type.body, {color: theme.colors.textTertiary, textAlign: 'center'}]}>{t('saved.loading')}</Text></View>
+      {error && !loading ? <StateView variant="inline" {...runtime.error(error, retry)}/> : loading ? <SavedLoading kind="directory"/>
         : route.view === 'playlists' ? (playlists.length ? (tablet ? <View onLayout={event => setPaneWidth(event.nativeEvent.layout.width)} style={{flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginHorizontal: theme.gutter, marginTop: 6}}>
           {playlists.map(playlist => <View key={playlist.id} style={{width: tileWidth}}>
             <SavedDirectoryTile id={`playlist-${playlist.id}`} title={playlist.title} caption={[savedItemCount(playlist.count), playlist.subtitle].filter(Boolean) as string[]}
@@ -195,7 +209,7 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
           </View>)}</View>
           : <View style={{marginTop: 6}}>{playlists.map(playlist => <SavedDirectoryRow key={playlist.id} id={`playlist-${playlist.id}`}
             title={playlist.title} caption={[savedItemCount(playlist.count), playlist.subtitle].filter(Boolean)} mosaic={(playlist.artworkPaths ?? []).map(path => runtime.artwork(path))}
-            pinned={false} onPress={() => open({view: 'playlist', playlistId: playlist.id})}/>)}</View>)
+            pinned={playlist.pinned === true} onPress={() => open({view: 'playlist', playlistId: playlist.id})}/>)}</View>)
           : empty('web.saved.empty.playlists', 'web.saved.empty.playlistsBody'))
         : resources.length ? (tablet ? <View onLayout={event => setPaneWidth(event.nativeEvent.layout.width)} style={{flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginHorizontal: theme.gutter, marginTop: 6}}>
           {resources.map(resource => {
@@ -222,9 +236,7 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
               mosaic={paths.map(path => runtime.artwork(path))} onPress={() => open({view: 'resource', resourceId: resource.id})}/>;
           })}</View>)
           : empty(route.view === 'collections' ? 'web.saved.empty.collections' : 'web.saved.empty.views', route.view === 'collections' ? 'web.saved.empty.collectionsBody' : 'web.saved.empty.viewsBody')}
-      {!!(route.view === 'playlists' ? saved?.pagination.next.length : personal?.nextCursor) && <View style={{alignItems: 'center', paddingVertical: 16}}>
-        <Button variant="glass" size="compact" onPress={() => {void destination.next(route.view === 'playlists' ? saved?.pagination.next[0]?.sectionId : undefined).catch(runtime.reportError);}}>{t('action.showMore')}</Button>
-      </View>}
+      {snapshot.phase === 'loading' && !!(playlists.length || resources.length) && <View style={{marginHorizontal: theme.gutter, marginTop: 12}}><SavedTail row/></View>}
     </ScrollView>
     <SavedNameSheet open={creating} title={t(route.view === 'playlists' ? 'web.saved.newPlaylist' : 'web.saved.newCollection')} action={t('web.saved.create')}
       withSummary withVisibility={route.view === 'collections'} busy={busy} error={problem || undefined} testID="saved-create" onClose={() => setCreating(false)} onSave={create}/>
@@ -246,14 +258,6 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
       onConfirm={() => {const target = removing; if (!target || removeOpening.current !== target) return; removeOpening.current = undefined; setRemoving(current => current === target ? undefined : current);
         if (commands) runCommand(target.lease, () => commands.remove(target.resource, target.lease));}}/>
   </View>;
-}
-
-function playlistSortLabel(sort: string | undefined): string {
-  if (sort === 'title') return t('web.saved.sort.title');
-  if (sort === 'created') return t('playlists.sort', {field: 'created'});
-  if (sort === 'updated' || sort === 'added') return t('web.saved.sort.added');
-  if (sort === 'count') return t('playlists.sort', {field: 'count'});
-  return t('web.saved.sort.other');
 }
 
 function SavedDirectoryTile({id, title, caption, note, summary, mosaic, filterTile, pinned, menuOpen, commands, onPress, onMenu}: {

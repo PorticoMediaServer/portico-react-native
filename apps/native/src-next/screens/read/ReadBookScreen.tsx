@@ -19,6 +19,10 @@ import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeReadBook, NativeReadSeriesShelfState} from './read-book-model';
 import type {NativeReadOwnerEditLease} from './read-book-model';
 import {VolumeCard} from './ReadSeriesScreen';
+import {ReadingShelf} from './ReadingShelf';
+import {ReadingItemMenu, ReadingSelectionToolbar, useReadingActions, type ReadingActionsPort} from './ReadingActions';
+import type {NativeReadingActionOffer} from './reading-actions';
+import {askNativeDownload} from '../downloads/request';
 import type {NativeReadVersion} from './read-book-model';
 import {ReadOwnerEditSheet} from './ReadOwnerEditSheet';
 import {ReadCollectionSheet} from './ReadCollectionSheet';
@@ -48,6 +52,7 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
 }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   const shelf = useSyncExternalStore(controller.subscribeShelf, controller.shelfSnapshot);
+  const readingActions = useReadingActions(context, runtime, controller);
   // tablet-read 2/2b draw one reading column and one 380 pt contents column side by side;
   // 2c keeps the single column. The shell's own classification decides: a landscape phone
   // (wide but short, e.g. 914x411) stays a phone page, and portrait keeps one column.
@@ -133,7 +138,11 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
       saved={saved} currentSection={currentSection} tab={tab} onTab={setTab} onRead={read} onSeries={openSeries}
       versions={state.versions} sourceId={state.sourceId} onVersion={selectVersion}
       listed={state.listed} onList={toggleList} onMore={editLease ? () => {if (editLease.isCurrent()) setMore(true);} : undefined} readMark={state.read} onReadMark={toggleRead} canDownload={canDownload} onDownload={download} downloadRef={downloadAnchor} onHeroHeight={setHeroHeight}
-      shelf={shelf} onShelfMore={() => {void controller.moreSeriesShelf(shelf.witness, manifest).catch(runtime.reportError);}}
+      shelf={shelf} readingActions={readingActions} shelfOffer={item => {
+        const lifetime = controller.shelfItemLifetime(shelf.witness, manifest, item);
+        return lifetime ? {item, lifetime, open: () => {void controller.openSeriesItem(shelf.witness, manifest, item).catch(runtime.reportError);},
+          ...(canDownload ? {download: () => askNativeDownload({title: item.title, itemId: item.id, reading: true, lifetime})} : {})} : undefined;
+      }} onShelfMore={() => {void controller.moreSeriesShelf(shelf.witness, manifest).catch(runtime.reportError);}}
       onShelfRetry={() => {void controller.retrySeriesShelf(shelf.witness, manifest).catch(runtime.reportError);}}
       onShelfItem={item => {void controller.openSeriesItem(shelf.witness, manifest, item).then(ok => {if (!ok) return;}).catch(runtime.reportError);}}/>
     : null;
@@ -177,6 +186,7 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
         </LoadingPaint>}
     </ScrollView>
     <Menu open={more} onOpenChange={setMore} title={title} items={menu}/>
+    <ReadingItemMenu port={readingActions} runtime={runtime}/>
     {edit ? <ReadOwnerEditSheet key={edit.key} context={context} lease={edit.lease} owner={edit.owner} itemId={controller.item.id} libraryId={route.libraryId} manifest={manifest} version={selectedVersion}
       onClose={ticket => setEdit(current => current?.owner === ticket ? undefined : current)}/> : null}
     {collection ? <ReadCollectionSheet key={collection.key} context={context} lease={collection.lease} owner={collection.owner} itemId={controller.item.id} libraryId={route.libraryId} kind={collection.kind} title={title}
@@ -184,7 +194,7 @@ export function ReadBookScreen({controller, route, comic, owner, context, runtim
   </View>;
 }
 
-function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHero, saved, currentSection, tab, onTab, onRead, onSeries, versions, sourceId, onVersion, listed, onList, onMore, readMark, onReadMark, canDownload, onDownload, downloadRef, onHeroHeight, shelf, onShelfMore, onShelfRetry, onShelfItem}: {
+function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHero, saved, currentSection, tab, onTab, onRead, onSeries, versions, sourceId, onVersion, listed, onList, onMore, readMark, onReadMark, canDownload, onDownload, downloadRef, onHeroHeight, shelf, readingActions, shelfOffer, onShelfMore, onShelfRetry, onShelfItem}: {
   controller: NativeReadBook; manifest: ReadingManifest; series?: SeriesLink; comic: boolean; runtime: NativeShellRuntime; wide: boolean; rowHero: boolean;
   saved?: number; currentSection?: string; tab: string; onTab: (value: string) => void; onRead: (manifest: ReadingManifest, index?: number) => void;
   onSeries: (series: SeriesLink, manifest: ReadingManifest) => void;
@@ -194,6 +204,7 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
   readMark?: ReadingReadMark; onReadMark: (mark: ReadingReadMark) => void;
   canDownload: boolean; onDownload: (manifest: ReadingManifest) => void; downloadRef: React.RefObject<View | null>; onHeroHeight: (height: number) => void;
   shelf: NativeReadSeriesShelfState; onShelfMore: () => void; onShelfRetry: () => void; onShelfItem: (item: ReadingItem) => void;
+  readingActions: ReadingActionsPort; shelfOffer: (item: ReadingItem) => NativeReadingActionOffer | undefined;
 }) {
   const theme = useTheme(), [versionsOpen, setVersionsOpen] = useState(false), phone = theme.platform === 'phone';
   const selectedVersion = versions.find(version => version.sourceId === sourceId);
@@ -229,9 +240,10 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
   const copy = <>
     {series ? <Focusable accessibilityRole="link" accessibilityLabel={series.name}
       onPress={() => onSeries(series, manifest)} style={{marginTop: rowHero ? 0 : 14, paddingVertical: 4, maxWidth: '100%'}}>
-      <Text numberOfLines={2} style={[browseType(theme, rowHero ? 14.5 : 13.5, 600), {color: theme.colors.accentStrong, textAlign: rowHero ? 'left' : 'center'}]}>
-        {series.name}{series.number !== undefined ? ` · ${seriesNumber(series.number, comic)}` : ''}
-      </Text>
+      <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, rowGap: 4, justifyContent: rowHero ? 'flex-start' : 'center'}}>
+        <Text numberOfLines={2} style={[browseType(theme, rowHero ? 14.5 : 13.5, 600), {color: theme.colors.accentStrong}]}>{series.name}</Text>
+        {series.number !== undefined ? <Text style={[browseType(theme, rowHero ? 14.5 : 13.5, 600), {color: theme.colors.accentStrong}]}>{seriesNumber(series.number, comic)}</Text> : null}
+      </View>
     </Focusable> : null}
     <Text accessibilityRole="header" numberOfLines={3} style={[browseType(theme, titleSize, 800, rowHero ? -.045 : -.03), {color: theme.colors.text, textAlign: rowHero ? 'left' : 'center', marginTop: 6}]}>{title}</Text>
     {author ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 8}}>
@@ -304,7 +316,7 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
     <DetailsList manifest={manifest} rows={detailFacts} series={series} comic={comic} onSeries={onSeries}/>
   </View>;
   const versionsMenu = <Menu open={versionsOpen} onOpenChange={setVersionsOpen} title={t('next.reader.version')} items={versions.map(version => ({
-    id: version.sourceId, label: `${version.format.toUpperCase()} · ${defaultI18n.bytes(version.size)}`,
+    id: version.sourceId, label: version.format.toUpperCase(), description: defaultI18n.bytes(version.size),
     selected: version.sourceId === sourceId, disabled: !version.inventoryAvailable,
     onSelect: () => {setVersionsOpen(false); if (version.inventoryAvailable && version.sourceId !== sourceId) onVersion(manifest, versions, version.sourceId);},
   }))}/>;
@@ -319,6 +331,7 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
   const inset = expanded ? 32 : 20;
   const shelfWidth = expanded ? 142 : theme.platform === 'phone' ? 118 : 150, shelfHeight = shelfWidth * 3 / 2;
   const shelfSection = series && (shelf.items.length > 0 || shelf.phase === 'error' || shelf.moreError) ? <View testID="native-read-book-series-shelf" style={{marginTop: expanded ? 28 : 30}}>
+    <ReadingSelectionToolbar port={readingActions} runtime={runtime}/>
     <View style={{flexDirection: 'row', alignItems: 'baseline', gap: expanded ? 14 : 10, paddingHorizontal: inset, marginBottom: expanded ? 14 : 10}}>
       <Text accessibilityRole="header" style={[browseType(theme, expanded ? 21 : 19, 700, -.015), {color: theme.colors.text}]}>{t('next.reader.restOfSeries')}</Text>
       <Text numberOfLines={1} style={[browseType(theme, expanded ? 14 : 13, expanded ? 400 : 600), {color: theme.colors.textTertiary, flexShrink: 1}]}>{t('next.reader.seriesInOrder', {series: series.name})}</Text>
@@ -331,18 +344,12 @@ function ReadBookBody({controller, manifest, series, comic, runtime, wide, rowHe
       </Focusable>
     </View>
     {shelf.phase === 'error' ? <StateView {...runtime.error(shelf.error, onShelfRetry, 'library')}/>
-      : <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEventThrottle={100}
-        contentContainerStyle={expanded
-          ? {paddingHorizontal: inset, paddingTop: 8, paddingBottom: 10, gap: 14}
-          : {paddingHorizontal: 20, paddingTop: 0, paddingBottom: 4, gap: 10}}
-        onScroll={event => {
-          // Only a real cursor pages, and only when the track reaches its end.
-          const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
-          if (shelf.nextCursor && contentOffset.x + layoutMeasurement.width >= contentSize.width - shelfWidth / 2) onShelfMore();
-        }}>
-        {shelf.items.map(item => <VolumeCard key={`${item.id}:${item.sourceId}`} item={item} width={shelfWidth} height={shelfHeight} comic={comic} theme={theme} runtime={runtime}
-          variant={expanded ? 'shelf' : 'default'} onOpen={() => onShelfItem(item)}/>)}
-      </ScrollView>}
+      : <ReadingShelf items={shelf.items} getKey={item => `${item.id}:${item.sourceId}`} width={shelfWidth} height={shelfHeight + 66}
+        artHeight={shelfHeight} gap={expanded ? 14 : 10} gutter={inset} paddingTop={expanded ? 8 : 0} paddingBottom={expanded ? 10 : 4}
+        pending={shelf.morePending} onNext={shelf.nextCursor && !shelf.moreError ? onShelfMore : undefined}
+        renderItem={item => {const target = shelfOffer(item); return <VolumeCard item={item} width={shelfWidth} height={shelfHeight} comic={comic} theme={theme} runtime={runtime}
+          variant={expanded ? 'shelf' : 'default'} onOpen={() => onShelfItem(item)} selection={target ? readingActions.selection(target) : undefined}
+          onMenu={target ? anchorRef => readingActions.actions.show({...target, anchorRef}) : undefined}/>;}}/>}
     {shelf.moreError ? <StateView {...runtime.error(shelf.moreError, onShelfRetry, 'library')}/> : null}
   </View> : null;
   if (!wide) return <View style={{width: '100%', maxWidth: rowHero ? 820 : 640, alignSelf: 'center'}}>{hero}{opening}{panel}{shelfSection}{versionsMenu}</View>;
@@ -413,9 +420,10 @@ function DetailsList({manifest, rows, series, comic, onSeries, wide = false, ins
     {series ? <Focusable accessibilityRole="link" accessibilityLabel={series.name} onPress={() => onSeries(series, manifest)} focusKind="row" focusRadius={8}
       style={{flexDirection: 'row', columnGap: 14, alignItems: 'baseline'}}>
       <Text style={[browseType(theme, 14.5, 400), {width: 92, color: theme.colors.textTertiary}]}>{t('library.tab.series')}</Text>
-      <Text numberOfLines={2} style={[browseType(theme, 14.5, 600), {flex: 1, color: theme.colors.text}]}>
-        {series.name}{series.number !== undefined ? ` · ${seriesNumber(series.number, comic)}` : ''}
-      </Text>
+      <View style={{flex: 1, flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, rowGap: 4}}>
+        <Text numberOfLines={2} style={[browseType(theme, 14.5, 600), {color: theme.colors.text}]}>{series.name}</Text>
+        {series.number !== undefined ? <Text style={[browseType(theme, 14.5, 600), {color: theme.colors.text}]}>{seriesNumber(series.number, comic)}</Text> : null}
+      </View>
     </Focusable> : null}
     {rows.map(row => <View key={row.label + row.value} style={{flexDirection: 'row', columnGap: 14, alignItems: 'baseline'}}>
       <Text style={[browseType(theme, 14.5, 400), {width: 92, color: theme.colors.textTertiary}]}>{row.label}</Text>
@@ -426,9 +434,10 @@ function DetailsList({manifest, rows, series, comic, onSeries, wide = false, ins
     {series ? <Focusable accessibilityRole="link" accessibilityLabel={series.name} onPress={() => onSeries(series, manifest)} focusKind="row" focusRadius={8}
       style={{paddingVertical: 10, ...ROW, borderTopColor: alpha(theme.colors.line, .7)}}>
       <Text style={[browseType(theme, 13.5, 600), {color: theme.colors.text}]}>{t('library.tab.series')}</Text>
-      <Text style={[browseType(theme, 13.5, 400), {color: theme.colors.accentStrong, marginTop: 2}]}>
-        {series.name}{series.number !== undefined ? ` · ${seriesNumber(series.number, comic)}` : ''}
-      </Text>
+      <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, rowGap: 4, marginTop: 2}}>
+        <Text style={[browseType(theme, 13.5, 400), {color: theme.colors.accentStrong}]}>{series.name}</Text>
+        {series.number !== undefined ? <Text style={[browseType(theme, 13.5, 400), {color: theme.colors.accentStrong}]}>{seriesNumber(series.number, comic)}</Text> : null}
+      </View>
     </Focusable> : null}
     {rows.map(row => <View key={row.label + row.value} style={{paddingVertical: 9, ...ROW, borderTopColor: alpha(theme.colors.line, .7)}}>
       <Text style={[browseType(theme, 13.5, 600), {color: theme.colors.text}]}>{row.label}</Text>
@@ -442,9 +451,10 @@ function DetailsList({manifest, rows, series, comic, onSeries, wide = false, ins
     {series ? <View style={rowStyle}>
       <Text style={[detailType, {width: 92, color: theme.colors.textTertiary}]}>{t('library.tab.series')}</Text>
       <Focusable accessibilityRole="link" accessibilityLabel={series.name} onPress={() => onSeries(series, manifest)} focusKind="row" focusRadius={8} style={{flex: 1, minWidth: 0}}>
-        <Text numberOfLines={2} style={[detailType, {color: theme.colors.accentStrong}]}>
-          {series.name}{series.number !== undefined ? ` · ${seriesNumber(series.number, comic)}` : ''}
-        </Text>
+        <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, rowGap: 4}}>
+          <Text numberOfLines={2} style={[detailType, {color: theme.colors.accentStrong}]}>{series.name}</Text>
+          {series.number !== undefined ? <Text style={[detailType, {color: theme.colors.accentStrong}]}>{seriesNumber(series.number, comic)}</Text> : null}
+        </View>
       </Focusable>
     </View> : null}
     {rows.map((row, index) => <View key={row.label + row.value} style={rowStyle}>

@@ -1,8 +1,17 @@
-import {ReadingError, type LocalSession, type ReadingClient, type ReadingDayChoice, type ReadingItem, type ReadingPeriodicalIssue, type ReadingPeriodicalType, type ReadingYearChoice} from '../../../../../packages/client-core/src';
+import {ReadingError, type LocalSession, type ReadingClient, type ReadingDayChoice, type ReadingPeriodicalIssue, type ReadingPeriodicalType, type ReadingYearChoice} from '../../../../../packages/client-core/src';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRoute} from '../../shell/routes';
 import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {nativeReadOrigin, openNativeReadBook, type NativeReadOrigin} from './eligibility';
+
+export type NativeReadPeriodicalYear = Readonly<{
+  year: string;
+  phase: 'loading' | 'ready' | 'error';
+  items: readonly ReadingPeriodicalIssue[];
+  nextCursor?: string;
+  pending?: boolean;
+  error?: unknown;
+}>;
 
 export type NativeReadPeriodicalState = Readonly<{
   phase: 'idle' | 'loading' | 'ready' | 'error';
@@ -21,6 +30,16 @@ export type NativeReadPeriodicalState = Readonly<{
   selectedYear?: string;
   selectedMonth?: string;
   selectedDate?: string;
+  /** Each magazine year owns its own cursor; only visible sections are loaded. */
+  yearSections?: readonly NativeReadPeriodicalYear[];
+  /** An exact day query, independent of the month's thumbnail window. */
+  selectedDateItems?: readonly ReadingPeriodicalIssue[];
+  dateCursor?: string;
+  datePending?: boolean;
+  dateError?: unknown;
+  pending?: boolean;
+  archivePending?: boolean;
+  archiveError?: unknown;
   /** The selected query's own next page, if the server published one. */
   nextCursor?: string;
   /** The unfiltered archive's own next page for discovering older months. */
@@ -51,6 +70,7 @@ export class NativeReadPeriodical {
   private readonly listeners = new Set<() => void>();
   private flight = 0;
   private command?: object;
+  private readonly yearTickets = new Map<string, object>();
   private disposed = false;
 
   constructor(context: NativeShellBootstrapContext, route: PeriodicalRoute) {
@@ -75,6 +95,7 @@ export class NativeReadPeriodical {
   };
   private retire(): void {
     this.flight++;
+    this.yearTickets.clear();
     this.life?.abort();
     this.client?.dispose();
     this.client = undefined; this.life = undefined; this.command = undefined;
@@ -107,6 +128,7 @@ export class NativeReadPeriodical {
   load = async (): Promise<void> => {
     if (!this.current()) return;
     const flight = ++this.flight;
+    this.yearTickets.clear();
     this.publish({phase: 'loading', items: [], years: this.state.years, days: [], months: this.state.months});
     try {
       const client = this.reading(), signal = this.life!.signal;
@@ -130,7 +152,8 @@ export class NativeReadPeriodical {
       if (flight !== this.flight || !this.current()) return;
       this.publish({phase: 'ready', items: page.items, ...(latest ? {latest} : {}), years: page.yearChoices, days: page.dayChoices,
         months, ...(groupName ? {groupName} : {}), ...(issueCount === undefined ? {} : {issueCount}), publicationType: this.publicationType,
-        ...(selectedYear ? {selectedYear} : {}), ...(selectedMonth ? {selectedMonth} : {}),
+        ...(selectedYear ? {selectedYear, yearSections: [{year: selectedYear, phase: 'ready' as const, items: page.items, nextCursor: page.nextCursor}]} : {}),
+        ...(selectedMonth ? {selectedMonth, selectedDate: latest?.issueDate ?? page.items[0]?.issueDate} : {}),
         ...(page.nextCursor ? {nextCursor: page.nextCursor} : {}),
         ...(unfiltered.nextCursor ? {archiveCursor: unfiltered.nextCursor} : {})});
     } catch (error) {
@@ -139,22 +162,42 @@ export class NativeReadPeriodical {
     }
   };
   retry = (): Promise<void> => this.load();
-  /** Load one real year of a magazine's issues from the exact rendered state. */
+  /** Selecting a chip moves to its year section; it does not replace the other
+   * sections. Each section is read lazily from its own server-issued cursor. */
   selectYear = async (rendered: NativeReadPeriodicalState, choice: ReadingYearChoice): Promise<void> => {
-    if (this.command || this.publicationType !== 'magazine' || !this.current() || this.state !== rendered || rendered.phase !== 'ready'
-      || !rendered.years.some(year => year === choice)) return;
-    const life = this.life, flight = ++this.flight, ticket = {};
+    if (!this.current() || this.state !== rendered || rendered.phase !== 'ready' || this.publicationType !== 'magazine'
+      || !rendered.years.includes(choice)) return;
+    const section = rendered.yearSections?.find(value => value.year === choice.value);
+    this.publish({...rendered, selectedYear: choice.value, ...(section ? {items: section.items, nextCursor: section.nextCursor} : {})});
+    await this.ensureYear(this.state, choice);
+  };
+  ensureYear = async (rendered: NativeReadPeriodicalState, choice: ReadingYearChoice, more = false): Promise<void> => {
+    if (!this.current() || this.state !== rendered || rendered.phase !== 'ready' || this.publicationType !== 'magazine'
+      || !rendered.years.includes(choice) || this.yearTickets.has(choice.value)) return;
+    const existing = rendered.yearSections?.find(section => section.year === choice.value);
+    if (existing?.phase === 'ready' && !more || more && !existing?.nextCursor) return;
+    const life = this.life, flight = this.flight, ticket = {}, cursor = more ? existing?.nextCursor : undefined;
     if (!life) return;
-    this.command = ticket;
+    const pending: NativeReadPeriodicalYear = Object.freeze({year: choice.value, phase: existing?.items.length ? 'ready' : 'loading',
+      items: existing?.items ?? [], nextCursor: cursor, pending: true});
+    this.yearTickets.set(choice.value, ticket);
+    this.publish({...rendered, yearSections: [...(rendered.yearSections ?? []).filter(section => section.year !== choice.value), pending]});
+    const current = () => this.life === life && this.flight === flight && this.yearTickets.get(choice.value) === ticket && this.current()
+      && this.state.yearSections?.find(section => section.year === choice.value) === pending;
     try {
-      const page = await this.reading().periodicalIssues(this.libraryId, this.groupId, this.publicationType, {year: choice.value, limit: 60}, life.signal);
-      if (this.life !== life || this.command !== ticket || flight !== this.flight || this.state !== rendered || !this.current()) return;
-      this.publish({...rendered, phase: 'ready', items: page.items, years: page.yearChoices, days: page.dayChoices,
-        selectedYear: choice.value, selectedDate: undefined, ...(page.nextCursor ? {nextCursor: page.nextCursor} : {nextCursor: undefined})});
+      const page = await this.reading().periodicalIssues(this.libraryId, this.groupId, this.publicationType, {year: choice.value, ...(cursor ? {cursor} : {}), limit: 60}, life.signal);
+      if (!current()) return;
+      const seen = new Set(pending.items.map(issue => issue.item.id));
+      if (page.items.some(issue => seen.has(issue.item.id)) || cursor && page.nextCursor === cursor) throw new ReadingError('invalid_document');
+      const items = Object.freeze([...pending.items, ...page.items]);
+      const section: NativeReadPeriodicalYear = Object.freeze({year: choice.value, phase: 'ready', items, nextCursor: page.nextCursor});
+      this.publish({...this.state, yearSections: this.state.yearSections!.map(value => value === pending ? section : value),
+        ...(this.state.selectedYear === choice.value ? {items, nextCursor: page.nextCursor} : {})});
     } catch (error) {
-      if (this.life === life && this.command === ticket && flight === this.flight && this.state === rendered && this.current() && !cancelled(error))
-        this.publish({...rendered, phase: 'error', error});
-    } finally {if (this.command === ticket) this.command = undefined;}
+      if (!current() || cancelled(error)) return;
+      const section: NativeReadPeriodicalYear = Object.freeze({...pending, pending: false, phase: pending.items.length ? 'ready' : 'error', error});
+      this.publish({...this.state, yearSections: this.state.yearSections!.map(value => value === pending ? section : value)});
+    } finally {if (this.yearTickets.get(choice.value) === ticket) this.yearTickets.delete(choice.value);}
   };
   /** Load one real month of a newspaper's editions and its actual day counts. */
   selectMonth = async (rendered: NativeReadPeriodicalState, month: string): Promise<void> => {
@@ -167,16 +210,49 @@ export class NativeReadPeriodical {
       const page = await this.reading().periodicalIssues(this.libraryId, this.groupId, this.publicationType, {month, limit: 60}, life.signal);
       if (this.life !== life || this.command !== ticket || flight !== this.flight || this.state !== rendered || !this.current()) return;
       this.publish({...rendered, phase: 'ready', items: page.items, years: page.yearChoices, days: page.dayChoices,
-        selectedMonth: month, selectedDate: undefined, ...(page.nextCursor ? {nextCursor: page.nextCursor} : {nextCursor: undefined})});
+        selectedMonth: month, selectedDate: page.items[0]?.issueDate, selectedDateItems: undefined, dateCursor: undefined, datePending: false, dateError: undefined, error: undefined,
+        ...(page.nextCursor ? {nextCursor: page.nextCursor} : {nextCursor: undefined})});
     } catch (error) {
       if (this.life === life && this.command === ticket && flight === this.flight && this.state === rendered && this.current() && !cancelled(error))
         this.publish({...rendered, phase: 'error', error});
     } finally {if (this.command === ticket) this.command = undefined;}
   };
-  /** Choose a day the server actually listed for this month. */
-  selectDate = (rendered: NativeReadPeriodicalState, date: string): void => {
-    if (this.command || !this.current() || this.state !== rendered || rendered.phase !== 'ready' || !rendered.days.some(day => day.value === date)) return;
-    this.publish({...rendered, selectedDate: date});
+  /** A date remains a real server choice even when its issue is beyond the
+   * month's first page. Resolve that day directly, never fall back to latest. */
+  selectDate = async (rendered: NativeReadPeriodicalState, date: string): Promise<void> => {
+    if (!this.current() || this.state !== rendered || rendered.phase !== 'ready' || this.publicationType !== 'newspaper') return;
+    const choice = rendered.days.find(day => day.value === date);
+    if (!choice) return;
+    if (this.command) {
+      if (!rendered.datePending || rendered.selectedDate === date) return;
+      // A newer chosen day supersedes only the older day lookup. Its late
+      // settlement cannot overwrite the current selection or release its claim.
+      this.command = undefined; this.flight++;
+    }
+    const items = rendered.items.filter(issue => issue.issueDate === date);
+    if (items.length === choice.count) {this.publish({...rendered, selectedDate: date, selectedDateItems: items, dateCursor: undefined, datePending: false, dateError: undefined}); return;}
+    await this.requestDate(rendered, date);
+  };
+  nextDate = async (rendered: NativeReadPeriodicalState): Promise<void> => {
+    if (rendered.selectedDate && rendered.dateCursor) await this.requestDate(rendered, rendered.selectedDate, rendered.dateCursor);
+  };
+  private requestDate = async (rendered: NativeReadPeriodicalState, date: string, cursor?: string): Promise<void> => {
+    const life = this.life, ticket = {}, flight = this.flight;
+    if (this.command || !life || !this.current() || this.state !== rendered || rendered.phase !== 'ready') return;
+    this.command = ticket;
+    const pending = Object.freeze({...rendered, selectedDate: date, selectedDateItems: cursor ? rendered.selectedDateItems : [], dateCursor: cursor, datePending: true, dateError: undefined});
+    this.publish(pending);
+    const current = () => this.life === life && this.flight === flight && this.command === ticket && this.state === pending && this.current();
+    try {
+      const page = await this.reading().periodicalIssues(this.libraryId, this.groupId, this.publicationType,
+        {month: rendered.selectedMonth, issueDate: date, ...(cursor ? {cursor} : {}), limit: 60}, life.signal);
+      if (!current()) return;
+      const seen = new Set(pending.selectedDateItems?.map(issue => issue.item.id));
+      if (page.items.some(issue => seen.has(issue.item.id)) || cursor && page.nextCursor === cursor) throw new ReadingError('invalid_document');
+      this.publish({...pending, selectedDateItems: [...(pending.selectedDateItems ?? []), ...page.items], dateCursor: page.nextCursor, datePending: false});
+    } catch (error) {
+      if (current() && !cancelled(error)) this.publish({...pending, datePending: false, dateError: error});
+    } finally {if (this.command === ticket) this.command = undefined;}
   };
   /** The selected query's real next page; only the exact rendered state and its
    * own cursor append, and a newer flight retires this one. */
@@ -186,15 +262,19 @@ export class NativeReadPeriodical {
     const life = this.life, flight = ++this.flight, ticket = {};
     if (!life) return;
     this.command = ticket;
+    const pending = Object.freeze({...rendered, pending: true, error: undefined});
+    this.publish(pending);
     try {
       const query = rendered.selectedYear ? {year: rendered.selectedYear} : rendered.selectedMonth ? {month: rendered.selectedMonth} : {};
       const page = await this.reading().periodicalIssues(this.libraryId, this.groupId, this.publicationType, {...query, cursor, limit: 60}, life.signal);
-      if (this.life !== life || this.command !== ticket || flight !== this.flight || this.state !== rendered || !this.current() || this.state.nextCursor !== cursor) return;
-      this.publish({...rendered, items: [...rendered.items, ...page.items], years: page.yearChoices, days: page.dayChoices,
+      if (this.life !== life || this.command !== ticket || flight !== this.flight || this.state !== pending || !this.current() || this.state.nextCursor !== cursor) return;
+      const seen = new Set(rendered.items.map(issue => issue.item.id));
+      if (page.nextCursor === cursor || page.items.some(issue => seen.has(issue.item.id))) throw new ReadingError('invalid_document');
+      this.publish({...rendered, pending: false, items: [...rendered.items, ...page.items], years: page.yearChoices, days: page.dayChoices,
         ...(page.nextCursor ? {nextCursor: page.nextCursor} : {nextCursor: undefined})});
     } catch (error) {
-      if (this.life === life && this.command === ticket && flight === this.flight && this.state === rendered && this.current() && !cancelled(error))
-        this.publish({...rendered, error});
+      if (this.life === life && this.command === ticket && flight === this.flight && this.state === pending && this.current() && !cancelled(error))
+        this.publish({...rendered, pending: false, error});
     } finally {if (this.command === ticket) this.command = undefined;}
   };
   /** Discover older newspaper months from the unfiltered archive's own cursor;
@@ -205,24 +285,35 @@ export class NativeReadPeriodical {
     const life = this.life, flight = ++this.flight, ticket = {};
     if (!life) return;
     this.command = ticket;
+    const pending = Object.freeze({...rendered, archivePending: true, archiveError: undefined});
+    this.publish(pending);
     try {
       const page = await this.reading().periodicalIssues(this.libraryId, this.groupId, this.publicationType, {cursor, limit: 60}, life.signal);
-      if (this.life !== life || this.command !== ticket || flight !== this.flight || this.state !== rendered || !this.current()) return;
+      if (this.life !== life || this.command !== ticket || flight !== this.flight || this.state !== pending || !this.current()) return;
+      if (page.nextCursor === cursor) throw new ReadingError('invalid_document');
       const known = new Set(rendered.months);
       const discovered = monthsOf(page.items).filter(month => !known.has(month));
-      this.publish({...rendered, months: [...rendered.months, ...discovered], ...(page.nextCursor ? {archiveCursor: page.nextCursor} : {archiveCursor: undefined})});
+      this.publish({...rendered, archivePending: false, archiveError: undefined, months: [...rendered.months, ...discovered], ...(page.nextCursor ? {archiveCursor: page.nextCursor} : {archiveCursor: undefined})});
     } catch (error) {
-      if (this.life === life && this.command === ticket && flight === this.flight && this.state === rendered && this.current() && !cancelled(error))
-        this.publish({...rendered, error});
+      if (this.life === life && this.command === ticket && flight === this.flight && this.state === pending && this.current() && !cancelled(error))
+        this.publish({...rendered, archivePending: false, archiveError: error});
     } finally {if (this.command === ticket) this.command = undefined;}
+  };
+  itemLifetime = (issue: ReadingPeriodicalIssue): Readonly<{signal: AbortSignal; isCurrent: () => boolean}> | undefined => {
+    const life = this.life;
+    const current = () => this.life === life && this.current() && this.state.phase === 'ready'
+      && (this.publicationType === 'magazine' && this.state.latest === issue || this.state.items.includes(issue) || !!this.state.selectedDateItems?.includes(issue)
+        || !!this.state.yearSections?.some(section => section.items.includes(issue)));
+    return life && current() ? Object.freeze({signal: life.signal, isCurrent: current}) : undefined;
   };
   /** Only an issue this page actually listed, from the exact rendered state. */
   open = async (rendered: NativeReadPeriodicalState, issue: ReadingPeriodicalIssue): Promise<boolean> => {
     const origin = this.origin, life = this.life;
-    // The hero opens the group's canonical latest issue even after an older year
-    // is selected; every other issue must be one this page actually listed.
+    // Every issue is one this page actually listed, including its own lazy year
+    // sections or exact selected-day response. Magazine keeps its latest hero.
     if (this.command || !origin || !life || !this.current() || this.state !== rendered || rendered.phase !== 'ready'
-      || issue.item.inventoryAvailable !== true || !rendered.items.includes(issue) && rendered.latest !== issue) return false;
+      || issue.item.inventoryAvailable !== true || !rendered.items.includes(issue) && rendered.latest !== issue
+        && !rendered.selectedDateItems?.includes(issue) && !rendered.yearSections?.some(section => section.items.includes(issue))) return false;
     const ticket = {};
     this.command = ticket;
     try {

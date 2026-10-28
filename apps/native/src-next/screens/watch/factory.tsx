@@ -26,16 +26,16 @@ import {NativeTitleScreen, type NativeTitleScreenProps} from './TitleScreen';
 import {NativeFileInfoContent} from './FileInfoContent';
 import {readNativeFileInfo, type NativeFileInfo} from './file-info';
 import {readNativePlaybackInfo} from './playback-info';
-import {nativeWatchTracks} from './track-identity';
 import {nativeDiscTitleChoices, nativeVersionChoices, nativeVersionNames} from './version-options';
 import {NativeVersionChooserController} from './version-destination';
 import {NativeDiscTitlesController} from './disc-titles-controller';
 import {prepareDiscTitle, readDiscTitles, type DiscTitles} from './disc-titles';
-import {NativeWatchControls, type NativeWatchControlContext, type NativeWatchPanel} from './controls';
+import {NativeWatchControls, type NativeWatchControlContext} from './controls';
 import {NativeWatchChrome, type NativeWatchChromeProps} from './WatchChrome';
 import {NativeWatchPicture, type NativeWatchPictureProps} from './picture-slot';
 import {NativeWatchHost, type NativeWatchHostBindings, type NativeWatchHostContext} from './WatchHost';
 import {NativeWatchEpisodes} from './EpisodePanel';
+import type {MenuAction} from '../../kit/overlays/types';
 
 export type NativeWatchCapture = Readonly<{
   entry: ContentEntry;
@@ -61,7 +61,8 @@ export type NativeWatchMenuEntry = Readonly<{
   details?: () => void;
   dispose: () => void;
 }>;
-export type NativeWatchMenuActions = Readonly<{fileInfo: () => Promise<void>; differentVersion?: () => Promise<void>; select?: () => void; entry?: NativeWatchMenuEntry;
+export type NativeWatchMenuExtra = Pick<MenuAction, 'id' | 'label' | 'icon' | 'description' | 'disabled' | 'destructive' | 'tone' | 'onSelect'>;
+export type NativeWatchMenuActions = Readonly<{fileInfo: () => Promise<void>; differentVersion?: () => Promise<void>; select?: () => void; entry?: NativeWatchMenuEntry; extraActions?: readonly NativeWatchMenuExtra[];
   /** Owner only, and only for a physical disc version the server measured. */
   discTitles?: () => void}>;
 export type NativeVersionDestination = NativeVersionChooserController;
@@ -269,7 +270,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     if (opening.live()) publishVersions(captured, fresh, drawn, opening, failedVersionId);
   };
 
-  const menu = async (entry: ContentEntry, entryCurrent: () => boolean, anchorRef?: React.RefObject<View | null>, select?: () => void): Promise<void> => {
+  const menu = async (entry: ContentEntry, entryCurrent: () => boolean, anchorRef?: React.RefObject<View | null>, select?: () => void, extraActions?: readonly NativeWatchMenuExtra[]): Promise<void> => {
     const captured = capture(entry, entryCurrent);
     if (!captured) return;
     // A failed options read must not replace the independent real File info action.
@@ -296,7 +297,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
       if (!candidate.getSnapshot().data) candidate.dispose(); else detail = candidate;
     }
     const projection = detail?.getSnapshot().data;
-    const primary = projection?.actions.find(action => action.enabled && action.playback && action.id !== 'start_over')?.playback ?? entry.playback;
+    const primary = projection?.actions.find(action => action.enabled && action.playback && action.id !== 'start_over')?.playback;
     const route = ports.navigation.getSnapshot().route, onTitle = route.kind === 'title' && titleKey(route.entry) === titleKey(entry);
     // The queue append is offered only for a personal session; a group/follower
     // session never gains a personal append from this screen.
@@ -348,7 +349,8 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
         {itemId: entry.id, versionId: discVersion.id},
         {opening, owner: () => ports.title.owner === true, version: () => opening() ? discVersion.id : undefined}));
     } : undefined;
-    ports.openMenu(captured, {fileInfo: () => fileInfo(captured), ...(discTitles ? {discTitles} : {}), ...(select ? {select: () => {if (current(captured)) select();}} : {}), ...(hasVersions ? {differentVersion: () => versions(captured)} : {}), ...(menuEntry ? {entry: menuEntry} : {})}, anchorRef);
+    ports.openMenu(captured, {fileInfo: () => fileInfo(captured), ...(discTitles ? {discTitles} : {}), ...(select ? {select: () => {if (current(captured)) select();}} : {}), ...(hasVersions ? {differentVersion: () => versions(captured)} : {}), ...(menuEntry ? {entry: menuEntry} : {}),
+      ...(extraActions?.length ? {extraActions: extraActions.map(action => ({...action, onSelect: () => {if (current(captured) && !action.disabled) action.onSelect();}}))} : {})}, anchorRef);
   };
   const title: NativeRouteRenderer = {
     render: (route, runtime) => {

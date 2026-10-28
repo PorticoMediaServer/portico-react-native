@@ -14,7 +14,7 @@ import {releaseSheet, resistSheet, sheetHeights} from './geometry';
 import {alpha, FocusBoundary, PanelBackground, SurfaceHeader, usePresence} from './surface';
 import type {BottomSheetProps, OverlayReason} from './types';
 
-export function BottomSheet({open, onOpenChange, title, description, children, footer, headerAction, headerContext, headerContent, initialFocusRef, returnFocusRef, restoreFocus = true, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, detents, width, detent, defaultDetent = 0, onDetentChange, dismissOnOutsidePress = true, dismissOnBack = true, dismissOnGesture = true, scrollable = true, showClose = true, fitContent = false, contentFooterGap = 16, keyboardAvoiding = false, footerPadding, showFooterSeparator = true, backdropOpacity = 0.64, host = 'modal', presentation = 'sheet', onExited}: BottomSheetProps) {
+export function BottomSheet({open, onOpenChange, title, description, children, footer, headerAction, headerContext, headerContent, initialFocusRef, returnFocusRef, restoreFocus = true, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, detents, width, detent, defaultDetent = 0, onDetentChange, dismissOnOutsidePress = true, dismissOnBack = true, dismissOnGesture = true, scrollable = true, showClose = true, showGrabber = true, fitContent = false, contentFooterGap = 16, keyboardAvoiding = false, footerPadding, showFooterSeparator = true, backdropOpacity = 0.64, host = 'modal', presentation = 'sheet', onExited}: BottomSheetProps) {
   const theme = useTheme(), paint = useOverlayPaintMode();
   const page = host === 'inline' && presentation === 'page';
   const side = !page && theme.platform !== 'phone';
@@ -134,7 +134,7 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
             <View style={side ? {display: 'none'} : undefined} accessible={!side} accessibilityRole="adjustable" accessibilityLabel={accessibilityLabel ?? (typeof title === 'string' ? title : undefined)} accessibilityValue={{min: 1, max: heights.length, now: index + 1, text: defaultI18n.t('next.overlays.native.sheetPosition', {position: index + 1, count: heights.length})}}
               accessibilityActions={[{name: 'increment', label: defaultI18n.t('next.overlays.native.expandSheet')}, {name: 'decrement', label: defaultI18n.t('next.overlays.native.collapseSheet')}, ...(dismissOnGesture ? [{name: 'dismiss' as const, label: defaultI18n.t('action.close')}] : [])]}
               onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'dismiss') {if (dismissOnGesture) dismiss('gesture');} else choose(index + (event.nativeEvent.actionName === 'increment' ? 1 : -1));}}>
-              <View style={[styles.grabber, {backgroundColor: theme.colors.lineStrong}]}/>
+              {showGrabber && <View style={[styles.grabber, {backgroundColor: theme.colors.lineStrong}]}/>}
             </View>
             {headerContext}{headerContent !== undefined ? headerContent : <SurfaceHeader side={side} inset={!side} title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle} action={headerAction ?? (!side && showClose ? close : undefined)}/>}
           </Animated.View></GestureDetector>

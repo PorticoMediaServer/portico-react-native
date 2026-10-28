@@ -1,4 +1,4 @@
-import {LibraryContentService, type ContentEntry, type ContentScope} from '../../../../../packages/client-core/src/library-content';
+import {LibraryContentService, type ContentEntry, type ContentProjection, type ContentScope} from '../../../../../packages/client-core/src/library-content';
 
 export type NativeCollectionSort = Readonly<{id: string; labelKey: string; directions: readonly ('asc' | 'desc')[]}>;
 
@@ -8,6 +8,7 @@ export type NativeCollectionState = Readonly<{
   title: string;
   entries: readonly ContentEntry[];
   totalCount: number;
+  projection?: ContentProjection;
   sorts: readonly NativeCollectionSort[];
   sort?: string;
   error?: Readonly<{code: string; message: string; retryable: boolean}>;
@@ -44,6 +45,7 @@ export class NativeCollectionController {
       title: state.projection?.heading.fallback?.trim() || this.fallbackTitle,
       entries: section?.entries ?? [],
       totalCount: section?.totalCount ?? 0,
+      ...(state.projection ? {projection: state.projection} : {}),
       sorts: (state.projection?.sorts ?? []).map(sort => ({id: sort.id, labelKey: sort.labelKey, directions: sort.directions})),
       ...(state.projection?.query.sort ? {sort: state.projection.query.sort} : {}),
       ...(state.error ? {error: state.error} : {}),

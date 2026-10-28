@@ -10,7 +10,7 @@ import {GenreTile, type CardSelection} from '../../kit/cards';
 import {CardFrame} from '../../kit/cards/primitives';
 import {Chip, Focusable, TextField} from '../../kit/controls';
 import {SelectionCircle} from '../../kit/selection';
-import {GridSkeleton, StateView} from '../../kit/states';
+import {GridSkeleton, LoadingPaint, SkeletonBlock, StateView} from '../../kit/states';
 import {Icon} from '../../kit/Icon';
 import {browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
@@ -131,10 +131,21 @@ export function SearchScreen({focusScope, destination, runtime, explore, actions
           <Text accessibilityRole="header" style={[browseType(theme, 20, 700, -.02), {color: theme.colors.text}]}>{t(searchGroupLabel(group.id))}</Text>
           {group.totalCountExact && <Text style={[browseType(theme, 14, 600), {color: theme.colors.textTertiary}]}>{group.totalCount}</Text>}
         </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: 20, gap: 14}}>
-          {group.items.slice(0, 7).map(entry => <SearchGridCard key={nativeSearchEntryKey(group.id, entry)} entry={entry} group={group.id} runtime={runtime} actions={actions}
-            selection={selection?.item(group.id, entry)} width={Math.floor((surface - 40 - 6 * 14) / 7)}/>)}
-        </ScrollView>
+        <FlatList horizontal testID={`search-shelf-${group.id}`} data={group.items} showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{paddingHorizontal: 20}} ItemSeparatorComponent={() => <View style={{width: 14}}/>}
+          keyExtractor={entry => nativeSearchEntryKey(group.id, entry)} initialNumToRender={7} maxToRenderPerBatch={10} windowSize={5}
+          getItemLayout={(_, index) => {const length = Math.floor((surface - 40 - 6 * 14) / 7) + 14; return {length, offset: 20 + length * index, index};}}
+          onEndReachedThreshold={10 * (Math.floor((surface - 40 - 6 * 14) / 7) + 14) / Math.max(1, surface)}
+          onEndReached={() => {
+            const page = state.paging?.[group.id];
+            if (activeRoute.visible && state.search.phase === 'ready' && group.nextCursor && !page?.loading && !page?.error) run(destination.next(group.id));
+          }}
+          renderItem={({item}) => <SearchGridCard entry={item} group={group.id} runtime={runtime} actions={actions}
+            selection={selection?.item(group.id, item)} width={Math.floor((surface - 40 - 6 * 14) / 7)}/>}
+          ListFooterComponent={state.paging?.[group.id]?.loading ? <LoadingPaint ready={false} style={{marginLeft: 14}}
+            skeleton={<View style={{flexDirection: 'row', gap: 14}}>{[0, 1, 2].map(index => <SkeletonBlock key={index}
+              width={Math.floor((surface - 40 - 6 * 14) / 7)} height={Math.floor((surface - 40 - 6 * 14) / 7) * (group.id === 'movies' || group.id === 'shows' ? 1.5 : 1)}/>)}</View>}/>
+            : state.paging?.[group.id]?.error ? <StateView {...runtime.error(state.paging?.[group.id]?.error, () => run(destination.retryGroup(group.id)))} style={{width: 240}}/> : null}/>
       </View>) : resultRows.map(({entry, group, heading}) => <React.Fragment key={nativeSearchEntryKey(group, entry)}>
         {heading && <Text accessibilityRole="header" style={[browseType(theme, 16, 700), {color: theme.colors.text, marginHorizontal: 20, marginTop: 18, marginBottom: 6}]}>{t(searchGroupLabel(group))}</Text>}
         <SearchResultRow entry={entry} group={group} runtime={runtime} actions={actions} selection={selection?.item(group, entry)}/>

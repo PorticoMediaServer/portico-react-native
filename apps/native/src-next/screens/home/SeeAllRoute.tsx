@@ -1,9 +1,9 @@
 import React, {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
-import {AccessibilityInfo, Platform, Text, View, useWindowDimensions} from 'react-native';
+import {Platform, View, useWindowDimensions} from 'react-native';
 import {useFocusRegistry, type FocusSnapshot} from '../../kit/focus';
 import {isRecommendationRow, notInterestedTarget, setNotInterested} from '../../../../../packages/client-core/src/recommendation-feedback';
-import {Menu} from '../../kit/overlays';
-import {Button} from '../../kit/controls';
+import {ToastHost} from '../../kit/overlays';
+import {useDockClearance} from '../../kit/dock/DockClearance';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {HomeSeeAll} from './HomeSeeAll';
 import {HomeRowFilters} from './HomeRowFilters';
@@ -15,15 +15,14 @@ import {nativeEntryRoute, nativeEntryRouteSupported, type NativeShellRoute} from
 import {nativeShellRoutes, type NativeRouteRenderer} from '../../shell/route-registry';
 import {shellLayout} from '../../shell/model';
 import {useTheme} from '../../kit/theme';
-import {useScreenReader} from '../../kit/useScreenReader';
-import {authorityKey} from '../../shell/model';
 import {hiddenReadingLibraryOnTV} from '../read/platform';
 import {openNativeReadingBookEntry} from '../read/reading-books-open';
 import {nativeHomeEntryLifetime} from './entry-lifetime';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
+import {createNativeEntryActions, type NativeEntryActions} from '../destinations/entry-actions';
 
 type RowRoute = Extract<NativeShellRoute, {kind: 'home-see-all'}>;
-type RowLifetime = Readonly<{route: RowRoute; controller: NativeHomeRowController; abort: AbortController; key: number; labels: ReadonlyMap<string, string>}>;
+type RowLifetime = Readonly<{route: RowRoute; controller: NativeHomeRowController; actions: NativeEntryActions; abort: AbortController; key: number; labels: ReadonlyMap<string, string>}>;
 
 export function createNativeHomeSeeAllRenderer(context: NativeShellBootstrapContext): NativeRouteRenderer & {renderRetained: (runtime: NativeShellRuntime) => React.ReactNode} {
   let disposed = false, runtime: NativeShellRuntime | undefined;
@@ -62,13 +61,19 @@ export function createNativeHomeRows(context: NativeShellBootstrapContext, repor
   const current = (source: RowLifetime) => alive && context.current() && rows.get(source.route) === source && context.navigation.getSnapshot().route === source.route;
   const reconcile = () => {
     const keep = new Set(retained());
-    for (const [route, source] of rows) if (!keep.has(route)) {source.abort.abort(); source.controller.dispose(); rows.delete(route);}
+    for (const [route, source] of rows) if (!keep.has(route)) {source.abort.abort(); source.actions.dispose(); source.controller.dispose(); rows.delete(route);}
     for (const route of keep) {
       if (route.kind !== 'home-see-all' || route.destination.type !== 'row' || rows.has(route)) continue;
       const controller = new NativeHomeRowController({api: context.api, rowId: route.destination.rowId, viewerFence: context.authority().viewerFence,
         current: () => alive && context.current() && rows.has(route),
         kinds: context.libraries().filter(library => !Platform.isTV || !hiddenReadingLibraryOnTV(library.kind)).map(library => ({id: library.id, libraryIds: [library.id]}))});
-      rows.set(route, {route, controller, abort: new AbortController(), key: ++sequence, labels: new Map(context.libraries().map(library => [library.id, library.name]))});
+      const actions = createNativeEntryActions(context, {
+        current: () => alive && context.current() && rows.has(route) && context.navigation.getSnapshot().route === route,
+        contains: entry => controller.getSnapshot().phase === 'ready' && !controller.collection.getSnapshot().refreshing
+          && controller.collection.residentItems().some(item => item.entry === entry),
+        subscribe: listener => {const off = [controller.subscribe(listener), controller.collection.subscribe(listener)]; return () => off.forEach(stop => stop());},
+      });
+      rows.set(route, {route, controller, actions, abort: new AbortController(), key: ++sequence, labels: new Map(context.libraries().map(library => [library.id, library.name]))});
     }
   };
   const play = (source: RowLifetime, shuffle: boolean) => {
@@ -89,16 +94,22 @@ export function createNativeHomeRows(context: NativeShellBootstrapContext, repor
    * so a title leaves or returns only when the server says so. */
   const markNotInterested = async (source: RowLifetime, entry: ContentEntry, value: boolean): Promise<boolean> => {
     if (!current(source)) return false;
-    const bytes = nativeRouteCrypto.random(16);
-    const operationId = Array.from(bytes).map(byte => byte.toString(16).padStart(2, '0')).join('');
+    const original = context.navigation.getSnapshot(), pending = new AbortController();
+    const live = () => !pending.signal.aborted && current(source) && context.navigation.getSnapshot() === original;
+    const abort = () => pending.abort();
+    source.abort.signal.addEventListener('abort', abort, {once: true});
+    const off = context.navigation.subscribe(() => {if (!live()) abort();});
     try {
-      await setNotInterested({request: (path, method, body, signal) => current(source)
+      const bytes = nativeRouteCrypto.random(16);
+      const operationId = Array.from(bytes).map(byte => byte.toString(16).padStart(2, '0')).join('');
+      await setNotInterested({request: (path, method, body, signal) => live()
         ? context.api.request(path, method, body, signal) : Promise.reject(Object.assign(new Error('cancelled'), {name: 'AbortError'}))},
-        {itemId: notInterestedTarget(entry), notInterested: value, serverId: context.authority().serverId, operationId, signal: source.abort.signal});
-      if (!current(source)) return false;
+        {itemId: notInterestedTarget(entry), notInterested: value, serverId: context.authority().serverId, operationId, signal: pending.signal});
+      if (!live()) return false;
       void source.controller.load().catch(reportError);
       return true;
-    } catch (error) {if (current(source)) reportError(error); return false;}
+    } catch (error) {if (live()) reportError(error); return false;}
+    finally {off(); source.abort.signal.removeEventListener('abort', abort);}
   };
   return {
     reconcile,
@@ -139,7 +150,7 @@ export function createNativeHomeRows(context: NativeShellBootstrapContext, repor
           .catch(error => {if (operation.lifetime.isCurrent()) reportError(error);}).finally(operation.dispose);
       }}
       onNotInterested={(entry, value) => markNotInterested(source, entry, value)} kindLabel={id => source.labels.get(id)!}/>),
-    dispose: () => {alive = false; for (const source of rows.values()) {source.abort.abort(); source.controller.dispose();} rows.clear();},
+    dispose: () => {alive = false; for (const source of rows.values()) {source.abort.abort(); source.actions.dispose(); source.controller.dispose();} rows.clear();},
   };
 }
 
@@ -154,23 +165,11 @@ function RetainedHomeRow({source, runtime, active, onBack, onPlay, onOpen, onPla
   const registry = useFocusRegistry(), opener = useRef<FocusSnapshot | undefined>(undefined), release = useRef<(() => void) | undefined>(undefined), shown = useRef(active);
   const row = useSyncExternalStore(source.controller.subscribe, source.controller.getSnapshot).row;
   const recommendation = !!row && isRecommendationRow({id: row.id, kind: row.kind});
-  const [chosen, setChosen] = useState<{entry: ContentEntry; anchor: React.RefObject<View | null>}>();
-  const [undo, setUndo] = useState<ContentEntry>();
-  const screenReader = useScreenReader(true);
-  useEffect(() => {
-    if (!undo || screenReader) return;
-    const timer = setTimeout(() => setUndo(undefined), 6000);
-    return () => clearTimeout(timer);
-  }, [undo, screenReader]);
-  const undoLabel = undo ? defaultI18n.t('entry.notInterestedDone', {title: undo.displayTitle ?? undo.title}) : undefined;
-  useEffect(() => {
-    if (active && undoLabel) AccessibilityInfo.announceForAccessibility(`${undoLabel}, ${defaultI18n.t('action.undo')}`);
-  }, [active, undo, undoLabel]);
-  const undoNotInterested = () => {
-    if (!undo) return;
-    const entry = undo; setUndo(undefined);
-    void onNotInterested(entry, false).then(ok => {if (!ok) runtime.reportError(Object.assign(new Error(defaultI18n.t('entry.notInterestedUndoFailed', {title: entry.displayTitle ?? entry.title})), {code: 'not_interested_undo_failed'}));});
-  };
+  const [undo, setUndo] = useState<Readonly<{entry: ContentEntry; id: string}>>();
+  const displayedUndo = useRef(undo); displayedUndo.current = undo;
+  const undoSequence = useRef(0), toastOpening = useRef(0), dockTop = useDockClearance();
+  useEffect(() => {if (!active) {toastOpening.current++; setUndo(undefined);}}, [active]);
+  useEffect(() => () => {toastOpening.current++;}, []);
   const [filters, setFilters] = useState(false);
   useEffect(() => {if (!active) return; const remember = () => {const value = registry.capture(); if (value?.regionId.startsWith('home-see-all:')) opener.current = value;};
     remember(); return registry.subscribe(remember);
@@ -187,21 +186,26 @@ function RetainedHomeRow({source, runtime, active, onBack, onPlay, onOpen, onPla
   return <View pointerEvents={active ? 'auto' : 'none'} accessibilityElementsHidden={!active} importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
     style={{position: 'absolute', inset: 0, opacity: active ? 1 : 0}}>
     <HomeSeeAll controller={source.controller} runtime={runtime} active={active && !filters} onBack={onBack} onPlay={onPlay} onOpen={onOpen} onPlayEntry={onPlayEntry}
-      onMenu={recommendation ? (entry, anchor) => setChosen({entry, anchor}) : undefined}
+      onMenu={(entry, anchor) => source.actions.menu(entry, anchor, undefined, recommendation ? [{id: 'not-interested', label: defaultI18n.t('entry.notInterested'), icon: 'i-eyeoff', onSelect: () => {
+        const opening = ++toastOpening.current;
+        displayedUndo.current = undefined;
+        setUndo(undefined);
+        void onNotInterested(entry, true).then(ok => {if (ok && shown.current && opening === toastOpening.current && !source.abort.signal.aborted)
+          setUndo({entry, id: `home-not-interested:${source.key}:${++undoSequence.current}`});});
+      }}] : undefined)}
       onFilters={() => setFilters(true)} kindLabel={kindLabel} onReshuffle={() => {if (active) try {const bytes = nativeRouteCrypto.random(4); const sort = source.controller.getSnapshot().sort;
         if (sort) source.controller.setSort({...sort, seed: new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0)});} catch (error) {runtime.reportError(error);}}}/>
     {active && filters && <HomeRowFilters controller={source.controller} runtime={runtime} onClose={() => setFilters(false)}/>}
-    {active && recommendation && chosen && <Menu testID={`home-see-all:${authorityKey(runtime.getSnapshot().authority)}:${source.controller.rowId}.recommendation-menu`} open items={[{id: 'not-interested', label: defaultI18n.t('entry.notInterested'), icon: 'i-eyeoff' as const,
-      onSelect: () => {const entry = chosen.entry; setChosen(undefined);
-        void onNotInterested(entry, true).then(ok => {if (ok) setUndo(entry);});}}]} title={chosen.entry.displayTitle ?? chosen.entry.title}
-      anchorRef={chosen.anchor} onOpenChange={open => {if (!open) setChosen(undefined);}}/>}
-    {active && undo && <View testID="home-see-all-not-interested" style={{position: 'absolute', left: 0, right: 0, bottom: 120, alignItems: 'center'}}>
-      <View accessible accessibilityLabel={undoLabel} accessibilityActions={[{name: 'activate', label: defaultI18n.t('action.undo')}, {name: 'dismiss', label: defaultI18n.t('next.overlays.native.dismissToast')}]}
-        onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'activate') undoNotInterested(); else if (event.nativeEvent.actionName === 'dismiss') setUndo(undefined);}}
-        style={{flexDirection: 'row', alignItems: 'center', gap: 16, paddingLeft: 18, paddingRight: 8, paddingVertical: 8, borderRadius: 14, backgroundColor: 'rgba(7,16,24,.92)'}}>
-        <Text style={{color: '#edf5fa', fontFamily: 'Manrope-SemiBold', fontSize: 15, fontWeight: '600'}}>{defaultI18n.t('entry.notInterestedDone', {title: undo.displayTitle ?? undo.title})}</Text>
-        <Button variant="glass" size="compact" icon="i-undo" onPress={undoNotInterested}>{defaultI18n.t('action.undo')}</Button>
-      </View>
-    </View>}
+    <ToastHost testID="home-see-all-not-interested" obstructionTop={dockTop} toast={active && undo ? {
+      id: undo.id, message: defaultI18n.t('entry.notInterestedDone', {title: undo.entry.displayTitle ?? undo.entry.title}), durationMs: 8000, actionOnTV: true,
+      action: {label: defaultI18n.t('action.undo'), onPress: () => {
+        if (!shown.current || source.abort.signal.aborted || displayedUndo.current !== undo) return;
+        const entry = undo.entry; displayedUndo.current = undefined; toastOpening.current++; setUndo(undefined);
+        void onNotInterested(entry, false).then(ok => {if (!ok && shown.current && !source.abort.signal.aborted) runtime.reportError(Object.assign(new Error(defaultI18n.t('entry.notInterestedUndoFailed', {title: entry.displayTitle ?? entry.title})), {code: 'not_interested_undo_failed'}));});
+      }},
+    } : null} onDismiss={id => {
+      if (displayedUndo.current?.id === id) displayedUndo.current = undefined;
+      setUndo(value => value?.id === id ? undefined : value);
+    }}/>
   </View>;
 }

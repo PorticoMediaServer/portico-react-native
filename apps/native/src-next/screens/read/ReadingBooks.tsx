@@ -16,6 +16,10 @@ import {Parts} from '../../kit/cards/primitives';
 import {cardAccessibilityLabel} from '../../kit/cards/model';
 import {AlphabetRail, WindowedGrid, type WindowedGridHandle} from '../../kit/layout';
 import {StateView} from '../../kit/states';
+import {ReadingLoading, ReadingGridSkeleton} from './ReadingLoading';
+import {ReadingItemMenu, ReadingSelectionToolbar, ReadingMenuAnchor, useReadingActions} from './ReadingActions';
+import {SelectionCircle} from '../../kit/selection';
+import type {CardSelection} from '../../kit/cards/model';
 import {browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
@@ -54,6 +58,7 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
     [opening, lifetime, context, library.id, library.kind]);
   const destination = useMemo(() => new NativeLibraryDestination({api: context.api, scope: lifetime.scope, library, current, tab}), [context, lifetime, library, tab, current]);
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
+  const readingActions = useReadingActions(context, runtime, destination);
   const [filters, setFilters] = useState<NativeLibraryFilterDraft>();
   const [paneWidth, setPaneWidth] = useState<number>();
   const [view, setView] = useState<'grid' | 'list'>('grid');
@@ -182,11 +187,12 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
     const next = Math.round(event.nativeEvent.layout.width);
     if (next > 0 && next !== paneWidth) setPaneWidth(next);
   }}>
-    {model ? <BrowseToolbar testID="reading-books-toolbar" model={model} labels={labels} resultCount={phone ? resultCount : ''} filtersOpen={!!filters}
+    <ReadingSelectionToolbar port={readingActions} runtime={runtime}/>
+    {model && !readingActions.state.selecting ? <BrowseToolbar testID="reading-books-toolbar" model={model} labels={labels} resultCount={phone ? resultCount : ''} filtersOpen={!!filters}
       view={{value: view, onValueChange: setView}}
       onFilters={openFilters} onQuickChange={quick} onSortChange={applySort}
       onReshuffle={() => {if (sort) applySort({...sort, seed: (sort.seed ?? 0) + 1});}}/> : null}
-    {applied.length ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', paddingHorizontal: theme.gutter, paddingTop: 10}}>
+    {applied.length && !readingActions.state.selecting ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', paddingHorizontal: theme.gutter, paddingTop: 10}}>
       {applied.map(row => <Chip key={row.id} variant={phone ? 'applied' : undefined} trailingIcon={phone ? 'i-close' : undefined} testID={`reading-books-applied-${row.id}`} onPress={() => applyQuery(state.predicates.filter(value => JSON.stringify(value) !== row.id))}
         accessibilityLabel={defaultI18n.t('next.browse.native.removeFilter', {field: row.fieldName})}>{row.label}</Chip>)}
       <Button variant="text" size="small" onPress={() => applyQuery(base)}>{defaultI18n.t('next.browse.native.clearAll')}</Button>
@@ -205,14 +211,18 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
                 : <View style={{width: cardWidth, height: cardWidth * 1.5, borderRadius: 10, backgroundColor: theme.colors.raised}}/>}
               renderItem={(entry: ContentEntry) => {
                 const open = () => {if (lease) openBook(lease, entry);};
-                const download = phone && onDownload && nativePublicationReadsAvailable() ? () => {if (lease) downloadBook(lease, entry);} : undefined;
-                if (list) return <ReadingListRow entry={entry} width={rowWidth} runtime={runtime} onOpen={open} onDownload={download} phone={phone}/>;
+                const download = onDownload && nativePublicationReadsAvailable() ? () => {if (lease) downloadBook(lease, entry);} : undefined;
+                const offered = lease ? {item: entry, lifetime: rowLifetime(lease, entry), open, download} : undefined;
+                const selection = offered ? readingActions.selection(offered) : undefined;
+                const menu = offered ? (anchorRef: React.RefObject<View | null>) => readingActions.actions.show({...offered, anchorRef}) : undefined;
+                if (list) return <ReadingListRow entry={entry} width={rowWidth} runtime={runtime} onOpen={open} onMenu={menu} selection={selection} phone={phone}/>;
                 if (phone) return <PhoneReadingBookCard testID={`reading-book-${entry.id}`} title={entry.displayTitle ?? entry.title} author={entry.author}
                   width={cardWidth} artwork={runtime.artwork(entry.posterUrl)} periodical={entry.publicationType === 'magazine' || entry.publicationType === 'newspaper'}
-                  onOpen={open} onDownload={download}/>;
+                  onOpen={open} onMenu={menu} selection={selection}/>;
                 const text = homeCardText(entry, false, runtime.text);
-                return <PosterCard title={text.title} caption={text.caption} width={cardWidth} artwork={runtime.artwork(entry.posterUrl)} visible
-                  testID={`reading-book-${entry.id}`} onNavigate={open}/>;
+                return <ReadingMenuAnchor>{anchorRef => <PosterCard title={text.title} caption={text.caption} width={cardWidth} artwork={runtime.artwork(entry.posterUrl)} visible
+                  testID={`reading-book-${entry.id}`} onNavigate={open} selection={selection} menuAnchorRef={anchorRef}
+                  onMore={offered ? () => readingActions.actions.show({...offered, anchorRef}) : undefined}/>}</ReadingMenuAnchor>;
               }}/>
             {alphabet && page?.positionIndex && page.total !== undefined ? <AlphabetRail positionIndex={page.positionIndex}
               total={page.total} firstVisible={visible.first} lastVisible={visible.last} testID="reading-books-alphabet"
@@ -222,7 +232,8 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
           <LibraryFilters docked draft={filters} source={state} runtime={runtime} owner={owner} labels={labels} onClose={closeFilters}/>
         </View> : null}
       </View>
-      : <Text style={[browseType(theme, 14, 500), {color: theme.colors.textTertiary, padding: 20}]}>{defaultI18n.t('status.loading')}</Text>}
+      : <ReadingLoading ready={false} style={{flex: 1}} skeleton={<ReadingGridSkeleton width={cardWidth} columns={columns} gap={gap} gutter={left}/>}/>}
+    <ReadingItemMenu port={readingActions} runtime={runtime}/>
     {filters && !docked ? <LibraryFilters draft={filters} source={state} runtime={runtime} owner={owner} labels={labels} onClose={closeFilters}/> : null}
   </View>;
 }
@@ -230,11 +241,12 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
 /** One Books list row: the item's own cover and the same real title and caption
  * the card draws. A format, page count or reading position appears only when the
  * browse page itself carries it, so nothing here is inferred from the file. */
-function ReadingListRow({entry, width, runtime, onOpen, onDownload, phone}: {entry: ContentEntry; width: number; runtime: NativeShellRuntime; onOpen: () => void; onDownload?: () => void; phone?: boolean}) {
+function ReadingListRow({entry, width, runtime, onOpen, onMenu, selection, phone}: {entry: ContentEntry; width: number; runtime: NativeShellRuntime; onOpen: () => void; onMenu?: (anchor: React.RefObject<View | null>) => void; selection?: CardSelection; phone?: boolean}) {
+  const anchor = useRef<View>(null);
   const theme = useTheme(), text = homeCardText(entry, false, runtime.text), title = entry.displayTitle || text.title;
-  return <Focusable accessibilityRole="button" accessibilityLabel={cardAccessibilityLabel(title, text.caption, text.detail)} focusKind="row" onPress={onOpen} onLongPressAction={onDownload}
-    longPressAccessibilityAction={onDownload ? {name: 'download', label: defaultI18n.t('next.cards.download')} : undefined} testID={`reading-list-${entry.id}`}
+  return <Focusable accessibilityRole="button" accessibilityLabel={cardAccessibilityLabel(title, text.caption, text.detail)} focusKind="row" ref={anchor} onPress={selection?.active ? selection.onToggle : onOpen} onLongPressAction={onMenu ? () => onMenu(anchor) : undefined} testID={`reading-list-${entry.id}`}
     style={{width, height: 70 * (theme.fontScale ?? 1), flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 12}}>
+    {selection?.active ? <SelectionCircle selected={selection.selected} selecting interactive={false} variant="row" accessibilityLabel={title}/> : null}
     {phone ? <View style={{borderRadius: 5, overflow: 'hidden'}}><PhoneReadingBookCover title={title} author={entry.author} artwork={runtime.artwork(entry.posterUrl)} width={36} height={54}/></View>
       : <MediaArt kind="poster" source={runtime.artwork(entry.posterUrl)} width={36} height={54} style={{borderRadius: 5}}/>}
     <View style={{flex: 1, minWidth: 0, gap: phone ? 2 : 3}}>

@@ -17,6 +17,9 @@ const rowModule = (isTV = false) => screenModule(new URL('../src-next/screens/ho
     './row-controller': {NativeHomeRowController}, '../../platform/server-connections': {}, '../../shell/routes': {titleRoute, nativeEntryRoute, nativeEntryRouteSupported},
     '../../shell/route-registry': {nativeShellRoutes: new NativeShellRouteRegistry()}, '../../shell/model': {}, '../../kit/theme': {},
     '../read/platform': {hiddenReadingLibraryOnTV},
+    '../../kit/dock/DockClearance': {useDockClearance: () => 0},
+    // Menu lifetime is exercised by next-destination-entry-actions; this fixture owns row retention.
+    '../destinations/entry-actions': {createNativeEntryActions: () => ({dispose() {}})},
     '../read/reading-books-open': {openNativeReadingBookEntry: async () => false},
     './entry-lifetime': {nativeHomeEntryLifetime},
   });

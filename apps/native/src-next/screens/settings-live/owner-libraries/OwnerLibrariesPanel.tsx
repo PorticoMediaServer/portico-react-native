@@ -160,7 +160,7 @@ function LibraryListRow({library, first, t, runtime, state, onOpen, onMenu}: {li
       <CoverFan covers={covers} shape={square ? 'square' : 'poster'} variant={square ? 'music' : 'library'} width={62} height={square ? 56 : 66}/>
       <View style={{flex: 1, minWidth: 0}}>
         <Text numberOfLines={1} style={[shellType(16, 700), {color: theme.colors.text}]}>{library.name}</Text>
-        {counts.length > 0 && <Text numberOfLines={1} style={[shellType(12.5, 500), {color: theme.colors.textTertiary, marginTop: 2}]}>{counts.join(' · ')}</Text>}
+        {counts.length > 0 && <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, rowGap: 3}}>{counts.filter(Boolean).map((part, index) => <Text key={index} numberOfLines={1} style={[shellType(12.5, 500), {color: theme.colors.textTertiary, marginTop: 2}]}>{part}</Text>)}</View>}
         <Text numberOfLines={1} style={[shellType(12.5, 600), {color: state.live ? theme.colors.accentStrong : theme.colors.textTertiary, marginTop: 3}]}>{state.text}</Text>
       </View>
     </Focusable>

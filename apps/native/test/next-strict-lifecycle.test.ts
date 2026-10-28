@@ -1,4 +1,5 @@
 import {canReturnToPage} from '../src-next/shell/page-focus-return.ts';
+import * as homeWindow from '../src-next/screens/home/home-window';
 import * as homeStart from '../src-next/screens/home/home-start';
 import {listeningCoverFixture} from './helpers/screen-harness.mjs';
 import {homeActionDiagnostics} from '../src-next/platform/home-action-diagnostics.ts';
@@ -353,7 +354,7 @@ test('Home scroll registration follows the move function and runtime rather than
   const registry = createFocusRegistry();
   const state = lifecycle(), moves: string[] = [], events: string[] = [];
   const a = (offset: number) => moves.push(`a:${offset}`), b = (offset: number) => moves.push(`b:${offset}`);
-  let anchor = {move: a};
+  let anchor = {move: a, offset: {value: 0}};
   function port(id: string) {
     let callback: (() => void) | undefined;
     const runtime = {getSnapshot: () => ({authority, libraries: []}), text: {t: (key: string) => key, locale: 'en-US'},
@@ -376,7 +377,7 @@ test('Home scroll registration follows the move function and runtime rather than
     // the sibling Home registration fixture keeps the same inert seams.
     '../../platform/platformPosture': {usePlatformPosture: () => ({status: 'unavailable', folds: []})},
     '../destinations/useTVPageBack': {useTVPageBack() {}}, '../../kit/focus/initial-entry': {createInitialRegionEntry},
-    './home-start': homeStart, '../destinations/music/MusicMixesRow': {MusicMixesRow: 'MusicMixesRow'},
+    './home-window': homeWindow, './home-start': homeStart, '../destinations/music/MusicMixesRow': {MusicMixesRow: 'MusicMixesRow'},
     './TvHomeRecovery': {TvHomeRecovery: 'TvHomeRecovery'}, './useTvHomeRecovery': recovery,
     '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},
     '../../../../../packages/client-core/src/presentation/home-spotlight': {}, '../../../../../packages/client-core/src/home-selection': {},
@@ -390,9 +391,9 @@ test('Home scroll registration follows the move function and runtime rather than
   });
   const first = port('first'), second = port('second'), home = mount(HomeScreen, {runtime: first.runtime, authority});
   try {
-    first.top(); anchor = {move: a}; home.update({runtime: first.runtime, authority});
+    first.top(); anchor = {move: a, offset: {value: 0}}; home.update({runtime: first.runtime, authority});
     assert.deepEqual(events, ['register:first']);
-    anchor = {move: b}; home.update({runtime: first.runtime, authority}); first.top();
+    anchor = {move: b, offset: {value: 0}}; home.update({runtime: first.runtime, authority}); first.top();
     home.update({runtime: second.runtime, authority}); first.top(); second.top();
     assert.deepEqual(events, ['register:first', 'remove:first', 'register:first', 'remove:first', 'register:second']);
     assert.deepEqual(moves, ['a:0', 'b:0', 'b:0']); assert.equal(first.registered, false);

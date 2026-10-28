@@ -125,7 +125,8 @@ export class NativeWatchPresenters {
   };
   playEntry = (value: NativeWatchOverlay) => {
     const entry = value.actions?.entry;
-    if (!entry?.play || value.busy || !this.current(value.capture)) return;
+    if (this.value !== value || value.phase !== 'menu' || !entry?.play || value.busy || !this.current(value.capture)
+      || !value.detail?.actions.some(action => action.enabled && action.playback && action.id !== 'start_over')) return;
     this.close();
     void entry.play().catch(error => {if (!this.disposed && this.context.current()) this.common.reportError(error, 'detail');});
   };
@@ -164,6 +165,12 @@ export class NativeWatchPresenters {
     if (!select || this.value !== value || value.phase !== 'menu' || value.busy || !this.current(value.capture)) return;
     try {select();}
     finally {if (this.value === value) this.close();}
+  };
+  extraEntry = (value: NativeWatchOverlay, id: string) => {
+    const action = value.actions?.extraActions?.find(item => item.id === id);
+    if (!action || action.disabled || this.value !== value || value.phase !== 'menu' || value.busy || !this.current(value.capture)) return;
+    this.close();
+    action.onSelect();
   };
   showDetails = (value: NativeWatchOverlay) => {
     const entry = value.actions?.entry;
@@ -307,7 +314,7 @@ export class NativeWatchPresenters {
   };
   previewDelete = async (value = this.value) => {
     if (!value || value.phase !== 'delete' || !value.fileId || value.busy) return;
-    await this.run(value, async (api, signal, check) => {
+    await this.run(value, async (api, signal) => {
       await this.validateOwner(value, api, signal, 'delete');
       const preview = await versionDeletionService(api.request).preview(value.capture.entry.id, value.fileId!);
       const operationId = value.operationId ?? await this.common.requestId();

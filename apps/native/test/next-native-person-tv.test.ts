@@ -35,7 +35,7 @@ const runtime = {artwork: () => undefined, ambient: () => undefined, text: {loca
 test('TV person draws the ten-foot composition from the real person page', () => {
   const opened: any[] = [], roles: string[] = [], backs: number[] = [];
   let tree: any;
-  const host = createHookHost(() => {tree = TVPerson({focusScope: 'person:spielberg', page, role: 'all', collection, runtime, actions: {open: (entry: unknown) => opened.push(entry)} as any,
+  const host = createHookHost(() => {tree = TVPerson({focusScope: 'person:spielberg', page, role: 'all', collection, runtime, actions: {open: (entry: unknown) => opened.push(entry), menuState: {subscribe: () => () => {}, getSnapshot: () => 0}, isMenuOpen: () => false} as any,
     onRole: (role: any) => roles.push(role), onBack: () => {backs.push(1);}});});
   host.mount();
   try {
@@ -60,7 +60,8 @@ test('TV person draws the ten-foot composition from the real person page', () =>
     const card = shelf.props.renderItem(0, {index: 0, id: '0', onFocus: () => {}, onBlur: () => {}});
     assert.equal(card.props.testID, 'person-credit-0');
     assert.equal(card.props.hasTVPreferredFocus, true, 'the first real credit is the page focus target');
-    card.props.onNavigate(); assert.deepEqual(opened, [credits[0]!.media]);
+    let poster: any; const cardHost = createHookHost(() => {poster = card.type(card.props);}); cardHost.mount();
+    try {poster.props.onNavigate(); assert.deepEqual(opened, [credits[0]!.media]);} finally {cardHost.unmount();}
     assert.equal(backHandler?.(), true);
     assert.deepEqual(backs, [1]);
   } finally {host.unmount();}

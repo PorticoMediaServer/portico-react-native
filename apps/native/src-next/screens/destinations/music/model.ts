@@ -1,3 +1,4 @@
+import {DetailService} from '../../../../../../packages/client-core/src/detail';
 import type {ContentProjection, ContentEntry} from '../../../../../../packages/client-core/src/library-content';
 import {
   BrowseQueryBuilder, browseCapabilitiesPath, browsePath, parseBrowseCapabilities, parseBrowseResult, type BrowseCapabilities,
@@ -34,7 +35,7 @@ export type NativeTVMusicSnapshot = Readonly<{
   error?: unknown;
 }>;
 
-type Options = Readonly<{api: NativeShellBootstrapContext['api']; entry: ContentEntry; similarScope: Parameters<typeof readListeningSimilar>[1]; lifetime: ReturnType<typeof nativeDestinationLifetime>; playback?: NativeShellPlaybackAdapter}>;
+type Options = Readonly<{requestId?: () => Promise<string>; api: NativeShellBootstrapContext['api']; entry: ContentEntry; similarScope: Parameters<typeof readListeningSimilar>[1]; lifetime: ReturnType<typeof nativeDestinationLifetime>; playback?: NativeShellPlaybackAdapter}>;
 const ALBUM_MEMBERSHIP_PAGE_LIMIT = 100;
 const membershipFailure = (code: string) => Object.assign(new Error(code), {code, ...(code==='native_music_retired'?{name:'AbortError'}:{})});
 /** A plain failure with no stable wire code came from this stage, not from the
@@ -92,8 +93,11 @@ export class NativeTVMusicController {
   private topSongsRevision?: string;
   private entityWitness?: Readonly<{service: LibraryContentService; projection: ContentProjection; signal: AbortSignal}>;
   private similarEntries = new WeakSet<ContentEntry>();
+  private songFavorites = new WeakMap<ContentEntry, boolean>();
+  private songFavoriteOperations = new Map<ContentEntry, {controller: AbortController; service: DetailService; current: () => boolean; desired: boolean; running: boolean}>();
   private releaseDTOs = new WeakMap<MusicAlbumRow,ContentEntry>();
   private releaseWitness = new WeakMap<ContentEntry,MusicAlbumRow>();
+  private albumArtist?: Readonly<{source: ContentEntry; entry: ContentEntry}>;
   private songPager?: MusicSectionPager<ContentEntry>;
   private releasePager?: MusicSectionPager<MusicAlbumRow>;
   private allSongPager?: MusicSectionPager<ContentEntry>;
@@ -129,8 +133,67 @@ export class NativeTVMusicController {
     if (!this.current()) return false;
     const state = this.state;
     if(this.similarEntries.has(entry))return this.similarCurrent(state,entry);
-    return state.entry === entry || (this.options.entry.kind!=='album'||state.songPage.phase!=='refresh-required') && state.songs.includes(entry) || state.allSongs.phase!=='refresh-required' && state.allSongs.songs.includes(entry)
+    return state.entry === entry || this.artistEntry() === entry || (this.options.entry.kind!=='album'||state.songPage.phase!=='refresh-required') && state.songs.includes(entry) || state.allSongs.phase!=='refresh-required' && state.allSongs.songs.includes(entry)
       || this.releaseCurrent(entry);
+  };
+  artistEntry = (): ContentEntry | undefined => {
+    const source = this.state.albumDetails ?? this.state.entry;
+    if (!this.current() || source?.kind !== 'album' || !source.artist?.id || !source.libraryId) return;
+    if (this.albumArtist?.source !== source) this.albumArtist = {source, entry: Object.freeze({kind: 'artist', id: source.artist.id,
+      title: source.artist.name, libraryId: source.libraryId})};
+    return this.albumArtist.entry;
+  };
+  /** Selection borrows the page's actual admitted catalogue scope. Detail grants
+   * still come from each explicitly selected item through the shared adapter. */
+  selectionProjection = (): ContentProjection | undefined => {
+    const witness = this.entityWitness;
+    return witness && this.entityCurrent(witness) ? witness.projection : undefined;
+  };
+  songFavorite = (entry: ContentEntry): boolean => this.songFavorites.get(entry) ?? entry.favorite === true;
+  songFavoritePending = (entry: ContentEntry): boolean => this.songFavoriteOperations.get(entry)?.running === true;
+  toggleSongFavorite = async (entry: ContentEntry): Promise<void> => {
+    if (!this.contains(entry) || entry.kind !== 'song' || !entry.libraryId || this.songFavoritePending(entry) || !this.options.requestId) return;
+    let operation = this.songFavoriteOperations.get(entry);
+    if (!operation) {
+      const controller = new AbortController(), generation = this.generation;
+      const current = () => !controller.signal.aborted && this.current() && generation === this.generation && this.contains(entry);
+      const service = new DetailService({scope: this.options.lifetime.scope, requestId: this.options.requestId,
+        api: {request: async <T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
+          if (!current()) throw membershipFailure('native_music_retired');
+          const value = await this.api.request<T>(path, method, body, signal);
+          if (!current()) throw membershipFailure('native_music_retired');
+          return value;
+        }}});
+      controller.signal.addEventListener('abort', () => service.dispose(), {once: true});
+      operation = {controller, service, current, desired: !this.songFavorite(entry), running: false};
+      this.songFavoriteOperations.set(entry, operation);
+    }
+    const {service, current, desired} = operation;
+    if (!current()) return;
+    operation.running = true; this.publish({});
+    try {
+      // A failed receipt keeps the same Detail command. A deliberate retry must
+      // not manufacture a second operation id for an ambiguous first mutation.
+      if (service.getSnapshot().pending.length) await service.retryMutation();
+      else {
+        await service.select({itemId: entry.id, libraryId: entry.libraryId});
+        if (!current()) return;
+        const loaded = service.getSnapshot();
+        if (loaded.phase !== 'ready' || !loaded.data) throw loaded.error ?? membershipFailure('music_song_favorite_unavailable');
+        if (loaded.data.personal.favorite !== desired) await service.mutate({action: 'favorite', value: desired});
+      }
+      if (!current()) return;
+      const applied = service.getSnapshot();
+      if (applied.data) this.songFavorites.set(entry, applied.data.personal.favorite);
+      if (applied.pending.length || applied.mutationError || applied.error) throw applied.mutationError ?? applied.error ?? membershipFailure('music_song_favorite_unconfirmed');
+    } finally {
+      operation.running = false;
+      if (!current() || !service.getSnapshot().pending.length) {
+        operation.controller.abort();
+        if (this.songFavoriteOperations.get(entry) === operation) this.songFavoriteOperations.delete(entry);
+      }
+      this.publish({});
+    }
   };
   /** The presenter borrows one DTO from the exact offered release object.
    * Equal IDs from a replacement section never revive an old card/menu. */
@@ -164,6 +227,9 @@ export class NativeTVMusicController {
   private publish(patch: Partial<NativeTVMusicSnapshot>): void {
     if (!this.current()) return;
     this.state = Object.freeze({...this.state, ...patch});
+    for (const [entry, operation] of this.songFavoriteOperations) if (!this.contains(entry)) {
+      operation.controller.abort(); this.songFavoriteOperations.delete(entry);
+    }
     for (const listener of [...this.listeners]) listener();
   }
   load = (): Promise<void> => {
@@ -171,6 +237,8 @@ export class NativeTVMusicController {
     if (this.pending) return this.pending;
     const controller = new AbortController();
     this.controller?.abort();
+    for (const operation of this.songFavoriteOperations.values()) operation.controller.abort();
+    this.songFavoriteOperations.clear(); this.songFavorites = new WeakMap();
     this.controller = controller;
     const generation = ++this.generation;
     this.songPager?.dispose();this.releasePager?.dispose();this.allSongPager?.dispose();this.allSongsController?.abort();
@@ -434,6 +502,8 @@ export class NativeTVMusicController {
   dispose = (): void => {
     if (this.disposed) return;
     this.disposed = true;
+    for (const operation of this.songFavoriteOperations.values()) operation.controller.abort();
+    this.songFavoriteOperations.clear();
     this.generation++;
     this.controller?.abort();
     this.playController?.abort();

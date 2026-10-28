@@ -1,3 +1,4 @@
+import {audiobookAuthorInitials} from '../src-next/screens/destinations/audiobooks/presentation.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
@@ -261,7 +262,7 @@ test('author and series show a retryable error and retain Back, while ready-empt
     '../../../kit/artwork': {AmbientArt: 'AmbientArt', Artwork: 'Artwork', PersonCircle: 'PersonCircle'},
     '../../../kit/controls': {Button: 'Button', Focusable: 'Focusable'}, '../../../kit/focus': {FocusRegion: 'FocusRegion'},
     '../../../kit/browse/presentation': {alpha: (value: string) => value, browseType: () => ({})},
-    '../../../kit/theme': {useTheme: () => ({...theme, isTV: tv})}, './BookScreen': {AudiobookErrorState: ErrorView},
+    '../../../kit/theme': {useTheme: () => ({...theme, isTV: tv})}, './BookScreen': {AudiobookErrorState: ErrorView}, './presentation': {audiobookAuthorInitials},
   });
   const find = (node: any, predicate: (value: any) => boolean): any => {
     if (!node || typeof node !== 'object') return undefined;

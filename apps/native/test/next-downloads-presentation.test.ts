@@ -6,6 +6,7 @@ import {downloadEntryIdentity, downloadGroups, downloadRequestLines, downloadRow
 import type {OfflineEntry} from '../src-next/platform/offline-downloads';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import {createHookHost} from './hook-driver.ts';
+import * as downloadInventory from '../src-next/screens/downloads/inventory.ts';
 import {createTheme} from '../src-next/kit/theme';
 import {holdCard} from '../src-next/kit/cards/model';
 
@@ -116,6 +117,7 @@ test('Downloads rows use the shared hold/menu boundary with their actual native 
     '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/controls': {Chip: 'Chip', Focusable: 'Focusable', Switch: 'Switch'},
     '../../kit/cards/primitives': {CardFrame: 'CardFrame'}, '../../kit/overlays': {BottomSheet: 'BottomSheet', Menu: 'Menu'}, '../../kit/states': {StateView: 'StateView'}, '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/browse/presentation': {browseType: () => ({}), alpha: () => ''}, '../../kit/theme': {useTheme: () => theme},
+    './inventory': downloadInventory,
     './presentation': {downloadEntryIdentity, downloadGroups, downloadRowText, downloadStorageSegments, downloadTransferProgress}, './useDownloadArtwork': {useDownloadArtwork: () => ({})},
     './useReadingFacts': await screenModule(new URL('../src-next/screens/downloads/useReadingFacts.ts', import.meta.url), {react: {...React, default: React}}),
     '../saved/SavedForms': await screenModule(new URL('../src-next/screens/saved/SavedForms.tsx', import.meta.url), {
@@ -131,7 +133,11 @@ test('Downloads rows use the shared hold/menu boundary with their actual native 
   const screen = mount(DownloadsScreen, {device, runtime: {text}, copy, back() {}, openTitle() {}});
   try {
     assert.equal(opened, 1, 'the committed screen effect opened the actual device port');
-    const row = nodes(screen.tree).find(node => node.type?.name === 'DownloadRow');
+    const window = nodes(screen.tree).find(node => node.type?.type?.name === 'DownloadInventoryWindow');
+    const windowScreen = mount(window.type.type, window.props);
+    const live = nodes(windowScreen.tree).find(node => node.type?.type?.name === 'LiveDownloadRow');
+    const liveScreen = mount(live.type.type, live.props);
+    const row = nodes(liveScreen.tree).find(node => node.type?.name === 'DownloadRow');
     const rowScreen = mount(row.type, {...row.props, menuOpen: true, onMenu: (value: unknown) => calls.push(value), onPlay: () => calls.push('local-play')});
     try {
       const card = nodes(rowScreen.tree).find(node => node.type === 'CardFrame');
@@ -140,7 +146,7 @@ test('Downloads rows use the shared hold/menu boundary with their actual native 
       holdCard(card.props, false); assert.equal(calls[0], card.props.menuAnchorRef); assert.equal((calls[0] as any).current, nativeHost);
       card.props.onNavigate(); assert.equal(calls[1], 'local-play');
       assert.equal(card.props.onLongPressAction, undefined); assert.equal(card.props.selection, undefined, 'Downloads has no invented selection action');
-    } finally {rowScreen.host.unmount();}
+    } finally {rowScreen.host.unmount(); liveScreen.host.unmount(); windowScreen.host.unmount();}
   } finally {screen.host.unmount();}
 });
 

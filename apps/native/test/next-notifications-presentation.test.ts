@@ -6,7 +6,8 @@ import {screenModule} from './helpers/screen-harness.mjs';
 
 const react = {...React, default: React};
 const all = (node: any): any[] => Array.isArray(node) ? node.flatMap(all)
-  : React.isValidElement<any>(node) ? [node, ...all(node.props.children)] : [];
+  // The phone sheet frame receives its authored header as a prop (SUP-001).
+  : React.isValidElement<any>(node) ? [node, ...all(node.props.header), ...all(node.props.children)] : [];
 const flatten = (style: any): any => Array.isArray(style) ? Object.assign({}, ...style.map(flatten)) : style || {};
 const native = {View: 'View', Text: 'Text', ScrollView: 'ScrollView', StyleSheet: {absoluteFill: {}, create: (value: unknown) => value}};
 const theme = {platform: 'phone', isTV: false, fontScale: 1, textScale: 1, gutter: 24,

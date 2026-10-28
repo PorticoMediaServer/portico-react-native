@@ -151,6 +151,23 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
     if (!lifetime) return undefined;
     return {
       policyLifetime: lifetime,
+      ...(adapter.listeningRead ? {audiobook: {
+        read: (fence: PlaybackFence) => {
+          const current = adapter.getSnapshot();
+          if (lifetime.signal.aborted || !lifetime.isCurrent() || !current.fence || !sameFence(current.fence, fence)) return;
+          return adapter.listeningRead!(fence, lifetime);
+        },
+        setRate: (fence: PlaybackFence, rate: number) => {
+          const current = adapter.getSnapshot();
+          if (lifetime.signal.aborted || !lifetime.isCurrent() || !current.fence || !sameFence(current.fence, fence)) return;
+          adapter.setRate(fence, rate);
+        },
+        ...(adapter.setSleepTimer ? {setSleepTimer: async (fence: PlaybackFence, minutes: number | null) => {
+          const current = adapter.getSnapshot();
+          if (lifetime.signal.aborted || !lifetime.isCurrent() || !current.fence || !sameFence(current.fence, fence)) return;
+          await adapter.setSleepTimer!(fence, minutes);
+        }} : {}),
+      }} : {}),
       ...(adapter.retry ? {retry: {enabled: snapshot.capabilities.retry === true,
         run: (fence: PlaybackFence) => {void adapter.retry!(fence, lifetime).catch(runtime.reportError);}}} : {}),
       ...(runtime.playOn && snapshot.capabilities.cast ? {playOn: {enabled: true, open: (fence: PlaybackFence, anchorRef?: React.RefObject<View | null>) => {
@@ -437,6 +454,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
     ...(listeningPorts ?? {}),
     onAddToPlaylist: theme.isTV && runtime.listeningPlaylist?.canOpen(nowPlaying.playback.fence) ? () => runtime.listeningPlaylist?.open(nowPlaying.playback.fence) : undefined,
     queuePolicy: runtime.listeningQueuePolicy, signal,
+    sleepAtMs: snapshot.playback.listeningDeadlines?.sleepAtMs ?? null,
     notice: snapshot.playback.listeningNotice ? listeningNoticeKey(snapshot.playback.listeningNotice) : undefined, reportError: runtime.reportError,
     lyrics: lyricsOffered && lyricsTarget && runtime.lyrics ? <NowPlayingLyrics read={runtime.lyrics} target={lyricsTarget}
       positionSeconds={playbackPosition(nowPlaying)} playing={nowPlaying.playback.playing}

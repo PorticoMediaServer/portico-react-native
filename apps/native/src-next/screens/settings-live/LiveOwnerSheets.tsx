@@ -1,8 +1,8 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {ScrollView, Text, View} from 'react-native';
+import {Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {NativeShellRuntime} from '../../shell/runtime';
-import {Button, Segmented, Select, Switch, TextField} from '../../kit/controls';
+import {Button, Segmented, Select, TextField} from '../../kit/controls';
 import {Dialog} from '../../kit/overlays';
 import {LoadingBoundary, SkeletonBlock, StateView} from '../../kit/states';
 import {shellType} from '../../kit/shell/visual';
@@ -67,7 +67,7 @@ export function AddSourceSheet({controller, runtime, open, onOpenChange, tuner, 
       <Select testID="live-owner-add-refresh" label={t('web.liveTv.refreshGuide')} value={String(draft.refreshMs)} options={refreshOptions.map(value => ({value, label: t(refreshKey[value])}))} onValueChange={refresh => update({refreshMs: Number(refresh)})}/>
       {error !== undefined && <StateView testID="live-owner-add-error" {...runtime.error(error, () => setError(undefined))}/>}
       {preview && <View testID="live-owner-add-preview" style={{backgroundColor: theme.colors.raisedHigh, borderRadius: 12, padding: 14, gap: 6}}>
-        <Text style={[shellType(15, 700), {color: theme.colors.text}]}>{[t('server.live.channelCount', {count: preview.preview.channels}), t('server.live.programCount', {count: preview.preview.programmes}), ...(preview.discoveredCapacity ? [t('web.liveTv.capacityTuners', {count: preview.discoveredCapacity})] : [])].join(' · ')}</Text>
+        <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, rowGap: 3}}>{[t('server.live.channelCount', {count: preview.preview.channels}), t('server.live.programCount', {count: preview.preview.programmes}), ...(preview.discoveredCapacity ? [t('web.liveTv.capacityTuners', {count: preview.discoveredCapacity})] : [])].filter(Boolean).map((part, index) => <Text key={index} style={[shellType(15, 700), {color: theme.colors.text}]}>{part}</Text>)}</View>
         <Text numberOfLines={3} style={[shellType(13), {color: theme.colors.textSecondary}]}>{preview.preview.names.slice(0, 8).join(', ')}{preview.preview.names.length > 8 ? '…' : ''}</Text>
         {skipped && <Text style={[shellType(13), {color: theme.colors.amber}]}>{[skipped.summary, ...skipped.reasons].join(' ')}</Text>}
       </View>}
@@ -103,7 +103,7 @@ export function DiscoverSheet({controller, runtime, open, onOpenChange, onUse}: 
       {result?.devices.map(found => <View key={found.deviceId || found.address} style={{flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.colors.raisedHigh, borderRadius: 12, padding: 14}}>
         <View style={{flex: 1, gap: 4}}>
           <Text style={[shellType(15, 700), {color: theme.colors.text}]}>{found.friendlyName || found.model || t('web.liveSource.tunerFallback')}</Text>
-          <Text style={[shellType(13), {color: theme.colors.textTertiary}]}>{[found.model, found.address, found.tunerCount ? t('server.live.tunerCount', {count: found.tunerCount}) : ''].filter(Boolean).join(' · ')}</Text>
+          <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, rowGap: 3}}>{[found.model, found.address, found.tunerCount ? t('server.live.tunerCount', {count: found.tunerCount}) : ''].filter(Boolean).map((part, index) => <Text key={index} style={[shellType(13), {color: theme.colors.textTertiary}]}>{part}</Text>)}</View>
         </View>
         {found.configured ? <Text style={[shellType(13, 700), {color: theme.colors.textSecondary}]}>{t('web.liveSource.alreadyAdded')}</Text>
           : <Button variant="glass" size="small" onPress={() => {onUse(found.baseUrl || found.address); onOpenChange(false);}}>{t('web.liveSource.useThis')}</Button>}

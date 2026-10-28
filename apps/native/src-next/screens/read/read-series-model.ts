@@ -18,6 +18,7 @@ export type NativeReadSeriesState = Readonly<{
   error?: unknown;
   /** A later page failed; the volumes already loaded stay on screen. */
   moreError?: unknown;
+  morePending?: boolean;
 }>;
 type SeriesRoute = Extract<NativeShellRoute, {kind: 'read-series'}>;
 
@@ -159,20 +160,25 @@ export class NativeReadSeries {
     if (!cursor || this.pageTicket || this.state.phase !== 'ready' || !this.current()) return;
     const flight = this.flight, ticket = {};
     this.pageTicket = ticket;
-    this.publish({...this.state, moreError: undefined});
+    this.publish({...this.state, moreError: undefined, morePending: true});
     try {
       const client = this.reading(), signal = this.life!.signal;
       const page = await client.series(this.libraryId, this.seriesId, {cursor, limit: 60}, signal);
       if (flight !== this.flight || !this.current() || this.state.nextCursor !== cursor) return;
       this.publish({...this.state, phase: 'ready', items: [...this.state.items, ...page.items],
         ...(page.nextCursor ? {nextCursor: page.nextCursor} : {nextCursor: undefined}),
-        ...(page.overview ? {overview: page.overview} : {}), moreError: undefined});
+        ...(page.overview ? {overview: page.overview} : {}), moreError: undefined, morePending: false});
     } catch (error) {
       if (flight !== this.flight || !this.current() || cancelled(error)) return;
-      this.publish({...this.state, moreError: error});
+      this.publish({...this.state, moreError: error, morePending: false});
     } finally {if (this.pageTicket === ticket) this.pageTicket = undefined;}
   };
   retry = (): Promise<void> => this.load();
+  itemLifetime = (item: ReadingItem): Readonly<{signal: AbortSignal; isCurrent: () => boolean}> | undefined => {
+    const life = this.life;
+    const current = () => this.life === life && this.current() && this.state.phase === 'ready' && this.state.items.includes(item);
+    return life && current() ? Object.freeze({signal: life.signal, isCurrent: current}) : undefined;
+  };
   /** Only a volume this page actually listed or its own continue row, with
    * available inventory, opens. The item is the one the page drew; it is never
    * reselected from newer state at press time. */

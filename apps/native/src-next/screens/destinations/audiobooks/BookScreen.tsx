@@ -148,6 +148,11 @@ export function BookScreen({controller, entry, runtime, actions, openEntry, onBa
   // clipping the rows below it.
   const chaptersHeight = rows.reduce((sum, row) => sum + (row.id === currentId ? 84 : 68), 0);
   const canvasHeight = Math.max(1120, 548 + 44 + chaptersHeight + 64);
+  const progressRow = remaining ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: tv ? 26 : 14, alignSelf: tv ? 'flex-start' : 'center'}}>
+        {progressRatio === undefined ? null : <View style={{width: tv ? 380 : 120, height: 4, borderRadius: 2, backgroundColor: alpha(theme.colors.text, .18)}}>
+          <View style={{width: `${Math.max(0, Math.min(1, progressRatio)) * 100}%`, height: 4, borderRadius: 2, backgroundColor: theme.colors.accentStrong}}/></View>}
+        <Text style={[browseType(theme, tv ? 22 : 13, 600), {color: theme.colors.textSecondary}]}>{t('title.resumeRemaining', {remaining})}</Text>
+      </View> : null;
   const body = <>
     <View style={tv ? {position: 'absolute', left: 200, top: 96} : undefined}><Cover runtime={runtime} path={entity.posterUrl} size={tv ? 420 : 232}/></View>
     <View style={tv ? {position: 'absolute', left: 700, top: 96, width: 1040} : {alignItems: 'center', marginTop: 20, width: '100%'}}>
@@ -174,20 +179,17 @@ export function BookScreen({controller, entry, runtime, actions, openEntry, onBa
         {facts.map((fact, index) => <Text key={`${fact}-${index}`} style={[browseType(theme, tv ? 24 : 13, index === 0 && !tv ? 700 : 400),
           {color: index === 0 && !tv ? theme.colors.text : theme.colors.textSecondary}]}>{fact}</Text>)}
       </View>
-      {remaining ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: tv ? 26 : 14, alignSelf: tv ? 'flex-start' : 'center'}}>
-        {progressRatio === undefined ? null : <View style={{width: tv ? 380 : 120, height: 4, borderRadius: 2, backgroundColor: alpha(theme.colors.text, .18)}}>
-          <View style={{width: `${Math.max(0, Math.min(1, progressRatio)) * 100}%`, height: 4, borderRadius: 2, backgroundColor: theme.colors.accentStrong}}/></View>}
-        <Text style={[browseType(theme, tv ? 22 : 13, 600), {color: theme.colors.textSecondary}]}>{t('title.resumeRemaining', {remaining})}</Text>
-      </View> : null}
+      {tv ? progressRow : null}
       <View style={{flexDirection: 'row', alignItems: 'center', gap: tv ? 18 : 10, marginTop: tv ? 26 : 18, alignSelf: tv ? 'flex-start' : 'stretch'}}>
         <Button focusId={resumeFocusId} icon="i-play" onPress={onPlay} accessibilityLabel={resumeLabel} hasTVPreferredFocus={tv} style={{flex: tv ? undefined : 1, minWidth: tv ? 320 : undefined}}>{resumeLabel}</Button>
-        <Button focusId={startFocusId} variant="glass" icon="i-restart" onPress={() => {void controller.startOver().catch(error => runtime.reportError(error));}} accessibilityLabel={t('action.startOver')}>{tv ? t('action.startOver') : undefined}</Button>
+        {tv ? <Button focusId={startFocusId} variant="glass" icon="i-restart" onPress={() => {void controller.startOver().catch(error => runtime.reportError(error));}} accessibilityLabel={t('action.startOver')}>{t('action.startOver')}</Button> : null}
         {!tv ? <Button variant="glass" iconOnly icon={'i-check'} accessibilityLabel={t('title.markFinished')}
           accessibilityState={{checked: snapshot.finished}} onPress={() => {void controller.markFinished().catch(error => runtime.reportError(error));}}/> : null}
         {!tv && download ? <Button variant="glass" iconOnly icon="i-dl" accessibilityLabel={t('action.download')}
           onPress={() => askNativeDownload(download)}/> : null}
         {tv ? <Button focusId={moreFocusId} variant="glass" iconOnly icon="i-more" accessibilityLabel={t('card.more', {title: entity.title})} onPress={() => actions.menu(entity)}/> : null}
       </View>
+      {!tv ? progressRow : null}
     </View>
     <View style={tv ? {position: 'absolute', left: 700, top: 548, width: 1040} : {width: '100%', marginTop: 22}}>
       {snapshot.phase === 'error' ? <AudiobookErrorState error={snapshot.error} retry={retry}/> : null}
@@ -221,7 +223,7 @@ export function BookScreen({controller, entry, runtime, actions, openEntry, onBa
     </View>
     {!tv && onBack ? <Button variant="icon" icon="i-left" iconOnly accessibilityLabel={t('action.back')} onPress={onBack}
       style={{position: 'absolute', top: insets.top + 6, left: 10, zIndex: 10, height: 44, width: 44}}/> : null}
-    {!tv && <Button variant="icon" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title: entity.title})} onPress={() => actions.menu(entity)}
+    {!tv && <Button variant="icon" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title: entity.title})} onPress={() => actions.menu(entity, undefined, undefined, [{id: 'book-start-over', icon: 'i-restart', label: t('action.startOver'), onSelect: () => {void controller.startOver().catch(error => runtime.reportError(error));}}])}
       style={{position: 'absolute', top: insets.top + 6, right: 10, zIndex: 10, height: 44, width: 44}}/>}
     <ScrollView onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent; if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 240) tail();}} scrollEventThrottle={200} contentContainerStyle={tv ? {paddingBottom: 64} : {paddingTop: Math.max(104, insets.top + 56), paddingBottom: 48}} showsVerticalScrollIndicator={false}>
       {tv ? <FocusRegion id={regionId} entry={resumeFocusId} orientation="free" style={{width: 1920, height: canvasHeight}}>{body}</FocusRegion>

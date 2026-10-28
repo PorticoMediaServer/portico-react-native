@@ -48,6 +48,8 @@ async function savedScreen() {
     summary: {myList: {posters: 1, squares: 0}, favorites: {posters: 24, squares: 0}, playlists: 3, collections: 1, savedViews: 2}};
   const downloads = {supported: true, entries: [], usedBytes: 3.4e9};
   const {SavedScreen} = await screenModule(new URL('../src-next/screens/saved/SavedScreen.tsx', import.meta.url), {
+    '../../kit/selection': {SelectionCircle: 'SelectionCircle'}, './SavedLoading': {SavedLoading: 'SavedLoading', SavedTail: 'SavedTail'},
+    './paging': {savedNearEnd: () => false},
     react: {...React, default: React}, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 24})},
     '../../../../../packages/i18n/src': {defaultI18n: {t, bytes: () => '3.4 GB', number: (value: number) => String(value)}},

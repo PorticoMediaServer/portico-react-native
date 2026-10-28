@@ -28,13 +28,13 @@ export function homeFactStrong(theme: Theme): string {
 }
 
 /** The display context stays canonical; continuation timing is a separate genuine projection. */
-export function HomeHeroFacts({facts, continuation}: {facts: readonly FactPart[]; continuation?: CardTextModel}) {
+export function HomeHeroFacts({facts, continuation, centered, fontSize}: {facts: readonly FactPart[]; continuation?: CardTextModel; centered?: boolean; fontSize?: number}) {
   const theme = useTheme();
   const remaining = continuation?.detail.find(part => part.id === 'remaining');
-  return <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: theme.layoutMode === 'phone' ? 'center' : 'flex-start', columnGap: theme.spec.hero.facts.gap[theme.platform], rowGap: theme.spec.hero.facts.rowGap[theme.platform]}}>
+  return <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: (centered ?? theme.layoutMode === 'phone') ? 'center' : 'flex-start', columnGap: fontSize ? 14 : theme.spec.hero.facts.gap[theme.platform], rowGap: fontSize ? 6 : theme.spec.hero.facts.rowGap[theme.platform]}}>
     {facts.map(fact => {
       const badge = fact.id === 'duration' || fact.id === 'season-count';
-      const text = <Text style={[badge ? theme.type.tag : theme.type.meta, {includeFontPadding: false, color: badge || fact.id === 'year' ? theme.colors.text : theme.colors.textSecondary, ...(!badge && fact.id === 'year' ? {fontFamily: homeFactStrong(theme)} : {})}]}>{fact.text}</Text>;
+      const text = <Text style={[badge ? theme.type.tag : theme.type.meta, {...(fontSize ? {fontSize: fontSize * theme.textScale, lineHeight: fontSize * 1.4 * theme.textScale} : {}), includeFontPadding: false, color: badge || fact.id === 'year' ? theme.colors.text : theme.colors.textSecondary, ...(!badge && fact.id === 'year' ? {fontFamily: homeFactStrong(theme)} : {})}]}>{fact.text}</Text>;
       return badge ? <View key={fact.id} style={homeFactTag(theme)}>{text}</View> : <React.Fragment key={fact.id}>{text}</React.Fragment>;
     })}
     {theme.isTV && continuation?.progress !== undefined && remaining && <View style={{flexDirection: 'row', alignItems: 'center', gap: 14}}>

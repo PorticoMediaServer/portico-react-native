@@ -14,6 +14,12 @@ import {Focusable} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
 import {Menu, type MenuEntry} from '../../kit/overlays';
 import {StateView} from '../../kit/states';
+import {WindowedGrid} from '../../kit/layout';
+import {ReadingLoading, ReadingGridSkeleton} from './ReadingLoading';
+import {NativeReadingWindow} from './reading-window';
+import {ReadingItemMenu, ReadingSelectionToolbar, ReadingMenuAnchor, useReadingActions} from './ReadingActions';
+import {SelectionCircle} from '../../kit/selection';
+import type {NativeReadingActionOffer} from './reading-actions';
 import {browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
@@ -78,7 +84,7 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
   const downloads = useMemo(() => new NativeReadingDownloads(opening, () => visibleLife?.isCurrent() === true && nativePublicationReadsAvailable(), askNativeDownload), [opening, visibleLife]);
   useEffect(() => () => downloads.dispose(), [downloads]);
   const downloadMenu = useSyncExternalStore(downloads.subscribe, downloads.getSnapshot);
-  const offerDownload = (offer: NativeReadingDownloadOffer) => downloads.offer(() => offer);
+  const offerDownload = (offer: NativeReadingDownloadOffer) => {downloads.offer(() => offer); downloads.select(downloads.getSnapshot());};
   const [paneWidth, setPaneWidth] = useState<number>();
   // tablet-read#1b: the wide header carries the count of the view the grid is
   // showing, tagged with the library and the mount that published it. A line is
@@ -120,6 +126,10 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
   useEffect(() => () => {discovery.dispose(); books.dispose();}, [discovery, books]);
   const discoveryState = useSyncExternalStore(discovery.subscribe, discovery.getSnapshot);
   const booksState = useSyncExternalStore(books.subscribe, books.getSnapshot);
+  const readingActions = useReadingActions(scopedContext, runtime, visibleLife ?? discovery);
+  const booksWindow = useMemo(() => new NativeReadingWindow(() => {const value = books.getSnapshot();
+    return {items: value.items, cursor: value.nextCursor, loading: value.phase === 'loading', error: value.phase === 'error' ? value.error : undefined};
+  }, books.subscribe, books.more, item => `${item.id}:${item.sourceId}`), [books]);
   useEffect(() => {
     if (!opening) return;
     if (tab === 'discover') void discovery.load().catch(runtime.reportError);
@@ -141,47 +151,56 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
   </Focusable>;
   const openDiscover = (item: ReadingItem) => {void discovery.open(item).catch(runtime.reportError);};
   const openBooks = (item: ReadingItem) => {void books.open(item).catch(runtime.reportError);};
-  const offerDiscoverDownload = (item: ReadingItem) => downloads.offer(() => opening && visibleLife ? nativeReadingDownloadOffer(opening, item, () => {
+  const offerDiscoverDownload = (item: ReadingItem) => {downloads.offer(() => opening && visibleLife ? nativeReadingDownloadOffer(opening, item, () => {
     const live = discovery.getSnapshot();
     return live === discoveryState && item.libraryId === libraryId && (live.recent.some(candidate => candidate === item)
-      || live.shortReads.some(row => row.item === item));
-  }, visibleLife) : undefined);
-  const offerBooksDownload = (item: ReadingItem) => downloads.offer(() => opening && visibleLife ? nativeReadingDownloadOffer(opening, item,
-    () => books.getSnapshot() === booksState && item.libraryId === libraryId && booksState.items.some(candidate => candidate === item), visibleLife) : undefined);
+      || live.shortReads.some(row => row.item === item) || live.continueItems.some(row => row.item === item));
+  }, visibleLife) : undefined); downloads.select(downloads.getSnapshot());};
+  const offerBooksDownload = (item: ReadingItem) => {downloads.offer(() => opening && visibleLife ? nativeReadingDownloadOffer(opening, item,
+    () => books.getSnapshot() === booksState && item.libraryId === libraryId && booksState.items.some(candidate => candidate === item), visibleLife) : undefined); downloads.select(downloads.getSnapshot());};
+  const readingOffer = (item: ReadingItem, source: 'discover' | 'books'): NativeReadingActionOffer | undefined => {
+    if (!visibleLife) return undefined;
+    const isCurrent = () => visibleLife.isCurrent() && (source === 'books' ? books.getSnapshot().items.includes(item)
+      : discovery.getSnapshot().recent.includes(item) || discovery.getSnapshot().shortReads.some(row => row.item === item) || discovery.getSnapshot().continueItems.some(row => row.item === item));
+    return {item, lifetime: {signal: visibleLife.signal, isCurrent}, open: () => source === 'books' ? openBooks(item) : openDiscover(item),
+      ...(nativePublicationReadsAvailable() ? {download: () => source === 'books' ? offerBooksDownload(item) : offerDiscoverDownload(item)} : {})};
+  };
   const retryDiscover = () => {void discovery.retry().catch(runtime.reportError);};
   const retryBooks = () => {void books.retry().catch(runtime.reportError);};
   const retry = <StateView testID="reading-library-error" variant="inline" {...runtime.error(tab === 'discover' ? discoveryState.error : booksState.error, tab === 'discover' ? retryDiscover : retryBooks, 'library')}/>;
   const empty = <StateView testID="reading-library-empty" variant="inline" title={defaultI18n.t('library.emptyLibrary')} body={defaultI18n.t('library.emptyLibraryBody')}/>;
-  const loading = <Text style={[browseType(theme, 14, 500), {color: theme.colors.textTertiary, padding: 20}]}>{defaultI18n.t('status.loading')}</Text>;
   const columns = tablet ? 4 : 3, gap = 16, width = Math.max(96, ((paneWidth ?? dimensions.width) - theme.gutter * 2 - gap * (columns - 1)) / columns);
+  const loading = <ReadingLoading ready={false} style={{flex: 1, minHeight: 480}} skeleton={<ReadingGridSkeleton width={width} columns={columns} gap={gap} gutter={theme.gutter}/>}/>;
   const discover = <ScrollView testID="reading-discover" contentContainerStyle={{paddingBottom: insets.bottom + 40}}>
     {discoveryState.phase === 'error' ? retry : null}
     {discoveryState.phase === 'loading' && !discoveryState.continueItems.length && !discoveryState.recent.length ? loading : null}
     {discoveryState.continueItems.length ? <DiscoveryRow first title={defaultI18n.t('next.cards.read')}>
-      {discoveryState.continueItems.map(row => <ReadResumeCard key={row.item.id} testID={`reading-continue-${row.item.id}`} width={tablet ? 392 : 296} height={tablet ? 176 : 150}
+      {discoveryState.continueItems.map(row => <ReadingMenuAnchor key={row.item.id}>{anchorRef => {const offered = readingOffer(row.item, 'discover'); return <ReadResumeCard testID={`reading-continue-${row.item.id}`} width={tablet ? 392 : 296} height={tablet ? 176 : 150}
         title={row.item.title} caption={authorPart(row.item)} detail={row.progress.location.section ? [{id: 'section', text: row.progress.location.section, role: 'context'}] : []}
         progress={Math.min(0.999, Math.max(0, row.progress.location.progression))} palette={tint(row.item.title)}
         artworkFallback={<View accessible={false} importantForAccessibility="no-hide-descendants">{cover(row.item, tablet ? 99 : 81, tablet ? 148 : 122)}</View>}
-        onNavigate={() => openDiscover(row.item)}/>)}
+        onNavigate={() => openDiscover(row.item)} menuAnchorRef={anchorRef} selection={offered ? readingActions.selection(offered) : undefined}
+        onMore={offered ? () => readingActions.actions.show({...offered, anchorRef}) : undefined}/>;}}</ReadingMenuAnchor>)}
     </DiscoveryRow> : null}
     {discoveryState.recent.length ? <DiscoveryRow title={defaultI18n.t('home.row.recentlyAdded')} first={!discoveryState.continueItems.length} onSeeAll={() => setTab('browse')}>
-      {discoveryState.recent.map(item => <DiscoveryCoverCard key={item.id} item={item} width={tablet ? 142 : 118} onOpen={openDiscover} onDownload={offerDiscoverDownload}/>)}
+      {discoveryState.recent.map(item => <DiscoveryCoverCard key={item.id} item={item} width={tablet ? 142 : 118} onOpen={openDiscover} offer={readingOffer(item, 'discover')} actions={readingActions}/>)}
     </DiscoveryRow> : null}
     {discoveryState.shortReads.length ? <DiscoveryRow title={defaultI18n.t('next.reader.shortReads')} sub={defaultI18n.t('next.reader.underThreeHours')}>
-      {discoveryState.shortReads.map(row => <DiscoveryCoverCard key={row.item.id} item={row.item} width={tablet ? 142 : 118} onOpen={openDiscover} onDownload={offerDiscoverDownload}
+      {discoveryState.shortReads.map(row => <DiscoveryCoverCard key={row.item.id} item={row.item} width={tablet ? 142 : 118} onOpen={openDiscover} offer={readingOffer(row.item, 'discover')} actions={readingActions}
         detail={defaultI18n.t('next.reader.aboutDuration', {duration: formatDuration(row.estimatedSeconds)})}/>)}
     </DiscoveryRow> : null}
   </ScrollView>;
-  const booksGrid = <ScrollView testID="reading-books" contentContainerStyle={{padding: theme.gutter, paddingBottom: insets.bottom + 40}}
-    onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
-      if (contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void books.more().catch(runtime.reportError);}} scrollEventThrottle={64}>
+  const booksGrid = <View style={{flex: 1}}>
     {booksState.phase === 'error' ? retry : null}
-    {booksState.phase === 'loading' && !booksState.items.length ? loading : null}
-    {booksState.phase === 'ready' && !booksState.items.length ? empty : null}
-    {booksState.items.length ? <View style={{flexDirection: 'row', flexWrap: 'wrap', gap}}>
-      {booksState.items.map(item => <DiscoveryCoverCard key={item.id} item={item} width={width} onOpen={openBooks} onDownload={offerBooksDownload}/>)}
-    </View> : null}
-  </ScrollView>;
+    <ReadingLoading ready={booksState.items.length > 0 || booksState.phase === 'ready' || booksState.phase === 'error'} style={{flex: 1}}
+      skeleton={<ReadingGridSkeleton width={width} columns={columns} gap={gap} gutter={theme.gutter}/>}>
+      <WindowedGrid testID="reading-books" collection={booksWindow} getKey={item => `${item.id}:${item.sourceId}`} itemWidth={width} itemHeight={width * 1.5 + 44}
+        gap={gap} rowGap={gap} gutter={theme.gutter} paddingTop={theme.gutter} paddingBottom={insets.bottom + 40} style={{flex: 1}}
+        header={booksState.phase === 'ready' && !booksState.items.length ? empty : undefined}
+        renderPlaceholder={() => <ReadingGridSkeleton width={width} columns={1} gutter={0} rows={1}/>}
+        renderItem={item => <DiscoveryCoverCard item={item} width={width} onOpen={openBooks} offer={readingOffer(item, 'books')} actions={readingActions}/>}/>
+    </ReadingLoading>
+  </View>;
   const pivots: Readonly<Record<string, string>> = {book: 'books', ebook: 'books', comic: 'titles', magazine: 'titles', newspaper: 'titles'};
   const counts = (summary?.opening === opening ? summary?.value?.counts ?? [] : []).filter(part => pivots[part.kind]).map(part =>
     defaultI18n.t(part.atLeast ? 'lib.countAtLeast' : 'lib.count', {count: part.count, pivot: pivots[part.kind]!}));
@@ -214,12 +233,14 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
       <LibraryTabs items={tabs} selected={tab} enabled phone={theme.platform === 'phone'} regionId={`reading-tabs-${libraryId}`}
         leftEdge="reading-tabs-edge" onSelect={id => setTab(id)}/>
     </LibraryCompactHeader>}
+    {(!gridTab || tab === 'discover') ? <ReadingSelectionToolbar port={readingActions} runtime={runtime}/> : null}
     {!opening ? <View style={{flex: 1}}>{loading}</View> : tab === 'discover' ? discover
       : !theme.isTV && gridTab && library ? <NativeReadingBooks context={scopedContext} opening={opening} runtime={runtime} library={library} tab={gridTab} labels={labels}
         owner={context.session()?.viewer.role === 'owner'} onCount={tablet ? projectGridCount : undefined}
-        onDownload={theme.platform === 'phone' ? offerDownload : undefined}/>
+        onDownload={offerDownload}/>
       : !theme.isTV && !capability ? <View style={{flex: 1}}>{loading}</View>
       : booksGrid}
+    <ReadingItemMenu port={readingActions} runtime={runtime}/>
     <Menu open={!!downloadMenu && downloadMenu.opening === opening && downloadMenu.lifetime.isCurrent()}
       onOpenChange={open => {if (!open) downloads.dismiss(downloadMenu);}} title={downloadMenu?.item.title}
       items={[{id: 'download', label: defaultI18n.t('action.download'), onSelect: () => downloads.select(downloadMenu)}]}/>
@@ -247,12 +268,17 @@ function DiscoveryRow({title, sub, first = false, onSeeAll, children}: {title: s
 /** One sparse-metadata cover: the drawn portrait art with the title and author
  * under it, using the catalogue's canonical generated cover. Books and comics
  * are drawn 2:3; a magazine or newspaper issue is drawn 3:4. */
-function DiscoveryCoverCard({item, width, detail, onOpen, onDownload}: {item: ReadingItem; width: number; detail?: string; onDownload?: (item: ReadingItem) => void; onOpen: (item: ReadingItem) => void}) {
+function DiscoveryCoverCard({item, width, detail, onOpen, offer, actions}: {item: ReadingItem; width: number; detail?: string; offer?: NativeReadingActionOffer; actions: ReturnType<typeof useReadingActions>; onOpen: (item: ReadingItem) => void}) {
+  const anchor = useRef<View>(null), selection = offer ? actions.selection(offer) : undefined;
   const theme = useTheme(), periodical = item.publicationType?.value === 'magazine' || item.publicationType?.value === 'newspaper';
   const height = periodical ? width * 4 / 3 : width * 3 / 2;
   return <Focusable testID={`reading-item-${item.id}`} accessibilityRole="button" accessibilityLabel={detail ? `${item.title}. ${detail}` : item.title} focusKind="row"
-    onPress={() => onOpen(item)} onLongPressAction={onDownload && nativePublicationReadsAvailable() ? () => onDownload(item) : undefined} style={{width}}>
-    <View accessible={false} importantForAccessibility="no-hide-descendants" style={{width, height, borderRadius: 10, overflow: 'hidden'}}>{cover(item, width, height)}</View>
+    ref={anchor} onPress={selection?.active ? selection.onToggle : () => onOpen(item)}
+    onLongPressAction={offer ? () => actions.actions.show({...offer, anchorRef: anchor}) : undefined} style={{width}}>
+    <View accessible={false} importantForAccessibility="no-hide-descendants" style={{width, height, borderRadius: 10, overflow: 'hidden', borderWidth: selection?.selected ? 2 : 0, borderColor: theme.colors.accentStrong}}>{cover(item, width, height)}
+      {selection?.active ? <SelectionCircle selected={selection.selected} selecting interactive={false} accessibilityLabel={item.title}
+        style={{position: 'absolute', right: 7, bottom: 7}}/> : null}
+    </View>
     <Text numberOfLines={1} style={[browseType(theme, 12.5, 600), {color: theme.colors.text, marginTop: 7}]}>{item.title}</Text>
     {item.author ? <Text numberOfLines={1} style={[browseType(theme, 11.5, 500), {color: theme.colors.textTertiary, marginTop: 2}]}>{item.author.value}</Text> : null}
     {detail ? <Text numberOfLines={1} style={[browseType(theme, 11.5, 500), {color: theme.colors.textTertiary, marginTop: 2}]}>{detail}</Text> : null}

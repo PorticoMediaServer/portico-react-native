@@ -1,3 +1,4 @@
+import * as audiobookControls from '../src-next/screens/destinations/music/audiobook-controls.ts';
 /** Actual touch component callbacks with controlled hook/native ports. These
  * tests prove command custody and values, not native gesture or AT delivery. */
 import test from 'node:test';
@@ -37,7 +38,7 @@ async function fixture(hosted = true) {
     for (const name of ['onBegin', 'onUpdate', 'onEnd', 'onFinalize']) value[name] = (run: (...args: any[]) => void) => {value.callbacks[name] = run; return value;};
     return value;
   };
-  const mod = await screenModule(new URL('../src-next/screens/destinations/music/NowPlayingScreen.tsx', import.meta.url), {
+  const mod = await screenModule(new URL('../src-next/screens/destinations/music/NowPlayingScreen.tsx', import.meta.url), {'./use-audiobook-read': {useAudiobookRead: () => ({reader: undefined, snapshot: {phase: 'retired'}})}, './audiobook-controls': audiobookControls, '../../../kit/overlays': {BottomSheet: 'BottomSheet', Menu: 'Menu'}, '../../../platform/native-blur': {BlurView: 'BlurView', glassRecipe: () => ({nativeBlur: false})}, 
     react: {...React, default: React},
     'react-native': {View: 'View', Text: 'Text', ScrollView: 'ScrollView', BackHandler: {addEventListener: () => ({remove() {}})}},
     'react-native-gesture-handler': {Gesture: {Pan: pan}, GestureDetector: 'GestureDetector'},
@@ -54,7 +55,7 @@ async function fixture(hosted = true) {
     '../../../kit/dock/ListeningCoverBridge': {...listeningCoverFixture,
       useListeningPaintPermit: () => permit, useListeningPageActive: () => pageActive,
       useListeningScrubberPublication: (value: ListeningScrubber | undefined) => {scrubber = value; return hosted;}},
-    '../../../kit/browse/presentation': {browseType: () => ({})},
+    '../../../kit/browse/presentation': {alpha: (color: string) => color, browseType: () => ({})},
     '../../../kit/dock/model': {commandAllowed, dockCommand, playbackPosition, seekBounds, seekTo},
     './NowPlayingQueue': {NowPlayingQueue: 'Queue'},
     './ListeningSongActions': {ListeningSongActions: 'SongActions', ListeningFavoritePaint: 'Favorite'},
@@ -84,8 +85,11 @@ async function fixture(hosted = true) {
     active(value: boolean) {pageActive = value; host.rerender();},
     retirePaint() {paintCurrent = false;},
     panel(open: boolean) {
-      const control = nodes(tree).find(value => open ? value.props.testID === 'now-playing-equalizer' : value.type === 'Equalizer');
-      assert.ok(control); (open ? control.props.onPress : control.props.onBack)(); host.flush();
+      // Compact Now Playing offers Equalizer from its More menu; wide layouts draw a button.
+      const control = nodes(tree).find(value => open ? value.props.testID === 'now-playing-equalizer' || value.props.items?.some?.((item: any) => item.id === 'equalizer') : value.type === 'Equalizer');
+      assert.ok(control);
+      if (!open) control.props.onBack(); else (control.props.onPress ?? control.props.items.find((item: any) => item.id === 'equalizer').onSelect)();
+      host.flush();
     },
     close() {host.unmount();},
   };

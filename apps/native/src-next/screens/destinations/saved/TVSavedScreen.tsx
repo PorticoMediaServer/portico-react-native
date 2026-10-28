@@ -290,7 +290,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
     {...(entry.playback ? {primaryAction: 'play' as const, onPlay: () => actions.play(entry)} : {onNavigate: () => openEntry(entry)})}
     onMore={() => actions.menu(entry, undefined, select?.(entry))} moreExpanded={actions.isMenuOpen(entry)} selection={selection?.item(entry)}/>, top);
   /** The menu's Select starts this screen's own canonical Saved selection on that title. */
-  const select = selection ? (entry: ContentEntry) => () => {void selection.item(entry).onEnter();} : undefined;
+  const select = selection ? (entry: ContentEntry) => () => {void selection.item(entry)?.onEnter();} : undefined;
   const heading = (title: string, detail: number) => <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 16, marginTop: 40, marginBottom: 18}}>
     <Text style={[browseType(theme, 32, 700, -.019), {color: theme.colors.text}]}>{title}</Text><Text style={[browseType(theme, 22, 600), {color: theme.colors.textTertiary}]}>{defaultI18n.number(detail)}</Text>
   </View>;

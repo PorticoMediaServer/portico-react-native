@@ -93,6 +93,7 @@ async function stateModule() {
     '../watch': {nativeWatchEntryMenu: () => menu},
   });
   return screenModule(new URL('../src-next/screens/saved/state.ts', import.meta.url), {
+    './selection': {createNativeSavedViewSelection: () => ({dispose() {}})},
     react: {default: React}, '../destinations/lifetime': {nativeDestinationLifetime}, '../destinations/entry-actions': {createNativeEntryActions},
     '../native-screen-services': {nativeScreenServices: () => common}, './navigation': savedNavigation, './view-summary-owner': savedSummaryOwner, './rename-view': savedRename,
     '../home/customize-intent': customizeIntent, '../library/saved-view-intent': librarySavedViewIntent,

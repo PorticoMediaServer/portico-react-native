@@ -291,6 +291,29 @@ test('an unreadable detail keeps the independent File info menu and offers no pe
   } finally {d.screens.dispose();}
 });
 
+test('a readable Detail that withholds Play never falls back to the drawn entry playback', async () => {
+  for (const actions of [[], [{id: 'resume', enabled: false, playback: {itemId: 'episode', startSeconds: 30}}],
+    [{id: 'start_over', enabled: true, playback: {itemId: 'episode', startSeconds: 0}}]]) {
+    detailProjection = {
+      item: {id: 'episode', kind: 'episode', title: 'Actual episode'}, languages: {audio: [], subtitles: []},
+      scope: {serverId: 'server', libraryId: 'library', itemId: 'episode', viewerFence: 'viewer'}, revision: {catalog: 1, viewer: 1}, markers: [],
+      personal: {watchlisted: false, favorite: false, watched: false, progressSeconds: 30, revision: 1, rating: null, lastPlayedAt: '', status: 'current', conflicts: []},
+      actions, metadata: {genres: [], ratings: [], credits: [], status: 'available'},
+    };
+    const d = fixture();
+    try {
+      assert.ok(entry.playback, 'the drawn card still carries an earlier playback target');
+      await d.screens.menu(entry, () => true);
+      const menu = d.menus[0][1];
+      assert.ok(menu.entry, 'the actual Detail projection was read successfully');
+      assert.equal(menu.entry.play, undefined, 'absent, disabled, or start-over-only grants do not offer Play');
+      assert.equal(typeof menu.fileInfo, 'function', 'the independent information action remains available');
+      assert.equal(d.starts.length, 0);
+      menu.entry.dispose();
+    } finally {detailProjection = null; d.screens.dispose();}
+  }
+});
+
 test('the shared menu appends through the one catalogue queue and never behind a group session', async () => {
   detailProjection = {
     item: {id: 'episode', kind: 'episode', title: 'Actual episode'}, languages: {audio: [], subtitles: []},

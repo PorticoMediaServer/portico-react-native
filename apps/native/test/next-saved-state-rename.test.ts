@@ -2,9 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React from 'react';
 import {routePath} from '../../../packages/contracts/src/routes';
-import {HttpLocalApi, type LocalSession} from '../../../packages/client-core/src';
+import {HttpLocalApi} from '../../../packages/client-core/src';
 import type {ContentEntry} from '../../../packages/client-core/src/library-content';
-import type {PersonalResource} from '../../../packages/client-core/src/personal-saved';
 import type {NativeShellBootstrapContext} from '../src-next/shell/bootstrap';
 import {NativeShellNavigation} from '../src-next/shell/routes';
 import * as savedNavigation from '../src-next/screens/saved/navigation';
@@ -16,7 +15,6 @@ import {nativeDestinationLifetime} from '../src-next/screens/destinations/lifeti
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const title: ContentEntry = {kind: 'movie', id: 'actual-film', libraryId: 'movies', title: 'Film'};
-const scope = {serverId: 'server', viewerId: 'local/account/profile'};
 const session = {viewer: {serverId: 'server', accountId: 'account', profileId: 'profile', authority: 'local', role: 'owner'},
   accessToken: '', expiresAt: '2026-10-25T00:00:00Z', authorizationHorizon: '2026-10-26T00:00:00Z', sessionFamilyId: 'family', tokenGeneration: '1'};
 const browse = () => ({pivot: 'movies', applied: {query: null, sort: [{field: 'title', direction: 'asc'}], seek: null}, entries: [],
@@ -27,7 +25,7 @@ const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 type Mutation = Readonly<{path: string; method?: string; body?: any}>;
 function fixture() {
   const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'resource-fence'};
-  let active = true, revision = 1, id = 0;
+  let active = true, revision = 1;
   const navigation = new NativeShellNavigation(authority, () => authority), listeners = new Set<() => void>();
   const paths: string[] = [], mutations: Mutation[] = [], plans: ('success' | 'timeout' | 'conflict' | {gate: ReturnType<typeof deferred<unknown>>})[] = [];
   let named = 'Stored view';
@@ -96,6 +94,7 @@ async function stateModule() {
     '../watch': {nativeWatchEntryMenu: () => menu},
   });
   return screenModule(new URL('../src-next/screens/saved/state.ts', import.meta.url), {
+    './selection': {createNativeSavedViewSelection: () => ({dispose() {}})},
     react: {default: React}, '../destinations/lifetime': {nativeDestinationLifetime}, '../destinations/entry-actions': {createNativeEntryActions},
     '../native-screen-services': {nativeScreenServices: () => common}, './navigation': savedNavigation,
     './view-summary-owner': savedSummaryOwner, './rename-view': savedRename,

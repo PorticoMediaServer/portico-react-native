@@ -1,5 +1,6 @@
-import React, {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {findNodeHandle, ScrollView, Text, TVEventHandler, View} from 'react-native';
+import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import {defaultI18n, type I18n} from '../../../../../packages/i18n/src';
 import {serverTextLabel} from '../../../../../packages/client-core/src/presentation/server-text';
 import type {PersonalResource} from '../../../../../packages/client-core/src/personal-saved';
@@ -13,6 +14,7 @@ import {nativeType, useTheme} from '../../kit/theme';
 import {NativeHomeCustomizeController, type NativeHomeResetOpening} from './customize-controller';
 import {createTVKeyAdapter} from '../../platform/tv-key-adapter';
 import {tvKeySource} from '../../platform/tv-key-source';
+import {createHomeRowDrag, type HomeDragRow} from './customize-drag';
 
 /** Exact catalogue values supplied by the canonical copy owner. No screen copy
  * or server row label is manufactured by this presentation. */
@@ -41,6 +43,23 @@ function focusWhenPicked(
     focusTarget(picked.current);
   });
   frame.current = {controller, id};
+}
+
+export function HomeDragHandle({controller, id, disabled, geometry, scrollGesture, testID}: {
+  controller: NativeHomeCustomizeController; id: string; disabled: boolean;
+  geometry: () => readonly HomeDragRow[]; scrollGesture: ReturnType<typeof Gesture.Native>; testID: string;
+}) {
+  const theme = useTheme(), latest = useRef(geometry);
+  latest.current = geometry;
+  const drag = useMemo(() => createHomeRowDrag(controller, id, () => latest.current()), [controller, id]);
+  useEffect(() => () => drag.finish(false), [drag]);
+  const pan = useMemo(() => Gesture.Pan().enabled(!disabled).activateAfterLongPress(200).blocksExternalGesture(scrollGesture).activeOffsetY([-2, 2]).runOnJS(true)
+    .onStart(() => {drag.begin();}).onUpdate(event => {drag.update(event.translationY);})
+    .onFinalize((_event, success) => {drag.finish(success);}), [disabled, drag, scrollGesture]);
+  return <GestureDetector gesture={pan}><View testID={testID} accessible={false} collapsable={false}
+    style={{width: 44, minHeight: 50, alignItems: 'center', justifyContent: 'center'}}>
+    <Icon name="i-grip" size={20} color={theme.colors.textTertiary}/>
+  </View></GestureDetector>;
 }
 
 export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views, summary, notice, noticeAction, renderError, testID}: {
@@ -131,7 +150,17 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
   const displayed = state.pickupOrder ? state.pickupOrder.map(id => rowsById.get(id)!).filter(Boolean) : state.rows;
   const targetIndex = state.rows.findIndex(row => row.id === state.pickedId), targetId = state.pickupOrder?.[targetIndex];
   const targetY = targetId ? positions.get(targetId) : undefined;
-  const rows = <ScrollView ref={scroller} removeClippedSubviews={false} contentContainerStyle={{paddingTop: theme.isTV ? 16 : 8, paddingBottom: 20}}>
+  const dragGeometry = (): readonly HomeDragRow[] => {
+    let top = theme.isTV ? 16 : 8;
+    return displayed.map(row => {
+      const height = heights.get(row.id) ?? rowHeight;
+      const slot = {id: row.id, top: positions.get(row.id) ?? top, height};
+      top = slot.top + height;
+      return slot;
+    });
+  };
+  const scrollGesture = useMemo(() => Gesture.Native(), []);
+  const rowList = <ScrollView ref={scroller} removeClippedSubviews={false} scrollEnabled={theme.isTV || !state.pickedId} contentContainerStyle={{paddingTop: theme.isTV ? 16 : 8, paddingBottom: 20}}>
     {displayed.map((row, index) => {
       const lifted = row.id === state.pickedId;
       const title = serverTextLabel(i18n, row.titleText, row.title);
@@ -139,36 +168,38 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
       const measuredHeight = heights.get(row.id) ?? rowHeight;
       const originalY = positions.get(row.id), shift = lifted && targetY !== undefined && originalY !== undefined ? targetY - originalY : 0;
       return <View key={row.id} onLayout={event => {const {y, height} = event.nativeEvent.layout;setHeights(before => {if (before.get(row.id) === height) return before;const next = new Map(before);next.set(row.id, height);return next;}); setPositions(before => {if (before.get(row.id) === y) return before; const next = new Map(before); next.set(row.id, y); return next;});}}
-        style={{minHeight: rowHeight, height: lifted ? measuredHeight : undefined, zIndex: lifted ? 8 : undefined, ...(lifted ? {borderWidth: 2, borderStyle: 'dashed', borderColor: theme.colors.line} : {})}}><View style={{flexDirection: 'row', alignItems: 'center', minHeight: rowHeight, paddingVertical: theme.isTV ? 6 : 4, gap: theme.isTV ? 18 : 10, position: lifted ? 'absolute' : undefined, left: lifted ? 0 : undefined, right: lifted ? 0 : undefined,
-        backgroundColor: lifted ? theme.colors.raisedHigh : undefined, borderRadius: 14, transform: lifted ? [{translateY: shift}, {scale: 1.03}] : undefined}}>
+        style={{minHeight: rowHeight, height: lifted ? measuredHeight : undefined, zIndex: lifted ? 8 : undefined, ...(lifted ? {borderWidth: 2, borderStyle: 'dashed', borderRadius: theme.isTV ? 0 : 14, borderColor: theme.isTV ? theme.colors.line : alpha(theme.colors.lineStrong, .6)} : {})}}><View style={{flexDirection: 'row', alignItems: 'center', minHeight: rowHeight, paddingVertical: theme.isTV ? 6 : 4, gap: theme.isTV ? 18 : 10, position: lifted ? 'absolute' : undefined, left: lifted ? 0 : undefined, right: lifted ? 0 : undefined,
+        backgroundColor: lifted ? theme.isTV ? theme.colors.raisedHigh : theme.colors.raisedBright : undefined, borderRadius: 14, transform: lifted ? [{translateY: shift}, {scale: theme.isTV ? 1.03 : 1.02}] : undefined,
+        ...(!theme.isTV && lifted ? {boxShadow: [{offsetX: 0, offsetY: 24, blurRadius: 50, spreadDistance: -16, color: alpha(theme.colors.shadow, .9)}, {offsetX: 0, offsetY: 0, blurRadius: 0, spreadDistance: 2, color: theme.colors.accent}]} : {})}}>
         {theme.isTV && row.reorderable && <Focusable focusId={`${row.id}:handle`} testID={`${testID}-handle-${row.id}`} accessibilityRole="button"
           accessibilityLabel={defaultI18n.t('next.home.layoutMoveAction')} disabled={blocked || !!state.pickedId && !lifted}
           focusKind="button" focusRadius={10} onPress={() => pickRow(row.id)}
           style={{width: 44, height: 50, alignItems: 'center', justifyContent: 'center'}}>
           <Icon name="i-grip" size={26} color={lifted ? theme.colors.text : theme.colors.textTertiary}/>
         </Focusable>}
-        {theme.isTV && row.savedView && <View style={{width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: alpha(theme.colors.text, .1)}}>
+        {!theme.isTV && row.reorderable && <HomeDragHandle controller={controller} id={row.id} disabled={blocked || !!state.pickedId && !lifted} geometry={dragGeometry} scrollGesture={scrollGesture} testID={`${testID}-handle-${row.id}`}/>}
+        {row.savedView && <View style={{width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: alpha(theme.colors.text, .1)}}>
           <Icon name="i-filter" size={22} color={theme.colors.textSecondary}/>
         </View>}
         <Focusable ref={node => {if (node) rowRefs.current.set(row.id, node);else rowRefs.current.delete(row.id);if (lifted) picked.current = node;if (index === 0) first.current = node;}} focusId={row.id} testID={`${testID}-row-${row.id}`}
           disabled={blocked || !!state.pickedId && !lifted} focusKind="row" focusRadius={16}
           hasTVPreferredFocus={index === 0 && !state.showConflict && !choosing} accessibilityLabel={title} accessibilityState={{selected: lifted}}
-          onPress={() => pickRow(row.id)} onAccessibilityAction={event => {
+          onPress={theme.isTV ? () => pickRow(row.id) : undefined} onAccessibilityAction={event => {
             if (event.nativeEvent.actionName === 'increment' || event.nativeEvent.actionName === 'decrement') {
-              if (!lifted) controller.pick(row.id);
+              if (!lifted && !controller.pick(row.id)) return;
+              if (controller.getSnapshot().pickedId !== row.id) return;
               controller.move(event.nativeEvent.actionName === 'increment' ? 1 : -1); controller.drop();
             }
           }} accessibilityActions={row.reorderable ? [{name: 'increment', label: defaultI18n.t('home.customize.moveDown', {title})}, {name: 'decrement', label: defaultI18n.t('home.customize.moveUp', {title})}] : []}
           style={{flex: 1, minHeight: rowHeight, flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 18 : 14, paddingLeft: theme.isTV ? 12 : 8}}>
-          {!theme.isTV && <View><Icon name="i-grip" size={20} color={lifted ? theme.colors.text : theme.colors.textTertiary}/></View>}
           <View style={{flex: 1}}><Text style={[nativeType({size: theme.isTV ? 26 : 16, weight: theme.isTV ? 600 : 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: row.hidden ? theme.colors.textTertiary : theme.colors.text}]}>{title}</Text>
             {!!detail && <Text style={[nativeType({size: theme.isTV ? 19 : 13, weight: 500, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary, marginTop: theme.isTV ? 1 : 4}]}>{detail}</Text>}
           </View>
         </Focusable>
-        {theme.isTV && row.savedView && <Focusable focusId={`${row.id}:remove`} testID={`${testID}-remove-${row.id}`} accessibilityRole="button"
+        {row.savedView && <Focusable focusId={`${row.id}:remove`} testID={`${testID}-remove-${row.id}`} accessibilityRole="button"
           accessibilityLabel={defaultI18n.t('home.customize.removeRow', {title})} disabled={blocked || !!state.pickedId}
           focusKind="button" focusRadius={21} onPress={() => {const neighbor = state.rows[index + 1]?.id ?? state.rows[index - 1]?.id;if (controller.removeSavedView(row.id)) requestAnimationFrame(() => {if (controller.isCurrent()) focusTarget(neighbor ? rowRefs.current.get(neighbor) ?? addView.current : addView.current);});}}
-          style={{width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center'}}>
+          style={{width: theme.isTV ? 42 : 44, height: theme.isTV ? 42 : 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center'}}>
           <Icon name="i-close" size={22} color={theme.colors.textTertiary}/>
         </Focusable>}
         {row.required ? <View style={{flexDirection: 'row', alignItems: 'center', gap: 9, paddingRight: 18}}><Icon name="i-lock" size={theme.isTV ? 18 : 14} color={theme.colors.textTertiary}/><Text style={[nativeType({size: theme.isTV ? 20 : 12, weight: 400, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary}]}>{copy.alwaysOn}</Text></View>
@@ -176,19 +207,26 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
             accessibilityLabel={defaultI18n.t('home.customize.showRow', {title})} onCheckedChange={() => controller.toggle(row.id)}/>}
       </View></View>;
     })}
-    {state.pickedId && targetY !== undefined && <View pointerEvents="none" style={{position: 'absolute', left: 12, right: 12, top: targetY - 3, height: 6, backgroundColor: theme.colors.accentStrong, borderRadius: 3}}/>}
+    {state.pickedId && targetY !== undefined && (theme.isTV ? <View pointerEvents="none" style={{position: 'absolute', left: 12, right: 12, top: targetY - 3, height: 6, backgroundColor: theme.colors.accentStrong, borderRadius: 3}}/>
+      : <View pointerEvents="none" style={{position: 'absolute', zIndex: 5, left: 4, right: 8, top: targetY - 2, height: 4, backgroundColor: theme.colors.accentStrong, borderRadius: 2,
+        boxShadow: [{offsetX: 0, offsetY: 0, blurRadius: 16, color: alpha(theme.colors.accentStrong, .6)}]}}>
+        <View style={{position: 'absolute', left: -6, top: -4, width: 12, height: 12, borderRadius: 6, backgroundColor: theme.colors.accentStrong}}/>
+      </View>)}
     {!state.pickedId && <Button ref={addView} focusId="add-view" variant="text" icon="i-plus" disabled={blocked || !!state.pickedId} onPress={() => {if (views) setChoosing(true); onAddView();}}>{copy.addView}</Button>}
   </ScrollView>;
+  const rows = theme.isTV ? rowList : <GestureDetector gesture={scrollGesture}>{rowList}</GestureDetector>;
   const footer = choosing ? <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 18}}>
     {views?.hasMore ? <Button focusId="views-more" testID={`${testID}-views-more`} variant="text" disabled={views.loading} onPress={views.loadMore}>{i18n.t('action.showMore')}</Button> : <View/>}
     <Button focusId="views-cancel" testID={`${testID}-views-cancel`} variant="glass" onPress={returnToAdd}>{i18n.t('action.cancel')}</Button>
-  </View> : state.pickedId ? undefined : state.showConflict ? <View style={{flexDirection: 'row', gap: 18}}><Button focusId="reload" ref={reload} disabled={state.pending || state.phase === 'loading'} onPress={() => {void controller.load();}}>{copy.reload}</Button><Button focusId="keep-editing" variant="glass" onPress={() => {controller.keepEditing();if (controller.isCurrent()) focusTarget(first.current ?? addView.current);}}>{copy.keepEditing}</Button></View> : <View style={{flexDirection: 'row', justifyContent: 'space-between', gap: 18}}>
-    <Button ref={resetButton} focusId="reset" variant="glass" disabled={blocked || !!state.pickedId} onPress={() => {const opening = controller.captureReset(state.layout);if (opening) {resetOwner.current = opening;setReset(opening);}}}>{i18n.t('action.resetToDefault')}</Button>
+  </View> : state.pickedId ? undefined : <View style={{flexDirection: 'row', justifyContent: 'space-between', gap: 18}}>
+    <Button ref={resetButton} focusId="reset" variant="glass" disabled={blocked || state.conflict || !!state.pickedId} onPress={() => {const opening = controller.captureReset(state.layout);if (opening) {resetOwner.current = opening;setReset(opening);}}}>{i18n.t('action.resetToDefault')}</Button>
     <Button focusId="save" disabled={blocked || state.conflict || !state.dirty || !!state.pickedId} loading={state.pending} onPress={() => {void controller.save().then(saved => {if (saved) onClose();});}}>{copy.save}</Button>
   </View>;
   const body = choosing && views ? views.loading && !views.items.length ? <View/> : views.error ? views.renderError(views.error, views.retry) : <HomeSavedViewChoices disabled={views.loading || blocked} summary={summary} views={views.items.filter(view => !state.rows.some(row => row.id === `view:${view.id}`))} hasMore={views.hasMore} i18n={i18n} firstRef={firstView}
     onChoose={view => {if (!controller.addSavedView(view, theme.isTV)) return; if (theme.isTV) returning.current = true; setChoosing(false);}}/> : <>{(notice || noticeAction) && <View style={{paddingVertical: 12, gap: 8}}>{notice && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{notice}</Text>}{noticeAction && <Button variant="text" onPress={noticeAction.onPress}>{noticeAction.label}</Button>}</View>}{state.showConflict && <View style={{paddingVertical: 20, flexDirection: 'row', gap: 16}}>
-    <Icon name="i-warn" size={30} color={theme.colors.textSecondary}/><View style={{flex: 1}}><Text style={[theme.type.title, {color: theme.colors.text}]}>{copy.conflictTitle}</Text><Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{copy.conflictBody}</Text></View>
+    <Icon name="i-warn" size={30} color={theme.colors.textSecondary}/><View style={{flex: 1, gap: 12}}><Text style={[theme.type.title, {color: theme.colors.text}]}>{copy.conflictTitle}</Text><Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{copy.conflictBody}</Text>
+      <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 18}}><Button focusId="reload" ref={reload} disabled={state.pending || state.phase === 'loading'} onPress={() => {void controller.load();}}>{copy.reload}</Button><Button focusId="keep-editing" variant="glass" onPress={() => {controller.keepEditing();if (controller.isCurrent()) focusTarget(first.current ?? addView.current);}}>{copy.keepEditing}</Button></View>
+    </View>
   </View>}{state.error && !state.showConflict && renderError?.(state.error, () => {if (state.phase === 'error') void controller.load();else {const saving = state.retry === 'save';void controller.retry().then(done => {if (done && saving && controller.isCurrent()) onClose();});}})}{rows}</>;
   return <>
     {theme.isTV && state.pickedId && <View pointerEvents="none" style={{position: 'absolute', left: 200, right: 960, bottom: 56, flexDirection: 'row', justifyContent: 'center', gap: 28}}>

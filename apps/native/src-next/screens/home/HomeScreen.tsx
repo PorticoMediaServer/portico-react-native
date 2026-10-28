@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {AppState, RefreshControl, Text, View, useWindowDimensions} from 'react-native';
-import Animated, {runOnJS, useAnimatedScrollHandler} from 'react-native-reanimated';
+import Animated, {runOnJS, useAnimatedScrollHandler, useSharedValue} from 'react-native-reanimated';
 import {heroSpec} from '@portico/design';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {HomeChannel, HomeRow} from '../../../../../packages/client-core/src/home';
@@ -37,6 +37,7 @@ import {HomeHeroFacts, HomeRemoteHint} from './HomeHeroFacts';
 import {authorizedHome, homeCardText, homePlayTarget, homeRowHasContent, pageAtVisibleEnd, platformRows} from './model';
 import {TvHomeRecovery} from './TvHomeRecovery';
 import {useTvHomeRecovery} from './useTvHomeRecovery';
+import {homeMountedRows, homeVisibleRange, type HomeRowBox} from './home-window';
 
 type HomeCandidate = HeroCandidate & {entry: ContentEntry; target?: ContentEntry; primaryLabel?: string};
 const noMixesSubscription = () => () => {};
@@ -57,7 +58,7 @@ export function homeRowSpacing(theme: Theme) {
 
 /** The hero reserves only its drawn height; the first row's 28 px gap comes from its own margin. */
 export function homeHeroBlock(theme: Theme, heroHeight: number, preview: boolean): number {
-  return theme.isTV ? (preview ? 588 : 820) : theme.platform === 'tablet' ? heroHeight : theme.layoutMode === 'phone' && theme.platform === 'phone' ? heroHeight : theme.layoutMode === 'desktop' ? heroHeight + theme.spec.shelf.homeOverlap : 588;
+  return theme.isTV ? (preview ? 588 : 820) : theme.platform === 'tablet' ? heroHeight : theme.layoutMode === 'phone' && theme.platform === 'phone' ? heroHeight : theme.layoutMode === 'desktop' ? heroHeight : 588;
 }
 
 /**
@@ -113,17 +114,18 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const theme = useTheme(), dimensions = useWindowDimensions(), t = runtime.text.t;
   const labels = useMemo(() => ({t, has: defaultI18n.has}), [t]);
   const desktop = theme.layoutMode === 'desktop', medium = theme.platform === 'tablet' && !theme.isTV;
+  const expandedTouch = desktop && !theme.isTV;
   // Confirmed Appearance effects: the drawn card is 100 percent, and the picture is drawn unless the viewer turned backdrops off.
   const cardScale = (runtime.appearanceCardSizePercent ?? 100) / 100, showBackdrops = runtime.appearanceShowBackdrops !== false;
   const windowWidth = theme.isTV ? 1920 : dimensions.width, windowHeight = theme.isTV ? 1080 : dimensions.height;
-  const tabletMedium = medium && mediumUprightTablet(windowWidth, windowHeight), mediumGutter = tabletMedium ? 28 : 24;
-  const heroHeight = theme.isTV ? 820 : medium ? mediumHeroHeight(windowWidth, windowHeight) : theme.spec.hero.homeHeight[theme.platform];
   const snapshot = useSyncExternalStore(runtime.home.subscribe, runtime.home.getSnapshot);
   // foldable7: on a real vertical crease the medium hero keeps its words on the left
   // page and its picture on the right, so the title never sits across the fold.
   const posture = usePlatformPosture();
   const crease = medium && posture.status === 'available' && posture.window?.width === windowWidth && posture.window.height === windowHeight
     ? posture.folds.find(value => value.orientation === 'vertical' && value.bounds.left > 0 && value.bounds.right > value.bounds.left && value.bounds.right <= windowWidth) : undefined;
+  const tabletMedium = medium && !crease && mediumUprightTablet(windowWidth, windowHeight), mediumGutter = tabletMedium ? 28 : 24;
+  const heroHeight = theme.isTV ? 820 : expandedTouch ? 440 : tabletMedium ? 560 : medium ? mediumHeroHeight(windowWidth, windowHeight) : theme.spec.hero.homeHeight[theme.platform];
   const heroActive = active && !heroObscured && !runtime.getSnapshot().selectionActive;
   // states 4b: a page already read may stay on screen only for a positively known
   // transport failure. A refusal, permission, missing or invalid answer takes the
@@ -155,6 +157,10 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     return () => {releaseRailDim?.(railLease);};
   }, [railLease, holdRailDim, releaseRailDim]);
   const [heroVisible, setHeroVisible] = useState(true), [visibleRows, setVisibleRows] = useState<ReadonlySet<string>>(new Set());
+  const [visibleRange, setVisibleRange] = useState<readonly [number, number]>([0, 0]);
+  const [measuredRows, setMeasuredRows] = useState<Readonly<{layout: string; boxes: ReadonlyMap<string, {y: number; height: number}>}>>({layout: '', boxes: new Map()});
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Shelf offsets belong to this authority.
+  const shelfOffsets = useMemo(() => new Map<string, {offset: number}>(), [authority]);
   const [focus, setFocusState] = useState<{rowId: string; entryId: string}>(), [heroFocused, setHeroFocused] = useState(false), [repeating, setRepeating] = useState(false);
   const focusTarget = useRef<typeof focus>(undefined), canAnchor = useRef(false);
   canAnchor.current = theme.isTV && active && !railExpanded;
@@ -166,7 +172,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const [refreshing, setRefreshing] = useState(false);
   const scrolled = useRef(false);
   const initialEntry = useMemo(() => createInitialRegionEntry(registry, ids.spotlight), [registry, ids.spotlight]);
-  const rowPositions = useRef(new Map<string, {y: number; height: number}>()), offset = useRef(0);
+  const rowPositions = useRef(new Map<string, {y: number; height: number}>());
   const vertical = useFocusAnchor(false, theme.isTV && active);
   const moveToTop = vertical.move;
   useEffect(() => !theme.isTV ? runtime.registerScrollToTop({kind: 'home'}, () => moveToTop(0, true)) : undefined, [runtime, moveToTop, theme.isTV]);
@@ -198,6 +204,35 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const occupied = theme.isTV && (registry.isRegionActive(ids.spotlight) || previousRows.current.some(row => registry.isRegionActive(ids.row(row.id))));
   const rows = theme.isTV ? tvHomeRows(previousRows.current, incomingRows, rowId => registry.isRegionActive(ids.row(rowId)), occupied) : incomingRows;
   previousRows.current = rows;
+  const rowLayoutKey = `${windowWidth}:${windowHeight}:${dimensions.fontScale}:${theme.textScale}:${cardScale}:${theme.platform}:${theme.layoutMode}:${tabletMedium}`;
+  const rowModels = rows.map(row => {
+    const presentation = homeRowPresentation(row), wide = row.artworkShape === 'landscape', square = row.artworkShape === 'square';
+    const ranked = presentation.cards.some(card => card.rank !== undefined);
+    const drawnWidth = ranked ? theme.isTV ? 318 : desktop ? theme.spec.shelf.rank.width : 186
+      : wide ? medium ? mediumCardWidth(true, tabletMedium) : desktop ? 262 : theme.spec.card.width.wide[theme.platform]
+      : square ? desktop ? 150 : theme.spec.card.width.square[theme.platform] : medium ? mediumCardWidth(false, tabletMedium) : desktop ? 150 : theme.spec.card.width.poster[theme.platform];
+    const width = cardScale === 1 ? drawnWidth : Math.round(drawnWidth * cardScale);
+    const posterWidth = ranked ? Math.round((theme.isTV ? 214 : desktop ? theme.spec.shelf.rank.posterWidth : 116) * cardScale) : width;
+    const height = wide ? width * 9 / 16 : square ? width + (theme.isTV ? 80 : 54) : posterWidth * 1.5 + (theme.isTV ? 80 : 48);
+    const cardHeight = row.live ? theme.isTV ? 225 : desktop ? theme.spec.card.live.height.web : theme.spec.card.live.height.phone : height;
+    const top = theme.isTV ? Math.ceil(cardHeight * (theme.spec.focus.scale.card.tv - 1) / 2 + (theme.spec.focus.offsetOuter.tv + theme.spec.focus.ringWidth.tv) * theme.spec.focus.scale.card.tv) : theme.spec.shelf.phonePaddingTop;
+    const estimatedHeight = row.collection ? theme.isTV ? 360 : 236 : (theme.type.rowHeading.lineHeight ?? (theme.type.rowHeading.fontSize ?? 24) * 1.4)
+      + theme.spec.shelf.headingMargin[theme.platform] + cardHeight + (theme.isTV ? Math.max(14, top) : top + theme.spec.shelf.phonePaddingBottom);
+    return {row, presentation, width, height, slotHeight: measuredRows.layout === rowLayoutKey ? measuredRows.boxes.get(row.id)?.height ?? estimatedHeight : estimatedHeight};
+  });
+  let rowY = homeHeroBlock(theme, heroHeight, rows.some(row => row.id === focus?.rowId && row.entries.some(entry => entry.id === focus?.entryId)));
+  const spacing = homeRowSpacing(theme);
+  const rowBoxes: readonly HomeRowBox[] = rowModels.map(({row, slotHeight}) => {
+    rowY += spacing.marginTop ?? 0;
+    const measured = measuredRows.layout === rowLayoutKey ? measuredRows.boxes.get(row.id) : undefined;
+    const box = {id: row.id, y: measured?.y ?? rowY, height: slotHeight};
+    rowY = box.y + slotHeight + (spacing.marginBottom ?? 0);
+    return box;
+  });
+  const boxesRef = useRef(rowBoxes), scrollBoxes = useSharedValue<readonly HomeRowBox[]>([]), reportedRange = useSharedValue('');
+  boxesRef.current = rowBoxes;
+  const capturedRegion = registry.capture()?.regionId;
+  const mountedRows = homeMountedRows(rows.length, visibleRange[0], visibleRange[1], [rows.findIndex(row => row.id === focus?.rowId), rows.findIndex(row => ids.row(row.id) === capturedRegion)]);
   const mixes = useSyncExternalStore(runtime.mixes?.subscribe ?? noMixesSubscription, runtime.mixes?.getSnapshot ?? noMixesSnapshot);
   const hasMixes = mixes?.phase === 'ready' && mixes.rows.length > 0;
   const regionMap = tvHomeRegionMap(authority, [...rows.map(row => row.id), ...(hasMixes ? [mixesFocusRow] : [])]);
@@ -236,14 +271,22 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     return () => clearTimeout(timer);
   }, [active, current, document, foreground, runtime]);
   const updateViewport = useCallback((y: number) => {
-    offset.current = y;
+    if (startModel.actionless) return;
     setHeroVisible(y < heroHeight);
     if (scrolled.current !== (y > 0)) {scrolled.current = y > 0; onScrolledChange?.(scrolled.current);}
-    const visible = new Set<string>();
-    for (const [id, box] of rowPositions.current) if (box.y + box.height > y && box.y < y + viewportHeight - bottomInset) visible.add(id);
+    const boxes = boxesRef.current, range = homeVisibleRange(boxes, y, viewportHeight - bottomInset);
+    const visible = new Set(boxes.slice(range[0], range[1] + 1).map(box => box.id));
+    setVisibleRange(previous => previous[0] === range[0] && previous[1] === range[1] ? previous : range);
     setVisibleRows(previous => previous.size === visible.size && [...visible].every(id => previous.has(id)) ? previous : visible);
-  }, [bottomInset, heroHeight, onScrolledChange, viewportHeight]);
-  const onScroll = useAnimatedScrollHandler(event => {vertical.offset.value = event.contentOffset.y; runOnJS(updateViewport)(event.contentOffset.y);});
+  }, [bottomInset, heroHeight, onScrolledChange, startModel.actionless, viewportHeight]);
+  useLayoutEffect(() => {scrollBoxes.value = rowBoxes; reportedRange.value = ''; updateViewport(vertical.offset.value);}, [rowBoxes, scrollBoxes, reportedRange, updateViewport, vertical.offset]);
+  const onScroll = useAnimatedScrollHandler(event => {
+    const y = event.contentOffset.y;
+    vertical.offset.value = y;
+    const range = homeVisibleRange(scrollBoxes.value, y, viewportHeight - bottomInset);
+    const next = `${range[0]}:${range[1]}:${y < heroHeight}:${y > 0}`;
+    if (reportedRange.value !== next) {reportedRange.value = next; runOnJS(updateViewport)(y);}
+  });
   const focusedRow = rows.find(row => row.id === focus?.rowId), focusedEntry = focusedRow?.entries.find(entry => entry.id === focus?.entryId);
   const preview = focusedEntry ? {
     id: focusedEntry.id, title: homeCardText(focusedEntry, true, runtime.text).title, entry: focusedEntry,
@@ -251,10 +294,10 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     target: focusedRow && homePlayTarget(focusedRow, focusedEntry),
   } satisfies HomeCandidate : undefined;
   const candidates: readonly HomeCandidate[] = useMemo(() => document ? homeSpotlightModels(document).map(model => ({
-    id: model.entry.id, title: model.entry.displayTitle || model.entry.title, entry: model.entry, overview: model.overview,
+    id: model.entry.id, title: model.entry.displayTitle || model.entry.title, long: expandedTouch && (model.entry.displayTitle || model.entry.title).length > 20, entry: model.entry, overview: model.overview,
     reason: serverTextLabel(labels, model.reason.text), facts: homeTitleFactParts(model.entry, runtime.text),
     target: model.primary?.entry, primaryLabel: model.primary ? t(model.primary.label.key, model.primary.label.params) : undefined,
-  })) : [], [document, runtime.text, labels, t]);
+  })) : [], [document, expandedTouch, runtime.text, labels, t]);
   useEffect(() => {
     if (!theme.isTV) return;
     const request = () => {
@@ -277,8 +320,8 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     const art = <AmbientArt source={runtime.ambient(candidate.entry.backdropUrl ?? candidate.entry.posterUrl)}
       foreground={showBackdrops ? runtime.artwork(candidate.entry.backdropUrl ?? candidate.entry.posterUrl) : undefined} treatment={theme.layoutMode === 'phone' ? 'phone' : 'hero'} visible={active && foreground && context.visible} priority
       onReady={context.onReady} onFallbackReady={context.onReady} onError={context.onError} foregroundStyle={context.foregroundStyle} width={crease ? Math.max(0, windowWidth - crease.bounds.right) : viewportWidth} height={theme.isTV ? 900 : heroHeight}
-      foregroundFraction={medium ? mediumBackdropFraction(windowWidth, windowHeight) : undefined} foregroundFade={medium ? 'left' : undefined}
-      position={medium ? {x: 0.38, y: 0.22} : undefined}/>;
+      foregroundFraction={expandedTouch ? .74 : medium && !tabletMedium ? mediumBackdropFraction(windowWidth, windowHeight) : undefined} foregroundFade={medium && !tabletMedium || expandedTouch ? 'left' : undefined}
+      position={tabletMedium ? {x: .36, y: .28} : medium ? {x: 0.38, y: 0.22} : undefined}/>;
     return crease ? <View style={{position: 'absolute', left: crease.bounds.right, right: 0, top: 0, height: heroHeight}}>{art}</View> : art;
   };
   const activate = (entry: ContentEntry, target: ContentEntry | undefined) => guarded(() => {
@@ -288,9 +331,9 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     const {offers, order} = homeSpotlightFocusActions(candidate.entry, candidate.target, {platform: theme.isTV ? 'tv' : 'phone-app', playbackAvailable: !!runtime.playback});
     return <HomeRegion focus={theme.isTV ? {...regionMap.spotlight, entry: order[0], orientation: 'horizontal', order,
       style: {flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 18 : 12}} : undefined}>
-      {offers.playable && candidate.target?.playback && <Button focusId="play" icon="i-play" variant="primary" size="hero" onFocus={() => {initialEntry.finish(); setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => activate(candidate.entry, candidate.target)}
+      {offers.playable && candidate.target?.playback && <Button focusId="play" icon="i-play" variant="primary" size="hero" style={tabletMedium || expandedTouch ? {height: undefined, minHeight: tabletMedium ? 52 : 48, paddingHorizontal: tabletMedium ? 26 : 22, borderRadius: 12} : undefined} textStyle={tabletMedium || expandedTouch ? {fontSize: 16 * theme.textScale} : undefined} onFocus={() => {initialEntry.finish(); setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => activate(candidate.entry, candidate.target)}
         onLongPressAction={theme.isTV ? () => guarded(() => runtime.actions.more(candidate.entry)) : undefined}>{candidate.primaryLabel ?? t('next.home.play')}</Button>}
-      {offers.watchlisted !== undefined && <Button focusId="my-list" icon={offers.watchlisted ? 'i-check' : 'i-plus'} variant="glass" size="hero" onFocus={() => {initialEntry.finish(); setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => {
+      {offers.watchlisted !== undefined && <Button focusId="my-list" icon={offers.watchlisted ? 'i-check' : 'i-plus'} variant="glass" size="hero" style={tabletMedium || expandedTouch ? {height: undefined, minHeight: tabletMedium ? 52 : 48, paddingHorizontal: tabletMedium ? 26 : 22, borderRadius: 12} : undefined} textStyle={tabletMedium || expandedTouch ? {fontSize: 16 * theme.textScale} : undefined} onFocus={() => {initialEntry.finish(); setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => {
         if (current()) void runtime.actions.myList(candidate.entry, !offers.watchlisted).then(() => {if (current()) return runtime.home.revalidate();}).catch(runtime.reportError);
       }}>{t('next.home.myList')}</Button>}
       {theme.isTV && offers.details && <Button focusId="details" variant="glass" size="hero" onFocus={() => {initialEntry.finish(); setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => guarded(() => runtime.actions.navigate(candidate.entry))}>{t('action.details')}</Button>}
@@ -310,9 +353,16 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   };
   const spotlight = <Hero candidates={candidates} activeIndex={activeIndex} onIndexChange={setActiveIndex} heroFocused={heroFocused && !railExpanded}
     testID={theme.isTV ? ids.surface('hero') : undefined} active={heroActive && (!theme.isTV || !preview)} visible={active && foreground && heroVisible} variant={theme.isTV ? 'tv' : desktop ? 'desktop' : 'phone-app'} height={heroHeight}
-    copySide={medium ? mediumCopySide(windowWidth, windowHeight) : undefined} lockupStyle={medium ? mediumLockupStyle(theme, windowWidth, windowHeight) : undefined}
-    renderArtwork={renderArtwork} renderMetadata={candidate => <HomeHeroFacts facts={candidate.facts ?? []}/>} renderActions={heroActions}
-    renderThumbnail={candidate => <Artwork source={runtime.artwork(candidate.entry.backdropUrl ?? candidate.entry.posterUrl)} width={heroSpec.thumbnail.width} height={heroSpec.thumbnail.height}/>}
+    copySide={expandedTouch ? {inset: 32, width: 440, bottom: 118} : medium && !tabletMedium ? mediumCopySide(windowWidth, windowHeight) : undefined}
+    copyStyle={tabletMedium ? {left: 56, right: 56, bottom: 44} : undefined}
+    lockupStyle={expandedTouch || tabletMedium ? {...nativeType({size: tabletMedium ? 62 : 58, weight: 800, tracking: -.04, lineHeight: (tabletMedium ? 62 : 58) * 1.02}, theme.textScale), marginBottom: 12} : medium ? mediumLockupStyle(theme, windowWidth, windowHeight) : undefined}
+    longLockupStyle={expandedTouch ? nativeType({size: 46, weight: 800, tracking: -.04, lineHeight: 46.92}, theme.textScale) : undefined}
+    reasonTextStyle={expandedTouch || tabletMedium ? {...nativeType({size: tabletMedium ? 15 : 14, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), marginBottom: 10} : undefined}
+    metadataStyle={expandedTouch || tabletMedium ? {marginBottom: tabletMedium ? 20 : 12} : undefined}
+    overviewTextStyle={expandedTouch ? {...nativeType({size: 15, weight: 400, tracking: 0, lineHeight: 22.5}, theme.textScale), marginBottom: 18, maxWidth: 372} : undefined}
+    dotsStyle={tabletMedium ? {marginTop: 20} : undefined} thumbnailSize={expandedTouch ? {width: 104, height: 58, labelSize: 11.5, bottom: 20, gap: 10, right: 32} : undefined}
+    renderArtwork={renderArtwork} renderMetadata={candidate => <HomeHeroFacts facts={candidate.facts ?? []} centered={tabletMedium ? true : undefined} fontSize={expandedTouch ? 14 : tabletMedium ? 15 : undefined}/>} renderActions={heroActions}
+    renderThumbnail={candidate => <Artwork source={runtime.artwork(candidate.entry.backdropUrl ?? candidate.entry.posterUrl)} width={expandedTouch ? 104 : heroSpec.thumbnail.width} height={expandedTouch ? 58 : heroSpec.thumbnail.height}/>}
     onArtworkError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/>;
   const contentHeight = useRef(viewportHeight);
   const mixesContent = runtime.mixes ? <MusicMixesRow focusScope={`home:${authorityKey(authority)}.mixes`} port={runtime.mixes} artwork={runtime.artwork} reportError={runtime.reportError} title={t('music.mixesForYou')} onOpen={runtime.musicDiscover} active={active}
@@ -344,19 +394,14 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
         renderHint={candidate => <HomeRemoteHint resume={!!candidate.target?.progressSeconds} text={runtime.text}/>}
         onPreviewError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/></View>}
     </View>
-    {rows.map((row, rowIndex) => {
+    {rowModels.map(({row, presentation, width, height, slotHeight}, rowIndex) => {
       const sourceRow = document.rows.find(value => value.id === row.id);
       if (!sourceRow) return null;
+      if (!mountedRows.has(rowIndex)) return <View key={row.id} style={homeRowSpacing(theme)}><View style={{height: slotHeight}}/></View>;
+      let scrollMemory = theme.isTV ? undefined : shelfOffsets.get(row.id);
+      if (!theme.isTV && !scrollMemory) {scrollMemory = {offset: 0}; shelfOffsets.set(row.id, scrollMemory);}
       const physicalIds = theme.isTV ? row.live ? row.live.channels.map(item => JSON.stringify([item.channel.sourceId, item.channel.id])) : row.entries.map(entry => entry.id) : undefined;
       const shown = active && foreground && (visibleRows.has(row.id) || !rowPositions.current.has(row.id) && rowIndex === 0);
-      const presentation = homeRowPresentation(row), wide = row.artworkShape === 'landscape', square = row.artworkShape === 'square';
-      const ranked = presentation.cards.some(card => card.rank !== undefined);
-      const drawnWidth = ranked ? theme.isTV ? 318 : desktop ? theme.spec.shelf.rank.width : 186
-        : wide ? medium ? mediumCardWidth(true, tabletMedium) : desktop ? 262 : theme.isTV ? theme.spec.card.width.wide[theme.platform] : theme.spec.card.width.phoneMockWide
-        : square ? desktop ? 150 : theme.spec.card.width.square[theme.platform] : medium ? mediumCardWidth(false, tabletMedium) : desktop ? 150 : theme.spec.card.width.poster[theme.platform];
-      const width = cardScale === 1 ? drawnWidth : Math.round(drawnWidth * cardScale);
-      const posterWidth = ranked ? Math.round((theme.isTV ? 214 : desktop ? theme.spec.shelf.rank.posterWidth : 116) * cardScale) : width;
-      const height = wide ? width * 9 / 16 : square ? width + (theme.isTV ? 80 : 54) : posterWidth * 1.5 + (theme.isTV ? 80 : 48);
       const pending = pages.state(row.id), waitingItem = presentation.cards.at(-1);
       const waitingId = pending?.loading ? pending.waitingId : ids.page(row.id, row.nextCursor);
       const paging = theme.isTV && waitingItem && !row.live && !row.collection ? {hasMore: !!row.nextCursor || !!pending?.loading,
@@ -372,18 +417,24 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
       const visibleKeys = (keys: readonly string[]) => {if (!current()) return; const before = ranges.current.get(row.id) ?? {first: 0, last: -1};
         ranges.current.set(row.id, {...before, keys}); runtime.setHomeWindow(sourceRow, rowIndex, before.first, before.last, shown, physicalIds, retainedIds, keys);};
       return <HomeWindow key={row.id} runtime={runtime} row={sourceRow} sectionOrder={rowIndex} visible={shown} physicalIds={physicalIds} retainedIds={retainedIds} range={ranges.current.get(row.id)}><View onLayout={event => {const box = event.nativeEvent.layout;
-        rowPositions.current.set(row.id, box); updateViewport(offset.current);
+        rowPositions.current.set(row.id, box);
+        setMeasuredRows(before => {
+          const measured = before.layout === rowLayoutKey ? before.boxes.get(row.id) : undefined;
+          if (measured?.y === box.y && measured.height === box.height) return before;
+          const boxes = new Map(before.layout === rowLayoutKey ? before.boxes : []); boxes.set(row.id, {y: box.y, height: box.height});
+          return {layout: rowLayoutKey, boxes};
+        });
         // Initial focus can precede the compact hero layout. Re-anchor against
         // this measured box rather than retaining the previous hero's offset.
         if (canAnchor.current && focus?.rowId === row.id && focusTarget.current?.rowId === row.id && current()) vertical.anchor(box.y, box.height, viewportHeight, contentHeight.current, 588, 96);}} style={homeRowSpacing(theme)}>
-        {row.live ? <HomeLiveRow row={row} runtime={runtime} visible={shown} itemWidth={theme.isTV ? 400 : desktop ? theme.spec.card.live.width.web : theme.spec.card.live.width.phone} onRange={range} onVisibleKeys={visibleKeys} onItemFocus={item => onRowFocus(row, JSON.stringify([item.channel.sourceId, item.channel.id]))} current={current} focus={theme.isTV ? regionMap.rows.get(row.id) : undefined} viewportWidth={viewportWidth} tabletMedium={tabletMedium}/>
+        {row.live ? <HomeLiveRow row={row} runtime={runtime} visible={shown} itemWidth={theme.isTV ? 400 : desktop ? theme.spec.card.live.width.web : theme.spec.card.live.width.phone} onRange={range} onVisibleKeys={visibleKeys} onItemFocus={item => onRowFocus(row, JSON.stringify([item.channel.sourceId, item.channel.id]))} current={current} focus={theme.isTV ? regionMap.rows.get(row.id) : undefined} viewportWidth={viewportWidth} tabletMedium={tabletMedium} scrollMemory={scrollMemory}/>
           : row.collection ? <HomeRegion focus={theme.isTV ? {...regionMap.rows.get(row.id)!, orientation: 'horizontal', order: [ids.collection(row.collection)]} : undefined}><FocusItem focusId={ids.collection(row.collection)}><View style={{paddingHorizontal: theme.gutter}}><HomeCollectionCard row={row} runtime={runtime}
             width={viewportWidth - theme.gutter - (theme.isTV ? 96 : theme.gutter)} visible={shown} current={current} onFocus={() => onRowFocus(row, row.collection!.collection.id)}/></View></FocusItem></HomeRegion>
-          : <Row title={title} subtitle={rowSubtitle} items={presentation.cards} getKey={homeCardKey} getFocusId={homeCardFocusId} focus={theme.isTV ? regionMap.rows.get(row.id) : undefined} initialViewportWidth={viewportWidth} testID={theme.isTV ? ids.row(row.id) : undefined} itemWidth={width} itemHeight={height} captionHeight={wide ? 0 : theme.isTV ? 80 : square ? 54 : 48}
+          : <Row title={title} subtitle={rowSubtitle} items={presentation.cards} getKey={homeCardKey} getFocusId={homeCardFocusId} focus={theme.isTV ? regionMap.rows.get(row.id) : undefined} initialViewportWidth={viewportWidth} scrollMemory={scrollMemory} testID={theme.isTV ? ids.row(row.id) : undefined} itemWidth={width} itemHeight={height} captionHeight={row.artworkShape === 'landscape' ? 0 : theme.isTV ? 80 : row.artworkShape === 'square' ? 54 : 48}
             gutter={medium ? mediumGutter : theme.gutter} rightGutter={medium ? mediumGutter : theme.isTV ? 96 : theme.gutter} gap={medium ? 14 : undefined} headingStyle={medium ? mediumHeadingStyle : undefined} selection={runtime.selection(row.id)} paging={paging} onVisibleRange={range} onVisibleKeys={visibleKeys}
             onSeeAll={row.seeAll ? () => guarded(() => runtime.actions.seeAll(row.seeAll!)) : undefined} onRepeatingChange={setRepeating}
             onItemFocus={item => onRowFocus(row, item.entry.id)} renderItem={(item, context) => <View style={theme.fontScale > 1 || theme.textScale > 1 ? {width, minHeight: height} : {width, height}}><LoadingPaint ready={!context.waiting} immediate={!context.waiting} skeleton={<View style={{backgroundColor: theme.colors.ink}}><SkeletonBlock width={width} height={height}/></View>}><HomeCard runtime={runtime} row={row} entry={item.entry} rank={item.rank} context={context}
-              width={width} rowIndex={rowIndex} visible={shown} preferred={false}
+              width={width} rowIndex={rowIndex} visible={shown} preferred={false} medium={medium}
               current={current}/></LoadingPaint></View>}/>}
       </View></HomeWindow>;
     })}
@@ -457,7 +508,7 @@ function HomeCard({runtime, row, entry, rank, context, width, rowIndex, visible,
   const actions = play && (theme.isTV || row.kind === 'continue') ? {primaryAction: 'play' as const, onPlay: play, onNavigate: navigate}
     : {primaryAction: 'navigate' as const, onNavigate: navigate, ...(play ? {onPlay: play} : {})};
   const props: CardProps = {...cardText, ...actions, width, visible, onFocus: context.onFocus, onBlur: context.onBlur, selection: context.selection, hasTVPreferredFocus: preferred, testID: context.testID,
-    ...(medium ? {titleTextStyle: mediumCardType.title, captionTextStyle: mediumCardType.caption} : {}),
+    ...(medium ? {titleTextStyle: mediumCardType.title, captionTextStyle: mediumCardType.caption, titleMargin: 9} : {}),
     menuAnchorRef: anchor, moreExpanded: runtime.selection(row.id).isMenuOpen?.(entry.id),
     accessibilityState: {expanded: !!runtime.selection(row.id).isMenuOpen?.(entry.id)},
     onMore: () => {if (current()) runtime.actions.more(entry, row.id, anchor);}};
@@ -480,7 +531,7 @@ function HomeCollectionCard({row, runtime, width, visible, current, onFocus}: {r
     primaryAction="navigate" onNavigate={() => {if (current()) runtime.actions.openCollection(collection);}}/>;
 }
 
-function HomeLiveRow({row, runtime, visible, itemWidth, onRange, onVisibleKeys, onItemFocus, current, focus, viewportWidth, tabletMedium}: {row: HomeRow; runtime: NativeShellRuntime; visible: boolean; itemWidth: number; onRange: (first: number, last: number) => void; onVisibleKeys: (keys: readonly string[]) => void; onItemFocus: (item: HomeChannel) => void; current: () => boolean; focus?: Omit<FocusRegionProps, 'children' | 'order' | 'orientation'>; viewportWidth: number; tabletMedium: boolean}) {
+function HomeLiveRow({row, runtime, visible, itemWidth, onRange, onVisibleKeys, onItemFocus, current, focus, viewportWidth, tabletMedium, scrollMemory}: {row: HomeRow; runtime: NativeShellRuntime; visible: boolean; itemWidth: number; onRange: (first: number, last: number) => void; onVisibleKeys: (keys: readonly string[]) => void; onItemFocus: (item: HomeChannel) => void; current: () => boolean; focus?: Omit<FocusRegionProps, 'children' | 'order' | 'orientation'>; viewportWidth: number; tabletMedium: boolean; scrollMemory?: {offset: number}}) {
   const theme = useTheme(), live = row.live!, labels = {t: runtime.text.t, has: defaultI18n.has}, medium = theme.platform === 'tablet' && !theme.isTV, mediumGutter = tabletMedium ? 28 : 24;
   // Projection time, expiry and server-issued marks define the bounded row. No lineup scan.
   const observed = Date.parse(live.observedAt);
@@ -490,7 +541,7 @@ function HomeLiveRow({row, runtime, visible, itemWidth, onRange, onVisibleKeys, 
   const rowSubtitle = subtitle && theme.layoutMode === 'phone' && theme.platform === 'phone'
     ? <Text numberOfLines={1} style={[homeRowSubtitle(theme), {color: theme.colors.textTertiary, includeFontPadding: false}]}>{subtitle}</Text>
     : undefined;
-  return <Row title={serverTextLabel(labels, row.titleText, row.title)} subtitle={rowSubtitle} items={live.channels} getKey={homeChannelKey} getFocusId={homeChannelFocusId} focus={focus} initialViewportWidth={viewportWidth}
+  return <Row title={serverTextLabel(labels, row.titleText, row.title)} subtitle={rowSubtitle} items={live.channels} getKey={homeChannelKey} getFocusId={homeChannelFocusId} focus={focus} initialViewportWidth={viewportWidth} scrollMemory={scrollMemory}
     itemWidth={itemWidth} itemHeight={theme.isTV ? 225 : theme.layoutMode === 'desktop' ? theme.spec.card.live.height.web : theme.spec.card.live.height.phone} selection={runtime.selection(row.id)} onVisibleRange={onRange} onVisibleKeys={onVisibleKeys} onItemFocus={onItemFocus}
     gutter={medium ? mediumGutter : undefined} rightGutter={medium ? mediumGutter : undefined} gap={medium ? 14 : undefined} headingStyle={medium ? mediumHeadingStyle : undefined}
     onSeeAll={row.seeAll ? () => {if (current()) runtime.actions.seeAll(row.seeAll!);} : undefined}

@@ -16,7 +16,7 @@ import {createToastClock} from './toast-clock';
 import {alpha, useSurfaceMotion} from './surface';
 import type {BannerProps, ToastHostProps, ToastMessage, ToastProps} from './types';
 
-export function Toast({id, message, accessibilityLabel, icon, leading, action, onDismiss, onPauseChange, testID}: ToastProps) {
+export function Toast({id, message, accessibilityLabel, icon, leading, action, actionOnTV = false, onDismiss, onPauseChange, testID}: ToastProps) {
   const theme = useTheme();
   const motion = useMotion();
   const x = useSharedValue(0);
@@ -47,12 +47,12 @@ export function Toast({id, message, accessibilityLabel, icon, leading, action, o
   const drag = useAnimatedStyle(() => ({opacity: opacity.value, transform: [{translateX: x.value}, {translateY: y.value}]}));
   return <GestureDetector gesture={pan}><Animated.View testID={testID} accessible focusable={false} accessibilityLabel={accessibilityLabel ?? (typeof message === 'string' ? message : undefined)} accessibilityLiveRegion="polite" style={[{flexDirection: 'row', alignItems: 'center', gap: 14, borderRadius: theme.isTV ? 20 : 14, overflow: 'hidden', padding: theme.isTV ? 20 : 10, paddingLeft: theme.isTV ? 28 : 18, backgroundColor: alpha(theme.colors.raisedBright, 0.95), borderColor: alpha(theme.colors.text, 0.1), borderWidth: 1, maxWidth: theme.isTV ? 900 : 560}, drag]}
     onTouchStart={() => pause(true, 'touch')} onTouchEnd={() => pause(false, 'touch')} onTouchCancel={() => pause(false, 'touch')}
-    accessibilityActions={[{name: 'dismiss', label: defaultI18n.t('next.overlays.native.dismissToast')}, ...(action ? [{name: 'activate', label: action.label}] : [])]}
+    accessibilityActions={[{name: 'dismiss', label: defaultI18n.t('next.overlays.native.dismissToast')}, ...(action && (!theme.isTV || actionOnTV) ? [{name: 'activate', label: action.label}] : [])]}
     onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'activate' && action) {action.onPress(); onDismiss(id, 'action');} else if (event.nativeEvent.actionName === 'dismiss') onDismiss(id, 'accessibility');}}>
     {recipe.nativeBlur && <BlurView pointerEvents="none" style={StyleSheet.absoluteFill} blurType="dark" blurAmount={24} reducedTransparencyFallbackColor={theme.colors.raisedBright}/>}
     {leading}{icon && <Icon name={icon} size={theme.isTV ? 28 : 20} color={theme.colors.accentStrong}/>}
     <Text accessibilityLabel={accessibilityLabel} numberOfLines={1} style={[theme.isTV ? theme.type.body : nativeType({size: 14.5, lineHeight: 'normal', weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textSecondary, flexShrink: 1}]}>{message}</Text>
-    {action && !theme.isTV && <Button variant="glass" size="small" onFocus={() => pause(true, 'focus')} onBlur={() => pause(false, 'focus')} onPress={() => {action.onPress(); onDismiss(id, 'action');}}>{action.label}</Button>}
+    {action && (!theme.isTV || actionOnTV) && <Button variant="glass" size="small" onFocus={() => pause(true, 'focus')} onBlur={() => pause(false, 'focus')} onPress={() => {action.onPress(); onDismiss(id, 'action');}}>{action.label}</Button>}
   </Animated.View></GestureDetector>;
 }
 
@@ -95,7 +95,7 @@ export function ToastHost({toast, onDismiss, bottomOffset = 84, obstructionTop, 
   const dismissRef = useRef(dismiss);
   dismissRef.current = dismiss;
   const [clock] = useState(() => createToastClock({now: Date.now, schedule: (run, delay) => setTimeout(run, delay), cancel: handle => clearTimeout(handle as ReturnType<typeof setTimeout>)}, id => dismissRef.current(id, 'timeout')));
-  const hasAction = Boolean(displayed?.action && !theme.isTV);
+  const hasAction = Boolean(displayed?.action && (!theme.isTV || displayed.actionOnTV));
   const accessibleAction = Boolean(displayed?.action);
   useEffect(() => {clock.pause('screen-reader', accessibleAction && screenReader);}, [clock, accessibleAction, screenReader]);
   useEffect(() => {

@@ -17,10 +17,14 @@ import {createNativeSavedState} from './state';
 import {nativeSavedRouteTarget, openNativeSavedView, type NativeSavedRouteTarget} from './navigation';
 import type {NativeSavedDownloadsCopy} from './SavedDownloadCard';
 import {nativeScreenServices} from '../native-screen-services';
-import {createNativeSavedSelection} from './selection';
+import {createNativeSavedSelection, createNativeSavedViewSelection} from './selection';
+import {NativeSavedViewDestination} from './view-model';
+import {createNativeEntryActions} from '../destinations/entry-actions';
+import type {SavedRoute} from '../../../../../packages/client-core/src/saved';
 import {createNativeDownloadsView} from '../downloads/view';
 import {NativeHomeSavedViewSummaries} from '../home/saved-view-summaries';
 import {createNativeSavedDirectoryCommands} from './directory-commands';
+import {createNativeSavedViewSummaryOwner} from './view-summary-owner';
 
 const savedDownloadsCopy: NativeSavedDownloadsCopy = Object.freeze({downloading: 'next.saved.phone.downloading'});
 const onThisPhone: MessageId = 'next.saved.phone.onThisPhone';
@@ -68,7 +72,8 @@ export function createNativeSavedModule(context: NativeShellBootstrapContext): N
       if (Platform.isTV) return null;
       return <SavedScreen destination={state.source} runtime={runtime} device={state.offline} actions={state.actions} selection={savedSelection()}
         downloadsCopy={savedDownloadsCopy} onThisPhone={onThisPhone} activation={state.activation}
-        downloads={Platform.isTV ? undefined : value => inlineDownloads().render(value, true)}/>;
+        downloads={Platform.isTV ? undefined : value => inlineDownloads().render(value, true)}
+        tabBody={(tab, value) => <SavedInlineHost key={tab} tab={tab} context={context} runtime={value} activation={state.activation} open={open} changed={changed}/>}/>;
     },
     renderRetained: runtime => {
       if (!current()) return null;
@@ -85,6 +90,36 @@ export function createNativeSavedModule(context: NativeShellBootstrapContext): N
       views.clear(); state.dispose(); downloads?.dispose();
     },
   };
+}
+
+/** Each tab body has a separate canonical Saved service. The shell route remains
+ * the actual Saved destination, so its tabs and sidebar stay mounted. Unmounting a
+ * tab retires its command/selection openings before a successor body can act. */
+function SavedInlineHost({tab, context, runtime, activation, open, changed}: {
+  tab: 'favorites' | 'playlists' | 'collections' | 'views' | 'history'; context: NativeShellBootstrapContext;
+  runtime: NativeShellRuntime; activation: import('../destinations/focus').NativeDestinationActivationPort;
+  open: (route: SavedRoute) => void; changed: () => void;
+}) {
+  const owner = useMemo(() => {
+    const lifetime = nativeDestinationLifetime(context), feedback = nativeScreenServices(context), route = context.navigation.getSnapshot().route;
+    let disposed = false;
+    const retained = () => !disposed && lifetime.current();
+    const current = () => retained() && activation.getSnapshot().visible && context.navigation.getSnapshot().route === route;
+    const source = new NativeSavedViewDestination({api: context.api, scope: lifetime.scope, requestId: feedback.requestId, current: retained});
+    const actions = createNativeEntryActions(context, {current, contains: source.contains, subscribe: source.subscribe});
+    const selection = createNativeSavedViewSelection(context, source, activation);
+    const commands = createNativeSavedDirectoryCommands(context, route, activation);
+    const summaries = tab === 'views' ? createNativeSavedViewSummaryOwner(context, source, retained) : undefined;
+    return {source, actions, selection, commands, summaries, current,
+      dispose: () => {disposed = true; selection.dispose(); commands.dispose(); summaries?.dispose(); actions.dispose(); source.dispose();}};
+  }, [activation, context, tab]);
+  useLayoutEffect(() => () => owner.dispose(), [owner]);
+  const route = useMemo(() => ({view: tab}), [tab]);
+  const common = {destination: owner.source, activation, runtime, actions: owner.actions, inline: true, back: () => {}};
+  return tab === 'favorites' || tab === 'history'
+    ? <SavedListScreen {...common} route={route as NativeSavedListRoute} selection={owner.selection}/>
+    : <SavedDirectoryScreen {...common} route={route as NativeSavedDirectoryRoute} libraries={context.libraries()} open={open} changed={changed}
+        commands={owner.commands} summaries={owner.summaries} routeCurrent={owner.current}/>;
 }
 
 function SavedResourceHost({context, entry, route, runtime, libraries, back, changed, showOnHome, openInLibrary}: {
@@ -111,7 +146,7 @@ function SavedResourceHost({context, entry, route, runtime, libraries, back, cha
   const labels = {t: runtime.text.t, has: defaultI18n.has, locale: runtime.text.region?.uiLocale ?? defaultI18n.locale};
   const condition = activationVisible && resource ? reader.line(resource, labels) : undefined;
   return <SavedResourceScreen destination={entry.view.source} activation={entry.view.activation} runtime={runtime} actions={entry.view.actions}
-    route={route} libraries={libraries} back={back} changed={changed} showOnHome={showOnHome} openInLibrary={openInLibrary} condition={condition}/>;
+    route={route} libraries={libraries} back={back} changed={changed} selection={entry.view.selection} showOnHome={showOnHome} openInLibrary={openInLibrary} condition={condition}/>;
 }
 
 function SavedRoutesCanvas({children}: {children: React.ReactNode}) {
@@ -139,7 +174,7 @@ function SavedRouteHost({entry, runtime, libraries, open, back, changed, showOnH
         summaries={'summaries' in entry.view ? entry.view.summaries : undefined} commands={commands}
         routeCurrent={() => context.current() && context.navigation.getSnapshot().route === entry.route}/>
     : route.view === 'watchlist' || route.view === 'favorites' || route.view === 'history'
-      ? <SavedListScreen {...common} route={route as NativeSavedListRoute} actions={entry.view.actions} back={back} changed={changed}/>
+      ? <SavedListScreen {...common} route={route as NativeSavedListRoute} actions={entry.view.actions} back={back} changed={changed} selection={entry.view.selection}/>
       : <SavedResourceHost context={context} entry={entry} route={route} runtime={runtime} libraries={libraries} back={back} changed={changed} showOnHome={showOnHome} openInLibrary={openInLibrary}/>;
   return <View pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible} importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'}
     style={{position: 'absolute', inset: 0, backgroundColor: 'transparent'}}>{body}</View>;

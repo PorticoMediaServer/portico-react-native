@@ -1,4 +1,5 @@
 import {Platform} from 'react-native';
+import {Artwork} from '../../../kit/artwork';
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
 import type {NativeShellBootstrapContext} from '../../../shell/bootstrap';
 import {nativeShellRoutes, type NativeRouteRenderer} from '../../../shell/route-registry';
@@ -6,15 +7,16 @@ import {nativeDestinationLifetime} from '../lifetime';
 import {createNativeEntryActions} from '../entry-actions';
 import type {NativePageSelection} from '../../search/selection';
 import {createNativeMusicSelection} from './selection';
-import {Artwork} from '../../../kit/artwork';
 import {NativeTVMusicController} from './model';
 import {TVAlbumScreen, TVArtistScreen} from './TVMusicScreens';
 import {PhoneAlbumScreen, PhoneArtistScreen} from './PhoneMusicScreens';
 import {createMusicPlaylistPicker, type MusicPlaylistPickerHandle} from './MusicPlaylistPicker';
 import {nativeDownloadRequest} from '../../watch/download-request';
 import {askNativeDownload} from '../../downloads/request';
+import {nativeScreenServices} from '../../native-screen-services';
+import {createNativeCatalogueSelection, type NativeCatalogueSelectionSnapshot} from '../../saved/selection';
 
-type Page = Readonly<{current:()=>boolean;key: string; route: {kind: 'music'; entry: ContentEntry}; entry: ContentEntry; controller: NativeTVMusicController; actions: ReturnType<typeof createNativeEntryActions>; picker: MusicPlaylistPickerHandle; selection: NativePageSelection; abort: AbortController}>;
+type Page = Readonly<{current:()=>boolean;key: string; route: {kind: 'music'; entry: ContentEntry}; entry: ContentEntry; controller: NativeTVMusicController; actions: ReturnType<typeof createNativeEntryActions>; picker: MusicPlaylistPickerHandle; tvSelection?: NativePageSelection; touchSelection?: ReturnType<typeof createNativeCatalogueSelection>; abort: AbortController}>;
 
 /** tv-more6–9: TV's album and artist pages. One route-owned controller per entry;
  * the shared queue player and the borrowed Watch menu do the work. */
@@ -25,7 +27,7 @@ export function createNativeTVMusicRenderer(context: NativeShellBootstrapContext
   const similarScope=Object.freeze({serverId:viewer.serverId,authority:viewer.authority as 'local'|'hosted',accountId:viewer.accountId,profileId:viewer.profileId,
     controllerId:'v1',controllerEpoch:'v1',commandLaneId:'v1'});
   let pages = new Map<string, Page>(), disposed = false;
-  const close = (page: Page) => {page.abort.abort(); page.picker.dispose(); page.selection.dispose(); page.actions.dispose(); page.controller.dispose();};
+  const close = (page: Page) => {page.abort.abort(); page.picker.dispose(); page.tvSelection?.dispose(); page.touchSelection?.dispose(); page.actions.dispose(); page.controller.dispose();};
   const current = () => !disposed && lifetime.current();
   const pageFor = (route: {kind: 'music'; entry: ContentEntry}): Page | undefined => {
     if (!current() || route.entry.kind !== 'album' && route.entry.kind !== 'artist') return;
@@ -39,11 +41,25 @@ export function createNativeTVMusicRenderer(context: NativeShellBootstrapContext
     // whose original object was replaced is retired, never drawn dead.
     if(page&&page.route!==route){close(page);pages.delete(key);page=undefined;}
     if (!page) {
-      const controller = new NativeTVMusicController({api: context.api, entry:route.entry,similarScope,lifetime:{scope:lifetime.scope,current:pageCurrent},playback: context.playback});
+      const controller = new NativeTVMusicController({api: context.api, entry:route.entry,similarScope,lifetime:{scope:lifetime.scope,current:pageCurrent},playback: context.playback, requestId: nativeScreenServices(context).requestId});
       const actions = createNativeEntryActions(context, {current:pageCurrent,
         contains: entry => controller.contains(entry), subscribe: controller.subscribe});
-      const selection = createNativeMusicSelection(context, controller, key, pageCurrent);
-      page = Object.freeze({selection, current:pageCurrent,key,route,entry: route.entry, controller, actions, picker: createMusicPlaylistPicker(context), abort: new AbortController()});
+      const tvSelection = Platform.isTV ? createNativeMusicSelection(context, controller, key, pageCurrent) : undefined;
+      const touchSelection = Platform.isTV ? undefined : createNativeCatalogueSelection(context, {subscribe: controller.subscribe, getSnapshot: (): NativeCatalogueSelectionSnapshot => {
+        const snapshot = controller.getSnapshot(), projection = controller.selectionProjection(), viewer = context.session()?.viewer, authority = viewer?.authority;
+        const admitted = pageCurrent() && snapshot.phase === 'ready' && projection && viewer && (authority === 'local' || authority === 'hosted');
+        return {key, witness: snapshot, context: admitted ? {
+          scope: {serverId: viewer.serverId, authority, accountId: viewer.accountId, profileId: viewer.profileId,
+            viewId: key, privacyFence: projection.scope.viewerFence},
+          revision: {catalogRevision: String(projection.revision.catalog), viewerRevision: String(projection.revision.viewer)},
+        } : null, sections: [
+          {id: 'songs', start: snapshot.songPage.offset, entries: snapshot.songs.filter(controller.contains)},
+          {id: 'releases', start: snapshot.releases.offset, entries: snapshot.albums.flatMap(album => {const entry = controller.releaseEntry(album); return entry ? [entry] : [];})},
+          {id: 'all-songs', start: snapshot.allSongs.offset, entries: snapshot.allSongs.songs.filter(controller.contains)},
+          {id: 'similar', entries: snapshot.similar.filter(entry => controller.similarCurrent(snapshot, entry))},
+        ]};
+      }}, {subscribe: context.navigation.subscribe, getSnapshot: () => ({visible: pageCurrent(), intent: 'enter', revision})});
+      page = Object.freeze({current:pageCurrent,key,route,entry: route.entry, controller, actions, tvSelection, touchSelection, picker: createMusicPlaylistPicker(context), abort: new AbortController()});
       pages.set(key, page);
       while (pages.size > 3) {
         const oldest = pages.entries().next().value as [string, Page] | undefined;
@@ -69,16 +85,17 @@ export function createNativeTVMusicRenderer(context: NativeShellBootstrapContext
       ) : undefined;
       if (!Platform.isTV) return <>
         {page.entry.kind === 'album'
-          ? <PhoneAlbumScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back} download={download} onPlaylist={onPlaylist}/>
-          : <PhoneArtistScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onBack={back}/>}
+          ? <PhoneAlbumScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} selection={page.touchSelection} openEntry={openEntry} onBack={back} download={download} onPlaylist={onPlaylist}/>
+          : <PhoneArtistScreen controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} selection={page.touchSelection} openEntry={openEntry} onBack={back}/>}
         {page.picker.render(runtime)}
+        {page.touchSelection?.render(path => {const source = runtime.artwork(path); return source ? <Artwork source={source} width={48} height={48}/> : undefined;})}
       </>;
       return <>
         {page.entry.kind === 'album'
-          ? <TVAlbumScreen selection={page.selection} controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onPlaylist={onPlaylist}/>
-          : <TVArtistScreen selection={page.selection} controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry}/>}
+          ? <TVAlbumScreen selection={page.tvSelection} controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onPlaylist={onPlaylist}/>
+          : <TVArtistScreen selection={page.tvSelection} controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry}/>}
         {page.picker.render(runtime)}
-        {page.selection.render(path => <Artwork source={runtime.artwork(path)} width={40} height={40}/>)}
+        {page.tvSelection?.render(path => <Artwork source={runtime.artwork(path)} width={40} height={40}/>)}
       </>;
     },
     dispose: () => {

@@ -1,5 +1,5 @@
-import React, {useLayoutEffect, useState, useSyncExternalStore} from 'react';
-import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
+import React, {useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import {Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {generatedCoverTint} from '@portico/design';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -7,6 +7,14 @@ import type {ReadingItem} from '../../../../../packages/client-core/src';
 import {Artwork, AmbientArt, GeneratedCover} from '../../kit/artwork';
 import {Button, Focusable} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
+import {WindowedGrid} from '../../kit/layout';
+import {NativeReadingWindow} from './reading-window';
+import {ReadingItemMenu, ReadingSelectionToolbar, useReadingActions} from './ReadingActions';
+import {SelectionCircle} from '../../kit/selection';
+import type {CardSelection} from '../../kit/cards/model';
+import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
+import {askNativeDownload} from '../downloads/request';
+import {nativePublicationReadsAvailable} from '../../../platform/offline-reading';
 import {StateView, SkeletonBlock, LoadingPaint} from '../../kit/states';
 import {alpha, browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
@@ -19,14 +27,18 @@ const initial = (title: string): string => title.trim().slice(0, 1).toUpperCase(
 type SeriesRoute = Extract<NativeShellRoute, {kind: 'read-series'}>;
 
 /** phone-read 4/4c: the series' signed, ordered volumes. The hero shows the
- * signed summary when the server publishes one; per-volume finished state,
- * dates, page counts and Select have no reading producer, so they stay absent.
- * The one real continue row marks only its own progress. */
-export function ReadSeriesScreen({controller, route, comic, runtime, onBack}: {
-  controller: NativeReadSeries; route: SeriesRoute; comic: boolean; runtime: NativeShellRuntime; onBack: () => void;
+ * signed summary when the server publishes one. The one real continue row
+ * marks only its own progress; menus use the Reading producer's personal commands. */
+export function ReadSeriesScreen({controller, route, comic, context, runtime, onBack}: {
+  controller: NativeReadSeries; route: SeriesRoute; comic: boolean; context: NativeShellBootstrapContext; runtime: NativeShellRuntime; onBack: () => void;
 }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   const phone = theme.platform === 'phone';
+  const actions = useReadingActions(context, runtime, controller);
+  const offer = (item: ReadingItem) => {const lifetime = controller.itemLifetime(item);
+    return lifetime ? {item, lifetime, open: () => {void controller.open(item).catch(runtime.reportError);},
+      ...(nativePublicationReadsAvailable() ? {download: () => askNativeDownload({title: item.title, itemId: item.id, reading: true, lifetime})} : {})} : undefined;
+  };
   const [paneWidth, setPaneWidth] = useState<number>(), [heroHeight, setHeroHeight] = useState(0), [collapsed, setCollapsed] = useState(false);
   useLayoutEffect(() => {
     if (!controller.arm()) return;
@@ -44,13 +56,16 @@ export function ReadSeriesScreen({controller, route, comic, runtime, onBack}: {
   // The volumes grid fills its own pane (the shell rail is outside it) and the drawn
   // phone page puts three portrait covers across with 10 pt between columns.
   const columns = theme.platform === 'phone' ? 3 : 5, columnGap = 10, rowGap = 16;
-  const width = Math.max(96, Math.min(220, ((paneWidth ?? dimensions.width) - theme.gutter * 2 - columnGap * (columns - 1)) / columns));
+  const width = Math.max(96, Math.min(220, (Math.min(900, paneWidth ?? dimensions.width) - 40 - columnGap * (columns - 1)) / columns));
   const height = width * 3 / 2;
   const progression = continuedRow ? Math.max(0, Math.min(1, continuedRow.progress.location.progression)) : undefined;
   const readLabel = continued ? t('next.cards.read')
     : comic && first?.series?.number !== undefined ? t('next.reader.readVolume', {number: defaultI18n.number(first.series.number, {maximumFractionDigits: 20})})
       : t(phone ? 'next.reader.readNext' : 'next.reader.read');
   const stack = state.items.slice(0, 3);
+  const window = useMemo(() => new NativeReadingWindow(() => {const value = controller.getSnapshot();
+    return {items: value.items, cursor: value.nextCursor, loading: value.phase === 'loading' || !!value.morePending, error: value.moreError};
+  }, controller.subscribe, controller.more, item => `${item.id}:${item.sourceId}`), [controller]);
   return <View testID={`native-read-series-${route.seriesId}`} style={{flex: 1, backgroundColor: theme.colors.ink}} onLayout={event => {
     const next = Math.round(event.nativeEvent.layout.width);
     if (next > 0 && next !== paneWidth) setPaneWidth(next);
@@ -71,15 +86,14 @@ export function ReadSeriesScreen({controller, route, comic, runtime, onBack}: {
         </View> : null}
       </View>
     </View>
-    <ScrollView contentContainerStyle={{paddingTop: Math.max(96, insets.top + 56), paddingBottom: insets.bottom + 48}}
-      onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
-        setCollapsed(current => {const next = heroHeight > 0 && contentOffset.y > heroHeight - 50; return next === current ? current : next;});
-        if (contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.more().catch(() => {});}}
-      scrollEventThrottle={64} showsVerticalScrollIndicator={false}>
-      {state.phase === 'error' ? <StateView {...runtime.error(state.error, () => {void controller.retry().catch(runtime.reportError);}, 'library')}/>
-        : <LoadingPaint ready={state.phase === 'ready'} immediate={state.phase === 'ready'}
-          skeleton={<SkeletonBlock width="100%" height={360}/>} style={state.phase === 'ready' ? {flexGrow: 0, flexShrink: 0, flexBasis: 'auto'} : {height: 360}} testID="native-read-series-paint">
-      {state.phase === 'ready' ? <View style={{width: '100%', maxWidth: 900, alignSelf: 'center'}}>
+    {state.phase === 'error' ? <StateView {...runtime.error(state.error, () => {void controller.retry().catch(runtime.reportError);}, 'library')}/>
+      : <LoadingPaint ready={state.phase === 'ready'} immediate={state.phase === 'ready'}
+        skeleton={<SkeletonBlock width="100%" height={360}/>} style={{flex: 1}} testID="native-read-series-paint">
+        <WindowedGrid collection={window} getKey={item => `${item.id}:${item.sourceId}`} itemWidth={width} itemHeight={height + 66}
+          gap={columnGap} rowGap={rowGap} gutter={20} rightGutter={20} paddingBottom={insets.bottom + 48}
+          style={{flex: 1, width: '100%', maxWidth: 900, alignSelf: 'center'}}
+          onScrollOffset={offset => setCollapsed(current => {const next = heroHeight > 0 && offset > heroHeight - 50; return next === current ? current : next;})}
+          header={<View style={{paddingTop: Math.max(96, insets.top + 56)}}>
         <View style={{alignItems: 'center', paddingHorizontal: 20}} onLayout={event => {
           const next = Math.round(event.nativeEvent.layout.height);
           if (next > 0 && next !== heroHeight) setHeroHeight(next);
@@ -117,44 +131,49 @@ export function ReadSeriesScreen({controller, route, comic, runtime, onBack}: {
         {progression !== undefined ? <View style={{height: 4, borderRadius: 2, marginHorizontal: 20, marginTop: 10, backgroundColor: alpha(theme.colors.text, .18)}}>
           <View style={{width: `${progression * 100}%`, height: 4, borderRadius: 2, backgroundColor: theme.colors.accentStrong}}/>
         </View> : null}
+        <ReadingSelectionToolbar port={actions} runtime={runtime}/>
         <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 10, marginTop: 24, marginBottom: 10, paddingHorizontal: 20}}>
           <Text style={[browseType(theme, 19, 700, -.015), {color: theme.colors.text}]}>{t(comic ? 'next.reader.volumes' : 'next.kit.booksInSeries')}</Text>
           {overview ? <Text style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary}]}>{t('next.reader.seriesReadCount', {read: defaultI18n.number(overview.completed), count: defaultI18n.number(overview.total)})}</Text>
             : exactCount !== undefined ? <Text style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary}]}>{defaultI18n.number(exactCount)}</Text> : null}
         </View>
-        <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap, rowGap, paddingHorizontal: 20, paddingTop: 2}}>
-          {state.items.map(item => <VolumeCard key={item.id} item={item} width={width} height={height} comic={comic} theme={theme} runtime={runtime}
+          {state.items.length === 0 && state.phase === 'ready' ? <StateView testID="native-read-series-empty" variant="inline" title={t('library.emptySeries')} body={t('library.emptySeriesBody')}/> : null}
+          {state.moreError ? <StateView {...runtime.error(state.moreError, () => {void controller.more().catch(runtime.reportError);}, 'library')}/> : null}
+          </View>}
+          renderPlaceholder={() => <SkeletonBlock width={width} height={height} radius={10}/>}
+          renderItem={item => {const offered = offer(item); return <VolumeCard item={item} width={width} height={height} comic={comic} theme={theme} runtime={runtime}
             progression={continuedRow?.item.id === item.id ? progression : undefined}
-            onOpen={() => {void controller.open(item).catch(runtime.reportError);}}/>)}
-        </View>
-        {state.items.length === 0 ? <StateView testID="native-read-series-empty" variant="inline" title={t('library.emptySeries')} body={t('library.emptySeriesBody')}/> : null}
-        {state.moreError ? <StateView {...runtime.error(state.moreError, () => {void controller.more().catch(runtime.reportError);}, 'library')}/> : null}
-      </View> : null}
+            onOpen={() => {void controller.open(item).catch(runtime.reportError);}}
+            selection={offered ? actions.selection(offered) : undefined} onMenu={offered ? anchorRef => actions.actions.show({...offered, anchorRef}) : undefined}/>;}}/>
       </LoadingPaint>}
-    </ScrollView>
+    <ReadingItemMenu port={actions} runtime={runtime}/>
   </View>;
 }
 
 /** The drawn volume card, shared with the book page's series shelf. The shelf
  * variant only changes the measured title/number metrics and their order to the
  * frame's card (title above its "Book N" line); the series page keeps its own. */
-export function VolumeCard({item, width, height, comic, theme, runtime, progression, onOpen, variant = 'default'}: {
+export function VolumeCard({item, width, height, comic, theme, runtime, progression, onOpen, onMenu, selection, variant = 'default'}: {
   item: ReadingItem; width: number; height: number; comic: boolean; theme: ReturnType<typeof useTheme>;
-  runtime: NativeShellRuntime; progression?: number; onOpen: () => void; variant?: 'default' | 'shelf';
+  runtime: NativeShellRuntime; progression?: number; onOpen: () => void; onMenu?: (anchor: React.RefObject<View | null>) => void; selection?: CardSelection; variant?: 'default' | 'shelf';
 }) {
+  const anchor = useRef<View>(null);
   const number = item.series?.number, shelf = variant === 'shelf', phoneDefault = !shelf && theme.platform === 'phone';
   const numberLabel = number === undefined ? undefined : t(comic ? 'next.reader.volumeNumber' : 'next.reader.bookNumber', {number: defaultI18n.number(number, {maximumFractionDigits: 20})});
   const numberText = numberLabel === undefined ? null : <Text numberOfLines={1} style={[browseType(theme, shelf ? 13 : 11.5, shelf ? 400 : phoneDefault ? 500 : 600), {color: theme.colors.textTertiary, marginTop: shelf ? 2 : phoneDefault ? 2 : 7}]}>
     {numberLabel}
   </Text>;
   const titleText = <Text numberOfLines={shelf ? 1 : 2} style={[browseType(theme, shelf ? 13.5 : phoneDefault ? 12.5 : 13, 600), {color: theme.colors.text, marginTop: shelf ? 10 : phoneDefault ? 7 : number !== undefined ? 2 : 7}]}>{item.title}</Text>;
-  return <Focusable accessibilityRole="button" accessibilityLabel={item.title} focusKind="row" focusRadius={10} onPress={onOpen} style={{width}}>
-    <View style={{width, height, borderRadius: 10, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
+  return <Focusable accessibilityRole="button" accessibilityLabel={item.title} focusKind="row" focusRadius={10} ref={anchor} onPress={selection?.active ? selection.onToggle : onOpen}
+    onLongPressAction={onMenu ? () => onMenu(anchor) : undefined} accessibilityState={selection?.active ? {selected: selection.selected} : undefined} style={{width}}>
+    <View style={{width, height, borderRadius: 10, overflow: 'hidden', backgroundColor: theme.colors.raised, borderWidth: selection?.selected ? 2 : 0, borderColor: theme.colors.accentStrong}}>
       {runtime.artwork(item.coverUrl) ? <Artwork source={runtime.artwork(item.coverUrl)} width={width} height={height}/>
         : <GeneratedCover title={item.title} author={item.author?.value} tint={generatedCoverTint(item.title)} glyph={initial(item.title)} width={width} height={height}/>}
       {progression !== undefined ? <View style={{position: 'absolute', left: 0, right: 0, bottom: 0, height: 3, backgroundColor: alpha(theme.colors.text, .2)}}>
         <View style={{width: `${progression * 100}%`, height: 3, backgroundColor: theme.colors.accentStrong}}/>
       </View> : null}
+      {selection?.active ? <SelectionCircle selected={selection.selected} selecting interactive={false} accessibilityLabel={item.title}
+        style={{position: 'absolute', right: 7, bottom: 7}}/> : null}
     </View>
     {shelf || phoneDefault ? <>{titleText}{numberText}</> : <>{numberText}{titleText}</>}
     {item.author && !shelf && !phoneDefault ? <Text numberOfLines={1} style={[browseType(theme, 11.5, 500), {color: theme.colors.textTertiary, marginTop: 2}]}>{item.author.value}</Text> : null}

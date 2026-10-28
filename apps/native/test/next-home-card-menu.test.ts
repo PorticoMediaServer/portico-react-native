@@ -1,3 +1,4 @@
+import * as homeWindow from '../src-next/screens/home/home-window';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
@@ -52,7 +53,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Continue car
   });
   const {HomeScreen} = await screenModule(new URL('../src-next/screens/home/HomeScreen.tsx', import.meta.url), {
     react, 'react-native': native,
-    'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (fn: unknown) => fn, useAnimatedScrollHandler: (fn: unknown) => fn}, '@portico/design': {heroSpec},
+    'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (fn: unknown) => fn, useAnimatedScrollHandler: (fn: unknown) => fn, useSharedValue: (value: unknown) => react.useRef({value}).current}, '@portico/design': {heroSpec},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src/presentation/home-spotlight': homePresentation,
     '../../../../../packages/client-core/src/home-selection': homeCapabilities, '../../../../../packages/client-core/src/presentation/server-text': serverText,
     '../../../../../packages/client-core/src/presentation/errors': {presentError},
@@ -64,7 +65,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Continue car
     '../../kit/layout': {Row: 'Row', Hero: 'Hero'}, '../../kit/layout/types': {itemSelection},
     '../../kit/layout/FocusAnchor': {useFocusAnchor: () => ({offset: {value: 0}, scrollRef: {current: null}})},
     '../../kit/states': {LoadingPaint: 'LoadingPaint', }, '../../kit/theme': {nativeType, useTheme: () => theme}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../shell/model': shellModel,
-    './home-start': homeStart, '../destinations/music/MusicMixesRow': {MusicMixesRow: 'MusicMixesRow'},
+    './home-window': homeWindow, './home-start': homeStart, '../destinations/music/MusicMixesRow': {MusicMixesRow: 'MusicMixesRow'},
     './TvHomeRecovery': {TvHomeRecovery: 'TvHomeRecovery'}, './useTvHomeRecovery': recovery,
     './HomeHeroFacts': {}, './model': homeModel,
   });

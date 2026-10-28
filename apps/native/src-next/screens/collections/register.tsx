@@ -5,6 +5,8 @@ import {type NativeShellRoute} from '../../shell/routes';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {authorityKey, sameAuthority} from '../../shell/model';
 import {createNativeEntryActions} from '../destinations/entry-actions';
+import {createNativeCatalogueSelection} from '../saved/selection';
+import type {NativeDestinationActivationPort} from '../destinations/focus';
 import {NativeCollectionController} from './controller';
 import {NativeCollectionScreen} from './CollectionScreen';
 
@@ -35,6 +37,26 @@ function CollectionHost({route, context, runtime}: {route: CollectionRoute; cont
     contains: entry => controller.getSnapshot().entries.includes(entry), subscribe: controller.subscribe,
   }), [context, controller, route]);
   useEffect(() => () => actions.dispose(), [actions]);
+  const selection = useMemo(() => {
+    let previous: ReturnType<typeof context.navigation.getSnapshot> | undefined;
+    let active: ReturnType<NativeDestinationActivationPort['getSnapshot']>;
+    const activation: NativeDestinationActivationPort = {subscribe: context.navigation.subscribe, getSnapshot: () => {
+      const now = context.navigation.getSnapshot();
+      if (previous !== now) {previous = now; active = Object.freeze({visible: context.current() && now.route === route,
+        revision: now.revision, intent: context.navigation.getIntent()});}
+      return active;
+    }};
+    return createNativeCatalogueSelection(context, {subscribe: controller.subscribe, getSnapshot: () => {
+      const state = controller.getSnapshot(), projection = state.projection, viewer = context.session()?.viewer;
+      return {key: JSON.stringify(['collection', route.libraryId, route.collectionId, projection?.query]), witness: state,
+        context: projection && !state.error && viewer && (viewer.authority === 'local' || viewer.authority === 'hosted') ? {
+          scope: {serverId: viewer.serverId, authority: viewer.authority, accountId: viewer.accountId, profileId: viewer.profileId,
+            viewId: JSON.stringify(['collection', route.libraryId, route.collectionId, projection.query]), privacyFence: projection.scope.viewerFence},
+          revision: {catalogRevision: String(projection.revision.catalog), viewerRevision: String(projection.revision.viewer)},
+        } : null, sections: [{id: 'items', entries: state.entries}]};
+    }}, activation);
+  }, [context, controller, route]);
+  useEffect(() => () => selection.dispose(), [selection]);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const current = () => context.current() && sameAuthority(context.navigation.getSnapshot().authority, authority);
   const play = (shuffle: boolean) => {
@@ -45,7 +67,7 @@ function CollectionHost({route, context, runtime}: {route: CollectionRoute; cont
     void port.playSegments([{source: {container: {kind: 'collection', id: route.collectionId}}, ...(shuffle ? {order: {mode: 'shuffle' as const}} : {})}],
       {signal: operation.signal, isCurrent}).catch(runtime.reportError);
   };
-  return <NativeCollectionScreen focusScope={`collection:${authorityKey(authority)}:${route.libraryId}:${route.collectionId}`} state={state} runtime={runtime} onPlay={() => play(false)} onShuffle={() => play(true)}
+  return <NativeCollectionScreen focusScope={`collection:${authorityKey(authority)}:${route.libraryId}:${route.collectionId}`} state={state} runtime={runtime} actions={actions} selection={selection} onPlay={() => play(false)} onShuffle={() => play(true)}
     onSort={(sort, direction) => {void controller.sort(sort, direction).catch(runtime.reportError);}}
     onOpen={actions.open}
     onBack={() => {if (current()) context.navigation.back(authority);}}

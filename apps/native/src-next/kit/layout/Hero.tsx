@@ -35,8 +35,16 @@ export type HeroProps<T extends HeroCandidate> = {
   copyTop?: number;
   /** A drawn sideways composition: the copy sits at this inset and width, left aligned, over a hero whose artwork owns the other side. Every number comes from the frame. */
   copySide?: Readonly<{inset: number; width: number; bottom: number}>;
+  /** Optional composition metrics for native tablets; defaults retain each existing recipe. */
+  copyStyle?: StyleProp<ViewStyle>;
+  reasonTextStyle?: StyleProp<TextStyle>;
+  metadataStyle?: StyleProp<ViewStyle>;
+  overviewTextStyle?: StyleProp<TextStyle>;
+  dotsStyle?: StyleProp<ViewStyle>;
+  thumbnailSize?: Readonly<{width: number; height: number; labelSize?: number; bottom?: number; gap?: number; right?: number}>;
   /** The drawn lockup column for one composition, as one coherent size/lineHeight/tracking triple. */
   lockupStyle?: StyleProp<TextStyle>;
+  longLockupStyle?: StyleProp<TextStyle>;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 };
@@ -89,7 +97,7 @@ function CopyPart({identity, step, stagger, translate, timing, children, still =
 }
 
 /** One actual copy/control tree keeps native TV focus while the artwork layers crossfade. */
-function HeroCopy<T extends HeroCandidate>({entry, fade, variant, renderActions, renderMetadata, renderReason, renderAfterCopy, showOverview = true, copyTop, copySide, lockupStyle, reducedMotion, wordsOnly = false}: CopyProps<T>) {
+function HeroCopy<T extends HeroCandidate>({entry, fade, variant, renderActions, renderMetadata, renderReason, renderAfterCopy, showOverview = true, copyTop, copySide, copyStyle, reasonTextStyle, metadataStyle, overviewTextStyle, lockupStyle, longLockupStyle, reducedMotion, wordsOnly = false}: CopyProps<T>) {
   const theme = useTheme(), motion = useMotion();
   const reduced = motion.reduce || !!reducedMotion;
   const phone = variant === 'phone-app' || variant === 'phone-web' || (!variant && theme.layoutMode === 'phone'), tv = variant === 'tv' || (!variant && theme.isTV);
@@ -99,14 +107,14 @@ function HeroCopy<T extends HeroCandidate>({entry, fade, variant, renderActions,
   const side = !!copySide;
   const partProps = {still: wordsOnly, identity: entry.id, stagger: reduced || fade !== 'hero' ? 0 : heroSpec.rotation.copyStaggerMs, translate: reduced || tv || phone ? 0 : heroSpec.rotation.copyTranslate, timing};
   let step = 0;
-  return <View style={copySide ? {position: 'absolute', left: copySide.inset, right: undefined, width: copySide.width, top: undefined, bottom: copySide.bottom}
+  return <View style={[copySide ? {position: 'absolute', left: copySide.inset, right: undefined, width: copySide.width, top: undefined, bottom: copySide.bottom}
     : {position: 'absolute', left: tv ? theme.layout.gutter.tv : phone ? theme.layout.gutter.phone : theme.gutter,
       right: phone ? theme.layout.gutter.phone : undefined, width: phone ? undefined : tv ? heroSpec.copy.width.tv : heroSpec.copy.width.web,
-      top: copyTop ?? (tv ? 220 : undefined), bottom: copyTop !== undefined || tv ? undefined : phone ? heroSpec.copy.homeBottom.phone : heroSpec.copy.homeBottom.web}}>
-    {(renderReason || entry.reason) ? <CopyPart {...partProps} step={step++}>{renderReason ? renderReason(entry) : <Text style={[theme.type.eyebrow, {includeFontPadding: false, textAlign: side ? 'left' : phone ? 'center' : 'left', color: theme.colors.accentStrong, marginBottom: phone ? 8 : tv ? 16 : 14}]}>{entry.reason}</Text>}</CopyPart> : null}
-    <CopyPart {...partProps} step={step++}><Lockup title={entry.title} long={entry.long} variant={variant} lines={phone ? 2 : undefined} style={[{textAlign: side ? 'left' : phone ? 'center' : 'left', marginBottom: phone ? 10 : tv ? 22 : 20}, lockupStyle]} /></CopyPart>
-    {(renderMetadata || entry.facts?.length) ? <CopyPart {...partProps} step={step++}><View style={{marginBottom: phone ? 18 : tv ? 18 : 16}}>{renderMetadata ? renderMetadata(entry) : <HeroMetadata facts={entry.facts ?? []} centered={side ? false : phone} />}</View></CopyPart> : null}
-    {showOverview && !phone && entry.overview ? <CopyPart {...partProps} step={step++}><Text numberOfLines={tv ? 2 : 3} style={[theme.type.synopsis, {includeFontPadding: false, color: theme.colors.textSecondary, maxWidth: tv ? 800 : 540, marginBottom: tv ? 30 : 28}]}>{entry.overview}</Text></CopyPart> : null}
+      top: copyTop ?? (tv ? 220 : undefined), bottom: copyTop !== undefined || tv ? undefined : phone ? heroSpec.copy.homeBottom.phone : heroSpec.copy.homeBottom.web}, copyStyle]}>
+    {(renderReason || entry.reason) ? <CopyPart {...partProps} step={step++}>{renderReason ? renderReason(entry) : <Text style={[theme.type.eyebrow, {includeFontPadding: false, textAlign: side ? 'left' : phone ? 'center' : 'left', color: theme.colors.accentStrong, marginBottom: phone ? 8 : tv ? 16 : 14}, reasonTextStyle]}>{entry.reason}</Text>}</CopyPart> : null}
+    <CopyPart {...partProps} step={step++}><Lockup title={entry.title} long={entry.long} variant={variant} lines={phone ? 2 : undefined} style={[{textAlign: side ? 'left' : phone ? 'center' : 'left', marginBottom: phone ? 10 : tv ? 22 : 20}, lockupStyle, entry.long && longLockupStyle]} /></CopyPart>
+    {(renderMetadata || entry.facts?.length) ? <CopyPart {...partProps} step={step++}><View style={[{marginBottom: phone ? 18 : tv ? 18 : 16}, metadataStyle]}>{renderMetadata ? renderMetadata(entry) : <HeroMetadata facts={entry.facts ?? []} centered={side ? false : phone} />}</View></CopyPart> : null}
+    {showOverview && !phone && entry.overview ? <CopyPart {...partProps} step={step++}><Text numberOfLines={tv ? 2 : 3} style={[theme.type.synopsis, {includeFontPadding: false, color: theme.colors.textSecondary, maxWidth: tv ? 800 : 540, marginBottom: tv ? 30 : 28}, overviewTextStyle]}>{entry.overview}</Text></CopyPart> : null}
     {!wordsOnly && <CopyPart {...partProps} step={step++}><View style={{flexDirection: 'row', alignItems: 'center', justifyContent: side ? 'flex-start' : phone ? 'center' : 'flex-start', gap: actionsGap}}>{renderActions(entry)}</View></CopyPart>}
     {!wordsOnly && renderAfterCopy && <CopyPart {...partProps} step={step}>{renderAfterCopy(entry)}</CopyPart>}
   </View>;
@@ -200,21 +208,22 @@ export function HeroSurface<T extends HeroCandidate>({entry, fade = 'hero', ...p
   </>;
 }
 
-function HeroThumbnail<T extends HeroCandidate>({entry, index, active, visible, progress, render, onPress, testID}: {testID?: string;
+function HeroThumbnail<T extends HeroCandidate>({entry, index, active, visible, progress, render, onPress, testID, size}: {testID?: string; size?: HeroProps<T>['thumbnailSize'];
   entry: T; index: number; active: boolean; visible: boolean; progress: SharedValue<number>;
   render: NonNullable<HeroProps<T>['renderThumbnail']>; onPress: () => void;
 }) {
   const theme = useTheme(), [hovered, setHovered] = useState(false), [focused, setFocused] = useState(false);
-  const fill = useAnimatedStyle(() => ({transform: [{translateX: (progress.value - 1) * heroSpec.thumbnail.width / 2}, {scaleX: progress.value}]}));
+  const width = size?.width ?? heroSpec.thumbnail.width, height = size?.height ?? heroSpec.thumbnail.height;
+  const fill = useAnimatedStyle(() => ({transform: [{translateX: (progress.value - 1) * width / 2}, {scaleX: progress.value}]}));
   return <Focusable testID={testID} focusTreatment="none" accessibilityRole="button" accessibilityLabel={entry.title} accessibilityState={{selected: active}} onPress={onPress}
     onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
-    style={{width: heroSpec.thumbnail.width, opacity: active ? 1 : hovered ? heroSpec.thumbnail.hoverOpacity : heroSpec.thumbnail.opacity}}>
-    <View style={{width: heroSpec.thumbnail.width, height: heroSpec.thumbnail.height, borderRadius: heroSpec.thumbnail.radius, overflow: 'hidden'}}>{render(entry, {index, active, visible})}</View>
-    {focused && <View pointerEvents="none" style={{position: 'absolute', left: -6, right: -6, top: -6, height: heroSpec.thumbnail.height + 12, borderRadius: heroSpec.thumbnail.radius + 6, borderWidth: theme.spec.focus.ringWidth.phone, borderColor: theme.colors.focus}} />}
+    style={{width, opacity: active ? 1 : hovered ? heroSpec.thumbnail.hoverOpacity : heroSpec.thumbnail.opacity}}>
+    <View style={{width, height, borderRadius: heroSpec.thumbnail.radius, overflow: 'hidden'}}>{render(entry, {index, active, visible})}</View>
+    {focused && <View pointerEvents="none" style={{position: 'absolute', left: -6, right: -6, top: -6, height: height + 12, borderRadius: heroSpec.thumbnail.radius + 6, borderWidth: theme.spec.focus.ringWidth.phone, borderColor: theme.colors.focus}} />}
     <View style={{marginTop: heroSpec.thumbnail.progressGap, height: heroSpec.thumbnail.progressHeight, borderRadius: 3, overflow: 'hidden', backgroundColor: `${theme.colors.text}2E`}}>
       {active && <Animated.View style={[{height: heroSpec.thumbnail.progressHeight, backgroundColor: theme.colors.text}, fill]} />}
     </View>
-    <Text numberOfLines={1} style={[theme.type.thumbnailLabel, {marginTop: heroSpec.thumbnail.labelGap, color: theme.colors.textSecondary}]}>{entry.title}</Text>
+    <Text numberOfLines={1} style={[theme.type.thumbnailLabel, size?.labelSize === undefined ? undefined : {fontSize: size.labelSize * theme.textScale}, {marginTop: heroSpec.thumbnail.labelGap, color: theme.colors.textSecondary}]}>{entry.title}</Text>
   </Focusable>;
 }
 
@@ -248,7 +257,7 @@ export function Hero<T extends HeroCandidate>({candidates, activeIndex, onIndexC
       cancelAnimation(run.animation);
     };
   }, [canRotate, candidates.length, change, rotation, motion, progress]);
-  const dots = candidates.length > 1 ? <View style={{marginTop: tv ? 34 : heroSpec.phoneDots.marginTop, flexDirection: 'row', justifyContent: props.copySide || !phone ? 'flex-start' : 'center', gap: tv ? 10 : heroSpec.phoneDots.gap}}>
+  const dots = candidates.length > 1 ? <View style={[{marginTop: tv ? 34 : heroSpec.phoneDots.marginTop, flexDirection: 'row', justifyContent: props.copySide || !phone ? 'flex-start' : 'center', gap: tv ? 10 : heroSpec.phoneDots.gap}, props.dotsStyle]}>
     {candidates.map((candidate, i) => tv ? <View key={candidate.id} style={{width: i === index ? 34 : 10, height: 10, borderRadius: 5, backgroundColor: i === index ? theme.colors.text : `${theme.colors.text}47`}} /> : <Focusable testID={testID ? focusTestID(testID, JSON.stringify(['candidate', candidate.id])) : undefined} focusTreatment="none" key={candidate.id} accessibilityRole="button" accessibilityLabel={candidate.title} accessibilityState={{selected: i === index}} onPress={() => change(i)} hitSlop={8}>
       <View style={{width: i === index ? heroSpec.phoneDots.activeWidth : heroSpec.phoneDots.size, height: heroSpec.phoneDots.size, borderRadius: 3, backgroundColor: i === index ? theme.colors.text : `${theme.colors.text}4D`}} />
     </Focusable>)}
@@ -261,8 +270,8 @@ export function Hero<T extends HeroCandidate>({candidates, activeIndex, onIndexC
     style={[{height: height ?? (variant === 'phone-web' ? heroSpec.mobileWeb.homeHeight : variant === 'desktop' ? heroSpec.homeHeight.web : heroSpec.homeHeight[theme.platform]), position: 'relative'}, style]}>
     <HeroSurface {...props} entry={candidates[index]} variant={variant} active={active} visible={visible && appVisible} reducedMotion={reducedMotion} heroFocused={heroFocused}
       renderAfterCopy={entry => <>{props.renderAfterCopy?.(entry)}{!desktop && dots}</>} />
-    {desktop && renderThumbnail && <View style={{position: 'absolute', right: theme.gutter, bottom: heroSpec.thumbnail.bottom, flexDirection: 'row', gap: heroSpec.thumbnail.gap}}>
-      {candidates.map((candidate, i) => <HeroThumbnail testID={testID ? focusTestID(testID, JSON.stringify(['thumbnail', candidate.id])) : undefined} key={candidate.id} entry={candidate} index={i} active={index === i} visible={visible && appVisible} progress={progress} render={renderThumbnail} onPress={() => change(i)} />)}
+    {desktop && renderThumbnail && <View style={{position: 'absolute', right: props.thumbnailSize?.right ?? theme.gutter, bottom: props.thumbnailSize?.bottom ?? heroSpec.thumbnail.bottom, flexDirection: 'row', gap: props.thumbnailSize?.gap ?? heroSpec.thumbnail.gap}}>
+      {candidates.map((candidate, i) => <HeroThumbnail testID={testID ? focusTestID(testID, JSON.stringify(['thumbnail', candidate.id])) : undefined} key={candidate.id} entry={candidate} index={i} active={index === i} visible={visible && appVisible} progress={progress} render={renderThumbnail} size={props.thumbnailSize} onPress={() => change(i)} />)}
     </View>}
   </View>;
 }

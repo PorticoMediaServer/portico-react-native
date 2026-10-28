@@ -47,6 +47,8 @@ export type RowProps<T> = {
   testID?: string;
   /** Actual measured width may be supplied before native onLayout (Home uses its measured viewport). */
   initialViewportWidth?: number;
+  /** The vertical window may unmount a shelf; this screen-owned memory keeps its place. */
+  scrollMemory?: {offset: number};
   focus?: Omit<FocusRegionProps, 'children' | 'order' | 'orientation'>;
   paging?: RowPage<T>;
 };
@@ -64,10 +66,12 @@ export function Row<T>(props: RowProps<T>) {
   return <FocusProvider><RowContent {...props} /></FocusProvider>;
 }
 
-function RowContent<T>({title, showHeading = true, headingStyle, subtitle, items, getKey, getFocusId = getKey, isFocusable, renderItem, itemWidth, itemHeight: authoredItemHeight, captionHeight = 0, gap, gutter, rightGutter, onSeeAll, selection, onVisibleRange, onVisibleKeys, onItemFocus, onRepeatingChange, style, testID, focus, paging, initialViewportWidth = 0}: RowProps<T>) {
+function RowContent<T>({title, showHeading = true, headingStyle, subtitle, items, getKey, getFocusId = getKey, isFocusable, renderItem, itemWidth, itemHeight: authoredItemHeight, captionHeight = 0, gap, gutter, rightGutter, onSeeAll, selection, onVisibleRange, onVisibleKeys, onItemFocus, onRepeatingChange, style, testID, focus, paging, initialViewportWidth = 0, scrollMemory}: RowProps<T>) {
   const theme = useTheme();
   const itemHeight = captionItemHeight(authoredItemHeight, captionHeight, theme.fontScale);
-  const [width, setWidth] = useState(initialViewportWidth), [offset, setOffset] = useState(0), [hovered, setHovered] = useState(false), [focused, setFocused] = useState<string>();
+  const initialOffset = useRef(scrollMemory?.offset ?? 0);
+  const [width, setWidth] = useState(initialViewportWidth), [offset, setOffset] = useState(initialOffset.current), [hovered, setHovered] = useState(false), [focused, setFocused] = useState<string>();
+  const publishOffset = useCallback((value: number) => {if (scrollMemory) scrollMemory.offset = value; setOffset(value);}, [scrollMemory]);
   const registry = useOptionalFocusRegistry();
   const regionId = focus?.id;
   const subscribe = useCallback((listener: () => void) => regionId && registry ? registry.subscribeRegion(regionId, listener) : () => {}, [regionId, registry]);
@@ -98,6 +102,12 @@ function RowContent<T>({title, showHeading = true, headingStyle, subtitle, items
   const remembered = focus ? registry?.remembered(focus.id) : focused;
   const [arrowFocus, setArrowFocus] = useState<'back' | 'forward' | 'all'>();
   const anchor = useFocusAnchor(true, focused !== undefined, theme.isTV ? 'start' : 'visible');
+  const offsetRestored = useRef(false);
+  useLayoutEffect(() => {
+    if (offsetRestored.current) return;
+    offsetRestored.current = true;
+    if (scrollMemory) anchor.offset.value = initialOffset.current;
+  }, [anchor.offset, scrollMemory]);
   const anchorItem = anchor.anchor;
   const stride = itemWidth + (gap ?? theme.spec.shelf.gap[theme.platform]);
   const leading = gutter ?? theme.gutter, trailing = rightGutter ?? (theme.isTV ? theme.layout.gutter.tvRight : theme.gutter);
@@ -157,7 +167,7 @@ function RowContent<T>({title, showHeading = true, headingStyle, subtitle, items
     const x = event.contentOffset.x;
     scrollOffset.value = x;
     const next = `${Math.floor((x - leading) / stride)}:${Math.ceil((x + width - leading) / stride)}`;
-    if (reported.value !== next) {reported.value = next; runOnJS(setOffset)(x);}
+    if (reported.value !== next) {reported.value = next; runOnJS(publishOffset)(x);}
   });
   const controlStyle = (selected: boolean) => ({borderWidth: selected ? theme.spec.focus.ringWidth[theme.platform] : 0, borderColor: theme.colors.focus, borderRadius: theme.baseRadii.control});
   return <View testID={testID} onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)} style={style}>
@@ -173,6 +183,9 @@ function RowContent<T>({title, showHeading = true, headingStyle, subtitle, items
       enabled={isFocusable && activeOrder.length === 0 ? false : undefined}>
     <Animated.ScrollView horizontal ref={anchor.scrollRef} style={[theme.isTV ? {marginTop: -top} : undefined, anchor.scrollStyle]} onLayout={event => setWidth(event.nativeEvent.layout.width)}
       onScroll={onScroll} scrollEventThrottle={16} showsHorizontalScrollIndicator={false} onScrollBeginDrag={anchor.stop}
+      contentOffset={scrollMemory ? {x: initialOffset.current, y: 0} : undefined}
+      onScrollEndDrag={scrollMemory ? event => publishOffset(event.nativeEvent.contentOffset.x) : undefined}
+      onMomentumScrollEnd={scrollMemory ? event => publishOffset(event.nativeEvent.contentOffset.x) : undefined}
       snapToInterval={theme.isTV ? undefined : stride} decelerationRate="fast" disableIntervalMomentum={!theme.isTV}
       scrollAnimationEnabled={false} onTouchStart={anchor.stop} removeClippedSubviews={false}>
       <View style={{width: extent, height: itemHeight + top + bottom}}>

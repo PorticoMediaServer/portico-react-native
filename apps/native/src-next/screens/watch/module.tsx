@@ -10,7 +10,7 @@ import {qualityOptionSelected} from '../../../../../packages/client-core/src/pla
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativePlaybackRuntimeSnapshot} from '../../platform/playback/types';
-import {createNativeWatchScreens, type NativeWatchFactoryPorts} from './factory';
+import {createNativeWatchScreens, type NativeWatchFactoryPorts, type NativeWatchMenuExtra} from './factory';
 import type {MusicPlaylistPickerHandle} from '../destinations/music/MusicPlaylistPicker';
 import {NativePlaybackInfoPanel, playbackInfoWords} from './PlaybackInfoPanel';
 import {NativeWatchPanels, type NativeWatchPanelsProps, type NativeWatchStylePort} from './WatchPanels';
@@ -37,7 +37,7 @@ import {clockText} from '../../../../../packages/client-core/src/presentation/ki
 import {DetailsPanel, type StateFact} from '../../kit/states/DetailsPanel';
 
 export type NativeWatchEntryMenu = Readonly<{
-  open: (entry: ContentEntry, entryCurrent: () => boolean, anchorRef?: React.RefObject<View | null>, select?: () => void) => Promise<void>;
+  open: (entry: ContentEntry, entryCurrent: () => boolean, anchorRef?: React.RefObject<View | null>, select?: () => void, extraActions?: readonly NativeWatchMenuExtra[]) => Promise<void>;
   isOpen: (entry: ContentEntry) => boolean;
   subscribe: (listener: () => void) => () => void;
 }>;
@@ -289,7 +289,7 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
     authority, current: context.authority, isCurrent: current, subscribeCurrent: context.subscribeAuthority,
     navigation: context.navigation, playback: context.playback, watch: context.watch, isTV: Platform.isTV, player});
   const entryMenu: NativeWatchEntryMenu = Object.freeze({
-    open: (entry, entryCurrent, anchorRef, select) => current() ? screens.menu(entry, entryCurrent, anchorRef, select) : Promise.resolve(),
+    open: (entry, entryCurrent, anchorRef, select, extraActions) => current() ? screens.menu(entry, entryCurrent, anchorRef, select, extraActions) : Promise.resolve(),
     isOpen: entry => {
       if (!current()) return false;
       const actual = bindings.title.menu?.getSnapshot();

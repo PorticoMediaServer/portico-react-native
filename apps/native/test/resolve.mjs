@@ -5,6 +5,8 @@
 // code under test is the real, unmodified bridge.
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import path from 'node:path';
+import {readFile} from 'node:fs/promises';
+import {stripTypeScriptTypes} from 'node:module';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const stub = pathToFileURL(path.join(here, 'react-native-stub.mjs')).href;
@@ -37,7 +39,14 @@ export async function resolve(specifier, context, next) {
 // The registry correctly rejects raw slashes in encodedRoutePath; only this fixture
 // used an unescaped generation/path. Keep every production route check unchanged.
 export async function load(url, context, next) {
-  const result = await next(url, context);
+  let result;
+  try {result = await next(url, context);}
+  catch (error) {
+    if (error?.code !== 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX' || !url.endsWith('.ts')) throw error;
+    // Existing production classes use parameter properties. Transform that supported
+    // TypeScript syntax for Node tests, preserving the original runtime code.
+    result = {format: 'module', source: stripTypeScriptTypes(await readFile(new URL(url), 'utf8'), {mode: 'transform', sourceUrl: url})};
+  }
   if (!url.endsWith('/playback-v1/testing/fake-server.ts')) return result;
   const source = typeof result.source === 'string' ? result.source : Buffer.from(result.source).toString('utf8');
   return {...result, source: source.replace("file:s.generation+'/master.m3u8'", "file:encodeURIComponent(s.generation+'/master.m3u8')")};

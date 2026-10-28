@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject} from 'react';
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -17,9 +17,11 @@ import {downloadEntryIdentity, downloadGroups, downloadRequestLines, downloadRow
 import {useDownloadArtwork} from './useDownloadArtwork';
 import {useReadingFacts} from './useReadingFacts';
 import {SavedConfirmSheet} from '../saved/SavedForms';
+import {createDownloadInventory, createDownloadViewport, downloadWindow} from './inventory';
 
 const t = defaultI18n.t;
-const noRequests = (): readonly TrackedDownloadRequest[] => Object.freeze([]);
+const emptyRequests: readonly TrackedDownloadRequest[] = Object.freeze([]);
+const noRequests = (): readonly TrackedDownloadRequest[] => emptyRequests;
 const noSubscribe = (_listener: () => void) => () => {};
 const limits = [0, 5, 10, 25, 50, 100].map(gb => gb * 1073741824);
 
@@ -42,6 +44,17 @@ export type NativeDownloadsScreenProps = Readonly<{
 export function DownloadsScreen({device, runtime, copy, back, openTitle, service, inline}: NativeDownloadsScreenProps) {
   const theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
   const snapshot = useSyncExternalStore(device.subscribe, device.getSnapshot);
+  const inventory = useMemo(() => createDownloadInventory(device, {
+    identity: downloadEntryIdentity,
+    membershipKey: entry => [entry.kind, entry.title, entry.addedAt, entry.info],
+    entryFence: entry => entry.state === 'ready' ? device.playabilityReason(entry) : null,
+    project: entries => {
+      const reading = entries.filter(readingEntry), watching = entries.filter(entry => !readingEntry(entry));
+      return {groups: downloadGroups(entries), reading, watching: downloadGroups(watching)};
+    },
+  }), [device]);
+  const membership = useSyncExternalStore(inventory.subscribe, inventory.getMembership);
+  const viewport = useMemo(createDownloadViewport, [device]), [inventoryTop, setInventoryTop] = useState(0);
   const [failure, setFailure] = useState<unknown>(), [entryMenu, setEntryMenu] = useState<{entry: OfflineEntry; anchor: RefObject<View | null>}>();
   const menu = entryMenu && snapshot.entries.find(entry => downloadEntryIdentity(entry) === downloadEntryIdentity(entryMenu.entry));
   useEffect(() => {if (entryMenu && !menu) setEntryMenu(undefined);}, [entryMenu, menu]);
@@ -121,7 +134,7 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
     runRemoveOthers(opening);
   };
 
-  const groups = downloadGroups(snapshot.entries), storage = downloadStorageSegments(snapshot);
+  const storage = downloadStorageSegments(snapshot);
   const requests = useSyncExternalStore(service ? service.subscribe : noSubscribe, service ? () => service.getSnapshot().requests : noRequests);
   const waiting = snapshot.pendingDownloads ?? [];
   const empty = snapshot.ready && snapshot.entries.length === 0 && requests.length === 0 && waiting.length === 0;
@@ -129,19 +142,15 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
   // holds and what is left, then the profile's actual reading publications and
   // everything else as two-column lists. Phone and medium keep today's page.
   const expanded = !theme.isTV && dimensions.width >= 1024;
-  const readingEntry = (entry: OfflineEntry) => {
-    const kind = entry.info?.kind ?? entry.kind;
-    return kind === 'ebook' || kind === 'comic';
-  };
-  const readingEntries = snapshot.entries.filter(readingEntry), watchingEntries = snapshot.entries.filter(entry => !readingEntry(entry));
-  // tablet11b draws watching downloads on the left with the rules beside them.
+  const readingEntries = membership.reading;
   // A reading page keeps the full-width lists and rules below (tablet-read12).
   const rulesBeside = expanded && !empty && readingEntries.length === 0;
-  const storedBytes = (entry: OfflineEntry) => entry.state === 'ready' ? entry.bytes : entry.bytesDone;
-  const readingBytes = readingEntries.reduce((sum, entry) => sum + storedBytes(entry), 0);
-  const watchingBytes = watchingEntries.reduce((sum, entry) => sum + storedBytes(entry), 0);
+  let readingBytes = 0, watchingBytes = 0;
+  for (const entry of snapshot.entries) {
+    const bytes = entry.state === 'ready' ? entry.bytes : entry.bytesDone;
+    if (readingEntry(entry)) readingBytes += bytes; else watchingBytes += bytes;
+  }
   const heldBytes = Math.max(snapshot.usedBytes, readingBytes + watchingBytes);
-  const watchingGroups = downloadGroups(watchingEntries);
   // tablet-read12's measured reading page is an expanded, non-phone reading page. 628 is
   // an inferred usable-row minimum (48 grid gutter + 20 column gap + 2 x 280), not a
   // frame measurement; below it the existing page is left exactly as it was.
@@ -154,9 +163,9 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
   const readingBarGap = readingTablet && watchingBytes > 0 && readingBytes > 0 ? 2 : 0;
   const readingBarWatching = readingTablet ? (readingBarInner - readingBarGap) * watchingBytes / Math.max(1, heldBytes) : 0;
   const readingBarReading = readingTablet ? (readingBarInner - readingBarGap) * readingBytes / Math.max(1, heldBytes) : 0;
-  const requestText = (tracked: TrackedDownloadRequest): string => downloadRequestLines(tracked.request).map(line =>
+  const requestText = (tracked: TrackedDownloadRequest): readonly string[] => downloadRequestLines(tracked.request).map(line =>
     line.key === 'downloads.requestProgress' ? t(line.key, line.values as {ready: number; total: number})
-      : line.key === 'downloads.requestFailed' ? t(line.key, line.values as {failed: number}) : t(line.key)).join(' · ');
+      : line.key === 'downloads.requestFailed' ? t(line.key, line.values as {failed: number}) : t(line.key));
   const ruleList = <DownloadsRules settings={snapshot.settings} pending={pending} copy={copy} save={save} limitRef={limitRef} onLimit={() => setPickingLimit(true)}/>;
   const otherNotice = snapshot.otherBytes > 0 && <View style={{marginHorizontal: 16, marginTop: 14, paddingLeft: 14, paddingRight: 12, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: alpha(theme.colors.text, .08), flexDirection: 'row', gap: 10, alignItems: 'center'}}>
     <Icon name="i-info" size={18} color={theme.colors.textSecondary}/><Text style={[browseType(theme, 13.5, 400), {color: theme.colors.textSecondary, flex: 1}]}>{t(copy.otherProfiles, {size: defaultI18n.bytes(snapshot.otherBytes)})}</Text>
@@ -168,8 +177,9 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
     {id: 'title', label: t('web.downloads.goToTitle'), icon: 'i-film', onSelect: () => openTitle(menu)},
     {id: 'remove', label: t(copy.removeFromPhone), icon: 'i-trash', destructive: true, onSelect: () => run(() => device.remove(menu))},
   ] : [];
-  const downloadRow = (entry: OfflineEntry, separator: boolean, metric = false) => <DownloadRow key={entry.id} metric={metric} entry={entry} device={device} runtime={runtime} copy={copy} separator={separator} menuOpen={menu?.id === entry.id}
-    onMenu={anchor => setEntryMenu({entry, anchor})} onPlay={device.openOffline ? () => run(() => device.openOffline!(entry)) : undefined} onRetry={() => run(() => device.resume(entry))}/>;
+  const openMenu = useCallback((entry: OfflineEntry, anchor: RefObject<View | null>) => setEntryMenu({entry, anchor}), []);
+  const playEntry = useCallback((entry: OfflineEntry) => {if (device.openOffline) run(() => device.openOffline!(entry));}, [device, run]);
+  const retryEntry = useCallback((entry: OfflineEntry) => run(() => device.resume(entry)), [device, run]);
   return <View testID="native-downloads-screen" onLayout={event => setPaneWidth(event.nativeEvent.layout.width)} style={{flex: 1, backgroundColor: theme.colors.ink}}>
     {!inline && <View style={{height: Math.max(96, insets.top + 48), paddingTop: Math.max(50, insets.top), paddingHorizontal: 10, justifyContent: 'center'}}>
       <Focusable testID="downloads-back" accessibilityLabel={t('saved.title')} onPress={back} style={{height: 38, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', paddingRight: 6, marginLeft: -4}}>
@@ -177,7 +187,9 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
       </Focusable>
       <Text pointerEvents="none" accessibilityRole="header" style={[browseType(theme, 17, 700), {position: 'absolute', left: 80, right: 80, bottom: 13, textAlign: 'center', color: theme.colors.text}]}>{t('downloads.title')}</Text>
     </View>}
-    <ScrollView ref={scroll} style={{flex: 1}} contentContainerStyle={{paddingTop: inline ? 8 : 0, paddingBottom: 28}}>
+    <ScrollView ref={scroll} style={{flex: 1}} scrollEventThrottle={64}
+      onLayout={event => viewport.update({...viewport.getSnapshot(), height: event.nativeEvent.layout.height})}
+      onScroll={event => viewport.update({...viewport.getSnapshot(), offset: event.nativeEvent.contentOffset.y})} contentContainerStyle={{paddingTop: inline ? 8 : 0, paddingBottom: 28}}>
       {!snapshot.supported ? <StateView title={t('downloads.unavailableOnDevice')}/> : <>
         {failure && <StateView {...runtime.error(failure, () => run(device.open))}/>}
         {snapshot.error && <StateView title={snapshot.error} tone="error"/>}
@@ -213,7 +225,8 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
             {requests.map((tracked, index) => <View key={tracked.request.requestId} testID={`downloads-request-${tracked.request.requestId}`}
               style={{paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: index ? 1 : 0, borderTopColor: alpha(theme.colors.lineStrong, .45)}}>
               <Text numberOfLines={1} style={[browseType(theme, 15, 700), {color: theme.colors.text}]}>{tracked.title}</Text>
-              <Text style={[browseType(theme, 13, 400), {color: theme.colors.textTertiary, marginTop: 3}]}>{requestText(tracked)}</Text>
+              <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', gap: 10, marginTop: 3}}>{requestText(tracked).map((text, index) =>
+                <Text key={index} style={[browseType(theme, 13, index === 0 ? 600 : 400), {color: theme.colors.textTertiary}]}>{text}</Text>)}</View>
             </View>)}
           </View>
         </View>}
@@ -228,45 +241,13 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
             {device.cancelPending && <Chip testID={`downloads-cancel-${entry.id}`} disabled={pending} onPress={() => run(() => device.cancelPending!(entry.id))}>{t('action.cancel')}</Chip>}
           </View>)}
         </View>}
-        {expanded && !empty ? <View style={rulesBeside ? {flexDirection: 'row', alignItems: 'flex-start'} : undefined}>
-          <View style={rulesBeside ? {flex: 1, minWidth: 0} : undefined}>
-          {readingEntries.length > 0 && <View testID="downloads-reading" style={{marginTop: readingTablet ? 26 : 24}}>
-            <DownloadsSectionHeading metric={readingTablet} label={t('next.settingsSpec.account.reading.title')} count={readingEntries.length}/>
-            <View style={readingTablet ? {flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 24, columnGap: 20}
-              : {flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: 14}}>
-              {readingEntries.map(entry => <View key={entry.id} style={readingTablet ? {width: readingColumn} : {width: '50%', paddingHorizontal: 6}}>
-                <View style={{borderBottomWidth: 1, borderBottomColor: alpha(theme.colors.lineStrong, .45)}}>{downloadRow(entry, false, readingTablet)}</View>
-              </View>)}
-            </View>
-          </View>}
-          {watchingGroups.length > 0 && <View testID="downloads-watching" style={{marginTop: 24}}>
-            <DownloadsSectionHeading label={t('next.live.watching')} count={watchingGroups.length}/>
-            {watchingGroups.map(group => <View key={group.key} style={{marginTop: 8}}>
-              {!!group.title && <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 10, marginTop: 8, marginHorizontal: 20, marginBottom: 4}}>
-                <Text accessibilityRole="header" style={[browseType(theme, 15, 700), {color: theme.colors.textSecondary}]}>{group.title}</Text>
-                {group.episodeCount !== undefined && <Text style={[browseType(theme, 12.5, 600), {color: theme.colors.textTertiary}]}>{t('count.episodes', {count: group.episodeCount})}</Text>}
-              </View>}
-              <View style={{flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: 14}}>
-                {group.entries.map(entry => <View key={entry.id} style={{width: rulesBeside ? '100%' : '50%', paddingHorizontal: 6}}>
-                  <View style={{borderBottomWidth: 1, borderBottomColor: alpha(theme.colors.lineStrong, .45)}}>{downloadRow(entry, false)}</View>
-                </View>)}
-              </View>
-            </View>)}
-          </View>}
-          </View>
-          <View style={rulesBeside ? {width: 360} : {marginTop: 10}}>{ruleList}{otherNotice}</View>
-        </View> : <View>
-          {!empty && groups.map(group => <View key={group.key}>
-            {!!group.title && <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 10, marginTop: 20, marginHorizontal: 20, marginBottom: 8}}>
-              <Text accessibilityRole="header" style={[browseType(theme, 13.5, 700), {color: theme.colors.textSecondary}]}>{group.title}</Text>
-              {group.episodeCount !== undefined && <Text style={[browseType(theme, 13.5, 700), {color: theme.colors.textTertiary}]}>{t('count.episodes', {count: group.episodeCount})}</Text>}
-            </View>}
-            <View style={{marginHorizontal: 16, backgroundColor: theme.colors.raised, borderRadius: 14, overflow: 'hidden'}}>
-              {group.entries.map((entry, index) => downloadRow(entry, index > 0))}
-            </View>
-          </View>)}
-          <View>{ruleList}{otherNotice}</View>
-        </View>}
+        <View onLayout={event => setInventoryTop(event.nativeEvent.layout.y)} style={rulesBeside ? {flexDirection: 'row', alignItems: 'flex-start'} : undefined}>
+          {!empty && <DownloadInventoryWindow inventory={inventory} membership={membership} viewport={viewport} top={inventoryTop}
+            expanded={expanded} readingTablet={readingTablet} readingColumn={readingColumn} rulesBeside={rulesBeside} paneWidth={paneWidth}
+            device={device} runtime={runtime} copy={copy} menuId={menu ? downloadEntryIdentity(menu) : undefined}
+            onMenu={openMenu} onPlay={device.openOffline ? playEntry : undefined} onRetry={retryEntry}/>}
+          <View style={rulesBeside ? {width: 360} : expanded && !empty ? {marginTop: 10} : undefined}>{ruleList}{otherNotice}</View>
+        </View>
       </>}
     </ScrollView>
     {dimensions.width < 600 && !theme.isTV ? <BottomSheet testID="downloads-entry-menu" title={undefined} open={!!menu} onOpenChange={open => {if (!open) setEntryMenu(undefined);}}
@@ -287,6 +268,104 @@ export function DownloadsScreen({device, runtime, copy, back, openTitle, service
       testID="downloads-remove-other-profiles-confirm" onClose={closeRemoveOthers} onConfirm={confirmRemoveOthers}/>
   </View>;
 }
+
+function readingEntry(entry: OfflineEntry): boolean {
+  const kind = entry.info?.kind ?? entry.kind; return kind === 'ebook' || kind === 'comic';
+}
+type DownloadMembership = Readonly<{groups: ReturnType<typeof downloadGroups>; reading: readonly OfflineEntry[]; watching: ReturnType<typeof downloadGroups>}>;
+type DownloadInventory = ReturnType<typeof createDownloadInventory<OfflineEntry, DownloadMembership>>;
+type WindowRow = Readonly<{key: string; kind: 'section' | 'group' | 'entries'; estimate: number; label?: string; count?: number;
+  metric?: boolean; reading?: boolean; ids?: readonly string[]; first?: boolean; last?: boolean}>;
+
+/** One bounded native window inside the page's existing scroll owner. The same measured
+ * geometry retains compact rounded groups and the tablet's two-column rows/rules split. */
+const DownloadInventoryWindow = React.memo(function DownloadInventoryWindow({inventory, membership, viewport, top, expanded, readingTablet, readingColumn,
+  rulesBeside, paneWidth, device, runtime, copy, menuId, onMenu, onPlay, onRetry}: {
+  inventory: DownloadInventory; membership: DownloadMembership; viewport: ReturnType<typeof createDownloadViewport>; top: number;
+  expanded: boolean; readingTablet: boolean; readingColumn?: number; rulesBeside: boolean; paneWidth: number;
+  device: NativeOfflineDownloadsDevice; runtime: NativeShellRuntime; copy: NativeDownloadsCopy; menuId?: string;
+  onMenu: (entry: OfflineEntry, anchor: RefObject<View | null>) => void; onPlay?: (entry: OfflineEntry) => void; onRetry: (entry: OfflineEntry) => void;
+}) {
+  const theme = useTheme(), visible = useSyncExternalStore(viewport.subscribe, viewport.getSnapshot);
+  const [focused, setFocused] = useState<string>(), [measureVersion, setMeasureVersion] = useState(0), measures = useRef(new Map<string, number>());
+  const layoutKey = `${paneWidth}:${expanded}:${readingTablet}:${rulesBeside}`, measuredLayout = useRef(layoutKey);
+  if (measuredLayout.current !== layoutKey) {measuredLayout.current = layoutKey; measures.current.clear();}
+  const rows = useMemo(() => {
+    const result: WindowRow[] = [];
+    const append = (key: string, entries: readonly OfflineEntry[], columns: number, reading = false) => {
+      for (let index = 0; index < entries.length; index += columns) result.push({key: `${key}:${downloadEntryIdentity(entries[index]!)}`,
+        kind: 'entries', ids: entries.slice(index, index + columns).map(downloadEntryIdentity), reading, metric: reading && readingTablet,
+        first: index === 0, last: index + columns >= entries.length, estimate: reading && readingTablet ? 97 : 88});
+    };
+    if (expanded) {
+      if (membership.reading.length) {
+        result.push({key: 'section:reading', kind: 'section', label: t('next.settingsSpec.account.reading.title'), count: membership.reading.length, metric: readingTablet, estimate: readingTablet ? 58 : 50});
+        append('reading', membership.reading, 2, true);
+      }
+      if (membership.watching.length) result.push({key: 'section:watching', kind: 'section', label: t('next.live.watching'), count: membership.watching.length, estimate: 50});
+      for (const group of membership.watching) {
+        result.push({key: `group:${group.key}`, kind: 'group', label: group.title, count: group.episodeCount, estimate: group.title ? 40 : 8});
+        append(group.key, group.entries, rulesBeside ? 1 : 2);
+      }
+    } else for (const group of membership.groups) {
+      if (group.title) result.push({key: `group:${group.key}`, kind: 'group', label: group.title, count: group.episodeCount, estimate: 46});
+      append(group.key, group.entries, 1);
+    }
+    return result;
+  }, [membership, expanded, readingTablet, rulesBeside]);
+  const offsets = useMemo(() => {
+    const next = [0]; for (const row of rows) next.push(next[next.length - 1]! + (measures.current.get(row.key) ?? row.estimate)); return next;
+    // Measurements mutate in place; these keys invalidate offsets after layout/height changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, layoutKey, measureVersion]);
+  const range = downloadWindow(offsets, visible.offset - top, visible.height);
+  const indices = new Set(Array.from({length: range.end - range.start}, (_, index) => range.start + index));
+  for (const id of [menuId, focused]) if (id) {const index = rows.findIndex(row => row.ids?.includes(id)); if (index >= 0) indices.add(index);}
+  const mounted = [...indices].sort((a, b) => a - b);
+  return <View testID="downloads-inventory-window" style={{height: offsets[offsets.length - 1], ...(rulesBeside ? {flex: 1, minWidth: 0} : {width: '100%'})}}>
+    {mounted.map(index => {
+      const row = rows[index]!;
+      return <View key={row.key} onLayout={event => {
+        const height = event.nativeEvent.layout.height;
+        if (height > 0 && Math.abs(height - (measures.current.get(row.key) ?? row.estimate)) > .5) {measures.current.set(row.key, height); setMeasureVersion(value => value + 1);}
+      }} style={{position: 'absolute', left: 0, right: 0, top: offsets[index]}}>
+        {row.kind === 'section' ? <View testID={row.key === 'section:reading' ? 'downloads-reading' : 'downloads-watching'} style={{paddingTop: row.metric ? 26 : 24}}>
+          <DownloadsSectionHeading metric={row.metric} label={row.label!} count={row.count!}/>
+        </View> : row.kind === 'group' ? row.label ? <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 10,
+          paddingTop: expanded ? 16 : 20, marginHorizontal: 20, paddingBottom: expanded ? 4 : 8}}>
+          <Text accessibilityRole="header" style={[browseType(theme, expanded ? 15 : 13.5, 700), {color: theme.colors.textSecondary}]}>{row.label}</Text>
+          {row.count !== undefined && <Text style={[browseType(theme, expanded ? 12.5 : 13.5, expanded ? 600 : 700), {color: theme.colors.textTertiary}]}>{t('count.episodes', {count: row.count})}</Text>}
+        </View> : <View style={{height: 8}}/> : <View style={expanded ? row.metric
+          ? {flexDirection: 'row', paddingHorizontal: 24, columnGap: 20}
+          : {flexDirection: 'row', marginHorizontal: 14}
+          : {marginHorizontal: 16, backgroundColor: theme.colors.raised, borderTopLeftRadius: row.first ? 14 : 0, borderTopRightRadius: row.first ? 14 : 0,
+            borderBottomLeftRadius: row.last ? 14 : 0, borderBottomRightRadius: row.last ? 14 : 0, overflow: 'hidden'}}>
+          {row.ids!.map(id => <View key={id} style={expanded ? row.metric ? {width: readingColumn}
+            : {width: rulesBeside ? '100%' : '50%', paddingHorizontal: 6} : undefined}>
+            <View style={expanded ? {borderBottomWidth: 1, borderBottomColor: alpha(theme.colors.lineStrong, .45)} : undefined}>
+              <LiveDownloadRow id={id} inventory={inventory} metric={row.metric} device={device} runtime={runtime} copy={copy}
+                separator={!expanded && !row.first} menuOpen={menuId === id} onMenu={onMenu} onPlay={onPlay} onRetry={onRetry} onFocus={setFocused}/>
+            </View>
+          </View>)}
+        </View>}
+      </View>;
+    })}
+  </View>;
+});
+
+const LiveDownloadRow = React.memo(function LiveDownloadRow({id, inventory, device, runtime, copy, separator, menuOpen, onMenu, onPlay, onRetry, metric, onFocus}: {
+  id: string; inventory: DownloadInventory; device: NativeOfflineDownloadsDevice; runtime: NativeShellRuntime; copy: NativeDownloadsCopy;
+  separator: boolean; menuOpen: boolean; metric?: boolean; onMenu: (entry: OfflineEntry, anchor: RefObject<View | null>) => void;
+  onPlay?: (entry: OfflineEntry) => void; onRetry: (entry: OfflineEntry) => void; onFocus: (id: string) => void;
+}) {
+  const read = useCallback(() => inventory.getEntry(id), [inventory, id]);
+  const selected = useSyncExternalStore(inventory.subscribe, read);
+  useEffect(() => () => inventory.release(id), [inventory, id]);
+  if (!selected) return null;
+  const entry = selected.entry;
+  return <DownloadRow entry={entry} device={device} runtime={runtime} copy={copy} separator={separator} menuOpen={menuOpen} metric={metric}
+    onFocus={() => onFocus(id)} onMenu={anchor => onMenu(entry, anchor)} onPlay={onPlay ? () => onPlay(entry) : undefined} onRetry={() => onRetry(entry)}/>;
+});
 
 function DownloadsSectionHeading({label, count, metric = false}: {label: string; count: number; metric?: boolean}) {
   const theme = useTheme();
@@ -349,7 +428,7 @@ function DownloadMenuContext({entry, copy}: {entry: OfflineEntry; copy: NativeDo
   </>;
 }
 
-function DownloadRow({entry, device, runtime, copy, separator, menuOpen, onMenu, onPlay, onRetry, metric = false}: {entry: OfflineEntry; device: NativeOfflineDownloadsDevice; runtime: NativeShellRuntime; copy: NativeDownloadsCopy; separator: boolean; menuOpen: boolean; onMenu: (anchor: RefObject<View | null>) => void; onPlay?: () => void; onRetry: () => void; metric?: boolean}) {
+function DownloadRow({entry, device, runtime, copy, separator, menuOpen, onMenu, onPlay, onRetry, metric = false, onFocus}: {entry: OfflineEntry; device: NativeOfflineDownloadsDevice; runtime: NativeShellRuntime; copy: NativeDownloadsCopy; separator: boolean; menuOpen: boolean; onMenu: (anchor: RefObject<View | null>) => void; onPlay?: () => void; onRetry: () => void; metric?: boolean; onFocus?: () => void}) {
   const theme = useTheme(), blocked = entry.state === 'ready' ? device.playabilityReason(entry) : null, opener = useRef<View>(null);
   const facts = useDownloadArtwork(device, entry), reading = useReadingFacts(device, entry, entry.state === 'ready' && !blocked);
   const text = downloadRowText(entry, facts, blocked, copy, runtime.text, reading);
@@ -361,7 +440,7 @@ function DownloadRow({entry, device, runtime, copy, separator, menuOpen, onMenu,
     ...(metric ? {minHeight: 92, borderRadius: 14} : {})}}>
     {separator && <View style={{position: 'absolute', top: 0, left: 74, right: 0, height: 1, backgroundColor: alpha(theme.colors.lineStrong, .45)}}/>}
     <View style={{flex: 1, minWidth: 0}}>
-      <CardFrame title={entry.title} menuAnchorRef={opener} moreExpanded={menuOpen} testID={`download-${encodeURIComponent(entry.id)}`}
+      <CardFrame title={entry.title} onFocus={onFocus} menuAnchorRef={opener} moreExpanded={menuOpen} testID={`download-${encodeURIComponent(entry.id)}`}
         onNavigate={playable && onPlay ? onPlay : menu} onMore={menu} pressableStyle={{flexDirection: 'row', alignItems: 'center', gap: metric ? 14 : 13}}>
         {() => <>
           <Artwork source={artwork} width={metric ? 52 : 46} height={metric ? 78 : 69} zoom={backdrop ? 2.2 : 1} saturation={backdrop ? .55 : 1} brightness={backdrop ? .45 : 1} style={{borderRadius: metric ? 5 : 6}}/>

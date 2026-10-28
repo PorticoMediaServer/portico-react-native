@@ -22,7 +22,7 @@ export function SectionTitle({children, action}: {children: ReactNode; action?: 
 export type LibraryRowProps = Readonly<{
   testID?: string;
   label: string;
-  help?: string;
+  help?: string | readonly string[];
   value?: ReactNode;
   icon?: IconName;
   tone?: 'normal' | 'danger';
@@ -41,12 +41,12 @@ export function LibraryRow({testID, label, help, value, icon, tone = 'normal', o
     {icon && <View style={{width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: alpha(tone === 'danger' ? theme.colors.record : theme.colors.text, .1)}}><Icon name={icon} size={17} color={tone === 'danger' ? theme.colors.record : theme.colors.textSecondary}/></View>}
     <View style={{flex: 1, minWidth: 0}}>
       <Text style={[shellType(15.5, 500), {color}]}>{label}</Text>
-      {help !== undefined && <Text style={[shellType(12.5, 500, 17.5), {color: theme.colors.textTertiary, marginTop: 2}]}>{help}</Text>}
+      {help !== undefined && <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, rowGap: 3, marginTop: 2}}>{(typeof help === 'string' ? [help] : help).map((part, index) => <Text key={index} style={[shellType(12.5, 500, 17.5), {color: theme.colors.textTertiary, flexShrink: 1}]}>{part}</Text>)}</View>}
     </View>
     {value !== undefined && (typeof value === 'string' ? <Text numberOfLines={1} style={[shellType(14.5), {color: theme.colors.textSecondary, maxWidth: 170}]}>{value}</Text> : value)}
     {trailing}
     {onPress && !trailing && <Icon name="i-right" size={18} color={theme.colors.lineStrong}/>}
   </>;
   const style: StyleProp<ViewStyle> = [{flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 10, minHeight, borderTopWidth: first ? 0 : 1, borderTopColor: theme.colors.lineSoft}];
-  return onPress ? <Focusable testID={testID} accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? label} accessibilityHint={help} onPress={onPress} focusKind="row" focusRadius={10} style={style}>{body}</Focusable> : <View testID={testID} style={style}>{body}</View>;
+  return onPress ? <Focusable testID={testID} accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? label} accessibilityHint={typeof help === 'string' ? help : help?.join(', ')} onPress={onPress} focusKind="row" focusRadius={10} style={style}>{body}</Focusable> : <View testID={testID} style={style}>{body}</View>;
 }

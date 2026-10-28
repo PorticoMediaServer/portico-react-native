@@ -60,6 +60,7 @@ async function setup() {
     react: {default: {}}, './lifetime': {nativeDestinationLifetime}, '../read/reading-books-open': {openNativeReadingBookEntry: async () => false}, '../native-screen-services': {nativeScreenServices: () => common}, '../watch': {nativeWatchEntryMenu: () => menu},
   });
   const {createNativeSavedState} = await screenModule(new URL('../src-next/screens/saved/state.ts', import.meta.url), {
+    './selection': {createNativeSavedViewSelection: () => ({dispose() {}})},
     '../home/customize-intent': customizeIntent,
     '../library/saved-view-intent': librarySavedIntent,
     react: {default: {}}, '../destinations/lifetime': {nativeDestinationLifetime}, '../destinations/entry-actions': {createNativeEntryActions},

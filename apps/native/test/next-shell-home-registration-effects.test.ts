@@ -1,4 +1,5 @@
 import * as layoutModel from '../src-next/kit/layout/model.ts';
+import * as homeWindow from '../src-next/screens/home/home-window';
 import {createNativeMusicMixes} from '../src-next/screens/destinations/music/mixes';
 import * as errorPresentation from '../../../packages/client-core/src/presentation/errors';
 import * as homeStart from '../src-next/screens/home/home-start';
@@ -67,7 +68,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     // Physical page Back and recovery paint are outside this registration fixture;
     // recovery ownership/effects above still execute the actual hook.
     '../destinations/useTVPageBack': {useTVPageBack() {}},
-    '../../kit/focus/initial-entry': {createInitialRegionEntry}, './home-start': homeStart,
+    '../../kit/focus/initial-entry': {createInitialRegionEntry}, './home-window': homeWindow, './home-start': homeStart,
     '../destinations/music/MusicMixesRow': {MusicMixesRow: 'MusicMixesRow'},
     './TvHomeRecovery': {TvHomeRecovery: 'TvHomeRecovery'}, './useTvHomeRecovery': recovery,
     '@portico/design': {heroSpec},

@@ -1,12 +1,12 @@
 import React, {useEffect, useLayoutEffect, useState, useSyncExternalStore} from 'react';
-import {ScrollView, Text, View} from 'react-native';
+import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {noticeWords, type Notification, type NotificationAction} from '../../../../../packages/client-core/src/notifications';
 import type {InboxAction, InboxService, InboxView} from '../../../../../packages/client-core/src/inbox';
 import {Button, Tabs} from '../../kit/controls';
 import {Icon, type IconName} from '../../kit/Icon';
-import {Menu, type MenuEntry} from '../../kit/overlays';
+import {BottomSheet, Menu, type MenuEntry} from '../../kit/overlays';
 import {NotificationItem} from '../../kit/shell';
 import {StateView} from '../../kit/states';
 import {shellType} from '../../kit/shell/visual';
@@ -111,10 +111,11 @@ export function NativeNotificationsScreen({context, route, runtime, profileServi
     return () => {for (const off of offs) off();};
   }, [context, lease, retired, view]);
 
-  if (retired) return <View testID="native-notifications-retired" style={{flex: 1, backgroundColor: theme.colors.ink, paddingTop: insets.top + 14}}>
+  const close = () => {if (routeLive() && context.navigation.back(context.authority())) setChosen(undefined);};
+  if (retired) return <NotificationsFrame testID="native-notifications-retired" title={t('next.shell.notifications')} onClose={close}>
     <StateView icon="i-warn" title={t('notifications.error.load')} primaryAction={{id: 'back', label: t('action.back'), onPress: () => {if (routeLive()) context.navigation.back(context.authority());}}}/>
-  </View>;
-  if (!lease || lease.profile !== profileService || lease.admin !== adminService || lease.retirement !== retirement) return <View testID="native-notifications-pending" style={{flex: 1, backgroundColor: theme.colors.ink}}/>;
+  </NotificationsFrame>;
+  if (!lease || lease.profile !== profileService || lease.admin !== adminService || lease.retirement !== retirement) return <NotificationsFrame testID="native-notifications-pending" title={t('next.shell.notifications')} onClose={close}/>;
 
   const hasLiveTV = runtime.getSnapshot().hasLiveTV;
   const adminRequested = context.account.account.role === 'owner';
@@ -205,8 +206,7 @@ export function NativeNotificationsScreen({context, route, runtime, profileServi
   const emptyTitle = view === 'unread' ? t('notifications.caughtUp') : view === 'archived' ? t('notifications.noneArchived') : t('notifications.none');
   const backLabel = lease.origin.kind === 'settings' ? t('next.shell.settings') : t('action.back');
 
-  return <View testID="native-notifications" style={{flex: 1, backgroundColor: theme.colors.ink, paddingTop: insets.top + 14}}>
-    <View style={{height: 56, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+  const header = <View style={{height: 56, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
       {theme.platform === 'phone' && <View accessible={false} pointerEvents="none" style={{position: 'absolute', top: 6, alignSelf: 'center', width: 38, height: 5, borderRadius: 3, backgroundColor: theme.colors.lineStrong}}/>}
       <Button testID="notifications-back" variant="text" size="small" icon="i-left" accessibilityLabel={backLabel}
         onPress={() => {if (!current()) return; if (context.navigation.back(context.authority())) setChosen(undefined);}} style={{minHeight: 38, paddingHorizontal: 6, marginLeft: -4}}
@@ -214,13 +214,14 @@ export function NativeNotificationsScreen({context, route, runtime, profileServi
       <Text accessibilityRole="header" pointerEvents="none" style={[shellType(17, 700), {position: 'absolute', left: 96, right: 96, textAlign: 'center', color: theme.colors.text}]}>{t('next.shell.notifications')}</Text>
       {view !== 'archived' && unread > 0 ? <Button testID="notifications-mark-all" variant="text" size="small" disabled={busy} onPress={markAll}
         style={{minHeight: 38, paddingHorizontal: 6, marginRight: -4}} textStyle={shellType(15, 700)}>{t('notifications.markAllRead')}</Button> : <View/>}
-    </View>
+    </View>;
+  return <NotificationsFrame testID="native-notifications" title={t('next.shell.notifications')} onClose={close} header={header}>
     <Tabs testID="notifications-views" value={view} onValueChange={changeView} items={[
       {value: 'unread', label: t('notifications.view.unread'), count: unread > 0 ? defaultI18n.number(unread) : undefined},
       {value: 'all', label: t('notifications.view.all')},
       {value: 'archived', label: t('notifications.view.archived')},
     ]}/>
-    <ScrollView style={{flex: 1}} contentContainerStyle={{paddingBottom: Math.max(24, insets.bottom + 16), paddingTop: 4}}>
+    <ScrollView style={{flex: 1}} contentContainerStyle={{paddingBottom: theme.platform === 'phone' ? 0 : Math.max(24, insets.bottom + 16), paddingTop: 4}}>
       {error !== undefined && items.length > 0 && <StateView tone="warning" title={error} primaryAction={{id: 'retry', label: t('action.tryAgain'), onPress: reload}} style={{paddingTop: 8, paddingBottom: 8}}/>}
       {loading && !items.length && <StateView icon="i-bell" title={t('notifications.loading')}/>}
       {!loading && !items.length && error !== undefined && <StateView icon="i-warn" title={t('notifications.error.load')} body={error} primaryAction={{id: 'retry', label: t('action.tryAgain'), onPress: reload}}/>}
@@ -244,7 +245,19 @@ export function NativeNotificationsScreen({context, route, runtime, profileServi
     </ScrollView>
     <Menu testID="notification-actions" open={chosen !== undefined} onOpenChange={open => {if (!open) setChosen(undefined);}} presentation="sheet"
       title={chosenWords?.title} description={chosenWords?.body} items={menu}/>
-  </View>;
+  </NotificationsFrame>;
+}
+
+/** The transparent modal keeps the retained origin visible and inert behind it.
+ * Header gestures, Back, escape and screen-reader containment use the shared host. */
+function NotificationsFrame({children, header, title, testID, onClose}: {children?: React.ReactNode; header?: React.ReactNode; title: string; testID: string; onClose: () => void}) {
+  const theme = useTheme(), insets = useSafeAreaInsets(), window = useWindowDimensions();
+  if (theme.platform !== 'phone') return <View testID={testID} style={{flex: 1, backgroundColor: theme.colors.ink, paddingTop: insets.top + 14}}>{header}{children}</View>;
+  return <BottomSheet testID={testID} title={title} open onOpenChange={open => {if (!open) onClose();}} accessibilityLabel={title}
+    detents={[Math.max(1, window.height - 62)]} headerContent={header ?? <View style={{height: 56}}/>} scrollable={false} showClose={false} showGrabber={false}
+    style={{backgroundColor: theme.colors.ink, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingTop: 0}}>
+    {children}
+  </BottomSheet>;
 }
 
 const sourceIcon = (source: string): IconName => source === 'downloads' ? 'i-dl'

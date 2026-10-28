@@ -3,14 +3,13 @@ import {Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
-import type {SavedEntry, SavedProjection, SavedRoute, SavedSnapshot} from '../../../../../packages/client-core/src/saved';
+import type {SavedEntry, SavedProjection, SavedRoute} from '../../../../../packages/client-core/src/saved';
 import {SelectionModel, selectionKey, selectionFourthAction, readCatalogueSelectionItem, playCatalogueSelection, enqueueCatalogueSelection, createCataloguePersonalSelection,
   type SelectionContext, type SelectionItem} from '../../../../../packages/client-core/src/selection-model';
 import {mediaSelectionKey} from '../../../../../packages/client-core/src/media-selection';
 import type {BulkMetadataPreview} from '../../../../../packages/client-core/src/home-selection/metadata-preview';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
-import type {NativeShellRuntime} from '../../shell/runtime';
 import {selectedItemsLabel} from '../../shell/selection-display';
 import {BulkEditor, DeleteMediaDialog, SelectionBar, SelectionPhoneActionBar, type SelectionActionOffer, type SelectionBarProps} from '../../kit/selection';
 import {useTheme} from '../../kit/theme';
@@ -32,23 +31,87 @@ import {NativeBulkMedia} from '../destinations/bulk-media';
 export type NativeSavedSelectionSource = Readonly<{
   getSnapshot: () => Readonly<{phase: string;
     myList: Readonly<{projection?: SavedProjection | null; route?: SavedRoute | null}>;
-    favorites: Readonly<{projection?: SavedProjection | null; route?: SavedRoute | null}>}>;
+    favorites: Readonly<{projection?: SavedProjection | null; route?: SavedRoute | null}>;
+    myListSquares?: Readonly<{projection?: SavedProjection | null; route?: SavedRoute | null}>}>;
   subscribe: (listener: () => void) => () => void;
 }>;
-type SelectionSnapshot = ReturnType<NativeSavedSelectionSource['getSnapshot']>;
+export type NativeCatalogueSelectionSnapshot = Readonly<{
+  /** Exact source/query identity. Appending a page does not change the query. */
+  key: string;
+  witness?: unknown;
+  context: SelectionContext | null;
+  sections: readonly Readonly<{id: string; entries: readonly ContentEntry[]; start?: number}>[];
+}>;
+export type NativeCatalogueSelectionSource = Readonly<{
+  getSnapshot: () => NativeCatalogueSelectionSnapshot;
+  subscribe: (listener: () => void) => () => void;
+}>;
 import type {NativeSavedSelectionPort} from './SavedScreen';
 
 /** Exactly the AV leaves this owner may select, edit or delete. The Saved mirror's
  * entries also carry playlists and Reading group cards; this partition excludes
  * every other shape instead of casting one of them to a ContentEntry. */
-const leaf = (entry: SavedEntry): entry is ContentEntry => entry.kind === 'movie' || entry.kind === 'episode'
+const leaf = (entry: SavedEntry): boolean => entry.kind === 'movie' || entry.kind === 'episode'
   || entry.kind === 'song' || entry.kind === 'audiobook_file';
+const selectable = (entry: ContentEntry): boolean => leaf(entry) || ['show', 'season', 'album', 'artist', 'book', 'collection'].includes(entry.kind);
 const unavailable = () => Object.assign(new Error('catalogue-selection-unavailable'), {code: 'catalogue-selection-unavailable'});
 
-/** Selection on the Saved hub, over the canonical myList/favorites projections the
- * hub already read. Detail supplies each explicitly picked leaf's grants; Saved keeps
- * its own viewer fence and revision, never a Home or Search one. */
+/** Adapt only arrived Saved projections, including the separately paged square
+ * shelf. No fetched page is promoted to whole-query membership. */
 export function createNativeSavedSelection(context: NativeShellBootstrapContext, destination: NativeSavedSelectionSource,
+  activation: NativeDestinationActivationPort): NativeSavedSelectionPort & {dispose: () => void} {
+  const source: NativeCatalogueSelectionSource = {
+    subscribe: destination.subscribe,
+    getSnapshot: (): NativeCatalogueSelectionSnapshot => {
+      const snapshot = destination.getSnapshot(), viewer = context.session()?.viewer, authority = viewer?.authority;
+      const lists = [snapshot.myList, snapshot.myListSquares, snapshot.favorites].flatMap((list, index) => list?.projection
+        ? [{id: String(index), list, projection: list.projection}] : []);
+      const first = lists[0]?.projection;
+      const key = JSON.stringify(lists.map(({id, list, projection}) => [id, list.route, projection.scope.viewerFence, projection.revision, projection.query]));
+      const admitted = snapshot.phase === 'ready' && first && viewer && (authority === 'local' || authority === 'hosted');
+      return {key, witness: snapshot.myList, context: admitted ? {
+        scope: {serverId: viewer.serverId, authority, accountId: viewer.accountId, profileId: viewer.profileId,
+          viewId: JSON.stringify(['native-saved', snapshot.myList.route, first.scope.entityId]), privacyFence: first.scope.viewerFence},
+        revision: {catalogRevision: String(first.revision.catalog), viewerRevision: String(first.revision.viewer)},
+      } : null, sections: lists.flatMap(({id, projection}) => projection.sections.map(section => ({id: `${id}:${section.id}`,
+        entries: section.entries.filter((entry): entry is ContentEntry => entry.kind !== 'playlist' && entry.kind !== 'playlist_entry' && entry.kind !== 'reading_group')})))};
+    },
+  };
+  return createNativeCatalogueSelection(context, source, activation);
+}
+
+/** Pushed and inline Saved pages keep the canonical source's own revision domain.
+ * PersonalSaved's server resource/history revisions are not compared with
+ * Detail/catalogue revisions. Appending a page in that revision keeps selection. */
+export function createNativeSavedViewSelection(context: NativeShellBootstrapContext,
+  destination: import('./view-model').NativeSavedViewDestination, activation: NativeDestinationActivationPort) {
+  return createNativeCatalogueSelection(context, {
+    subscribe: destination.subscribe,
+    getSnapshot: (): NativeCatalogueSelectionSnapshot => {
+      const snapshot = destination.getSnapshot(), viewer = context.session()?.viewer;
+      const projection = snapshot.saved?.projection, personal = snapshot.personal;
+      const fence = projection?.scope.viewerFence ?? personal?.viewerFence;
+      const admitted = !snapshot.error && !snapshot.saved?.error && !personal?.error && !!fence
+        && (snapshot.phase === 'ready' || snapshot.phase === 'loading' && !!(projection || personal?.resource || personal?.entries.length));
+      const revision = projection ? {catalogRevision: String(projection.revision.catalog), viewerRevision: String(projection.revision.viewer)}
+        : {catalogRevision: JSON.stringify(['saved-resource', personal?.resource?.revision ?? personal?.revision]), viewerRevision: JSON.stringify(['saved', personal?.revision])};
+      const entries = (projection?.sections ?? []).map(section => ({id: section.id, entries: section.entries.flatMap(entry =>
+        entry.kind === 'playlist_entry' ? entry.hidden ? [] : [entry.media]
+          : entry.kind === 'playlist' || entry.kind === 'reading_group' ? [] : [entry])}));
+      if (personal) entries.push({id: 'personal', entries: personal.entries.flatMap(entry => !entry.hidden && entry.media ? [entry.media] : [])});
+      return {key: JSON.stringify(['native-saved-view', snapshot.route, projection?.query]), witness: snapshot.saved ?? personal,
+        context: admitted && viewer && (viewer.authority === 'local' || viewer.authority === 'hosted') ? {
+          scope: {serverId: viewer.serverId, authority: viewer.authority, accountId: viewer.accountId, profileId: viewer.profileId,
+            viewId: JSON.stringify(['native-saved-view', snapshot.route]), privacyFence: fence!}, revision,
+        } : null, sections: entries};
+    },
+  }, activation);
+}
+
+/** A page's actual catalogue fence, query and loaded objects own selection. The
+ * same controls serve Saved, music, Person and collection pages without borrowing
+ * a Home/Search scope or deriving grants from an item's shape. */
+export function createNativeCatalogueSelection(context: NativeShellBootstrapContext, destination: NativeCatalogueSelectionSource,
   activation: NativeDestinationActivationPort): NativeSavedSelectionPort & {dispose: () => void} {
   const authority = nativeDestinationLifetime(context), feedback = nativeScreenServices(context);
   const listeners = new Set<() => void>(), windows = new Map<string, {key: string; windowId: string; item: SelectionItem; entry: ContentEntry; sectionId: string; order: number}>();
@@ -61,11 +124,8 @@ export function createNativeSavedSelection(context: NativeShellBootstrapContext,
   let bulk: NativeBulkMedia | undefined, bulkController: AbortController | undefined, stopBulk: (() => void) | undefined;
   const emit = () => {revision++; for (const listener of [...listeners]) listener();};
   const visible = () => !disposed && authority.current() && activation.getSnapshot().visible;
-  const lists = (snapshot: SelectionSnapshot) => [snapshot.myList, snapshot.favorites].flatMap((list, index) => list.projection
-    ? [{id: index === 0 ? 'myList' : 'favorites', list}] : []);
-  const keyFor = (snapshot: SelectionSnapshot) => snapshot.phase === 'ready'
-    ? JSON.stringify(lists(snapshot).map(({id, list}) => [id, list.projection?.scope.viewerFence, list.projection?.revision.catalog, list.projection?.revision.viewer,
-      list.projection?.sections.map(section => [section.id, section.entries.length])])) : '';
+  const keyFor = (snapshot: NativeCatalogueSelectionSnapshot) => snapshot.context
+    ? JSON.stringify([snapshot.key, snapshot.context]) : '';
   const closePersonal = () => {personalController?.abort(); personalController = undefined; stopPersonal?.(); stopPersonal = undefined; personal?.dispose(); personal = undefined; personalCurrent = undefined;};
   const closeDestinations = () => {destinationController?.abort(); destinationController = undefined; stopDestinations?.(); stopDestinations = undefined;
     destinations?.dispose(); destinations = undefined; destinationKind = undefined;};
@@ -80,29 +140,20 @@ export function createNativeSavedSelection(context: NativeShellBootstrapContext,
     pending?.abort(); pending = undefined; stopModel?.(); stopModel = undefined;
     model?.dispose(); model = undefined; windows.clear(); token = ''; started = false; emit();
   };
-  const contains = (entry: ContentEntry) => visible() && lists(destination.getSnapshot()).some(({list}) =>
-    list.projection?.sections.some(section => section.entries.some(value => value === entry)) === true);
+  const contains = (entry: ContentEntry) => visible() && destination.getSnapshot().sections.some(section => section.entries.includes(entry));
   const reconcile = () => {
     const snapshot = destination.getSnapshot(), next = visible() ? keyFor(snapshot) : '';
     if (next === token && [...windows.values()].every(window => contains(window.entry))) return;
     reset();
-    if (!next) return;
-    const viewer = context.session()?.viewer, first = lists(snapshot)[0];
-    if (!viewer || !first?.list.projection || viewer.authority !== 'local' && viewer.authority !== 'hosted') return;
-    const viewId = JSON.stringify(['native-saved', first.id, snapshot.myList.route?.view ?? '', first.list.projection.scope.entityId]);
-    if (viewId.length > 4096) return;
-    const captured: SelectionContext = {scope: {serverId: viewer.serverId, authority: viewer.authority, accountId: viewer.accountId, profileId: viewer.profileId,
-      viewId, privacyFence: first.list.projection.scope.viewerFence}, revision: {catalogRevision: String(first.list.projection.revision.catalog),
-      viewerRevision: String(first.list.projection.revision.viewer)}};
+    if (!next || !snapshot.context) return;
+    const viewer = context.session()?.viewer, captured = snapshot.context, scope = captured.scope;
+    if (!viewer || viewer.authority !== scope.authority || viewer.serverId !== scope.serverId
+      || viewer.accountId !== scope.accountId || viewer.profileId !== scope.profileId || scope.viewId.length > 4096) return;
     model = new SelectionModel(captured, {maxWindows: 256, maxRegisteredItems: 256}); token = next;
     stopModel = model.subscribe(emit); emit();
   };
-  /** Enter the actual current selection context with nothing chosen. The rendered
-   * page must still be the hub's live My List snapshot; a successor page refuses. */
-  const start = (rendered: SavedSnapshot) => {
-    if (!visible()) return;
-    const now = destination.getSnapshot();
-    if (now.phase !== 'ready' || now.myList !== rendered) return;
+  const start = (rendered?: unknown) => {
+    if (!visible() || rendered !== undefined && destination.getSnapshot().witness !== rendered) return;
     reconcile();
     if (!model) return;
     started = true; emit();
@@ -112,7 +163,7 @@ export function createNativeSavedSelection(context: NativeShellBootstrapContext,
     else if (batch !== batchGeneration) return;
     reconcile();
     const currentModel = model;
-    if (!currentModel || pending || personal || destinations || bulk || !leaf(entry) || !contains(entry)) return;
+    if (!currentModel || pending || personal || destinations || bulk || !selectable(entry) || !contains(entry)) return;
     const id = JSON.stringify([entry.libraryId, entry.kind, entry.id]), registered = windows.get(id);
     if (registered) {currentModel.toggle(registered.windowId, registered.key); return;}
     if (windows.size >= 256) {feedback.reportError(unavailable(), 'saved'); return;}
@@ -123,14 +174,15 @@ export function createNativeSavedSelection(context: NativeShellBootstrapContext,
     try {
       const port = context.playback.cataloguePlayback?.();
       const item = await readCatalogueSelectionItem({api: context.api, scope: authority.scope, requestId: feedback.requestId,
-        signal: controller.signal, isCurrent: current}, entry, {play: !!port, queue: !!port && queueControl(), myList: true, favorite: true, watched: true, edit: true, delete: true});
+        signal: controller.signal, isCurrent: current}, entry, {play: !!port, queue: !!port && queueControl(),
+          myList: leaf(entry), favorite: leaf(entry), watched: leaf(entry), edit: leaf(entry), delete: leaf(entry), playlist: leaf(entry), collection: leaf(entry)});
       if (!current()) throw Object.assign(new Error('cancelled'), {name: 'AbortError'});
-      const listsNow = lists(destination.getSnapshot()), list = listsNow.find(value => value.list.projection?.sections.some(section => section.entries.some(entry2 => entry2 === entry)));
-      const section = list?.list.projection?.sections.find(value => value.entries.some(entry2 => entry2 === entry));
+      const sections = destination.getSnapshot().sections, sectionOrder = sections.findIndex(value => value.entries.includes(entry));
+      const section = sections[sectionOrder];
       if (!section) throw unavailable();
       const windowId = `saved-${windows.size}`;
-      const registration = currentModel.registerWindow(currentModel.captureContext(), {id: windowId, sectionId: `${list!.id}:${section.id}`, sectionOrder: 0,
-        start: section.entries.indexOf(entry), items: [item]});
+      const registration = currentModel.registerWindow(currentModel.captureContext(), {id: windowId, sectionId: section.id, sectionOrder,
+        start: (section.start ?? 0) + section.entries.indexOf(entry), items: [item]});
       if (!registration.ok) throw unavailable();
       const key = selectionKey(currentModel.getSnapshot().context.scope, item);
       windows.set(id, {key, windowId, item, entry, sectionId: section.id, order: windows.size});
@@ -144,8 +196,7 @@ export function createNativeSavedSelection(context: NativeShellBootstrapContext,
     return role === undefined || role === 'local';
   };
   const loaded = () => {
-    const snapshot = destination.getSnapshot();
-    return lists(snapshot).flatMap(({list}) => (list.projection?.sections ?? []).flatMap(section => section.entries.filter(leaf)));
+    return destination.getSnapshot().sections.flatMap(section => section.entries.filter(selectable));
   };
   const selectLoaded = async (rendered?: ReturnType<SelectionModel['getSnapshot']>) => {
     if (personal || destinations || bulk || !rendered || model?.getSnapshot() !== rendered || !visible()) return;
@@ -261,9 +312,9 @@ export function createNativeSavedSelection(context: NativeShellBootstrapContext,
     bulk: () => bulk, openAdmin, closeBulk,
     entries: () => {const state = model?.getSnapshot(); return state ? selectedEntries(state) : [];}};
   const port: NativeSavedSelectionPort = {
-    start,
+    subscribe: store.subscribe, getSnapshot: store.getSnapshot, start,
     register: () => {reconcile(); return () => {};},
-    item: entry => ({active: (started && visible()) || (model?.getSnapshot().active ?? false),
+    item: entry => !selectable(entry) ? undefined : ({active: (started && visible()) || (model?.getSnapshot().active ?? false),
       selected: windows.has(JSON.stringify([entry.libraryId, entry.kind, entry.id])) && !!model?.getSnapshot().selectedKeys.includes(windows.get(JSON.stringify([entry.libraryId, entry.kind, entry.id]))!.key),
       onEnter: () => {void pick(entry);}, onToggle: () => {void pick(entry);}}),
     render: artwork => (started || model?.getSnapshot().active) && visible() ? <SavedSelectionBars store={store} artwork={artwork ?? (() => null)}/> : null,
@@ -293,7 +344,8 @@ function SavedSelectionBars({store, artwork}: {store: Store; artwork: (path?: st
     if (state.summary.every.watched) actions.push({id: 'watched', disabled: store.busy()}, {id: 'unwatched', disabled: store.busy()});
     if (state.summary.every.edit) actions.push({id: 'edit', disabled: store.busy()});
     if (state.summary.every.delete) actions.push({id: 'delete', disabled: store.busy()});
-    actions.push({id: 'playlist', disabled: store.busy()}, {id: 'collection', disabled: store.busy()});
+    if (state.summary.every.playlist) actions.push({id: 'playlist', disabled: store.busy()});
+    if (state.summary.every.collection) actions.push({id: 'collection', disabled: store.busy()});
     if (actions.some(action => ['removeMyList', 'favorite', 'watched', 'unwatched', 'edit', 'delete'].includes(action.id))) actions.push({id: 'more', disabled: store.busy()});
   }
   const personal = store.personal(), destination = store.destination(), destinationKind = store.destinationKind();
@@ -305,7 +357,7 @@ function SavedSelectionBars({store, artwork}: {store: Store; artwork: (path?: st
     const parts: string[] = [];
     if (change.add.length) parts.push(`+${defaultI18n.list(change.add)}`);
     if (change.remove.length) parts.push(`−${defaultI18n.list(change.remove)}`);
-    return parts.length ? [{id: field, text: `${spec.label}: ${parts.join(' · ')}`}] : [];
+    return parts.length ? [{id: field, text: `${spec.label}: ${parts.join('; ')}`}] : [];
   }) : [];
   // A bounded loaded window in the new empty mode is not the whole query, and the
   // own shapes are not all in this selection owner; omit Select all unless the target

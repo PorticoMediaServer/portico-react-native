@@ -109,7 +109,7 @@ export function createNativeReadSeriesRenderer(context: NativeShellBootstrapCont
       const controller = controllerFor(route);
       const library = readingLibrary(context, route.libraryId);
       if (!controller || !library) return null;
-      return <ReadSeriesScreen controller={controller} route={route} comic={library.kind === 'comic'} runtime={runtime}
+      return <ReadSeriesScreen controller={controller} route={route} comic={library.kind === 'comic'} context={context} runtime={runtime}
         onBack={() => {if (current() && context.navigation.getSnapshot().route === route) context.navigation.back(context.authority());}}/>;
     },
     dispose: () => {
@@ -140,7 +140,7 @@ export function createNativeReadPeriodicalRenderer(context: NativeShellBootstrap
       if (route.kind !== 'read-periodical') return null;
       const controller = controllerFor(route);
       if (!controller) return null;
-      return <ReadPeriodicalScreen controller={controller} route={route} runtime={runtime}
+      return <ReadPeriodicalScreen controller={controller} route={route} context={context} runtime={runtime}
         onBack={() => {if (current() && context.navigation.getSnapshot().route === route) context.navigation.back(context.authority());}}/>;
     },
     dispose: () => {

@@ -112,7 +112,8 @@ export function NativeWatchOverlays({presenters, runtime, common}: {presenters: 
   if (value.phase === 'file-pending' || value.phase === 'versions-pending') return null;
   const entry = value.capture.entry, art = runtime.artwork(entry.posterUrl), subject = named(entry);
   const detail = value.detail, personal = detail?.personal, tv = Platform.isTV;
-  const playable = tv && !!value.actions?.entry?.play, personalRows = detail?.actions ?? [];
+  const personalRows = detail?.actions ?? [];
+  const playable = !!value.actions?.entry?.play && personalRows.some(action => action.enabled && action.playback && action.id !== 'start_over');
   const allows = (id: string) => personalRows.some(action => action.id === id && action.enabled);
   const resuming = (personal?.progressSeconds ?? entry.progressSeconds ?? 0) > 0;
   const watched = personal?.watched ?? entry.watched ?? false, show = entry.kind === 'show';
@@ -128,7 +129,7 @@ export function NativeWatchOverlays({presenters, runtime, common}: {presenters: 
     items.push({id: 'play-next', label: t('entry.playNext'), icon: 'i-pnext', onSelect: () => {void presenters.enqueue(value, 'next');}});
     items.push({id: 'add-to-queue', label: t('entry.addToQueue'), icon: 'i-queue', onSelect: () => {void presenters.enqueue(value, 'end');}});
   }
-  if (personal && tv && allows('watchlist')) items.push({id: 'watchlist', label: t(personal.watchlisted ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist'),
+  if (personal && allows('watchlist')) items.push({id: 'watchlist', label: t(personal.watchlisted ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist'),
     icon: personal.watchlisted ? 'i-check' : 'i-plus', selected: personal.watchlisted, disabled: value.busy,
     onSelect: () => {void presenters.personal(value, {action: 'watchlist', value: !personal.watchlisted});}});
   if (personal && allows('favorite')) items.push({id: 'favorite', label: t(personal.favorite ? 'entry.removeFromFavorites' : 'entry.addToFavorites'),
@@ -144,6 +145,8 @@ export function NativeWatchOverlays({presenters, runtime, common}: {presenters: 
   if (value.actions?.select) items.push({id: 'select', label: t('next.selection.select'), icon: 'i-check', onSelect: () => presenters.selectEntry(value)});
   if (value.actions?.discTitles) items.push({id: 'disc-titles', label: t('next.overlays.discTitles'), icon: 'i-layers', onSelect: () => {value.actions!.discTitles!();}});
   if (value.actions?.entry?.details) items.push({id: 'details', label: t('title.details'), icon: 'i-page', onSelect: () => presenters.showDetails(value)});
+  for (const action of value.actions?.extraActions ?? []) items.push({...action, disabled: value.busy || action.disabled,
+    onSelect: () => presenters.extraEntry(value, action.id)});
   // tv-detail.html frame 7 and playback-info.html frame 17 draw the side sheet's
   // small context line above the title, from the entry's own facts only.
   const series = tv && entry.kind === 'episode' ? entry.show?.name : undefined;

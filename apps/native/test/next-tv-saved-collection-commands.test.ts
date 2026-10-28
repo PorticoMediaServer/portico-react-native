@@ -1,3 +1,4 @@
+import * as pagingModule from '../src-next/screens/saved/paging.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
@@ -10,7 +11,7 @@ async function fixture() {
   const h = hooks(), react = {...h.react, useId: () => 'resource-instance', useLayoutEffect() {}}; react.default = react;
   const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'fence'};
   const theme = {isTV: true, gutter: 96, textScale: 1, colors: {ink: '#000', text: '#fff', textSecondary: '#ccc', textTertiary: '#999', raised: '#222', line: '#333'}, type: {body: {}, caption: {}}};
-  const {SavedResourceScreen} = await screenModule(new URL('../src-next/screens/saved/SavedResourceScreen.tsx', import.meta.url), {
+  const {SavedResourceScreen} = await screenModule(new URL('../src-next/screens/saved/SavedResourceScreen.tsx', import.meta.url), {'./paging': pagingModule, './SavedReorderList': {SavedReorderList: 'SavedReorderList'}, './SavedLoading': {SavedLoading: 'SavedLoading', SavedTail: 'SavedTail'}, '../../kit/selection': {SelectionCircle: 'SelectionCircle'}, 
     react, 'react-native': {Text: 'Text', View: 'View', ScrollView: 'ScrollView', useWindowDimensions: () => ({width: 1920, height: 1080})},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0})},
     '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key, has: () => true}},

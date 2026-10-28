@@ -48,7 +48,10 @@ test('real App mounts the handheld Person route, exact credit actions and retain
     assert.ok(header.some(node => node.props.testID === 'person-role-all' && node.props.selected));
     const row = arrived.props.renderItem({item: 0});
     assert.equal(style(row.props.style).paddingHorizontal, 16); assert.equal(style(row.props.style).gap, 10);
-    const card = elements(row).find(node => node.props.testID === 'person-credit-0'); assert.ok(card);
+    const cardElement = elements(row).find(node => node.props.testID === 'person-credit-0'); assert.ok(cardElement);
+    // Resolve the driver after the App loader installs its production React mapping.
+    const {createHookHost} = await import('./hook-driver.ts');
+    let card: any; const cardHost = createHookHost(() => {card = cardElement.type(cardElement.props);}); cardHost.mount(); cardHost.unmount();
     assert.equal(card.props.title, entry.displayTitle);
     assert.equal(elements(row).find(node => node.props.testID === 'person-credit-1')!.props.title, fallback.title);
     assert.equal(card.props.density, 'grid'); assert.equal(card.props.width, (390 - 32 - 20) / 3);

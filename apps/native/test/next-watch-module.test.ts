@@ -100,7 +100,7 @@ test('module preserves the genuine adapter/outlet, current preferences, body and
   const runtime = {reportError: (error: any) => {errors.push(error);}};
   const memberCurrent = () => true, anchorRef = {current: null};
   await module.entryMenu.open(entry, memberCurrent, anchorRef);
-  assert.deepEqual(menuCalls, [[entry, memberCurrent, anchorRef, undefined]]);
+  assert.deepEqual(menuCalls, [[entry, memberCurrent, anchorRef, undefined, undefined]]);
   assert.equal(module.entryMenu.isOpen(entry), false); opened = {...entry};
   assert.equal(module.entryMenu.isOpen(entry), true);
   assert.equal(module.entryMenu.isOpen({...entry, libraryId: 'other'}), false);

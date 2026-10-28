@@ -1,3 +1,4 @@
+import {DetailService} from '../../../packages/client-core/src/detail.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
@@ -67,6 +68,7 @@ async function controller(entry: any, options: Fixture = {}) {
   }};
   const {NativeTVMusicController} = await screenModule(new URL('../src-next/screens/destinations/music/model.ts', import.meta.url), {
     './paging': musicPaging,
+    '../../../../../../packages/client-core/src/detail': {DetailService},
     react: {default: {}},
     '../../../shell/bootstrap': {default: {}},
     '../../../shell/playback': {default: {}},
@@ -383,6 +385,8 @@ test('the renderer keeps one page per exact route object and navigation revision
   './MusicPlaylistPicker':{createMusicPlaylistPicker:()=>picker},
   '../../watch/download-request':{nativeDownloadRequest:()=>undefined},
   '../../downloads/request':{askNativeDownload:()=>{}},
+  '../../native-screen-services':{nativeScreenServices:()=>({requestId:async()=> '00000000-0000-4000-8000-000000000001'})},
+  '../../saved/selection':{createNativeCatalogueSelection:()=>({render:()=>null,dispose(){}})},
  });
  const viewer={serverId:'server',authority:'local',accountId:'account',profileId:'profile'};
  const routeA={kind:'music',entry:artistEntry},routeB={kind:'music',entry:artistEntry};
@@ -448,6 +452,8 @@ test('a non-TV album mounts its own picker outlet once beside the page',async()=
   './MusicPlaylistPicker':{createMusicPlaylistPicker:()=>picker},
   '../../watch/download-request':{nativeDownloadRequest:()=>undefined},
   '../../downloads/request':{askNativeDownload:()=>{}},
+  '../../native-screen-services':{nativeScreenServices:()=>({requestId:async()=> '00000000-0000-4000-8000-000000000001'})},
+  '../../saved/selection':{createNativeCatalogueSelection:()=>({render:()=>null,dispose(){}})},
  });
  const viewer={serverId:'server',authority:'local',accountId:'account',profileId:'profile'};
  const route={kind:'music',entry:{...albumEntry,id:'album-1',kind:'album'}};
@@ -544,16 +550,33 @@ test('the real All songs row invokes the borrowed menu once and its captured mem
  actions.dispose();f.value.dispose();
 });
 
+
+// Keep pagination callbacks on the real window/scroller; native measurement is
+// outside this shallow fixture, so its viewport context remains unmounted.
+async function musicWindows(react: any) {
+ const windowing = await import('../src-next/screens/destinations/music/music-window.ts');
+ return screenModule(new URL('../src-next/screens/destinations/music/MusicWindow.tsx', import.meta.url), {
+  react, 'react-native': {View: 'View'}, './music-window': windowing,
+  'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (fn: any) => fn,
+   useAnimatedScrollHandler: (fn: any) => (event: any) => fn(event.nativeEvent), useSharedValue: (value: any) => ({value})},
+ });
+}
+const windowHooks = {useMemo: (fn: any) => fn(), useState: (initial: any) => [typeof initial === 'function' ? initial() : initial, () => {}],
+ useRef: (value: any) => ({current: value}), useCallback: (fn: any) => fn, useId: () => 'test-gradient',
+ createContext: () => ({Provider: 'Provider'}), useContext: () => undefined, useLayoutEffect() {}};
+
 async function phoneSurface(value:any,entry:any,tablet=false){
- const hooks={createElement:(type:any,props:any,...children:any[])=>({type,props:{...props,children}}),useSyncExternalStore:(_off:any,get:any)=>get(),useRef:()=>({current:null})};
+ const hooks={...windowHooks,createElement:(type:any,props:any,...children:any[])=>({type,props:{...props,children}}),useSyncExternalStore:(_off:any,get:any)=>get(),useRef:(value:any)=>({current:value})};
  const react={default:hooks,...hooks};const {artistReleaseGroups}=await import('../../../packages/client-core/src/presentation/library-tabs.ts');
  const controls=await screenModule(new URL('../src-next/screens/destinations/music/MusicSectionControls.tsx',import.meta.url),{'../../../../../../packages/client-core/src/presentation/errors':{presentError},react,'react-native':{View:'View'},'../../../../../../packages/i18n/src':{defaultI18n:{t:(key:string)=>key}},'../../../kit/controls':{Button:'Button'},'./MusicErrorView':{MusicErrorView:'MusicErrorView'}});
  const module=await screenModule(new URL('../src-next/screens/destinations/music/PhoneMusicScreens.tsx',import.meta.url),{
+  './MusicWindow': await musicWindows(react), './use-playing-item': {usePlayingItem: () => undefined}, '../../../kit/selection': {SelectionCircle: 'SelectionCircle'},
+  'react-native-svg': {default:'Svg',Defs:'Defs',LinearGradient:'LinearGradient',Rect:'Rect',Stop:'Stop'},
   react,'react-native':{ScrollView:'ScrollView',Text:'Text',View:'View'},'react-native-safe-area-context':{useSafeAreaInsets:()=>({top:0,bottom:0,left:0,right:0})},
   '../../../../../../packages/i18n/src':{defaultI18n:{t:(key:string)=>key,number:String}},
   '../../../../../../packages/client-core/src/presentation/kit-model':{cardText:(e:any)=>({title:e.title,caption:[],detail:[]})},
   '../../../../../../packages/client-core/src/presentation/library-tabs':{artistReleaseGroups},
-  '../../../kit/artwork':{AmbientArt:'AmbientArt',Artwork:'Artwork',ArtistCircle:'ArtistCircle'},'../../../kit/controls':{Button:'Button',Focusable:'Focusable'},
+  '../../../kit/artwork':{AmbientArt:'AmbientArt',Artwork:'Artwork',ArtistCircle:'ArtistCircle'},'../../../kit/controls':{Button:'Button',Chip:'Chip',Focusable:'Focusable'},
   '../../../kit/cards':{SquareCard:'SquareCard',CircleCard:'CircleCard'},'../../../kit/Icon':{Icon:'Icon'},'../../../kit/browse/presentation':{browseType:()=>({}),alpha:()=>''},
   '../../../kit/theme':{useTheme:()=>({platform:tablet?'tablet':'phone',colors:{}})},'./MusicErrorView':{MusicErrorView:'MusicErrorView'},'./MusicFormatBadges':{MusicFormatBadges:'MusicFormatBadges'},
   './MusicSectionControls':{MusicSectionControls:'MusicSectionControls',musicNearEnd:controls.musicNearEnd},
@@ -594,7 +617,7 @@ test('continuation retains the originally dispatched artist query and endpoint r
 });
 
 async function tvMusicScreens(){
- const hooks={createElement:(type:any,props:any,...children:any[])=>({type,props:{...props,children}}),useSyncExternalStore:(_off:any,get:any)=>get(),useMemo:(fn:any)=>fn(),useState:()=>[undefined,()=>{}],useRef:()=>({current:null}),useCallback:(fn:any)=>fn,useId:()=> 'real-test-gradient'};
+ const hooks={...windowHooks,createElement:(type:any,props:any,...children:any[])=>({type,props:{...props,children}}),useSyncExternalStore:(_off:any,get:any)=>get(),useMemo:(fn:any)=>fn(),useRef:(value:any)=>({current:value}),useCallback:(fn:any)=>fn,useId:()=> 'real-test-gradient'};
  const {artistReleaseGroups}=await import('../../../packages/client-core/src/presentation/library-tabs.ts');
  const screens=await screenModule(new URL('../src-next/screens/destinations/music/TVMusicScreens.tsx',import.meta.url),{
   '../../../kit/selection': {SelectionCircle: 'SelectionCircle'}, '../../../tv/layout/TVShelf': {TVShelf: 'TVShelf'},

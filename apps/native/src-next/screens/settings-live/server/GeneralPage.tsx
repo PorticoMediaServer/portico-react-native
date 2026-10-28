@@ -126,7 +126,7 @@ function General({ports, runtime, compactHeader = false, group}: {ports: NativeS
             <Text style={[shellType(15, 600), {color: theme.colors.text}]}>{t('web.general.serverProduct')}</Text>
             <Text style={[shellType(14, 600), {color: updates.updateAvailable ? theme.colors.amber : theme.colors.textSecondary}]}>{updates.updateAvailable && updates.latest ? updates.latest.version : updates.current.version}</Text>
           </View>
-          <Text style={[shellType(12.5, 400, 17), {color: theme.colors.textTertiary, marginTop: 2}]}>{updates.message}{' · '}{when(Date.parse(updates.checkedAt))}</Text>
+          <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, rowGap: 3}}>{[updates.message, when(Date.parse(updates.checkedAt))].filter(Boolean).map((part, index) => <Text key={index} style={[shellType(12.5, 400, 17), {color: theme.colors.textTertiary, marginTop: 2}]}>{part}</Text>)}</View>
         </View>
       </View> : null}
       <View style={{flexDirection: 'row', marginTop: 10}}><Button size="compact" variant="glass" icon="i-refresh" loading={checking} disabled={fact(settingsRowIndex.get('general.updateChecks')!.row)?.current === 'never'} onPress={loadUpdates}>{t('server.updates.check')}</Button></View>

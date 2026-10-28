@@ -1,5 +1,5 @@
-import React, {useCallback, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
-import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import {FlatList, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
@@ -10,6 +10,7 @@ import type {RememberedDownloadsOpening} from '../../shell/remembered-downloads-
 import {Button, RichSelect} from '../../kit/controls';
 import {useTheme} from '../../kit/theme';
 import {downloadEntryIdentity} from './presentation';
+import {createDownloadInventory} from './inventory';
 import type {createRememberedReadingOwner} from '../../shell/remembered-reading-owner';
 
 const empty: Pick<OfflineSnapshot, 'entries'> = Object.freeze({entries: Object.freeze([])});
@@ -28,7 +29,16 @@ export function RememberedDownloadsScreen({source, onBack}: {source: RememberedD
   }, [source]);
   const subscribe = useCallback((listener: () => void) => {try {return source.current() ? source.device.subscribe(listener) : () => {};} catch {return () => {};}}, [source]);
   const read = useCallback((): Pick<OfflineSnapshot, 'entries'> => {try {return source.current() ? source.device.getSnapshot() : empty;} catch {return empty;}}, [source]);
-  const snapshot = useSyncExternalStore(subscribe, read, read);
+  const inventory = useMemo(() => {
+    const admitted = (entry: OfflineEntry) => {try {const kind = entry.kind ?? entry.info?.kind ?? '';
+      return entry.state === 'ready' && ((!!source.player && ['movie', 'episode', 'song', 'audiobook_file'].includes(kind))
+        || (['ebook', 'comic'].includes(kind) && !!source.canRead?.(entry))) && source.device.playabilityReason(entry) === null;
+    } catch {return false;}};
+    return createDownloadInventory({subscribe, getSnapshot: read}, {identity: downloadEntryIdentity,
+      membershipKey: entry => [entry.state, entry.kind, entry.info?.kind, admitted(entry)], entryFence: admitted,
+      project: entries => entries.filter(admitted).map(downloadEntryIdentity)});
+  }, [source, subscribe, read]);
+  const entries = useSyncExternalStore(inventory.subscribe, inventory.getMembership, inventory.getMembership);
   const rendered = committed;
   const current = () => !!rendered?.active && rendered.source === source && owner.current === rendered && !rendered.abort.signal.aborted && source.current();
   const run = (action: (lifetime: Readonly<{signal: AbortSignal; isCurrent: () => boolean}>) => Promise<void>) => {
@@ -39,9 +49,6 @@ export function RememberedDownloadsScreen({source, onBack}: {source: RememberedD
     void action({signal: rendered.abort.signal, isCurrent: active}).catch(error => {if (active()) setFailure(error);})
       .finally(() => {if (active()) {rendered.flight = undefined; setBusy(false);}});
   };
-  const entries = snapshot.entries.filter(entry => {try {const kind = entry.kind ?? entry.info?.kind ?? '';
-    return entry.state === 'ready' && ((!!source.player && ['movie', 'episode', 'song', 'audiobook_file'].includes(kind))
-      || (['ebook', 'comic'].includes(kind) && !!source.canRead?.(entry))) && source.device.playabilityReason(entry) === null;} catch {return false;}});
   const play = (entry: OfflineEntry) => {const kind = entry.kind ?? entry.info?.kind ?? '';
     if (['ebook', 'comic'].includes(kind)) {if (!current() || !source.reading) return; try {setFailure(undefined); setReading(source.reading(entry));} catch (error) {if (current()) setFailure(error);} return;}
     const player = source.player; if (player) run(lifetime => player.open(entry, lifetime));};
@@ -50,15 +57,26 @@ export function RememberedDownloadsScreen({source, onBack}: {source: RememberedD
   if (reading && source.noticeCopy) {const ReadingScreen = (require('./RememberedReadingScreen') as typeof import('./RememberedReadingScreen')).RememberedReadingScreen;
     return <ReadingScreen reading={reading} noticeCopy={source.noticeCopy} current={current} onBack={() => {if (current()) setReading(undefined);}}/>;}
   return <View testID="remembered-downloads" style={{flex: 1, backgroundColor: theme.colors.ink, paddingTop: insets.top}}>
-    <ScrollView contentContainerStyle={{padding: 24, paddingBottom: Math.max(24, insets.bottom), gap: 16}}>
-      <Button variant="text" onPress={back}>{t('action.back')}</Button>
-      <Text accessibilityRole="header" style={[theme.type.title, {color: theme.colors.text}]}>{t('downloads.title')}</Text>
-      {source.player ? <RememberedPlayer player={source.player} width={dimensions.width} busy={busy} current={current} run={run}/> : null}
-      {!!failure && <Text accessibilityRole="alert" style={[theme.type.body, {color: theme.colors.textSecondary}]}>{presentError(failure, 'home').body}</Text>}
-      {entries.map(entry => <Button key={downloadEntryIdentity(entry)} variant="glass" disabled={busy} onPress={() => play(entry)}>{entry.title}</Button>)}
-      {!entries.length && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('downloads.emptyTitle')}</Text>}
-    </ScrollView>
+    <FlatList data={entries} keyExtractor={id => id} initialNumToRender={12} maxToRenderPerBatch={8} windowSize={5}
+      contentContainerStyle={{padding: 24, paddingBottom: Math.max(24, insets.bottom)}}
+      ItemSeparatorComponent={() => <View style={{height: 16}}/>}
+      ListHeaderComponent={<View style={{gap: 16, marginBottom: 16}}>
+        <Button variant="text" onPress={back}>{t('action.back')}</Button>
+        <Text accessibilityRole="header" style={[theme.type.title, {color: theme.colors.text}]}>{t('downloads.title')}</Text>
+        {source.player ? <RememberedPlayer player={source.player} width={dimensions.width} busy={busy} current={current} run={run}/> : null}
+        {!!failure && <Text accessibilityRole="alert" style={[theme.type.body, {color: theme.colors.textSecondary}]}>{presentError(failure, 'home').body}</Text>}
+      </View>}
+      renderItem={({item}) => <RememberedDownloadRow id={item} inventory={inventory} busy={busy} play={play}/>}
+      ListEmptyComponent={<Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('downloads.emptyTitle')}</Text>}/>
+
   </View>;
+}
+
+function RememberedDownloadRow({id, inventory, busy, play}: {id: string; inventory: ReturnType<typeof createDownloadInventory<OfflineEntry, string[]>>;
+  busy: boolean; play: (entry: OfflineEntry) => void}) {
+  const read = useCallback(() => inventory.getEntry(id), [inventory, id]), selected = useSyncExternalStore(inventory.subscribe, read, read);
+  useEffect(() => () => inventory.release(id), [inventory, id]);
+  return selected ? <Button variant="glass" disabled={busy} onPress={() => play(selected.entry)}>{selected.entry.title}</Button> : null;
 }
 
 type Player = NonNullable<RememberedDownloadsOpening['player']>;

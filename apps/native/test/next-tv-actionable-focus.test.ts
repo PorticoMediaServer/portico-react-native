@@ -335,7 +335,8 @@ for (const kind of ['person', 'collection'] as const) test(`${kind} actual entit
   const b = await bindings(), o = await overlayBindings(b), presentation = await import('../src-next/kit/browse/presentation');
   const modules = {react: b.react, 'react-native': b.native, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0})},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/artwork': {PersonCircle: 'Person', AmbientArt: 'Ambient', Artwork: 'Artwork'},
-    '../../kit/cards': {PosterCard: 'Poster'}, '../../kit/controls': {Button: o.Button, Chip: 'Chip', Focusable: b.Focusable},
+    '../../kit/cards': {PosterCard: 'Poster'}, '../../kit/cards/primitives': {CardFrame: 'CardFrame'},
+    '../../kit/selection': {SelectionCircle: 'SelectionCircle'}, '../saved/presentation': {savedDuration: (value: number) => String(value)}, '../../kit/controls': {Button: o.Button, Chip: 'Chip', Focusable: b.Focusable},
     '../../kit/overlays': o.menu, '../../tv/layout/TVShelf': {TVShelf: 'Shelf'}, '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/states': {StateView: 'State'}, '../../kit/browse/presentation': presentation, '../../kit/theme': {useTheme: () => b.theme}};
   const mod = await screenModule(new URL(kind === 'person' ? '../src-next/screens/people/PersonScreen.tsx' : '../src-next/screens/collections/CollectionScreen.tsx', import.meta.url), modules);
@@ -343,7 +344,7 @@ for (const kind of ['person', 'collection'] as const) test(`${kind} actual entit
   let tree: any, scope = `${kind}:original-authority:original-entity`, commands = 0;
   const person = {page: {person: {id: 'person', name: 'Person', roles: [], knownFor: []}, pageInfo: {total: 0}}, role: 'all',
     collection: {pageOf: () => 0, subscribe: () => () => {}, subscribePage: () => () => {}, getSnapshot: () => ({generation: 1, total: 0, status: 'ready'}), getPageVersion: () => 0, ensureRange() {}},
-    actions: {}, onRole: () => {commands++;}};
+    actions: {menuState: {subscribe: () => () => {}, getSnapshot: () => 0}, isMenuOpen: () => false}, onRole: () => {commands++;}};
   const collection = {state: {phase: 'ready', title: 'Collection', entries: [], totalCount: 0,
     sorts: [{id: 'title', labelKey: 'next.browse.native.sort', directions: ['asc']}, {id: 'added', labelKey: 'next.browse.native.sort', directions: ['desc']}], sort: 'title'},
     onPlay() {}, onShuffle() {}, onSort: () => {commands++;}, onOpen() {}, onRetry() {}, onMore() {}};
@@ -501,86 +502,90 @@ test('Home See all actual toolbar binds sort/filter/kind/quick leaves without ch
   } finally {source.unmount(); parent.unmount(); b.dispose();}
 });
 
-test('retained Home recommendation menu names the original controller row and runtime authority', async () => {
-  const b = await bindings(), o = await overlayBindings(b), {authorityKey} = await import('../src-next/shell/model');
+test('retained Home recommendation menu delegates the original entry, anchor and authority to the shared owner', async () => {
+  const b = await bindings();
   const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
   const route = {kind: 'home-see-all', destination: {type: 'row', rowId: 'original-recommendations'}};
+  let currentRoute = route, live = true, receivedContext: any, receivedMembership: any;
+  const calls: any[] = [], entry = {id: 'entry', kind: 'movie'};
   class Controller {
     rowId: string; constructor(options: any) {this.rowId = options.rowId;}
-    subscribe = () => () => {}; getSnapshot = () => ({row: {id: this.rowId, kind: 'recommendation'}}); dispose() {}
+    collection = {getSnapshot: () => ({refreshing: false}), residentItems: () => [{entry}], subscribe: () => () => {}};
+    subscribe = () => () => {}; getSnapshot = () => ({phase: 'ready', row: {id: this.rowId, kind: 'recommendation'}}); dispose() {}
   }
-  const mod = await screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {react: b.react, 'react-native': b.native, '../../kit/focus': b.focus,
-    '../../kit/useScreenReader': {useScreenReader: () => false},
-    '../../../../../packages/client-core/src/recommendation-feedback': {isRecommendationRow: () => true}, '../../kit/overlays': o.menu, '../../kit/controls': {Button: o.Button},
+  const mod = await screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {react: b.react,
+    'react-native': {...b.native, Platform: {isTV: true}, AccessibilityInfo: {isScreenReaderEnabled: async () => false, addEventListener: () => ({remove() {}})}}, '../../kit/focus': b.focus,
+    '../../../../../packages/client-core/src/recommendation-feedback': {isRecommendationRow: () => true}, '../../kit/overlays': {ToastHost: 'ToastHost'}, '../../kit/controls': {},
     '../../../../../packages/i18n/src': {defaultI18n}, './HomeSeeAll': {HomeSeeAll: 'HomeSeeAll'}, './HomeRowFilters': {HomeRowFilters: 'Filters'}, './row-controller': {NativeHomeRowController: Controller},
-    '../../platform/server-connections': {}, '../../shell/routes': {}, '../../shell/route-registry': {nativeShellRoutes: {registerRoute() {}}}, '../../shell/model': {shellLayout() {}, authorityKey},
-    '../../kit/theme': {useTheme: () => b.theme}, '../read/platform': {hiddenReadingLibraryOnTV: () => false}, '../read/reading-books-open': {}, './entry-lifetime': {}});
-  const context: any = {current: () => true, authority: () => authority, libraries: () => [], api: {}, navigation: {retainedRoutes: () => [], getSnapshot: () => ({route})}};
+    '../../platform/server-connections': {}, '../../shell/routes': {}, '../../shell/route-registry': {nativeShellRoutes: {registerRoute() {}}}, '../../shell/model': {},
+    '../../kit/theme': {}, '../../kit/dock/DockClearance': {useDockClearance: () => 0},
+    '../destinations/entry-actions': {createNativeEntryActions: (context: any, membership: any) => {
+      receivedContext = context; receivedMembership = membership;
+      return {menu: (...args: any[]) => calls.push(args), dispose() {}};
+    }}, '../read/platform': {hiddenReadingLibraryOnTV: () => false}, '../read/reading-books-open': {}, './entry-lifetime': {}});
+  const context: any = {current: () => live, authority: () => authority, libraries: () => [], api: {}, navigation: {retainedRoutes: () => [], getSnapshot: () => ({route: currentRoute})}};
   const rows = mod.createNativeHomeRows(context, () => {}); rows.reconcile();
   const runtime = {getSnapshot: () => ({authority})}, retained = nodes(rows.render(runtime))[0]; let tree: any;
   const source = createHookHost(() => {tree = retained.type(retained.props);}); source.mount();
-  const home = nodes(tree).find(node => node.type === 'HomeSeeAll'), opener = {current: {nativeTag: 730, requestTVFocus() {}}};
-  home.props.onMenu({id: 'entry', kind: 'movie'}, opener); source.rerender();
   try {
-    const menu = nodes(tree).find(node => node.type === o.menu.Menu);
-    assert.equal(menu.props.testID, `home-see-all:${authorityKey(authority)}:original-recommendations.recommendation-menu`);
-    assert.equal(menu.props.anchorRef, opener);
-    const mounted = await mountActualMenu(b, o, () => menu.props); assert.ok(mounted.targets[0]!.props.testID); mounted.dispose();
+    const home = nodes(tree).find(node => node.type === 'HomeSeeAll'), opener = {current: {nativeTag: 730, requestTVFocus() {}}};
+    home.props.onMenu(entry, opener);
+    assert.equal(receivedContext, context, 'the shared owner receives the original bootstrap authority');
+    assert.equal(receivedMembership.current(), true);
+    assert.equal(receivedMembership.contains(entry), true);
+    assert.equal(receivedMembership.contains({...entry}), false, 'same-ID replacements are not the loaded member');
+    assert.equal(calls.length, 1); assert.equal(calls[0][0], entry); assert.equal(calls[0][1], opener);
+    assert.equal(calls[0][2], undefined); assert.equal(calls[0][3][0].id, 'not-interested');
+    assert.equal(calls[0][3][0].label, defaultI18n.t('entry.notInterested'));
+    currentRoute = {...route}; assert.equal(receivedMembership.current(), false, 'the original route cannot borrow its replacement');
+    currentRoute = route; live = false; assert.equal(receivedMembership.current(), false);
   } finally {source.unmount(); rows.dispose(); b.dispose();}
 });
 
-for (const screenReader of [false, true]) test(`retained Home Undo announces its action and ${screenReader ? 'stays available to a screen reader' : 'expires at the authored deadline'}`, async t => {
-  t.mock.timers.enable({apis: ['setTimeout']});
-  const b = await bindings(), {authorityKey} = await import('../src-next/shell/model');
+test('retained Home Undo uses the shared toast with the original entry command', async () => {
+  // SUP-029: See all's Undo is the shared ToastHost. Its announcement, accessible
+  // actions and screen-reader hold are the host's own (next-a11y-feedback).
+  const b = await bindings();
   const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
   const route = {kind: 'home-see-all', destination: {type: 'row', rowId: 'recommendations'}};
-  const spoken: string[] = [], commands: boolean[] = [];
+  const commands: boolean[] = []; let extra: any;
   class Controller {
     rowId: string; constructor(options: any) {this.rowId = options.rowId;}
-    subscribe = () => () => {}; getSnapshot = () => ({row: {id: this.rowId, kind: 'recommendation'}}); dispose() {}
+    collection = {getSnapshot: () => ({refreshing: false}), residentItems: () => [], subscribe: () => () => {}};
+    subscribe = () => () => {}; getSnapshot = () => ({phase: 'ready', row: {id: this.rowId, kind: 'recommendation'}}); dispose() {}
   }
-  const mod = await screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {
-    react: b.react, 'react-native': {...b.native, AccessibilityInfo: {announceForAccessibility: (message: string) => spoken.push(message)}}, '../../kit/focus': b.focus,
-    '../../kit/useScreenReader': {useScreenReader: () => screenReader},
-    '../../../../../packages/client-core/src/recommendation-feedback': {isRecommendationRow: () => true}, '../../kit/overlays': {Menu: 'Menu'}, '../../kit/controls': {Button: 'Button'},
+  const mod = await screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {react: b.react,
+    'react-native': {...b.native, Platform: {isTV: true}}, '../../kit/focus': b.focus,
+    '../../../../../packages/client-core/src/recommendation-feedback': {isRecommendationRow: () => true, notInterestedTarget: (entry: unknown) => entry, setNotInterested: async () => true},
+    '../../kit/overlays': {ToastHost: 'ToastHost'}, '../../kit/controls': {},
     '../../../../../packages/i18n/src': {defaultI18n}, './HomeSeeAll': {HomeSeeAll: 'HomeSeeAll'}, './HomeRowFilters': {HomeRowFilters: 'Filters'}, './row-controller': {NativeHomeRowController: Controller},
-    '../../platform/server-connections': {}, '../../shell/routes': {}, '../../shell/route-registry': {nativeShellRoutes: {registerRoute() {}}}, '../../shell/model': {shellLayout() {}, authorityKey},
-    '../../kit/theme': {useTheme: () => b.theme}, '../read/platform': {hiddenReadingLibraryOnTV: () => false}, '../read/reading-books-open': {}, './entry-lifetime': {},
-  });
+    '../../platform/server-connections': {}, '../../shell/routes': {}, '../../shell/route-registry': {nativeShellRoutes: {registerRoute() {}}}, '../../shell/model': {},
+    '../../kit/theme': {}, '../../kit/dock/DockClearance': {useDockClearance: () => 0},
+    '../destinations/entry-actions': {createNativeEntryActions: () => ({menu: (_entry: unknown, _anchor: unknown, _select: unknown, extras: any[]) => {extra = extras?.[0];}, dispose() {}})},
+    '../read/platform': {hiddenReadingLibraryOnTV: () => false}, '../read/reading-books-open': {}, './entry-lifetime': {}});
   const context: any = {current: () => true, authority: () => authority, libraries: () => [], api: {}, navigation: {retainedRoutes: () => [], getSnapshot: () => ({route})}};
   const rows = mod.createNativeHomeRows(context, () => {}); rows.reconcile();
   const runtime = {getSnapshot: () => ({authority}), reportError: (error: unknown) => {throw error;}}, retained = nodes(rows.render(runtime))[0];
   const entry = {id: 'entry', kind: 'movie', title: 'Original title'}, anchor = {current: null};
   let tree: any, active = true;
   const source = createHookHost(() => {tree = retained.type({...retained.props, active, onNotInterested: async (target: unknown, value: boolean) => {assert.equal(target, entry); commands.push(value); return true;}});}); source.mount();
-  const notice = () => nodes(tree).find(node => node.props.testID === 'home-see-all-not-interested');
-  const actions = () => nodes(notice()).find(node => node.props.accessibilityActions)?.props;
-  const remove = async () => {
-    nodes(tree).find(node => node.type === 'HomeSeeAll').props.onMenu(entry, anchor); source.rerender();
-    nodes(tree).find(node => node.type === 'Menu').props.items[0].onSelect(); await flush();
-  };
+  const toast = () => nodes(tree).find(node => node.type === 'ToastHost')?.props.toast;
+  const remove = async () => {nodes(tree).find(node => node.type === 'HomeSeeAll').props.onMenu(entry, anchor); extra.onSelect(); await flush(); source.rerender();};
   try {
     await remove();
-    assert.deepEqual(spoken, [`${defaultI18n.t('entry.notInterestedDone', {title: entry.title})}, ${defaultI18n.t('action.undo')}`]);
-    assert.deepEqual(actions().accessibilityActions.map((action: any) => action.name), ['activate', 'dismiss']);
-    actions().onAccessibilityAction({nativeEvent: {actionName: 'unknown'}}); source.rerender();
-    assert.ok(notice(), 'an unknown action does not dismiss the notice');
-    t.mock.timers.tick(5999); source.flush(); assert.ok(notice());
-    t.mock.timers.tick(1); source.flush();
-    if (screenReader) {
-      assert.ok(notice()); t.mock.timers.tick(60_000); source.flush(); assert.ok(notice());
-      actions().onAccessibilityAction({nativeEvent: {actionName: 'activate'}}); await flush();
-      assert.deepEqual(commands, [true, false], 'the accessible Undo uses the same original entry command');
-      assert.equal(notice(), undefined);
-      await remove(); actions().onAccessibilityAction({nativeEvent: {actionName: 'dismiss'}}); await flush();
-      assert.deepEqual(commands, [true, false, true], 'Dismiss does not invoke Undo'); assert.equal(notice(), undefined);
-    } else assert.equal(notice(), undefined);
-    const count = spoken.length;
-    // A result that settles while the retained row is hidden cannot announce.
-    nodes(tree).find(node => node.type === 'HomeSeeAll').props.onMenu(entry, anchor); source.rerender();
-    nodes(tree).find(node => node.type === 'Menu').props.items[0].onSelect(); active = false; source.rerender(); await flush();
-    assert.equal(notice(), undefined); assert.equal(spoken.length, count);
-  } finally {source.unmount(); rows.dispose(); b.dispose(); t.mock.timers.reset();}
+    assert.equal(toast().message, defaultI18n.t('entry.notInterestedDone', {title: entry.title}));
+    assert.equal(toast().action.label, defaultI18n.t('action.undo'));
+    assert.equal(toast().actionOnTV, true, 'TV keeps its Undo');
+    toast().action.onPress(); await flush(); source.rerender();
+    assert.deepEqual(commands, [true, false], 'Undo uses the same original entry command');
+    assert.equal(toast(), null);
+    await remove(); const dismissed = toast();
+    nodes(tree).find(node => node.type === 'ToastHost').props.onDismiss(dismissed.id); source.rerender(); dismissed.action.onPress(); await flush();
+    assert.deepEqual(commands, [true, false, true], 'Dismiss does not invoke Undo'); assert.equal(toast(), null);
+    // A result that settles while the retained row is hidden shows nothing.
+    nodes(tree).find(node => node.type === 'HomeSeeAll').props.onMenu(entry, anchor); extra.onSelect(); active = false; source.rerender(); await flush(); source.rerender();
+    assert.equal(toast(), null);
+  } finally {source.unmount(); rows.dispose(); b.dispose();}
 });
 
 test('Home filters footer has an actual named Button host and preserves apply-then-close', async () => {

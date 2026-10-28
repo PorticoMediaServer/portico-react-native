@@ -55,6 +55,27 @@ test('committed menu close preserves its real File info destination; dismissal a
   } finally {d.dispose();}
 });
 
+test('composed entry actions require their exact current menu and retain disabled semantics', async () => {
+  const d = await fixture(); let calls = 0;
+  try {
+    d.presenters.close();
+    const actions = {fileInfo: async () => {}, extraActions: [
+      {id: 'not-interested', label: 'Not interested', onSelect: () => calls++},
+      {id: 'disabled', label: 'Unavailable', disabled: true, onSelect: () => calls++},
+    ]};
+    d.presenters.openMenu(d.capture, actions);
+    const first = d.presenters.getSnapshot()!;
+    d.presenters.extraEntry(first, 'disabled'); assert.equal(calls, 0); assert.equal(d.presenters.getSnapshot(), first);
+    d.presenters.openMenu(d.capture, actions);
+    d.presenters.extraEntry(first, 'not-interested'); assert.equal(calls, 0, 'a replaced menu cannot execute');
+    const second = d.presenters.getSnapshot()!;
+    d.presenters.extraEntry(second, 'not-interested'); assert.equal(calls, 1); assert.equal(d.presenters.getSnapshot(), undefined);
+    d.presenters.extraEntry(second, 'not-interested'); assert.equal(calls, 1);
+    d.presenters.openMenu(d.capture, actions); const third = d.presenters.getSnapshot()!;
+    d.navigation.back(authority); d.presenters.extraEntry(third, 'not-interested'); assert.equal(calls, 1);
+  } finally {d.dispose();}
+});
+
 test('wrong physical member and withdrawn manage authority cannot dispatch owner commands', async () => {
   const d = await fixture();
   try {
@@ -151,7 +172,8 @@ test('the real menu-to-chooser presenter keeps its sheet until start settles and
 
 test('the TV entry menu owns the captured detail lifetime and its real play, personal and details commands', async () => {
   const d = await fixture(), calls: string[] = [];
-  const actions = {fileInfo: async () => {}, entry: {current: () => undefined, subscribe: () => () => {},
+  const detail = {actions: [{id: 'play', enabled: true, playback: {itemId: entry.id}}]} as any;
+  const actions = {fileInfo: async () => {}, entry: {current: () => detail, subscribe: () => () => {},
     play: async () => {calls.push('play');}, mutate: async (intent: unknown) => {calls.push(JSON.stringify(intent));},
     details: () => {calls.push('details');}, dispose: () => {calls.push('dispose');}}};
   try {

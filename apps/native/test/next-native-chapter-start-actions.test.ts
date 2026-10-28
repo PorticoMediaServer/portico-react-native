@@ -37,7 +37,7 @@ test('generic destination Play retains chapter offsets but leaves ordinary cards
 
 test('See all entry Play preserves a chapter seek and retains the original row lifetime', async () => {
   const react = hooks().react;
-  const {createNativeHomeRows} = await screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {
+  const {createNativeHomeRows} = await screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {'../destinations/entry-actions': {createNativeEntryActions: () => ({menu() {}, dispose() {}})}, '../../kit/dock/DockClearance': {useDockClearance: () => 0}, 
     react, 'react-native': {Platform: {isTV: false}}, '../../kit/focus': {}, '../../kit/overlays': {}, '../../kit/controls': {},
     '../../../../../packages/client-core/src/recommendation-feedback': {}, '../../../../../packages/i18n/src': {},
     './HomeSeeAll': {}, './HomeRowFilters': {},

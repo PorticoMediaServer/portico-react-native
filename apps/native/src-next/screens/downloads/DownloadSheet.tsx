@@ -92,7 +92,7 @@ function NativeDownloadSheetBody({context, request}: {context: NativeShellBootst
         // request's real preparation progress, including any failed members.
         if (opening.owns(ticket)) setDone(downloadRequestLines(followed).map(line =>
           line.key === 'downloads.requestProgress' ? t(line.key, line.values as {ready: number; total: number})
-            : line.key === 'downloads.requestFailed' ? t(line.key, line.values as {failed: number}) : t(line.key)).join(' · '));
+            : line.key === 'downloads.requestFailed' ? t(line.key, line.values as {failed: number}) : t(line.key)).join('; '));
         return;
       }
       if (!request.itemId) return;
@@ -112,12 +112,15 @@ function NativeDownloadSheetBody({context, request}: {context: NativeShellBootst
     <Text style={[theme.type.body, {color: theme.colors.text, flex: 1}]}>{label}</Text>
     {policy === id && <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.accentStrong}}/>}
   </Focusable>;
-  const qualityRow = (option: Readonly<{quality: string; label: string; available: boolean; size?: string; note?: string; meta?: string}>) => <Focusable key={option.quality} testID={`download-quality-${option.quality}`} accessibilityRole="button"
+  const qualityRow = (option: Readonly<{quality: string; label: string; available: boolean; size?: string; notes?: readonly string[]; meta?: string}>) => <Focusable key={option.quality} testID={`download-quality-${option.quality}`} accessibilityRole="button"
     disabled={!opening?.current() || !option.available || !!busy} onPress={() => {void choose(option.quality);}} focusRadius={12}
     style={{minHeight: 56, paddingHorizontal: 16, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 12, opacity: option.available ? 1 : .55}}>
     <View style={{flex: 1, minWidth: 0}}>
       <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{option.label}</Text>
-      {!!(option.size || option.note) && <Text numberOfLines={3} style={[theme.type.caption, {color: theme.colors.textSecondary, marginTop: 2}]}>{[option.size, option.note].filter(Boolean).join(' · ')}</Text>}
+      {(!!option.size || !!option.notes?.length) && <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', gap: 10, marginTop: 2}}>
+        {!!option.size && <Text style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{option.size}</Text>}
+        {option.notes?.map((note, index) => <Text key={index} numberOfLines={3} style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{note}</Text>)}
+      </View>}
     </View>
     <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{option.meta ?? (option.available ? t('action.download') : '')}</Text>
   </Focusable>;
@@ -126,7 +129,7 @@ function NativeDownloadSheetBody({context, request}: {context: NativeShellBootst
     const admission = option.available && opening?.current() ? opening.lease.device.admission?.(option.estimatedBytes) : undefined;
     return qualityRow({quality: option.quality, label: option.label, available: option.available,
       size: option.available ? option.estimated ? t('downloads.aboutSize', {size: downloadBytes(option.estimatedBytes)}) : downloadBytes(option.estimatedBytes) : downloadReasonMessage(option.reason ?? ''),
-      note: [admission || undefined, meaning ? t(meaning) : undefined, option.available && option.requiresPreparation ? t('downloads.serverPrepares') : undefined, option.kind === 'source' && cannotOpen ? t('downloads.quality.originalMayNotPlay') : undefined].filter(Boolean).join(' · ') || undefined,
+      notes: [admission || undefined, meaning ? t(meaning) : undefined, option.available && option.requiresPreparation ? t('downloads.serverPrepares') : undefined, option.kind === 'source' && cannotOpen ? t('downloads.quality.originalMayNotPlay') : undefined].filter((value): value is string => !!value),
       meta: busy === option.quality ? t('downloads.adding') : undefined});
   };
   const engine = ((): EngineSetting | undefined => {try {const value = nativeDeviceSettings(context).read('playerEngine'); return value === 'native' || value === 'mpv' ? value : 'automatic';} catch {return undefined;}})();
@@ -153,8 +156,8 @@ function NativeDownloadSheetBody({context, request}: {context: NativeShellBootst
         {view && !blocked && <View style={{backgroundColor: theme.colors.raised, borderRadius: 14}}>{view.options.map(titleOption)}</View>}
         {container && choices && <View style={{backgroundColor: theme.colors.raised, borderRadius: 14}}>{choices.map(option => qualityRow({quality: option.quality, label: option.label, available: option.available && !!deviceId,
           size: containerDownloadBytes(option) === undefined ? undefined : option.estimated ? t('downloads.aboutSize', {size: downloadBytes(option.estimatedBytes)}) : downloadBytes(option.estimatedBytes),
-          note: [option.available && opening?.current() && containerDownloadBytes(option) !== undefined ? opening.lease.device.admission?.(option.estimatedBytes) : undefined,
-            option.available && option.sameAsOriginal ? t('quality.sameAsOriginal') : undefined].filter(Boolean).join(' · ') || undefined, meta: busy === option.quality ? t('downloads.adding') : undefined}))}</View>}
+          notes: [option.available && opening?.current() && containerDownloadBytes(option) !== undefined ? opening.lease.device.admission?.(option.estimatedBytes) : undefined,
+            option.available && option.sameAsOriginal ? t('quality.sameAsOriginal') : undefined].filter((value): value is string => !!value), meta: busy === option.quality ? t('downloads.adding') : undefined}))}</View>}
         {storage != null && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('downloads.spaceLeft', {size: downloadBytes(storage)})}</Text>}
       </>}
     </View>

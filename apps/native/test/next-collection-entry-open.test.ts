@@ -22,6 +22,7 @@ test('actual collection presenter sends its current member through the fenced pr
   });
   const {createNativeCollectionRenderer} = await screenModule(new URL('../src-next/screens/collections/register.tsx', import.meta.url), {
     react: {...React, default: React}, '../../shell/route-registry': {nativeShellRoutes: {registerRoute() {}}}, '../../shell/model': {authorityKey, sameAuthority},
+    '../saved/selection': {createNativeCatalogueSelection: () => ({dispose() {}})},
     '../destinations/entry-actions': {createNativeEntryActions}, './controller': {NativeCollectionController: Controller}, './CollectionScreen': {NativeCollectionScreen: 'CollectionScreen'},
   });
   const navigation = new NativeShellNavigation(authority, () => authority);

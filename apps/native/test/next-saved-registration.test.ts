@@ -40,6 +40,7 @@ async function load(isTV: boolean) {
     './selection': {createNativeSavedSelection: () => ({register: () => () => {}, item: () => undefined, render: () => null, dispose: () => {}})},
     '../home/saved-view-summaries': {NativeHomeSavedViewSummaries},
     './directory-commands': directoryCommands,
+    './view-model': {}, '../destinations/entry-actions': {}, './view-summary-owner': {},
   });
   return {module, registrations, host};
 }
@@ -57,7 +58,7 @@ test('phone registers the Saved destination and both pushed Saved routes once', 
 });
 
 test('TV registers only the pushed Saved routes, leaving the landing to its owner', async () => {
-  const {module, registrations} = await load(true);
+  const {registrations} = await load(true);
   assert.deepEqual(registrations, [['route', 'saved-view'], ['route', 'saved-destination']]);
 });
 

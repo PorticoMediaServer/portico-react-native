@@ -11,10 +11,10 @@ import type {NativeSavedEntryActions} from '../src-next/screens/saved/SavedResou
  * supplies the actual production React, native host boundary and module
  * resolution; fabric-host mounts the real SavedResourceScreen on the installed
  * Fabric reconciler. The page reads a real NativeSavedViewDestination and the
- * real PersonalSavedService, so Show more and the owner visibility switch reach
+ * real PersonalSavedService, so scroll continuation and the owner visibility switch reach
  * the caller's own paged read and update receipt through the product callbacks.
- * The focus registry is the product one: this proves both controls attach in
- * their actual page region with the identities the fix adds. Element state is
+ * The focus registry is the product one: this proves the switch attaches in
+ * its actual page region and the scroller keeps its original offered cursor. Element state is
  * UNRUN here; no runtime/device claim.
  */
 
@@ -61,7 +61,7 @@ class CollectionFixture {
   }
 }
 
-test('NM-ID-01: the real Saved page binds Show more and the owner visibility switch in its actual region', async () => {
+test('NM-ID-01 / MOB-050: the real Saved page continues its offered cursor on scroll and retains owner visibility focus', async () => {
   const app = await standardHomeApp({mountUI: false});
   const host = await fabricHost();
   try {
@@ -114,23 +114,31 @@ test('NM-ID-01: the real Saved page binds Show more and the owner visibility swi
 
       const showMoreID = focusTestID(region, 'saved-show-more');
       const visibilityID = focusTestID(region, 'saved-visibility');
-      assert.ok(registry.child({regionId: region, childId: 'saved-show-more'}), 'Show more attaches in its actual page region');
+      assert.equal(registry.child({regionId: region, childId: 'saved-show-more'}), undefined, 'MOB-050 replaces manual paging with scroll continuation');
       assert.ok(registry.child({regionId: region, childId: 'saved-visibility'}), 'the owner visibility switch attaches in the same actual region');
-      const showMore = nodeWithTestID(showMoreID);
+      const scroll = nodes().find(node => node.name === 'ScrollView' && node.props.onScroll && node.props.onContentSizeChange);
+      assert.ok(scroll, 'the actual page scroller supplies continuation');
       const changeVisibility = nodeWithTestID(visibilityID);
-      assert.ok(showMore, 'Show more keeps its caller-region-derived host identity');
+      assert.equal(nodeWithTestID(showMoreID), undefined, 'there is no redundant manual paging control');
       assert.ok(changeVisibility, 'the visibility switch keeps its caller-region-derived host identity');
       assert.equal(changeVisibility!.props.accessibilityRole, 'switch');
       assert.equal(changeVisibility!.props.accessibilityState.checked, false, 'the loaded collection is private');
 
       const reads = fixture.calls.filter(call => call.method === 'GET').length;
-      showMore!.props.onPress();
+      scroll.props.onContentSizeChange(390, 2400);
+      scroll.props.onLayout({nativeEvent: {layout: {height: 600}}});
+      await settle();
+      assert.equal(fixture.calls.filter(call => call.method === 'GET').length, reads, 'the distant tail does not prefetch');
+      scroll.props.onScroll({nativeEvent: {contentOffset: {y: 1600}}});
       await settle();
       const paged = fixture.calls.filter(call => call.method === 'GET').slice(reads);
-      assert.equal(paged.length, 1, 'Show more performs the real next-page read');
+      assert.equal(paged.length, 1, 'the near-tail scroll performs the real next-page read');
       assert.match(paged[0]!.path, /[?&]cursor=page-2(?:&|$)/, 'the caller page cursor is used, not a rebuilt query');
       assert.match(text(), /Second page title/, 'the real service publishes the next page');
-      assert.equal(nodeWithTestID(showMoreID), undefined, 'the last page retires Show more');
+      assert.equal(destination.getSnapshot().personal?.nextCursor, '', 'the last page retires continuation');
+      scroll.props.onScroll({nativeEvent: {contentOffset: {y: 2000}}});
+      await settle();
+      assert.equal(fixture.calls.filter(call => call.method === 'GET').length, reads + 1, 'the old scroll callback cannot reuse the consumed cursor');
 
       await host.render(tree(page()));
       await settle();

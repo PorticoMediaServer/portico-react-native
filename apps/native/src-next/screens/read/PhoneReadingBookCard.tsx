@@ -1,11 +1,12 @@
-import React from 'react';
+import React, {useRef, type RefObject} from 'react';
 import {Text, View} from 'react-native';
 import {generatedCoverTint} from '@portico/design';
-import {defaultI18n} from '../../../../../packages/i18n/src';
 import {cardAccessibilityLabel} from '../../kit/cards/model';
 import {GeneratedCover, MediaArt} from '../../kit/artwork';
 import type {ArtworkSource} from '../../kit/artwork';
 import {Focusable} from '../../kit/controls';
+import {SelectionCircle} from '../../kit/selection';
+import type {CardSelection} from '../../kit/cards/model';
 import {browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
 
@@ -25,19 +26,23 @@ export function PhoneReadingBookCover({title, author, width, height, artwork, pe
 
 /** One book cover with its title and author, for the phone's reading rows
  * (phone-read frames 1-3): 2:3 for a book, 3:4 only when the item is a
- * periodical. Tap opens; a long press is the caller's Download offer, so no
- * visible more button or menu is drawn. Every field drawn here is an offered
+ * periodical. Tap opens or toggles selection; a long press opens the item's
+ * standard menu, which owns the Download offer. Every field drawn here is an offered
  * display value and every action is the caller's own handler; the component
- * holds no content entry, client, context, state or ref. */
-export function PhoneReadingBookCard({testID, title, author, width, artwork, periodical, onOpen, onDownload}: Readonly<{
+ * holds no content entry, client or authorization state. */
+export function PhoneReadingBookCard({testID, title, author, width, artwork, periodical, onOpen, onMenu, selection}: Readonly<{
   testID: string; title: string; author?: string; width: number; artwork?: ArtworkSource; periodical?: boolean;
-  onOpen: () => void; onDownload?: () => void;
+  onOpen: () => void; onMenu?: (anchor: RefObject<View | null>) => void; selection?: CardSelection;
 }>) {
+  const anchor = useRef<View>(null);
   const theme = useTheme(), height = periodical ? width * 4 / 3 : width * 3 / 2;
   return <Focusable testID={testID} accessibilityRole="button" accessibilityLabel={cardAccessibilityLabel(title, [], [], [author])} focusKind="row"
-    onPress={onOpen} onLongPressAction={onDownload} longPressAccessibilityAction={onDownload ? {name: 'download', label: defaultI18n.t('next.cards.download')} : undefined} style={{width}}>
-    <View accessible={false} importantForAccessibility="no-hide-descendants" style={{width, height, borderRadius: 10, overflow: 'hidden'}}>
+    ref={anchor} accessibilityState={selection?.active ? {selected: selection.selected} : undefined}
+    onPress={selection?.active ? selection.onToggle : onOpen} onLongPressAction={onMenu ? () => onMenu(anchor) : undefined} style={{width}}>
+    <View accessible={false} importantForAccessibility="no-hide-descendants" style={{width, height, borderRadius: 10, overflow: 'hidden', borderWidth: selection?.selected ? 2 : 0, borderColor: theme.colors.accentStrong}}>
       <PhoneReadingBookCover title={title} author={author} width={width} height={height} artwork={artwork} periodical={periodical}/>
+      {selection?.active ? <SelectionCircle selected={selection.selected} selecting interactive={false} accessibilityLabel={title}
+        style={{position: 'absolute', right: 7, bottom: 7}}/> : null}
     </View>
     <Text numberOfLines={1} style={[browseType(theme, 12.5, 600), {color: theme.colors.text, marginTop: 7}]}>{title}</Text>
     {author ? <Text numberOfLines={1} style={[browseType(theme, 11.5, 400), {color: theme.colors.textTertiary, marginTop: 2}]}>{author}</Text> : null}

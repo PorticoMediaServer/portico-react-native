@@ -6,6 +6,7 @@ import {nativeScreenServices} from '../native-screen-services';
 import {nativeWatchEntryMenu, type NativeWatchEntryMenu} from '../watch';
 import {openNativeReadingBookEntry} from '../read/reading-books-open';
 import {nativeDestinationLifetime} from './lifetime';
+import type {NativeWatchMenuExtra} from '../watch/factory';
 
 export type NativeEntryMembership = Readonly<{
   /** Actual visible destination and its currently mounted/loaded entry owner. */
@@ -87,12 +88,13 @@ export function createNativeEntryActions(context: NativeShellBootstrapContext, m
       common.navigate(entry);
     },
     play,
-    menu: (entry: ContentEntry, anchorRef?: RefObject<View | null>, select?: () => void) => {
+    menu: (entry: ContentEntry, anchorRef?: RefObject<View | null>, select?: () => void, extraActions?: readonly NativeWatchMenuExtra[]) => {
       if (!current(entry)) return;
       const captured = context.navigation.getSnapshot().revision, port = borrowMenu();
       if (!port) {common.reportError(Object.assign(new Error('native_watch_menu_unavailable'), {code: 'unavailable'}), 'detail'); return;}
       const entryCurrent = () => current(entry) && context.navigation.getSnapshot().revision === captured;
-      void port.open(entry, entryCurrent, anchorRef, select ? () => {if (entryCurrent()) select();} : undefined).catch(error => {if (entryCurrent()) common.reportError(error, 'detail');});
+      void port.open(entry, entryCurrent, anchorRef, select ? () => {if (entryCurrent()) select();} : undefined,
+        extraActions?.map(action => ({...action, onSelect: () => {if (entryCurrent() && !action.disabled) action.onSelect();}}))).catch(error => {if (entryCurrent()) common.reportError(error, 'detail');});
     },
     isMenuOpen: (entry: ContentEntry) => current(entry) && nativeWatchEntryMenu(context)?.isOpen(entry) === true,
     dispose: () => {

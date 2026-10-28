@@ -19,7 +19,7 @@ async function fixture() {
   let libraries = [{id: 'movies', kind: 'book'}];
   const starts: any[] = [], opened: any[] = [], navigated: any[] = [], errors: unknown[] = [], finish: (() => void)[] = [];
   const port = {subscribe: menus.subscribe, isOpen: (value: unknown) => value === activeEntry,
-    open: async (value: unknown, current: () => boolean, anchor: unknown) => {opened.push({value, current, anchor}); activeEntry = value; menus.emit();}};
+    open: async (value: unknown, current: () => boolean, anchor: unknown, select: unknown, extraActions: unknown) => {opened.push({value, current, anchor, select, extraActions}); activeEntry = value; menus.emit();}};
   const context = {current: () => live, authority: () => authority, session: () => ({viewer: {...authority, authority: 'local'}}),
     subscribeAuthority: authorityEvents.subscribe, libraries: () => libraries, navigation: {subscribe: route.subscribe, getSnapshot: () => snapshot},
     playback: {start: (input: unknown) => {starts.push(input); return new Promise<void>(resolve => {finish.push(resolve);});}}};
@@ -109,4 +109,21 @@ test('audiobook file primary activation uses its offered playback', async () => 
   const f = await fixture(); Object.assign(f.entry, {kind: 'audiobook_file'});
   f.actions.open(f.entry); assert.equal(f.starts.length, 1); assert.equal(f.starts[0].target, f.entry.playback);
   f.finish[0](); f.actions.dispose();
+});
+
+
+test('composed menu actions keep exact membership and navigation custody and disabled actions stay inert', async () => {
+  const f = await fixture(); f.setMenuReady();
+  let calls = 0;
+  const extra = [{id: 'not-interested', label: 'Not interested', onSelect: () => calls++},
+    {id: 'disabled', label: 'Unavailable', disabled: true, onSelect: () => calls++}];
+  f.actions.menu(f.entry, undefined, undefined, extra);
+  const first = f.opened[0].extraActions;
+  assert.notEqual(first, extra);
+  first[0].onSelect(); first[1].onSelect(); assert.equal(calls, 1);
+  f.navigate(); first[0].onSelect(); assert.equal(calls, 1, 'an old menu cannot borrow a new route revision');
+  f.actions.menu(f.entry, undefined, undefined, extra);
+  const second = f.opened[1].extraActions;
+  f.replace(); second[0].onSelect(); assert.equal(calls, 1, 'replacement with the same item ID is not the original member');
+  f.actions.dispose(); second[0].onSelect(); assert.equal(calls, 1);
 });

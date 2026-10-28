@@ -9,13 +9,13 @@ import {browseType} from '../../../kit/browse/presentation';
 import {useTheme} from '../../../kit/theme';
 
 const t = defaultI18n.t;
-export type ListeningQueuePaintRow = Readonly<{id: string; title: string; detail?: string; seconds?: number;
+export type ListeningQueuePaintRow = Readonly<{id: string; title: string; detail?: readonly string[]; seconds?: number;
   current: boolean; source?: ArtworkSource; playable: boolean; menu: boolean}>;
 export type ListeningQueuePaintGroup = Readonly<{key: string; label: string; rows: readonly ListeningQueuePaintRow[]}>;
 
 /** Audited touch display only: no queue view, revision, edit lease, resolver or
  * command owner enters this leaf. Its native scroller lives with the paint. */
-export type ListeningQueuePaintData = Readonly<{current: readonly ListeningQueuePaintRow[]; groups: readonly ListeningQueuePaintGroup[]; summary?: string}>;
+export type ListeningQueuePaintData = Readonly<{current: readonly ListeningQueuePaintRow[]; groups: readonly ListeningQueuePaintGroup[]; summary?: readonly string[]}>;
 type QueueActions = Readonly<{play?: (id: string) => void; menu?: (id: string) => void}>;
 export function ListeningQueuePaint({owner, scope = '', data: supplied, onPlay, onMenu, testID = 'now-playing-queue'}: {
   owner?: object; scope?: string; data?: ListeningQueuePaintData;
@@ -31,11 +31,11 @@ export function ListeningQueuePaint({owner, scope = '', data: supplied, onPlay, 
       {value.source ? <Artwork source={value.source} width={44} height={44} style={{borderRadius: 8, overflow: 'hidden', flexShrink: 0}}/> : null}
       <View style={{flex: 1, minWidth: 0, gap: 3}}>
         <Text numberOfLines={1} style={[browseType(theme, value.current ? 16 : 15, 700, -0.01), {color: theme.colors.text}]}>{value.title}</Text>
-        {value.detail ? <Text numberOfLines={1} style={[browseType(theme, 13, 400), {color: theme.colors.textSecondary}]}>{value.detail}</Text> : null}
+        {value.detail?.length ? <View style={{flexDirection: 'row', gap: 10}}>{value.detail.map((part, index) => <Text key={index} numberOfLines={1} style={[browseType(theme, 13, 400), {color: theme.colors.textSecondary, flexShrink: 1}]}>{part}</Text>)}</View> : null}
       </View>
       {value.seconds ? <Text style={[browseType(theme, 13, 400), {color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{durationText(value.seconds, t)}</Text> : null}
     </>;
-    const main = !value.playable || value.current ? <View key={`${value.id}:main`} testID={`${testID}-row-${value.id}`} accessibilityRole="text" accessibilityLabel={[value.title, value.detail].filter(Boolean).join(', ')}
+    const main = !value.playable || value.current ? <View key={`${value.id}:main`} testID={`${testID}-row-${value.id}`} accessibilityRole="text" accessibilityLabel={[value.title, ...(value.detail ?? [])].filter(Boolean).join(', ')}
       style={{flex: 1, minHeight: 52, paddingLeft: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 12}}>{body}</View>
       : <Focusable key={`${value.id}:main`} testID={`${testID}-row-${value.id}`} focusId={`${testID}-${value.id}`} focusKind="row" focusRadius={10}
         accessibilityRole="button" accessibilityLabel={t('player.queuePlay', {title: value.title})} onPress={() => {if (paint.current()) paint.actions?.play?.(value.id);}}
@@ -63,7 +63,7 @@ export function ListeningQueuePaint({owner, scope = '', data: supplied, onPlay, 
       {!populated ? <Text style={[browseType(theme, 14, 400), {paddingHorizontal: 14, paddingVertical: 18, color: theme.colors.textTertiary}]}>{t('player.queueEmpty')}</Text> : null}
     </ScrollView>
     {populated ? <View style={{borderTopWidth: 1, borderTopColor: theme.colors.line, paddingHorizontal: 14, paddingVertical: 12}}>
-      <Text style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary}]}>{summary}</Text>
+      <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 10}}>{summary?.map((part, index) => <Text key={index} style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary}]}>{part}</Text>)}</View>
     </View> : null}
   </View>;
 }

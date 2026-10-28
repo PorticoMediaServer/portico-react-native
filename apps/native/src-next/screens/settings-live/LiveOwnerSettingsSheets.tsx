@@ -298,7 +298,7 @@ export function ChannelMapSheet({controller, runtime, source, open, onOpenChange
             <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
               <View style={{flex: 1}}>
                 <Text style={[shellType(15, 700), {color: theme.colors.text}]} numberOfLines={1}>{entry.name}</Text>
-                <Text style={[shellType(12.5), {color: theme.colors.textTertiary}]} numberOfLines={1}>{t('server.live.map.fromSource')} {entry.sourceNumber || '—'}{entry.group ? ` · ${entry.group}` : ''}</Text>
+                <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, rowGap: 3}}>{[`${t('server.live.map.fromSource')} ${entry.sourceNumber || '—'}`, entry.group].filter(Boolean).map((part, index) => <Text key={index} style={[shellType(12.5), {color: theme.colors.textTertiary}]} numberOfLines={1}>{part}</Text>)}</View>
               </View>
               <Switch testID={`live-owner-channel-hidden-${entry.channelId}`} accessibilityLabel={t('web.liveSource.hideChannel', {name: entry.name})} checked={current.hidden} onCheckedChange={hidden => edit(entry, {hidden})}/>
             </View>

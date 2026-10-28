@@ -36,6 +36,7 @@ export type NativeReadSeriesShelfState = Readonly<{
   error?: unknown;
   /** A later page failed; the volumes already drawn stay. */
   moreError?: unknown;
+  morePending?: boolean;
   /** The opaque witness of the page this render drew. Handlers present it. */
   witness: NativeReadSeriesShelfWitness;
 }>;
@@ -268,7 +269,7 @@ export class NativeReadBook {
     const started: SeriesShelfData = Object.freeze({...data, failed: undefined,
       cursors: retrying ? data.cursors : Object.freeze([...data.cursors, cursor])});
     this.shelfTicket = ticket;
-    this.publishShelf({...this.shelfState, phase: 'ready', moreError: undefined}, started);
+    this.publishShelf({...this.shelfState, phase: 'ready', moreError: undefined, morePending: true}, started);
     // A refused or drifted continuation retires the drawn items and cursor, but the
     // failure keeps its own witness so an explicit Retry is a real new first page.
     const refuse = (code: string): void => {
@@ -301,13 +302,19 @@ export class NativeReadBook {
       if (transientShelf(error)) {
         // The exact failed cursor and error travel in the witness data too, so the
         // Retry drawn from this state can actually re-request that same cursor.
-        this.publishShelf({...this.shelfState, phase: 'ready', moreError: error},
+        this.publishShelf({...this.shelfState, phase: 'ready', moreError: error, morePending: false},
           Object.freeze({...started, failed: Object.freeze({cursor, error})}));
         return;
       }
       this.publishShelf({phase: 'error', items: [], error},
         Object.freeze({manifest, series, items: Object.freeze([]), seen: Object.freeze([]), cursors: Object.freeze([]), initialFailure: error}));
     } finally {if (this.shelfTicket === ticket) this.shelfTicket = undefined;}
+  };
+  /** Menu/selection commands retain the same shelf witness as ordinary opens. */
+  shelfItemLifetime = (witness: NativeReadSeriesShelfWitness, manifest: ReadingManifest, item: ReadingItem): Readonly<{signal: AbortSignal; isCurrent: () => boolean}> | undefined => {
+    const life = this.life;
+    const current = () => this.life === life && !!this.shelfAuthority(witness, manifest)?.items.includes(item);
+    return life && current() ? Object.freeze({signal: life.signal, isCurrent: current}) : undefined;
   };
   /** Only a volume this exact shelf page listed, with available inventory, opens,
    * through the ordinary book door and this page's own captured origin. */

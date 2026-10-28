@@ -62,6 +62,8 @@ export type BottomSheetProps = SurfaceProps & {
   presentation?: 'sheet' | 'page';
   /** Called once the closing surface has finished its exit and left the tree. */
   onExited?: () => void;
+  /** A custom header can draw its own grabber within its authored height. */
+  showGrabber?: boolean;
   /** Visible heights in points, sorted by the component. The controlled detent is an index. */
   detents?: readonly number[];
   width?: number;
@@ -146,6 +148,8 @@ export type ToastMessage = {
   icon?: IconName;
   leading?: React.ReactNode;
   action?: {label: string; onPress: () => void};
+  /** Explicit TV compositions with an authored Undo action opt in. */
+  actionOnTV?: boolean;
   durationMs?: number;
 };
 export type ToastDismissReason = 'timeout' | 'gesture' | 'action' | 'accessibility';

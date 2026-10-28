@@ -4,7 +4,16 @@ import {screenModule} from './helpers/screen-harness.mjs';
 import {artistReleaseGroups} from '../../../packages/client-core/src/presentation/library-tabs.ts';
 import {defaultI18n} from '../../../packages/i18n/src';
 
+
+const musicImports = {
+  'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'LinearGradient', Rect: 'Rect', Stop: 'Stop'},
+  './use-playing-item': {usePlayingItem: (runtime: any) => runtime.playback?.getSnapshot().playback.itemId},
+  './MusicWindow': {MusicScrollView: 'ScrollView', MusicWindow: 'MusicWindow', MusicShelf: 'ScrollView'},
+  '../../../kit/selection': {SelectionCircle: 'SelectionCircle'},
+};
+
 const stubs = {
+  ...musicImports,
   react: {default: {createElement() {}, useRef() { return {current: null}; }, useSyncExternalStore() {}}},
   'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
   'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0, left: 0, right: 0})},
@@ -65,6 +74,7 @@ async function tabletMusic(kind: 'album' | 'artist', phase: 'loading' | 'ready' 
   const theme = {platform: 'tablet', colors: {ink: '#000', raised: '#111', shadow: '#000', text: '#fff', textSecondary: '#aaa',
     accentStrong: '#09f', textTertiary: '#777', line: '#222'}};
   const {PhoneAlbumScreen, PhoneArtistScreen} = await screenModule(new URL('../src-next/screens/destinations/music/PhoneMusicScreens.tsx', import.meta.url), {
+    ...musicImports,
     react: {...React, default: React},
     'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 47, bottom: 34, left: 0, right: 0})},
@@ -115,6 +125,7 @@ test('phone keeps its single header Back and no tablet floating control', async 
   const view = await tabletMusic('album', 'error');
   // The phone body is a separate projection; render it with the phone platform.
   const {PhoneAlbumScreen} = await screenModule(new URL('../src-next/screens/destinations/music/PhoneMusicScreens.tsx', import.meta.url), {
+    ...musicImports,
     react: {...React, default: React},
     'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 47, bottom: 34, left: 0, right: 0})},

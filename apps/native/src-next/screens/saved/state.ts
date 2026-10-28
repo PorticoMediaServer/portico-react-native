@@ -6,6 +6,7 @@ import {createNativeEntryActions} from '../destinations/entry-actions';
 import {createNativeDownloadsDevice} from '../downloads/device';
 import {nativeScreenServices} from '../native-screen-services';
 import type {NativeSavedActions} from './SavedScreen';
+import {createNativeSavedViewSelection} from './selection';
 import {createNativeSavedHubController, createNativeSavedViewController, type NativeSavedRouteTarget} from './navigation';
 import {createNativeSavedViewSummaryOwner, type NativeSavedViewSummaryOwner} from './view-summary-owner';
 import {createNativeSavedViewRenameController, type NativeSavedViewRenameController} from './rename-view';
@@ -70,6 +71,7 @@ export function createNativeSavedState(context: NativeShellBootstrapContext) {
   const retained = (target: NativeSavedRouteTarget) => context.navigation.getSnapshot().route === target || context.navigation.retainedRoutes().includes(target);
   function createView(target: NativeSavedRouteTarget) {
     const controller = createNativeSavedViewController(context, target, common.requestId);
+    const selection = createNativeSavedViewSelection(context, controller.source, controller.activation);
     const entryActions = createNativeEntryActions(context, {current: () => current() && controller.activation.getSnapshot().visible,
       contains: controller.source.contains, subscribe: controller.source.subscribe});
     let resourcePlay: Readonly<{abort: AbortController; current: () => boolean}> | undefined;
@@ -130,12 +132,12 @@ export function createNativeSavedState(context: NativeShellBootstrapContext) {
       rename = {controller: exposed, resource};
       return exposed;
     };
-    return Object.freeze({...controller, load: () => {
+    return Object.freeze({...controller, selection, load: () => {
       if (!current()) return Promise.resolve();
       void owner?.start();
       return controller.load();
     }, ...(summaries ? {summaries} : {}), rename: openRename, actions: Object.freeze({...entryActions, playResource}),
-    dispose: () => {resourcePlay?.abort.abort(); resourcePlay = undefined; playOff.forEach(off => off()); rename?.controller.dispose(); rename = undefined; owner?.dispose(); entryActions.dispose(); controller.dispose();}});
+    dispose: () => {resourcePlay?.abort.abort(); resourcePlay = undefined; playOff.forEach(off => off()); rename?.controller.dispose(); rename = undefined; owner?.dispose(); selection.dispose(); entryActions.dispose(); controller.dispose();}});
   }
   const dispose = () => {
     if (disposed) return;

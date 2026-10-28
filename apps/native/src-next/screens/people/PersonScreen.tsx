@@ -6,7 +6,7 @@ import type {PersonCredit, PersonPage, PersonRole} from '../../../../../packages
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {AmbientArt, Artwork, PersonCircle} from '../../kit/artwork';
 import type {NativePageSelection} from '../search/selection';
-import {PosterCard} from '../../kit/cards';
+import {PosterCard, type PosterCardProps} from '../../kit/cards';
 import {Chip, Focusable} from '../../kit/controls';
 import {Menu, type MenuEntry} from '../../kit/overlays';
 import {TVShelf} from '../../tv/layout/TVShelf';
@@ -16,6 +16,7 @@ import {browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {createNativeEntryActions} from '../destinations/entry-actions';
+import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 
 export type NativePersonScreenProps = Readonly<{
   focusScope: string; page: PersonPage; role: PersonRole; collection: WindowedCollection<PersonCredit>;
@@ -29,6 +30,8 @@ const creditSlotKey = (index: number) => String(index);
 /** phone-detail frame7: one sparse credits scroller, with the genuine person,
  * biography and bounded known-for shelf as its header. */
 export function PersonScreen({focusScope, page, role, collection, runtime, actions, selection, onRole, onBack}: NativePersonScreenProps) {
+  const selectionRevision = useSyncExternalStore(selection?.subscribe ?? (() => () => {}), selection?.getSnapshot ?? (() => 0));
+  useSyncExternalStore(actions.menuState.subscribe, actions.menuState.getSnapshot);
   const theme = useTheme(), dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   const columns = theme.platform === 'phone' ? 3 : Math.max(3, Math.floor((dimensions.width - 40) / 150));
   const width = (dimensions.width - 32 - (columns - 1) * 10) / columns;
@@ -61,6 +64,9 @@ export function PersonScreen({focusScope, page, role, collection, runtime, actio
   const initials = person.name.split(/\s+/u).filter(Boolean).slice(0, 2).map(word => [...word][0]).join('');
   const known = page.person.knownFor;
   const header = <>
+    <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 0, right: 0, height: 560, overflow: 'hidden'}}>
+      <AmbientArt source={runtime.ambient(known.find(entry => entry.backdropUrl || entry.posterUrl)?.backdropUrl ?? known.find(entry => entry.posterUrl)?.posterUrl)} treatment="library" height={560}/>
+    </View>
     <View style={{paddingTop: Math.max(98, insets.top + 44), paddingHorizontal: 20, alignItems: 'center'}}>
       <PersonCircle size={96} initials={initials} source={runtime.artwork(person.portraitUrl)} covers={known.flatMap(entry => {const art = runtime.artwork(entry.posterUrl); return art ? [art] : [];})}/>
       <Text accessibilityRole="header" style={[browseType(theme, 30, 800, -.035), {color: theme.colors.text, marginTop: 12, marginBottom: 4}]}>{person.name}</Text>
@@ -78,8 +84,8 @@ export function PersonScreen({focusScope, page, role, collection, runtime, actio
     {!!known.length && <View style={{marginTop: 16}}>
       <Text accessibilityRole="header" style={[browseType(theme, 19, 800), {color: theme.colors.text, marginHorizontal: 20, marginBottom: 14}]}>{t('web.person.knownFor')}</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 4, gap: 12}}>
-        {known.map(entry => <PosterCard key={`${entry.kind}:${entry.id}`} testID={`person-known-${entry.id}`} title={entry.displayTitle || entry.title} width={96} artwork={runtime.artwork(entry.posterUrl)}
-          caption={entry.year === undefined ? [] : [{id: 'year', text: String(entry.year), role: 'context'}]} onNavigate={() => actions.open(entry)}/>)}
+        {known.map(entry => <PersonEntryCard entry={entry} group="known" actions={actions} selection={selection} key={`${entry.kind}:${entry.id}`} testID={`person-known-${entry.id}`} title={entry.displayTitle || entry.title} width={96} artwork={runtime.artwork(entry.posterUrl)}
+          caption={entry.year === undefined ? [] : [{id: 'year', text: String(entry.year), role: 'context'}]} />)}
       </ScrollView>
     </View>}
     <View style={{flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 12, marginHorizontal: 20, marginBottom: 10}}>
@@ -93,20 +99,21 @@ export function PersonScreen({focusScope, page, role, collection, runtime, actio
   const rows = useMemo(() => Math.ceil((state.total ?? page.pageInfo.total) / columns), [columns, page.pageInfo.total, state.total]);
   if (theme.isTV) return <TVPerson focusScope={focusScope} page={page} role={role} collection={collection} runtime={runtime} actions={actions} selection={selection} onRole={onRole} onBack={onBack}/>;
   return <View style={{flex: 1, backgroundColor: theme.colors.ink}} testID="native-person">
-    <VirtualizedList data={collection} getItem={(_data, index) => index} getItemCount={() => rows} keyExtractor={index => String(index)} extraData={version()}
+    <VirtualizedList data={collection} getItem={(_data, index) => index} getItemCount={() => rows} keyExtractor={index => String(index)} extraData={`${version()}:${selectionRevision}`}
       initialNumToRender={4} maxToRenderPerBatch={4} windowSize={5} ListHeaderComponent={header} onViewableItemsChanged={visible}
       contentContainerStyle={{paddingBottom: insets.bottom + 24}} renderItem={({item: row}: {item: number}) => <View style={{flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingBottom: 16}}>
         {Array.from({length: columns}, (_, column) => {
           const index = row * columns + column;
           if (index >= (state.total ?? page.pageInfo.total)) return null;
           const credit = collection.itemAt(index), entry = credit?.media;
-          return entry && credit ? <PosterCard key={index} testID={`person-credit-${index}`} density="grid" title={entry.displayTitle || entry.title} width={width} artwork={runtime.artwork(entry.posterUrl)}
+          return entry && credit ? <PersonEntryCard entry={entry} group="credits" actions={actions} selection={selection} key={index} testID={`person-credit-${index}`} density="grid" title={entry.displayTitle || entry.title} width={width} artwork={runtime.artwork(entry.posterUrl)}
             caption={credit.character ? [{id: 'character', text: t('web.person.as', {character: credit.character}), role: 'context'}] : credit.role ? [{id: 'role', text: credit.role, role: 'context'}] : []}
-            onNavigate={() => actions.open(entry)}/> : <View key={index} testID={`person-credit-placeholder-${index}`} style={{width, height: width * 1.5 + 44, borderRadius: 10, backgroundColor: theme.colors.raised}}/>;
+            /> : <View key={index} testID={`person-credit-placeholder-${index}`} style={{width, height: width * 1.5 + 44, borderRadius: 10, backgroundColor: theme.colors.raised}}/>;
         })}
       </View>}
       ListEmptyComponent={<StateView title={t('web.person.noCredits')} body={t(role === 'cast' ? 'web.person.noCast' : role === 'crew' ? 'web.person.noCrew' : 'web.person.noCreditsBody')}/>}
       ListFooterComponent={state.status === 'error' ? <StateView {...runtime.error(state.error, () => collection.retry())}/> : null}/>
+    {selection?.render(path => <Artwork source={runtime.artwork(path)} width={40} height={40}/>)}
     <Focusable testID="person-back" accessibilityLabel={t('action.back')} onPress={onBack} focusRadius={20}
       style={{position: 'absolute', left: 16, top: insets.top + 12, width: 40, height: 40, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-left" size={22} color={theme.colors.text}/></Focusable>
   </View>;
@@ -171,8 +178,8 @@ export function TVPerson({focusScope, page, role, collection, runtime, actions, 
       {!!known.length && <View style={{marginTop: 48}}>
         <Text accessibilityRole="header" style={[browseType(theme, 38, 800, -.02), {color: theme.colors.text, marginBottom: 22}]}>{t('web.person.knownFor')}</Text>
         <TVShelf items={known} getKey={knownShelfKey} itemWidth={214} itemHeight={420}
-          renderItem={(entry, slot) => <PosterCard testID={`person-known-${entry.id}`} title={entry.displayTitle || entry.title} width={214}
-            onFocus={slot.onFocus} onBlur={slot.onBlur} hasTVPreferredFocus={slot.index === 0} artwork={runtime.artwork(entry.posterUrl)} caption={entry.year === undefined ? [] : [{id: 'year', text: String(entry.year), role: 'context'}]} onNavigate={() => actions.open(entry)} onMore={() => actions.menu(entry, undefined, selection?.item('known', entry)?.onEnter)} moreExpanded={actions.isMenuOpen?.(entry)} selection={selection?.item('known', entry)}/>}/>
+          renderItem={(entry, slot) => <PersonEntryCard entry={entry} group="known" actions={actions} selection={selection} testID={`person-known-${entry.id}`} title={entry.displayTitle || entry.title} width={214}
+            onFocus={slot.onFocus} onBlur={slot.onBlur} hasTVPreferredFocus={slot.index === 0} artwork={runtime.artwork(entry.posterUrl)} caption={entry.year === undefined ? [] : [{id: 'year', text: String(entry.year), role: 'context'}]}/>}/>
       </View>}
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 52, marginBottom: 24}}>
         <Text accessibilityRole="header" style={[browseType(theme, 38, 800, -.02), {color: theme.colors.text}]}>{t('web.person.credits')}</Text>
@@ -185,15 +192,22 @@ export function TVPerson({focusScope, page, role, collection, runtime, actions, 
         renderItem={(index, slot) => {
           const credit = collection.itemAt(index), entry = credit?.media;
           if (!entry) return <View testID={`person-credit-placeholder-${index}`} style={{width: 214, height: 321, borderRadius: 10, backgroundColor: theme.colors.raised}}/>;
-          return <PosterCard testID={`person-credit-${index}`} title={entry.displayTitle || entry.title} width={214}
+          return <PersonEntryCard entry={entry} group="credits" actions={actions} selection={selection} testID={`person-credit-${index}`} title={entry.displayTitle || entry.title} width={214}
             onFocus={slot.onFocus} onBlur={slot.onBlur} hasTVPreferredFocus={index === 0} artwork={runtime.artwork(entry.posterUrl)} watched={entry.watched} progress={entry.duration && entry.progressSeconds ? entry.progressSeconds / entry.duration : undefined}
             caption={[...(entry.year === undefined ? [] : [{id: 'year', text: String(entry.year), role: 'context' as const}]),
-              ...(credit.character ? [{id: 'character', text: t('web.person.as', {character: credit.character}), role: 'context' as const}] : [])]}
-            onNavigate={() => actions.open(entry)} onMore={() => actions.menu(entry, undefined, selection?.item('credits', entry)?.onEnter)} moreExpanded={actions.isMenuOpen?.(entry)} selection={selection?.item('credits', entry)}/>;
+              ...(credit.character ? [{id: 'character', text: t('web.person.as', {character: credit.character}), role: 'context' as const}] : [])]}/>;
         }}/>
       {state.status === 'error' && <View style={{marginTop: 30, width: 900}}><StateView {...runtime.error(state.error, () => collection.retry())}/></View>}
     </ScrollView>
     {selection?.render(path => <Artwork source={runtime.artwork(path)} width={40} height={40}/>)}
     <Menu testID={`${focusScope}.role-filter`} open={filters} onOpenChange={setFilters} title={t('next.browse.native.filters')} items={filterItems}/>
   </View>;
+}
+
+function PersonEntryCard({entry, group, actions, selection, ...props}: Omit<PosterCardProps, 'primaryAction' | 'onPlay' | 'onNavigate' | 'onMore' | 'selection'> & {
+  entry: ContentEntry; group: 'known' | 'credits'; actions: ReturnType<typeof createNativeEntryActions>; selection?: NativePageSelection;
+}) {
+  const anchor = useRef<View>(null), pick = selection?.item(group, entry);
+  return <PosterCard {...props} menuAnchorRef={anchor} moreExpanded={actions.isMenuOpen?.(entry)} selection={pick}
+    onNavigate={() => actions.open(entry)} onMore={() => actions.menu(entry, anchor, pick?.onEnter)}/>;
 }

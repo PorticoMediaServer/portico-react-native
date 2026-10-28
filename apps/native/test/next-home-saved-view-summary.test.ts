@@ -11,6 +11,7 @@ import {hooks, screenModule} from './helpers/screen-harness.mjs';
 import {serverTextLabel} from '../../../packages/client-core/src/presentation/server-text';
 import type {HomeLayoutView} from '../../../packages/client-core/src/home';
 import {NativeHomeCustomizeController} from '../src-next/screens/home/customize-controller';
+import {createHomeRowDrag} from '../src-next/screens/home/customize-drag';
 import {alpha} from '../src-next/kit/browse/presentation';
 import {createTheme, nativeType} from '../src-next/kit/theme';
 
@@ -79,10 +80,10 @@ for (const isTV of [false, true]) test(`actual ${isTV ? 'TV' : 'phone'} Home cho
   const {HomeSavedViewChoices, HomeCustomize} = await screenModule(new URL('../src-next/screens/home/HomeCustomize.tsx', import.meta.url), {
     '../../platform/tv-key-adapter': {createTVKeyAdapter}, '../../platform/tv-key-source': {tvKeySource: 'native'},
     react: {...h.react, useLayoutEffect: h.react.useEffect},
-    'react-native': {ScrollView: 'Scroll', Text: 'Text', View: 'View'}, '../../../../../packages/i18n/src': {defaultI18n},
+    'react-native': {ScrollView: 'Scroll', Text: 'Text', View: 'View'}, 'react-native-gesture-handler': {Gesture: {Native: () => ({})}, GestureDetector: 'GestureDetector'}, '../../../../../packages/i18n/src': {defaultI18n},
     '../../../../../packages/client-core/src/presentation/server-text': {serverTextLabel}, '../../kit/controls': {Focusable: 'Row', Button: 'Button', Switch: 'Switch'}, '../../kit/focus': {useFocusRegistry: () => ({})}, '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/browse/presentation': {alpha},
-    '../../kit/overlays': {BottomSheet: 'Sheet', SidePanel: 'Panel', Dialog: 'Dialog'}, '../../kit/overlays/OverlayHost': {}, '../../kit/theme': {nativeType, useTheme: () => theme}, './customize-controller': {},
+    '../../kit/overlays': {BottomSheet: 'Sheet', SidePanel: 'Panel', Dialog: 'Dialog'}, '../../kit/overlays/OverlayHost': {}, '../../kit/theme': {nativeType, useTheme: () => theme}, './customize-controller': {}, './customize-drag': {createHomeRowDrag},
   });
   const resources = [view('drawn'), view('withheld')], selected: PersonalResource[] = [];
   const tree = HomeSavedViewChoices({views: resources, i18n: defaultI18n, summary: (resource: PersonalResource) => resource === resources[0] ? 'COMPUTED' : undefined, onChoose: (resource: PersonalResource) => selected.push(resource)});

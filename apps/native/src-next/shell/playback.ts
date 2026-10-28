@@ -9,7 +9,7 @@ import type {QueueHeader} from '../../../../packages/client-core/src/playback-v1
 import type {QueuePlayerState} from '../../../../packages/client-core/src/queue-controller';
 import type {ContentEntry} from '../../../../packages/client-core/src/library-content';
 import type {PlaybackSubject} from '../../../../packages/client-core/src/presentation/kit-model';
-import type {NativePlaybackRuntimeSnapshot, NativePlaybackVideoExitImage} from '../platform/playback/types';
+import type {NativePlaybackAdapter, NativePlaybackRuntimeSnapshot, NativePlaybackVideoExitImage} from '../platform/playback/types';
 import {sameFence, type DockState, type DockTransition, type PlaybackDock, type PlaybackFence, type RemoteDock} from '../../../../packages/player-core/src';
 import {sameAuthority, type ShellAuthority} from './model';
 import type {NativePlaybackStartFailure} from '../platform/playback/start-failure';
@@ -110,6 +110,10 @@ export interface NativeShellPlaybackAdapter {
   queuePlay?: (queueId: string, entryId: string, expectedRevision: string) => Promise<void>;
   /** Channels only: return to the live edge of the retained window. */
   goLive?: (fence: PlaybackFence) => Promise<void>;
+  /** Original-source audiobook facts from the existing platform runtime. */
+  listeningRead?: NativePlaybackAdapter['listeningRead'];
+  /** Session-scoped rate choice, fenced by the platform runtime. */
+  setRate: NativePlaybackAdapter['setRate'];
   /** Sleep timer for this playback: minutes, or null to clear. */
   setSleepTimer?: (fence: PlaybackFence, minutes: number | null) => Promise<void>;
   /** The remote dock (Portico play-on handoff or a cast session). */

@@ -386,7 +386,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
             return <React.Fragment key={airing.programme.id}>{programmeGroup(`later:${airing.programme.id}`, <>
               <Text style={[shellType(theme.isTV ? 20 : 12.5), {color: theme.colors.textSecondary, width: theme.isTV ? 90 : 70}]}>{clock(Date.parse(airing.programme.start))}</Text>
               <View style={{flex: 1, minWidth: 0}}>
-                <Text numberOfLines={1} style={[shellType(theme.isTV ? 22 : 14, 600), {color: theme.colors.text}]}>{code ? `${code} · ${airing.programme.title}` : airing.programme.title}</Text>
+                <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, rowGap: 3}}>{[code, airing.programme.title].filter(Boolean).map((part, index) => <Text key={index} numberOfLines={1} style={[shellType(theme.isTV ? 22 : 14, 600), {color: theme.colors.text}]}>{part}</Text>)}</View>
                 {range && <Text numberOfLines={1} style={[shellType(theme.isTV ? 18 : 12), {color: theme.colors.textTertiary, marginTop: 2}]}>{range}</Text>}
               </View>
               <Focusable testID={`live-later-remind-${airing.programme.id}`} focusKind="button" accessibilityRole="button" accessibilityLabel={t(reminders.has(airing.programme.id) ? 'guide.stopRemind' : 'guide.remind')} onPress={() => remind(airing, reminders.get(airing.programme.id))} style={{width: theme.isTV ? 48 : 44, height: theme.isTV ? 48 : 44, alignItems: 'center', justifyContent: 'center'}}><Icon name={reminders.has(airing.programme.id) ? 'i-bell-f' : 'i-bell'} size={theme.isTV ? 24 : 20} color={reminders.has(airing.programme.id) ? theme.colors.accentStrong : theme.colors.textTertiary}/></Focusable>
@@ -628,7 +628,7 @@ export function ProgrammeDetails({programme, now, runtime}: {programme: GuidePro
       {programme.description && <Text style={[shellType(22), {color: theme.colors.textSecondary, lineHeight: 33}]}>{programme.description}</Text>}
     </View>;
   }
-  const identity = programmeFactParts({episode, subtitle: programme.subtitle}, runtime.text).map(fact => fact.text).join(' · ');
+  const identity = programmeFactParts({episode, subtitle: programme.subtitle}, runtime.text);
   const facts = programmeFactParts({startMs: programme.start, endMs: programme.end, year: programme.year, categories, rating: programme.rating,
     flags: {new: programme.flags?.new === true, premiere: programme.flags?.premiere === true}}, runtime.text, now);
   const when = facts.find(fact => fact.id === 'time-range'), year = facts.find(fact => fact.id === 'year'), rating = facts.find(fact => fact.id === 'content-rating');
@@ -636,7 +636,7 @@ export function ProgrammeDetails({programme, now, runtime}: {programme: GuidePro
   const genres = categoryFacts.length ? categoryFacts.slice(1).reduce((list, fact) => t('next.kit.genres.append', {list, genre: fact.text}), categoryFacts[0]!.text) : '';
   const started = facts.find(fact => fact.id === 'started'), remaining = facts.find(fact => fact.id === 'remaining');
   return <View style={{gap: 16}}>
-    {identity !== '' && <Text style={[shellType(13.5, 700), {color: theme.colors.text}]}>{identity}</Text>}
+    {identity.length > 0 && <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 12}}>{identity.map(fact => <Text key={fact.id} style={[shellType(13.5, fact.id === 'episode' ? 700 : 500), {color: theme.colors.text}]}>{fact.text}</Text>)}</View>}
     <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12}}>
       {when && <Text style={[shellType(13, 700), {color: theme.colors.text}]}>{when.text}</Text>}
       {genres !== '' && <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{genres}</Text>}

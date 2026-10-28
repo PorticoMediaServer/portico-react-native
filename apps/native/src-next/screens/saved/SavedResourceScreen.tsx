@@ -10,7 +10,8 @@ import type {PlaylistOccurrence, SavedRoute, SavedSnapshot} from '../../../../..
 import {Button, Chip, Focusable, Switch} from '../../kit/controls';
 import {AmbientArt, Artwork, MediaArt} from '../../kit/artwork';
 import {CardFrame, Parts} from '../../kit/cards/primitives';
-import {PosterCard, SquareCard} from '../../kit/cards';
+import {PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
+import {SelectionCircle} from '../../kit/selection';
 import {FocusRegion} from '../../kit/focus';
 import {Banner, BottomSheet, Menu, ToastHost, type MenuEntry, type ToastMessage} from '../../kit/overlays';
 import {StateView} from '../../kit/states';
@@ -22,6 +23,11 @@ import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import type {NativeEntryMenuState} from '../destinations/entry-actions';
 import {nativeDestinationFocusIds, type NativeDestinationActivationPort} from '../destinations/focus';
 import type {NativeSavedViewDestination} from './view-model';
+import type {NativeSavedSelectionPort} from './SavedScreen';
+import type {NativeWatchMenuExtra} from '../watch/factory';
+import {SavedLoading, SavedTail} from './SavedLoading';
+import {savedNearEnd} from './paging';
+import {SavedReorderList} from './SavedReorderList';
 import {homeCardText} from '../home/model';
 import {SavedConfirmSheet, SavedNameSheet} from './SavedForms';
 import {isReadingLibraryKind} from '../read/platform';
@@ -36,7 +42,7 @@ export type NativeSavedEntryActions = Readonly<{
   play: (entry: ContentEntry) => void;
   /** The real page owner plays the entire named resource as one server queue. */
   playResource?: (shuffle?: boolean) => Promise<void>;
-  menu: (entry: ContentEntry, anchorRef?: RefObject<View | null>) => void;
+  menu: (entry: ContentEntry, anchorRef?: RefObject<View | null>, select?: () => void, extraActions?: readonly NativeWatchMenuExtra[]) => void;
   isMenuOpen?: (entry: ContentEntry) => boolean;
 }>;
 
@@ -46,6 +52,7 @@ export type NativeSavedResourceProps = Readonly<{
   activation: NativeDestinationActivationPort;
   runtime: NativeShellRuntime;
   actions: NativeSavedEntryActions;
+  selection?: NativeSavedSelectionPort;
   libraries: readonly Library[];
   back: () => void;
   changed?: () => void;
@@ -75,13 +82,14 @@ function membershipRows(isPlaylist: boolean, state: Readonly<{saved?: SavedSnaps
 
 /** collections.html 11a–13c and 18–20. The page reads the actual Saved route
  * through its canonical service; commands go back through the same service. */
-export function SavedResourceScreen({route, destination, activation, runtime, actions, libraries, back, changed, showOnHome, openInLibrary, condition}: NativeSavedResourceProps) {
+export function SavedResourceScreen({route, destination, activation, runtime, actions, selection, libraries, back, changed, showOnHome, openInLibrary, condition}: NativeSavedResourceProps) {
   const theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions(), instance = React.useId();
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const snapshot = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
+  useSyncExternalStore(selection?.subscribe ?? (() => () => {}), selection?.getSnapshot ?? (() => 0));
   useSyncExternalStore(actions.menuState?.subscribe ?? (() => () => {}), actions.menuState?.getSnapshot ?? (() => 0));
   const [pageMenu, setPageMenu] = useState(false), [rowMenuState, setRowMenuState] = useState<RowMenu>(), [renaming, setRenaming] = useState<object>(), [deleting, setDeleting] = useState<object>();
-  const [reordering, setReordering] = useState(false), [infoOpen, setInfoOpen] = useState(false), [problem, setProblem] = useState<string>(), [busy, setBusy] = useState(false);
+  const [reordering, setReordering] = useState(false), [dragging, setDragging] = useState(false), [infoOpen, setInfoOpen] = useState(false), [problem, setProblem] = useState<string>(), [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null), toastId = useRef(0);
   /** The opening this screen is showing, retired by identity so a late result or a second
    * press can only ever act on the sheet it came from; `epoch` moves with the route so a
@@ -108,7 +116,8 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
   const duration = exactDurationSeconds(media), artwork = isPlaylist ? playlistEntryMosaic((saved?.projection?.sections ?? []).flatMap(section => section.entries).filter((entry): entry is PlaylistOccurrence => entry.kind === 'playlist_entry')) : personalMosaic(resource);
   const name = isPlaylist ? playlist?.name : resource?.name;
   const eyebrow = isPlaylist ? savedPlaylistEyebrow : resource ? savedResourceEyebrow(resource) : undefined;
-  const canReorder = reordering || (isPlaylist ? playlist?.actions.includes('reorder') === true : resource?.kind === 'collection' && resource.actions.includes('reorder') === true);
+  const canReorder = isPlaylist ? playlist?.actions.includes('reorder') === true : resource?.kind === 'collection' && resource.actions.includes('reorder') === true;
+  useEffect(() => {if (!canReorder) setReordering(false);}, [canReorder]);
   const visibility = resource?.kind === 'collection' ? savedVisibility(resource, theme.isTV) : undefined;
   const report = (error: unknown) => runtime.reportError(error);
   /** The page a command started on, as a witness; `still` also knows its command is the one in
@@ -256,6 +265,10 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
     else if (where === 'top') {if (index !== 0) after = '';}
     else {if (index !== ids.length - 1) after = ids[ids.length - 1];}
     if (after === undefined) return;
+    place(menu, row, after, keepSheetOpen);
+  };
+  const place = (menu: RowMenu, row: Row, after: string, keepSheetOpen = false) => {
+    if (!openingLive(menu)) return;
     void run(async still => {
       if (isPlaylist) {
         try {await destination.mutateSaved({action: 'reorder', entryIds: [row.id], afterEntryId: after});}
@@ -263,6 +276,10 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
           const code = (error as {code?: string}).code;
           if (code !== 'playlist_conflict' && code !== 'revision_mismatch') throw error;
           await destination.loadOrder();
+          if (!still() || !openingLive(menu)) return;
+          const current = page();
+          if (!current.playlist?.actions.includes('reorder') || !current.rows.some(value => value.id === row.id)
+            || after !== '' && !current.rows.some(value => value.id === after)) return;
           await destination.mutateSaved({action: 'reorder', entryIds: [row.id], afterEntryId: after});
         }
       } else {
@@ -298,6 +315,10 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
     const tvMoves = theme.isTV, moves = canReorder;
     return [
       {id: 'open', label: t('web.saved.goToItem'), icon: 'i-info', onSelect: () => {if (!openingLive(menu)) return; closeOpening(menu); actions.open(menu.entry);}},
+      ...(theme.isTV ? [{id: 'item-actions', label: t('card.more', {title: menu.entry.title}), icon: 'i-more' as const,
+        onSelect: () => {if (!openingLive(menu)) return; closeOpening(menu); actions.menu(menu.entry, undefined, selection?.item(menu.entry)?.onEnter);}}] : []),
+      ...(theme.isTV && selection?.item(menu.entry) ? [{id: 'select', label: t('next.selection.select'), icon: 'i-check' as const,
+        onSelect: () => {if (!openingLive(menu)) return; closeOpening(menu); selection.item(menu.entry)?.onEnter();}}] : []),
       ...(moves && !tvMoves ? [
         {id: 'top', label: t('order.moveTop'), icon: 'i-up', disabled: index <= 0, onSelect: () => move(menu, 'top')},
         {id: 'up', label: t('player.queueMoveUp'), icon: 'i-up', disabled: index <= 0, onSelect: () => move(menu, 'up')},
@@ -322,6 +343,29 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
     const next: RowMenu = {entry: row.media, entryId: row.id, route, ...(theme.isTV ? {focus: 'open' as const} : {})};
     opening.current = next;
     setRowMenuState(next);
+  };
+  const openEntryMenu = (row: Row, anchor?: RefObject<View | null>) => {
+    if (!active.visible || !onPage(witness()) || !page().rows.some(value => value.id === row.id && value.media === row.media)) return;
+    if (theme.isTV) {openRowMenu(row); return;}
+    const next: RowMenu = {entry: row.media, entryId: row.id, route};
+    opening.current = next;
+    const extras = rowMenuEntries(next).flatMap(item => 'onSelect' in item && item.id !== 'open' ? [item as NativeWatchMenuExtra] : []);
+    actions.menu(row.media, anchor, selection?.item(row.media)?.onEnter, extras);
+  };
+  const reorderOpening = (row: Row): RowMenu | undefined => {
+    if (!reordering || !canReorder || !onPage(witness())) return;
+    const live = page();
+    if (!live.rows.some(value => value.id === row.id && value.media === row.media)) return;
+    const permitted = isPlaylist ? live.playlist?.actions.includes('reorder') : live.resource?.kind === 'collection' && live.resource.actions.includes('reorder');
+    if (!permitted) return;
+    const next: RowMenu = {entry: row.media, entryId: row.id, route}; opening.current = next; return next;
+  };
+  const moveRow = (row: Row, where: 'up' | 'down' | 'top' | 'bottom') => {const next = reorderOpening(row); if (next) move(next, where);};
+  const placeRow = (row: Row, after: string, ids: readonly string[]) => {
+    const live = page();
+    if (ids.length !== live.rows.length || live.rows.some((value, index) => value.id !== ids[index]) || after === row.id
+      || after !== '' && !live.rows.some(value => value.id === after)) return;
+    const next = reorderOpening(row); if (next) place(next, row, after);
   };
   const stateError = snapshot.error ?? saved?.error ?? personal?.error;
   const menuItems: readonly MenuEntry[] = (() => {
@@ -371,6 +415,15 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
   const width = theme.isTV ? 1920 - theme.gutter * 2 : dimensions.width - theme.gutter * 2;
   const focusIds = useMemo(() => nativeDestinationFocusIds(runtime.getSnapshot().authority), [runtime]);
   const region = `saved.resource.${theme.isTV ? `${instance}.` : ''}${route.view === 'playlist' ? route.playlistId : `${route.view}:${route.resourceId ?? ''}`}`;
+  const viewport = useRef({offset: 0, height: 0, extent: 0});
+  const hasMore = !!(isPlaylist ? saved?.pagination.next.length : personal?.nextCursor);
+  const next = () => {
+    if (!active.visible || !activation.getSnapshot().visible || dragging || !hasMore || snapshot.phase !== 'ready' || destination.getSnapshot() !== snapshot) return;
+    const at = viewport.current, grid = resource?.kind === 'view', columns = grid ? theme.isTV ? 7 : 3 : 1;
+    if (savedNearEnd(at.offset, at.height, at.extent, grid ? width / columns * 1.7 : theme.isTV ? 104 : 80, columns)) {
+      void destination.next(isPlaylist ? saved?.pagination.next[0]?.sectionId : undefined).catch(report);
+    }
+  };
   const applyError = (error: unknown) => <StateView variant={theme.isTV ? 'centered' : 'inline'} {...runtime.error(error, () => {void destination.retry().catch(report);})}/>;
   return <View testID={`native-saved-resource-${isPlaylist ? 'playlist' : 'resource'}`} pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
     importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
@@ -384,14 +437,19 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
           style={{width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: alpha(theme.colors.ink, .45)}}>
           <Icon name="i-left" size={22} color={theme.colors.text}/>
         </Focusable>
-        {!stateError && <View style={{marginLeft: 'auto'}}>
+        {/* // Copy pending catalogue key next.saved.reordering */}
+        {reordering ? <Button testID="saved-reorder-done" variant="glass" size="small" disabled={busy || dragging} onPress={() => setReordering(false)} style={{marginLeft: 'auto'}}>{t('order.done')}</Button> : !stateError && <View style={{marginLeft: 'auto'}}>
           <Button testID="saved-resource-menu" focusId="saved-resource-menu" variant="glass" icon="i-more" iconOnly size="small"
             accessibilityLabel={t(isPlaylist ? 'web.saved.playlistOptions' : 'web.saved.collectionOptions')} accessibilityState={{expanded: pageMenu}} onPress={openPageMenu}
             style={{width: 38, height: 38, borderRadius: 19}}/>
         </View>}
       </View>}
-      <ScrollView contentContainerStyle={{paddingTop: insets.top + (theme.isTV ? 96 : 52), paddingBottom: 32 + insets.bottom}}>
-        {stateError ? applyError(stateError) : !name ? <View style={{paddingVertical: 40}}><Text style={[theme.type.body, {color: theme.colors.textTertiary, textAlign: 'center'}]}>{t('saved.loading')}</Text></View> : <>
+      <ScrollView scrollEnabled={!dragging} scrollEventThrottle={80}
+        onLayout={event => {viewport.current.height = event.nativeEvent.layout.height; next();}}
+        onContentSizeChange={(_width, height) => {viewport.current.extent = height; next();}}
+        onScroll={event => {viewport.current.offset = event.nativeEvent.contentOffset.y; next();}} contentContainerStyle={{paddingTop: insets.top + (theme.isTV ? 96 : 52), paddingBottom: 32 + insets.bottom}}>
+        {stateError ? applyError(stateError) : !name ? <SavedLoading kind="resource"/> : <>
+          {!reordering && <>
           <View style={theme.isTV ? {flexDirection: 'row', alignItems: 'flex-end', gap: 48, paddingHorizontal: theme.gutter, paddingTop: 16}
             : {alignItems: 'center', paddingHorizontal: theme.gutter, paddingTop: 40}}>
             <View style={{width: theme.isTV ? 280 : 152, height: theme.isTV ? 280 : 152, borderRadius: theme.isTV ? 16 : 14, overflow: 'hidden', backgroundColor: theme.colors.raised,
@@ -441,13 +499,14 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
             {canReorder && !theme.isTV && <Button testID="saved-reorder" focusId="saved-reorder" variant={reordering ? 'primary' : 'glass'} icon={reordering ? 'i-check' : 'i-updown'}
               onPress={() => setReordering(value => !value)}>{t(reordering ? 'order.done' : 'order.reorder')}</Button>}
           </View>
-          {reordering && !theme.isTV && <Text style={[browseType(theme, 13), {color: theme.colors.textTertiary, marginHorizontal: theme.gutter, marginTop: 10}]}>{t('web.saved.visibleToAll') === '' ? '' : t('order.handle', {title: name})}</Text>}
+          </>}
           {(!theme.isTV || (!isPlaylist && resource?.kind === 'view')) && <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: theme.gutter, paddingTop: 14}}>
             {!isPlaylist && resource?.kind === 'view' ? <>
-              <Chip focusId="saved-sort" icon="i-sort" onPress={() => setInfoOpen(true)}>{viewSortLabel(resource)}</Chip>
-              <Chip focusId="saved-filters" icon="i-sliders" count={savedViewConditionCount(resource)} countStyle="badge" onPress={() => setInfoOpen(true)}>{t('next.browse.native.filters')}</Chip>
-            </> : <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, opacity: .7}}><Icon name="i-sort" size={16} color={theme.colors.textTertiary}/>
-              <Text style={[browseType(theme, 14.5, 700), {color: theme.colors.text}]}>{t('web.saved.sort.other')}</Text></View>}
+              <Text style={[browseType(theme, 14.5, 700), {color: theme.colors.text}]}>{viewSortLabel(resource)}</Text>
+              <Chip focusId="saved-view-info" icon="i-info" count={savedViewConditionCount(resource)} countStyle="badge" onPress={() => setInfoOpen(true)}>{t('web.saved.savedView')}</Chip>
+            </> : <View testID="saved-resource-sort" style={{height: theme.platform === 'phone' ? 34 : 40, borderRadius: 10, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.colors.raisedHigh}}><Icon name="i-sort" size={18} color={theme.colors.textTertiary}/>
+              <Text style={[browseType(theme, 14.5, 700), {color: theme.colors.text}]}>{t('web.group.ownOrder', {group: isPlaylist ? 'playlist' : 'collection'})}</Text></View>}
+            {!theme.isTV && theme.platform !== 'phone' && !reordering && selection?.start && <Chip testID="saved-resource-select" onPress={() => selection.start?.()}>{t('next.selection.select')}</Chip>}
             <Text style={[browseType(theme, 13, 600), {color: theme.colors.textTertiary, marginLeft: 'auto'}]}>{countText}</Text>
           </View>}
           {problem !== '' && <View style={{paddingHorizontal: theme.gutter, paddingTop: 12}}><Banner testID="saved-resource-problem" variant="notice" tone="error" placement="inline" message={problem}
@@ -456,13 +515,13 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
             {!rows.length && snapshot.phase !== 'loading' && <StateView variant={theme.isTV ? 'centered' : 'inline'} icon={isPlaylist ? 'i-queue' : 'i-stack'}
               title={t(isPlaylist ? 'web.saved.playlistEmpty' : resource?.kind === 'view' ? 'web.saved.viewEmpty' : 'web.saved.collectionEmpty')}
               body={isPlaylist ? t('web.saved.playlistEmptyBody') : undefined}/>}
-            {!isPlaylist && resource?.kind === 'view'
-              ? <SavedResourceViewGrid entries={media} runtime={runtime} actions={actions} tv={theme.isTV} windowWidth={theme.isTV ? 1920 : dimensions.width} gutter={theme.gutter}/>
-              : rows.map(row => <SavedResourceRow key={row.id} row={row} width={width} runtime={runtime} actions={actions} library={savedLibraryName(libraries, row.media.libraryId)}
-                canReorder={canReorder && reordering} onMore={() => openRowMenu(row)}/>)}
-            {!!(isPlaylist ? saved?.pagination.next.length : personal?.nextCursor) && <View style={{alignItems: 'center', paddingVertical: 16}}>
-              <Button focusId="saved-show-more" variant="glass" size="compact" onPress={() => {void destination.next(isPlaylist ? saved?.pagination.next[0]?.sectionId : undefined).catch(report);}}>{t('action.showMore')}</Button>
-            </View>}
+            {reordering && !theme.isTV ? <SavedReorderList rows={rows} runtime={runtime} disabled={busy || snapshot.phase === 'loading' || !canReorder}
+              onMove={moveRow} onPlace={placeRow} onDragging={setDragging}/>
+              : !isPlaylist && resource?.kind === 'view'
+                ? <SavedResourceViewGrid entries={media} runtime={runtime} actions={actions} selection={selection} tv={theme.isTV} windowWidth={theme.isTV ? 1920 : dimensions.width} gutter={theme.gutter}/>
+                : rows.map(row => <SavedResourceRow key={row.id} row={row} width={width} runtime={runtime} actions={actions} selection={selection?.item(row.media)} library={savedLibraryName(libraries, row.media.libraryId)}
+                  onMore={anchor => openEntryMenu(row, anchor)}/>)}
+            {snapshot.phase === 'loading' && rows.length > 0 && <View style={{paddingHorizontal: theme.gutter, paddingVertical: 12}}><SavedTail row={resource?.kind !== 'view'} width={resource?.kind === 'view' ? width / (theme.isTV ? 7 : 3) : width}/></View>}
           </View>
           {/* collections.html 18's note: on a remote a row's own menu is where it moves or leaves. */}
           {theme.isTV && (isPlaylist ? playlist?.actions.includes('remove') === true && playlist.actions.includes('reorder') === true : resource?.kind === 'collection' && resource.actions.includes('entries') && resource.actions.includes('reorder')) && <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: theme.gutter, paddingTop: 28}}>
@@ -473,6 +532,7 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
         </>}
       </ScrollView>
     </FocusRegion>
+    {!reordering && selection?.render()}
     <Menu open={!stateError && pageMenu} onOpenChange={open => {if (!open) pageOpening.current = undefined; setPageMenu(open);}} presentation={theme.isTV ? 'sideSheet' : 'sheet'} title={t(isPlaylist ? 'web.saved.playlistOptions' : 'web.saved.collectionOptions')}
       items={menuItems} testID="saved-resource-page-menu"/>
     <Menu open={!stateError && !!rowMenu} onOpenChange={open => {if (!open && rowMenu) closeOpening(rowMenu);}} presentation={theme.isTV ? 'sideSheet' : 'sheet'} title={rowMenu?.entry.title ?? ''}
@@ -520,35 +580,39 @@ function sortFieldId(field: string): 'web.saved.sort.title' | 'web.saved.sort.ad
 
 /** A saved view is a browse result, so its body is the library grid rather than
  * the playlist row list (collections.html 13a and 21). */
-function SavedResourceViewGrid({entries, runtime, actions, tv, windowWidth, gutter}: {
-  entries: readonly ContentEntry[]; runtime: NativeShellRuntime; actions: NativeSavedEntryActions; tv: boolean; windowWidth: number; gutter: number;
+function SavedResourceViewGrid({entries, runtime, actions, selection, tv, windowWidth, gutter}: {
+  entries: readonly ContentEntry[]; runtime: NativeShellRuntime; actions: NativeSavedEntryActions; selection?: NativeSavedSelectionPort; tv: boolean; windowWidth: number; gutter: number;
 }) {
   const columns = tv ? 7 : 3, gap = tv ? 26 : 10, width = (windowWidth - gutter * 2 - gap * (columns - 1)) / columns;
-  return <View style={{flexDirection: 'row', flexWrap: 'wrap', gap, paddingHorizontal: gutter}}>{entries.map(entry => {
-    const text = homeCardText(entry, false, runtime.text), square = ['album', 'song', 'book', 'audiobook_file'].includes(entry.kind);
-    const progress = entry.duration && entry.progressSeconds ? Math.min(1, entry.progressSeconds / entry.duration) : undefined;
-    const props = {testID: `saved-view-entry-${encodeURIComponent(entry.id)}`, focusId: `saved-view-entry-${entry.id}`, title: entry.displayTitle || entry.title,
-      caption: text.caption, artwork: runtime.artwork(entry.posterUrl), progress, watched: entry.watched, width,
-      onNavigate: () => actions.open(entry), onPlay: entry.playback ? () => actions.play(entry) : undefined, onMore: () => actions.menu(entry),
-      moreExpanded: actions.isMenuOpen?.(entry)};
-    return square ? <SquareCard key={entry.id} {...props}/> : <PosterCard key={entry.id} {...props}/>;
-  })}</View>;
+  return <View style={{flexDirection: 'row', flexWrap: 'wrap', gap, paddingHorizontal: gutter}}>{entries.map(entry =>
+    <SavedResourceCard key={entry.id} entry={entry} runtime={runtime} actions={actions} selection={selection?.item(entry)} width={width}/>)}</View>;
+}
+function SavedResourceCard({entry, runtime, actions, selection, width}: {
+  entry: ContentEntry; runtime: NativeShellRuntime; actions: NativeSavedEntryActions; selection?: CardSelection; width: number;
+}) {
+  const anchor = useRef<View>(null), text = homeCardText(entry, false, runtime.text), square = ['album', 'song', 'book', 'audiobook_file'].includes(entry.kind);
+  const progress = entry.duration && entry.progressSeconds ? Math.min(1, entry.progressSeconds / entry.duration) : undefined;
+  const props = {testID: `saved-view-entry-${encodeURIComponent(entry.id)}`, focusId: `saved-view-entry-${entry.id}`, title: entry.displayTitle || entry.title,
+    caption: text.caption, artwork: runtime.artwork(entry.posterUrl), progress, watched: entry.watched, width, menuAnchorRef: anchor, selection,
+    onNavigate: () => actions.open(entry), onPlay: entry.playback ? () => actions.play(entry) : undefined, onMore: () => actions.menu(entry, anchor, selection?.onEnter),
+    moreExpanded: actions.isMenuOpen?.(entry)};
+  return square ? <SquareCard {...props}/> : <PosterCard {...props}/>;
 }
 
 /** The frame's list row: art with its progress line, the title, what it is, the
  * library and its time left, and the row's own menu. */
-function SavedResourceRow({row, width, runtime, actions, library, canReorder, onMore}: {
-  row: Row; width: number; runtime: NativeShellRuntime; actions: NativeSavedEntryActions; library?: string; canReorder: boolean; onMore: () => void;
+function SavedResourceRow({row, width, runtime, actions, selection, library, onMore}: {
+  row: Row; width: number; runtime: NativeShellRuntime; actions: NativeSavedEntryActions; selection?: CardSelection; library?: string; onMore: (anchor?: RefObject<View | null>) => void;
 }) {
-  const theme = useTheme(), entry = row.media, square = ['album', 'song', 'book', 'audiobook_file'].includes(entry.kind);
+  const theme = useTheme(), anchor = useRef<View>(null), entry = row.media, square = ['album', 'song', 'book', 'audiobook_file'].includes(entry.kind);
   const text = homeCardText(entry, false, runtime.text);
   const watched = entry.watched === true, progress = entry.duration && entry.progressSeconds ? Math.min(1, entry.progressSeconds / entry.duration) : undefined;
   const remaining = entry.duration && entry.progressSeconds && !watched ? savedDuration(Math.max(0, entry.duration - entry.progressSeconds)) : undefined;
-  return <CardFrame testID={`saved-row-${encodeURIComponent(row.id)}`} focusId={`saved-row-${row.id}`} title={entry.title} width={width} onNavigate={() => actions.open(entry)}
-    onPlay={entry.playback ? () => actions.play(entry) : undefined} onMore={onMore} moreExpanded={actions.isMenuOpen?.(entry)}
+  return <CardFrame testID={`saved-row-${encodeURIComponent(row.id)}`} focusId={`saved-row-${row.id}`} title={entry.title} width={width} menuAnchorRef={anchor} selection={selection} onNavigate={() => actions.open(entry)}
+    onPlay={entry.playback ? () => actions.play(entry) : undefined} onMore={() => onMore(anchor)} moreExpanded={actions.isMenuOpen?.(entry)}
     pressableStyle={{height: theme.isTV ? 104 : 80, borderRadius: theme.isTV ? 16 : 10, justifyContent: 'center'}}>
     {() => <View style={{height: theme.isTV ? 104 : 80, flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 28 : 12, paddingHorizontal: theme.isTV ? 20 : 4}}>
-      {canReorder && <Icon name="i-drag" size={theme.isTV ? 28 : 20} color={theme.colors.textTertiary}/>}
+      {selection?.active && <SelectionCircle selected={selection.selected} selecting accessibilityLabel={t('next.selection.select')} interactive={false} variant="row"/>}
       <View style={{width: theme.isTV ? 76 : 48, height: theme.isTV ? 76 : square ? 56 : 72, alignItems: 'center', justifyContent: 'center'}}>
         <MediaArt kind={square ? 'square' : 'poster'} source={runtime.artwork(entry.posterUrl)} width={theme.isTV ? (square ? 76 : 51) : square ? 56 : 48}
           height={theme.isTV ? 76 : square ? 56 : 72} style={{borderRadius: theme.isTV ? 7 : 6}}/>
@@ -565,7 +629,7 @@ function SavedResourceRow({row, width, runtime, actions, library, canReorder, on
       {theme.isTV && <Text numberOfLines={1} style={[browseType(theme, 22), {color: theme.colors.textTertiary, width: 360}]}>{library ?? ''}</Text>}
       {!theme.isTV && library && <Text numberOfLines={1} style={[browseType(theme, 12.5), {color: theme.colors.textTertiary, maxWidth: 96, textAlign: 'right'}]}>{library}</Text>}
       <Focusable testID={`saved-row-more-${encodeURIComponent(row.id)}`} focusId={`saved-row-more-${row.id}`} accessibilityRole="button" accessibilityLabel={t('card.more', {title: entry.title})}
-        onPress={onMore} style={{width: theme.isTV ? 56 : 40, height: theme.isTV ? 56 : 40, alignItems: 'center', justifyContent: 'center'}}>
+        onPress={() => onMore(anchor)} style={{width: theme.isTV ? 56 : 40, height: theme.isTV ? 56 : 40, alignItems: 'center', justifyContent: 'center'}}>
         <Icon name="i-more" size={theme.isTV ? 30 : 20} color={theme.colors.textTertiary}/>
       </Focusable>
       <View pointerEvents="none" style={{position: 'absolute', left: theme.isTV ? 20 : 20, right: theme.isTV ? 20 : 4, bottom: 0, height: 1, backgroundColor: alpha(theme.colors.line, theme.isTV ? .55 : .3)}}/>

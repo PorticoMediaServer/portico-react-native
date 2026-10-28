@@ -121,6 +121,8 @@ test('Saved preview cards preserve inactive selection and the actual native menu
   const actions = {menuEntry: (...args: any[]) => calls.push(args), isMenuOpen: (value: any) => value === entry};
   let registered = 0, retired = 0;
   const {SavedScreen} = await screenModule(new URL('../src-next/screens/saved/SavedScreen.tsx', import.meta.url), {
+    '../../kit/selection': {SelectionCircle: 'SelectionCircle'}, './SavedLoading': {SavedLoading: 'SavedLoading', SavedTail: 'SavedTail'},
+    './paging': {savedNearEnd: () => false},
     react: {...React, default: React}, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'}, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0})},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/cards': {PosterCard: 'PosterCard', SquareCard: 'SquareCard'},
     '../../kit/cards/primitives': {CardFrame: 'CardFrame', Parts: 'Parts'}, '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/overlays': {Menu: 'Menu'},
@@ -144,7 +146,7 @@ test('Saved preview cards preserve inactive selection and the actual native menu
       const card = cardScreen.tree;
       assert.equal(card.props.selection, selected); assert.equal(card.props.moreExpanded, true);
       const actualCard = {actual: 'native-saved-card'}; card.props.menuAnchorRef.current = actualCard; card.props.onMore();
-      assert.deepEqual(calls, [[entry, card.props.menuAnchorRef]]); assert.equal(calls[0][1].current, actualCard);
+      assert.deepEqual(calls, [[entry, card.props.menuAnchorRef, selected.onEnter]]); assert.equal(calls[0][1].current, actualCard);
       selected.active = true; holdCard(card.props, false); assert.equal(calls.at(-1), 'toggle');
     } finally {cardScreen.host.unmount();}
   } finally {screen.host.unmount();}

@@ -90,7 +90,7 @@ test('original scope replacement retires callbacks and old cleanup cannot erase 
 test('a full queue display retains committed rows without putting its large data or commands in captured props', async () => {
   const f = await fixture(), owner = Object.freeze({}), calls: string[] = [];
   const data = {current: [], groups: [{key: 'actual', label: 'Next', rows: Array.from({length: 1000}, (_, i) => ({id: `row-${i}`, title: `Row ${i}`,
-    current: false, playable: true, menu: false}))}], summary: '1000 songs'};
+    current: false, playable: true, menu: false}))}], summary: ['1000 songs']};
   const publisher = createHookHost(() => f.hooks.useCommittedPaintPublication(owner, 'listening-queue', 'source', {},
     {data, actions: {play: (id: string) => calls.push(id)}}));
   let tree: any;

@@ -10,6 +10,9 @@ import {NativeCollectionController} from '../src-next/screens/collections/contro
 const themed = {useTheme: () => ({isTV: true, colors: {ink: '#000', text: '#fff', textSecondary: '#ccc', textTertiary: '#999', raised: '#111', line: '#222', accent: '#3af', accentStrong: '#4bf'}, type: {}})};
 const {NativeCollectionScreen, CollectionCard} = await screenModule(new URL('../src-next/screens/collections/CollectionScreen.tsx', import.meta.url), {
   react: {...React, default: React},
+  'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0})},
+  '../../kit/cards/primitives': {CardFrame: 'CardFrame'}, '../../kit/selection': {SelectionCircle: 'SelectionCircle'},
+  '../saved/presentation': {savedDuration: (value: number) => String(value)},
   'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 1920, height: 1080})},
   '../../../../../packages/i18n/src': {defaultI18n},
   '../../kit/artwork': {AmbientArt: 'Ambient', Artwork: 'Artwork'}, '../../kit/cards': {PosterCard: 'Poster'},
@@ -64,7 +67,8 @@ test('TV collection draws the name, film facts, Play all, Shuffle and the real m
   try {
     const nodes = descendants(tree);
     assert.ok(nodes.some(node => node.type === 'Text' && node.props.children === 'Toy Story Collection'));
-    assert.ok(nodes.some(node => node.type === 'Text' && node.props.children === `${defaultI18n.t('next.browse.filmCount', {count: 2})} · 1995 – 1999`));
+    assert.ok(nodes.some(node => node.type === 'Text' && node.props.children === defaultI18n.t('next.browse.filmCount', {count: 2})));
+    assert.ok(nodes.some(node => node.type === 'Text' && node.props.children === '1995 – 1999'));
     const play = nodes.find(node => node.props.testID === 'collection-play-all');
     assert.equal(play.props.hasTVPreferredFocus, true); play.props.onPress(); assert.ok(calls.includes('play'));
     nodes.find(node => node.props.testID === 'collection-shuffle').props.onPress(); assert.ok(calls.includes('shuffle'));

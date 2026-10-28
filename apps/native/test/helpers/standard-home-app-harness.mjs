@@ -1,5 +1,5 @@
 import {readFileSync} from 'node:fs';
-import {createRequire, registerHooks} from 'node:module';
+import {createRequire, registerHooks, stripTypeScriptTypes} from 'node:module';
 import {compileFunction} from 'node:vm';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -286,6 +286,16 @@ const loader = registerHooks({
         source: 'module.exports=1;',
         shortCircuit: true,
       };
+    if (url.endsWith('.ts')) {
+      const source = readFileSync(fileURLToPath(url), 'utf8');
+      try {stripTypeScriptTypes(source);}
+      catch (error) {
+        if (error?.code !== 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX') throw error;
+        // Synchronous require() bypasses the async test loader. Preserve the
+        // same parameter-property support at this real-App module boundary.
+        return {format: 'module', source: stripTypeScriptTypes(source, {mode: 'transform', sourceUrl: url}), shortCircuit: true};
+      }
+    }
     if (!url.endsWith('.tsx')) return next(url, context);
     const file = fileURLToPath(url),
       out = transformSync(file, readFileSync(file, 'utf8'), {

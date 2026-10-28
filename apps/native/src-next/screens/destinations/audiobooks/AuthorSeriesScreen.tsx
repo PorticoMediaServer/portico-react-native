@@ -12,13 +12,14 @@ import type {NativeShellRuntime} from '../../../shell/runtime';
 import type {NativeEntryActions} from '../entry-actions';
 import type {AudiobookScreenController} from './model';
 import {AudiobookErrorState} from './BookScreen';
+import {audiobookAuthorInitials} from './presentation';
 
 const t = defaultI18n.t;
 type Actions = Pick<NativeEntryActions, 'menu'>;
 const seconds = (value: number | undefined) => value === undefined ? undefined : defaultI18n.duration(value);
 
-function BookRow({entry, runtime, tv, position, focusId, onOpen, onPlay, onMore, onFocus}: {
-  entry: ContentEntry; runtime: NativeShellRuntime; tv: boolean; position?: string; focusId: string;
+function BookRow({entry, runtime, tv, position, separated, focusId, onOpen, onPlay, onMore, onFocus}: {
+  entry: ContentEntry; runtime: NativeShellRuntime; tv: boolean; position?: string; separated: boolean; focusId: string;
   onOpen: () => void; onPlay: () => void; onMore: () => void; onFocus: () => void;
 }) {
   const theme = useTheme(), art = runtime.artwork(entry.posterUrl), progress = entry.bookProgress;
@@ -33,27 +34,30 @@ function BookRow({entry, runtime, tv, position, focusId, onOpen, onPlay, onMore,
   const place = progress?.chapter?.title;
   // collections 41b/41c draw who read it and the time left on the phone; 44/45
   // add the place and the whole length on TV.
-  const phoneLine = [readBy, left ? t('next.kit.remaining', {time: left}) : undefined].filter(Boolean).join(' · ');
   const tvLine = [place, left ? t('next.kit.remaining', {time: left}) : undefined].filter(Boolean).join(', ');
   // TV 44/45: OK plays the book, hold OK opens its menu; the rows carry no button.
   // The phone keeps its own row button and opens the book page.
   return <Focusable focusId={focusId} accessibilityRole="button" accessibilityLabel={entry.title} focusKind="row" focusRadius={tv ? 18 : 10}
     onFocus={onFocus} onPress={tv ? onPlay : onOpen} onLongPressAction={tv ? onMore : undefined}
     style={tv ? {height: 168, paddingHorizontal: 20, borderRadius: 18, flexDirection: 'row', alignItems: 'center', gap: 32}
-      : {height: 76, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 0, borderTopWidth: 1, borderTopColor: alpha(theme.colors.line, .7)}}>
-    <View style={{width: tv ? 128 : 50, height: tv ? 128 : 50, borderRadius: tv ? 10 : 8, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
-      {art ? <Artwork source={art} width={tv ? 128 : 50} height={tv ? 128 : 50}/> : null}
-      {ratio === undefined ? null : <View style={{position: 'absolute', left: tv ? 8 : 0, right: tv ? 8 : 0, bottom: tv ? 8 : 0, height: tv ? 6 : 3, borderRadius: tv ? 3 : 0, overflow: 'hidden', backgroundColor: alpha(theme.colors.ink, .55)}}>
+      : {minHeight: 86, flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 10, marginRight: -6}}>
+    {!tv && separated ? <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 80, right: 0, height: 1, backgroundColor: alpha(theme.colors.line, .35)}}/> : null}
+    <View style={{width: tv ? 128 : 66, height: tv ? 128 : 66, borderRadius: tv ? 10 : 7, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
+      {art ? <Artwork source={art} width={tv ? 128 : 66} height={tv ? 128 : 66}/> : null}
+      {ratio === undefined ? null : <View style={{position: 'absolute', left: tv ? 8 : 5, right: tv ? 8 : 5, bottom: tv ? 8 : 5, height: tv ? 6 : 3, borderRadius: 3, overflow: 'hidden', backgroundColor: alpha(theme.colors.ink, .55)}}>
         <View style={{width: `${Math.max(0, Math.min(1, ratio)) * 100}%`, height: tv ? 6 : 3, backgroundColor: theme.colors.accentStrong}}/>
       </View>}
     </View>
     <View style={{flex: 1, minWidth: 0, gap: tv ? 5 : 3}}>
-      {position ? <Text numberOfLines={1} style={[browseType(theme, tv ? 20 : 11.5, 700), {color: tv ? theme.colors.accentStrong : theme.colors.textTertiary}]}>{t('next.reader.bookNumber', {number: position})}</Text> : null}
-      <Text numberOfLines={1} style={[browseType(theme, tv ? 32 : 15.5, 700), {color: theme.colors.text}]}>{entry.title}</Text>
+      {position ? <Text numberOfLines={1} style={[browseType(theme, tv ? 20 : 12, 700), {color: theme.colors.accentStrong}]}>{t('next.reader.bookNumber', {number: position})}</Text> : null}
+      <Text numberOfLines={1} style={[browseType(theme, tv ? 32 : 15.5, 700, tv ? 0 : -.01), {color: theme.colors.text}]}>{entry.title}</Text>
       {tv ? <>
         {readBy ? <Text numberOfLines={1} style={[browseType(theme, 22, 400), {color: theme.colors.textTertiary}]}>{readBy}</Text> : null}
         {tvLine ? <Text numberOfLines={1} style={[browseType(theme, 22, 600), {color: theme.colors.accentStrong}]}>{tvLine}</Text> : null}
-      </> : phoneLine ? <Text numberOfLines={1} style={[browseType(theme, 12.5, 400), {color: theme.colors.textSecondary}]}>{phoneLine}</Text> : null}
+      </> : readBy || left ? <View style={{flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', columnGap: 8, rowGap: 3}}>
+        {readBy ? <Text numberOfLines={1} style={[browseType(theme, 12.5, 400), {color: theme.colors.textTertiary, flexShrink: 1}]}>{readBy}</Text> : null}
+        {left ? <Text style={[browseType(theme, 12.5, 700), {color: theme.colors.accentStrong}]}>{t('next.kit.remaining', {time: left})}</Text> : null}
+      </View> : null}
     </View>
     {tv && entry.duration !== undefined ? <Text style={[browseType(theme, 24, 400), {width: 200, textAlign: 'right', color: theme.colors.textSecondary, fontVariant: ['tabular-nums']}]}>{seconds(entry.duration)}</Text> : null}
     {!tv ? <Button variant="icon" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title: entry.title})} onPress={onMore}
@@ -113,23 +117,28 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
       </View>
     </View> : null}
     {tv && !series ? <View style={{position: 'absolute', left: 200, top: 120}}><PersonCircle covers={covers} initials={[...title.trim()][0] ?? ''} alt={title} size={380} visible/></View> : null}
-    {!tv ? <View style={{marginTop: 4}}>{series
+    {!tv ? <View>{series
       ? <View style={{width: 232, height: 232}}>
         {runtime.ambient(coverPath) ? <View pointerEvents="none" style={{position: 'absolute', left: -16, top: -16, width: 264, height: 264, borderRadius: 16, overflow: 'hidden'}}>
           <AmbientArt source={runtime.ambient(coverPath)} treatment="cover"/>
         </View> : null}
         <View style={{width: 232, height: 232, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.colors.raised}}>{runtime.artwork(coverPath) ? <Artwork source={runtime.artwork(coverPath)} width={232} height={232} priority/> : null}</View>
       </View>
-      : <PersonCircle covers={covers} initials={[...title.trim()][0] ?? ''} alt={title} size={164} visible/>}</View> : null}
+      : <View style={{width: 150, height: 150}}>
+        <PersonCircle covers={covers} initials="" alt={title} size={150} visible/>
+        <View pointerEvents="none" style={{position: 'absolute', inset: 0, alignItems: 'center', justifyContent: 'center'}}>
+          <Text accessible={false} allowFontScaling={false} style={[browseType(theme, 54, 800, -.05), {color: alpha(theme.colors.text, .94)}]}>{audiobookAuthorInitials(title)}</Text>
+        </View>
+      </View>}</View> : null}
     <View style={tv ? {position: 'absolute', left: 700, top: 150, width: 1040} : {alignItems: 'center', marginTop: 18, width: '100%'}}>
-      <Text style={[browseType(theme, tv ? 24 : 13, 700), {color: theme.colors.textSecondary, textAlign: tv ? 'left' : 'center'}]}>{t('title.kind', {kind: entry.kind})}</Text>
-      <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, tv ? 76 : 30, 800, -.04), {color: theme.colors.text, textAlign: tv ? 'left' : 'center', marginTop: 8}]}>{title}</Text>
+      <Text style={[browseType(theme, tv ? 24 : 13.5, 700), {color: tv ? theme.colors.textSecondary : theme.colors.accentStrong, textAlign: tv ? 'left' : 'center'}]}>{t('title.kind', {kind: entry.kind})}</Text>
+      <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, tv ? 76 : 28, 800, tv ? -.04 : -.035), {color: theme.colors.text, textAlign: tv ? 'left' : 'center', marginTop: tv ? 8 : 4, lineHeight: tv ? undefined : 30.8}]}>{title}</Text>
       {!tv && (author || authorEntry) ? (authorEntry && openEntry
-        ? <Focusable focusId="series-author-link" accessibilityRole="link" accessibilityLabel={authorEntry.title} onPress={() => openEntry(authorEntry)} style={{marginTop: 6, paddingVertical: 2}}>
-          {({focused}) => <Text style={[browseType(theme, 16, 700), {color: theme.colors.text, textAlign: 'center', textDecorationLine: focused ? 'underline' : 'none'}]}>{author ?? authorEntry.title}</Text>}
+        ? <Focusable focusId="series-author-link" accessibilityRole="link" accessibilityLabel={authorEntry.title} onPress={() => openEntry(authorEntry)} style={{marginTop: 4, paddingVertical: 2}}>
+          {({focused}) => <Text style={[browseType(theme, 16, 700), {color: theme.colors.accentStrong, textAlign: 'center', textDecorationLine: focused ? 'underline' : 'none'}]}>{author ?? authorEntry.title}</Text>}
         </Focusable>
-        : <Text style={[browseType(theme, 16, 700), {color: theme.colors.text, marginTop: 6}]}>{author}</Text>) : null}
-      <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: tv ? 'flex-start' : 'center', alignItems: 'center', columnGap: 18, rowGap: 6, marginTop: 10}}>
+        : <Text style={[browseType(theme, 16, 700), {color: theme.colors.accentStrong, marginTop: 4}]}>{author}</Text>) : null}
+      <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: tv ? 'flex-start' : 'center', alignItems: 'center', columnGap: tv ? 18 : 12, rowGap: 6, marginTop: tv ? 10 : 8}}>
         {tv && (author || authorEntry) ? (authorEntry && openEntry
           ? <Focusable focusId="series-author-link" accessibilityRole="link" accessibilityLabel={authorEntry.title} onPress={() => openEntry(authorEntry)} style={{paddingVertical: 2}}>
             {({focused}) => <Text style={[browseType(theme, 24, 700), {color: theme.colors.text, textDecorationLine: focused ? 'underline' : 'none'}]}>{author ?? authorEntry.title}</Text>}
@@ -156,18 +165,21 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
       {/* collections 41c/45: the rows keep the server's own order and only a
           server-sent series position is labelled; nothing is numbered by index. */}
       {books.map((book, index) => <View key={book.id} style={{marginTop: tv && index ? 10 : 0}}>
-        <BookRow entry={book} runtime={runtime} tv={tv} focusId={`${bookFocus}-${book.id}`}
+        <BookRow entry={book} runtime={runtime} tv={tv} separated={index > 0} focusId={`${bookFocus}-${book.id}`}
           onFocus={() => {if (index >= books.length - 3) tail();}} position={series ? book.series?.[0]?.position : undefined} onOpen={() => open(book)} onPlay={() => playBook(book)} onMore={() => actions.menu(book)}/></View>)}
       {!tv && !series && (narrators.length || entity.duration !== undefined) ? <View style={{marginTop: 20}}>
         <Text style={[browseType(theme, 20, 700), {color: theme.colors.text, marginBottom: 4}]}>{t('title.details')}</Text>
-        {narrators.length ? <View style={{paddingVertical: 10, borderTopWidth: 1, borderTopColor: alpha(theme.colors.line, .7)}}>
-          <Text style={[browseType(theme, 14, 600), {color: theme.colors.text}]}>{t('next.kit.narrators')}</Text>
-          <Text style={[browseType(theme, 13, 400), {color: theme.colors.textSecondary, marginTop: 2}]}>{defaultI18n.list(narrators)}</Text>
-        </View> : null}
-        {entity.duration === undefined ? null : <View style={{paddingVertical: 10, borderTopWidth: 1, borderTopColor: alpha(theme.colors.line, .7)}}>
-          <Text style={[browseType(theme, 14, 600), {color: theme.colors.text}]}>{t('next.kit.length')}</Text>
-          <Text style={[browseType(theme, 13, 400), {color: theme.colors.textSecondary, marginTop: 2}]}>{seconds(entity.duration)}</Text>
-        </View>}
+        <View style={{marginHorizontal: -4, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
+          {narrators.length ? <View style={{minHeight: 48, paddingVertical: 8, paddingHorizontal: 14, justifyContent: 'center'}}>
+            <Text style={[browseType(theme, 15.5, 600), {color: theme.colors.text}]}>{t('next.kit.narrators')}</Text>
+            <Text style={[browseType(theme, 12.5, 500), {color: theme.colors.textTertiary, marginTop: 2, lineHeight: 17.5}]}>{defaultI18n.list(narrators)}</Text>
+          </View> : null}
+          {entity.duration === undefined ? null : <View style={{minHeight: 48, paddingVertical: 8, paddingHorizontal: 14, justifyContent: 'center'}}>
+            {narrators.length ? <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 14, right: 0, height: 1, backgroundColor: alpha(theme.colors.line, .45)}}/> : null}
+            <Text style={[browseType(theme, 15.5, 600), {color: theme.colors.text}]}>{t('next.kit.length')}</Text>
+            <Text style={[browseType(theme, 12.5, 500), {color: theme.colors.textTertiary, marginTop: 2, lineHeight: 17.5}]}>{seconds(entity.duration)}</Text>
+          </View>}
+        </View>
       </View> : null}
     </View>
   </>;
@@ -181,7 +193,7 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
       style={{position: 'absolute', top: insets.top + 6, left: 10, zIndex: 10, height: 44, width: 44}}/> : null}
     {!tv ? <Button variant="icon" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title})} onPress={() => actions.menu(entity)}
       style={{position: 'absolute', top: insets.top + 6, right: 10, zIndex: 10, height: 44, width: 44}}/> : null}
-    <ScrollView onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent; if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 240) tail();}} scrollEventThrottle={200} contentContainerStyle={tv ? {paddingBottom: 64} : {paddingTop: Math.max(104, insets.top + 56), paddingBottom: 48}}>
+    <ScrollView onScroll={event => {const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent; if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 240) tail();}} scrollEventThrottle={200} contentContainerStyle={tv ? {paddingBottom: 64} : {paddingTop: Math.max(96, insets.top + 56), paddingBottom: 48}}>
       {tv ? <FocusRegion id={regionId} entry={failed ? retryFocusId : resumeFocusId} orientation="free" style={{width: 1920, height: canvasHeight}}>{body}</FocusRegion>
         : <View style={{alignItems: 'center', paddingHorizontal: 20}}>{body}</View>}
     </ScrollView>

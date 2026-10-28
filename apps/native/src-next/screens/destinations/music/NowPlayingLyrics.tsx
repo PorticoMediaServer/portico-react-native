@@ -9,7 +9,8 @@ import {committedPaintScope, useCommittedPaintPublication} from '../../../kit/ov
 import type {ListeningLyricsPaintData} from './ListeningPanePaint';
 
 const t = defaultI18n.t;
-const noService = (): LyricsSnapshot => Object.freeze({data: null, candidates: [], warnings: [], preview: null, busy: false, error: '', generation: 0});
+const emptySnapshot: LyricsSnapshot = Object.freeze({data: null, candidates: Object.freeze([]), warnings: Object.freeze([]), preview: null, busy: false, error: '', generation: 0});
+const noService = () => emptySnapshot;
 const noSubscription = () => () => {};
 
 /** The song's own synced lyrics, from the server's lyric resource for this
@@ -47,23 +48,39 @@ export function NowPlayingLyrics({read, target, positionSeconds, playing, onSeek
   }, [service]);
   const selected = snapshot.data?.selection.resource, document = selected?.document, source = snapshot.data?.source;
   const current = document ? activeLyricLine(document, positionSeconds, selected?.offsetMs ?? 0, source?.startSeconds ?? 0) : -1;
-  const paintSemantic = useMemo(() => committedPaintScope(paintOwner, paintScope, service, document, selected), [paintOwner, paintScope, service, document, selected]);
-  const resources = paintOwner && !document ? snapshot.data?.resources.filter(resource => !resource.deleted) ?? [] : [];
-  const seeks = paintOwner ? document?.lines.map(line => source ? lyricSeekPosition(line, selected?.offsetMs ?? 0, source) : null) ?? [] : [];
-  const display: ListeningLyricsPaintData | undefined = paintOwner && owned?.enabled ? {
+  const paintSemantic = useMemo(() => committedPaintScope(paintOwner, paintScope, service, document, selected, source), [paintOwner, paintScope, service, document, selected, source]);
+  const resources = useMemo(() => !document ? snapshot.data?.resources.filter(resource => !resource.deleted) ?? [] : [], [document, snapshot.data?.resources]);
+  const resourceLabels = useMemo(() => resources.map(resource => ({id: resource.id, label: resource.provenance.label || resource.language})), [resources]);
+  const seeks = useMemo(() => document?.lines.map(line => source ? lyricSeekPosition(line, selected?.offsetMs ?? 0, source) : null) ?? [], [document, selected?.offsetMs, source]);
+  const lines = useMemo(() => document?.lines.map((line, index) => ({index, text: line.text, active: current >= 0 && index === current, seekable: typeof seeks[index] === 'number'})), [document, seeks, current]);
+  // A progress render may supply a fresh closure over the same pinned command.
+  // Keep the original command for this document/source lifetime; an old pane
+  // must never borrow a successor's callback.
+  const actions = useMemo(() => ({
+    retry: () => {if (service) void service.refresh();},
+    choose: (id: string) => {const resource = resources.find(value => value.id === id);if (resource && service) void service.choose(resource);},
+    seek: (index: number) => {const at = seeks[index];if (typeof at === 'number' && Number.isFinite(at)) onSeek(at);},
+    // The semantic token includes the original service, source and document.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [service, resources, seeks, paintSemantic]);
+  const display: ListeningLyricsPaintData | undefined = useMemo(() => paintOwner && owned?.enabled ? {
     error: snapshot.error || undefined,
     messageOnly: !service,
     message: !service ? t('player.noLyrics') : !document && !snapshot.busy && !snapshot.error
       ? t(snapshot.data?.resources.length ? 'player.chooseLyrics' : 'player.noLyrics') : undefined,
-    resources: resources.map(resource => ({id: resource.id, label: resource.provenance.label || resource.language})),
-    lines: document?.lines.map((line, index) => ({index, text: line.text, active: current >= 0 && index === current, seekable: typeof seeks[index] === 'number'})),
+    resources: resourceLabels,
+    lines,
     activeIndex: current,
-  } : undefined;
-  useCommittedPaintPublication(paintOwner, 'listening-lyrics', paintScope, paintSemantic, display ? {data: display, actions: {
-    retry: () => {if (service) void service.refresh();},
-    choose: (id: string) => {const resource = resources.find(value => value.id === id);if (resource && service) void service.choose(resource);},
-    seek: (index: number) => {const at = seeks[index];if (typeof at === 'number' && Number.isFinite(at)) onSeek(at);},
-  }} : undefined);
+  } : undefined, [paintOwner, owned?.enabled, snapshot.error, snapshot.busy, snapshot.data?.resources.length, service, document, resourceLabels, lines, current]);
+  const publication = useMemo(() => display ? {data: display, actions} : undefined, [display, actions]);
+  useCommittedPaintPublication(paintOwner, 'listening-lyrics', paintScope, paintSemantic, publication);
+  const renderedLines = useMemo(() => lines?.map(line => <Focusable key={line.index} focusKind="row" focusRadius={8} focusId={`${testID}-line-${line.index}`} testID={`${testID}-line-${line.index}`}
+    accessibilityRole="button" accessibilityState={{selected: line.active, disabled: !line.seekable}} disabled={!line.seekable}
+    onPress={() => actions.seek(line.index)}
+    onLayout={event => {offsets.current.set(line.index, event.nativeEvent.layout.y);}}
+    style={{paddingVertical: 4, paddingHorizontal: 6, borderRadius: 8}}>
+    <Text style={[browseType(theme, line.active ? 19 : 17, line.active ? 800 : 600, -0.01), {textAlign: 'center', color: line.active ? theme.colors.text : theme.colors.textTertiary}]}>{line.text || '♪'}</Text>
+  </Focusable>), [lines, actions, testID, theme]);
   useEffect(() => {
     if (paintOwner) return;
     const y = offsets.current.get(current);
@@ -79,7 +96,7 @@ export function NowPlayingLyrics({read, target, positionSeconds, playing, onSeek
       <Button focusId="retry" testID={`${testID}-retry`} variant="glass" size="small" icon="i-restart" onPress={() => {void service.refresh();}}>{t('action.tryAgain')}</Button>
     </View> : null}
     {!document && !snapshot.busy && !snapshot.error ? message(snapshot.data?.resources.length ? t('player.chooseLyrics') : t('player.noLyrics')) : null}
-    {!document && snapshot.data?.resources.filter(resource => !resource.deleted).map(resource => <Focusable key={resource.id} focusKind="row" focusRadius={10}
+    {resources.map(resource => <Focusable key={resource.id} focusKind="row" focusRadius={10}
       focusId={`${testID}-resource-${resource.id}`} testID={`${testID}-resource-${resource.id}`} accessibilityRole="button"
       onPress={() => {void service.choose(resource);}}
       style={({focused}) => ({minHeight: 48, marginHorizontal: 10, paddingHorizontal: 12, justifyContent: 'center', borderRadius: 10, backgroundColor: focused ? 'rgba(237,245,250,.16)' : 'transparent'})}>
@@ -87,17 +104,7 @@ export function NowPlayingLyrics({read, target, positionSeconds, playing, onSeek
     </Focusable>)}
     {document ? <ScrollView ref={scroller} testID={`${testID}-lines`} onLayout={event => setViewport(event.nativeEvent.layout.height)} showsVerticalScrollIndicator={false}
       contentContainerStyle={{paddingHorizontal: 16, paddingVertical: 24, gap: 6}}>
-      {document.lines.map((line, index) => {
-        const seek = source ? lyricSeekPosition(line, selected?.offsetMs ?? 0, source) : null;
-        const active = current >= 0 && index === current;
-        return <Focusable key={index} focusKind="row" focusRadius={8} focusId={`${testID}-line-${index}`} testID={`${testID}-line-${index}`}
-          accessibilityRole="button" accessibilityState={{selected: active, disabled: seek === null}} disabled={seek === null}
-          onPress={() => {if (seek !== null) onSeek(seek);}}
-          onLayout={event => {offsets.current.set(index, event.nativeEvent.layout.y);}}
-          style={{paddingVertical: 4, paddingHorizontal: 6, borderRadius: 8}}>
-          <Text style={[browseType(theme, active ? 19 : 17, active ? 800 : 600, -0.01), {textAlign: 'center', color: active ? theme.colors.text : theme.colors.textTertiary}]}>{line.text || '♪'}</Text>
-        </Focusable>;
-      })}
+      {renderedLines}
     </ScrollView> : null}
   </View>;
 }

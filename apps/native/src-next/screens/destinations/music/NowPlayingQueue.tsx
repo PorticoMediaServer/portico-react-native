@@ -53,7 +53,7 @@ export type NowPlayingQueueProps = Readonly<{
   testID?: string;
 }>;
 
-export type NowPlayingQueueRow = Readonly<{entryId: string; title: string; detail?: string; posterUrl?: string; seconds?: number; current: boolean;
+export type NowPlayingQueueRow = Readonly<{entryId: string; title: string; detail?: readonly string[]; posterUrl?: string; seconds?: number; current: boolean;
   position?: number; available?: boolean; segmentId?: string}>;
 /** Everything one open sheet may act on; never read from a later render. */
 type Row = NowPlayingQueueRow;
@@ -90,12 +90,12 @@ export function nowPlayingQueueRows(view: QueuePlaybackView, options: Readonly<{
     const item = view.items.find(value => value.entryId === entry.id);
     if (!item) return [];
     const detail = [item.artist, item.album && item.album !== item.title ? item.album : undefined]
-      .filter((value): value is string => !!value).join(' · ');
+      .filter((value): value is string => !!value);
     const seconds = item.durationMs !== undefined && item.durationMs > 0 ? item.durationMs / 1000 : undefined;
     // Position, availability and source come from the accepted window's own row, never from the
     // drawn array's index or from visible/not-removed; a missing fact stays unknown.
     const facts = nowPlayingQueueEntry(window, entry.id);
-    return [{entryId: entry.id, title: item.title, ...(detail ? {detail} : {}), ...(item.posterUrl ? {posterUrl: item.posterUrl} : {}), ...(seconds ? {seconds} : {}),
+    return [{entryId: entry.id, title: item.title, ...(detail.length ? {detail} : {}), ...(item.posterUrl ? {posterUrl: item.posterUrl} : {}), ...(seconds ? {seconds} : {}),
       current: entry.id === view.queue.currentEntryId, ...(facts?.position !== undefined ? {position: facts.position} : {}),
       ...(facts?.available !== undefined ? {available: facts.available} : {}), ...(facts?.segmentId ? {segmentId: facts.segmentId} : {})}];
   });
@@ -135,7 +135,7 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, focusScopeKey,
     onPlay, edit: queueEdit, testID});
   const count = view.total ?? rows.length;
   const seconds = view.durationKnown === false || view.totalDurationMs === undefined ? undefined : view.totalDurationMs / 1000;
-  const summary = [t('title.songCount', {count}), durationText(seconds, t)].filter((value): value is string => !!value).join(' · ');
+  const summary = [t('title.songCount', {count}), durationText(seconds, t)].filter((value): value is string => !!value);
   const canPlay = typeof onPlay === 'function', editable = !!queueEdit?.enabled;
   // The live ref is the opening's authority: a retained callback may only act while it is still
   // that exact opening, so Cancel or a successor on the same view/fence/lease cannot be used.
@@ -203,7 +203,7 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, focusScopeKey,
       {source ? <Artwork source={source} width={72} height={72} style={{borderRadius: 10, overflow: 'hidden', flexShrink: 0}}/> : null}
       <View style={{flex: 1, minWidth: 0}}>
         <Text numberOfLines={1} style={[browseType(theme, 22, 700), {color: theme.colors.text}]}>{value.title}</Text>
-        {value.detail ? <Text numberOfLines={1} style={[browseType(theme, 19, 400), {color: theme.colors.textTertiary, marginTop: 2}]}>{value.detail}</Text> : null}
+        {value.detail?.length ? <View style={{flexDirection: 'row', gap: 12, marginTop: 2}}>{value.detail.map((part, index) => <Text key={index} numberOfLines={1} style={[browseType(theme, 19, 400), {color: theme.colors.textTertiary, flexShrink: 1}]}>{part}</Text>)}</View> : null}
       </View>
       {value.current && <Text style={[browseType(theme, 19, 600), {color: theme.colors.accentStrong}]}>{t('player.queueNowPlaying')}</Text>}
       {value.seconds ? <Text style={[browseType(theme, 19, 400), {color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{durationText(value.seconds, t)}</Text> : null}
@@ -240,12 +240,12 @@ export function NowPlayingQueue({view, onPlay, artwork, regionId, focusScopeKey,
     const upcomingSeconds = complete && upcoming.length > 0 && upcoming.every(row => row.seconds !== undefined)
       ? upcoming.reduce((total, row) => total + (row.seconds ?? 0), 0) : undefined;
     const tvSummary = [remaining === undefined ? undefined : t('title.songCount', {count: remaining}),
-      upcomingSeconds === undefined ? undefined : durationText(upcomingSeconds, t)].filter((value): value is string => !!value).join(' · ');
+      upcomingSeconds === undefined ? undefined : durationText(upcomingSeconds, t)].filter((value): value is string => !!value);
     // Known read-only rows remain native stops; their real command admission is independent.
     const remembered = rememberedRow.get(memoryKey);
     const entry = remembered && tvUpcoming.some(row => row.entryId === remembered) ? remembered : tvUpcoming[0]?.entryId;
     const rows = <ScrollView contentContainerStyle={{paddingBottom: 16}} showsVerticalScrollIndicator={false}>
-      {!!upcoming.length && !!tvSummary && <Text style={[browseType(theme, 20, 400), {marginBottom: 18, color: theme.colors.textTertiary}]}>{tvSummary}</Text>}
+      {!!upcoming.length && !!tvSummary.length && <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 18}}>{tvSummary.map((part, index) => <Text key={index} style={[browseType(theme, 20, 400), {color: theme.colors.textTertiary}]}>{part}</Text>)}</View>}
       {tvUpcoming.map(tvRow)}
       {!tvUpcoming.length ? <Text style={[browseType(theme, 20, 400), {color: theme.colors.textTertiary}]}>{t('player.queueEmpty')}</Text> : null}
     </ScrollView>;

@@ -140,6 +140,7 @@ test('headless Saved binding borrows one device lease and actual Watch menu with
     '../watch': {nativeWatchEntryMenu: (context: NativeShellBootstrapContext) => {assert.equal(context, f.context); return menu;}},
   });
   const {createNativeSavedState} = await screenModule(new URL('../src-next/screens/saved/state.ts', import.meta.url), {
+    './selection': {createNativeSavedViewSelection: () => ({dispose() {}})},
     react: {default: React},
     '../destinations/lifetime': {nativeDestinationLifetime}, '../destinations/entry-actions': {createNativeEntryActions},
     '../native-screen-services': {nativeScreenServices: () => common}, './navigation': savedNavigation,

@@ -112,7 +112,7 @@ export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, o
                 <View style={{flexDirection: 'row', alignItems: 'flex-start', gap: 12}}>
                   <Focusable testID={`live-owner-source-${source.id}`} focusKind="row" accessibilityRole="button" accessibilityLabel={source.name} onPress={() => setConfigure(source)} style={{flex: 1, gap: 4}}>
                     <Text style={[shellType(16, 700), {color: theme.colors.text}]} numberOfLines={2}>{source.name}</Text>
-                    <Text style={[shellType(12.5), {color: theme.colors.textSecondary}]}>{[t('server.live.channelCount', {count: source.channels}), t('server.live.programCount', {count: source.programmes})].join(' · ')}</Text>
+                    <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 10, rowGap: 3}}>{[t('server.live.channelCount', {count: source.channels}), t('server.live.programCount', {count: source.programmes})].filter(Boolean).map((part, index) => <Text key={index} style={[shellType(12.5), {color: theme.colors.textSecondary}]}>{part}</Text>)}</View>
                     {source.tunerCount > 0 && <Text style={[shellType(12.5), {color: theme.colors.textSecondary}]}>{t(source.tunerCountMode === 'discovered' ? 'web.liveTv.tunersDetected' : 'server.live.tunerCount', {count: source.tunerCount})}</Text>}
                     {source.publishedAt && <Text style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{t('server.live.guideUpdated', {when: defaultI18n.dateTime(source.publishedAt)})}</Text>}
                     <View style={{flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2}}>
