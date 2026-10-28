@@ -133,12 +133,13 @@ test('retained selected chips keep their native focus hosts while loading and af
     await render();
     const original=nodes().find(node=>node.type==='Pressable'&&node.props.accessibilityRole==='checkbox'&&text(node).startsWith('Shared value'))!;
     const childId=registry.order(prefix).find(id=>{const [owner,...identity]=JSON.parse(id);return registryModule.focusTestID(owner,JSON.stringify(identity))===original.props.testID;})!;
-    assert.ok(childId);const address={regionId:prefix,childId},originalHost=registry.child(address)!.host;
+    assert.ok(childId);const address={regionId:prefix,childId},originalHost=registry.child(address);
+    assert.ok(originalHost,'selected chip has no registered native focus host');
     for(const status of ['loading','error'] as const){
       await render(status);
       const tree=nodes(),chip=tree.find(node=>node.props.testID===original.props.testID)!;
       assert.ok(chip,'refresh removed a retained chip');assert.equal(chip.props.accessibilityState.checked,true);
-      assert.equal(registry.child(address)!.host,originalHost,'refresh remounted the native focus host');
+      assert.equal(registry.child(address),originalHost,'refresh remounted the native focus host');
       assert.ok(tree.some(node=>text(node).includes(status==='loading'?'Loading values':'Refresh failed')));
       if(status==='error')assert.ok(tree.some(node=>text(node)==='Try again'));
     }
