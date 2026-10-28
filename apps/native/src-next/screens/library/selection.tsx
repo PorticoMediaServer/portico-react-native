@@ -1,3 +1,4 @@
+import {nativeWholeQueryUnavailableActions} from './whole-query-unavailable';
 import React, {useRef, useState, useSyncExternalStore} from 'react';
 import {Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -358,8 +359,8 @@ function LibrarySelectionBars({store, artwork}: {store: Store; artwork: (path?: 
   if (!store.active()) return null;
   const summary = state?.summary;
   const actions: SelectionActionOffer[] = [];
-  // A whole view has query executors for Play and Queue only; every other control
-  // would be a stub, so it is not drawn at all.
+  // Whole views have Play/Queue executors. Large-query Delete/Download retain
+  // their unavailable controls and reasons without inventing a producer.
   const explicit = state?.target?.mode !== 'query';
   const queryTarget = state?.target?.mode === 'query' ? state.target : undefined;
   // Unchecking one title refines the whole-view target, and the query executor refuses
@@ -375,7 +376,8 @@ function LibrarySelectionBars({store, artwork}: {store: Store; artwork: (path?: 
   if (explicit && summary?.every.edit) actions.push({id: 'edit', disabled: store.busy()});
   if (explicit && summary?.every.delete) actions.push({id: 'delete', disabled: store.busy()});
   if (explicit && summary?.every.watched) actions.push({id: 'watched', disabled: store.busy()}, {id: 'unwatched', disabled: store.busy()});
-  if (explicit && actions.some(action => ['removeMyList', 'favorite', 'watched', 'unwatched', 'edit', 'delete'].includes(action.id))) actions.push({id: 'more', disabled: store.busy()});
+  const unavailable = nativeWholeQueryUnavailableActions(state); actions.push(...unavailable);
+  if ((explicit || unavailable.length > 0) && actions.some(action => ['removeMyList', 'favorite', 'watched', 'unwatched', 'edit', 'delete', 'download'].includes(action.id))) actions.push({id: 'more', disabled: store.busy()});
   const personal = store.personal(), destination = store.destination(), destinationKind = store.destinationKind(), whole = store.whole();
   const bulk = store.bulk(), bulkState = bulk?.getSnapshot(), preview: BulkMetadataPreview | undefined = bulkState?.preview;
   const bulkSummary: readonly {id: string; text: string}[] = bulkState ? Object.entries(bulkState.changes).flatMap(([field, change]) => {
