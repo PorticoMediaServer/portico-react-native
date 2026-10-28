@@ -22,5 +22,7 @@
 @property(nonatomic,copy) NSTimeInterval (^clock)(void);
 @property(nonatomic,copy) void (^configureSession)(NSURLSessionConfiguration *configuration);
 @property(nonatomic) BOOL manualTimer;
+/** Whether the HTTP task is still delivering its response or completion on the main queue. */
+@property(nonatomic,readonly) BOOL requestPending;
 - (void)timerTick;
 @end
