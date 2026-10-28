@@ -80,11 +80,12 @@ export function ProfileRoute({context, route, onBack, embedded = false}: {contex
   const [forgotPIN, setForgotPIN] = useState(false), [recovery, setRecovery] = useState<{controller: NativeProfileRecovery; id: string; name: string}>();
   const [profiles, setProfiles] = useState<readonly ManagedProfile[]>(context.account.profiles);
   const [management, setManagement] = useState<ProfileManagementOpening>(), [deletion, setDeletion] = useState<ProfileDeleteOpening>(), [deleteName, setDeleteName] = useState('');
+  const [retirement, setRetirement] = useState<'removing' | 'removed'>();
   const managementRef = useRef<typeof management>(undefined), deletionRef = useRef<typeof deletion>(undefined), deleteNameRef = useRef('');
   const managedId = management?.id;
   const setManagedId = (id?: string) => {const next = id ? {id} : undefined; managementRef.current = next; setManagement(next);};
   const managementCurrent = () => !embedded || !!management && managementRef.current === management;
-  const closeDeletion = () => {deletionRef.current = undefined; deleteNameRef.current = ''; setDeletion(undefined); setDeleteName('');};
+  const closeDeletion = () => {deletionRef.current = undefined; deleteNameRef.current = ''; setDeletion(undefined); setDeleteName(''); setRetirement(undefined);};
   const profileFocus = useRef(new WeakMap<ProfileLease, string>()).current;
   const [editor, setEditor] = useState<ProfileEditorOpening>(), editorRef = useRef<ProfileEditorOpening | undefined>(undefined);
   const edit = editor?.kind === 'rename' || editor?.kind === 'pin' ? editor : undefined;
@@ -342,7 +343,7 @@ export function ProfileRoute({context, route, onBack, embedded = false}: {contex
         {manage && profiles.length < 8 && <ProfileActionRow testID="settings-profile-add" label={t('profile.add')} onPress={openAddition}/>}
       </View>
       {problem && !managedId ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{problem}</Text> : null}
-      <BottomSheet open={!!managedId && !!active && manage} onOpenChange={open => {if (!open && !activeTicket.current && managementCurrent()) {retireEditor(); setManagedId(undefined); closeDeletion();}}} title={active?.name} dismissOnBack={!actionBusy} dismissOnGesture={!actionBusy} dismissOnOutsidePress={!actionBusy}>{managementActions}</BottomSheet>
+      <BottomSheet open={!!managedId && !!active && manage} onOpenChange={open => {if (!open && !activeTicket.current && managementCurrent() && !retirement) {retireEditor(); setManagedId(undefined); closeDeletion();}}} title={active?.name} dismissOnBack={!actionBusy} dismissOnGesture={!actionBusy} dismissOnOutsidePress={!actionBusy}>{managementActions}</BottomSheet>
     </View> : <StateLayout testID="accounts-profile-switch" title={profile ? t('profile.pinTitle', {name: profile.name}) : t('profiles.title')}
       beforeActions={<View style={{alignSelf: 'stretch', marginBottom: 20}}>{profile ? <><PhonePINEntry value={pin} onChange={setPin} onComplete={value => {void choose(profile.id, value);}} busy={busy} error={!!error}/>
         <View style={{alignItems: 'center', marginTop: 8}}><Button variant="text" disabled={busy} onPress={() => {void startRecovery();}}>{t('pin.forgot')}</Button></View></> : <>
@@ -383,17 +384,26 @@ export function ProfileRoute({context, route, onBack, embedded = false}: {contex
     <Dialog testID="profile-forget-devices" open={!!forgetProfile && editorCurrent()} onOpenChange={open => {if (!open) closeEdit();}} title={t('profile.forgetDevices')}
       footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={actionBusy} onPress={closeEdit}>{t('action.cancel')}</Button><Button focusId="forget-devices" loading={actionBusy} onPress={forgetAction}>{t('profile.forgetDevices')}</Button></View>}><View/></Dialog>
     <BottomSheet open={deletionCurrent()} title={t('profile.delete')} onOpenChange={open => {if (!open && !activeTicket.current && deletionCurrent()) closeDeletion();}} dismissOnBack={!actionBusy} dismissOnGesture={!actionBusy} dismissOnOutsidePress={!actionBusy}
-      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={actionBusy} onPress={() => {if (deletionCurrent() && !activeTicket.current) closeDeletion();}}>{t('action.cancel')}</Button><Button variant="danger" loading={actionBusy} disabled={!deletionCurrent() || deleteName !== (deletion?.preview.name ?? profiles.find(value => value.id === deletion?.preview.profileId)?.name)} onPress={() => {
-        const captured = deletion;
-        if (!deletionCurrent(captured) || captured.preview.primary || deleteNameRef.current !== deleteName || deleteName !== (captured.preview.name ?? profiles.find(value => value.id === captured.preview.profileId)?.name)) return;
-        void runAction(({manager}) => manager.delete(captured.preview), undefined, () => deletionCurrent(captured)).then(ok => {if (ok && deletionCurrent(captured)) {closeDeletion(); setManagedId(undefined);}});
-      }}>{t('profile.delete')}</Button></View>}>
+      footer={retirement === 'removed'
+        ? <View style={{flexDirection: 'row', gap: 8}}><Button testID="profile-delete-done" focusId="done" variant="glass" onPress={() => {if (deletionCurrent() && !activeTicket.current) {closeDeletion(); setManagedId(undefined);}}}>{t('action.done')}</Button></View>
+        : <View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={actionBusy} onPress={() => {if (deletionCurrent() && !activeTicket.current) closeDeletion();}}>{t('action.cancel')}</Button><Button variant="danger" loading={actionBusy} disabled={!deletionCurrent() || deleteName !== (deletion?.preview.name ?? profiles.find(value => value.id === deletion?.preview.profileId)?.name)} onPress={() => {
+          const captured = deletion;
+          if (!deletionCurrent(captured) || captured.preview.primary || deleteNameRef.current !== deleteName || deleteName !== (captured.preview.name ?? profiles.find(value => value.id === captured.preview.profileId)?.name)) return;
+          // The accepted retirement is waited out on the same preview: only `removed` ends it,
+          // and the sheet stays open saying so after the profile leaves the refreshed list.
+          void runAction(({manager}) => manager.delete(captured.preview, {onStatus: status => {
+            if (alive.current && deletionCurrent(captured)) setRetirement(status.state === 'removed' ? 'removed' : 'removing');
+          }}), undefined, () => deletionCurrent(captured));
+        }}>{t('profile.delete')}</Button></View>}>
       <View style={{gap: 4}}>
-        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('profile.deleteConfirm.body')}</Text>
-        {deletion?.preview.playlists ? <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('profile.deleteConfirm.playlists', {count: deletion.preview.playlists})}</Text> : null}
-        {deletion?.preview.savedResources ? <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('profile.deleteConfirm.savedItems', {count: deletion.preview.savedResources})}</Text> : null}
+        {retirement === 'removed'
+          ? <Text accessibilityLiveRegion="polite" style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('profile.deleteConfirm.removed')}</Text>
+          : <><Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('profile.deleteConfirm.body')}</Text>
+            {retirement === 'removing' ? <Text testID="profile-delete-retirement" accessibilityLiveRegion="polite" style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('profile.deleteConfirm.removing')}</Text> : null}</>}
+        {retirement !== 'removed' && deletion?.preview.playlists ? <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('profile.deleteConfirm.playlists', {count: deletion.preview.playlists})}</Text> : null}
+        {retirement !== 'removed' && deletion?.preview.savedResources ? <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('profile.deleteConfirm.savedItems', {count: deletion.preview.savedResources})}</Text> : null}
       </View>
-      <TextField label={t('profile.name')} description={deletion?.preview.name ?? profiles.find(value => value.id === deletion?.preview.profileId)?.name} value={deleteName} onChangeText={value => {if (deletionCurrent() && !activeTicket.current) {deleteNameRef.current = value; setDeleteName(value);}}} editable={!actionBusy}/>
+      {retirement !== 'removed' ? <TextField label={t('profile.name')} description={deletion?.preview.name ?? profiles.find(value => value.id === deletion?.preview.profileId)?.name} value={deleteName} onChangeText={value => {if (deletionCurrent() && !activeTicket.current) {deleteNameRef.current = value; setDeleteName(value);}}} editable={!actionBusy}/> : null}
       {problem ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{problem}</Text> : null}
     </BottomSheet>
     {limitsProfile && limitsLease && editorCurrent() ? <ProfileLimitsSheet profile={limitsProfile} lease={limitsLease} serverOwner={context.account.account.role === 'owner'} identityFor={identityForLimits} onClose={closeEdit} onSaved={() => {if (editorCurrent()) {setNotice(t('limits.saved', {name: limitsProfile.name})); closeEdit();}}}/> : null}
