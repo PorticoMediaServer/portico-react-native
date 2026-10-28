@@ -1,6 +1,7 @@
 import type {HomeLayoutRowView, HomeLayoutView} from '../../../../../packages/client-core/src/home';
 import type {PersonalResource} from '../../../../../packages/client-core/src/personal-saved';
 import type {HomeService} from '../../../../../packages/client-core/src/home-service';
+import {HomeLayoutEditor, type HomeLayoutDraft} from '../../../../../packages/client-core/src/home-layout-editor';
 
 export type NativeHomeCustomizeRow = Readonly<Pick<HomeLayoutRowView, 'id' | 'kind' | 'libraryId' | 'title' | 'titleText' | 'availabilityText' | 'required' | 'hideable' | 'reorderable' | 'hidden'> & {savedView?: PersonalResource}>;
 
@@ -34,15 +35,34 @@ const isConflict = (error: unknown) => {
  * checks and fresh Home publication; a conflict is never automatically retried. */
 export class NativeHomeCustomizeController {
   private readonly ports: Ports;
+  private editor: HomeLayoutEditor;
   private state: NativeHomeCustomization = Object.freeze({phase: 'loading', rows: [], pending: false, dirty: false, conflict: false, showConflict: false});
   private base?: HomeLayoutView;
+  private baseRows: readonly NativeHomeCustomizeRow[] = [];
   private pickedOrder?: readonly string[];
+  private pickedDraft?: HomeLayoutDraft;
+  private savedViews = new Map<string, PersonalResource>();
   private listeners = new Set<() => void>();
-  private read?: AbortController;
   private generation = 0;
   private command?: {kind: 'save' | 'reset'; rows: readonly NativeHomeCustomizeRow[]; revision: number; generation: number; abort: AbortController; key?: string; accepted: boolean};
   private alive = true;
-  constructor(ports: Ports) {this.ports = ports;}
+  constructor(ports: Ports) {
+    this.ports = ports;
+    this.editor = this.createEditor();
+  }
+  private createEditor(): HomeLayoutEditor {
+    // The canonical editor owns draft edits and command identity. Native keeps its
+    // async identity acquisition, captured write lifetime and post-write reload retry.
+    const lifetime = () => {
+      const command = this.command!;
+      return {signal: command.abort.signal, isCurrent: () => this.current() && this.command === command && command.generation === this.generation && !command.abort.signal.aborted};
+    };
+    return new HomeLayoutEditor({
+      loadLayout: signal => this.ports.home.loadLayout(signal),
+      saveLayout: (order, hidden, requestId, revision) => this.ports.home.saveLayout(order, hidden, requestId, revision, lifetime()),
+      resetLayout: (requestId, revision) => this.ports.home.resetLayout(requestId, revision, lifetime()),
+    }, {isCurrent: this.current, requestId: () => this.command!.key!});
+  }
   getSnapshot = (): NativeHomeCustomization => this.state;
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
   isCurrent = (): boolean => this.current();
@@ -51,8 +71,8 @@ export class NativeHomeCustomizeController {
   private publish(patch: Partial<NativeHomeCustomization>): void {
     if (!this.current()) return;
     const next = {...this.state, ...patch};
-    const base = this.base;
-    next.dirty = !!base && (next.rows.some((row, index) => base.rows[index]?.id !== row.id || base.rows[index]?.hidden !== row.hidden) || next.rows.length !== base.rows.length);
+    const base = this.baseRows;
+    next.dirty = !!this.base && (next.rows.some((row, index) => base[index]?.id !== row.id || base[index]?.hidden !== row.hidden) || next.rows.length !== base.length);
     this.state = Object.freeze(next);
     for (const listener of [...this.listeners]) listener();
   }
@@ -60,17 +80,32 @@ export class NativeHomeCustomizeController {
     if (!this.current() || this.state.pending) return;
     const generation = ++this.generation;
     this.command?.abort.abort();this.command = undefined;
-    this.read?.abort(); this.read = new AbortController();
+    // An explicit reload abandons the old command identity as well as its draft.
+    this.editor.dispose(); this.editor = this.createEditor();
+    const editor = this.editor;
     this.publish({phase: 'loading', error: undefined, retry: undefined, conflict: false, showConflict: false, pickedId: undefined, pickupOrder: undefined});
-    try {
-      const layout = await this.ports.home.loadLayout(this.read.signal);
-      if (!this.current() || generation !== this.generation) return;
-      this.accept(layout);
-    } catch (error) {if (this.current() && generation === this.generation) this.publish({phase: 'error', error});}
+    await editor.load();
+    if (!this.current() || generation !== this.generation) return;
+    const state = editor.getSnapshot();
+    if (state.phase === 'ready' && state.draft) this.accept(state.draft.view);
+    else this.publish({phase: 'error', error: state.error});
   };
+  private draftRows(): readonly NativeHomeCustomizeRow[] {
+    const draft = this.editor.getSnapshot().draft;
+    if (!draft) return this.state.rows;
+    return Object.freeze(draft.order.map(id => {
+      const view = draft.added.get(id);
+      const row: NativeHomeCustomizeRow = view
+        ? {id, kind: 'saved_view', libraryId: view.definition!.libraryId, title: view.name, required: false, hideable: true, reorderable: true, hidden: false}
+        : draft.view.rows.find(value => value.id === id)!;
+      const savedView = this.savedViews.get(id) ?? view;
+      return Object.freeze({...row, hidden: draft.hidden.has(id), ...(savedView ? {savedView} : {})});
+    }));
+  }
   private accept(layout: HomeLayoutView): void {
-    this.base = layout; this.pickedOrder = undefined;
-    this.publish({phase: 'ready', rows: Object.freeze(layout.rows.map(row => Object.freeze({...row}))), revision: layout.revision, layout,
+    this.base = layout; this.pickedOrder = undefined; this.pickedDraft = undefined; this.savedViews.clear();
+    this.baseRows = this.draftRows();
+    this.publish({phase: 'ready', rows: this.baseRows, revision: layout.revision, layout,
       pickedId: undefined, pickupOrder: undefined, pending: false, conflict: false, showConflict: false, error: undefined, retry: undefined});
   }
   /** Adds the current server resource to the transient layout only. Save is
@@ -82,10 +117,11 @@ export class NativeHomeCustomizeController {
       || view.kind !== 'view' || view.status !== 'ready' || !view.definition || view.onHome || !view.actions.includes('pin')) return false;
     const id = `view:${view.id}`;
     if (this.state.rows.some(row => row.id === id)) return false;
-    const row: NativeHomeCustomizeRow = Object.freeze({id, kind: 'saved_view', libraryId: view.definition.libraryId, title: view.name, required: false, hideable: true, reorderable: true, hidden: false, savedView: view});
-    const rows = Object.freeze([...this.state.rows, row]);
+    this.editor.add(view);
+    const rows = this.draftRows();
     if (!hold) {this.publish({rows}); return true;}
     this.pickedOrder = Object.freeze(rows.map(value => value.id));
+    this.pickedDraft = this.editor.getSnapshot().draft;
     this.publish({rows, pickedId: id, pickupOrder: this.pickedOrder}); return true;
   };
   private currentSavedViews(rows: readonly NativeHomeCustomizeRow[]): boolean {
@@ -98,34 +134,38 @@ export class NativeHomeCustomizeController {
     const row = this.state.rows.find(value => value.id === id);
     if (!this.editable() || this.state.pickedId || !row?.savedView) return false;
     this.pickedOrder = undefined;
-    this.publish({rows: Object.freeze(this.state.rows.filter(value => value !== row)), pickedId: undefined, pickupOrder: undefined});
+    this.editor.remove(id);
+    this.savedViews.delete(id);
+    this.publish({rows: this.draftRows(), pickedId: undefined, pickupOrder: undefined});
     return true;
   };
   toggle = (id: string): boolean => {
     const row = this.state.rows.find(value => value.id === id);
     if (!this.editable() || this.state.pickedId || !row || row.required || !row.hideable) return false;
-    this.publish({rows: Object.freeze(this.state.rows.map(value => value === row ? Object.freeze({...row, hidden: !row.hidden}) : value))});
+    this.editor.show(id, row.hidden);
+    this.publish({rows: this.draftRows()});
     return true;
   };
   pick = (id: string): boolean => {
     if (!this.editable() || !this.state.rows.some(row => row.id === id && row.reorderable)) return false;
     if (this.state.pickedId === id) {this.drop(); return true;}
     if (this.state.pickedId) return false;
+    this.pickedDraft = this.editor.getSnapshot().draft;
     this.pickedOrder = Object.freeze(this.state.rows.map(row => row.id)); this.publish({pickedId: id, pickupOrder: this.pickedOrder}); return true;
   };
   move = (direction: -1 | 1): boolean => {
     if (!this.editable() || !this.state.pickedId) return false;
-    const rows = [...this.state.rows], from = rows.findIndex(row => row.id === this.state.pickedId), to = from + direction;
+    const rows = this.state.rows, from = rows.findIndex(row => row.id === this.state.pickedId), to = from + direction;
     if (from < 0 || !rows[to]?.reorderable) return false;
-    [rows[from], rows[to]] = [rows[to], rows[from]];
-    this.publish({rows: Object.freeze(rows)}); return true;
+    this.editor.move(this.state.pickedId, to);
+    this.publish({rows: this.draftRows()}); return true;
   };
-  drop = (): void => {if (this.editable()) {this.pickedOrder = undefined; this.publish({pickedId: undefined, pickupOrder: undefined});}};
+  drop = (): void => {if (this.editable()) {this.pickedOrder = undefined; this.pickedDraft = undefined; this.publish({pickedId: undefined, pickupOrder: undefined});}};
   cancelPickup = (): boolean => {
     if (!this.editable() || !this.state.pickedId || !this.pickedOrder) return false;
-    const byId = new Map(this.state.rows.map(row => [row.id, row]));
-    const rows = this.pickedOrder.map(id => byId.get(id)!);
-    this.pickedOrder = undefined; this.publish({rows: Object.freeze(rows), pickedId: undefined, pickupOrder: undefined}); return true;
+    if (!this.pickedDraft) return false;
+    this.editor.restoreDraft(this.pickedDraft);
+    this.pickedOrder = undefined; this.pickedDraft = undefined; this.publish({rows: this.draftRows(), pickedId: undefined, pickupOrder: undefined}); return true;
   };
   /** Dismiss the conflict notice and return to the draft. `conflict` stays set,
    * so Save remains blocked and only Reload can accept the server revision. */
@@ -137,7 +177,8 @@ export class NativeHomeCustomizeController {
     const rows = this.state.rows.map(row => {
       const view = byId.get(row.id);
       if (row.kind !== 'saved_view' || !view || !this.ports.savedViews?.isCurrent(view) || row.savedView === view) return row;
-      changed = true;return Object.freeze({...row, savedView: view});
+      changed = true; this.savedViews.set(row.id, view);
+      return Object.freeze({...row, savedView: view});
     });
     if (changed) this.publish({rows: Object.freeze(rows)});
   };
@@ -161,21 +202,23 @@ export class NativeHomeCustomizeController {
     const command = this.command;
     if (!command || !this.current() || this.state.pending) return false;
     const current = () => this.current() && this.command === command && command.generation === this.generation && !command.abort.signal.aborted;
-    const lifetime = {signal: command.abort.signal, isCurrent: current};
     this.publish({pending: true, error: undefined, retry: undefined});
     try {
       command.key ??= await this.ports.requestId();
       if (!current()) return false;
       if (!command.accepted) {
         if (command.kind === 'save' && !this.currentSavedViews(command.rows)) throw Object.assign(new Error('Saved view is no longer current'), {code: 'unavailable'});
-        if (command.kind === 'save') await this.ports.home.saveLayout(command.rows.map(row => row.id), command.rows.filter(row => row.hidden).map(row => row.id), () => command.key!, command.revision, lifetime);
-        else await this.ports.home.resetLayout(() => command.key!, command.revision, lifetime);
+        const accepted = await (command.kind === 'save' ? this.editor.save() : this.editor.reset());
+        if (!current()) return false;
+        if (!accepted) throw this.editor.getSnapshot().error;
         command.accepted = true;
       }
       if (!current()) return false;
-      const layout = await this.ports.home.loadLayout(command.abort.signal);
+      await this.editor.load();
       if (!current()) return false;
-      this.command = undefined;this.accept(layout);return true;
+      const loaded = this.editor.getSnapshot();
+      if (loaded.phase !== 'ready' || !loaded.draft) throw loaded.error;
+      this.command = undefined;this.accept(loaded.draft.view);return true;
     } catch (error) {
       if (current()) {
         const conflict = isConflict(error);
@@ -185,5 +228,5 @@ export class NativeHomeCustomizeController {
       return false;
     }
   };
-  dispose = (): void => {this.alive = false; this.generation++; this.read?.abort(); this.command?.abort.abort();this.command = undefined;this.listeners.clear(); this.base = undefined; this.pickedOrder = undefined;};
+  dispose = (): void => {this.alive = false; this.generation++; this.editor.dispose(); this.command?.abort.abort();this.command = undefined;this.listeners.clear(); this.base = undefined; this.pickedOrder = undefined; this.pickedDraft = undefined; this.savedViews.clear();};
 }
