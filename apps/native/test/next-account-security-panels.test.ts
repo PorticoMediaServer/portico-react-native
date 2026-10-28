@@ -51,7 +51,7 @@ async function fixture(kind: security.NativeAccountSecurityKind, enabled = false
     '../../../../../packages/client-core/src/server-admin/server-forms': {createOperationIds: () => ({forPayload: () => 'fixture-operation', release: () => {}})},
     '../../../../../packages/i18n/src': {defaultI18n: {date: (value: string) => value}}, '../../platform/accounts': {nativeAccounts: {signOutServer: async (...values: string[]) => {signedOut.push(values);}}}, '../../platform/clipboard': {copyText: async (value: string) => {copied.push(value);}},
     '../../kit/controls': {Button: 'Button', TextField: 'TextField', Select: 'Select', Switch: 'Switch'}, '../../kit/overlays': {Dialog: 'Dialog', BottomSheet: 'BottomSheet'}, '../../kit/shell': {SettingsRow: 'SettingsRow'}, '../../kit/states': {StateView: 'StateView'},
-    '../../kit/shell/visual': {shellType: () => ({})}, '../../kit/theme': {useTheme: () => theme}, './native-account-security': security,
+    '../../kit/shell/visual': {shellType: () => ({})}, '../../kit/theme': {useTheme: () => theme}, './native-account-security': security, './NativeHostedSignInPanel': {NativeHostedSignInPanel: 'NativeHostedSignInPanel'},
   });
   let tree: any;
   const render = () => {tree = host.render(() => NativeAccountSecurityPanel({kind, context, lifetime, t: (id: string) => id, runtime: {error: () => ({title: 'Failure'})}})); for (const effect of pendingEffects.splice(0)) effect(); return tree;};

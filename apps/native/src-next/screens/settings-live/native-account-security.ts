@@ -6,13 +6,12 @@ import type {NativeScreenLifetime} from './lifetime';
 export type NativeAccountSecurityKind = 'password' | 'twoStep' | 'devices';
 type AccountSource = Readonly<{account: DirectSnapshot; session: () => LocalSession | undefined}>;
 
-/** Account management belongs to the main profile; Hosted credentials are not local credentials. */
-export function nativeAccountSecurityAllowed(source: AccountSource, kind: NativeAccountSecurityKind): boolean {
+/** Account management belongs to the main profile; Hosted credentials use their account-owned flow. */
+export function nativeAccountSecurityAllowed(source: AccountSource, _kind: NativeAccountSecurityKind): boolean {
   const snapshot = source.account, account = snapshot.account, session = source.session();
   return !!session && !account.disabled && snapshot.canManage && snapshot.capabilities.manageAccount
     && session.viewer.serverId === snapshot.serverId && session.viewer.accountId === account.id
-    && session.viewer.profileId === account.primaryProfileId
-    && (kind === 'devices' || !account.hostedAccountId);
+    && session.viewer.profileId === account.primaryProfileId;
 }
 
 /** Personal access tokens are a member's own, on a local account; a Hosted account keeps its credentials on the account site. */

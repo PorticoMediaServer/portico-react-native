@@ -3,6 +3,7 @@ import {ApiError, HttpLocalApi} from '../../../../packages/client-core/src';
 import {AccountNotificationsClient, type AccountExportJob} from '../../../../packages/client-core/src/account-notifications';
 import {securityPurposeNeedsProof, type AccountScope, type DeletionPreview, type HostedAccountClient, type SecurityIntent, type SecurityResult, type SecurityState} from '../../../../packages/client-core/src/hosted-security';
 import {presentError} from '../../../../packages/client-core/src/presentation/errors';
+import {providerRecentProof, reconfirmWithProvider, type ProviderReconfirmation} from '../../../../packages/client-core/src/provider-security-proof';
 import type {NativeAccounts} from './accounts';
 import {accountExpectation, nativeAccountRead, nativeAccountWork} from './account-work';
 import {hostedUrl} from './account-authority';
@@ -11,11 +12,13 @@ import {nativeNetworkFetch} from './server-connections';
 export type NativeAccountSecurityKind = 'password' | 'email' | 'mfa-on' | 'mfa-off' | 'codes' | 'export' | 'delete';
 export type NativeAccountSecurityInput = Readonly<{password?: string; factor?: string; newPassword?: string; email?: string; code?: string; confirmation?: string}>;
 export type NativeAccountSecuritySnapshot = Readonly<{
-  kind?: NativeAccountSecurityKind; step: 'form' | 'email' | 'mfa' | 'codes' | 'deletion' | 'export' | 'done'; busy: boolean;
+  kind?: NativeAccountSecurityKind; step: 'form' | 'factor' | 'email' | 'mfa' | 'codes' | 'deletion' | 'export' | 'done'; busy: boolean;
   failure?: string; locked?: boolean; result?: SecurityResult; preview?: DeletionPreview; exportJob?: AccountExportJob;
 }>;
 type Opening = {kind: NativeAccountSecurityKind; controller: AbortController; operationId?: string; client?: HostedAccountClient;
-  input?: NativeAccountSecurityInput; intent?: SecurityIntent; busy: boolean; result?: SecurityResult; preview?: DeletionPreview};
+  input?: NativeAccountSecurityInput; intent?: SecurityIntent; busy: boolean; result?: SecurityResult; preview?: DeletionPreview;
+  /** Root §70: the provider re-confirmation that came back, and the proof made from it. */
+  reconfirmed?: ProviderReconfirmation; proof?: string};
 const changed = () => Object.assign(new Error('native_account_security_retired'), {code: 'account_changed'});
 const closed: NativeAccountSecuritySnapshot = Object.freeze({step: 'form', busy: false});
 
@@ -44,7 +47,8 @@ export class NativeAccountSecurity {
   private publish(value: NativeAccountSecuritySnapshot) {if (!this.current()) return; this.state = Object.freeze(value); this.listeners.forEach(listener => listener());}
   private clear() {
     const opening = this.opening; this.opening = undefined;
-    if (opening) {opening.controller.abort(); opening.input = undefined; opening.intent = undefined; opening.result = undefined; opening.preview = undefined;}
+    if (opening) {opening.controller.abort(); opening.input = undefined; opening.intent = undefined; opening.result = undefined; opening.preview = undefined;
+      opening.reconfirmed = undefined; opening.proof = undefined;}
     this.state = closed;
   }
   close() {const notify = this.current(); this.clear(); if (notify) this.listeners.forEach(listener => listener());}
@@ -83,8 +87,10 @@ export class NativeAccountSecurity {
     try {await this.prepare(opening); this.assert(opening); await work(opening);}
     catch (error) {if (this.owns(opening)) {
       const refused = error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408;
-      if (refused) {opening.input = undefined; opening.intent = undefined; opening.operationId = undefined;}
-      this.publish({...this.state, ...(refused ? {locked: false} : {}), failure: presentError(error, 'portico-account').body});
+      // A refused provider completion has spent its one-use return: start again from the form.
+      const restart = refused && this.state.step === 'factor';
+      if (refused) {opening.input = undefined; opening.intent = undefined; opening.operationId = undefined; opening.reconfirmed = undefined; opening.proof = undefined;}
+      this.publish({...this.state, ...(restart ? {step: 'form' as const} : {}), ...(refused ? {locked: false} : {}), failure: presentError(error, 'portico-account').body});
     }}
     finally {opening.busy = false; if (this.owns(opening)) this.publish({...this.state, busy: false});}
   }
@@ -114,14 +120,13 @@ export class NativeAccountSecurity {
         const result = await this.work(opening, (token, client) => client.confirm(phase, challenge, input.code ?? '', opening.operationId!, this.scope, token, signal));
         this.assert(opening); await this.accept(opening, result); return;
       }
-      // Provider-only credential changes stay unavailable until the original Security
-      // reauthentication continuation is admitted; an empty password is never proof.
+      if (this.state.step === 'factor') {await this.finishProvider(opening, input.code?.trim() ?? ''); return;}
+      // A provider-only account proves itself with its provider (confirmWithProvider);
+      // an empty password is never proof.
       if (!this.security.hasPassword) throw new Error('native_account_provider_proof_unavailable');
       opening.input ??= Object.freeze({...input});
       const chosen = opening.input;
-      opening.intent ??= {purpose: kind === 'password' ? 'password_set_or_change' : kind === 'email' ? 'email_change'
-        : kind === 'mfa-on' ? 'mfa_enroll' : kind === 'mfa-off' ? 'mfa_disable' : 'recovery_codes',
-        target: kind === 'email' ? chosen.email?.trim() ?? '' : '', operationId: opening.operationId!};
+      opening.intent ??= this.intent(kind, chosen, opening.operationId!);
       this.publish({...this.state, locked: true});
       const result = await this.work(opening, async (token, client) => {
         const intent = opening.intent!;
@@ -132,6 +137,51 @@ export class NativeAccountSecurity {
       });
       this.assert(opening); await this.accept(opening, result);
     });
+  }
+  private intent(kind: NativeAccountSecurityKind, chosen: NativeAccountSecurityInput, operationId: string): SecurityIntent {
+    return {purpose: kind === 'password' ? 'password_set_or_change' : kind === 'email' ? 'email_change'
+      : kind === 'mfa-on' ? 'mfa_enroll' : kind === 'mfa-off' ? 'mfa_disable' : 'recovery_codes',
+      target: kind === 'email' ? chosen.email?.trim() ?? '' : '', operationId};
+  }
+  /** Root §70 / A80: an account that signs in only with Google or Apple confirms this one
+   * credential change with that provider. The opening, its new password or email and the
+   * intent stay in memory; only the transaction and its one-use code come back. */
+  async confirmWithProvider(providerId: string, input: NativeAccountSecurityInput = {}) {
+    if (this.security.hasPassword || this.state.step !== 'form') return;
+    const link = this.security.providers.find(value => value.id === providerId);
+    return this.run(async opening => {
+      const kind = opening.kind, signal = opening.controller.signal, bridge = NativeModules.PorticoAccountAuth;
+      if (!link || kind === 'export' || kind === 'delete') throw new Error('native_account_provider_unavailable');
+      opening.input ??= Object.freeze({...input});
+      opening.intent ??= this.intent(kind, opening.input, opening.operationId!);
+      this.publish({...this.state, locked: true});
+      // Already confirmed, and the answer to the change itself was lost: ask again with the same proof.
+      if (opening.reconfirmed) {await this.finishProvider(opening, ''); return;}
+      const options = await opening.client!.options(signal); this.assert(opening);
+      const offered = options.providers.find(value => value.id === link.provider && value.enabled);
+      const nativeApple = link.provider === 'apple' && bridge.canSignInApple === true && !!offered?.native && offered.nativeClientIds.includes(bridge.bundleId);
+      if (!offered || !nativeApple && bridge.canOpenBrowser !== true) throw new Error('native_account_provider_unavailable');
+      const intent = opening.intent;
+      opening.reconfirmed = await this.work(opening, (token, client) => reconfirmWithProvider(client, {provider: link.provider, intent, nativeApple, accountOrigin: hostedUrl}, token, {
+        newRequestId: async () => {const id: unknown = await bridge.newRequestId(); if (typeof id !== 'string' || id.length < 16 || id.length > 128) throw new Error('native_account_operation_invalid'); return id;},
+        openBrowser: (url, transactionId) => bridge.openBrowser(url, transactionId),
+        ...(nativeApple ? {signInApple: (nonce: string | undefined) => bridge.signInApple(nonce)} : {}),
+      }, signal));
+      this.assert(opening);
+      if (this.security.mfaEnabled) {this.publish({kind, step: 'factor', busy: true, locked: true}); return;}
+      await this.finishProvider(opening, '');
+    });
+  }
+  /** The proof is made once; a lost action answer is asked again with the same proof and operation. */
+  private async finishProvider(opening: Opening, factor: string) {
+    const pending = opening.reconfirmed;
+    if (!pending) throw changed();
+    const result = await this.work(opening, async (token, client) => {
+      opening.proof ??= (await providerRecentProof(client, pending, factor, this.scope, token, opening.controller.signal)).proof;
+      this.assert(opening);
+      return client.action(pending.intent, opening.proof, opening.input?.newPassword ?? '', this.scope, token, opening.controller.signal);
+    });
+    this.assert(opening); opening.reconfirmed = undefined; opening.proof = undefined; await this.accept(opening, result);
   }
   private async accept(opening: Opening, result: SecurityResult) {
     this.assert(opening); opening.result = result;

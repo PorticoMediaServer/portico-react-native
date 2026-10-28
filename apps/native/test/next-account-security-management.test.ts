@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {screenModule} from './helpers/screen-harness.mjs';
+import * as providerSecurityProof from '../../../packages/client-core/src/provider-security-proof.ts';
 
 const deferred = () => {let resolve!: (value?: unknown) => void; const promise = new Promise(resolveValue => {resolve = resolveValue;}); return {promise, resolve};};
 const initialSecurity = {accountId: 'account', familyId: 'family', contactAddress: 'person@example.invalid', hasPassword: true, mfaEnabled: true, privateEmail: false, recoveryCodesRemaining: 5, providers: []};
@@ -24,7 +25,9 @@ async function fixture(security = initialSecurity) {
     '../../../../packages/client-core/src': {ApiError, HttpLocalApi: class {}},
     '../../../../packages/client-core/src/account-notifications': {AccountNotificationsClient: class {}},
     '../../../../packages/client-core/src/hosted-security': {securityPurposeNeedsProof: (purpose: string) => ['password_set_or_change', 'email_change', 'mfa_enroll', 'mfa_disable', 'recovery_codes'].includes(purpose)},
+    '../../../../packages/client-core/src/provider-security-proof': providerSecurityProof,
     '../../../../packages/client-core/src/presentation/errors': {presentError: (error: Error) => ({body: error.message})},
+    '../../../../packages/client-core/src/provider-security-proof': {reconfirmWithProvider: () => {throw new Error('a password account never confirms with a provider');}, providerRecentProof: () => {throw new Error('unexpected provider proof');}},
     './account-work': {accountExpectation: (value: typeof session) => ({accountId: value.account.id, familyId: value.familyId, accessToken: value.accessToken}),
       nativeAccountRead: () => {throw new Error('a credential mutation must not use the retryable read wrapper');},
       nativeAccountWork: async (_: unknown, work: (value: typeof session) => Promise<unknown>, opening: any) => {

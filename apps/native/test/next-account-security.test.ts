@@ -45,11 +45,11 @@ test('Only a current main profile may manage account security; local members do 
   } finally {f.close();}
 });
 
-test('Hosted-linked accounts can manage this server’s devices but cannot send local password or factor operations', () => {
+test('Hosted-linked accounts can open account security under the same main-profile grant', () => {
   const f = fixture(); f.account.account.hostedAccountId = 'hosted-account';
   try {
     assert.equal(nativeAccountSecurityAllowed(f.context, 'devices'), true);
-    for (const kind of ['password', 'twoStep'] as const) {assert.equal(nativeAccountSecurityAllowed(f.context, kind), false); assert.throws(() => f.scope(kind), {name: 'AbortError'});}
+    for (const kind of ['password', 'twoStep'] as const) {assert.equal(nativeAccountSecurityAllowed(f.context, kind), true); f.scope(kind).dispose();}
     const scope = f.scope('devices'); scope.dispose(); assert.equal(f.calls.length, 0);
   } finally {f.close();}
 });
