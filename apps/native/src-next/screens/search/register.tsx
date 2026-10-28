@@ -1,5 +1,5 @@
 import React, {useEffect, useSyncExternalStore} from 'react';
-import {Platform, View} from 'react-native';
+import {AppState, Platform, View} from 'react-native';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeShellRoute} from '../../shell/routes';
@@ -9,7 +9,7 @@ import {createNativeEntryActions} from '../destinations/entry-actions';
 import {createNativeSearchController} from './controller';
 import {createNativeSearchActions} from './actions';
 import {createNativeSearchGenreController, openNativeSearchGenre} from './navigation';
-import {NativeSearchExplore} from './explore';
+import {NativeSearchExplore, NativeSearchGenreList} from './explore';
 import {SearchScreen} from './SearchScreen';
 import {GenreBrowseScreen} from './GenreBrowseScreen';
 import {AllGenresScreen} from './AllGenresScreen';
@@ -22,7 +22,7 @@ type Root = Readonly<{route: NativeShellRoute; key: number; focusScope: string; 
 type GenreRoute = Extract<NativeShellRoute, {kind: 'search-genre'}>;
 type Genre = Readonly<{route: GenreRoute; key: number; focusScope: string; controller: ReturnType<typeof createNativeSearchGenreController>; actions: ReturnType<typeof createNativeEntryActions>}>;
 type AllRoute = Extract<NativeShellRoute, {kind: 'search-genres'}>;
-type All = Readonly<{route: AllRoute; key: number; explore: NativeSearchExplore; owned: boolean; current: () => boolean}>;
+type All = Readonly<{route: AllRoute; key: number; focusScope: string; explore: NativeSearchGenreList; current: () => boolean}>;
 
 /** Screen-owned registration; every controller is keyed by its actual retained
  * history descriptor. The shell's presentation descriptor never becomes data.
@@ -31,7 +31,7 @@ type All = Readonly<{route: AllRoute; key: number; explore: NativeSearchExplore;
 export function createNativeSearchModule(context: NativeShellBootstrapContext): NativeRouteRenderer {
   const lifetime = nativeDestinationLifetime(context), roots = new Map<NativeShellRoute, Root>(), genres = new Map<GenreRoute, Genre>(), all = new Map<AllRoute, All>();
   const surface = Platform.isTV ? 'tv' as const : 'phone' as const;
-  let disposed = false, sequence = 0;
+  let disposed = false, sequence = 0, foreground = !AppState.currentState || AppState.currentState === 'active';
   const current = () => !disposed && lifetime.current();
   const retained = (route: NativeShellRoute) => current() && (context.navigation.getSnapshot().route === route || context.navigation.retainedRoutes().includes(route));
   const visible = (route: NativeShellRoute) => retained(route) && context.navigation.getSnapshot().route === route;
@@ -42,14 +42,12 @@ export function createNativeSearchModule(context: NativeShellBootstrapContext): 
     const keep = new Set(routes);
     for (const [route, entry] of roots) if (!keep.has(route)) {roots.delete(route); closeRoot(entry);}
     for (const [route, entry] of genres) if (!keep.has(route)) {genres.delete(route); closeGenre(entry);}
-    for (const [route, entry] of all) if (!keep.has(route)) {all.delete(route); if (entry.owned) entry.explore.dispose();}
+    for (const [route, entry] of all) if (!keep.has(route)) {all.delete(route); entry.explore.dispose();}
     for (const route of routes) {
       if (route.kind !== 'shell' || route.destination.kind !== 'search' || roots.has(route)) continue;
       const search = createNativeSearchController(context, route);
-      let explore!: NativeSearchExplore;
-      explore = new NativeSearchExplore({api: context.api, surface, current: () => retained(route), openGenre: genre => {
-        const showing = context.navigation.getSnapshot().route;
-        if (visible(route) || showing.kind === 'search-genres' && all.get(showing)?.explore === explore && visible(showing)) openNativeSearchGenre(context, genre);
+      const explore = new NativeSearchExplore({api: context.api, surface, current: () => retained(route), openGenre: genre => {
+        if (visible(route)) openNativeSearchGenre(context, genre);
       }});
       const selection = createNativeSearchSelection(context, search.source, search.activation);
       const key = ++sequence;
@@ -72,15 +70,17 @@ export function createNativeSearchModule(context: NativeShellBootstrapContext): 
         genres.set(route, {route, key, focusScope: `genre:${authorityKey(context.authority())}:${JSON.stringify(route.value)}:${key}`, controller, actions});
       }
       if (route.kind === 'search-genres' && !all.has(route)) {
-        const parent = [...routes].reverse().find(candidate => roots.has(candidate));
-        const borrowed = parent && roots.get(parent)?.explore;
-        const explore = borrowed || new NativeSearchExplore({api: context.api, surface, current: () => retained(route),
+        const explore = new NativeSearchGenreList({api: context.api, current: () => retained(route),
           openGenre: genre => {if (visible(route)) openNativeSearchGenre(context, genre);}});
-        all.set(route, {route, key: ++sequence, explore, owned: !borrowed, current: () => visible(route)});
+        const key = ++sequence;
+        all.set(route, {route, key, focusScope: `search-all:${authorityKey(context.authority())}:${key}`, explore, current: () => visible(route)});
       }
     }
+    roots.forEach(entry => entry.explore.setActive(foreground && visible(entry.route)));
+    all.forEach(entry => entry.explore.setActive(foreground && visible(entry.route)));
   };
-  const stops = [context.navigation.subscribe(reconcile), context.subscribeAuthority(reconcile)];
+  const appState = AppState.addEventListener('change', state => {foreground = state === 'active'; reconcile();});
+  const stops = [context.navigation.subscribe(reconcile), context.subscribeAuthority(reconcile), () => appState.remove()];
   const back = (route: NativeShellRoute) => {if (visible(route)) context.navigation.back(context.authority());};
   return {
     render: () => {reconcile(); return null;},
@@ -96,7 +96,7 @@ export function createNativeSearchModule(context: NativeShellBootstrapContext): 
     dispose: () => {
       if (disposed) return;
       disposed = true; stops.forEach(stop => stop()); roots.forEach(closeRoot); genres.forEach(closeGenre);
-      all.forEach(entry => {if (entry.owned) entry.explore.dispose();}); roots.clear(); genres.clear(); all.clear();
+      all.forEach(entry => {entry.explore.dispose();}); roots.clear(); genres.clear(); all.clear();
     },
   };
 }
@@ -117,7 +117,7 @@ function AllHost({entry, runtime, navigation, back}: {entry: All; runtime: Nativ
   const live = entry.current();
   return <View pointerEvents={live ? 'auto' : 'none'} accessibilityElementsHidden={!live} importantForAccessibility={live ? 'auto' : 'no-hide-descendants'}
     style={{position: 'absolute', inset: 0, display: live ? 'flex' : 'none'}}>
-    <AllGenresScreen explore={entry.explore} runtime={runtime} visible={live} current={entry.current} onBack={back}/>
+    <AllGenresScreen focusScope={entry.focusScope} explore={entry.explore} runtime={runtime} visible={live} current={entry.current} onBack={back}/>
   </View>;
 }
 

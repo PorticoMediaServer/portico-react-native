@@ -24,12 +24,17 @@ const otherMovie = {id: 'other', libraryId: 'movies', kind: 'movie', title: 'Oth
 const genres = [{value: 'artless', label: 'Artless metadata', count: 1, covers: []},
   {value: 'actual-value', label: 'Stored Genre', count: 2, covers: [art('movie'), art('other')], backdrop: art('movie', 'backdrop')}];
 
-test('real App Search tab, canonical genre destination and artless All genres share one retained registration', async () => {
+test('real App Search keeps separate eligible previews and an artless All genres directory in retained registration', async () => {
   let genreReads = 0;
   const browse: BrowseRequestBody[] = [];
   const app = await standardHomeApp({mountUI: false, nativeResponse: async (request: {path: string; method: string; body?: unknown}, fixture: {pin: {serverId: string}}) => {
     const url = new URL(request.path, 'https://fixture.invalid');
-    if (url.pathname === '/v1/search/genres') {genreReads++; return {status: 200, body: {revision: 'actual-genre-read', genres}};}
+    if (url.pathname === '/v1/search/genres') {
+      genreReads++;
+      const preview = url.searchParams.get('preview');
+      const rows = preview === 'covers' ? genres.slice(1) : preview === 'backdrop' ? [{value: 'backdrop-only', label: 'Backdrop prefix first', count: 8, covers: [], backdrop: art('other', 'backdrop')}, genres[1]] : genres;
+      return {status: 200, body: {revision: 'actual-genre-read', hasGenres: true, genres: rows}};
+    }
     if (url.pathname === '/v1/browse-capabilities') {assert.equal(url.searchParams.get('pivot'), 'video-titles'); return {status: 200, body: capabilities};}
     if (url.pathname === '/v1/browse' && request.method === 'POST') {
       const body = request.body as BrowseRequestBody; browse.push(body);
@@ -41,7 +46,7 @@ test('real App Search tab, canonical genre destination and artless All genres sh
       scope: {serverId: fixture.pin.serverId, libraryId: '', libraryKind: 'mixed', view: 'search', entityId: '', viewerFence: 'Search-own-fence'}, revision: {catalog: 12, viewer: 7},
       query: {q: url.searchParams.get('q'), group: '', groups: ['movies'], limit: 40, sort: 'relevance', direction: 'desc', libraryIds: [], recorded: false},
       capabilities: {groups: [{id: 'movies', title: '', available: true, reason: '', sorts: ['relevance']}], sorts: ['relevance'], directions: ['desc'], maxLimit: 40, groupBudgetMs: 1000},
-      groups: [{id: 'movies', entityKind: 'movie', title: '', status: 'success', errorCode: '', totalCount: 1, totalCountExact: true, nextCursor: '', items: [movie]}],
+      groups: [{id: 'movies', entityKind: 'movie', title: '', status: 'success', errorCode: '', totalCount: url.searchParams.get('q') === 'no matches' ? 0 : 1, totalCountExact: true, nextCursor: '', items: url.searchParams.get('q') === 'no matches' ? [] : [movie]}],
     }};
   }});
   let runtime: RestoredNativeShellRuntime | undefined;
@@ -56,11 +61,16 @@ test('real App Search tab, canonical genre destination and artless All genres sh
     const root = context.navigation.getSnapshot().route;
     assert.equal(root.kind, 'shell'); if (root.kind === 'shell') assert.equal(root.destination.kind, 'search');
     assert.ok(app.hosts().some((host: any) => host.props.testID === 'native-search-screen'));
-    assert.equal(genreReads, 1); assert.equal(app.requests.filter((request: any) => request.path.startsWith('/v1/search/history')).length, 0, 'confirmed privacy-off means no history read');
+    assert.equal(genreReads, 2);
+    const previews = app.requests.filter((request: any) => new URL(request.path, 'https://fixture.invalid').pathname === '/v1/search/genres').map((request: any) => new URL(request.path, 'https://fixture.invalid'));
+    assert.deepEqual(previews.map((url: URL) => [url.searchParams.get('preview'), url.searchParams.get('limit')]), [['covers', '6'], ['backdrop', '4']]);
+    assert.equal(app.requests.filter((request: any) => request.path.startsWith('/v1/search/history')).length, 0, 'confirmed privacy-off means no history read');
     assert.equal(openNativeSearchGenres(context), true); await app.settle();
     const all = context.navigation.getSnapshot().route; assert.equal(all.kind, 'search-genres');
     const allList = app.hosts().find((host: any) => host.name === 'FlatList' && host.props.data?.some((item: any) => item.id === 'artless'));
-    assert.ok(allList); assert.equal(allList.props.data.length, 2); assert.equal(genreReads, 1, 'All genres borrows the same arrived read');
+    assert.ok(allList); assert.equal(allList.props.data.length, 2); assert.equal(genreReads, 3, 'All genres starts its own ordinary read');
+    const ordinary = new URL(app.requests.filter((request: any) => new URL(request.path, 'https://fixture.invalid').pathname === '/v1/search/genres').at(-1).path, 'https://fixture.invalid');
+    assert.equal(ordinary.searchParams.has('preview'), false); assert.equal(ordinary.searchParams.get('limit'), '50');
     const artlessRow = allList.props.renderItem({item: allList.props.data[0]});
     assert.equal(artlessRow.props.label, 'Artless metadata'); assert.equal(artlessRow.props.description, '1 title');
     const actual = allList.props.data.find((item: any) => item.id === 'actual-value');
@@ -84,6 +94,9 @@ test('real App Search tab, canonical genre destination and artless All genres sh
     const input = app.hosts().find((host: any) => host.name === 'TextInput' && host.props.accessibilityLabel === 'Search'); assert.ok(input);
     await input.props.onSubmitEditing(); await app.settle();
     assert.ok(app.hosts().some((host: any) => host.name === 'Pressable' && host.props.accessibilityLabel === 'Genuine display title'));
+    await app.fill('Search', 'no matches'); await input.props.onSubmitEditing(); await app.settle();
+    assert.ok(app.hosts().some((host: any) => host.props.testID === 'search-genre-backdrop-only'), 'phone empty draws the separate backdrop prefix');
+    assert.equal(genreReads, 3, 'changing slots does not read the directory or request more previews');
     const queryReads = app.requests.filter((request: any) => new URL(request.path, 'https://fixture.invalid').pathname === '/v1/search').length;
     assert.equal(context.navigation.back(context.authority()), true); await app.settle();
     assert.equal(app.hosts().some((host: any) => host.props.testID === 'native-search-screen'), false);

@@ -51,8 +51,9 @@ export function SearchScreen({focusScope, destination, runtime, explore, actions
   const run = useCallback((work: Promise<void>) => {void work.catch(runtime.reportError);}, [runtime]);
   const initialized = useRef(false);
   useEffect(() => {
-    if (!activeRoute.visible || initialized.current) return;
-    initialized.current = true; run(destination.refreshHistory()); run(explore.load());
+    if (!activeRoute.visible) return;
+    if (!initialized.current) {initialized.current = true; run(destination.refreshHistory());}
+    run(explore.load());
   }, [activeRoute.visible, destination, explore, run]);
   useEffect(() => {
     // tablet10: choosing Search from the rail or sidebar opens the page with its field focused.
@@ -105,7 +106,7 @@ export function SearchScreen({focusScope, destination, runtime, explore, actions
       <Icon name="i-clock" size={19} color={theme.colors.textTertiary}/><Text numberOfLines={1} style={[browseType(theme, 15.5, 600), {color: theme.colors.textSecondary, flex: 1}]}>{recent.q}</Text>
     </Focusable>)}
   </>;
-  const genreTiles = landing.phase === 'ready' ? nativeSearchGenreTiles(landing.genres, empty ? 'phone-empty' : 'phone') : [];
+  const genreTiles = landing.phase === 'ready' ? nativeSearchGenreTiles(empty ? landing.backdropGenres ?? [] : landing.genres, empty ? 'phone-empty' : 'phone') : [];
   const genres = !genreTiles.length && landing.phase !== 'error' ? null : <>
     {!!genreTiles.length && <SectionHeading title={t(empty ? landing.emptyHeading : landing.initialHeading)}/>}
     {landing.phase === 'error' && <StateView {...runtime.error(landing.error, () => run(explore.load()))}/>}
