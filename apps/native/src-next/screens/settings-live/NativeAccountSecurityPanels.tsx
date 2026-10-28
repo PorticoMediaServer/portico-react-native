@@ -105,7 +105,7 @@ export function NativeAccountSecurityPanel({kind, context, lifetime, t, runtime}
       {factor.enabled && codeField}</>;
     actions = <Button testID="account-security-save-password" loading={busy} disabled={busy || !password || !strength.acceptable || !confirmation || !matching || factor.enabled && !code.trim()} onPress={() => {
       if (!password || !strength.acceptable || confirmation !== nextPassword || factor.enabled && !code.trim()) return;
-      void perform(client => client.changePassword(password, nextPassword, factor.enabled ? code.trim() : undefined), () => saved('Password changed. Other devices stay signed in unless you sign them out.'));
+      void perform(client => client.changePassword(password, nextPassword, factor.enabled ? code.trim() : undefined), () => saved(t('web.reset.doneTitle')));
     }}>{t('action.save')}</Button>;
   } else if (kind === 'twoStep' && factor) {
     if (mode === 'confirm-disable') {
@@ -160,7 +160,6 @@ export function NativeAccountSecurityPanel({kind, context, lifetime, t, runtime}
           }}>{t('web.devices.saveName')}</Button></>;
       }
     } else {
-      description = 'Everywhere this account is signed in to this server.';
       body = <View>{devices.length ? devices.map((row, index) => <SettingsRow key={row.id} first={index === 0} testID={`account-security-device-${row.id}`} label={row.name}
         value={row.current ? t('settings.thisDevice') : undefined} description={[row.platform, row.app, defaultI18n.date(row.lastSeen), row.sessions ? t('web.devices.sessions', {count: row.sessions}) : 'Signed out'].filter(Boolean).join(' · ')}
         onPress={() => {if (stageCurrent() && !busyRef.current) {setDevice(row); setDeviceName(row.name); setMode('main'); setError(undefined);}}}/>) : bodyText('No signed-in devices.')}</View>;
