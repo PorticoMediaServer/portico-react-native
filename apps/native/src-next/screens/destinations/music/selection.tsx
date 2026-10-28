@@ -1,14 +1,14 @@
 import React from 'react';
 import type {NativeShellBootstrapContext} from '../../../shell/bootstrap';
 import type {NativeTVMusicController} from './model';
-import {createNativePageSelection, type NativePageSelection} from '../../search/selection';
+import {createNativeSelection, type NativeSelection} from '../../selection/native-selection';
 
 /** Top songs and All songs are different Browse queries. Each retains its own
  * opaque revision; beginning a selection in the other list ends the first. */
 export function createNativeMusicSelection(context: NativeShellBootstrapContext, controller: NativeTVMusicController,
-  routeKey: string, current: () => boolean): NativePageSelection {
+  routeKey: string, current: () => boolean): NativeSelection {
   const groups = ['songs', 'all-songs'] as const;
-  const ports = groups.map(group => createNativePageSelection(context, {
+  const ports = groups.map(group => createNativeSelection(context, {
     subscribe: controller.subscribe, current,
     getSnapshot: () => {
       const own = controller.selectionPage(group), state = controller.getSnapshot(), viewer = context.session()?.viewer;
@@ -18,15 +18,15 @@ export function createNativeMusicSelection(context: NativeShellBootstrapContext,
         groups: [{id: group, status: 'success' as const, offset: own?.offset ?? 0,
           items: (group === 'songs' ? state.songs : state.allSongs.songs).filter(controller.contains)}]};
     },
-  }, {preserveEvicted: true}));
+  }, {area: 'search', preserveEvicted: true}));
   const listeners = new Set<() => void>(); let revision = 0;
   const stops = ports.map(port => port.subscribe(() => {revision++; for (const listener of [...listeners]) listener();}));
   const clear = () => ports.every(port => port.clear());
   return Object.freeze({
     register: () => () => {}, clear,
-    item: (group, entry) => {
+    item: (entry, group) => {
       const index = groups.findIndex(value => value === group); if (index < 0) return undefined;
-      const item = ports[index]!.item(group, entry), own = controller.selectionPage(groups[index]!);
+      const item = ports[index]!.item(entry, group), own = controller.selectionPage(groups[index]!);
       if (!item || !own) return undefined;
       const pick = () => {
         const live = controller.selectionPage(groups[index]!);

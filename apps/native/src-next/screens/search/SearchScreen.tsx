@@ -125,7 +125,7 @@ export function SearchScreen({focusScope, destination, runtime, explore, actions
       {error}
       {empty && <StateView testID="search-no-matches" variant="search" title={t('next.states.noMatches', {query: state.text.trim()})} body={t('next.states.noMatchesBody')} style={{paddingTop: 26, marginHorizontal: 20}}/>}
       {(!typed || empty) && (empty ? <>{genres}{history}</> : <>{history}{genres}</>)}
-      {!wideSearch && top && <SearchTopResult entry={top.entry} group={top.group} runtime={runtime} actions={actions} selection={selection?.item(top.group, top.entry)} width={surface - 32}/>}
+      {!wideSearch && top && <SearchTopResult entry={top.entry} group={top.group} runtime={runtime} actions={actions} selection={selection?.item(top.entry, top.group)} width={surface - 32}/>}
       {wideSearch ? groups.filter(group => group.items.length).map(group => <View key={group.id}>
         <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 8, marginHorizontal: 20, marginTop: 22, marginBottom: 10}}>
           <Text accessibilityRole="header" style={[browseType(theme, 20, 700, -.02), {color: theme.colors.text}]}>{t(searchGroupLabel(group.id))}</Text>
@@ -141,20 +141,20 @@ export function SearchScreen({focusScope, destination, runtime, explore, actions
             if (activeRoute.visible && state.search.phase === 'ready' && group.nextCursor && !page?.loading && !page?.error) run(destination.next(group.id));
           }}
           renderItem={({item}) => <SearchGridCard entry={item} group={group.id} runtime={runtime} actions={actions}
-            selection={selection?.item(group.id, item)} width={Math.floor((surface - 40 - 6 * 14) / 7)}/>}
+            selection={selection?.item(item, group.id)} width={Math.floor((surface - 40 - 6 * 14) / 7)}/>}
           ListFooterComponent={state.paging?.[group.id]?.loading ? <LoadingPaint ready={false} style={{marginLeft: 14}}
             skeleton={<View style={{flexDirection: 'row', gap: 14}}>{[0, 1, 2].map(index => <SkeletonBlock key={index}
               width={Math.floor((surface - 40 - 6 * 14) / 7)} height={Math.floor((surface - 40 - 6 * 14) / 7) * (group.id === 'movies' || group.id === 'shows' ? 1.5 : 1)}/>)}</View>}/>
             : state.paging?.[group.id]?.error ? <StateView {...runtime.error(state.paging?.[group.id]?.error, () => run(destination.retryGroup(group.id)))} style={{width: 240}}/> : null}/>
       </View>) : resultRows.map(({entry, group, heading}) => <React.Fragment key={nativeSearchEntryKey(group, entry)}>
         {heading && <Text accessibilityRole="header" style={[browseType(theme, 16, 700), {color: theme.colors.text, marginHorizontal: 20, marginTop: 18, marginBottom: 6}]}>{t(searchGroupLabel(group))}</Text>}
-        <SearchResultRow entry={entry} group={group} runtime={runtime} actions={actions} selection={selection?.item(group, entry)}/>
+        <SearchResultRow entry={entry} group={group} runtime={runtime} actions={actions} selection={selection?.item(entry, group)}/>
       </React.Fragment>)}
       {loading && <GridSkeleton elapsedMs={elapsed} scrollOffset={0} viewportHeight={Math.max(0, dimensions.height - 180)} width={surface} columns={3} totalCount={9}/>}
     </ScrollView> : <FlatList ref={grid} key={state.group} data={active?.items ?? []} numColumns={3} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
       keyExtractor={entry => nativeSearchEntryKey(state.group as SearchGroup, entry)} contentContainerStyle={{padding: 16, gap: 16, paddingBottom: 28}}
       columnWrapperStyle={{gap: 10}} onEndReachedThreshold={.5} onEndReached={() => {if (active?.nextCursor && state.search.phase === 'ready') run(destination.next(active.id));}}
-      renderItem={({item}) => <SearchGridCard entry={item} group={state.group as SearchGroup} runtime={runtime} actions={actions} selection={selection?.item(state.group as SearchGroup, item)} width={(surface - 52) / 3}/>}
+      renderItem={({item}) => <SearchGridCard entry={item} group={state.group as SearchGroup} runtime={runtime} actions={actions} selection={selection?.item(item, state.group as SearchGroup)} width={(surface - 52) / 3}/>}
       ListHeaderComponent={error || null} ListEmptyComponent={loading ? <GridSkeleton elapsedMs={elapsed} scrollOffset={0} viewportHeight={dimensions.height - 180} width={surface} columns={3} totalCount={9}/> : null}/>}
     {selection?.render(path => {const source = runtime.artwork(path); return source ? <Artwork source={source} width={48} height={48}/> : undefined;})}
   </View>;

@@ -5,7 +5,7 @@ import {type NativeShellRoute} from '../../shell/routes';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {authorityKey, sameAuthority} from '../../shell/model';
 import {createNativeEntryActions} from '../destinations/entry-actions';
-import {createNativeCatalogueSelection} from '../saved/selection';
+import {catalogueSelectionSource, createNativeSelection} from '../selection/native-selection';
 import type {NativeDestinationActivationPort} from '../destinations/focus';
 import {NativeCollectionController} from './controller';
 import {NativeCollectionScreen} from './CollectionScreen';
@@ -46,7 +46,7 @@ function CollectionHost({route, context, runtime}: {route: CollectionRoute; cont
         revision: now.revision, intent: context.navigation.getIntent()});}
       return active;
     }};
-    return createNativeCatalogueSelection(context, {subscribe: controller.subscribe, getSnapshot: () => {
+    return createNativeSelection(context, catalogueSelectionSource({subscribe: controller.subscribe, getSnapshot: () => {
       const state = controller.getSnapshot(), projection = state.projection, viewer = context.session()?.viewer;
       return {key: JSON.stringify(['collection', route.libraryId, route.collectionId, projection?.query]), witness: state,
         context: projection && !state.error && viewer && (viewer.authority === 'local' || viewer.authority === 'hosted') ? {
@@ -54,7 +54,7 @@ function CollectionHost({route, context, runtime}: {route: CollectionRoute; cont
             viewId: JSON.stringify(['collection', route.libraryId, route.collectionId, projection.query]), privacyFence: projection.scope.viewerFence},
           revision: {catalogRevision: String(projection.revision.catalog), viewerRevision: String(projection.revision.viewer)},
         } : null, sections: [{id: 'items', entries: state.entries}]};
-    }}, activation);
+    }}, activation), {area: 'saved', aggregates: true});
   }, [context, controller, route]);
   useEffect(() => () => selection.dispose(), [selection]);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);

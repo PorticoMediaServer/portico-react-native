@@ -146,6 +146,24 @@ test('Person adds the known-for ambient wash without advertising unsupported own
   assert.equal(credit.props.entry, entry); assert.ok(credit.props.selection); assert.ok(list);
 });
 
+test('Person tablet draws Select before the role chips and enters selection without a pick; phone does not', async () => {
+  const page = {person: {id: 'person', name: 'Person Name', roles: [], knownFor: [entry]}, pageInfo: {total: 1}};
+  const collection = {pageOf: () => 0, subscribe: () => () => {}, getSnapshot: () => ({generation: 1, total: 1, status: 'ready'}), getPageVersion: () => 0};
+  let started = 0;
+  const selection = {start: () => {started++;}, subscribe: () => () => {}, getSnapshot: () => 0, item: () => undefined, render: () => null};
+  const draw = async (phone: boolean) => {
+    const f = fixture(phone), {PersonScreen} = await f.load('people/PersonScreen');
+    return f.host.render(() => PersonScreen({focusScope: 'person', page, role: 'all', collection, runtime,
+      actions: {menuState: {subscribe: () => () => {}, getSnapshot: () => 0}}, selection, onRole() {}, onBack() {}}));
+  };
+  const tablet = await draw(false), chips = nodes(tablet).filter(node => node.type === 'Chip');
+  const select = find(tablet, 'person-select');
+  assert.equal(select.props.icon, 'i-check'); assert.equal(text(select), 'next.selection.select');
+  assert.equal(chips.indexOf(select), chips.findIndex(chip => chip.props.testID === 'person-role-all') - 1, 'Select leads the role chips');
+  select.props.onPress(); assert.equal(started, 1);
+  assert.equal(nodes(await draw(true)).some(node => node.props?.testID === 'person-select'), false);
+});
+
 test('Saved delayed initial skeleton retains its shape and adds the quiet line after eight seconds', async context => {
   const f = fixture(), cleanups: Array<() => void> = []; let effect = false;
   f.modules.react.useEffect = (run: () => () => void) => {if (!effect) {effect = true; cleanups.push(run());}};

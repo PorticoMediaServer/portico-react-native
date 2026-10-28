@@ -9,7 +9,7 @@ import {Button, Chip, Focusable} from '../../../kit/controls';
 import {SquareCard} from '../../../kit/cards';
 import {TrackRow, type TrackRowData, type TrackSelection} from '../../../kit/browse';
 import {SelectionCircle} from '../../../kit/selection';
-import type {NativePageSelection} from '../../search/selection';
+import type {NativeSelection} from '../../selection/native-selection';
 import {browseType} from '../../../kit/browse/presentation';
 import {FocusRegion} from '../../../kit/focus';
 import {useTheme} from '../../../kit/theme';
@@ -89,11 +89,11 @@ function songRow(entry: ContentEntry, index: number, runtime: NativeShellRuntime
     artwork: artwork ? <Artwork source={artwork} width={56} height={56} style={{borderRadius: 8, overflow: 'hidden'}}/> : undefined});
 }
 
-function TrackList({songs, runtime, controller, actions, selection, group = 'songs', playingId, variant, style, focusPrefix, onTail, onFocusRow, onBlurRow, offset = 0}: {songs: readonly ContentEntry[]; runtime: NativeShellRuntime; controller: NativeTVMusicController; actions: Actions; selection?: NativePageSelection; group?: string; playingId?: string; variant: 'album' | 'top-songs'; style?: React.ComponentProps<typeof View>['style']; focusPrefix?: string; onTail?: () => void; onFocusRow?: (entry: ContentEntry) => void; onBlurRow?: (entry: ContentEntry) => void; offset?: number}) {
+function TrackList({songs, runtime, controller, actions, selection, group = 'songs', playingId, variant, style, focusPrefix, onTail, onFocusRow, onBlurRow, offset = 0}: {songs: readonly ContentEntry[]; runtime: NativeShellRuntime; controller: NativeTVMusicController; actions: Actions; selection?: NativeSelection; group?: string; playingId?: string; variant: 'album' | 'top-songs'; style?: React.ComponentProps<typeof View>['style']; focusPrefix?: string; onTail?: () => void; onFocusRow?: (entry: ContentEntry) => void; onBlurRow?: (entry: ContentEntry) => void; offset?: number}) {
   useSyncExternalStore(selection?.subscribe ?? (() => () => {}), selection?.getSnapshot ?? (() => 0));
   const [focused, setFocused] = useState<number>();
   const run = (work: Promise<unknown>) => {void work.catch(runtime.reportError);};
-  const states = new Map(songs.map(song => [song.id, selection?.item(group, song)]));
+  const states = new Map(songs.map(song => [song.id, selection?.item(song, group)]));
   const select: TrackSelection = {active: [...states.values()].some(state => state?.active),
     isSelected: id => states.get(id)?.selected === true, onToggle: id => states.get(id)?.onToggle(), onEnter: id => states.get(id)?.onEnter(),
     renderControl: (row, selected) => <SelectionCircle selected={selected} selecting accessibilityLabel={row.text.title} variant="row" interactive={false}/>};
@@ -115,7 +115,7 @@ function AlbumCard({album, controller, runtime, actions, openEntry, width = 200,
 }
 
 /** tv-more6: the album page at ten feet. Header facts and track order are the server's; the queue is the album's own. */
-export function TVAlbumScreen({controller, entry, runtime, actions, openEntry, onPlaylist, selection}: {selection?: NativePageSelection; controller: NativeTVMusicController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void; onPlaylist?: () => void}) {
+export function TVAlbumScreen({controller, entry, runtime, actions, openEntry, onPlaylist, selection}: {selection?: NativeSelection; controller: NativeTVMusicController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void; onPlaylist?: () => void}) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot), playback = usePlayback(runtime), theme = useTheme();
   const playingId = playback?.playback.itemId;
   const art = runtime.artwork(entry.posterUrl);
@@ -165,7 +165,7 @@ export function TVAlbumScreen({controller, entry, runtime, actions, openEntry, o
 }
 
 /** tv-more8/9: the artist page, its circle cut from up to four covers, and the server's release lists. */
-export function TVArtistScreen({controller, entry, runtime, actions, openEntry, selection}: {selection?: NativePageSelection; controller: NativeTVMusicController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void}) {
+export function TVArtistScreen({controller, entry, runtime, actions, openEntry, selection}: {selection?: NativeSelection; controller: NativeTVMusicController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void}) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot), playback = usePlayback(runtime), theme = useTheme();
   const playingId = playback?.playback.itemId;
   const covers = snapshot.albums.flatMap(album => {const source = runtime.artwork(album.posterUrl); return source ? [source] : [];});

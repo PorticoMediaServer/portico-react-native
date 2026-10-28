@@ -9,7 +9,7 @@ import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeShellRoute} from '../../shell/routes';
 import {nativeShellRoutes, type NativeRouteRenderer} from '../../shell/route-registry';
-import {createNativePageSelection, type NativePageSelection} from '../search/selection';
+import {createNativeSelection, type NativeSelection} from '../selection/native-selection';
 import {createNativeEntryActions} from '../destinations/entry-actions';
 import {createNativePersonController, type NativePersonController, type NativePersonSnapshot} from './controller';
 import {createNativePersonCreditWindow, type NativePersonCreditWindow} from './credit-window';
@@ -19,7 +19,7 @@ import {authorityKey} from '../../shell/model';
 type PersonRoute = Extract<NativeShellRoute, {kind: 'person'}>;
 type Entry = {
   route: PersonRoute; focusScope: string; source: NativePersonController; key: number; stop: () => void;
-  snapshot?: NativePersonSnapshot; selection?: NativePageSelection; window?: NativePersonCreditWindow; actions?: ReturnType<typeof createNativeEntryActions>;
+  snapshot?: NativePersonSnapshot; selection?: NativeSelection; window?: NativePersonCreditWindow; actions?: ReturnType<typeof createNativeEntryActions>;
 };
 
 /** This handheld module owns one source/window for each actual retained Person
@@ -52,7 +52,7 @@ export function createNativePersonRenderer(context: NativeShellBootstrapContext)
           return () => stops.forEach(stop => stop());
         },
       });
-      entry.selection = createNativePageSelection(context, {
+      entry.selection = createNativeSelection(context, {
         current: () => !disposed && entry.source.activation.getSnapshot().visible,
         subscribe: listener => {const stops = [entry.source.subscribe(listener), window.collection.subscribe(listener)]; return () => stops.forEach(stop => stop());},
         getSnapshot: () => {
@@ -65,7 +65,7 @@ export function createNativePersonRenderer(context: NativeShellBootstrapContext)
             groups: [{id: 'known', status: 'success' as const, items: page?.person.knownFor ?? []},
               {id: 'credits', status: 'success' as const, positions: credits.map(credit => window.positionOf(credit)!), items: credits.map(credit => credit.media)}]};
         },
-      }, {aggregates: true, preserveEvicted: true});
+      }, {area: 'search', aggregates: true, preserveEvicted: true});
     }
   };
   const stops = [context.navigation.subscribe(reconcile), context.subscribeAuthority(reconcile)];

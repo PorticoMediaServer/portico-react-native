@@ -53,8 +53,8 @@ test('NM-ID-03: a failed Saved personal result keeps the same operation on Retry
     const {FocusProvider} = await import('../src-next/kit/focus/FocusRegion.tsx');
     const {ThemeProvider} = await import('../src-next/kit/theme.ts');
     const {Platform} = await import('react-native');
-    const {createNativeSavedSelection} = await import('../src-next/screens/saved/selection.tsx');
-    const {createNativeSearchSelection} = await import('../src-next/screens/search/selection.tsx');
+    const {createNativeSavedSelection} = await import('../src-next/screens/saved/selection.ts');
+    const {createNativeSearchSelection} = await import('../src-next/screens/search/selection.ts');
     const {selectionText} = await import('../src-next/kit/selection/copy.ts');
 
     let context: NativeShellBootstrapContext | undefined;
@@ -139,13 +139,13 @@ test('NM-ID-03: a failed Saved personal result keeps the same operation on Retry
       const searchSource = {subscribe: () => () => {}, getSnapshot: () => searchSourceSnapshot};
       const search = createNativeSearchSelection(booted, searchSource as unknown as NativeSearchDestination, activation);
       search.register(searchSnapshot as never, [result] as never);
-      const searchBefore = search.item(group, entry);
+      const searchBefore = search.item(entry, group);
       assert.ok(searchBefore, 'the registered Search surface exposes the exact result entry');
       searchBefore!.onEnter();
       await host.render(React.createElement(ThemeProvider, {width: 1920, children: React.createElement(FocusProvider, {registry, children:
         search.render(() => null)})}));
       await settle();
-      assert.equal(search.item(group, entry)?.selected, true, 'the real Search catalogue read and toggle selected the result');
+      assert.equal(search.item(entry, group)?.selected, true, 'the real Search catalogue read and toggle selected the result');
       const searchMyList = byLabel(selectionText('next.selection.native.action.myList'));
       assert.ok(searchMyList, 'the actual Search selection bar offers My List');
       press(searchMyList);

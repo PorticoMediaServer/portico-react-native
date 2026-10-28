@@ -124,12 +124,14 @@ test('a deliberately captured render failure keeps its own error while the fixtu
 
 test('standard index/App Home actions use restored authority, current documents and real registered controller lifetimes', async t => {
   const app = await standardHomeApp();
+  // Sessions the server started: a resumed Play starts one inside its queue
+  // request, an explicit start posts its own.
   const sessions = () =>
     app.receipts.filter(
       receipt =>
-        receipt.path === '/v1/playback/sessions' &&
         receipt.method === 'POST' &&
-        receipt.status === 201,
+        receipt.status === 201 &&
+        typeof receipt.sessionId === 'string',
     );
   const genericToast = () =>
     app
@@ -271,9 +273,20 @@ test('standard index/App Home actions use restored authority, current documents 
       },
     );
     await t.test(
-      'changed server Home fence retires the real authority and removes Home',
+      'changed server Home fence retires the real authority and removes Home once Home is shown again',
       async () => {
+        // The second session's player covers Home. A hidden Home waits rather
+        // than revalidating, so the fence change cannot retire it yet.
+        const reads = () => app.receipts.filter(receipt => receipt.path === '/v1/home').length;
+        const before = reads();
         await app.retireHome();
+        assert.equal(reads(), before, 'a Home covered by the player is not read');
+        assert.ok(app.hosts().some(host => host.props.testID === 'native-home'));
+        await app.tapLabel('Minimize player');
+        // The shown Home's owed read waits out the freshness gather (400 ms, plus jitter).
+        await realTimeout(700);
+        await app.settle();
+        assert.ok(reads() > before, 'collapsing the player revalidates the waiting Home');
         assert.equal(
           app.hosts().some(host => host.props.testID === 'native-home'),
           false,

@@ -5,7 +5,7 @@ import type {WindowedCollection} from '../../../../../packages/client-core/src/c
 import type {PersonCredit, PersonPage, PersonRole} from '../../../../../packages/client-core/src/people';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {AmbientArt, Artwork, PersonCircle} from '../../kit/artwork';
-import type {NativePageSelection} from '../search/selection';
+import type {NativeSelection} from '../selection/native-selection';
 import {PosterCard, type PosterCardProps} from '../../kit/cards';
 import {Chip, Focusable} from '../../kit/controls';
 import {Menu, type MenuEntry} from '../../kit/overlays';
@@ -20,7 +20,7 @@ import type {ContentEntry} from '../../../../../packages/client-core/src/library
 
 export type NativePersonScreenProps = Readonly<{
   focusScope: string; page: PersonPage; role: PersonRole; collection: WindowedCollection<PersonCredit>;
-  runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>; selection?: NativePageSelection;
+  runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>; selection?: NativeSelection;
   onRole: (role: PersonRole) => void; onBack: () => void;
 }>;
 const t = defaultI18n.t;
@@ -93,6 +93,7 @@ export function PersonScreen({focusScope, page, role, collection, runtime, actio
       <Text style={[browseType(theme, 14, 600), {color: theme.colors.textTertiary}]}>{t('web.person.titles', {count: page.pageInfo.total})}</Text>
     </View>
     <View style={{flexDirection: 'row', gap: 8, marginHorizontal: 20, marginBottom: 12}}>
+      {theme.platform !== 'phone' && selection?.start && <Chip testID="person-select" icon="i-check" onPress={() => selection.start?.()}>{t('next.selection.select')}</Chip>}
       {(['all', 'cast', 'crew'] as const).map(value => <Chip key={value} testID={`person-role-${value}`} selected={role === value} onPress={() => onRole(value)}>{t(value === 'all' ? 'title.creditsAll' : value === 'cast' ? 'web.person.cast' : 'web.person.crew')}</Chip>)}
     </View>
   </>;
@@ -125,7 +126,7 @@ export function PersonScreen({focusScope, page, role, collection, runtime, actio
  * All/Cast/Crew filter is drawn. */
 export function TVPerson({focusScope, page, role, collection, runtime, actions, selection, onRole, onBack}: {
   focusScope: string; page: PersonPage; role: PersonRole; collection: WindowedCollection<PersonCredit>;
-  runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>; selection?: NativePageSelection;
+  runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>; selection?: NativeSelection;
   onRole: (role: PersonRole) => void; onBack: () => void;
 }) {
   const theme = useTheme(), t = defaultI18n.t;
@@ -205,9 +206,9 @@ export function TVPerson({focusScope, page, role, collection, runtime, actions, 
 }
 
 function PersonEntryCard({entry, group, actions, selection, ...props}: Omit<PosterCardProps, 'primaryAction' | 'onPlay' | 'onNavigate' | 'onMore' | 'selection'> & {
-  entry: ContentEntry; group: 'known' | 'credits'; actions: ReturnType<typeof createNativeEntryActions>; selection?: NativePageSelection;
+  entry: ContentEntry; group: 'known' | 'credits'; actions: ReturnType<typeof createNativeEntryActions>; selection?: NativeSelection;
 }) {
-  const anchor = useRef<View>(null), pick = selection?.item(group, entry);
+  const anchor = useRef<View>(null), pick = selection?.item(entry, group);
   return <PosterCard {...props} menuAnchorRef={anchor} moreExpanded={actions.isMenuOpen?.(entry)} selection={pick}
     onNavigate={() => actions.open(entry)} onMore={() => actions.menu(entry, anchor, pick?.onEnter)}/>;
 }

@@ -53,7 +53,7 @@ export function TVSearchSection({group, destination, runtime, actions, selection
       paging={waitingId ? {hasMore: !!tailId, waitingId, waitingItem: {kind: 'tail', id: waitingId}, loading: !!paging?.loading, failed: !!paging?.error,
         fulfilled: paging?.fulfilled, requestNext: () => {if (paging?.error) retry(); else request();}} : undefined}
       renderItem={(cell, context) => <SearchGridCard entry={cell.kind === 'entry' ? cell.entry : undefined} group={group.id} width={cardWidth} runtime={runtime} actions={actions}
-        focusId={context.focusId} testID={context.testID} index={context.index} selection={cell.kind === 'entry' ? selection?.item(group.id, cell.entry) : undefined} disabled={!enabled} onFocus={() => {context.onFocus(); if (context.waiting) request();}} onBlur={context.onBlur}/>}/>
+        focusId={context.focusId} testID={context.testID} index={context.index} selection={cell.kind === 'entry' ? selection?.item(cell.entry, group.id) : undefined} disabled={!enabled} onFocus={() => {context.onFocus(); if (context.waiting) request();}} onBlur={context.onBlur}/>}/>
     </View>;
   }
   return <FocusRegion id={regionId} enabled={enabled} entry={items[0] && getKey(items[0])} orientation={items.length ? 'free' : 'vertical'}
@@ -65,7 +65,7 @@ export function TVSearchSection({group, destination, runtime, actions, selection
       scrollY={scrollY} viewportHeight={viewportHeight} coordinateRoot={contentRoot} initialWidth={width} layoutRevision={layoutRevision} onGeometry={geometry} style={{marginTop: 30}}
       renderItem={(cell, position) => <FocusItem focusId={getKey(cell)} cell={{index: position.index, pending: cell.kind === 'tail'}} waiting={cell.kind === 'tail' && !failure}>
         {cell.kind === 'entry' ? <SearchGridCard index={position.index} previousFocused={focusedIndex === position.index - 1} entry={cell.entry} group={group.id} width={cardWidth} runtime={runtime} actions={actions}
-          selection={selection?.item(group.id, cell.entry)} disabled={!enabled} onFocus={() => {setFocusedIndex(position.index); position.onFocus(); if (position.index >= group.items.length - columns) request();}}
+          selection={selection?.item(cell.entry, group.id)} disabled={!enabled} onFocus={() => {setFocusedIndex(position.index); position.onFocus(); if (position.index >= group.items.length - columns) request();}}
           onBlur={() => setFocusedIndex(current => current === position.index ? undefined : current)}/>
           : <Focusable focusId={cell.id} focusKind="card" disabled={!enabled || !!paging?.error && !paging.error.retryable} focusableWhenDisabled={!!paging?.error && !paging.error.retryable}
             accessibilityRole={failure ? 'button' : undefined} accessibilityLabel={typeof failure?.title === 'string' ? failure.title : defaultI18n.t('saved.loading')}

@@ -65,9 +65,9 @@ export function createNativeSearchActions(context: NativeShellBootstrapContext, 
     menu: (entry: SearchEntry, group: SearchGroup, anchor?: RefObject<View | null>) => {
       if (!media(entry) || !contains(entry, group)) return;
       const captured = source.getSnapshot().search.generation;
-      const select = selection?.item(group, entry);
+      const select = selection?.item(entry, group);
       borrowed?.menu(entry, anchor, select ? () => {
-        if (current() && source.getSnapshot().search.generation === captured && contains(entry, group)) selection?.item(group, entry)?.onEnter();
+        if (current() && source.getSnapshot().search.generation === captured && contains(entry, group)) selection?.item(entry, group)?.onEnter();
       } : undefined);
     },
     isMenuOpen: (entry, group) => media(entry) && contains(entry, group) && borrowed?.isMenuOpen(entry) === true,

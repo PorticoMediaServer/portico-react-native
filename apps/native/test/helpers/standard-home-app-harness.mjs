@@ -748,6 +748,13 @@ export async function standardHomeApp({
           method,
           status: response.status,
           errorCode: response.body?.error?.code,
+          // A resumed Play starts its session inside the queue request
+          // (startPlayback); an explicit start still posts its own session.
+          sessionId: response.status === 201
+            ? method === 'POST' && request.path === '/v1/playback/sessions'
+              ? response.body?.id
+              : response.body?.session?.id
+            : undefined,
         });
         return {
           status: response.status,

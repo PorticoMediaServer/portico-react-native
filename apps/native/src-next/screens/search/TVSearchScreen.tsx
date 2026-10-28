@@ -161,7 +161,7 @@ export function TVSearchScreen({focusScope, destination, runtime, activation, ex
               style={{flexDirection: 'row', alignItems: 'center', gap: 16, minHeight: 64}}><Icon name="i-clock" size={26} color={theme.colors.textTertiary}/><Text style={[browseType(theme, 24, 600), {color: theme.colors.textSecondary}]}>{recent.q}</Text></Focusable>)}</FocusRegion>}
         </>}
         {typed && !empty && !problem && top && <FocusRegion id={ids.searchTop} enabled={active.visible} entry={tvTopResultFocusId(top.group, top.entry)} stops={{right: true}}
-          edges={{left: keyboard, ...(chipsDrawn ? {up: ids.searchChips} : {}), ...(sections[0] ? {down: ids.searchSection(sections[0].id)} : {})}}><TVSearchTopResult entry={top.entry} group={top.group} runtime={runtime} actions={actions} selection={selection?.item(top.group, top.entry)} disabled={!active.visible}/></FocusRegion>}
+          edges={{left: keyboard, ...(chipsDrawn ? {up: ids.searchChips} : {}), ...(sections[0] ? {down: ids.searchSection(sections[0].id)} : {})}}><TVSearchTopResult entry={top.entry} group={top.group} runtime={runtime} actions={actions} selection={selection?.item(top.entry, top.group)} disabled={!active.visible}/></FocusRegion>}
         {sections.map((group, index) => <TVSearchSection key={group.id} group={group} destination={destination} runtime={runtime} actions={actions} selection={selection}
           enabled={active.visible} singleRow={state.group === 'all'} regionId={ids.searchSection(group.id)} keyboardRegion={keyboard}
           previousRegion={sections[index - 1] ? ids.searchSection(sections[index - 1]!.id) : top ? ids.searchTop : chipsDrawn ? ids.searchChips : undefined}

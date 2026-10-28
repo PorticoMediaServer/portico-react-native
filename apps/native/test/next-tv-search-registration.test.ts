@@ -92,7 +92,7 @@ async function setup() {
     readonly surface: string;
     constructor(options: ConstructorParameters<typeof NativeSearchExplore>[0]) {super(options); this.surface = options.surface;}
   }
-  const {createNativeSearchSelection} = await screenModule(new URL('../src-next/screens/search/selection.tsx', import.meta.url), {
+  const engine = await screenModule(new URL('../src-next/screens/selection/native-selection.tsx', import.meta.url), {
     react: hooks().react, 'react-native': {View: 'View', Text: 'Text'},
     'react-native-safe-area-context': {useSafeAreaInsets: unavailable},
     '../../../../../packages/i18n/src': {defaultI18n},
@@ -104,12 +104,14 @@ async function setup() {
       BulkEditor: 'BulkEditor', DeleteMediaDialog: 'DeleteMediaDialog'},
     '../../kit/theme': {useTheme: unavailable}, '../destinations/lifetime': {nativeDestinationLifetime},
     '../native-screen-services': {nativeScreenServices: () => ({requestId: unavailable, reportError: (error: unknown) => errors.push(error)})},
-    './model': {nativeSearchEntryKey},
-    // Search owns these real controllers; the picker dialog itself is a drawn host and
+    // The selection owner uses these real controllers; the picker dialog itself is a drawn host and
     // its own focus/identity coverage is next-shell-tv-overlay-ids.
-    './loaded-destinations': {NativeLoadedDestinations},
+    '../search/loaded-destinations': {NativeLoadedDestinations},
     '../destinations/bulk-media': {NativeBulkMedia},
     '../destinations/DestinationPicker': {NativeDestinationPicker: 'NativeDestinationPicker'},
+  });
+  const {createNativeSearchSelection} = await screenModule(new URL('../src-next/screens/search/selection.ts', import.meta.url), {
+    react: hooks().react, '../selection/native-selection': engine,
   });
   const registry = registryPort;
   // The reader's Search-all-books route is registered too; it is a TV-refused route,

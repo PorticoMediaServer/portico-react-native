@@ -26,7 +26,7 @@ async function fixture(browse = false, preserveEvicted = true) {
     snapshot() {return {busy: false};}
     dispose() {}
   }
-  const {createNativePageSelection} = await screenModule(new URL('../src-next/screens/search/selection.tsx', import.meta.url), {
+  const {createNativeSelection} = await screenModule(new URL('../src-next/screens/selection/native-selection.tsx', import.meta.url), {
     react: host.react, 'react-native': {Text: 'Text', View: 'View'}, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0})},
     '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},
     '../../../../../packages/client-core/src/selection-model': {SelectionModel, BrowseSelectionModel, selectionKey, browseSelectionKey, selectionFourthAction,
@@ -37,27 +37,44 @@ async function fixture(browse = false, preserveEvicted = true) {
     '../../kit/theme': {useTheme: () => ({isTV: true, layers: {navigation: 1}})}, '../../kit/overlays': {Dialog: 'Dialog'}, '../../kit/controls': {Button: 'Button'},
     '../../../../../packages/client-core/src/presentation/errors': {presentError: () => ({body: 'Failure'})}, '../../../../../packages/client-core/src/media-selection': {mediaSelectionKey: (entry: any) => entry.id},
     '../destinations/lifetime': {nativeDestinationLifetime}, '../native-screen-services': {nativeScreenServices: () => ({requestId: async () => 'operation', reportError: (error: unknown) => errors.push(error)})},
-    './loaded-destinations': {NativeLoadedDestinations: Destination}, '../destinations/DestinationPicker': {NativeDestinationPicker: 'Picker'}, '../destinations/bulk-media': {NativeBulkMedia: class {}}
+    '../search/loaded-destinations': {NativeLoadedDestinations: Destination}, '../destinations/DestinationPicker': {NativeDestinationPicker: 'Picker'}, '../destinations/bulk-media': {NativeBulkMedia: class {}}
   });
   const source = {current: () => visible, subscribe: (listener: () => void) => {sourceListeners.add(listener); return () => sourceListeners.delete(listener);}, getSnapshot: () => snapshot};
-  const selection = createNativePageSelection(context, source, {aggregates: true, preserveEvicted});
-  const bar = () => {const element = selection.render(() => null); return nodes(host.render(() => element.type(element.props))).find(node => node.type === 'SelectionBar');};
-  return {selection, bar, reads, played, destinations, errors, source, context, createNativePageSelection,
+  const selection = createNativeSelection(context, source, {area: 'search', aggregates: true, preserveEvicted});
+  // A covered page draws no selection chrome at all.
+  const bar = () => {const element = selection.render(() => null) as any; return element ? nodes(host.render(() => element.type(element.props))).find(node => node.type === 'SelectionBar') : undefined;};
+  return {selection, bar, reads, played, destinations, errors, source, context, createNativeSelection,
     snapshot: () => snapshot, update: (value: any) => {snapshot = value; sourceListeners.forEach(fn => fn());},
     cover: () => {visible = false; revision++; routeListeners.forEach(fn => fn()); sourceListeners.forEach(fn => fn());},
     gate: (value: Promise<void> | undefined) => {gate = value;}, close: () => selection.dispose()};
 }
 
+test('Select enters the page selection without a pick, refuses a stale witness and retires when the page is covered', async () => {
+  const f = await fixture();
+  try {
+    assert.equal(f.bar(), undefined);
+    f.selection.start!({stale: true}); assert.equal(f.bar(), undefined, 'a Select drawn from another page state does nothing');
+    f.selection.start!();
+    assert.equal(f.selection.item(movie, 'known')!.active, true);
+    assert.equal(f.bar().props.count, 0); assert.deepEqual(f.bar().props.actions, []);
+    f.selection.item(movie, 'known')!.onEnter(); await tick(); assert.equal(f.bar().props.count, 1);
+    f.bar().props.onCancel();
+    assert.equal(f.bar(), undefined); assert.equal(f.selection.item(movie, 'known')!.active, false);
+    f.selection.start!(); assert.equal(f.bar().props.count, 0);
+    f.cover(); assert.equal(f.bar(), undefined); assert.equal(f.selection.item(movie, 'known'), undefined);
+  } finally {f.close();}
+});
+
 test('Person known-for and credit aliases share one explicit pick and one destination entry', async () => {
   const f = await fixture();
   try {
-    f.selection.item('known', movie)!.onEnter(); await tick();
-    assert.equal(f.selection.item('credits', movie)!.selected, true);
+    f.selection.item(movie, 'known')!.onEnter(); await tick();
+    assert.equal(f.selection.item(movie, 'credits')!.selected, true);
     assert.equal(f.bar().props.count, 1); assert.equal(f.bar().props.onSelectAll, undefined);
     f.bar().props.onAction('collection'); await tick(); assert.deepEqual(f.destinations, [[movie]]);
-    f.selection.clear(); f.selection.item('credits', movie)!.onEnter(); await tick();
-    assert.equal(f.selection.item('known', movie)!.selected, true);
-    f.selection.item('known', movie)!.onToggle(); await tick(); assert.equal(f.bar(), undefined);
+    f.selection.clear(); f.selection.item(movie, 'credits')!.onEnter(); await tick();
+    assert.equal(f.selection.item(movie, 'known')!.selected, true);
+    f.selection.item(movie, 'known')!.onToggle(); await tick(); assert.equal(f.bar(), undefined);
     assert.equal(f.reads.length, 1, 'aliases reuse the same actual grant inside an unchanged producer context');
   } finally {f.close();}
 });
@@ -65,9 +82,9 @@ test('Person known-for and credit aliases share one explicit pick and one destin
 test('window eviction retains explicit picks but retires old row callbacks; a new revision retires selection', async () => {
   const f = await fixture();
   try {
-    const old = f.selection.item('known', movie)!; old.onEnter(); await tick();
+    const old = f.selection.item(movie, 'known')!; old.onEnter(); await tick();
     f.update({...f.snapshot(), groups: [{id: 'known', status: 'success', items: []}, {id: 'credits', status: 'success', items: []}]});
-    assert.equal(f.selection.item('known', movie), undefined); old.onToggle(); await tick();
+    assert.equal(f.selection.item(movie, 'known'), undefined); old.onToggle(); await tick();
     assert.equal(f.bar().props.count, 1); f.bar().props.onAction('play'); await tick();
     assert.deepEqual(f.played[0].map((item: any) => item.id), [movie.id]);
     const before = f.snapshot(); f.update({...before, context: {...before.context, revision: {catalogRevision: '13', viewerRevision: '7'}}, groups: [{id: 'known', status: 'success', items: [movie]}]});
@@ -78,9 +95,9 @@ test('window eviction retains explicit picks but retires old row callbacks; a ne
 test('covered pages abort pending grants and late answers cannot activate selection', async () => {
   const f = await fixture(); let release!: () => void;
   try {
-    f.gate(new Promise<void>(resolve => {release = resolve;})); f.selection.item('credits', movie)!.onEnter(); await tick();
+    f.gate(new Promise<void>(resolve => {release = resolve;})); f.selection.item(movie, 'credits')!.onEnter(); await tick();
     f.cover(); assert.equal(f.reads[0].lifetime.signal.aborted, true); release(); await tick();
-    assert.equal(f.bar(), undefined); assert.equal(f.selection.item('credits', movie), undefined); assert.deepEqual(f.played, []);
+    assert.equal(f.bar(), undefined); assert.equal(f.selection.item(movie, 'credits'), undefined); assert.deepEqual(f.played, []);
   } finally {f.close();}
 });
 
@@ -89,9 +106,9 @@ test('Browse selects real tracks without an entity privacy fence and aggregate g
   try {
     const show = {id: 'show', libraryId: 'tv', kind: 'show', title: 'Show'};
     f.update({...f.snapshot(), groups: [{id: 'songs', status: 'success', offset: 40, items: [song]}, {id: 'credits', status: 'success', items: [show]}]});
-    f.selection.item('songs', song)!.onEnter(); await tick(); assert.equal(f.bar().props.count, 1);
+    f.selection.item(song, 'songs')!.onEnter(); await tick(); assert.equal(f.bar().props.count, 1);
     assert.equal('privacyFence' in f.snapshot().context.scope, false); f.selection.clear();
-    f.selection.item('credits', show)!.onEnter(); await tick();
+    f.selection.item(show, 'credits')!.onEnter(); await tick();
     assert.deepEqual(f.reads.at(-1).ports, {play: true, queue: true});
     assert.equal(f.bar().props.actions.some((action: any) => ['collection', 'playlist', 'delete', 'edit', 'watched'].includes(action.id)), false);
   } finally {f.close();}
@@ -101,7 +118,7 @@ test('music Top and All songs keep separate real Browse contexts and only one ac
   const f = await fixture(true), h = hooks(), listeners = new Set<() => void>(); let current = true;
   const contexts: any[] = [];
   const {createNativeMusicSelection} = await screenModule(new URL('../src-next/screens/destinations/music/selection.tsx', import.meta.url), {
-    react: h.react, '../../search/selection': {createNativePageSelection: (context: any, source: any, options: any) => {contexts.push(source.getSnapshot().context); return f.createNativePageSelection(context, source, options);}}
+    react: h.react, '../../selection/native-selection': {createNativeSelection: (context: any, source: any, options: any) => {contexts.push(source.getSnapshot().context); return f.createNativeSelection(context, source, options);}}
   });
   const state = {songs: [song], allSongs: {songs: [song]}};
   const controller = {getSnapshot: () => state, contains: (entry: any) => current && entry === song,
@@ -111,12 +128,12 @@ test('music Top and All songs keep separate real Browse contexts and only one ac
   try {
     assert.deepEqual(contexts.map(value => value.revision), [{pageRevision: 'top-revision'}, {pageRevision: 'all-revision'}]);
     assert.ok(contexts.every(value => !('privacyFence' in value.scope)));
-    selection.item('songs', song)!.onEnter(); await tick();
-    assert.equal(selection.item('songs', song)!.selected, true); assert.equal(selection.item('all-songs', song)!.selected, false);
-    selection.item('all-songs', song)!.onEnter(); await tick();
-    assert.equal(selection.item('songs', song)!.selected, false); assert.equal(selection.item('all-songs', song)!.selected, true);
-    const old = selection.item('all-songs', song)!; current = false; listeners.forEach(fn => fn()); old.onToggle(); await tick();
-    assert.equal(selection.item('all-songs', song), undefined); assert.equal(f.reads.length, 2);
+    selection.item(song, 'songs')!.onEnter(); await tick();
+    assert.equal(selection.item(song, 'songs')!.selected, true); assert.equal(selection.item(song, 'all-songs')!.selected, false);
+    selection.item(song, 'all-songs')!.onEnter(); await tick();
+    assert.equal(selection.item(song, 'songs')!.selected, false); assert.equal(selection.item(song, 'all-songs')!.selected, true);
+    const old = selection.item(song, 'all-songs')!; current = false; listeners.forEach(fn => fn()); old.onToggle(); await tick();
+    assert.equal(selection.item(song, 'all-songs'), undefined); assert.equal(f.reads.length, 2);
   } finally {selection.dispose(); f.close();}
 });
 
@@ -125,9 +142,9 @@ test('sparse Person offsets retain evicted picks without colliding with compact 
   const f = await fixture(), later = {...movie, id: 'later-film'};
   try {
     f.update({...f.snapshot(), groups: [{id: 'credits', status: 'success', positions: [160], items: [movie]}]});
-    f.selection.item('credits', movie)!.onEnter(); await tick();
+    f.selection.item(movie, 'credits')!.onEnter(); await tick();
     f.update({...f.snapshot(), groups: [{id: 'credits', status: 'success', positions: [240], items: [later]}]});
-    f.selection.item('credits', later)!.onEnter(); await tick();
+    f.selection.item(later, 'credits')!.onEnter(); await tick();
     assert.equal(f.bar().props.count, 2); assert.deepEqual(f.errors, []);
     f.bar().props.onAction('play'); await tick();
     assert.deepEqual(f.played[0].map((item: any) => item.id), [movie.id, later.id]);
@@ -138,14 +155,14 @@ test('evicting an unselected early registration never reuses another live window
   const f = await fixture(), second = {...movie, id: 'second'}, third = {...movie, id: 'third'};
   try {
     f.update({...f.snapshot(), groups: [{id: 'credits', status: 'success', offset: 0, items: [movie, second]}]});
-    f.selection.item('credits', movie)!.onEnter(); await tick();
-    f.selection.item('credits', second)!.onEnter(); await tick();
-    f.selection.item('credits', movie)!.onToggle(); await tick();
+    f.selection.item(movie, 'credits')!.onEnter(); await tick();
+    f.selection.item(second, 'credits')!.onEnter(); await tick();
+    f.selection.item(movie, 'credits')!.onToggle(); await tick();
     f.update({...f.snapshot(), groups: [{id: 'credits', status: 'success', offset: 1, items: [second, third]}]});
-    f.selection.item('credits', third)!.onEnter(); await tick();
+    f.selection.item(third, 'credits')!.onEnter(); await tick();
     assert.equal(f.bar().props.count, 2);
-    f.selection.item('credits', second)!.onToggle(); await tick();
-    assert.equal(f.bar().props.count, 1); assert.equal(f.selection.item('credits', third)!.selected, true);
+    f.selection.item(second, 'credits')!.onToggle(); await tick();
+    assert.equal(f.bar().props.count, 1); assert.equal(f.selection.item(third, 'credits')!.selected, true);
     assert.deepEqual(f.errors, []);
   } finally {f.close();}
 });
@@ -153,8 +170,8 @@ test('evicting an unselected early registration never reuses another live window
 test('ordinary Search membership loss still retires explicit picks under the same page token', async () => {
   const f = await fixture(false, false);
   try {
-    f.selection.item('known', movie)!.onEnter(); await tick();
+    f.selection.item(movie, 'known')!.onEnter(); await tick();
     f.update({...f.snapshot(), groups: [{id: 'known', status: 'error', items: []}]});
-    assert.equal(f.bar(), undefined); assert.equal(f.selection.item('known', movie), undefined);
+    assert.equal(f.bar(), undefined); assert.equal(f.selection.item(movie, 'known'), undefined);
   } finally {f.close();}
 });

@@ -386,7 +386,7 @@ test('the renderer keeps one page per exact route object and navigation revision
   '../../watch/download-request':{nativeDownloadRequest:()=>undefined},
   '../../downloads/request':{askNativeDownload:()=>{}},
   '../../native-screen-services':{nativeScreenServices:()=>({requestId:async()=> '00000000-0000-4000-8000-000000000001'})},
-  '../../saved/selection':{createNativeCatalogueSelection:()=>({render:()=>null,dispose(){}})},
+  '../../selection/native-selection':{catalogueSelectionSource:(source:unknown)=>source,createNativeSelection:()=>({render:()=>null,dispose(){}})},
  });
  const viewer={serverId:'server',authority:'local',accountId:'account',profileId:'profile'};
  const routeA={kind:'music',entry:artistEntry},routeB={kind:'music',entry:artistEntry};
@@ -453,7 +453,7 @@ test('a non-TV album mounts its own picker outlet once beside the page',async()=
   '../../watch/download-request':{nativeDownloadRequest:()=>undefined},
   '../../downloads/request':{askNativeDownload:()=>{}},
   '../../native-screen-services':{nativeScreenServices:()=>({requestId:async()=> '00000000-0000-4000-8000-000000000001'})},
-  '../../saved/selection':{createNativeCatalogueSelection:()=>({render:()=>null,dispose(){}})},
+  '../../selection/native-selection':{catalogueSelectionSource:(source:unknown)=>source,createNativeSelection:()=>({render:()=>null,dispose(){}})},
  });
  const viewer={serverId:'server',authority:'local',accountId:'account',profileId:'profile'};
  const route={kind:'music',entry:{...albumEntry,id:'album-1',kind:'album'}};
