@@ -47,8 +47,12 @@ jobs:
           if command -v go >/dev/null 2>&1; then echo "$(go version) (not used by this job)"; else echo "go unavailable (not used by this job)"; fi
       - run: node scripts/shared-packages.mjs --check
         working-directory: portico-react-native
-      - name: Selection and test-runner regressions
-        run: python3 scripts/test-ci-affected.py
+      - name: Selection, test-runner and platform-inventory regressions
+        run: |
+          status=0
+          python3 scripts/test-ci-affected.py || status=1
+          python3 scripts/test-platform-tests.py || status=1
+          exit "$status"
         working-directory: portico-react-native
       - id: native-deps
         run: npm ci --no-audit --no-fund --legacy-peer-deps
@@ -130,6 +134,36 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  android-tests:
+    if: ${{ !inputs.apple_reading_commit }}
+    uses: ./.github/workflows/android-tests.yml
+
+  # The Vega app's own checks. Its package build needs Amazon's Vega SDK, which these runners do
+  # not have; type checks, tests and strings need only its npm packages.
+  vega:
+    if: ${{ !inputs.apple_reading_commit }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: {node-version-file: .node-version, cache: npm, cache-dependency-path: apps/vega/package-lock.json}
+      - id: vega-deps
+        run: npm ci --no-audit --no-fund --legacy-peer-deps
+        working-directory: apps/vega
+      - if: ${{ !cancelled() && steps.vega-deps.outcome == 'success' }}
+        run: npm run typecheck
+        working-directory: apps/vega
+      - if: ${{ !cancelled() && steps.vega-deps.outcome == 'success' }}
+        run: npm run typecheck:test
+        working-directory: apps/vega
+      - if: ${{ !cancelled() && steps.vega-deps.outcome == 'success' }}
+        run: npm run lint:strings
+        working-directory: apps/vega
+      - if: ${{ !cancelled() && steps.vega-deps.outcome == 'success' }}
+        run: npm test
+        working-directory: apps/vega
+
   apple-contracts:
     runs-on: macos-15
     timeout-minutes: 40
@@ -175,22 +209,20 @@ jobs:
           PORTICO_APPLE_TEST_OUT_DIR: ${{ runner.temp }}/apple-reading
           CI: '1'
         run: bash apps/native/scripts/check-apple-reading-stream.sh
-      - name: Public Foundation-only Reading and playback tests
+      - name: Complete Apple test inventory
         if: ${{ !inputs.apple_reading_commit }}
-        run: |
-          set -euo pipefail
-          for name in apple-presentation-readiness apple-subtitle-offset apple-subtitle-payload; do
-            xcrun clang -fobjc-arc -fblocks -framework Foundation -framework AVFoundation "apps/native/test/${name}-tests.m" -o "$RUNNER_TEMP/$name"
-            "$RUNNER_TEMP/$name"
-          done
-          xcrun clang -fobjc-arc -fblocks -framework Foundation -framework CoreVideo apps/native/test/apple-playback-observation-tests.m -o "$RUNNER_TEMP/apple-playback-observation"
-          "$RUNNER_TEMP/apple-playback-observation"
+        run: python3 scripts/platform-tests.py inventory
+      - name: Manifest-listed Foundation tests
+        if: ${{ !inputs.apple_reading_commit }}
+        run: python3 scripts/platform-tests.py foundation --output "$RUNNER_TEMP/apple-foundation"
       - name: Retain full diagnostics
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ci-${{ github.job }}-${{ strategy.job-index || '0' }}
           path: |
+            ${{ runner.temp }}/apple-foundation/**
+            ${{ runner.temp }}/apple-reading/**
             ${{ runner.temp }}/full-ci.log
             ${{ runner.temp }}/go-build.log
             ${{ runner.temp }}/types*.log
@@ -201,7 +233,7 @@ jobs:
   # Keep the existing branch-protection context, backed by every real shard.
   javascript:
     if: ${{ always() && !inputs.apple_reading_commit }}
-    needs: [javascript-checks, javascript-tests]
+    needs: [javascript-checks, javascript-tests, android-tests, vega]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

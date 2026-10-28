@@ -27,7 +27,25 @@ import org.json.JSONObject
  *
  * Main thread only.
  */
-internal class PorticoSubtitleSelection {
+internal class PorticoSubtitleSelection(
+  private val elapsedRealtime: () -> Long = { SystemClock.elapsedRealtime() },
+  private val main: Scheduler = MainScheduler(),
+  private val calls: Call.Factory? = null,
+) {
+  /** The owner still runs on the main thread; tests control only dispatch and elapsed time. */
+  internal interface Scheduler {
+    fun post(action: Runnable)
+    fun postDelayed(action: Runnable, delayMs: Long)
+    fun removeCallbacks(action: Runnable)
+  }
+
+  private class MainScheduler : Scheduler {
+    private val handler = Handler(Looper.getMainLooper())
+    override fun post(action: Runnable) { handler.post(action) }
+    override fun postDelayed(action: Runnable, delayMs: Long) { handler.postDelayed(action, delayMs) }
+    override fun removeCallbacks(action: Runnable) { handler.removeCallbacks(action) }
+  }
+
   class Cue(val start: Long, val end: Long, val text: String, val italic: Boolean, val top: Boolean)
   data class Display(val text: String, val italic: Boolean, val top: Boolean)
 
@@ -43,7 +61,6 @@ internal class PorticoSubtitleSelection {
   /** A track is chosen, so the app is drawing text over the picture. */
   val overlayActive: Boolean get() = command != null
 
-  private val main = Handler(Looper.getMainLooper())
   private var command: Map<String, Any?>? = null
   private var url: Uri? = null
   private var cues: List<Cue>? = null
@@ -161,7 +178,7 @@ internal class PorticoSubtitleSelection {
     if (timer == null) {
       val tick = object : Runnable {
         override fun run() {
-          val now = SystemClock.elapsedRealtime()
+          val now = elapsedRealtime()
           if (now > authorizedUntil) show("")
           if (call == null && now - lastRequest >= 25_000) fetch()
           main.postDelayed(this, 1000)
@@ -202,13 +219,13 @@ internal class PorticoSubtitleSelection {
     if (local) return
     val target = url ?: return
     if (call != null) return
-    lastRequest = SystemClock.elapsedRealtime()
+    lastRequest = elapsedRealtime()
     val request = Request.Builder().url(target.toString()).header("Accept", "application/json")
     // The validator of the document already held, so "still authorised, unchanged" is one header.
     val validator = etag
     if (!validator.isNullOrEmpty() && cues != null) request.header("If-None-Match", validator)
     val attempt = generation
-    val started = client.newCall(request.build())
+    val started = (calls ?: client).newCall(request.build())
     call = started
     started.enqueue(object : Callback {
       override fun onFailure(call: Call, e: IOException) { main.post { finished(attempt, started, null) } }
@@ -251,7 +268,7 @@ internal class PorticoSubtitleSelection {
     call = null
     if (answer == null || answer.transient) {
       // Retry in five seconds, while a previous grant may still authorize the held cues.
-      lastRequest = SystemClock.elapsedRealtime() - 20_000
+      lastRequest = elapsedRealtime() - 20_000
       // Keep the previous grant's deadline: a failed check cannot extend authorization.
       tick(positionUs)
       status("Subtitles could not be read. Check the server connection.")
@@ -259,7 +276,7 @@ internal class PorticoSubtitleSelection {
     }
     // 304 is the server saying: checked in full, still yours, unchanged.
     if (answer.code == 304 && !etag.isNullOrEmpty() && cues != null) {
-      authorizedUntil = SystemClock.elapsedRealtime() + 40_000
+      authorizedUntil = elapsedRealtime() + 40_000
       status("")
       tick(positionUs)
       return
@@ -284,7 +301,7 @@ internal class PorticoSubtitleSelection {
     cues = parsed
     var maxEnd = 0L
     prefixEnds = LongArray(parsed.size) { index -> maxOf(maxEnd, parsed[index].end).also { maxEnd = it } }
-    authorizedUntil = SystemClock.elapsedRealtime() + 40_000
+    authorizedUntil = elapsedRealtime() + 40_000
     status("")
     tick(positionUs)
   }
@@ -316,7 +333,7 @@ internal class PorticoSubtitleSelection {
   fun tick(positionUs: Long) {
     this.positionUs = positionUs
     val list = cues
-    if (command == null || list == null || SystemClock.elapsedRealtime() > authorizedUntil) { show(""); return }
+    if (command == null || list == null || elapsedRealtime() > authorizedUntil) { show(""); return }
     val now = positionUs - offsetUs
     var low = 0
     var high = list.size

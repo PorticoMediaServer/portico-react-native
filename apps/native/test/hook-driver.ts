@@ -1,23 +1,13 @@
 /**
- * A dependency-free driver for exercising this app's React hooks under
- * `node:test`.
+ * A small callback driver for tests that do not make lifecycle claims.
  *
- * The Apple app has no renderer installed: `react-test-renderer` is deprecated
- * in React 19, and adding it forces a peer-dependency override across the whole
- * app tree. React 19's public hook exports are thin wrappers that delegate to
- * `resolveDispatcher()`, so installing a dispatcher runs the real, unmodified
- * hook implementation without a reconciler.
- *
- * What this driver reproduces faithfully, because the hooks under test depend
- * on it: hook identity by call order, refs surviving renders, state updates
- * scheduling a re-render, external-store listeners firing in subscription order
- * before any re-render, and the effect contract — an effect's cleanup runs
- * before its replacement and again at unmount, after the render that scheduled
- * it has finished.
- *
- * What it deliberately does not reproduce: concurrent rendering, suspense,
- * transitions, priority or partial re-render. A result here is evidence about
- * the hook's own ownership and fencing logic, not about React's scheduler.
+ * This is not a React reconciler. Setters/dispatchers are recreated, layout and
+ * passive effects share a phase, and external stores subscribe during render.
+ * Its manual replay is not StrictMode. Use helpers/fabric-host.mjs for ownership,
+ * effect ordering, subscription races, keyed identity and unmount behavior.
+ * Keep this driver only for calculations/callbacks whose assertions do not rely
+ * on those semantics; changing it into another reconciler would obscure the
+ * actual lifecycle boundary.
  */
 
 import * as React from 'react';
@@ -215,8 +205,7 @@ class HookHost {
     this.pending = [];
   }
 
-  /** React's development StrictMode replay: every mounted effect's cleanup runs, then its
-   * same setup runs again without a new render or fresh state. */
+  /** Manual callback replay only; this does not model React StrictMode. */
   replay() {
     if (!this.mounted) throw new Error('hook-driver: not mounted');
     const effects = this.cells.filter((cell): cell is EffectCell =>
@@ -242,8 +231,7 @@ export function createHookHost(body: () => void) {
 
 /**
  * Runs `work`, then settles every mounted host: repeatedly drains the
- * microtask queue and re-renders until no host has pending work. Matching
- * React's `act`, nothing is asserted until the tree is quiet.
+ * microtask queue and re-renders until no host has pending work. This flushes only this driver; real lifecycle tests use Fabric settlement.
  */
 export async function act(work: () => void | Promise<void>): Promise<void> {
   await work();

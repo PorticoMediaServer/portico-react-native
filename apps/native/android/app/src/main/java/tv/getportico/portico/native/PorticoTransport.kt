@@ -117,6 +117,10 @@ internal object PorticoTransport {
     null
   }
 
+  /** The selected production policy is also exercised by the JVM transport tests. */
+  internal fun clientFor(request: Request, streaming: Boolean = false): OkHttpClient =
+      if (streaming) streamClient else if (request.method !in setOf("GET", "HEAD")) writeClient else client
+
   /** Admits a request: start it, queue it, or refuse it when 76 are already pending. */
   fun submit(owner: Any, identifier: String, request: Request, limit: Long, domain: String, busy: String, promise: Promise, binary: Boolean = false, streaming: Boolean = false) {
     val critical = request.method !in setOf("GET", "HEAD")
@@ -129,8 +133,7 @@ internal object PorticoTransport {
         return
       }
       entries[identifier] = entry
-      val transport = if (streaming) streamClient else if (critical) writeClient else client
-      call = transport.newCall(request)
+      call = clientFor(request, streaming).newCall(request)
       entry.call = call
       entry.deadline = deadlines.schedule({ finish(entry, "The request took too long.", null, TIMEOUT) }, 15, TimeUnit.SECONDS)
     }

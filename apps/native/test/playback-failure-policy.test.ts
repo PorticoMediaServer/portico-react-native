@@ -4,9 +4,11 @@ import {readFileSync} from 'node:fs';
 
 const source = (path: string) => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
 
-// Native SDKs are unavailable here. These guards check the reporting boundary, not device playback.
+// Structural guards only; Android emitted classification is executed by PorticoPlaybackFailuresTest.
+// Apple classification still requires an executable native-owner test (AUD-test-quality-N03).
 test('generic engine classes are not used to learn native incompatibilities', () => {
-  const android = source('android/app/src/main/java/tv/getportico/portico/native/PorticoPlaybackController.kt');
+  const android = source('android/app/src/main/java/tv/getportico/portico/native/PorticoPlaybackController.kt') +
+    source('android/app/src/main/java/tv/getportico/portico/native/PorticoPlaybackFailures.kt');
   const apple = source('Native/PorticoPlaybackController.m');
   assert.doesNotMatch(android, /else -> "engine_error"/);
   assert.doesNotMatch(apple, /NSString \*engine=@"engine_error"/);
@@ -14,7 +16,8 @@ test('generic engine classes are not used to learn native incompatibilities', ()
 });
 
 test('transport failures take precedence over decoder evidence on both platforms', () => {
-  const android = source('android/app/src/main/java/tv/getportico/portico/native/PorticoPlaybackController.kt');
+  const android = source('android/app/src/main/java/tv/getportico/portico/native/PorticoPlaybackController.kt') +
+    source('android/app/src/main/java/tv/getportico/portico/native/PorticoPlaybackFailures.kt');
   for (const code of ['IO_UNSPECIFIED', 'IO_BAD_HTTP_STATUS', 'IO_INVALID_HTTP_CONTENT_TYPE', 'IO_FILE_NOT_FOUND', 'IO_NO_PERMISSION', 'IO_CLEARTEXT_NOT_PERMITTED', 'IO_READ_POSITION_OUT_OF_RANGE']) {
     assert.match(android, new RegExp('PlaybackException.ERROR_CODE_' + code));
   }
@@ -27,7 +30,8 @@ test('transport failures take precedence over decoder evidence on both platforms
 });
 
 test('native startup and wrapped HTTP evidence reaches the shared failure policy', () => {
-  const android = source('android/app/src/main/java/tv/getportico/portico/native/PorticoPlaybackController.kt');
+  const android = source('android/app/src/main/java/tv/getportico/portico/native/PorticoPlaybackController.kt') +
+    source('android/app/src/main/java/tv/getportico/portico/native/PorticoPlaybackFailures.kt');
   const apple = source('Native/PorticoPlaybackController.m');
   assert.match(android, /HttpDataSource.InvalidResponseCodeException/);
   assert.match(android, /fact\["hasPlayed"\] = hasPlayed/);
@@ -65,8 +69,9 @@ test('the Apple error log is evidence only when fresh and when the engine named 
 });
 
 test('both runtimes mark a failure that is not about the media, so start-up does not report it', () => {
-  const android = source('android/app/src/main/java/tv/getportico/portico/native/PorticoPlaybackController.kt');
-  assert.match(android, /fact\["uncertain"\] = !network && !delivery && engine\.isEmpty\(\) && error\.errorCode in UNCERTAIN_ERRORS/);
+  const android = source('android/app/src/main/java/tv/getportico/portico/native/PorticoPlaybackController.kt') +
+    source('android/app/src/main/java/tv/getportico/portico/native/PorticoPlaybackFailures.kt');
+  assert.match(android, /fact\["uncertain"\] = !network && !delivery && engine\.isEmpty\(\) && errorCode in UNCERTAIN_ERRORS/);
   const uncertain = android.match(/UNCERTAIN_ERRORS = setOf\(([\s\S]*?)\)/)?.[1];
   assert.ok(uncertain);
   assert.deepEqual([...uncertain.matchAll(/PlaybackException\.ERROR_CODE_([A-Z_]+)/g)].map(m => m[1]), [

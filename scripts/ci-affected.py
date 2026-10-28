@@ -23,6 +23,7 @@ import test_watchdog
 
 ROOT = Path(__file__).resolve().parents[1]
 TEST = re.compile(r"^func (Test[A-Z]\w*)\(", re.M)
+JS_TEST = re.compile(r"\.test\.(?:[cm]?js|tsx?)$")
 
 # Per-command bound. This is a hang guard for one suite invocation, not a scope
 # filter or a test deadline: the full-tree and mandatory security commands stay
@@ -48,9 +49,9 @@ _VERSION_CACHE = None
 # Test trees this campaign deliberately does not run. They are excluded before
 # selection, so the reported selection is the eligible set rather than a number
 # that silently loses files on the way to execution. Each tree keeps its own
-# workflow: the nightly vega job runs apps/vega unchanged.
+# workflow: dedicated hourly and checkpoint Vega jobs run its portable checks.
 EXCLUDED_TREES = {
-    "apps/vega/": "Vega needs Amazon's SDK; the nightly vega job runs it unchanged",
+    "apps/vega/": "Vega portable checks run in the dedicated hourly/checkpoint job; only packaging needs the SDK",
 }
 
 MANDATORY_TESTS = {
@@ -324,7 +325,7 @@ def js_plan(paths, native=False, excluded=None):
         if not more:
             break
         impacted.update(more)
-    tests = {p for p in impacted if re.search(r"\.test\.(?:[cm]?js|tsx?)$", str(p)) and p.is_file()}
+    tests = {p for p in impacted if JS_TEST.search(str(p)) and p.is_file()}
     for name in MANDATORY_TESTS[bool(native)]:
         if not (ROOT / name).is_file():
             raise RuntimeError("missing mandatory security test: " + name)
@@ -679,14 +680,13 @@ CHECKPOINT_DIR = "apps/native/test"
 def checkpoint_selection():
     """Exactly the retired and mounted Native test files the checkpoint runs.
 
-    The checkpoint used to hand both sets to one whole-glob node invocation. The
-    same two sets are selected here explicitly — the test directory itself only,
-    retired files (not `next-*`) and mounted files (`next-*`) — so the per-file
-    supervisor can run them without adding or dropping a file.
+    Recursively select every extension admitted by the hourly selector, retaining
+    the retired/mounted split only for reporting. A nested or MJS regression must
+    not disappear merely because the checkpoint used to use a top-level TS glob.
     """
     names = [name for name in git("ls-files", "--", CHECKPOINT_DIR)
-             if Path(name).parent.as_posix() == CHECKPOINT_DIR
-             and name.endswith(".test.ts")]
+             if Path(name).is_relative_to(CHECKPOINT_DIR)
+             and JS_TEST.search(name)]
     retired = sorted(name for name in names if not Path(name).name.startswith("next-"))
     mounted = sorted(name for name in names if Path(name).name.startswith("next-"))
     if not retired or not mounted:
@@ -707,7 +707,7 @@ def checkpoint_checks():
 
     One process per file, with the per-test limit, the per-file watchdog and the
     exit grace: a hung or leaked checkpoint file is named instead of hiding every
-    later file behind one suite-wide timeout. The selection itself is unchanged.
+    later file behind one suite-wide timeout.
     """
     print_versions()
     retired, mounted = checkpoint_selection()

@@ -72,18 +72,9 @@ test('a confirmed reset reports whether anything was removed, and a failed one r
   assert.equal(await restartApp(), false);
 }));
 
-test('Android reports a lost key without removing anything, and resets only when asked', () => {
-  const store = source('android/app/src/main/java/tv/getportico/portico/native/PorticoRecordStore.kt');
-  // Before Android 12 a missing key with records present is reported, never acted on.
-  assert.match(store, /if \(Build\.VERSION\.SDK_INT < Build\.VERSION_CODES\.S\) throw RecordKeyLostException\(\)/);
-  assert.match(store, /catch \(e: UnrecoverableKeyException\) \{ if \(hasRecords\(\)\) throw RecordKeyLostException\(\) else throw e \}/);
-  const confirmed = store.slice(store.indexOf('fun resetAfterConfirmation'), store.indexOf('fun <T> transaction'));
-  // The key is looked at again before anything is removed; a key that answers removes nothing.
-  assert.ok(confirmed.indexOf('if (!keyLost())') > 0 && confirmed.indexOf('if (!keyLost())') < confirmed.lastIndexOf('resetLostRecords()'));
-  assert.match(confirmed, /if \(!keyLost\(\)\) \{ keyChecked = true; return false \}/);
-  // Deciding the key is lost never swallows an unknown failure.
-  const lostCheck = confirmed.slice(confirmed.indexOf('private fun keyLost'));
-  assert.doesNotMatch(lostCheck, /catch \(_?:? ?(?:e: )?Exception\)/);
+test('Android maps a lost key to its own error and exposes reset and restart', () => {
+  // The record store's key-loss, confirmation and no-erase rules run as JVM
+  // tests in android/app/src/test/.../PorticoRecordStoreTest.kt.
   const runtimeSource = source('android/app/src/main/java/tv/getportico/portico/native/PorticoRuntime.kt');
   assert.match(runtimeSource, /catch \(_: RecordKeyLostException\) \{ promise\.reject\("secure_records_key_lost"/);
   assert.match(runtimeSource, /fun resetSecureRecords\(promise: Promise\)/);

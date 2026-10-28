@@ -210,6 +210,10 @@ dependencies {
     // JVM unit tests of the logic that needs no device (app/src/test): never in the app.
     //   ./gradlew :app:testGoogleDebugUnitTest
     testImplementation("junit:junit:4.13.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("com.squareup.okhttp3:okhttp-tls:4.12.0")
+    // Real Android URI/JSON behavior for the subtitle owner's deterministic HTTP/clock tests.
+    testImplementation("org.robolectric:robolectric:4.14.1")
 }
 
 // Open-source licences (Settings › About). apps/native/licences/android-<flavour>.txt pin each

@@ -2,7 +2,6 @@ package tv.getportico.portico.native
 
 import android.content.Context
 import android.content.pm.PackageManager
-import android.util.Base64
 import com.facebook.react.modules.network.OkHttpClientProvider
 import java.net.Socket
 import java.security.KeyStore
@@ -23,6 +22,7 @@ import javax.net.ssl.X509ExtendedTrustManager
 import javax.net.ssl.X509TrustManager
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
+import okio.ByteString.Companion.toByteString
 
 /**
  * The owner's own certificate. A Portico server may present a certificate no public authority
@@ -199,7 +199,7 @@ internal object PorticoServerTrust {
   }
 
   fun fingerprint(certificate: X509Certificate): String =
-      Base64.encodeToString(MessageDigest.getInstance("SHA-256").digest(certificate.encoded), Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+      MessageDigest.getInstance("SHA-256").digest(certificate.encoded).toByteString().base64Url().trimEnd('=')
 
   private fun pinnedAt(key: String?, certificate: X509Certificate?): Boolean {
     if (key == null || certificate == null || key == accountKey) return false

@@ -1521,31 +1521,16 @@ internal class PorticoPlaybackController(private val context: Context) {
   private fun publishFailure(error: PlaybackException) {
     val httpStatus = generateSequence<Throwable>(error) { it.cause }.take(4)
         .filterIsInstance<HttpDataSource.InvalidResponseCodeException>().firstOrNull()?.responseCode ?: 0
-    val delivery = httpStatus >= 400 || error.errorCode in DELIVERY_ERRORS
-    val network = if (httpStatus >= 400) httpStatus in 500..599 || httpStatus == 408 || httpStatus == 429
-        else error.errorCode in NETWORK_ERRORS
-    val engine = when (error.errorCode) {
-      in DECODE_ERRORS -> "decode_error"
-      in SOURCE_ERRORS -> "source_not_supported"
-      else -> ""
-    }
     val position = if (routeResume || routeFailed) routePosition else sourcePosition()
-    val fact = HashMap<String, Any?>()
+    val fact = PorticoPlaybackFailures.classify(error.errorCode, httpStatus)
     fact["instanceId"] = instanceId
     fact["type"] = "error"
     fact["intentId"] = intentId.toDouble()
     fact["position"] = if (position.isFinite()) position else 0.0
     fact["paused"] = true
-    fact["networkError"] = network
-    fact["deliveryError"] = delivery
-    fact["httpStatus"] = httpStatus
     fact["hasPlayed"] = hasPlayed
-    // A time-out, or a failure in another process, says nothing about the media: at start-up it
-    // must not be taken for an incompatibility (the Apple runtime marks its interruptions too).
-    fact["uncertain"] = !network && !delivery && engine.isEmpty() && error.errorCode in UNCERTAIN_ERRORS
-    fact["engineCode"] = if (network || delivery) "" else engine
     fact["errorDetail"] = "media3 ${error.errorCode} ${error.errorCodeName}" + (error.cause?.let { " / ${it.javaClass.simpleName}" } ?: "")
-    fact["error"] = if (network) "The media connection was interrupted. Verifying another route." else "This media could not be played. Check its format or try again."
+    fact["error"] = if (fact["networkError"] == true) "The media connection was interrupted. Verifying another route." else "This media could not be played. Check its format or try again."
     fact.putAll(rateFacts())
     publish(fact)
   }
@@ -1571,25 +1556,6 @@ internal class PorticoPlaybackController(private val context: Context) {
     // 2.5x and 3x are for audiobooks (the menu offers them only there), as on web.
     private val RATES = listOf(0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0)
     private val LINEAR_RATES = listOf(1.0)
-    private val NETWORK_ERRORS = setOf(
-        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
-        PlaybackException.ERROR_CODE_IO_UNSPECIFIED)
-    private val DELIVERY_ERRORS = setOf(
-        PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW, PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
-        PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE, PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
-        PlaybackException.ERROR_CODE_IO_NO_PERMISSION, PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED,
-        PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE)
-    private val DECODE_ERRORS = setOf(
-        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED, PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
-        PlaybackException.ERROR_CODE_DECODING_FAILED, PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
-        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED)
-    private val SOURCE_ERRORS = setOf(
-        PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED, PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
-        PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED, PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED)
-    private val UNCERTAIN_ERRORS = setOf(
-        PlaybackException.ERROR_CODE_TIMEOUT, PlaybackException.ERROR_CODE_REMOTE_ERROR,
-        PlaybackException.ERROR_CODE_DECODING_RESOURCES_RECLAIMED,
-        PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED, PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED)
 
     /** The app's one playback controller, for the player view and the system media surfaces. */
     @Volatile var shared: PorticoPlaybackController? = null

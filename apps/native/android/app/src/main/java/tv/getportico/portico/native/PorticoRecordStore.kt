@@ -47,7 +47,10 @@ internal class RecordKeyLostException : IllegalStateException("The record key is
  * Every operation holds the store's lock, and [transaction] holds it across a read-modify-write,
  * the guarantee the Apple runtime gives by serialising on its class.
  */
-internal class PorticoRecordStore private constructor(private val root: File) {
+internal class PorticoRecordStore(
+    private val root: File,
+    private val environment: Environment = Environment(),
+) {
 
   private val resetPending = File(root.parentFile, root.name + ".key-loss-pending")
   private var keyChecked = false
@@ -58,7 +61,7 @@ internal class PorticoRecordStore private constructor(private val root: File) {
     recoverLostKey()
     verifyKey(checkNotNull(key(create = true)))
     if (!resetNotice.exists()) return false
-    check(resetNotice.delete())
+    check(environment.delete(resetNotice))
     true
   }
 
@@ -85,7 +88,10 @@ internal class PorticoRecordStore private constructor(private val root: File) {
   private fun keyLost(): Boolean {
     val existing = try { key(create = false) } catch (_: UnrecoverableKeyException) { return hasRecords() }
     if (existing == null) return hasRecords()
-    return try { verifyKey(existing); false } catch (_: KeyPermanentlyInvalidatedException) { true }
+    return try { verifyKey(existing); false } catch (e: Exception) {
+      if (!environment.permanentlyInvalidated(e)) throw e
+      true
+    }
   }
 
   fun <T> transaction(block: () -> T): T = synchronized(this) { block() }
@@ -133,7 +139,7 @@ internal class PorticoRecordStore private constructor(private val root: File) {
     try {
       recoverLostKey()
       if (bytes == null) {
-        if (file.exists() && !file.delete()) return false
+        if (file.exists() && !environment.delete(file)) return false
         return read(service, account) is RecordRead.Missing
       }
       val key = key(create = true) ?: return false
@@ -147,15 +153,9 @@ internal class PorticoRecordStore private constructor(private val root: File) {
       val directory = file.parentFile ?: return false
       if (!directory.isDirectory && !directory.mkdirs()) return false
       val pending = File(directory, file.name + ".new")
-      FileOutputStream(pending).use { out ->
-        out.write(byteArrayOf(FORMAT))
-        out.write(iv)
-        out.write(sealed)
-        out.flush()
-        out.fd.sync()
-      }
-      if (!pending.renameTo(file)) {
-        pending.delete()
+      environment.writeSynced(pending, byteArrayOf(FORMAT), iv, sealed)
+      if (!environment.rename(pending, file)) {
+        environment.delete(pending)
         return false
       }
       val confirmed = read(service, account)
@@ -180,26 +180,18 @@ internal class PorticoRecordStore private constructor(private val root: File) {
       // not certain either: it is reported, and only the person's confirmation resets the store.
       val existing = try { key(create = false) } catch (e: UnrecoverableKeyException) { if (hasRecords()) throw RecordKeyLostException() else throw e }
       if (existing == null && hasRecords()) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) throw RecordKeyLostException()
+        if (environment.apiLevel < Build.VERSION_CODES.S) throw RecordKeyLostException()
         resetLostRecords()
       } else if (existing != null) verifyKey(existing)
       keyChecked = true
-    } catch (e: KeyPermanentlyInvalidatedException) {
+    } catch (e: Exception) {
+      if (!environment.permanentlyInvalidated(e)) throw e
       resetLostRecords()
       keyChecked = true
     }
   }
 
-  /** Complete both operations so the launch check cannot retain a Keymaster operation slot. */
-  private fun verifyKey(key: SecretKey) {
-    val plain = byteArrayOf(1)
-    val encrypt = Cipher.getInstance(TRANSFORMATION)
-    encrypt.init(Cipher.ENCRYPT_MODE, key)
-    val sealed = encrypt.doFinal(plain)
-    val decrypt = Cipher.getInstance(TRANSFORMATION)
-    decrypt.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(TAG_BYTES * 8, encrypt.iv))
-    check(decrypt.doFinal(sealed).contentEquals(plain))
-  }
+  private fun verifyKey(key: SecretKey) = environment.verifyKey(key)
 
   private fun hasRecords(): Boolean = root.exists() && root.walkTopDown().any { it.isFile }
 
@@ -208,43 +200,88 @@ internal class PorticoRecordStore private constructor(private val root: File) {
     if (resetPending.exists()) check(resetPending.readText() == RESET_PROOF)
     else mark(resetPending)
     syncDirectory()
-    check(!root.exists() || root.deleteRecursively())
+    check(!root.exists() || environment.deleteRecords(root))
     syncDirectory()
-    val keystore = KeyStore.getInstance(KEYSTORE).apply { load(null) }
-    keystore.deleteEntry(KEY_ALIAS)
+    environment.deleteKey()
     verifyKey(checkNotNull(key(create = true)))
     mark(resetNotice)
-    check(resetPending.delete())
+    check(environment.delete(resetPending))
     syncDirectory()
   }
 
   private fun mark(file: File) {
     val pending = File(file.parentFile, file.name + ".new")
-    FileOutputStream(pending).use { out -> out.write(RESET_PROOF.toByteArray(Charsets.UTF_8)); out.flush(); out.fd.sync() }
-    check(pending.renameTo(file))
+    environment.writeSynced(pending, RESET_PROOF.toByteArray(Charsets.UTF_8))
+    check(environment.rename(pending, file))
     syncDirectory()
   }
 
-  private fun syncDirectory() {
-    val descriptor = Os.open(checkNotNull(root.parentFile).path, OsConstants.O_RDONLY, 0)
-    try { Os.fsync(descriptor) } finally { Os.close(descriptor) }
-  }
+  private fun syncDirectory() = environment.syncDirectory(checkNotNull(root.parentFile))
 
   private fun key(create: Boolean): SecretKey? {
-    val keystore = KeyStore.getInstance(KEYSTORE).apply { load(null) }
-    (keystore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
-    if (keystore.containsAlias(KEY_ALIAS)) throw IllegalStateException("The record key is unavailable.")
+    environment.readKey()?.let { return it }
     if (!create) return null
     // A key disappearing after launch must not be replaced behind retained ciphertext.
     check(!hasRecords())
-    val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE)
-    generator.init(
-        KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
-            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-            .setKeySize(256)
-            .build())
-    return generator.generateKey()
+    return environment.createKey()
+  }
+
+  /** Platform operations only. Recovery ordering and the sealed record format stay in the store. */
+  internal open class Environment {
+    open val apiLevel: Int get() = Build.VERSION.SDK_INT
+
+    open fun readKey(): SecretKey? {
+      val keystore = KeyStore.getInstance(KEYSTORE).apply { load(null) }
+      (keystore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+      if (keystore.containsAlias(KEY_ALIAS)) throw IllegalStateException("The record key is unavailable.")
+      return null
+    }
+
+    open fun createKey(): SecretKey {
+      val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE)
+      generator.init(
+          KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+              .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+              .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+              .setKeySize(256)
+              .build())
+      return generator.generateKey()
+    }
+
+    open fun deleteKey() {
+      val keystore = KeyStore.getInstance(KEYSTORE).apply { load(null) }
+      keystore.deleteEntry(KEY_ALIAS)
+    }
+
+    open fun permanentlyInvalidated(error: Exception): Boolean = error is KeyPermanentlyInvalidatedException
+
+    /** Complete both operations so the launch check cannot retain a Keymaster operation slot. */
+    open fun verifyKey(key: SecretKey) {
+      val plain = byteArrayOf(1)
+      val encrypt = Cipher.getInstance(TRANSFORMATION)
+      encrypt.init(Cipher.ENCRYPT_MODE, key)
+      val sealed = encrypt.doFinal(plain)
+      val decrypt = Cipher.getInstance(TRANSFORMATION)
+      decrypt.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(TAG_BYTES * 8, encrypt.iv))
+      check(decrypt.doFinal(sealed).contentEquals(plain))
+    }
+
+    open fun writeSynced(file: File, vararg parts: ByteArray) {
+      FileOutputStream(file).use { out ->
+        for (part in parts) out.write(part)
+        out.flush()
+        out.fd.sync()
+      }
+    }
+
+    open fun rename(from: File, to: File): Boolean = from.renameTo(to)
+    open fun delete(file: File): Boolean = file.delete()
+    open fun deleteRecords(directory: File): Boolean = directory.deleteRecursively()
+
+    open fun syncDirectory(directory: File) {
+      val descriptor = Os.open(directory.path, OsConstants.O_RDONLY, 0)
+      try { Os.fsync(descriptor) } finally { Os.close(descriptor) }
+    }
   }
 
   companion object {

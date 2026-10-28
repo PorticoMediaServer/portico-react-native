@@ -4,24 +4,8 @@ import {readFileSync} from 'node:fs';
 
 const source = (path: string) => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
 
-test('secure store recovery distinguishes lost keys from ambiguous storage failures', () => {
-  const native = source('android/app/src/main/java/tv/getportico/portico/native/PorticoRecordStore.kt');
-  assert.match(native, /catch \(e: KeyPermanentlyInvalidatedException\)/);
-  assert.match(native, /existing == null/);
-  assert.match(native, /if \(Build.VERSION.SDK_INT < Build.VERSION_CODES.S\) throw/);
-  assert.match(native, /if \(keyChecked\) return/);
-  assert.doesNotMatch(native, /Cipher.getInstance\(TRANSFORMATION\).init\(Cipher.DECRYPT_MODE, existing/);
-  assert.match(native, /check\(resetPending.readText\(\) == RESET_PROOF\)/);
-  assert.match(native, /Os.fsync\(descriptor\)/);
-  assert.match(native, /if \(keystore.containsAlias\(KEY_ALIAS\)\) throw/);
-  assert.doesNotMatch(native, /catch \(_?:? ?(?:e: )?Exception\) \{\s*resetLostRecords/);
-  assert.doesNotMatch(native, /AEADBadTagException/);
-  const reset = native.slice(native.indexOf('private fun resetLostRecords'), native.indexOf('private fun key('));
-  assert.ok(reset.indexOf('mark(resetPending)') < reset.indexOf('root.deleteRecursively()'));
-  assert.ok(reset.indexOf('root.deleteRecursively()') < reset.indexOf('keystore.deleteEntry(KEY_ALIAS)'));
-  assert.match(reset, /mark\(resetNotice\)/);
-  assert.match(reset, /check\(resetPending.delete\(\)\)/);
-});
+// Destructive Android recovery is exercised by PorticoRecordStoreTest using real sealed files,
+// injected keystore/filesystem failures, and a fresh owner after each interrupted reset.
 
 test('both runtime contracts prepare secure records before installation identity is used', () => {
   assert.match(source('android/app/src/main/java/tv/getportico/portico/native/PorticoRuntime.kt'), /fun prepareSecureRecords\(promise: Promise\)/);

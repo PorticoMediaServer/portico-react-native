@@ -1,0 +1,42 @@
+name: Android JVM tests
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  unit-and-transport:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version-file: .node-version, cache: npm, cache-dependency-path: apps/native/package-lock.json}
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
+        with: {distribution: temurin, java-version: '17'}
+      - name: Android SDK used by the JVM compilation and standalone harnesses
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"'
+      - id: native-deps
+        run: npm ci --no-audit --no-fund --legacy-peer-deps
+        working-directory: apps/native
+      - name: JVM tests for Android and Fire OS
+        if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
+        # A unit-test JVM never links or packages libmpv. Keep production media
+        # checks unchanged and omit only its asset-staging prerequisite here.
+        run: ./gradlew --no-daemon --continue :app:testGoogleDebugUnitTest :app:testFiretvDebugUnitTest -x :portico-mpv:stageMediaEngine
+        working-directory: apps/native/android
+      - name: Production Android transport, layout and URL-route harnesses
+        if: ${{ !cancelled() && steps.native-deps.outcome == 'success' }}
+        env:
+          PORTICO_ANDROID_TEST_OUT_DIR: ${{ runner.temp }}/android-harnesses
+        run: python3 scripts/run-android-harnesses.py
+      - name: Retain per-suite Android results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-jvm-and-transport
+          path: |
+            apps/native/android/app/build/test-results/**
+            apps/native/android/app/build/reports/tests/**
+            ${{ runner.temp }}/android-harnesses/**
+          if-no-files-found: error
+          retention-days: 7

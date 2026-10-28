@@ -1,5 +1,22 @@
 #import <UIKit/UIKit.h>
+
+// Observe completion of the real worker AND every main-queue block it enqueues.
+// Enter before enqueue and leave after the original block: the group cannot drain
+// in the gap between the file read returning and its main completion running.
+static dispatch_group_t observedSubtitleWork;
+static _Thread_local BOOL insideObservedSubtitleWork;
+static void PorticoTestDispatchAsync(dispatch_queue_t queue,dispatch_block_t work) {
+ dispatch_group_t group=observedSubtitleWork;
+ if(!group){dispatch_async(queue,work);return;}
+ dispatch_group_enter(group);
+ dispatch_async(queue,^{
+  BOOL previous=insideObservedSubtitleWork;insideObservedSubtitleWork=YES;
+  @try {work();} @finally {insideObservedSubtitleWork=previous;dispatch_group_leave(group);}
+ });
+}
+#define dispatch_async PorticoTestDispatchAsync
 #import "../Native/PorticoSubtitleFiles.m"
+#undef dispatch_async
 
 // Only React registration/presenter lookup are supplied by this native test app.
 // The actual UIKit picker, production request lifetime and coordinated file reader run.
@@ -16,15 +33,18 @@ static BOOL cancel(PorticoSubtitleFiles *subject,NSString *identifier) {__block 
 @interface SlowSubtitlePicker : PorticoSubtitleFiles
 @property(nonatomic,strong) dispatch_semaphore_t entered;
 @property(nonatomic,strong) dispatch_semaphore_t resumeRead;
+@property(nonatomic) BOOL observedWorker;
+@property(nonatomic) BOOL resumed;
 @end
 @implementation SlowSubtitlePicker
 - (NSData *)readSubtitle:(NSURL *)url limit:(NSUInteger)limit progress:(NSProgress *)progress error:(NSError **)error {
- dispatch_semaphore_signal(self.entered);dispatch_semaphore_wait(self.resumeRead,dispatch_time(DISPATCH_TIME_NOW,5*NSEC_PER_SEC));
+ self.observedWorker=insideObservedSubtitleWork;
+ dispatch_semaphore_signal(self.entered);self.resumed=dispatch_semaphore_wait(self.resumeRead,dispatch_time(DISPATCH_TIME_NOW,5*NSEC_PER_SEC))==0;
  return [super readSubtitle:url limit:limit progress:progress error:error];
 }
 @end
 static UIDocumentPickerViewController *picker(PorticoSubtitleFiles *subject) {return ((PorticoSubtitlePickRequest *)[subject valueForKey:@"request"]).picker;}
-static void settledPresentation(void) {waitFor(^BOOL{return testPresenter.presentedViewController==nil;});}
+static void settledPresentation(void) {check(waitFor(^BOOL{return testPresenter.presentedViewController==nil;}),@"picker dismissal completed within bound");}
 #endif
 
 static int tests(void) {@autoreleasepool {
@@ -64,14 +84,18 @@ static int tests(void) {@autoreleasepool {
  check([code isEqual:@"subtitle_format"]&&resolves==0&&rejects==1,@"VobSub without selected companion remains refused");settledPresentation();
  SlowSubtitlePicker *slow=[SlowSubtitlePicker new];slow.entered=dispatch_semaphore_create(0);slow.resumeRead=dispatch_semaphore_create(0);
  __block NSInteger oldSettled=0,newSettled=0;__block NSString *oldCode=nil;
+ observedSubtitleWork=dispatch_group_create();
  [slow pick:@"slow-old" resolver:^(id value){oldSettled++;} rejecter:^(NSString *value,NSString *message,NSError *error){oldSettled++;oldCode=value;}];
  [slow documentPicker:picker(slow) didPickDocumentsAtURLs:@[file]];
- check(dispatch_semaphore_wait(slow.entered,dispatch_time(DISPATCH_TIME_NOW,2*NSEC_PER_SEC))==0,@"production async read reached controlled scheduling boundary");
+ check(dispatch_semaphore_wait(slow.entered,dispatch_time(DISPATCH_TIME_NOW,2*NSEC_PER_SEC))==0&&slow.observedWorker,@"production async read reached observed worker boundary");
  check(cancel(slow,@"slow-old")&&oldSettled==1&&[oldCode isEqual:@"cancelled"],@"cancel while reading settles only old promise");settledPresentation();
  [slow pick:@"slow-new" resolver:^(id value){newSettled++;} rejecter:^(NSString *value,NSString *message,NSError *error){newSettled++;}];UIDocumentPickerViewController *newPicker=picker(slow);
  dispatch_semaphore_signal(slow.resumeRead);
- // Flush the old worker's main-queue completion without replacing its reader or request checks.
- NSDate *until=[NSDate dateWithTimeIntervalSinceNow:.25];while(until.timeIntervalSinceNow>0)[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];
+ __block BOOL oldWorkCompleted=NO;
+ dispatch_group_notify(observedSubtitleWork,dispatch_get_main_queue(),^{oldWorkCompleted=YES;});
+ check(waitFor(^BOOL{return oldWorkCompleted;})&&slow.resumed,@"old worker and its actual main completion finished before successor assertion");
+ // Keep the observation group alive if a timeout left work outstanding.
+ if(oldWorkCompleted)observedSubtitleWork=nil;
  check(picker(slow)==newPicker&&newSettled==0&&oldSettled==1,@"late cancelled read cannot settle or clear newer picker");
  [slow invalidate];check(newSettled==1&&picker(slow)==nil,@"bridge invalidation cancels owned picker");settledPresentation();
  resolves=0;rejects=0;code=nil;[subject pick:@"invalidate-active" resolver:resolve rejecter:reject];UIDocumentPickerViewController *invalidatedPicker=picker(subject);[subject invalidate];

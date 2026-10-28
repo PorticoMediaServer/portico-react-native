@@ -29,6 +29,9 @@ jobs:
         with: {node-version-file: portico-react-native/.node-version, cache: npm, cache-dependency-path: portico-react-native/apps/native/package-lock.json}
       - run: node scripts/shared-packages.mjs --check
         working-directory: portico-react-native
+      - name: Platform inventory and runner regressions
+        run: python3 scripts/test-platform-tests.py
+        working-directory: portico-react-native
       - id: native-deps
         run: npm ci --no-audit --no-fund --legacy-peer-deps
         working-directory: portico-react-native/apps/native
@@ -113,6 +116,9 @@ jobs:
         run: npm test
         working-directory: apps/vega
 
+  android-tests:
+    uses: ./.github/workflows/android-tests.yml
+
   apple-contracts:
     runs-on: macos-15
     timeout-minutes: 10
@@ -136,15 +142,20 @@ jobs:
           PORTICO_APPLE_TEST_OUT_DIR: ${{ runner.temp }}/apple-reading
           CI: '1'
         run: bash apps/native/scripts/check-apple-reading-stream.sh
-      - name: Public Foundation-only Reading and playback tests
-        run: |
-          set -euo pipefail
-          for name in apple-presentation-readiness apple-subtitle-offset apple-subtitle-payload; do
-            xcrun clang -fobjc-arc -fblocks -framework Foundation -framework AVFoundation "apps/native/test/${name}-tests.m" -o "$RUNNER_TEMP/$name"
-            "$RUNNER_TEMP/$name"
-          done
-          xcrun clang -fobjc-arc -fblocks -framework Foundation -framework CoreVideo apps/native/test/apple-playback-observation-tests.m -o "$RUNNER_TEMP/apple-playback-observation"
-          "$RUNNER_TEMP/apple-playback-observation"
+      - name: Complete Apple test inventory
+        run: python3 scripts/platform-tests.py inventory
+      - name: Manifest-listed Foundation tests
+        run: python3 scripts/platform-tests.py foundation --output "$RUNNER_TEMP/apple-foundation"
+      - name: Retain per-suite Apple results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: apple-checkpoint-tests
+          path: |
+            ${{ runner.temp }}/apple-foundation/**
+            ${{ runner.temp }}/apple-reading/**
+          if-no-files-found: error
+          retention-days: 7
 
   security:
     uses: ./.github/workflows/security.yml
@@ -152,7 +163,7 @@ jobs:
 
   summary:
     if: ${{ always() }}
-    needs: [javascript, vega, apple-contracts, security]
+    needs: [javascript, vega, android-tests, apple-contracts, security]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
