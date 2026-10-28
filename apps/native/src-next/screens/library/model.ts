@@ -1,7 +1,8 @@
 import type {Library} from '../../../../../packages/client-core/src';
 import type {SavedDefinition} from '../../../../../packages/client-core/src/personal-saved';
-import {BrowseQueryBuilder, BrowseTotalsMemory, browseCapabilitiesPath, browsePath, parseBrowseCapabilities, parseBrowseResult, type BrowseCapabilities, type BrowseNode, type BrowseRememberedTotal, type BrowseSortSelection, type BrowseWholeSelection} from '../../../../../packages/client-core/src/browse';
-import {createWindowedCollection, type FetchPage, type WindowedCollection} from '../../../../../packages/client-core/src/collections/windowed';
+import {BrowseTotalsMemory, browseCapabilitiesPath, parseBrowseCapabilities, type BrowseCapabilities, type BrowseNode, type BrowseRememberedTotal, type BrowseSortSelection, type BrowseWholeSelection} from '../../../../../packages/client-core/src/browse';
+import {BrowseSession, browseSessionBuilder, type BrowseSessionQuery} from '../../../../../packages/client-core/src/browse-session';
+import {createWindowedCollection, type WindowedCollection} from '../../../../../packages/client-core/src/collections/windowed';
 import {LibraryContentService, type ContentEntry, type ContentScope, type LibraryContentApi, type LibraryContentSnapshot} from '../../../../../packages/client-core/src/library-content';
 import {libraryTabs, type LibraryTab, type LibraryTabId} from '../../../../../packages/client-core/src/presentation/library-tabs';
 import {NativeLibraryFilterDraft} from './filters';
@@ -59,7 +60,8 @@ export class NativeLibraryDestination {
   private pendingTab?: LibraryTabId;
   private readonly filters = new Set<NativeLibraryFilterDraft>();
   private readonly totals = new BrowseTotalsMemory();
-  private entries = new WeakSet<ContentEntry>();
+  /** The applied query's page source; a new tab or query retires it. */
+  private session?: BrowseSession<ContentEntry>;
   private readonly initialOffered: boolean;
   private initialApplied = false;
 
@@ -123,7 +125,7 @@ export class NativeLibraryDestination {
     const retryQuery = tab.id === this.state.tab.id && this.state.phase === 'error' && this.state.collection && this.state.sort
       ? {predicates: this.state.predicates, sort: this.state.sort} : undefined;
     this.retireFilters(); this.controller?.abort(); this.discover.cancel(); this.state.collection?.dispose();
-    this.entries = new WeakSet();
+    this.session?.retire(); this.session = undefined;
     const controller = new AbortController(), revision = ++this.operation; this.controller = controller;
     this.publish({tab, phase: 'loading', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, defaultSort: undefined, revision: undefined, wholeSelection: undefined, unfilteredTotal: undefined, error: undefined,
       memory: {firstVisibleIndex: 0, offset: 0}});
@@ -163,49 +165,40 @@ export class NativeLibraryDestination {
       // The initial definition stays pending until this exact build succeeds, so a
       // retry re-applies it or fails honestly rather than opening defaults.
       this.build(capabilities, tab, predicates, chosenSort, 0, 1);
-      const collection = createWindowedCollection({fetchPage: this.pages(capabilities, tab, predicates, chosenSort),
+      const collection = createWindowedCollection({fetchPage: this.open(capabilities, tab, predicates, chosenSort).fetchPage,
         pageSize: Math.min(60, capabilities.queryLimits.maximumLimit), maxResidentPages: 4, prefetchPages: 1, maxConcurrent: 1, keyOf: nativeLibraryEntryKey});
       this.publish({phase: 'ready', capabilities, predicates, sort: chosenSort, defaultSort: sort, collection});
       if (this.options.initial && this.initialOffered) this.initialApplied = true;
       collection.ensureRange(0, 0);
     } catch (error) {if (this.current() && revision === this.operation && !controller.signal.aborted) this.publish({phase: 'error', error});}
   }
-  private build(capabilities: BrowseCapabilities, tab: LibraryTab, predicates: readonly BrowseNode[], sort: BrowseSortSelection, start: number, count: number, revision?: string) {
-    const builder = new BrowseQueryBuilder(capabilities, tab.pivot);
-    for (const node of predicates) builder.add(node);
-    return builder.sort(sort.field, sort.direction, sort.seed).limit(count).range({start, ...(revision ? {revision} : {})}).build();
+  private query(capabilities: BrowseCapabilities, tab: LibraryTab, predicates: readonly BrowseNode[], sort: BrowseSortSelection): BrowseSessionQuery {
+    return {libraryId: this.options.library.id, pivot: tab.pivot!, capabilities, nodes: predicates, sorts: [sort]};
   }
-  private pages(capabilities: BrowseCapabilities, tab: LibraryTab, predicates: readonly BrowseNode[], sort: BrowseSortSelection): FetchPage<ContentEntry> {
-    let revision: string | undefined;
-    return async (start, count, signal) => {
-      if (!this.current() || this.state.phase !== 'ready' || this.state.tab !== tab || this.state.predicates !== predicates || this.state.sort !== sort) throw cancelled();
-      const read = async () => parseBrowseResult(await this.request(browsePath(this.options.library.id), 'POST', this.build(capabilities, tab, predicates, sort, start, count, revision), signal));
-      let result;
-      try {result = await read();}
-      catch (error) {
-        if ((error as {code?: unknown})?.code === 'stale_continuation' && !signal.aborted && this.state.tab === tab && this.state.predicates === predicates) this.publish({phase: 'error', error});
-        throw error;
-      }
-      if (result.pivot !== tab.pivot || result.pageInfo.start !== start || result.entries.length > count) throw new Error('native_library_page_mismatch');
-      if (!result.pageInfo.revision || revision && result.pageInfo.revision !== revision) {
-        const error = Object.assign(new Error('native_library_revision_changed'), {code: 'stale_continuation'});
-        if (this.state.tab === tab && this.state.predicates === predicates) this.publish({phase: 'error', error});
-        throw error;
-      }
-      revision ??= result.pageInfo.revision;
-      // Only the first page of a replayable view carries the aggregate; later pages
-      // never clear or restate it, and another query's descriptor is not adopted here.
-      if (start === 0 && result.wholeSelection?.libraryId === this.options.library.id && this.state.tab === tab
-        && this.state.predicates === predicates && this.state.sort === sort && this.state.wholeSelection !== result.wholeSelection)
-        this.publish({wholeSelection: result.wholeSelection});
-      result.entries.forEach(entry => this.entries.add(entry));
-      if (this.state.tab === tab && this.state.predicates === predicates && this.state.revision !== revision) this.publish({revision});
-      const base = tab.fixedFilter ?? [];
-      const total = this.totals.observe(JSON.stringify([this.options.scope, this.options.library.id, tab.id, tab.pivot]), result, JSON.stringify(predicates) === JSON.stringify(base));
-      if (this.state.tab === tab && this.state.predicates === predicates && this.state.unfilteredTotal !== total) this.publish({unfilteredTotal: total});
-      return {items: result.entries, total: result.pageInfo.total, totalIsLowerBound: result.pageInfo.totalIsLowerBound,
-        positionIndex: Object.fromEntries(result.positionIndex.map(value => [value.key, value.index]))};
-    };
+  private build(capabilities: BrowseCapabilities, tab: LibraryTab, predicates: readonly BrowseNode[], sort: BrowseSortSelection, start: number, count: number) {
+    return browseSessionBuilder(this.query(capabilities, tab, predicates, sort)).limit(count).range({start}).build();
+  }
+  /** The shared Browse session for this exact tab, filter and sort (SIM-12). This model keeps
+   * only what is native: the remembered unfiltered total and its own published state. */
+  private open(capabilities: BrowseCapabilities, tab: LibraryTab, predicates: readonly BrowseNode[], sort: BrowseSortSelection): BrowseSession<ContentEntry> {
+    this.session?.retire();
+    const base = JSON.stringify(tab.fixedFilter ?? []) === JSON.stringify(predicates);
+    const totalsKey = JSON.stringify([this.options.scope, this.options.library.id, tab.id, tab.pivot]);
+    const session: BrowseSession<ContentEntry> = new BrowseSession<ContentEntry>({query: this.query(capabilities, tab, predicates, sort),
+      request: (path, method, body, signal) => this.request(path, method, body, signal),
+      current: () => this.current() && this.session === session && this.state.phase === 'ready',
+      item: entry => entry,
+      onRevision: revision => this.publish({revision}),
+      // Only the first page of a replayable view carries the aggregate; later pages never
+      // clear or restate it, and another query's descriptor is not adopted here.
+      onWhole: whole => {if (this.state.wholeSelection !== whole) this.publish({wholeSelection: whole});},
+      onPage: page => {
+        const total = this.totals.observe(totalsKey, page, base);
+        if (this.state.unfilteredTotal !== total) this.publish({unfilteredTotal: total});
+      },
+      onStale: error => this.publish({phase: 'error', error})});
+    this.session = session;
+    return session;
   }
   setQuery = (predicates: readonly BrowseNode[], sort = this.state.sort, keep?: NativeLibraryFilterDraft): void => {
     if (!this.current() || !this.state.capabilities || !this.state.collection || !sort) return;
@@ -213,9 +206,9 @@ export class NativeLibraryDestination {
     this.build(capabilities, tab, predicates, sort, 0, 1);
     this.retireFilters(keep);
     const next = Object.freeze([...predicates]);
-    this.entries = new WeakSet();
+    this.session?.retire(); this.session = undefined;
     this.publish({predicates: next, queryRevision: this.state.queryRevision + 1, revision: undefined, wholeSelection: undefined, sort, memory: {firstVisibleIndex: 0, offset: 0}});
-    collection.invalidate(this.pages(capabilities, tab, next, sort));
+    collection.invalidate(this.open(capabilities, tab, next, sort).fetchPage);
   };
   setQuick = (id: string, enabled: boolean): void => {
     const preset = this.state.capabilities?.quickFilters.find(value => value.id === id);
@@ -243,7 +236,7 @@ export class NativeLibraryDestination {
   };
   private retireFilters(keep?: NativeLibraryFilterDraft) {for (const draft of [...this.filters]) if (draft !== keep) draft.dispose();}
   contains = (entry: ContentEntry): boolean => this.current() && this.state.phase === 'ready' && (this.state.collection
-    ? this.entries.has(entry) && this.state.collection.residentItems().includes(entry)
+    ? !!this.session?.owns(entry) && this.state.collection.residentItems().includes(entry)
     : this.state.discover.appended.some(section => section.entries.includes(entry)));
   remember = (firstVisibleIndex: number, offset: number): void => {
     if (!this.current() || !Number.isSafeInteger(firstVisibleIndex) || firstVisibleIndex < 0 || !Number.isFinite(offset) || offset < 0) return;
@@ -262,7 +255,7 @@ export class NativeLibraryDestination {
     if (this.disposed) return;
     this.disposed = true; this.retireFilters(); this.operation++; this.controller?.abort(); this.unsubscribe(); this.pending = undefined; this.pendingTab = undefined;
     this.discover.cancel(); this.discover.dispose(); this.state.collection?.dispose(); this.totals.clear();
-    this.entries = new WeakSet();
+    this.session?.retire(); this.session = undefined;
     this.memory = {firstVisibleIndex: 0, offset: 0};
     this.state = Object.freeze({...this.state, phase: 'idle', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, revision: undefined, wholeSelection: undefined,
       discover: this.discover.getSnapshot(), memory: {firstVisibleIndex: 0, offset: 0}, unfilteredTotal: undefined, error: undefined});
