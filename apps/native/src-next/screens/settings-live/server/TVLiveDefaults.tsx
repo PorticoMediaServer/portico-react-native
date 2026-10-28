@@ -12,7 +12,7 @@ import {NativeScreenLifetime} from '../lifetime';
 import {NativeLiveOwnerController} from '../live-owner-controller';
 import {liveStabilityPatch, liveStabilityValue} from '../live-defaults-presentation';
 import type {LiveDefaults} from '../live-owner-model';
-import type {DVRDefaults, DVRDocument} from '../recording-owner-model';
+import {keepPolicyFor, type DVRDefaults, type DVRDocument} from '../recording-owner-model';
 import type {NativeSettingsLivePorts} from '../ports';
 import {TVChoiceRow, TVEntryRow, TVSwitchRow, type TVChoice} from './TVSettingRows';
 
@@ -138,7 +138,7 @@ export function TVRecordingDefaults({ports, runtime}: {ports: NativeSettingsLive
         onChange={liveTunerConflict => {if (liveTunerConflict === 'keep-watching' || liveTunerConflict === 'stop-watching') save({liveTunerConflict});}}/>
       <TVChoiceRow testID="tv-recording-keep-mode" label={t('recordings.keepLabel')} value={keep.mode}
         options={keepModes.map(mode => ({value: mode, label: t(mode === 'keep-all' ? 'web.logs.everything' : mode === 'keep-count' ? 'web.dvrSettings.keepNewest' : 'web.dvrSettings.keepDays')}))}
-        onChange={mode => {if ((keepModes as readonly string[]).includes(mode)) save({keepPolicy: {...keep, mode: mode as DVRDefaults['keepPolicy']['mode']}});}}/>
+        onChange={mode => {if ((keepModes as readonly string[]).includes(mode)) save({keepPolicy: keepPolicyFor(keep, mode as DVRDefaults['keepPolicy']['mode'])});}}/>
       {keep.mode === 'keep-count' && counted('tv-recording-keep-count', t('web.dvrSettings.howMany'), keep.keepCount, [1, 3, 5, 10, 20], keepCount => ({keepPolicy: {...keep, keepCount}}))}
       {keep.mode === 'keep-days' && counted('tv-recording-keep-days', t('web.dvrSettings.howManyDays'), keep.keepDays, [7, 14, 30, 60, 90], keepDays => ({keepPolicy: {...keep, keepDays}}))}
     </View>

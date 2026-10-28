@@ -100,3 +100,8 @@ export function appendRecordingPage<T>(current: readonly T[], incoming: readonly
 
 export const rulePaddingFromChoice = (value: string): number | null => value === 'default' ? null : Number(value) * 1000;
 export const rulePaddingChoice = (value: number | null): string => value === null ? 'default' : String(value / 1000);
+
+/** A limited keep mode always carries a count the server accepts: Keep all stores zeros. */
+export function keepPolicyFor(keep: KeepPolicy, mode: KeepPolicy['mode']): KeepPolicy {
+  return Object.freeze({...keep, mode, keepCount: mode === 'keep-count' && keep.keepCount < 1 ? 5 : keep.keepCount, keepDays: mode === 'keep-days' && keep.keepDays < 1 ? 30 : keep.keepDays});
+}
