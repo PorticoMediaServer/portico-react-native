@@ -22,7 +22,9 @@ def main():
     parser.add_argument('--app', type=Path, required=True)
     parser.add_argument('--bundle', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--tvos', action='store_true')
+    platform = parser.add_mutually_exclusive_group()
+    platform.add_argument('--tvos', action='store_true')
+    platform.add_argument('--ipad', action='store_true')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     app_id = plistlib.loads((args.app / 'Info.plist').read_bytes())['CFBundleIdentifier']
@@ -31,7 +33,13 @@ def main():
     runtime = sorted((r for r in runtimes if r.get('isAvailable') and r['name'].startswith(family + ' ')),
                      key=lambda r: tuple(int(v) for v in r['version'].split('.')))[-1]
     types = json.loads(command('list', 'devicetypes', '--json'))['devicetypes']
-    device_type = next(t['identifier'] for t in types if t['name'] == ('Apple TV 4K (3rd generation)' if args.tvos else 'iPhone 15'))
+    parts = [int(part) for part in runtime['version'].split('.')]
+    packed = sum(part << shift for part, shift in zip((parts + [0, 0])[:3], (16, 8, 0)))
+    if args.ipad:
+        device_type = next(t['identifier'] for t in reversed(types) if t.get('productFamily') == 'iPad'
+                           and t.get('minRuntimeVersion', 0) <= packed <= t.get('maxRuntimeVersion', 0xffffffff))
+    else:
+        device_type = next(t['identifier'] for t in types if t['name'] == ('Apple TV 4K (3rd generation)' if args.tvos else 'iPhone 15'))
     device = command('create', 'Portico P2-55 bridge', device_type, runtime['identifier'])
     process = None
     log_path = args.output / 'bridge-console.log'
