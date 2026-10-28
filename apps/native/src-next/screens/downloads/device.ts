@@ -16,16 +16,41 @@ type DownloadDeviceLease = Readonly<{device: NativeOfflineDownloadsDevice; servi
 type SharedDevice = {lease: DownloadDeviceLease; references: number};
 const authorities = new WeakMap<NativeShellBootstrapContext, WeakMap<typeof offlineDownloads, SharedDevice>>();
 
-/** Saved and Downloads borrow one connection for their actual bootstrap authority.
- * Opening the Downloads route must not retire the still-mounted Saved hub. */
-export function createNativeDownloadsDevice(context: NativeShellBootstrapContext, device = offlineDownloads,
-  options: Readonly<{readOnly?: boolean}> = {}): DownloadDeviceLease {
+function downloadsCoordinator(context: NativeShellBootstrapContext, device: typeof offlineDownloads) {
   let devices = authorities.get(context);
   if (!devices) {devices = new WeakMap(); authorities.set(context, devices);}
   const pool = devices;
   let shared = pool.get(device);
   if (!shared) {shared = {lease: connectNativeDownloadsDevice(context, device), references: 0}; pool.set(device, shared);}
-  const current = shared;
+  return {pool, current: shared};
+}
+
+/** The restored shell keeps collection and progress sync alive without a screen.
+ * Retirement closes the authority even if an old screen has not released yet. */
+export function retainNativeDownloadsDevice(context: NativeShellBootstrapContext, device = offlineDownloads) {
+  const {pool, current} = downloadsCoordinator(context, device);
+  current.references++;
+  current.lease.allowService();
+  let released = false;
+  return Object.freeze({
+    open: () => {
+      if (released) throw Object.assign(new Error('cancelled'), {code: 'cancelled'});
+      return current.lease.device.open();
+    },
+    dispose: () => {
+      if (released) return;
+      released = true; current.references--;
+      if (pool.get(device) === current) pool.delete(device);
+      current.lease.dispose();
+    },
+  });
+}
+
+/** Saved and Downloads borrow one connection for their actual bootstrap authority.
+ * Closing the last screen leaves the shell's collection/sync owner connected. */
+export function createNativeDownloadsDevice(context: NativeShellBootstrapContext, device = offlineDownloads,
+  options: Readonly<{readOnly?: boolean}> = {}): DownloadDeviceLease {
+  const {pool, current} = downloadsCoordinator(context, device);
   current.references++;
   if (!options.readOnly) current.lease.allowService();
   let released = false;
@@ -49,6 +74,8 @@ export function createNativeDownloadsDevice(context: NativeShellBootstrapContext
     resume: entry => {assertBorrowed(); return source.resume(entry);},
     remove: entry => {assertBorrowed(); return source.remove(entry);},
     removeOthers: expected => {assertBorrowed(); return source.removeOthers(expected);},
+    ...(source.admission ? {admission: (bytes: number) => {assertBorrowed(); return source.admission!(bytes);}} : {}),
+    ...(source.cancelPending ? {cancelPending: async (id: string) => {assertBorrowed(); await source.cancelPending!(id); assertBorrowed();}} : {}),
     playable: entry => {assertBorrowed(); return source.playable(entry);},
     playabilityReason: entry => {assertBorrowed(); return source.playabilityReason(entry);},
     note: entry => {assertBorrowed(); return source.note(entry);},
@@ -134,6 +161,8 @@ function connectNativeDownloadsDevice(context: NativeShellBootstrapContext, devi
     resume: entry => {assertCurrent(); return adapter.resume(entry);},
     remove: entry => {assertCurrent(); return adapter.remove(entry);},
     removeOthers: expected => {assertCurrent(); return adapter.removeOthers(expected);},
+    ...(adapter.admission ? {admission: (bytes: number) => {assertCurrent(); return adapter.admission!(bytes);}} : {}),
+    ...(adapter.cancelPending ? {cancelPending: async (id: string) => {assertCurrent(); await adapter.cancelPending!(id); assertCurrent();}} : {}),
     displayFacts: async entry => {assertCurrent(); const facts = await adapter.displayFacts(entry); assertCurrent(); return facts;},
     localMedia: async entry => {assertCurrent(); const media = await adapter.localMedia(entry); assertCurrent(); return media;},
     playable: entry => {assertCurrent(); return adapter.playable(entry);},

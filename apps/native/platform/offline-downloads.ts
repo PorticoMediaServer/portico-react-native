@@ -7,7 +7,7 @@ import {receiptTime, serverReceiptFloor} from './receipt-clock';
 import {NativeEventEmitter, NativeModules, Platform} from 'react-native';
 import {nativeRouteCrypto} from '../src-next/platform/server-connections';
 import {
-  DownloadsService, parseDownloadBundle, decodeDownloadReceipt, downloadTitleLines, getDownloadRequest, parseDeferredProgressReceipt, parseDownloadTitle, parseReceiptKeys, parseReceiptOutcomes, receiptUsable,
+  DownloadsService, parseDownloadBundle, decodeDownloadReceipt, downloadTitleLines, downloadReasonMessage, getDownloadRequest, parseDeferredProgressReceipt, parseDownloadPreparation, parseDownloadTitle, parseReceiptKeys, parseReceiptOutcomes, receiptUsable,
   type DeferredProgressEntry, type DownloadBundle, type DownloadPreparation, type DownloadReceipt, type DownloadTitle, type ReceiptOutcome,
 } from '../../../packages/client-core/src/index';
 import {serviceText} from '../../../packages/client-core/src/presentation/service-text';
@@ -53,7 +53,7 @@ const ENROLL_BACKLOG = 5000;
 /** Receipts are renewed once a day at most. Renewal is also how this device learns that access
  * was withdrawn, so it is not left to the month a receipt lasts. */
 const RENEW_EVERY_MS = 24 * 60 * 60 * 1000;
-/** The most offline plays kept unsent for one viewer; past it the oldest are let go. */
+/** Above this history budget, retain the latest unsent play of every title. */
 const MAX_PLAYS = 400;
 /** The least time between two automatic attempts at the same stopped download. */
 const RETRY_EVERY_MS = 30 * 1000;
@@ -98,7 +98,8 @@ export type OfflineReadingFacts = Readonly<{
   pageCount?: number;
   location?: ReadingLocation;
 }>;
-export type OfflineSnapshot = Readonly<{supported: boolean; ready: boolean; entries: readonly OfflineEntry[]; settings: OfflineSettings; freeBytes: number; usedBytes: number; /** Actual OS total capacity of the download volume; omitted when the native module does not report it. */ totalBytes?: number; /** Logical regular-file bytes in the entire app-owned Downloads tree (all viewers, including partial files/extras). Symlinks contribute no logical target bytes. */ storedBytes?: number; /** Actual OS allocated blocks in that tree, including directories and symlinks' own reported allocation, counted once per inode. Link targets are never traversed. */ allocatedBytes?: number; pendingProgress: number; /** Space taken by other viewers' downloads on this device. */ otherBytes: number; /** Opaque revision of that other-viewer set; it changes whenever the set or its stored size changes. */ othersRevision?: number; error?: string}>;
+export type OfflinePendingDownload = Readonly<{id: string; itemId: string; title: string; subtitle?: string; reason: string}>;
+export type OfflineSnapshot = Readonly<{supported: boolean; ready: boolean; entries: readonly OfflineEntry[]; pendingDownloads?: readonly OfflinePendingDownload[]; settings: OfflineSettings; freeBytes: number; usedBytes: number; /** Actual OS total capacity of the download volume; omitted when the native module does not report it. */ totalBytes?: number; /** Logical regular-file bytes in the entire app-owned Downloads tree (all viewers, including partial files/extras). Symlinks contribute no logical target bytes. */ storedBytes?: number; /** Actual OS allocated blocks in that tree, including directories and symlinks' own reported allocation, counted once per inode. Link targets are never traversed. */ allocatedBytes?: number; pendingProgress: number; /** Space taken by other viewers' downloads on this device. */ otherBytes: number; /** Opaque revision of that other-viewer set; it changes whenever the set or its stored size changes. */ othersRevision?: number; error?: string}>;
 /** The exact other-viewer set a confirm drew: its opaque revision and shown size. */
 export type OfflineOthersTarget = Readonly<{revision: number; bytes: number}>;
 /** One other-viewer member's published provenance, used for the confirm signature. */
@@ -107,6 +108,8 @@ export type Viewer = Readonly<{authority: string; accountId: string; profileId: 
 type Api = {baseUrl: string; mediaUrl(path: string): string; request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>};
 type Play = DeferredProgressEntry;
 export type OfflineDisplay = Readonly<{title: string; subtitle?: string; artworkUrl?: string; libraryId?: string; kind?: string}>;
+type OfflineWant = OfflineDisplay & Readonly<{itemId: string}>;
+type StartedTransfer = Readonly<{id: string; owner?: string; generation?: string}>;
 /** What the player is given beside the file: everything that came with the download. Subtitle
  * files are on this device. */
 export type OfflineExtras = Readonly<{
@@ -132,7 +135,7 @@ const trickplayTileName = (tile: number) => `trickplay-${tile}`;
 const chapterImageName = (index: number) => `chapter-${index}`;
 type Meta = {
   libraryId?: string; kind?: string; owner?: string; receipt?: DownloadReceipt; title?: DownloadTitle;
-  onServer?: boolean; changed?: boolean; claim?: string; token?: string; extras?: string[]; bundle?: number; publication?: boolean;
+  onServer?: boolean; changed?: boolean; claim?: string; token?: string; extras?: string[]; bundle?: number; publication?: boolean; viewingSynced?: boolean;
 };
 
 /** Deferred work is filed under the viewer that produced it, never under whoever is signed in
@@ -140,7 +143,9 @@ type Meta = {
 type Owned<T> = Record<string, Record<string, T>>;
 type ReadingPending = Readonly<{id: string; observedAt: number; startedAt: number; location: ReadingLocation}>;
 type ReadingRecord = Readonly<{itemId: string; sourceId: string; revision: string; documentSha256: string; artifactSha256: string; artifactBytes: number;
-  receipt: DownloadReceipt; serverRevision: number; progress: ReadingProgress; pending?: ReadingPending; blockedStartedAt?: number}>;
+  receipt: DownloadReceipt; serverRevision: number; progress: ReadingProgress; pending?: ReadingPending; blockedStartedAt?: number;
+  /** A permanent refusal of this observation. Keep its location and signed evidence. */
+  syncBlocked?: string}>;
 type Stored = {
   reading: Owned<ReadingRecord>;
   version: 3;
@@ -149,8 +154,11 @@ type Stored = {
   plays: Owned<Play>;
   resume: Owned<number>;
   keys: Record<string, string>;
-  wanted: Owned<OfflineDisplay>;
+  /** Accepted preparations, keyed by preparation id, never by title alone. */
+  wanted: Owned<OfflineWant>;
   wantedPublications: Owned<OfflineDisplay>;
+  /** Members already accepted from each request, including copies later removed. */
+  enrolledMembers: Owned<Record<string, true>>;
   nextAfter: Owned<{quality: string; libraryId?: string; kind?: string}>;
   /** When each viewer's receipts were last renewed. */
   renewed: Record<string, number>;
@@ -160,6 +168,8 @@ type Stored = {
 
 const native = NativeModules.PorticoDownloads as undefined | {
   list(): Promise<any[]>; start(request: Record<string, unknown>): Promise<any>; pause(id: string): Promise<void>; remove(id: string): Promise<void>;
+  /** Continues only the exact native entry captured by the caller. */
+  resume?(request: Record<string, unknown>): Promise<any>;
   /** Present from the C9 conditional-removal build: removes only while that entry's published
    * native generation is still current at the owner's accepting turn. */
   removeGeneration?(id: string, generation: string): Promise<void>;
@@ -212,32 +222,53 @@ function storedReading(raw: unknown): Owned<ReadingRecord> {
         pending = Object.freeze({id: offered.id, observedAt: offered.observedAt, startedAt: offered.startedAt, location: actual});
       }
       if (value.blockedStartedAt !== undefined && !safeInteger(value.blockedStartedAt, 1)) continue;
+      if (value.syncBlocked !== undefined && (typeof value.syncBlocked !== 'string' || !/^[a-z0-9_]{1,96}$/.test(value.syncBlocked))) continue;
       bucket(out, owner)[id] = Object.freeze({itemId: value.itemId, sourceId: value.sourceId, revision: value.revision, documentSha256: value.documentSha256, artifactSha256: value.artifactSha256, artifactBytes: value.artifactBytes,
-        receipt, serverRevision: value.serverRevision, progress, ...(pending ? {pending} : {}), ...(typeof value.blockedStartedAt === 'number' ? {blockedStartedAt: value.blockedStartedAt} : {})});
+        receipt, serverRevision: value.serverRevision, progress, ...(pending ? {pending} : {}), ...(typeof value.blockedStartedAt === 'number' ? {blockedStartedAt: value.blockedStartedAt} : {}),
+        ...(pending && typeof value.syncBlocked === 'string' ? {syncBlocked: value.syncBlocked} : {})});
     } catch { /* A corrupt record is not a location or a queued observation. */ }
   }
   return out;
 }
-const emptyStored = (): Stored => ({version: 3, reading: {}, settings: defaults, plays: {}, resume: {}, keys: {}, wanted: {}, wantedPublications: {}, nextAfter: {}, renewed: {}, clockFloor: 0});
+const emptyStored = (): Stored => ({version: 3, reading: {}, settings: defaults, plays: {}, resume: {}, keys: {}, wanted: {}, wantedPublications: {}, enrolledMembers: {}, nextAfter: {}, renewed: {}, clockFloor: 0});
 
-/** Reads the bookkeeping document. One written by an earlier layout keeps its settings and the
- * server's keys; the rest of it was shaped for a different contract and is not carried over. */
+/** A present document must be readable in full. An unsupported or damaged record
+ * is never replaced with an empty outbox on the next settings/progress write. */
 function readStored(parsed: any): Stored {
   const out = emptyStored();
-  if (!parsed || typeof parsed !== 'object') return out;
-  out.settings = {...defaults, ...(parsed.settings ?? {})};
-  out.keys = parsed.keys ?? {};
-  if (parsed.version !== 3) return out;
-  out.plays = parsed.plays ?? {};
+  const invalid = () => {throw new Error('downloads_state_unreadable');};
+  if (!object(parsed) || parsed.version !== 3) invalid();
+  const record = (value: unknown) => {if (!object(value)) invalid(); return value as Record<string, any>;};
+  const owned = (value: unknown) => {const values = record(value); for (const entries of Object.values(values)) record(entries); return values;};
+  if (parsed.settings !== undefined) {
+    const settings = record(parsed.settings);
+    for (const key of ['wifiOnly', 'deleteWatched', 'autoNext']) if (settings[key] !== undefined && typeof settings[key] !== 'boolean') invalid();
+    if (settings.limitBytes !== undefined && !safeInteger(settings.limitBytes)) invalid();
+  }
+  out.settings = {...defaults, ...record(parsed.settings ?? {})};
+  out.keys = record(parsed.keys ?? {});
+  if (Object.values(out.keys).some(value => typeof value !== 'string')) invalid();
+  out.plays = owned(parsed.plays ?? {});
+  for (const values of Object.values(out.plays)) for (const [id, play] of Object.entries(values)) {
+    if (!object(play) || play.playId !== id || typeof play.itemId !== 'string' || typeof play.positionSeconds !== 'number' || !Number.isFinite(play.positionSeconds) || play.positionSeconds < 0 || typeof play.observedAt !== 'string' || !Number.isFinite(Date.parse(play.observedAt)) || play.ended !== undefined && typeof play.ended !== 'boolean') invalid();
+  }
+  const reading = owned(parsed.reading ?? {});
   out.reading = storedReading(parsed.reading);
-  out.resume = parsed.resume ?? {};
-  out.wanted = parsed.wanted ?? {};
-  out.wantedPublications = {};
-  if (object(parsed.wantedPublications)) for (const [owner, values] of Object.entries(parsed.wantedPublications)) {if (!object(values)) continue; const target = bucket(out.wantedPublications, owner);
-    for (const [id, value] of Object.entries(values)) {if (object(value) && typeof value.title === 'string' && (value.kind === 'ebook' || value.kind === 'comic')) target[id] = {title: value.title, kind: value.kind, ...(typeof value.subtitle === 'string' ? {subtitle: value.subtitle} : {}), ...(typeof value.libraryId === 'string' ? {libraryId: value.libraryId} : {})};}}
-  out.nextAfter = parsed.nextAfter ?? {};
-  out.renewed = parsed.renewed ?? {};
-  out.clockFloor = typeof parsed.clockFloor === 'number' && Number.isFinite(parsed.clockFloor) ? parsed.clockFloor : 0;
+  for (const [owner, values] of Object.entries(reading)) if (Object.keys(values).length !== Object.keys(out.reading[owner] ?? {}).length) invalid();
+  out.resume = owned(parsed.resume ?? {});
+  for (const values of Object.values(out.resume)) if (Object.values(values).some(value => typeof value !== 'number' || !Number.isFinite(value) || value < 0)) invalid();
+  out.wanted = owned(parsed.wanted ?? {});
+  for (const values of Object.values(out.wanted)) for (const value of Object.values(values)) if (!object(value) || typeof value.title !== 'string' || typeof value.itemId !== 'string' || !value.itemId) invalid();
+  out.wantedPublications = owned(parsed.wantedPublications ?? {});
+  for (const values of Object.values(out.wantedPublications)) for (const value of Object.values(values)) if (!object(value) || typeof value.title !== 'string' || value.kind !== 'ebook' && value.kind !== 'comic') invalid();
+  out.enrolledMembers = owned(parsed.enrolledMembers ?? {});
+  for (const requests of Object.values(out.enrolledMembers)) for (const members of Object.values(requests)) if (Object.values(record(members)).some(value => value !== true)) invalid();
+  out.nextAfter = owned(parsed.nextAfter ?? {});
+  for (const values of Object.values(out.nextAfter)) for (const value of Object.values(values)) if (!object(value) || typeof value.quality !== 'string') invalid();
+  out.renewed = record(parsed.renewed ?? {});
+  if (Object.values(out.renewed).some(value => !safeInteger(value))) invalid();
+  if (parsed.clockFloor !== undefined && !safeInteger(parsed.clockFloor)) invalid();
+  out.clockFloor = typeof parsed.clockFloor === 'number' ? parsed.clockFloor : 0;
   return out;
 }
 
@@ -255,6 +286,20 @@ export const offlineWaiting = (waiting: OfflineWaiting) => (waiting ? serviceTex
  * nothing about the copy and is never grounds for deleting it. */
 const revokesOwnedFile = (code: string) => code !== '' && code !== 'unknown_receipt' && code !== 'unknown_preparation';
 
+/** Source/observation refusals affect one book. Connectivity, service capacity and
+ * the signed-in authority affect the whole pass and are retried on the next wake. */
+function permanentReadingFailure(error: unknown): string | undefined {
+  const {code, status, name} = (error ?? {}) as {code?: unknown; status?: unknown; name?: unknown};
+  if (name === 'AbortError' || status === 401 || status === 408 || status === 429
+    || typeof status === 'number' && status >= 500
+    || ['cancelled', 'unauthorized', 'unauthenticated', 'session_expired', 'invalid_token', 'forbidden', 'network', 'network_error', 'timeout', 'request_in_progress'].includes(String(code))) return;
+  if (['receipt_revoked', 'access_revoked', 'invalid_receipt'].includes(String(code))) return String(code);
+  if (status === 403) return;
+  if (['revision_mismatch', 'source_changed', 'not_found', 'source_not_found', 'invalid_location'].includes(String(code))) return String(code);
+  if (status === 400 || status === 404 || status === 409 || status === 410 || status === 412 || status === 422)
+    return typeof code === 'string' && /^[a-z0-9_]{1,96}$/.test(code) ? code : 'reading_sync_rejected';
+}
+
 export class OfflineDownloads {
   /** Identity from the native outbound clone, excluded from enumerable app/guest/persisted data. */
   private readonly publicationStateGenerations = new WeakMap<OfflineEntry, string>();
@@ -268,6 +313,11 @@ export class OfflineDownloads {
   /** Each entry's folder on this device, as the native module reported it this launch. */
   private dirs = new Map<string, string>();
   private stored: Stored = emptyStored();
+  private stateReadable = false;
+  private storageMeasured = false;
+  private writes: Promise<boolean> = Promise.resolve(true);
+  /** Invalidated by pause/removal even while a receipt or grant is in flight. */
+  private incarnations = new Map<string, object>();
   /** Receipts whose signature verified, by their signed content (key, payload, signature), never
    * by receipt id alone: a renewed or replaced receipt under the same id is verified again. */
   private verified = new Set<string>();
@@ -276,14 +326,17 @@ export class OfflineDownloads {
   private receiving = new Set<string>();
   private unfollow?: () => void;
   private collecting = new Set<string>();
+  private collection?: {generation: number; again: boolean; task: Promise<void>};
+  private starts = new Map<string, Promise<StartedTransfer | undefined>>();
+  private startingRequests = new Map<string, {meta: string; itemId: string; current: () => boolean}>();
   /** Per container request, the reading of its members past the first page: the member the next
    * page starts after, how many have been read, the counts the request had at the last look, and
    * whether the last page was reached (it is read again, from the same place, when they change). */
-  private enrolled = new Map<string, {after: string; read: number; mark: string; tail: boolean; busy: boolean; retryAt: number}>();
+  private enrolled = new Map<string, {after: string; read: number; mark: string; tail: boolean; busy: boolean; retryAt: number; unprepared?: boolean}>();
+  private enrolledPreparations = new Map<string, DownloadPreparation>();
+  private requestChecks = new Map<string, number>();
+  private preparationChecks = new Map<string, number>();
   private enrollTimer?: ReturnType<typeof setTimeout>;
-  /** Members already enrolled, once each: a download deleted later (by hand or after watching)
-   * is not wanted again because its request is still followed. */
-  private enrolledItems = new Set<string>();
   private continuing = new Set<string>();
   /** Bumped by every connect and disconnect. Work started under an earlier
    * generation may finish, but may not write anything back. */
@@ -302,6 +355,8 @@ export class OfflineDownloads {
    * revision changes whenever any member or its stored bytes change. */
   private othersRevision = 0;
   private othersSignature = '';
+  /** Removing a book fences new reader observations before waiting for its outbox. */
+  private removingReading = new Map<string, number>();
 
   getSnapshot = () => this.state;
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
@@ -330,7 +385,7 @@ export class OfflineDownloads {
   private publishEntries(next = this.all) {
     this.all = sort(next);
     const owner = this.ownerKey();
-    if (!owner) {this.othersSignature = ''; this.othersRevision = 0; this.publish({entries: [], otherBytes: 0, othersRevision: 0}); return;}
+    if (!owner) {this.othersSignature = ''; this.othersRevision = 0; this.publish({entries: [], pendingDownloads: [], otherBytes: 0, othersRevision: 0}); return;}
     // Other viewers' downloads are never named, only weighed: the space they take is this
     // device's, and whoever is using it can see it and give it back. The opaque revision
     // lets a confirm keep the exact set it drew without exposing any other viewer's ids.
@@ -342,6 +397,7 @@ export class OfflineDownloads {
     const signature = signatures.sort().join('\n');
     if (signature !== this.othersSignature) {this.othersSignature = signature; this.othersRevision++;}
     this.publish({entries: this.visibleEntries(), otherBytes, othersRevision: this.othersRevision});
+    this.publishPending();
   }
 
   /** Reads what is on the device. Works with no server and no sign-in. */
@@ -354,15 +410,26 @@ export class OfflineDownloads {
     if (!native) return;
     try {
       const raw = await native.readState();
-      this.stored = readStored(raw ? JSON.parse(raw) : {});
-    } catch { this.stored = emptyStored(); }
-    const emitter = new NativeEventEmitter(NativeModules.PorticoDownloads);
-    this.subscriptions.push(emitter.addListener('PorticoDownloadChanged', entry => this.accept(entry)));
-    const entries = (await native.list()).map(raw => this.read(raw)).filter((e): e is OfflineEntry => !!e);
+      this.stored = raw === '' ? emptyStored() : readStored(JSON.parse(raw));
+      this.stateReadable = true;
+    } catch (error) {
+      this.stateReadable = false;
+      this.publish({error: serviceText('downloads.deviceUnreadable')});
+      throw error;
+    }
+    const emitter = new NativeEventEmitter(NativeModules.PorticoDownloads), changes: any[] = [];
+    let buffering = true;
+    const subscription = emitter.addListener('PorticoDownloadChanged', entry => {if (buffering) changes.push(entry); else this.accept(entry);});
+    let entries: OfflineEntry[];
+    try {entries = (await native.list()).map(raw => this.read(raw)).filter((e): e is OfflineEntry => !!e);}
+    catch (error) {subscription.remove(); this.stateReadable = false; this.publish({error: serviceText('downloads.deviceUnreadable')}); throw error;}
+    this.subscriptions.push(subscription);
     this.all = sort(entries);
-    this.publish({ready: true, settings: this.stored.settings});
+    buffering = false;
+    for (const change of changes) this.accept(change);
+    this.publish({ready: true, settings: this.stored.settings, error: undefined});
     this.publishEntries();
-    void this.measure();
+    await this.measure();
     await this.verifyAll();
   }
   /** Names the viewer these downloads belong to, without binding a server.
@@ -387,7 +454,7 @@ export class OfflineDownloads {
     this.adopt(viewer);
     const generation = ++this.generation;
     this.api = api; this.service = service;
-    this.unfollow?.(); this.unfollow = service.subscribe(() => void this.collect());
+    this.unfollow?.(); this.unfollow = service.subscribe(() => {this.publishPending(); void this.collect();});
     // While the server is bound, what stopped by itself is tried again, what is still moving has
     // its address kept alive, and what is still missing its extras is completed.
     clearInterval(this.tending); this.tending = setInterval(() => void this.tend(generation), 60 * 1000);
@@ -404,13 +471,13 @@ export class OfflineDownloads {
       void this.collect();
       void this.continueNext(generation);
       void this.tend(generation);
-    });
+    }).catch(() => {if (this.generation === generation) this.publish({error: serviceText('downloads.deviceUnreadable')});});
   }
   /** The app came to the front, or the network changed: look again now rather than at the next tick. */
   wake() { if (this.api) void this.tend(this.generation); }
   /** Drops the server binding while preserving the saved viewer for authorized
    * offline access. Sign-out clears it explicitly through `adopt(undefined)`. */
-  disconnect() { this.generation++; this.unfollow?.(); this.unfollow = undefined; this.api = undefined; this.service = undefined; clearInterval(this.tending); this.tending = undefined; }
+  disconnect() { this.generation++; this.unfollow?.(); this.unfollow = undefined; this.api = undefined; this.service = undefined; clearInterval(this.tending); this.tending = undefined; this.publishPending(); }
   dispose() { this.disconnect(); clearTimeout(this.enrollTimer); this.enrollTimer = undefined; this.subscriptions.forEach(s => s.remove()); this.subscriptions = []; this.listeners.clear(); clearInterval(this.tending); }
 
   private read(raw: any): OfflineEntry | undefined {
@@ -440,9 +507,12 @@ export class OfflineDownloads {
     return entry;
   }
   private accept(raw: any) {
-    if (raw?.state === 'removed') { this.metas.delete(raw.id); this.dirs.delete(raw.id); this.publishEntries(this.all.filter(e => e.id !== raw.id)); void this.measure(); return; }
+    if (raw?.state === 'removed') { this.incarnations.delete(raw.id); this.metas.delete(raw.id); this.dirs.delete(raw.id); this.publishEntries(this.all.filter(e => e.id !== raw.id)); void this.measure(); return; }
     const before = this.all.find(e => e.id === raw?.id);
     const next = this.read(raw); if (!next) return;
+    const starting = this.startingRequests.get(next.id);
+    const ownStart = starting?.current() && raw.meta === starting.meta && next.itemId === starting.itemId && !next.held;
+    if (before && !ownStart && this.publicationStateGenerations.get(before) !== this.publicationStateGenerations.get(next)) this.incarnations.delete(next.id);
     this.publishEntries([...this.all.filter(e => e.id !== next.id), next]);
     // A new or renewed receipt is verified by its own signed content (never inherited by id).
     if (next.receipt && (!before?.receipt || signedIdentity(before.receipt) !== signedIdentity(next.receipt))) void this.verifyAll();
@@ -461,7 +531,10 @@ export class OfflineDownloads {
       const s = await native.storage();
       const totalBytes = typeof s.totalBytes === 'number' && Number.isSafeInteger(s.totalBytes) && s.totalBytes > 0 ? s.totalBytes : undefined;
       const bytes = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+      if (bytes(s.freeBytes) === undefined || bytes(s.usedBytes) === undefined) return;
+      this.storageMeasured = true;
       this.publish({freeBytes: s.freeBytes, usedBytes: s.usedBytes, totalBytes, storedBytes:bytes(s.storedBytes), allocatedBytes:bytes(s.allocatedBytes)});
+      this.publishPending();
     } catch {}
   }
   /** Unsent plays for the connected viewer. Another viewer's queue is not
@@ -473,10 +546,15 @@ export class OfflineDownloads {
   /** Writes the bookkeeping document. A failed write is reported rather than published as
    * saved: the Downloads screen shows it until a later write succeeds. */
   private async persist(): Promise<boolean> {
-    const saved = native ? await native.writeState(JSON.stringify(this.stored)).then(() => true, () => false) : true;
+    if (!this.stateReadable) {this.publish({error: serviceText('downloads.deviceUnreadable')}); return false;}
+    const json = JSON.stringify(this.stored);
+    const write = this.writes.then(() => native ? native.writeState(json).then(() => true, () => false) : true);
+    this.writes = write;
+    const saved = await write;
     const unwritable = serviceText('downloads.deviceUnwritable');
     const error = saved ? (this.state.error === unwritable ? undefined : this.state.error) : unwritable;
     this.publish({settings: this.stored.settings, pendingProgress: this.pendingCount(), error});
+    this.publishPending();
     return saved;
   }
   /** Changes what is kept with one entry, leaving the rest of it as it was. */
@@ -487,21 +565,25 @@ export class OfflineDownloads {
     await native.setMeta(id, JSON.stringify(next));
   }
 
-  /** Remembers that a title asked for from this device is wanted on this device, so that when the
-   * server has prepared it the file comes here by itself. */
-  async want(itemIds: readonly string[], display?: OfflineDisplay, originatingService?: DownloadsService) {
+  /** Remembers the exact accepted copy, so another quality of the same title
+   * cannot satisfy this device's intent first. */
+  async want(preparations: readonly DownloadPreparation[], display?: OfflineDisplay, originatingService?: DownloadsService) {
     if (originatingService && originatingService !== this.service) return;
     const owner = this.ownerKey(), generation = this.generation;
     if (!this.state.supported || !owner) return;
     const mine = bucket(this.stored.wanted, owner);
-    for (const id of itemIds) mine[id] = itemIds.length === 1 && display ? display : {title: ''};
-    await this.persist();
+    for (const preparation of preparations) {
+      mine[preparation.id] = {...(preparations.length === 1 && display ? display : this.display(preparation)), itemId: preparation.itemId};
+      this.enrolledPreparations.set(JSON.stringify([owner, preparation.id]), preparation);
+    }
+    if (!await this.persist()) throw new Error(serviceText('downloads.deviceUnwritable'));
     if (this.generation === generation) void this.collect(generation);
   }
   async wantPublication(preparation: DownloadPreparation, originatingService: DownloadsService) {
     const owner = this.ownerKey(), generation = this.generation;
     if (!owner || !this.state.supported || originatingService !== this.service || !preparation.versionId || (preparation.title.kind !== 'ebook' && preparation.title.kind !== 'comic')) throw new Error('reading_unavailable');
     bucket(this.stored.wantedPublications, owner)[preparation.id] = this.display(preparation);
+    this.enrolledPreparations.set(JSON.stringify([owner, preparation.id]), preparation);
     if (!await this.persist()) throw new Error('reading_progress_not_saved');
     if (generation === this.generation) void this.collect(generation);
   }
@@ -510,25 +592,93 @@ export class OfflineDownloads {
     const lines = downloadTitleLines(preparation.title);
     return {title: lines.title, subtitle: lines.subtitle, libraryId: preparation.libraryId, kind: preparation.title.kind};
   }
+  private preparations() {
+    const snapshot = this.service?.getSnapshot();
+    const owner = this.ownerKey(), items = new Map<string, DownloadPreparation>();
+    if (owner) for (const id of new Set([...Object.keys(this.stored.wanted[owner] ?? {}), ...Object.keys(this.stored.wantedPublications[owner] ?? {})])) {
+      const preparation = this.enrolledPreparations.get(JSON.stringify([owner, id]));
+      if (preparation) items.set(id, preparation);
+    }
+    for (const value of snapshot?.items ?? []) items.set(value.id, value);
+    for (const tracked of snapshot?.requests ?? []) for (const member of tracked.request.items) if (member.preparation) items.set(member.preparation.id, member.preparation);
+    return items;
+  }
+  /** Accepted work remains visible even before a native file can be admitted. */
+  private publishPending() {
+    for (const key of this.enrolledPreparations.keys()) {
+      const [storedOwner, id] = JSON.parse(key) as [string, string];
+      if (!this.stored.wanted[storedOwner]?.[id] && !this.stored.wantedPublications[storedOwner]?.[id]) this.enrolledPreparations.delete(key);
+    }
+    const owner = this.ownerKey(), preparations = this.preparations();
+    const wanted: Record<string, OfflineDisplay> = owner ? {...this.stored.wanted[owner], ...this.stored.wantedPublications[owner]} : {};
+    const pending = Object.entries(wanted).filter(([id]) => !this.all.some(entry => entry.id === id && this.entryOwner(entry) === owner)).map(([id, value]) => {
+      const preparation = preparations.get(id), display = preparation ? this.display(preparation) : value;
+      const reason = !this.service ? serviceText('downloads.connectToStart') : preparation
+        ? (preparation.reason && downloadReasonMessage(preparation.reason)) || this.blocked(preparation) || serviceText('downloads.checking')
+        : serviceText('downloads.blocked.preparing');
+      return Object.freeze({id, itemId: preparation?.itemId ?? this.stored.wanted[owner!]?.[id]?.itemId ?? '', title: display.title, subtitle: display.subtitle, reason});
+    });
+    if (JSON.stringify(pending) !== JSON.stringify(this.state.pendingDownloads ?? [])) this.publish({pendingDownloads: Object.freeze(pending)});
+  }
+  /** Cancels only this viewer's local intent; the server's copy can serve other devices. */
+  async cancelPending(id: string) {
+    const owner = this.ownerKey(); if (!owner) return;
+    const wanted = this.stored.wanted[owner]?.[id], publication = this.stored.wantedPublications[owner]?.[id];
+    if (!wanted && !publication) return;
+    this.incarnations.delete(id);
+    const starting = this.starts.get(id);
+    const entry = this.all.find(value => value.id === id && this.entryOwner(value) === owner);
+    if (entry) {await this.remove(entry); return;}
+    delete this.stored.wanted[owner]?.[id]; delete this.stored.wantedPublications[owner]?.[id];
+    if (!await this.persist()) {
+      if (wanted) bucket(this.stored.wanted, owner)[id] = wanted;
+      if (publication) bucket(this.stored.wantedPublications, owner)[id] = publication;
+      this.publishPending(); throw new Error(serviceText('downloads.deviceUnwritable'));
+    }
+    if (starting) {
+      const started = await starting;
+      if (started && started.owner === owner) {
+        const generation = started.generation;
+        if (!generation || !native?.removeGeneration) throw Object.assign(new Error('generation_changed'), {code: 'generation_changed'});
+        try {await native.removeGeneration(id, generation);}
+        catch (error) {if ((error as {code?: string} | null)?.code !== 'generation_changed') throw error;}
+      }
+    }
+  }
   /** Fetches whatever the connected viewer asked for from this device and is now ready. One
    * that cannot be fetched (no space, over the limit) stays on the list with the reason and a
    * button. Another viewer's outstanding wants are left untouched until they connect. */
-  private async collect(generation = this.generation) {
+  private collect(generation = this.generation): Promise<void> {
+    if (this.collection?.generation === generation) {this.collection.again = true; return this.collection.task;}
+    const flight = {generation, again: false, task: Promise.resolve()};
+    this.collection = flight;
+    flight.task = (async () => {
+      do {flight.again = false; await this.collectWanted(generation);} while (flight.again && generation === this.generation);
+    })().finally(() => {if (this.collection === flight) this.collection = undefined;});
+    return flight.task;
+  }
+  private async collectWanted(generation: number) {
     const owner = this.ownerKey(), service = this.service;
     if (generation !== this.generation || !service || !this.state.ready || !owner) return;
-    await this.enrollRequests(owner, service, generation).catch(() => {});
+    try {await this.enrollRequests(owner, service, generation);} catch {return;}
     if (generation !== this.generation) return;
     const mine = this.stored.wanted[owner] ?? {}, publications = this.stored.wantedPublications[owner] ?? {};
     if (!Object.keys(mine).length && !Object.keys(publications).length) return;
+    // A previous enrollment write may have failed after changing the in-memory
+    // markers. No pass may transfer until those markers are durable.
+    if (!await this.writes && !await this.persist()) return;
+    await this.findPreparations(owner, generation);
+    if (generation !== this.generation) return;
     let collected = false;
-    for (const p of service.getSnapshot().items) {
+    this.publishPending();
+    for (const p of this.preparations().values()) {
       if (this.generation !== generation) return;
-      if ((!mine[p.itemId] && !publications[p.id]) || p.state !== 'ready' || this.collecting.has(p.id) || this.all.some(e => e.id === p.id) || this.blocked(p)) continue;
+      if ((!mine[p.id] && !publications[p.id]) || p.state !== 'ready' || this.collecting.has(p.id) || this.all.some(e => e.id === p.id) || this.blocked(p)) continue;
       this.collecting.add(p.id);
       try {
         await this.fetch(p);
         if (this.generation !== generation) return;
-        delete this.stored.wanted[owner]?.[p.itemId];
+        delete this.stored.wanted[owner]?.[p.id];
         delete this.stored.wantedPublications[owner]?.[p.id];
         await this.persist();
         collected = true;
@@ -536,6 +686,27 @@ export class OfflineDownloads {
     }
     // Room on the list: a large request that was waiting for it reads on.
     if (collected && [...this.enrolled.values()].some(reading => !reading.tail)) this.enrollSoon(generation);
+  }
+  /** A first-page server list need not contain an older accepted preparation.
+   * Resolve only this device's exact pending ids, in bounded retryable passes. */
+  private async findPreparations(owner: string, generation: number) {
+    const api = this.api; if (!api) return;
+    const visible = new Set(this.service?.getSnapshot().items.map(value => value.id) ?? []);
+    const wanted = new Set([...Object.keys(this.stored.wanted[owner] ?? {}), ...Object.keys(this.stored.wantedPublications[owner] ?? {})]);
+    let checked = 0, more = false;
+    for (const id of wanted) {
+      const key = JSON.stringify([owner, id]), cached = this.enrolledPreparations.get(key), now = Date.now();
+      if (visible.has(id) || cached?.state === 'ready' || now - (this.preparationChecks.get(key) ?? 0) < RETRY_EVERY_MS) continue;
+      if (checked++ === 20) {more = true; break;}
+      this.preparationChecks.set(key, now);
+      try {
+        const preparation = parseDownloadPreparation(await api.request<unknown>(`/v1/downloads/preparations/${encodeURIComponent(id)}`));
+        if (generation !== this.generation) return;
+        if (preparation.id !== id || this.stored.wanted[owner]?.[id] && this.stored.wanted[owner]![id].itemId !== preparation.itemId) continue;
+        if (this.stored.wanted[owner]?.[id] || this.stored.wantedPublications[owner]?.[id]) this.enrolledPreparations.set(key, preparation);
+      } catch { /* Keep the exact intent and retry when its server can answer. */ }
+    }
+    if (more) this.enrollSoon(generation);
   }
   /** One more pass, shortly: a fresh one, so no single pass does unbounded work. */
   private enrollSoon(generation: number) {
@@ -555,31 +726,39 @@ export class OfflineDownloads {
    * later are found. */
   private async enrollRequests(owner: string, service: DownloadsService, generation: number) {
     if (generation !== this.generation) return;
-    const mine = bucket(this.stored.wanted, owner), api = this.api;
+    const mine = bucket(this.stored.wanted, owner), enrolled = bucket(this.stored.enrolledMembers, owner), api = this.api;
     let added = false, more = false;
     for (const tracked of service.getSnapshot().requests) {
       const r = tracked.request;
-      const add = (items: readonly {itemId: string}[]) => {
+      const members = enrolled[r.requestId] ??= {};
+      const add = (items: readonly {itemId: string; preparation?: DownloadPreparation}[]) => {
         for (const it of items) {
-          const key = `${owner}|${r.requestId}|${it.itemId}`;
-          if (this.enrolledItems.has(key)) continue;
-          if (!mine[it.itemId] && !this.all.some(e => e.itemId === it.itemId && this.entryOwner(e) === owner)) {
+          // A captured member is not yet an accepted preparation. Wait for its
+          // exact id rather than borrowing a ready copy of a different quality.
+          const preparation = it.preparation;
+          if (!preparation || preparation.itemId !== it.itemId) continue;
+          const key = JSON.stringify([owner, preparation.id]);
+          if (mine[preparation.id]) this.enrolledPreparations.set(key, preparation);
+          if (members[it.itemId]) continue;
+          if (!mine[preparation.id] && !this.all.some(e => e.id === preparation.id && this.entryOwner(e) === owner)) {
             if (Object.keys(mine).length >= ENROLL_BACKLOG) return false;
-            mine[it.itemId] = {title: ''}; added = true;
+            mine[preparation.id] = {...this.display(preparation), itemId: it.itemId};
+            this.enrolledPreparations.set(key, preparation);
           }
-          this.enrolledItems.add(key);
+          members[it.itemId] = true; added = true;
         }
         return true;
       };
       if (!add(r.items)) break;
       if (!r.nextCursor || !api) continue;
-      const mark = `${r.total}/${r.ready}/${r.preparing}/${r.queued}`;
+      const mark = `${r.total}/${r.ready}/${r.preparing}/${r.queued}/${r.failed}/${r.paused}`;
       const requestKey = JSON.stringify([owner, r.requestId]);
-      const reading = this.enrolled.get(requestKey) ?? {after: r.nextCursor, read: 0, mark: '', tail: false, busy: false, retryAt: 0};
+      const reading = this.enrolled.get(requestKey) ?? {after: r.nextCursor, read: 0, mark: '', tail: false, busy: false, retryAt: 0, unprepared: false};
       this.enrolled.set(requestKey, reading);
       // Another pass is reading this request, or it has been read to its end (or to a page that
       // could not be read) and nothing about it has changed since.
       if (reading.busy || (reading.tail && reading.mark === mark) || (reading.mark === mark && Date.now() < reading.retryAt)) continue;
+      if (reading.tail && reading.mark !== mark && reading.unprepared) {reading.after = r.nextCursor; reading.read = 0; reading.unprepared = false;}
       const restart = () => { reading.after = r.nextCursor; reading.read = 0; reading.tail = true; };
       reading.mark = mark; reading.tail = false; reading.busy = true; reading.retryAt = 0;
       let held = false;
@@ -589,6 +768,7 @@ export class OfflineDownloads {
           const page = await getDownloadRequest(api, r.requestId, {cursor: reading.after});
           if (generation !== this.generation) return;
           if (!add(page.items)) { held = true; break; }
+          if (page.items.some(item => !item.preparation)) reading.unprepared = true;
           reading.read += page.items.length;
           // More members than the request has: its list changed under the reading (or the server
           // is repeating itself). Stop, and read from the first page when it next changes.
@@ -604,7 +784,25 @@ export class OfflineDownloads {
         reading.retryAt = Date.now() + RETRY_EVERY_MS;
       } finally { reading.busy = false; }
     }
-    if (added) await this.persist();
+    // An empty initial service snapshot is not proof a request disappeared.
+    // Retire its durable member markers only after an authenticated 404.
+    if (api) {
+      const tracked = new Set(service.getSnapshot().requests.map(value => value.request.requestId));
+      let checked = 0;
+      for (const requestId of Object.keys(enrolled)) {
+        const key = JSON.stringify([owner, requestId]), now = Date.now();
+        if (tracked.has(requestId) || now - (this.requestChecks.get(key) ?? 0) < RETRY_EVERY_MS) continue;
+        if (checked++ === 20) break;
+        this.requestChecks.set(key, now);
+        try {await getDownloadRequest(api, requestId);}
+        catch (error) {
+          if (generation !== this.generation) return;
+          if ((error as {status?: number} | null)?.status === 404) {delete enrolled[requestId]; this.enrolled.delete(key); added = true;}
+        }
+        if (generation !== this.generation) return;
+      }
+    }
+    if (added && !await this.persist()) throw new Error(serviceText('downloads.deviceUnwritable'));
     // The rest of a large request is the next batch's.
     if (more) this.enrollSoon(generation);
   }
@@ -628,7 +826,7 @@ export class OfflineDownloads {
       try {
         const batch = await service.request({nextAfterMediaId: itemId}, intent.quality);
         if (generation !== this.generation) return;
-        if (batch.items.length) await this.want(batch.items.map(p => p.itemId));
+        if (batch.items.length) await this.want(batch.items);
         if (generation !== this.generation) return;
         if (this.stored.nextAfter[owner]?.[itemId] === intent) delete this.stored.nextAfter[owner]![itemId];
         await this.persist();
@@ -652,9 +850,14 @@ export class OfflineDownloads {
   /** Why a server-prepared file cannot be fetched right now, or '' when it can. */
   blocked(preparation: DownloadPreparation): string {
     if (preparation.state !== 'ready') return serviceText('downloads.blocked.preparing');
-    const size = preparation.artifact.bytes, limit = this.state.settings.limitBytes, pending = this.inFlight();
+    return this.admission(preparation.artifact.bytes);
+  }
+  /** The same device-space calculation used by collection and both download sheets. */
+  admission(size: number): string {
+    if (!this.state.ready || !this.storageMeasured || !Number.isSafeInteger(size) || size < 0) return serviceText('downloads.checking');
+    const limit = this.state.settings.limitBytes, pending = this.inFlight();
     if (limit > 0 && this.state.usedBytes + pending.whole + size > limit) return serviceText('downloads.blocked.limit');
-    if (this.state.freeBytes > 0 && size + pending.remaining + 500 * 1048576 > this.state.freeBytes) return serviceText('downloads.blocked.space');
+    if (size + pending.remaining + 500 * 1048576 > this.state.freeBytes) return serviceText('downloads.blocked.space');
     return '';
   }
   async fetch(preparation: DownloadPreparation): Promise<void> {
@@ -663,7 +866,7 @@ export class OfflineDownloads {
     const reason = this.blocked(preparation); if (reason) throw new Error(reason);
     this.starting.set(preparation.id, preparation.artifact.bytes);
     try { await this.transfer({id: preparation.id, itemId: preparation.itemId, quality: preparation.quality, libraryId: preparation.libraryId, title: preparation.title}, owner, api, service, generation); }
-    finally { this.starting.delete(preparation.id); }
+    finally { this.starting.delete(preparation.id); this.publishPending(); }
   }
   /** Starts, or continues, moving one download's bytes.
    *
@@ -672,31 +875,61 @@ export class OfflineDownloads {
    * The address is the one this download already had whenever the server will keep it alive,
    * and the bytes already here are continued either way: they belong to the file, not to the
    * address. */
-  private async transfer(target: {id: string; itemId: string; quality: string; libraryId?: string; title?: DownloadTitle}, owner: string, api: Api, service: DownloadsService, generation: number) {
+  private async transfer(target: {id: string; itemId: string; quality: string; libraryId?: string; title?: DownloadTitle}, owner: string, api: Api, service: DownloadsService, generation: number, continuing = false, explicit = false) {
     if (!native) throw new Error(serviceText('downloads.unavailableOnDevice'));
+    const incarnation = this.incarnations.get(target.id) ?? {};
+    this.incarnations.set(target.id, incarnation);
+    const current = () => {
+      const entry = this.all.find(value => value.id === target.id);
+      if (this.generation !== generation || this.api !== api || this.service !== service || this.ownerKey() !== owner || this.incarnations.get(target.id) !== incarnation
+        || continuing && (!entry || this.entryOwner(entry) !== owner || entry.itemId !== target.itemId || entry.held && !explicit)) throw Object.assign(new Error('cancelled'), {code: 'cancelled'});
+      return entry;
+    };
+    current();
     const held = this.metas.get(target.id) ?? {};
     const claim = held.claim ?? target.id;
     // A receipt that has run out, or soon will, is no better than none for a download that may
     // finish with no connection.
     let receipt = held.receipt;
     if (!receipt || Date.parse(receipt.claims.expiresAt) - this.receiptNow() < 7 * 24 * 60 * 60 * 1000) receipt = await this.issueReceipt(api, claim).catch(() => undefined) ?? receipt;
+    current();
     const grant = await service.grant({id: claim}, held.token);
-    if (this.generation !== generation) throw new Error(serviceText('downloads.connectToStart'));
+    const entry = current();
     const title = target.title ?? held.title;
     // The owner is recorded before the first byte arrives, so a transfer that is still running
     // when the viewer changes is not left unattributed.
     const meta: Meta = {...held, libraryId: target.libraryId ?? held.libraryId, kind: title?.kind ?? held.kind, owner, receipt, title, token: grant.token, onServer: true, ...(claim !== target.id ? {claim} : {})};
-    await this.startTransfer(target, meta, grant, api);
+    await this.startTransfer(target, meta, grant, api, continuing ? entry : undefined, () => this.incarnations.get(target.id) === incarnation);
+    if (this.generation !== generation || this.incarnations.get(target.id) !== incarnation) return;
+    if (receipt && title?.kind !== 'ebook' && title?.kind !== 'comic' && !held.viewingSynced) await this.initialViewing(target.id, receipt, owner, api, generation);
     void this.bundle(target.id, api, service, generation, grant.url);
   }
-  private async startTransfer(target: {id: string; itemId: string; quality: string}, meta: Meta, grant: Awaited<ReturnType<DownloadsService['grant']>>, api: Api) {
+  private async startTransfer(target: {id: string; itemId: string; quality: string}, meta: Meta, grant: Awaited<ReturnType<DownloadsService['grant']>>, api: Api, continuing?: OfflineEntry, current: () => boolean = () => true): Promise<StartedTransfer | undefined> {
     if (!native) return;
     const lines = meta.title ? downloadTitleLines(meta.title) : {title: '', subtitle: ''};
     this.metas.set(target.id, meta);
-    await native.start({
+    const request = {
       id: target.id, url: api.mediaUrl(grant.url), fileName: grant.artifact.fileName, bytes: grant.artifact.bytes, sha256: grant.artifact.sha256,
       contentType: grant.artifact.contentType, itemId: target.itemId, title: lines.title, subtitle: lines.subtitle, quality: target.quality, meta: JSON.stringify(meta),
+      ...(continuing ? {expectedGeneration: this.publicationStateGenerations.get(continuing)} : {}),
+    };
+    // A successful native start rotates its generation too. Its own exact
+    // publication must not cancel the JS work still fetching this copy's extras.
+    const starting = {meta: request.meta, itemId: target.itemId, current};
+    this.startingRequests.set(target.id, starting);
+    const task = (continuing && native.resume ? native.resume(request) : native.start(request)).then(raw => {
+      // Both native owners return their published row. The promise may arrive
+      // before the change event, so publish it before importing the bookmark.
+      if (raw?.id === target.id && current()) this.accept(raw);
+      const entry = this.all.find(value => value.id === target.id);
+      const generation = typeof raw?.publicationGeneration === 'string' ? raw.publicationGeneration : entry && this.publicationStateGenerations.get(entry);
+      return {id: target.id, owner: meta.owner, generation};
     });
+    this.starts.set(target.id, task);
+    try {return await task;} finally {
+      if (this.starts.get(target.id) === task) this.starts.delete(target.id);
+      if (this.startingRequests.get(target.id) === starting) this.startingRequests.delete(target.id);
+    }
   }
   /** Fetches what travels with a download — its description, artwork, chapters, markers and
    * subtitles — and keeps it beside the file. What the server has none of is simply absent;
@@ -740,6 +973,8 @@ export class OfflineDownloads {
   private async tend(generation: number) {
     const owner = this.ownerKey(), api = this.api, service = this.service;
     if (generation !== this.generation || !owner || !api || !service || !this.state.ready) return;
+    await this.measure();
+    if (generation !== this.generation) return;
     void this.collect(generation);
     void this.syncProgress(generation);
     void this.syncReadingProgress(generation);
@@ -753,7 +988,7 @@ export class OfflineDownloads {
       if (stopped) {
         if (now - (this.retried.get(entry.id) ?? 0) < RETRY_EVERY_MS) continue;
         this.retried.set(entry.id, now);
-        await this.transfer({id: entry.id, itemId: entry.itemId, quality: entry.quality}, owner, api, service, generation).catch(e => {
+        await this.transfer({id: entry.id, itemId: entry.itemId, quality: entry.quality}, owner, api, service, generation, true).catch(e => {
           // The server no longer has this to hand over (its claim ended while the transfer was
           // stopped). Asking every half minute would change nothing: it is left for a quarter of
           // an hour, and Try again says why straight away.
@@ -765,14 +1000,17 @@ export class OfflineDownloads {
         // again, hours from now, with the app closed.
         if (now - (this.retried.get('renew:' + entry.id) ?? 0) < 60 * 60 * 1000) continue;
         this.retried.set('renew:' + entry.id, now);
+        const incarnation = this.incarnations.get(entry.id) ?? {};
+        this.incarnations.set(entry.id, incarnation);
         await service.grant({id: meta.claim ?? entry.id}, meta.token).then(async grant => {
           if (generation !== this.generation || owner !== this.ownerKey() || grant.token === meta.token) return;
+          if (this.incarnations.get(entry.id) !== incarnation) return;
           const current = this.all.find(e => e.id === entry.id);
           const latest = this.metas.get(entry.id);
           if (!current || current.held || current.state !== 'downloading' || this.entryOwner(current) !== owner || latest?.token !== meta.token) return;
           const artifact = current.receipt?.claims.artifact;
           if (artifact && (artifact.sha256 !== grant.artifact.sha256 || artifact.bytes !== grant.artifact.bytes)) return;
-          await this.startTransfer(current, {...latest, token: grant.token}, grant, api);
+          await this.startTransfer(current, {...latest, token: grant.token}, grant, api, current, () => this.incarnations.get(entry.id) === incarnation);
         }).catch(() => {});
       } else if (entry.state === 'ready' && ((meta.bundle ?? 0) < BUNDLE_COMPLETE || (entry.kind === 'ebook' || entry.kind === 'comic') && meta.publication !== true) && entry.onServer) {
         if (now - (this.retried.get('bundle:' + entry.id) ?? 0) < 10 * 60 * 1000) continue;
@@ -786,20 +1024,64 @@ export class OfflineDownloads {
     const owner = this.ownerKey(), api = this.api, service = this.service;
     if (!owner || !api || !service || this.entryOwner(entry) !== owner) throw new Error(serviceText('downloads.connectToContinue'));
     this.retried.delete(entry.id);
-    await this.transfer({id: entry.id, itemId: entry.itemId, quality: entry.quality}, owner, api, service, this.generation);
+    const live = this.all.find(value => value.id === entry.id);
+    if (!live || this.entryOwner(live) !== owner || live.itemId !== entry.itemId || this.publicationStateGenerations.get(live) !== this.publicationStateGenerations.get(entry)) throw Object.assign(new Error('cancelled'), {code: 'cancelled'});
+    await this.transfer({id: entry.id, itemId: entry.itemId, quality: entry.quality}, owner, api, service, this.generation, true, true);
   }
   /** The person paused it: it stays paused until they continue it. */
-  pause(entry: OfflineEntry) { return native?.pause(entry.id) ?? Promise.resolve(); }
+  pause(entry: OfflineEntry) { this.incarnations.delete(entry.id); return native?.pause(entry.id) ?? Promise.resolve(); }
+  private pendingReading(entry: OfflineEntry): ReadingRecord | undefined {
+    const owner = this.entryOwner(entry), record = owner && this.stored.reading[owner]?.[entry.id];
+    return record && record.pending ? record : undefined;
+  }
+  private readingRemovalRefused(entry: OfflineEntry) {
+    const record = this.pendingReading(entry);
+    return Object.assign(new Error('reading_progress_pending'), {code: record?.syncBlocked ?? 'reading_progress_pending'});
+  }
+  private holdReadingRemovals(ids: readonly string[]): () => void {
+    for (const id of ids) this.removingReading.set(id, (this.removingReading.get(id) ?? 0) + 1);
+    this.publish({});
+    return () => {
+      for (const id of ids) {
+        const count = (this.removingReading.get(id) ?? 0) - 1;
+        if (count > 0) this.removingReading.set(id, count); else this.removingReading.delete(id);
+      }
+    };
+  }
   /** Removes a download from this device. The server is told this device no longer holds the
    * copy (unless it was the server that withdrew it); its own claim on the title is left for the
    * viewer's other devices. */
   async remove(entry: OfflineEntry, withdrawn = false) {
-    const receipt = entry.receipt, owner = this.entryOwner(entry);
-    await native?.remove(entry.id);
-    this.retried.delete(entry.id);
-    if (owner) {delete this.stored.resume[owner]?.[entry.itemId]; delete this.stored.reading[owner]?.[entry.id]; delete this.stored.wantedPublications[owner]?.[entry.id];}
-    await this.persist();
-    if (!withdrawn && receipt && this.api && owner === this.ownerKey()) void this.api.request<unknown>('/v1/downloads/receipts/revoke', 'POST', {operationId: operationId(), receiptIds: [receipt.receiptId], reason: 'removed'}).catch(() => {});
+    const receipt = entry.receipt, owner = this.entryOwner(entry), generation = this.generation, api = this.api;
+    if (this.removingReading.has(entry.id) && !withdrawn) throw Object.assign(new Error('reading_remove_busy'), {code: 'reading_remove_busy'});
+    const release = this.holdReadingRemovals([entry.id]);
+    try {
+      // Deliberate removal must not destroy the only unsent reading observation or
+      // revoke its receipt. Offline/blocked books stay until this owner can sync.
+      if (!withdrawn) {
+        if (this.pendingReading(entry)) {
+          if (!api || owner !== this.ownerKey()) throw this.readingRemovalRefused(entry);
+          await this.syncReadingProgress(generation);
+        }
+        if (generation !== this.generation || api !== this.api) throw Object.assign(new Error('cancelled'), {code: 'cancelled'});
+        if (this.pendingReading(entry)) throw this.readingRemovalRefused(entry);
+      }
+      this.incarnations.delete(entry.id);
+      await native?.remove(entry.id);
+      this.retried.delete(entry.id);
+      if (owner) {
+        delete this.stored.resume[owner]?.[entry.itemId];
+        const record = this.stored.reading[owner]?.[entry.id];
+        // A server revocation still removes bytes immediately. Retain the rejected
+        // observation as evidence without using it to restore playback authority.
+        if (record?.pending) this.stored.reading[owner][entry.id] = Object.freeze({...record, syncBlocked: 'access_revoked'});
+        else delete this.stored.reading[owner]?.[entry.id];
+        delete this.stored.wanted[owner]?.[entry.id];
+        delete this.stored.wantedPublications[owner]?.[entry.id];
+      }
+      if (!await this.persist()) throw Object.assign(new Error('reading_progress_not_saved'), {code: 'persistence_error'});
+      if (!withdrawn && receipt && api && generation === this.generation && api === this.api && owner === this.ownerKey()) void api.request<unknown>('/v1/downloads/receipts/revoke', 'POST', {operationId: operationId(), receiptIds: [receipt.receiptId], reason: 'removed'}).catch(() => {});
+    } finally {release();}
   }
   /** Removes every download on this device that is not the connected viewer's. They are never
    * shown; this is how the space they take is given back. */
@@ -807,13 +1089,22 @@ export class OfflineDownloads {
     const owner = this.ownerKey();
     if (!owner || !native) return;
     const generation = this.generation;
-    for (const entry of this.all.filter(e => this.entryOwner(e) !== owner)) {
-      if (generation !== this.generation || this.ownerKey() !== owner) return;
-      await native.remove(entry.id); if (generation !== this.generation || this.ownerKey() !== owner) return;
-      const erasedOwner = this.entryOwner(entry); if (erasedOwner) {delete this.stored.reading[erasedOwner]?.[entry.id]; delete this.stored.wantedPublications[erasedOwner]?.[entry.id];}
-    }
-    await this.persist();
-    void this.measure();
+    const entries = this.all.filter(e => this.entryOwner(e) !== owner);
+    // Their observations cannot be sent with this viewer's credentials. Refuse
+    // before deleting any member of the requested set.
+    for (const entry of entries) if (this.pendingReading(entry)) throw this.readingRemovalRefused(entry);
+    const release = this.holdReadingRemovals(entries.map(entry => entry.id));
+    try {
+      for (const entry of entries) {
+        if (generation !== this.generation || this.ownerKey() !== owner) return;
+        if (this.pendingReading(entry)) throw this.readingRemovalRefused(entry);
+        this.incarnations.delete(entry.id);
+        await native.remove(entry.id); if (generation !== this.generation || this.ownerKey() !== owner) return;
+        const erasedOwner = this.entryOwner(entry); if (erasedOwner) {delete this.stored.reading[erasedOwner]?.[entry.id]; delete this.stored.wanted[erasedOwner]?.[entry.id]; delete this.stored.wantedPublications[erasedOwner]?.[entry.id];}
+      }
+      if (!await this.persist()) throw Object.assign(new Error('reading_progress_not_saved'), {code: 'persistence_error'});
+      void this.measure();
+    } finally {release();}
   }
 
   /** How one other-viewer member was published: owner, receipt artifact and native version. */
@@ -848,22 +1139,31 @@ export class OfflineDownloads {
     if (!removal) throw this.changedOthers();
     const captured = this.all.filter(e => this.entryOwner(e) !== owner).map(e => this.otherMember(e));
     if (!captured.length || captured.some(member => !member.generation)) throw this.changedOthers();
-    const generation = this.generation;
     for (const member of captured) {
-      if (generation !== this.generation || this.ownerKey() !== owner) return;
-      const live = this.all.find(e => e.id === member.id);
-      if (!live || !this.sameOtherMember(live, member)) throw this.changedOthers();
-      try {await removal.call(native, member.id, member.generation);}
-      catch (error) {
-        const code = (error as {code?: unknown} | null)?.code;
-        if (code === 'generation_changed' || code === 'others_changed') throw this.changedOthers();
-        throw error;
-      }
-      if (generation !== this.generation || this.ownerKey() !== owner) return;
-      if (member.owner) {delete this.stored.reading[member.owner]?.[member.id]; delete this.stored.wantedPublications[member.owner]?.[member.id];}
+      const live = this.all.find(e => e.id === member.id)!;
+      if (this.pendingReading(live)) throw this.readingRemovalRefused(live);
     }
-    await this.persist();
-    void this.measure();
+    const generation = this.generation;
+    const release = this.holdReadingRemovals(captured.map(member => member.id));
+    try {
+      for (const member of captured) {
+        if (generation !== this.generation || this.ownerKey() !== owner) return;
+        const live = this.all.find(e => e.id === member.id);
+        if (!live || !this.sameOtherMember(live, member)) throw this.changedOthers();
+        if (this.pendingReading(live)) throw this.readingRemovalRefused(live);
+        this.incarnations.delete(member.id);
+        try {await removal.call(native, member.id, member.generation);}
+        catch (error) {
+          const code = (error as {code?: unknown} | null)?.code;
+          if (code === 'generation_changed' || code === 'others_changed') throw this.changedOthers();
+          throw error;
+        }
+        if (generation !== this.generation || this.ownerKey() !== owner) return;
+        if (member.owner) {delete this.stored.reading[member.owner]?.[member.id]; delete this.stored.wanted[member.owner]?.[member.id]; delete this.stored.wantedPublications[member.owner]?.[member.id];}
+      }
+      if (!await this.persist()) throw Object.assign(new Error('reading_progress_not_saved'), {code: 'persistence_error'});
+      void this.measure();
+    } finally {release();}
   }
 
   private async issueReceipt(api: Api, claim: string): Promise<DownloadReceipt | undefined> {
@@ -892,8 +1192,30 @@ export class OfflineDownloads {
       const receipt = await this.issueReceipt(api, this.metas.get(id)?.claim ?? id);
       if (this.generation !== generation || !receipt) return;
       await this.patch(id, {receipt, owner: offlineOwnerKey(receipt.claims.viewer)});
+      const owner = this.ownerKey();
+      if (owner) await this.initialViewing(id, receipt, owner, api, generation);
       await this.verifyAll();
     } catch { /* tried again the next time the app is online */ } finally { this.receiving.delete(id); }
+  }
+  /** Receipt issuance has no bookmark. Revalidate this new copy once rather
+   * than waiting for the owner's next daily renewal. A newer local play wins. */
+  private async initialViewing(id: string, receipt: DownloadReceipt, owner: string, api: Api, generation: number) {
+    if (receipt.claims.publication || generation !== this.generation) return;
+    const clockKey = JSON.stringify([owner, receipt.claims.itemId]), observed = this.observationTimes.get(clockKey);
+    const incarnation = this.incarnations.get(id);
+    try {
+      const outcomes = parseReceiptOutcomes(await api.request<unknown>('/v1/downloads/receipts/revalidate', 'POST', {operationId: operationId(), receiptIds: [receipt.receiptId]}));
+      if (generation !== this.generation || this.api !== api || this.ownerKey() !== owner || this.incarnations.get(id) !== incarnation) return;
+      const entry = this.all.find(value => value.id === id && this.entryOwner(value) === owner && value.receipt?.receiptId === receipt.receiptId);
+      const outcome = outcomes.find(value => value.receiptId === receipt.receiptId);
+      if (!entry || !outcome) return;
+      if (outcome.outcome === 'refused') {if (revokesOwnedFile(outcome.code)) await this.remove(entry, true); return;}
+      if (outcome.outcome !== 'renewed' || !outcome.receipt) return;
+      this.trustServerTime([outcome.receipt.claims.issuedAt]);
+      if (outcome.viewing && this.observationTimes.get(clockKey) === observed && !Object.values(this.stored.plays[owner] ?? {}).some(play => play.itemId === entry.itemId)) bucket(this.stored.resume, owner)[entry.itemId] = outcome.viewing.watched ? 0 : outcome.viewing.positionSeconds;
+      await this.patch(id, {receipt: outcome.receipt, viewingSynced: true, ...(outcome.titleOnServer === null ? {} : {onServer: outcome.titleOnServer})});
+      await this.persist();
+    } catch { /* The next online pass retries copies whose bookmark is still unknown. */ }
   }
   /** Extends this viewer's receipts while online, and drops what the server has
    * withdrawn from them. Another viewer's downloads are not submitted at all: the
@@ -921,13 +1243,17 @@ export class OfflineDownloads {
     const mine = this.ownedEntries(owner);
     // A finished download with no receipt yet (it could not be had when the transfer began).
     for (const e of mine) if (e.state === 'ready' && !e.receipt) void this.obtainReceipt(e.id, generation);
-    const held = mine.filter(e => e.receipt);
+    let held = mine.filter(e => e.receipt);
+    if (!held.length) return;
     const now = this.receiptNow(), soon = held.some(e => Date.parse(e.receipt!.claims.expiresAt) - now < 7 * 24 * 60 * 60 * 1000);
-    if (!force && !soon && Date.now() - (this.stored.renewed[owner] ?? 0) < RENEW_EVERY_MS) return;
+    const daily = force || soon || Date.now() - (this.stored.renewed[owner] ?? 0) >= RENEW_EVERY_MS;
+    if (!daily) held = held.filter(entry => !entry.receipt?.claims.publication && !this.metas.get(entry.id)?.viewingSynced);
+    if (!held.length) return;
     // The server renews at most 100 receipts per request, so a large library of downloads is
     // renewed in batches, and each batch is written to the device once.
     for (let i = 0; i < held.length; i += RECEIPT_BATCH) {
       const batch = held.slice(i, i + RECEIPT_BATCH);
+      const observed = new Map(batch.map(entry => [entry.itemId, this.observationTimes.get(JSON.stringify([owner, entry.itemId]))]));
       let outcomes: readonly ReceiptOutcome[];
       try { outcomes = parseReceiptOutcomes(await api.request<unknown>('/v1/downloads/receipts/revalidate', 'POST', {operationId: operationId(), receiptIds: batch.map(e => e.receipt!.receiptId)})); }
       catch { return; /* offline or busy: receipts stay valid until they expire */ }
@@ -936,14 +1262,16 @@ export class OfflineDownloads {
       const unknown: OfflineEntry[] = [];
       for (const o of outcomes) {
         const entry = batch.find(e => e.receipt!.receiptId === o.receiptId); if (!entry) continue;
+        const live = this.all.find(value => value.id === entry.id && value.receipt?.receiptId === entry.receipt!.receiptId && this.entryOwner(value) === owner);
+        if (!live) continue;
         if (o.outcome === 'renewed' && o.receipt) {
           this.trustServerTime([o.receipt.claims.issuedAt]);
-          const next: Meta = {...(this.metas.get(entry.id) ?? {}), receipt: o.receipt, owner: offlineOwnerKey(o.receipt.claims.viewer), ...(o.titleOnServer === null ? {} : {onServer: o.titleOnServer})};
+          const next: Meta = {...(this.metas.get(entry.id) ?? {}), receipt: o.receipt, owner: offlineOwnerKey(o.receipt.claims.viewer), viewingSynced: true, ...(o.titleOnServer === null ? {} : {onServer: o.titleOnServer})};
           this.metas.set(entry.id, next);
           changes[entry.id] = JSON.stringify(next);
           // Where another device left the title is where this copy resumes, unless this device
           // has a play of its own still to send (the server has not weighed that one yet).
-          if (o.viewing && !Object.values(this.stored.plays[owner] ?? {}).some(p => p.itemId === entry.itemId)) bucket(this.stored.resume, owner)[entry.itemId] = o.viewing.watched ? 0 : o.viewing.positionSeconds;
+          if (o.viewing && this.observationTimes.get(JSON.stringify([owner, entry.itemId])) === observed.get(entry.itemId) && !Object.values(this.stored.plays[owner] ?? {}).some(p => p.itemId === entry.itemId)) bucket(this.stored.resume, owner)[entry.itemId] = o.viewing.watched ? 0 : o.viewing.positionSeconds;
         } else if (o.outcome === 'refused' && revokesOwnedFile(o.code)) await this.remove(entry, true);
         else if (o.outcome === 'refused') unknown.push(entry);
       }
@@ -952,7 +1280,7 @@ export class OfflineDownloads {
       for (const entry of unknown) void this.recover(entry, generation);
     }
     if (this.generation !== generation) return;
-    this.stored.renewed[owner] = Date.now();
+    if (daily) this.stored.renewed[owner] = Date.now();
     await this.persist();
     if (this.generation === generation) await this.verifyAll();
   }
@@ -1127,7 +1455,7 @@ export class OfflineDownloads {
   }
   publicationLease(entry: OfflineEntry, scope: Readonly<{signal: AbortSignal; current: () => boolean}>): NativeOfflinePublicationLease {
     const read = this.localRead(entry), owner = this.ownerKey(), initial = read();
-    if (!native || !owner || !nativePublicationReadsAvailable() || this.playabilityReason(initial)) throw new Error('reading_unavailable');
+    if (!native || !owner || this.removingReading.has(entry.id) || !nativePublicationReadsAvailable() || this.playabilityReason(initial)) throw new Error('reading_unavailable');
     const binding = this.publicationBinding(initial.receipt), abort = new AbortController(); let disposed = false;
     // State authority belongs to the original entry, not a renewed/latest receipt found later.
     const stateGeneration = this.publicationStateGenerations.get(entry);
@@ -1142,7 +1470,7 @@ export class OfflineDownloads {
     let stateHandle: string | undefined;
     let stateOpen: Promise<void> | undefined;
     const closeState = () => {if (stateOpen && stateHandle && typeof native.publicationStateClose === 'function') native.publicationStateClose(stateHandle);};
-    const current = () => {try {const live = read(); return !disposed && !abort.signal.aborted && !scope.signal.aborted && scope.current() && !this.playabilityReason(live) && this.publicationBinding(live.receipt).documentSha256 === binding.documentSha256;} catch {return false;}};
+    const current = () => {try {const live = read(); return !disposed && !this.removingReading.has(entry.id) && !abort.signal.aborted && !scope.signal.aborted && scope.current() && !this.playabilityReason(live) && this.publicationBinding(live.receipt).documentSha256 === binding.documentSha256;} catch {return false;}};
     const retire = () => {if (disposed) return; disposed = true; closeState(); abort.abort(); off(); clearTimeout(timer); scope.signal.removeEventListener('abort', retire);};
     const off = this.subscribe(() => {if (!current()) retire();});
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1188,7 +1516,7 @@ export class OfflineDownloads {
           receipt, serverRevision: existing?.serverRevision ?? initialProgress.progress?.revision ?? 0, progress,
           pending: Object.freeze({id: operationId(), observedAt, startedAt, location: request.location})});
         records[entry.id] = record;
-        if (!await this.persist()) {if (records[entry.id] === record) {if (previous) records[entry.id] = previous; else delete records[entry.id];} throw new Error('reading_progress_not_saved');}
+        if (!await this.persist()) {if (records[entry.id] === record) {if (previous) records[entry.id] = previous; else delete records[entry.id];} this.publish({pendingProgress: this.pendingCount()}); throw new Error('reading_progress_not_saved');}
         if (!current() || !callerCurrent()) throw new Error('reading_retired');
         void this.syncReadingProgress(); return {progress: progress.progress, saved: true};
       },
@@ -1204,38 +1532,61 @@ export class OfflineDownloads {
     const api = this.api, owner = this.ownerKey(); if (!api || !owner || generation !== this.generation) return;
     const current = () => this.generation === generation && this.api === api && this.ownerKey() === owner;
     const records = this.stored.reading[owner]; if (!records) return;
-    for (const [id, sent] of Object.entries(records).slice(0, 100)) {
-      if (!current()) return;
-      if (!sent || !sent.pending) continue;
-      try {
-        const original = decodeDownloadReceipt(sent.receipt);
-        const originalClaims = original.receipt.claims;
-        if (Date.parse(originalClaims.expiresAt) <= this.receiptNow()) {await this.renewReceipts(generation, api, owner, true); if (!current() || !records[id]) return;}
-        const live = this.all.find(value => value.id === id && this.entryOwner(value) === owner && value.receipt);
-        const decoded = decodeDownloadReceipt(live?.receipt ?? original.receipt), claims = decoded.receipt.claims;
-        if (offlineOwnerKey(claims.viewer) !== owner || claims.itemId !== sent.itemId || claims.artifact.sha256 !== sent.artifactSha256 || claims.artifact.bytes !== sent.artifactBytes || !Number.isSafeInteger(sent.serverRevision) || sent.serverRevision < 0) continue;
-        const binding = this.publicationBinding(decoded.receipt);
-        if (binding.sourceId !== sent.sourceId || binding.revision !== sent.revision || binding.documentSha256 !== sent.documentSha256) continue;
-        const key = this.stored.keys[decoded.receipt.keyId], originalKey = this.stored.keys[original.receipt.keyId];
-        if (!key || !originalKey || !await nativeRouteCrypto.verify(base64url(key), decoded.signatureBytes, decoded.signedBytes) || !await nativeRouteCrypto.verify(base64url(originalKey), original.signatureBytes, original.signedBytes) || !current()) continue;
-        const raw = await api.request<unknown>('/v1/reading/offline/progress', 'POST', {receipt: decoded.receipt, observationReceipt: original.receipt, expectedRevision: sent.serverRevision, observedAt: sent.pending.observedAt, startedAt: sent.pending.startedAt, location: sent.pending.location});
-        if (!current() || !object(raw) || (raw.outcome !== 'applied' && raw.outcome !== 'history_paused' && raw.outcome !== 'stale_observation' && raw.outcome !== 'superseded_online')) return;
-        if (Object.keys(raw).some(key => key !== 'progress' && key !== 'saved' && key !== 'outcome') || !Object.prototype.hasOwnProperty.call(raw, 'progress') || typeof raw.saved !== 'boolean') return;
-        const result = decodePutReadingSessionsSessionIdProgressResponse({progress: raw.progress, saved: raw.saved});
-        if (result.saved !== (raw.outcome === 'applied') || result.progress && (result.progress.sourceId !== sent.sourceId || !/^[0-9a-f]{64}$/.test(result.progress.sourceRevision) || !safeInteger(result.progress.revision, 1) || !safeInteger(result.progress.observedAt, 1))) return;
-        const latest = records[id]; if (!latest || latest.sourceId !== sent.sourceId || latest.documentSha256 !== sent.documentSha256 || latest.artifactSha256 !== sent.artifactSha256) continue;
-        const duplicate = raw.outcome === 'stale_observation' && result.progress?.observedAt === sent.pending.observedAt && JSON.stringify(result.progress.location) === JSON.stringify(sent.pending.location);
-        const applied = raw.outcome === 'applied' || duplicate;
-        const ownPending = latest.pending?.id === sent.pending.id;
-        if (applied) records[id] = Object.freeze({...latest, serverRevision: result.progress?.revision ?? latest.serverRevision, pending: ownPending ? undefined : latest.pending});
-        else if (ownPending) records[id] = Object.freeze({...latest, serverRevision: result.progress?.revision ?? latest.serverRevision, pending: undefined, progress: {progress: result.progress}, blockedStartedAt: sent.pending.startedAt});
-        else {
-          // A's refusal never acknowledges B, overwrites B's visible location,
-          // or silently rebases B into a new intent. Keep B's original base.
-          records[id] = Object.freeze({...latest, blockedStartedAt: sent.pending.startedAt});
+    // The cache also holds settled positions. Bound pending work only, and carry
+    // on with the next batch without retrying an unavailable observation tightly.
+    const attempted = new Set<string>();
+    while (current()) {
+      const pending = Object.entries(records).filter(([id, value]) => value?.pending && !value.syncBlocked && !attempted.has(JSON.stringify([id, value.pending.id]))).slice(0, 100);
+      if (!pending.length) return;
+      for (const [id, sent] of pending) {
+        if (!current()) return;
+        if (!sent.pending || records[id]?.pending?.id !== sent.pending.id) continue;
+        attempted.add(JSON.stringify([id, sent.pending.id]));
+        try {
+          const original = decodeDownloadReceipt(sent.receipt);
+          const originalClaims = original.receipt.claims;
+          if (Date.parse(originalClaims.expiresAt) <= this.receiptNow()) {await this.renewReceipts(generation, api, owner, true); if (!current()) return; if (!records[id] || records[id].syncBlocked) continue;}
+          const live = this.all.find(value => value.id === id && this.entryOwner(value) === owner && value.receipt);
+          const decoded = decodeDownloadReceipt(live?.receipt ?? original.receipt), claims = decoded.receipt.claims;
+          if (offlineOwnerKey(claims.viewer) !== owner || claims.itemId !== sent.itemId || claims.artifact.sha256 !== sent.artifactSha256 || claims.artifact.bytes !== sent.artifactBytes || !Number.isSafeInteger(sent.serverRevision) || sent.serverRevision < 0) continue;
+          const binding = this.publicationBinding(decoded.receipt);
+          if (binding.sourceId !== sent.sourceId || binding.revision !== sent.revision || binding.documentSha256 !== sent.documentSha256) continue;
+          const key = this.stored.keys[decoded.receipt.keyId], originalKey = this.stored.keys[original.receipt.keyId];
+          if (!key || !originalKey || !await nativeRouteCrypto.verify(base64url(key), decoded.signatureBytes, decoded.signedBytes) || !await nativeRouteCrypto.verify(base64url(originalKey), original.signatureBytes, original.signedBytes) || !current()) continue;
+          if (records[id]?.syncBlocked) continue;
+          const raw = await api.request<unknown>('/v1/reading/offline/progress', 'POST', {receipt: decoded.receipt, observationReceipt: original.receipt, expectedRevision: sent.serverRevision, observedAt: sent.pending.observedAt, startedAt: sent.pending.startedAt, location: sent.pending.location});
+          if (!current() || !object(raw) || (raw.outcome !== 'applied' && raw.outcome !== 'history_paused' && raw.outcome !== 'stale_observation' && raw.outcome !== 'superseded_online')) return;
+          if (Object.keys(raw).some(key => key !== 'progress' && key !== 'saved' && key !== 'outcome') || !Object.prototype.hasOwnProperty.call(raw, 'progress') || typeof raw.saved !== 'boolean') return;
+          const result = decodePutReadingSessionsSessionIdProgressResponse({progress: raw.progress, saved: raw.saved});
+          if (result.saved !== (raw.outcome === 'applied') || result.progress && (result.progress.sourceId !== sent.sourceId || !/^[0-9a-f]{64}$/.test(result.progress.sourceRevision) || !safeInteger(result.progress.revision, 1) || !safeInteger(result.progress.observedAt, 1))) return;
+          const latest = records[id]; if (!latest || latest.sourceId !== sent.sourceId || latest.documentSha256 !== sent.documentSha256 || latest.artifactSha256 !== sent.artifactSha256) continue;
+          const duplicate = raw.outcome === 'stale_observation' && result.progress?.observedAt === sent.pending.observedAt && JSON.stringify(result.progress.location) === JSON.stringify(sent.pending.location);
+          const applied = raw.outcome === 'applied' || duplicate;
+          const ownPending = latest.pending?.id === sent.pending.id;
+          let updated: ReadingRecord;
+          if (applied) updated = Object.freeze({...latest, serverRevision: result.progress?.revision ?? latest.serverRevision, pending: ownPending ? undefined : latest.pending, syncBlocked: ownPending ? undefined : latest.syncBlocked});
+          else if (ownPending) updated = Object.freeze({...latest, serverRevision: result.progress?.revision ?? latest.serverRevision, pending: undefined, progress: {progress: result.progress}, blockedStartedAt: sent.pending.startedAt, syncBlocked: undefined});
+          else {
+            // A's refusal never acknowledges B, overwrites B's visible location,
+            // or silently rebases B into a new intent. Keep B's original base.
+            updated = Object.freeze({...latest, blockedStartedAt: sent.pending.startedAt});
+          }
+          records[id] = updated;
+          if (!await this.persist()) {if (records[id] === updated) records[id] = latest; this.publish({pendingProgress: this.pendingCount()}); return;}
+          if (!current()) return;
+        } catch (error) {
+          if (!current()) return;
+          const code = permanentReadingFailure(error);
+          if (!code) return; // A transport or authority failure stops this owner's pass.
+          const latest = records[id];
+          // A refusal of A cannot block the later observation B saved during IO.
+          if (latest?.pending?.id === sent.pending.id) {
+            const blocked = Object.freeze({...latest, syncBlocked: code});
+            records[id] = blocked;
+            if (!await this.persist()) {if (records[id] === blocked) records[id] = latest; return;}
+          }
         }
-        await this.persist(); if (!current()) return;
-      } catch {return;} // Network/authority failures never move another viewer's queue.
+      }
     }
   }
   async localMedia(entry: OfflineEntry): Promise<LocalMedia> {
@@ -1295,10 +1646,16 @@ export class OfflineDownloads {
     this.observationTimes.set(clockKey, observedAt);
     if (this.observationTimes.size > MAX_PLAYS) this.observationTimes.delete(this.observationTimes.keys().next().value!);
     plays[playId] = {playId, itemId: entry.itemId, positionSeconds: position, ...(event.ended ? {ended: true} : {}), observedAt: new Date(observedAt).toISOString()};
-    const ids = Object.keys(plays);
-    // The journal is bounded. Past the bound the oldest plays are let go: their titles' resume
-    // points are already kept above, and what is lost is only their place in the history.
-    for (const stale of ids.slice(0, Math.max(0, ids.length - MAX_PLAYS))) delete plays[stale];
+    if (Object.keys(plays).length > MAX_PLAYS) {
+      const latest = new Map<string, Play>();
+      for (const play of Object.values(plays)) {
+        const previous = latest.get(play.itemId);
+        if (!previous || Date.parse(play.observedAt) >= Date.parse(previous.observedAt)) latest.set(play.itemId, play);
+      }
+      // Distinct titles are never evicted: resume is a local cache, not an outbox.
+      // A failed durable write remains visible instead of silently dropping a title.
+      for (const [id, play] of Object.entries(plays)) if (latest.get(play.itemId) !== play) delete plays[id];
+    }
     await this.persist();
     if (!event.final) return;
     void this.syncProgress();
@@ -1347,10 +1704,11 @@ export class OfflineDownloads {
   }
   /** Rejects, with the previous settings back in place, when the change can't be kept. */
   async setSettings(next: Partial<OfflineSettings>) {
+    await this.open();
     const previous = this.stored.settings;
     this.stored.settings = {...previous, ...next};
     if (next.wifiOnly !== undefined) await native?.setCellular(!next.wifiOnly).catch(() => {});
-    if (await this.persist()) return;
+    if (await this.persist()) {void this.collect(); return;}
     this.stored.settings = previous;
     if (next.wifiOnly !== undefined) await native?.setCellular(!previous.wifiOnly).catch(() => {});
     this.publish({settings: previous});

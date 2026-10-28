@@ -814,10 +814,10 @@ test('APP-02: a completed request from an old download sheet cannot enqueue for 
   await settle();
   offlineDownloads.connect(s.api, second as unknown as DownloadsService, B);
   await settle();
-  await offlineDownloads.want(['item-held'], {title: 'Old request'}, first as unknown as DownloadsService);
+  await offlineDownloads.want([next as any], {title: 'Old request'}, first as unknown as DownloadsService);
   await settle();
   assert.deepEqual(device.started, []);
-  assert.equal(JSON.parse(device.state).wanted[ownerKeyOf(B)]?.['item-held'], undefined);
+  assert.equal(JSON.parse(device.state).wanted[ownerKeyOf(B)]?.['prep-held'], undefined);
 });
 
 test('an acknowledgement cannot erase a newer observation made in the same millisecond', async t => {

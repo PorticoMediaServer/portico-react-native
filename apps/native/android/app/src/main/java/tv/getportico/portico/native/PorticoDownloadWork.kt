@@ -3,6 +3,7 @@ package tv.getportico.portico.native
 import java.util.concurrent.Executor
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
 
 /** File work for one download stays in order; unrelated downloads may run together. */
 internal class PorticoDownloadWork(private val executor: Executor) {
@@ -41,3 +42,31 @@ internal fun prepareDownloadPartial(directory: File, digest: String): Boolean = 
     pending.renameTo(identity)
   }
 } catch (_: Exception) { false }
+
+/** A crash can leave the verified final file ahead of its ready manifest commit. It is
+ * adopted only after checking both its complete size and digest on the file worker. */
+internal fun verifiedDownloadFile(file: File, bytes: Long, digest: String, cancelled: () -> Boolean): Boolean =
+    file.isFile && file.length() == bytes && downloadFileDigest(file, cancelled) == digest && !cancelled()
+
+internal enum class DownloadStart { ADOPT, WAIT_FOR_WIFI, TRANSFER }
+
+/** Only a transfer needs network admission. A verified local file can be adopted offline. */
+internal fun downloadStart(verified: Boolean, cellularAllowed: Boolean, onCellular: () -> Boolean): DownloadStart =
+    if (verified) DownloadStart.ADOPT
+    else if (!cellularAllowed && onCellular()) DownloadStart.WAIT_FOR_WIFI
+    else DownloadStart.TRANSFER
+
+internal fun downloadFileDigest(file: File, cancelled: () -> Boolean): String = try {
+  val digest = MessageDigest.getInstance("SHA-256")
+  file.inputStream().use { input ->
+    val buffer = ByteArray(1 shl 20)
+    while (true) {
+      if (cancelled()) return ""
+      val read = input.read(buffer)
+      if (read == -1) break
+      digest.update(buffer, 0, read)
+    }
+  }
+  val hex = "0123456789abcdef"
+  StringBuilder(64).also { out -> for (byte in digest.digest()) { val value = byte.toInt() and 255; out.append(hex[value ushr 4]); out.append(hex[value and 15]) } }.toString()
+} catch (_: Exception) { "" }

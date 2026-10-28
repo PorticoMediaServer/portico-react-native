@@ -50,6 +50,7 @@ import {NativeWatchOutlet} from './watch-outlet';
 import {NativeShellBootstrapServices, nativeShellDirectViewer, nativeShellPermissionDenied} from './bootstrap-services';
 import {createNativeShellAccountBinding} from './account-binding';
 import {homeActionDiagnostics} from '../platform/home-action-diagnostics';
+import {retainNativeDownloadsDevice} from '../screens/downloads/device';
 
 export type NativeShellBootstrapContext = Readonly<{
   api: HttpLocalApi;
@@ -419,6 +420,9 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     homeActionDiagnostics.libraryMenu('attached', runtime);
     const retireTopShelfLocale = bindNativeTopShelfLocale(context, runtime.text, error => nativeScreenServices(context).reportError(error));
     if (retireTopShelfLocale) cleanups.push(retireTopShelfLocale);
+    const downloads = retainNativeDownloadsDevice(context);
+    cleanups.push(downloads.dispose);
+    void downloads.open().catch(error => {if (current()) bound.reportError(error);});
     return runtime;
   } catch (error) {const ended = nativeSignInEnded(error, signInHint, session?.expiresAt ?? originalExpiresAt); dispose(); throw nativeIdentityFailure(error, identityServer) ?? ended ?? error;}
 }
