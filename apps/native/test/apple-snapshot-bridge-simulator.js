@@ -45,6 +45,13 @@ function Probe() {
         const blue = await snapshots.capture(held, source);
         check(blue.width > 0 && blue.height > 0, 'fresh zero-bounds frame in real React run loop');
         emit({snapshotImage: {name: 'blue', image: blue}});
+        const afterCapture = position;
+        setMissing(false);
+        await waitFor(() => position > afterCapture + .5);
+        check(findNodeHandle(ref.current) === tag, 'restored same native player view advances');
+        emit({snapshotRestored: true, position});
+        // The Mac host records actual visible pixels, separately from generated JPEGs.
+        await delay(2000);
         emit({appleBridgeResult: {assertions, failures: 0, position, scope: 'real React snapshot bridge with zero bounds'}});
         // The host copies the authored frame before terminating this disposable app.
       } catch (error) {

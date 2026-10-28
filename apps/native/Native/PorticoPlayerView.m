@@ -9,7 +9,7 @@
 #import "PorticoSubtitleOverlay.h"
 #import "PorticoVideoSnapshot.h"
 static NSMapTable<NSNumber *,UIView *> *PorticoSnapshotViews;
-@implementation PorticoPlayerView { AVPlayerLayer *_layer; UILabel *_subtitle; UIImageView *_richSubtitle; CADisplayLink *_subtitleClock; NSDictionary *_activePictureBinding;NSInteger _submittedPictureRequest; }
+@implementation PorticoPlayerView { AVPlayerLayer *_layer; UILabel *_subtitle; UIImageView *_richSubtitle; CADisplayLink *_subtitleClock; BOOL _presentationMissing; NSDictionary *_activePictureBinding;NSInteger _submittedPictureRequest; }
 - (void)setReactTag:(NSNumber *)tag {
  if(self.reactTag&&[PorticoSnapshotViews objectForKey:self.reactTag]==self)[PorticoSnapshotViews removeObjectForKey:self.reactTag];
  [super setReactTag:tag];
@@ -36,6 +36,7 @@ static NSMapTable<NSNumber *,UIView *> *PorticoSnapshotViews;
  __weak PorticoPlayerView *weakSelf=self;controller.subtitleOverlay.onImage=^(UIImage *image){PorticoPlayerView *v=weakSelf;if(v)v->_richSubtitle.image=(v->_lease.length&&[v->_lease isEqual:v->_controller.lease])?image:nil;};[self attachLayer];[NSNotificationCenter.defaultCenter postNotificationName:@"PorticoVideoSnapshotSourceChanged" object:self];
 }
 - (void)subtitleFrame {
+ if(_presentationMissing&&[self recoverPresentation])_presentationMissing=NO;
  if(!_lease.length||![_lease isEqual:_controller.lease]||!self.window||!_controller.subtitleOverlay.active){_richSubtitle.image=nil;return;}
  CGRect video=_layer.videoRect;if(CGRectIsEmpty(video))return;CGFloat scale=self.window.screen.scale;
  [_controller.subtitleOverlay renderAtSourceTime:_controller.currentSourcePosition size:CGSizeMake(video.size.width*scale,video.size.height*scale)];
@@ -109,8 +110,29 @@ static NSMapTable<NSNumber *,UIView *> *PorticoSnapshotViews;
 - (void)styleSubtitle:(CGFloat)base {
  [PorticoSubtitleSelection applyCaptionAppearanceToLabel:_subtitle baseSize:base style:_controller.subtitleStyle italic:[_controller.subtitleCue[@"italic"]boolValue]];
 }
+// A zero-size/hidden presentation can remain stuck on its first frame even
+// while the live item clock advances. Replace only that presentation surface;
+// keep the exact view, controller, player, item, lease and video output intact.
+- (BOOL)recoverPresentation {
+ if(self.hidden||CGRectIsEmpty(self.bounds)||!self.window||![_lease isEqual:_controller.lease]||_layer.player!=_controller.player||!_controller.externalPresentationBinding||_controller.player.externalPlaybackActive||self.pictureInPicture.isPictureInPictureActive)return NO;
+ AVPlayerLayer *previous=_layer;
+ AVPlayerLayer *next=[AVPlayerLayer playerLayerWithPlayer:previous.player];next.videoGravity=previous.videoGravity;next.frame=self.bounds;
+ [CATransaction begin];[CATransaction setDisableActions:YES];
+ [previous removeObserver:self forKeyPath:@"readyForDisplay"];
+ _layer=next;[self.layer insertSublayer:next atIndex:0];[previous removeFromSuperlayer];
+ self.pictureInPicture=nil;
+ [next addObserver:self forKeyPath:@"readyForDisplay" options:NSKeyValueObservingOptionNew context:NULL];
+ [CATransaction commit];[self preparePictureInPicture];return YES;
+}
+- (void)setHidden:(BOOL)hidden {
+ BOOL restoring=self.hidden&&!hidden;[super setHidden:hidden];
+ if(hidden)_presentationMissing=YES;
+ if(restoring&&[self recoverPresentation])_presentationMissing=NO;
+}
 - (void)layoutSubviews {
  [super layoutSubviews];
+ if(CGRectIsEmpty(self.bounds))_presentationMissing=YES;
+ else if(_presentationMissing&&[self recoverPresentation])_presentationMissing=NO;
  if(!CGRectEqualToRect(_layer.frame,self.bounds)){
   // The persistent shell owns the single presentation cross-fade. Resize the same
   // aspect-fit layer immediately, without a second implicit Core Animation transition.

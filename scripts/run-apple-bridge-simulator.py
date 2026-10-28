@@ -27,7 +27,9 @@ import Foundation
 var passed = true
 for (index, path) in CommandLine.arguments.dropFirst().enumerated() {
   let image = NSBitmapImageRep(data: try Data(contentsOf: URL(fileURLWithPath: path)))!
-  let color = image.colorAt(x: image.pixelsWide / 2, y: image.pixelsHigh / 2)!.usingColorSpace(.deviceRGB)!
+  let x = index == 2 ? image.pixelsWide / 8 : image.pixelsWide / 2
+  let y = index == 2 ? image.pixelsWide / 8 : image.pixelsHigh / 2
+  let color = image.colorAt(x: x, y: y)!.usingColorSpace(.deviceRGB)!
   let red = color.redComponent, blue = color.blueComponent
   passed = passed && (index == 0 ? red > 0.7 && blue < 0.25 : blue > 0.7 && red < 0.25)
 }
@@ -35,7 +37,7 @@ exit(passed ? 0 : 1)
 ''')
     executable = output / 'snapshot-pixels'
     subprocess.run(['xcrun', 'swiftc', str(source), '-o', str(executable)], check=True, capture_output=True, timeout=60)
-    return subprocess.run([str(executable), str(output / 'red.jpg'), str(output / 'blue.jpg')], capture_output=True, timeout=15).returncode == 0
+    return subprocess.run([str(executable), str(output / 'red.jpg'), str(output / 'blue.jpg'), str(output / 'restored.jpg')], capture_output=True, timeout=15).returncode == 0
 
 
 def main():
@@ -71,6 +73,7 @@ def main():
         command('install', device, str(args.app.resolve()))
         container = Path(command('get_app_container', device, app_id, 'data'))
         events = container / 'tmp/portico-journey.jsonl'
+        events.unlink(missing_ok=True)  # A repeated owned run cannot adopt prior-container URLs/results.
         environment = dict(os.environ, SIMCTL_CHILD_PORTICO_TEST_BUNDLE_PATH=str(args.bundle.resolve()))
         if args.video_fixture:
             video = container / 'Library/Application Support/Downloads/snapshot-authored.mp4'
@@ -89,6 +92,11 @@ def main():
                             event = json.loads(line)
                         except ValueError:
                             continue  # a concurrently appended line may still be incomplete
+                        if event.get('snapshotRestored') and args.video_fixture and not (args.output / 'restored.jpg').exists():
+                            screen = args.output / 'restored.png'
+                            subprocess.run(['xcrun', 'simctl', 'io', device, 'screenshot', str(screen)], check=True, capture_output=True, timeout=15)
+                            subprocess.run(['sips', '-s', 'format', 'jpeg', str(screen), '--out', str(args.output / 'restored.jpg')], check=True, capture_output=True, timeout=15)
+                            screen.unlink()
                         image = event.get('snapshotImage')
                         if image and image.get('name') in ('red', 'blue'):
                             source = Path(unquote(urlparse(image['image']['uri']).path))

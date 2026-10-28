@@ -10,7 +10,9 @@
 /** Current source-ready video binding; nil while replanning, seeking, suspended or unready. */
 @property(nonatomic,copy,readonly) NSDictionary *externalPresentationBinding;
 /** Actual decoded current-item frame, independent of the presentation view's bounds.
- * Main queue only. Caller owns the returned buffer. No seek or asset still-image fallback. */
+ * Main queue only. Caller owns the returned buffer. Never seeks or replaces the output.
+ * The snapshot module may recover from this exact item's asset, with the same attachment,
+ * 250 ms decoded-time fence and original 1500 ms total deadline. */
 - (CVPixelBufferRef)copyVideoFrameForBinding:(NSDictionary *)binding displayTime:(CMTime *)displayTime transform:(CGAffineTransform *)transform CF_RETURNS_RETAINED;
 @property(nonatomic,readonly) NSString *subtitleText;
 @property(nonatomic,readonly) PorticoSubtitleOverlay *subtitleOverlay;
