@@ -32,7 +32,7 @@ import {NativeRecordingsScreen} from './RecordingsScreen';
 import {tvGuideNavigationCells, tvGuideFocusStart} from '../../tv/layout/guide-focus';
 import {useTVPageBack} from '../destinations/useTVPageBack';
 import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
-import {nativeGuideClock, nativeGuideDate, nativeGuideRegion, nativeGuideNext, nativeProgrammeCaption} from './guide-presentation';
+import {nativeGuideClock, nativeGuideDate, nativeGuideRegion, nativeGuideNext, nativeProgrammeCaption, nativeChannelMenuEntries} from './guide-presentation';
 import {useGuideTimePan} from './useGuideTimePan';
 import {nativeGuideCellWindow, nativeGuideElapsedWidth, nativeGuidePanRange, nativeGuidePanTarget} from './guide-pan-model';
 import {NativeLivePhonePicker} from './LivePhonePicker';
@@ -224,19 +224,21 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
   const today = localDayStart(now, state.options.timezone), currentDay = localDayStart(start, state.options.timezone);
   const open = (channel: GuideChannelRow, program?: GuideProgram, node?: View | null) => {selectedOpener.current = node ?? null; setRecordError(undefined); controller.clearMutationError(); setSelected({channel, program});};
   const openChannelMenu = (channel: GuideChannelRow, node?: View | null) => {
-    if (!controller.lifetime.current() || theme.isTV) return;
+    if (!controller.lifetime.current()) return;
     channelMenuAnchor.current = node ?? null;
     controller.clearMutationError(); setChannelMenuError(undefined); setChannelMenuBusy(false);
     setChannelMenu({channel, scope: scopeKey});
   };
-  const changeChannel = () => {
+  // desktop-live/tablet-play: everyone may favorite; an owner may also hide a channel from their guide.
+  const changeChannel = (change: 'favorite' | 'hidden') => {
     const opening = channelMenu, channel = opening?.channel, raw = channel && legacyChannel(channel);
     const current = () => !!opening && channelMenuRef.current === opening && channelMenuScope.current === opening.scope
       && !runtime.retirementSignal?.aborted && controller.lifetime.current();
     if (!current() || !channel || !raw || channelMenuBusy) return;
     setChannelMenuBusy(true); setChannelMenuError(undefined);
     const proof = {signal: controller.lifetime.signal, isCurrent: current};
-    const work = controller.channelPreference(channel, {favorite: !channel.favorite, hidden: raw.hidden}, ports.dvrRequestId, proof).then(committed => {
+    const values = change === 'favorite' ? {favorite: !channel.favorite, hidden: raw.hidden} : {favorite: channel.favorite, hidden: !raw.hidden};
+    const work = controller.channelPreference(channel, values, ports.dvrRequestId, proof).then(committed => {
       if (!committed || !current()) return;
       setSelected(value => value?.channel.id === channel.id && value.channel.sourceId === channel.sourceId && value.channel.kind === channel.kind ? {...value, channel: committed} : value);
       setChannelMenu(undefined);
@@ -462,10 +464,11 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
     <Dialog open={selected !== undefined && !twoPane} onOpenChange={value => {if (!value) setSelected(undefined);}} title={selected?.program?.title ?? selected?.channel.name ?? ''} headerContext={selected && <ProgrammeHeader channel={selected.channel} programme={selected.program} now={now} runtime={runtime} busy={state.mutating} onFavorite={favorite}/>} placement={theme.isTV || landscape || theme.width >= 700 ? 'side' : undefined} width={theme.isTV ? 640 : landscape ? 376 : theme.width >= 700 ? 400 : undefined} initialFocusRef={theme.isTV || selected?.channel.tuneAvailable || selected?.channel.recordAvailable && selected.program ? opener : undefined} returnFocusRef={selectedOpener} testID="live-programme">
       {programmeFocusBody}
     </Dialog>
-    <Menu testID="live-channel-menu" open={!!channelMenu && channelMenu.scope === scopeKey && !theme.isTV} onOpenChange={open => {if (!open) setChannelMenu(undefined);}} title={channelMenu?.channel.name} anchorRef={channelMenuAnchor} returnFocusRef={channelMenuAnchor} touchContext
+    <Menu testID="live-channel-menu" open={!!channelMenu && channelMenu.scope === scopeKey} onOpenChange={open => {if (!open) setChannelMenu(undefined);}} title={channelMenu?.channel.name} anchorRef={channelMenuAnchor} returnFocusRef={channelMenuAnchor} touchContext
       footer={channelMenu && channelMenuError !== undefined ? <StateView {...runtime.error(channelMenuError, () => setChannelMenuError(undefined))}/> : undefined}
       items={channelMenu ? [
-        {id: 'favorite', label: t(channelMenu.channel.favorite ? 'channels.removeFavorite' : 'channels.addFavorite'), icon: channelMenu.channel.favorite ? 'i-star-f' : 'i-star', disabled: channelMenuBusy || state.mutating, closeOnSelect: false, onSelect: () => changeChannel()},
+        ...nativeChannelMenuEntries(channelMenu.channel, legacyChannel(channelMenu.channel)?.hidden === true, ports.context.account.account.role === 'owner', t)
+          .map(entry => ({...entry, disabled: channelMenuBusy || state.mutating, closeOnSelect: false, onSelect: () => changeChannel(entry.id)})),
       ] : []}/>
     <NativeSeriesRuleSheet controller={recordings} draft={series?.draft} defaults={series?.defaults} runtime={runtime} open={series !== undefined}
       onOpenChange={value => {if (!value) setSeries(undefined);}}
@@ -516,7 +519,7 @@ function LiveRow({selected, onChannelMenu, tvRange, onTVFocus, panPosition, panA
   if (list && !theme.isTV) return <NativeLiveListRow channel={channel} programme={current.now} next={current.next} now={now} runtime={runtime} clock={clock} height={rowHeight} onOpen={node => onOpen(channel, current.now, node)} onMenu={node => onChannelMenu(channel, node)}/>;
   return <View style={{height: rowHeight, marginBottom: rowGap, flexDirection: 'row', gap: theme.isTV ? 18 : phoneGrid ? 2 : 8}}>
     <View style={{width: channelWidth - (theme.isTV ? 18 : phoneGrid ? 2 : 8)}}>
-      <FocusItem focusId={channelFocusId(channel)} cell={theme.isTV ? {row: index, kind: 'channel'} : undefined}><Focusable ref={channelRef} focusId={channelFocusId(channel)} testID={`live-channel-${channel.sourceId}-${channel.id}`} accessibilityRole="button" accessibilityLabel={`${channel.number} ${channel.name}`} onFocus={() => onTVFocus(index)} onLongPress={() => theme.isTV ? onOpen(channel, undefined, channelRef.current) : onChannelMenu(channel, channelRef.current)} onPress={() => list ? onOpen(channel, current.now, channelRef.current) : theme.isTV ? watch(channel) : onOpen(channel, undefined, channelRef.current)} focusKind="row" style={{height: rowHeight, borderRadius: compactChannel ? 8 : 12, paddingHorizontal: phoneGrid ? 0 : 16, flexDirection: compactChannel ? 'column' : 'row', justifyContent: compactChannel ? 'center' : undefined, alignItems: 'center', gap: compactChannel ? 5 : landscapePhone ? 10 : 16, backgroundColor: phoneGrid ? 'transparent' : theme.colors.raised}}>
+      <FocusItem focusId={channelFocusId(channel)} cell={theme.isTV ? {row: index, kind: 'channel'} : undefined}><Focusable ref={channelRef} focusId={channelFocusId(channel)} testID={`live-channel-${channel.sourceId}-${channel.id}`} accessibilityRole="button" accessibilityLabel={`${channel.number} ${channel.name}`} onFocus={() => onTVFocus(index)} onLongPress={() => onChannelMenu(channel, channelRef.current)} onPress={() => list ? onOpen(channel, current.now, channelRef.current) : theme.isTV ? watch(channel) : onOpen(channel, undefined, channelRef.current)} focusKind="row" style={{height: rowHeight, borderRadius: compactChannel ? 8 : 12, paddingHorizontal: phoneGrid ? 0 : 16, flexDirection: compactChannel ? 'column' : 'row', justifyContent: compactChannel ? 'center' : undefined, alignItems: 'center', gap: compactChannel ? 5 : landscapePhone ? 10 : 16, backgroundColor: phoneGrid ? 'transparent' : theme.colors.raised}}>
         <View style={{width: theme.isTV ? 56 : landscapePhone ? 32 : 36, height: theme.isTV ? 56 : landscapePhone ? 32 : 36}}><GuideChannelArt channel={channel} source={logo} size={theme.isTV ? 56 : landscapePhone ? 32 : 36}/>{compactChannel && channel.favorite && <View style={{position: 'absolute', right: -7, top: -6, width: 18, height: 18, borderRadius: 9, backgroundColor: theme.colors.ink, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-star-f" size={10} color={theme.colors.accentStrong}/></View>}</View>
         <View style={{flex: compactChannel ? undefined : 1, alignItems: compactChannel ? 'center' : undefined}}>{!compactChannel && <View style={{flexDirection: 'row', alignItems: 'center', gap: 5}}><Text numberOfLines={2} style={[shellType(theme.isTV ? 22 : landscapePhone ? 12.5 : 13, 700), {color: theme.colors.text, flexShrink: 1}]}>{channel.name}</Text>{landscapePhone && channel.favorite && <Icon name="i-star-f" size={10} color={theme.colors.accentStrong}/>}</View>}<Text style={[shellType(theme.isTV ? 18 : 11), {color: theme.colors.textSecondary}]}>{channel.number}</Text></View>
       </Focusable></FocusItem>
