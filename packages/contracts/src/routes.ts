@@ -2613,6 +2613,11 @@ export const routes = [
     "lane": "default",
     "cost": "page_sized",
     "bodyLimit": 0,
+    "query": [
+      "channelId",
+      "cursor",
+      "limit"
+    ],
     "errors": [
       "invalid_request",
       "unauthorized",
@@ -7744,6 +7749,7 @@ export const routes = [
       "issueDate",
       "year",
       "month",
+      "order",
       "cursor",
       "limit"
     ],

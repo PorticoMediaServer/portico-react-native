@@ -32,12 +32,12 @@ test('live source list reads the server envelope and the fields the screen shows
 });
 
 test('one source document keeps null overrides distinct from zero and refuses unreadable settings', () => {
-  const value = parseSourceDocument({protocolVersion: '1.0', serverId: 'server', result: {sourceId: 's1', sourceName: 'Synthetic Live TV', revision: 4, digest: 'abc', settings, effective: defaults, availableKinds: ['playlist', 'xmltv-guide'], tunerCount: 2}}, 'server');
+  const value = parseSourceDocument({protocolVersion: '1.0', serverId: 'server', result: {sourceId: 's1', sourceName: 'Synthetic Live TV', revision: 4, digest: 'abc', effectiveLogoImport: {enabled: true, overwriteExisting: false}, settings, effective: defaults, availableKinds: ['playlist', 'xmltv-guide'], tunerCount: 2}}, 'server');
   assert.equal(value.settings.streamBufferMs, null);
   assert.equal(value.settings.retryWindowMs, 30000);
   assert.equal(value.effective.streamBufferMs, 8000);
   assert.deepEqual(value.settings.filters.keywords.values, ['HD']);
-  assert.throws(() => parseSourceDocument({protocolVersion: '1.0', serverId: 'server', result: {sourceId: 's1', sourceName: 'x', revision: 4, digest: 'abc', settings: {...settings, filters: {}}, effective: defaults, availableKinds: [], tunerCount: 0}}, 'server'), {code: 'invalid_administration_response'});
+  assert.throws(() => parseSourceDocument({protocolVersion: '1.0', serverId: 'server', result: {sourceId: 's1', sourceName: 'x', revision: 4, digest: 'abc', effectiveLogoImport: {enabled: true, overwriteExisting: false}, settings: {...settings, filters: {}}, effective: defaults, availableKinds: [], tunerCount: 0}}, 'server'), {code: 'invalid_administration_response'});
 });
 
 test('channel map pages and tuner discovery read only named fields', () => {
@@ -226,7 +226,7 @@ test('last original owner predicate aborting a command caller inside the real li
 
 test('native live documents accept the shared 100,000-choice limit and retain rewind', () => {
   const enabled = Array.from({length: 100000}, (_, index) => `channel-${index}`);
-  const result = {sourceId: 's1', sourceName: 'Large source', revision: 4, digest: 'abc', settings: {...settings, enabledGroups: enabled, enabledChannels: enabled}, effective: {...defaults, timeshiftMinutes: 120}, availableKinds: ['playlist'], tunerCount: 2};
+  const result = {sourceId: 's1', sourceName: 'Large source', revision: 4, digest: 'abc', effectiveLogoImport: {enabled: true, overwriteExisting: false}, settings: {...settings, enabledGroups: enabled, enabledChannels: enabled}, effective: {...defaults, timeshiftMinutes: 120}, availableKinds: ['playlist'], tunerCount: 2};
   const value = parseSourceDocument({serverId: 'server', result}, 'server');
   assert.equal(value.settings.enabledChannels.length, 100000);
   assert.equal(value.settings.enabledGroups.length, 100000);

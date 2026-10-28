@@ -130209,6 +130209,21 @@ export const schemas = {
             ],
             "type": "object"
           },
+          "effectiveLogoImport": {
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "overwriteExisting": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "enabled",
+              "overwriteExisting"
+            ],
+            "type": "object"
+          },
           "revision": {
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
@@ -130352,6 +130367,9 @@ export const schemas = {
                   "enabled": {
                     "type": "boolean"
                   },
+                  "followServer": {
+                    "type": "boolean"
+                  },
                   "overwriteExisting": {
                     "type": "boolean"
                   }
@@ -130412,6 +130430,7 @@ export const schemas = {
           "digest",
           "settings",
           "effective",
+          "effectiveLogoImport",
           "availableKinds",
           "tunerCount",
           "acquisition"
@@ -147597,6 +147616,13 @@ export const schemas = {
       },
       "nextCursor": {
         "pattern": "^[A-Za-z0-9_-]{171}\\.[A-Za-z0-9_-]{43}$",
+        "type": "string"
+      },
+      "order": {
+        "enum": [
+          "newest",
+          "oldest"
+        ],
         "type": "string"
       },
       "publicationType": {
@@ -184468,6 +184494,9 @@ export const schemas = {
       },
       "path": {
         "type": "string"
+      },
+      "scanAfter": {
+        "type": "boolean"
       }
     },
     "required": [
@@ -189882,6 +189911,9 @@ export const schemas = {
       },
       "path": {
         "type": "string"
+      },
+      "scanAfter": {
+        "type": "boolean"
       }
     },
     "required": [
@@ -206347,6 +206379,9 @@ export const schemas = {
       },
       "path": {
         "type": "string"
+      },
+      "scanAfter": {
+        "type": "boolean"
       }
     },
     "required": [
@@ -236599,6 +236634,9 @@ export const schemas = {
               "enabled": {
                 "type": "boolean"
               },
+              "followServer": {
+                "type": "boolean"
+              },
               "overwriteExisting": {
                 "type": "boolean"
               }
@@ -236732,6 +236770,21 @@ export const schemas = {
               "guideDays",
               "logoImport",
               "discoveryEnabled"
+            ],
+            "type": "object"
+          },
+          "effectiveLogoImport": {
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "overwriteExisting": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "enabled",
+              "overwriteExisting"
             ],
             "type": "object"
           },
@@ -236878,6 +236931,9 @@ export const schemas = {
                   "enabled": {
                     "type": "boolean"
                   },
+                  "followServer": {
+                    "type": "boolean"
+                  },
                   "overwriteExisting": {
                     "type": "boolean"
                   }
@@ -236938,6 +236994,7 @@ export const schemas = {
           "digest",
           "settings",
           "effective",
+          "effectiveLogoImport",
           "availableKinds",
           "tunerCount",
           "acquisition"
