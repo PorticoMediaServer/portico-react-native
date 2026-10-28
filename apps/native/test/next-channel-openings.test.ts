@@ -66,7 +66,7 @@ test('A replaced channel menu rejects its old dismiss, edit, delete and move cal
 test('Template actions belong to their opening and an inapplicable template cannot dispatch directly', async () => {
   const f = await channelsFixture();
   try {
-    f.openTemplates(); const old = f.templateMenu(), choose = button(old, 'Ready template').props.onPress, blank = button(old, 'Start from scratch').props.onPress;
+    f.openTemplates(); const old = f.templateMenu(), choose = button(old, 'Ready template').props.onPress, blank = button(old, 'web.libraryChannels.startFromScratch').props.onPress;
     old.props.onOpenChange(false); f.render(); f.openTemplates();
     old.props.onOpenChange(false); choose(); blank(); f.render(); assert.equal(f.templateMenu().props.open, true); assert.deepEqual(f.calls, []);
     const blocked = button(f.templateMenu(), 'Blocked template'); assert.equal(blocked.props.disabled, true); blocked.props.onPress(); f.render();

@@ -5,7 +5,10 @@ import {hooks, screenModule} from './helpers/screen-harness.mjs';
 const nodes = (value: any): any[] => Array.isArray(value) ? value.flatMap(nodes) : value?.props ? [value, ...nodes(value.props.children)] : [];
 const words = (value: any): string => Array.isArray(value) ? value.map(words).join('') : typeof value === 'string' ? value : value?.props ? words(value.props.children) : '';
 async function fixture(authorized = true) {
-  const host = hooks(), effects: (() => void)[] = [], cleanups = new Set<() => void>();
+  const host = hooks();
+  const useCallback = (fn: (...args: any[]) => any, deps: readonly unknown[]) => host.react.useMemo(() => fn, deps);
+  Object.assign(host.react, {useCallback}); Object.assign(host.react.default, {useCallback});
+  const effects: (() => void)[] = [], cleanups = new Set<() => void>();
   const effect = (fn: () => (() => void) | undefined, deps: unknown[]) => {const slot = host.react.useRef(undefined); if (!slot.current || deps.some((value, index) => value !== slot.current.deps[index])) {const previous = slot.current?.cleanup; const next: any = {deps}; slot.current = next; effects.push(() => {previous?.(); const cleanup = fn(); next.cleanup = cleanup; if (cleanup) cleanups.add(cleanup);});}};
   Object.assign(host.react, {useEffect: effect}); Object.assign(host.react.default, {useEffect: effect});
   let alive = true, reads = 0, disposed = 0, resolve: (value: unknown) => void = () => {};

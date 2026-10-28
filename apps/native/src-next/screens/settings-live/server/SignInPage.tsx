@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useState} from 'react';
 import {Linking, ScrollView, Text, View} from 'react-native';
 import {ReadOnlySignInClient, type SignInSettings} from '../../../../../../packages/client-core/src/account-move';
 import {serverSignInSettingsURL} from '../../../../../../packages/client-core/src/sign-in';
@@ -20,8 +20,8 @@ export function NativeServerSignIn({ports, runtime, compactHeader = false, onOpe
   const theme = useTheme(), t = runtime.text.t, context = ports.context;
   const {api, lifetime, authority} = useSettingsRequestScope(context);
   const [answer, setAnswer] = useState<Readonly<{api: typeof api; value?: SignInSettings; error?: unknown}>>(), [revision, setRevision] = useState(0);
-  const current = () => lifetime.current() && context.account.capabilities.manageSignIn && context.account.account.role === 'owner'
-    && context.account.account.primaryProfileId === authority.profileId;
+  const current = useCallback(() => lifetime.current() && context.account.capabilities.manageSignIn && context.account.account.role === 'owner'
+    && context.account.account.primaryProfileId === authority.profileId, [lifetime, context, authority.profileId]);
   useEffect(() => {
     if (!current()) return;
     let active = true;
@@ -29,7 +29,7 @@ export function NativeServerSignIn({ports, runtime, compactHeader = false, onOpe
     setAnswer(undefined);
     void client.read().then(value => {if (active && current()) setAnswer({api, value});}, error => {if (active && current()) setAnswer({api, error});});
     return () => {active = false; client.dispose();};
-  }, [api, authority, context, lifetime, revision]);
+  }, [api, authority, context, lifetime, revision, current]);
   const value = answer?.api === api && current() ? answer.value : undefined;
   const error = answer?.api === api && current() ? answer.error : undefined;
   const refresh = () => {if (current()) setRevision(next => next + 1);};
@@ -50,7 +50,7 @@ export function NativeServerSignIn({ports, runtime, compactHeader = false, onOpe
         <SettingsRow label={t('next.settingsSpec.server.signin.groups.0.rows.2.label')} value={value.owner.username} description={value.owner.email}/>
       </View>
       {value.move && <View style={{padding: 14, gap: 6, backgroundColor: theme.colors.raised, borderRadius: 14}}>
-        <Text style={[shellType(15, 700), {color: theme.colors.text}]}>{value.move.stage === 'preview' ? 'Sign-in move preview' : value.move.stage === 'complete' ? 'Sign-in move complete' : value.move.stage === 'cancelled' ? 'Sign-in move cancelled' : value.move.to === 'local' ? 'Moving to local sign-in' : 'Moving to Portico Accounts'}</Text>
+        <Text style={[shellType(15, 700), {color: theme.colors.text}]}>{value.move.stage === 'preview' ? 'Sign-in move preview' : value.move.stage === 'complete' ? 'Sign-in move complete' : value.move.stage === 'cancelled' ? 'Sign-in move cancelled' : value.move.to === 'local' ? t('accounts.settings.movingToLocal') : t('accounts.settings.movingToPortico')}</Text>
         <Text style={{color: theme.colors.textSecondary}}>{value.move.waiting} waiting · {value.move.people} people · {value.move.profiles} profiles</Text>
       </View>}
       <SettingsRow first label={t('settings.server.people')} onPress={() => {if (current()) onOpenPage('people');}}/>

@@ -15,7 +15,7 @@ export function ConnectionTestCard({testing, result, error, t}: {
   if (!testing && !result && !error) return null;
   const tone = result ? connectionTestTone(result) : 'success';
   const color = testing ? theme.colors.accentStrong : error ? theme.colors.record : tone === 'success' ? theme.colors.healthy : theme.colors.amber;
-  const title = testing ? t('next.remoteSources.testing') : error ? 'Connection failed' : tone === 'limited' ? 'Connected with a limit' : 'Connected';
+  const title = testing ? t('next.remoteSources.testing') : error ? t('next.dock.case.error') : tone === 'limited' ? 'Connected with a limit' : t('web.general.connectedBadge');
   const detail = error ?? (result ? tone === 'success' ? t('next.remoteSources.tested', {origin: result.origin}) : tone === 'limited' ? t('next.remoteSources.testedLimited', {origin: result.origin}) : 'File range support wasn’t confirmed.' : undefined);
   return <View accessibilityLiveRegion="polite" style={{padding: 14, borderRadius: 14, backgroundColor: alpha(color, .1), borderWidth: 1, borderColor: alpha(color, .3), flexDirection: 'row', gap: 10}}>
     <Icon name={testing ? 'i-info' : error || tone !== 'success' ? 'i-alert' : 'i-check'} size={20} color={color}/>

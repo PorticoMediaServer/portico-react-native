@@ -191,7 +191,7 @@ export class NativeOwnerLibrariesController {
 
   /** Toggle the library's own Sonic setting at that document's revision; no optimistic state, stale page or stale document. */
   async setSonicEnabled(enabled: boolean, document: LibraryAdminDocument, sonic: LibrarySonicDocument, lease: SonicPageLease): Promise<boolean> {
-    const generation = this.generation, libraryId = document.libraryId;
+    const generation = this.generation;
     if (!this.admitsSonic(document, sonic, generation, lease) || !readLibrarySonicSettingsBinding('libraries.sonicAnalysis', document, sonic)) return false;
     const patch = patchLibrarySonicSettingsBinding('libraries.sonicAnalysis', enabled, document, sonic);
     return this.sonicCommand(document, sonic, generation, lease, signal => saveLibrarySonic(this.api, sonic, patch.enabled, signal), true);

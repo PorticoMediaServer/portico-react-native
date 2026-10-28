@@ -73,7 +73,7 @@ test('a successful limited-range test folds the connection into its returned ori
   tree = f.render(); assert.equal(ofType(tree, 'TextField').length, 0);
   assert.equal(ofType(tree, 'ConnectionTestCard')[0]!.props.result.rangeSupport, 'unsupported');
   assert.equal(ofType(tree, 'LibraryRow')[0]!.props.help, 'https://storage.example');
-  ofType(tree, 'Button').find(button => words(button) === 'Edit')!.props.onPress(); tree = f.render();
+  ofType(tree, 'Button').find(button => words(button) === t('web.selection.edit'))!.props.onPress(); tree = f.render();
   assert.equal(ofType(tree, 'TextField').length, 4); assert.equal(ofType(tree, 'ConnectionTestCard')[0]!.props.result, undefined);
 });
 

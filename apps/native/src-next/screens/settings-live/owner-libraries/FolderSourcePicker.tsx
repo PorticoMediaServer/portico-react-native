@@ -68,7 +68,7 @@ function SourcePicker({controller, ports, runtime, ...props}: Props & {controlle
       initialNumToRender={16} maxToRenderPerBatch={16} windowSize={7} contentContainerStyle={{gap: 12}}
       ListHeaderComponent={<View style={{gap: 12}}>
         {!!props.chosen.folders.length && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>Choosing folders from another source replaces this selection.</Text>}
-        <LibraryGroup><LibraryRow first icon="i-folder" label="A folder on this server…" onPress={() => setMode({kind: 'local'})}/></LibraryGroup>
+        <LibraryGroup><LibraryRow first icon="i-folder" label={t('next.settingsSpec.server.libraries.panels.library.tabs.1.groups.0.rows.0.control.addMenu.0.label')} onPress={() => setMode({kind: 'local'})}/></LibraryGroup>
       </View>}
       renderItem={({item: source}) => <LibraryGroup><LibraryRow first icon="i-disk" label={source.name} help={source.origin} onPress={() => setMode({kind: 'remote', source})}/></LibraryGroup>}
       ListFooterComponent={<View style={{gap: 12}}>

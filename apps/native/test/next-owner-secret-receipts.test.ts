@@ -20,7 +20,7 @@ const find = (tree: any, type: string, label: string) => {
 const settle = async () => {await Promise.resolve(); await Promise.resolve();};
 
 async function fixture(kind: 'key' | 'webhook') {
-  const host = hooks(); host.react.useLayoutEffect = () => {};
+  const host = hooks(); Object.assign(host.react, {useLayoutEffect: () => {}});
   const t = (key: string) => key, colors = new Proxy({}, {get: () => '#123456'});
   const hook = {id: 'hook-fixture', revision: 3, name: 'Receiver', url: 'https://receiver.invalid/events', events: ['playback.started'], enabled: true};
   const calls: unknown[] = [];

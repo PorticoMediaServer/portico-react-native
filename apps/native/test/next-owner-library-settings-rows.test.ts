@@ -23,10 +23,10 @@ test('kind filters cannot grant a library control absent from producer eligibili
 });
 
 test('provider choices respect the actual media-kind capabilities and local-tag vocabulary', () => {
-  const document = {libraryKind: 'anime', availableProviders: [{id: 'tmdb', mediaKinds: ['movie']}, {id: 'anilist', mediaKinds: ['show']}]} as LibraryAdminDocument;
-  const providers = {id: 'libraries.titlesFrom', control: {type: 'select', options: [{value: 'tmdb'}, {value: 'anilist'}, {value: 'local'}]}} as SettingsRow;
+  const document: Pick<LibraryAdminDocument, 'libraryKind' | 'availableProviders'> = {libraryKind: 'anime', availableProviders: [{id: 'tmdb', name: 'TMDB', mediaKinds: ['movie'], supportsApiKey: true, supportsLocale: true, attributionNote: ''}, {id: 'anilist', name: 'AniList', mediaKinds: ['show'], supportsApiKey: false, supportsLocale: false, attributionNote: ''}]};
+  const providers: SettingsRow = {id: 'libraries.titlesFrom', label: 'profile.name', control: {type: 'select', options: [{value: 'tmdb', label: 'profile.name'}, {value: 'anilist', label: 'profile.name'}, {value: 'local', label: 'profile.name'}]}};
   assert.deepEqual(libraryRowOptions(providers, document).map(option => option.value), ['anilist']);
-  const local = {id: 'libraries.localTags', control: {type: 'select', options: [{value: 'prefer'}, {value: 'supplement'}, {value: 'off'}]}} as SettingsRow;
+  const local: SettingsRow = {id: 'libraries.localTags', label: 'profile.name', control: {type: 'select', options: [{value: 'prefer', label: 'profile.name'}, {value: 'supplement', label: 'profile.name'}, {value: 'off', label: 'profile.name'}]}};
   assert.deepEqual(libraryRowOptions(local, document).map(option => option.value), ['prefer', 'off']);
   assert.equal(libraryRowOptions(local, {...document, libraryKind: 'music'}).length, 3);
 });

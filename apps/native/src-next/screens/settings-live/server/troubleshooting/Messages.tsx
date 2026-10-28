@@ -72,7 +72,7 @@ export function Messages({group, forms, runtime}: {group: Group; forms: StorageF
       <Chip variant="pill" trailingIcon="i-down" onPress={() => openFilter('level')} accessibilityLabel={t('web.logs.level')}>{state.level ? state.level.toUpperCase() : t('web.logs.allLevels')}</Chip>
       <Chip variant="pill" trailingIcon="i-down" onPress={() => openFilter('category')} accessibilityLabel={t('feedback.category')}>{state.category ? t(`server.logCategory.${state.category}` as MessageId) : t('web.logs.everything')}</Chip>
       <Switch checked={state.live} onCheckedChange={value => {if (group.current()) group.setLive(value);}}>{t('next.cards.live')}</Switch>
-      {state.live && <Text style={[shellType(12.5, 400), {color: theme.colors.textTertiary}]}>Following</Text>}
+      {state.live && <Text style={[shellType(12.5, 400), {color: theme.colors.textTertiary}]}>{t('web.logs.following')}</Text>}
       <Button size="small" variant="text" disabled={state.phase === 'loading'} onPress={() => {if (group.current()) {group.clearFailure(); void source.load();}}}>{t('web.selection.refresh')}</Button>
     </View>
     <Menu open={!!filter && filterRef.current === filter && group.current()} onOpenChange={open => {if (!open) closeFilter();}} presentation="sheet" title={t(filter?.kind === 'level' ? 'web.logs.level' : 'feedback.category')}

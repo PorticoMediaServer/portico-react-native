@@ -69,9 +69,9 @@ function MetadataPage({ports, runtime, compactHeader, onLibraries, controller, c
   };
   const credential = (id: string, configured: boolean, first = false) => {
     const definition = row(id), key = credentialKeys[id]!;
-    const status = key === 'openSubtitlesUsername' ? settings?.openSubtitlesUsername || 'No account set' : configured ? 'Your own value is saved' : key === 'tmdbReadToken' || key === 'tvdbProjectKey' ? 'Portico’s key is in use' : 'Not set up';
+    const status = key === 'openSubtitlesUsername' ? settings?.openSubtitlesUsername || 'No account set' : configured ? 'Your own value is saved' : key === 'tmdbReadToken' || key === 'tvdbProjectKey' ? t('server.metadata.keyOurs') : 'Not set up';
     return <LibraryRow key={id} first={first} label={t(definition.label)} help={definition.help ? t(definition.help) : undefined} value={status}
-      trailing={<Button variant="text" size="xs" disabled={disabled} onPress={() => {if (settings && current()) {setEditing({row: definition, original: settings, key}); setText(key === 'openSubtitlesUsername' ? settings.openSubtitlesUsername : '');}}}>Change</Button>}/>;
+      trailing={<Button variant="text" size="xs" disabled={disabled} onPress={() => {if (settings && current()) {setEditing({row: definition, original: settings, key}); setText(key === 'openSubtitlesUsername' ? settings.openSubtitlesUsername : '');}}}>{t('web.metadataLookup.change')}</Button>}/>;
   };
   if (!settings) return state.error !== undefined ? <StateView {...runtime.error(state.error, () => {void controller.load();})}/>
     : <StateView title={t('next.ownerLibraries.loading')}/>;

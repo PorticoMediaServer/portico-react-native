@@ -82,7 +82,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const shell = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const navigation = ports.context.navigation, route = useSyncExternalStore(navigation.subscribe, navigation.getSnapshot);
-  const opening = useMemo(() => ({retired: false}), [controller, runtime, ports.context, route.route, route.revision]);
+  const opening = useMemo(() => ({retired: false, controller, runtime, context: ports.context, route: route.route, revision: route.revision}), [controller, runtime, ports.context, route.route, route.revision]);
   const openingRef = useRef(opening);
   if (openingRef.current !== opening) openingRef.current.retired = true;
   openingRef.current = opening;

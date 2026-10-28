@@ -105,7 +105,7 @@ export function ConnectionEditor({controller, t, source, onCancel, onSaved, isCu
   return <Page title={source?.name ?? t('next.remoteSources.add')} t={t} busy={busy} onCancel={onCancel}
     footer={ambiguous ? <Button onPress={() => {void recover();}} disabled={busy}>{t('next.remoteSources.checkResult')}</Button>
       : <Button onPress={() => {void save();}} loading={busy} disabled={busy || !name.trim() || changedConnection && !tested}>{t('next.remoteSources.saveAndContinue')}</Button>}>
-    {tested ? <LibraryGroup><LibraryRow first label={name} help={tested.origin} trailing={<Button variant="text" size="small" disabled={busy || ambiguous} onPress={() => {revision.current++; setTested(undefined); setError(undefined); setErrorField(undefined);}}>Edit</Button>}/></LibraryGroup> : <>
+    {tested ? <LibraryGroup><LibraryRow first label={name} help={tested.origin} trailing={<Button variant="text" size="small" disabled={busy || ambiguous} onPress={() => {revision.current++; setTested(undefined); setError(undefined); setErrorField(undefined);}}>{t('web.selection.edit')}</Button>}/></LibraryGroup> : <>
     <TextField label={t('next.remoteSources.name')} value={name} onChangeText={edit(setName)} editable={!busy && !ambiguous} autoCorrect={false}/>
     {!!source?.origin && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{source.origin}</Text>}
     <TextField label={t('next.remoteSources.address')} value={root} onChangeText={edit(setRoot)} editable={!busy && !ambiguous} autoCapitalize="none" autoCorrect={false} keyboardType="url"/>

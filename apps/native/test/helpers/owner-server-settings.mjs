@@ -13,6 +13,7 @@ export function bindingModule() {return import('../../../../packages/client-core
 /** Executes committed effects explicitly; rendering and native widgets remain shallow. */
 export function lifecycleHooks() {
   const host = hooks(), pending = [], cleanups = new Set(), ref = host.react.useRef;
+  host.react.useCallback = host.react.default.useCallback = (fn, deps) => host.react.useMemo(() => fn, deps);
   const effect = (run, dependencies) => {
     const slot = ref();
     if (!slot.current || !dependencies || dependencies.some((value, index) => value !== slot.current.dependencies?.[index])) {
@@ -27,7 +28,9 @@ export function lifecycleHooks() {
 export async function formsFixture(values, statuses = {}) {
   let active = true;
   const context = {serverName: 'Test server', current: () => active, authority: () => ({serverId: 'server', accountId: 'owner', profileId: 'main'}), account: {serverId: 'server', account: {id: 'owner', role: 'owner', primaryProfileId: 'main'}, canManage: true, capabilities: {manageServer: true}}};
-  const set = new FormSet(), forms = {};
+  const set = new FormSet();
+  /** @type {Record<string, DraftForm<any, any>>} */
+  const forms = {};
   for (const [id, saved] of Object.entries(values)) {
     const form = new DraftForm({load: async () => ({value: structuredClone(saved), status: statuses[id]}), save: async draft => ({value: draft, status: statuses[id]})});
     await form.load();forms[id] = form;set.add(id, form);

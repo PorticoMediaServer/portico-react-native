@@ -88,7 +88,7 @@ export function SourceFolderBrowser({controller, source, t, isCurrent, onCancel,
     </View>)}
     {!!page?.nextCursor && page.entries.length < 500 && <Button variant="text" disabled={busy} onPress={() => {void read(page.relative, hidden, true);}}>{t('next.remoteSources.showMoreFolders')}</Button>}
     {(page?.truncated || !!page?.nextCursor && page.entries.length >= 500) && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.folderTruncated')}</Text>}
-    {onLater && <Button variant="text" disabled={busy} onPress={onLater}>Add to a library later</Button>}
+    {onLater && <Button variant="text" disabled={busy} onPress={onLater}>{t('next.settingsSpec.server.remote-sources.panels.newSource.tabs.2.groups.0.rows.0.control.options.0.label')}</Button>}
     <Problem message={error}/>
     <Button variant="text" disabled={busy} onPress={() => {void read(page?.relative ?? '');}}>{t('next.remoteSources.refresh')}</Button>
   </Page>;

@@ -1,7 +1,6 @@
 import {ProfileRoute} from '../accounts/AccountRoutes';
 import {NativeAccountSecurityPanel} from './NativeAccountSecurityPanels';
 import {DeviceAboutPanel} from './DeviceAboutPanel';
-import {nativeEqualizer} from '../../platform/playback/equalizer';
 import {IntroCreditsReview} from './owner-libraries/IntroCreditsReview';
 import React, {useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {NativeModules, Text, View} from 'react-native';

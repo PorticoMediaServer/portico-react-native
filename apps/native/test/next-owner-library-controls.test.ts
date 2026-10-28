@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {presentError} from '../../../packages/client-core/src/presentation/errors.ts';
 import {settingsSpec} from '../../../packages/client-core/src/presentation/settings-spec.ts';
 import * as model from '../src-next/screens/settings-live/owner-libraries/library-settings-model.ts';
 
@@ -9,15 +10,16 @@ const elements = (node: any): Node[] => Array.isArray(node) ? node.flatMap(eleme
 const find = (node: unknown, id: string) => elements(node).find(element => element.props.testID === id);
 const t = (id: string) => id;
 
-async function fixture(tab: string, kind: string, facts: Record<string, unknown>) {
+async function fixture(tab: string, kind: string, facts: Record<string, unknown>, failure?: Error) {
   const h = hooks(), writes: unknown[] = [];
   const document = {libraryId: 'library', libraryKind: kind, eligibleControls: Object.keys(facts), settings: {},
     availableProviders: [{id: 'tmdb', mediaKinds: ['movie', 'show']}, {id: 'anilist', mediaKinds: ['show']} ]};
   const module = await screenModule(new URL('../src-next/screens/settings-live/owner-libraries/LibrarySettingsRows.tsx', import.meta.url), {
     react: h.react, 'react-native': {Text: 'Text', View: 'View'}, '../../../../../../packages/client-core/src/presentation/settings-spec': {settingsSpec},
+    '../../../../../../packages/client-core/src/presentation/errors': {presentError},
     '../../../../../../packages/client-core/src/presentation/settings-bindings': {
       readLibrarySettingsBinding: (id: string, original: unknown) => {assert.equal(original, document); return id in facts ? {current: facts[id]} : undefined;},
-      patchLibrarySettingsBinding: (id: string, value: unknown, original: unknown) => {assert.equal(original, document); writes.push([id, value]); return {written: id, value};},
+      patchLibrarySettingsBinding: (id: string, value: unknown, original: unknown) => {assert.equal(original, document); if (failure) throw failure; writes.push([id, value]); return {written: id, value};},
     },
     '../../../../../../packages/i18n/src': {defaultI18n: {t}}, '../../../kit/controls/Button': {Button: 'Button'}, '../../../kit/controls/Select': {Select: 'Select'},
     '../../../kit/controls/Switch': {Switch: 'Switch'}, '../../../kit/controls/TextField': {TextField: 'TextField'}, '../../../kit/overlays/BottomSheet': {BottomSheet: 'BottomSheet'},
@@ -55,4 +57,16 @@ test('Custom analysis exposes only published matrix operations, preserving the t
   find(tree, 'libraries.analysisSteps.checksum')!.props.onValueChange('run'); assert.deepEqual(f.writes.pop(), ['libraries.analysisSteps', {checksum: 'run'}]);
   find(tree, 'libraries.scrub')!.props.onValueChange('custom'); tree = f.render();
   assert.ok(find(tree, 'libraries.scrubWidth')); assert.ok(find(tree, 'libraries.scrubSpacing')); assert.ok(find(tree, 'libraries.scrubMax'));
+});
+
+
+test('library patch failures use the shared error presenter without exposing the raw message', async () => {
+  const failure = new Error('internal_fixture_diagnostic');
+  const f = await fixture('general', 'movie', {'libraries.collections': false}, failure);
+  elements(find(f.render(), 'libraries.collections')).find(node => node.type === 'Switch')!.props.onCheckedChange(true);
+  const alert = elements(f.render()).find(node => node.props.accessibilityRole === 'alert');
+  assert.ok(alert);
+  assert.deepEqual(alert.props.children, [presentError(failure, 'library', {operation: 'save'}).body]);
+  assert.doesNotMatch(String(alert.props.children), /internal_fixture_diagnostic/);
+  assert.equal(f.saves.length, 0);
 });

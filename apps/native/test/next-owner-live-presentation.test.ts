@@ -76,7 +76,7 @@ async function guideFixture(width = 1180, screenReader = false) {
   const host = fixture(), viewTheme = {...theme, width};
   let activeHost = host;
   const react: any = {...host.react};
-  for (const name of ['useState', 'useRef', 'useMemo', 'useCallback', 'useEffect', 'useSyncExternalStore']) react[name] = (...args: any[]) => activeHost.react[name](...args);
+  for (const name of ['useState', 'useRef', 'useMemo', 'useCallback', 'useEffect', 'useSyncExternalStore'] as const) react[name] = (...args: any[]) => (activeHost.react[name] as (...values: any[]) => any)(...args);
   const adjustments: number[] = []; let panOptions: any;
   const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch'};
   const lifetime = {authority, current: () => true, signal: new AbortController().signal};

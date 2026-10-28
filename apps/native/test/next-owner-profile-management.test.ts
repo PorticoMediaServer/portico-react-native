@@ -82,7 +82,7 @@ test('closed profile actions and a cancelled deletion cannot submit through reta
   const f = await fixture(); byID(f.render(), 'settings-profile-other').props.onPress();
   const oldMove = byID(f.render(), 'profile-move-up').props.onPress;
   const actionSheet = nodes(f.render()).find(node => node.type === 'BottomSheet' && node.props.title === f.other.name)!;
-  actionSheet.props.onOpenChange(false); oldMove(); await tick(); assert.deepEqual(f.writes, []);
+  actionSheet.props.onOpenChange(false); oldMove(); await tick(); assert.equal(f.writes.length, 0);
   byID(f.render(), 'settings-profile-other').props.onPress();
   const deletionAction = nodes(f.render()).find(node => node.type === 'Button' && text(node) === 'profile.delete' && !node.props.loading)!;
   deletionAction.props.onPress(); await tick();
@@ -101,7 +101,7 @@ test('secondary profiles have no management powers even when a stale account sna
   row.props.onPress();
   assert.equal(nodes(f.render()).some(node => node.props.testID === 'profile-actions'), false);
   assert.equal(nodes(f.render()).some(node => node.props.testID === 'settings-profile-add'), false);
-  assert.deepEqual(f.writes, []);
+  assert.equal(f.writes.length, 0);
 });
 
 test('every editor opener retires with its original profile action sheet', async () => {
@@ -115,7 +115,7 @@ test('every editor opener retires with its original profile action sheet', async
   byID(f.render(), 'settings-profile-main').props.onPress();
   for (const open of retained) open();
   assert.equal(nodes(f.render()).some(node => node.type === 'Dialog' && node.props.open), false, 'a different selected profile does not renew old action callbacks');
-  assert.deepEqual(f.writes, []);
+  assert.equal(f.writes.length, 0);
 });
 
 test('rename Save, Cancel and input belong to one opening and the current draft', async () => {
@@ -129,7 +129,7 @@ test('rename Save, Cancel and input belong to one opening and the current draft'
   byID(f.render(), 'profile-rename-name').props.onChangeText('New name');
   oldInput('Late edit'); oldCancel(); oldSave(); await tick();
   let current = dialog(f.render(), 'profile-rename');
-  assert.equal(current.props.open, true); assert.equal(byID(current, 'profile-rename-name').props.value, 'New name'); assert.deepEqual(f.writes, []);
+  assert.equal(current.props.open, true); assert.equal(byID(current, 'profile-rename-name').props.value, 'New name'); assert.equal(f.writes.length, 0);
   const retainedSave = footerAction(current, 'save');
   byID(current, 'profile-rename-name').props.onChangeText(''); retainedSave(); await tick();
   assert.deepEqual(f.writes, [], 'a previously valid Save cannot submit after a synchronous invalid edit');
@@ -149,7 +149,7 @@ test('PIN editor cannot submit or overwrite a reopened draft through retained ha
   byID(f.render(), 'profile-pin-new').props.onChangeText('1357'); byID(f.render(), 'profile-pin-again').props.onChangeText('1357');
   oldInput('0000'); oldCancel(); oldSave(); await tick();
   const current = dialog(f.render(), 'profile-pin-edit');
-  assert.equal(current.props.open, true); assert.equal(byID(current, 'profile-pin-new').props.value, '1357'); assert.deepEqual(f.writes, []);
+  assert.equal(current.props.open, true); assert.equal(byID(current, 'profile-pin-new').props.value, '1357'); assert.equal(f.writes.length, 0);
   footerAction(current, 'save')(); await tick();
   assert.deepEqual(f.writes, [{kind: 'edit', target: f.other, change: {pin: '1357'}}]);
 });
@@ -162,7 +162,7 @@ test('remove PIN and forget-devices confirmations cannot follow another editor o
   const oldForget = dialog(f.render(), 'profile-forget-devices'), forget = footerAction(oldForget, 'forget-devices');
   footerAction(oldForget, 'cancel')(); byID(f.render(), 'profile-remove-pin').props.onPress();
   remove(); forget(); oldForget.props.onOpenChange(false); await tick();
-  assert.deepEqual(f.writes, []); assert.equal(dialog(f.render(), 'profile-remove-pin').props.open, true);
+  assert.equal(f.writes.length, 0); assert.equal(dialog(f.render(), 'profile-remove-pin').props.open, true);
   footerAction(dialog(f.render(), 'profile-remove-pin'), 'remove-pin')(); await tick();
   assert.deepEqual(f.writes, [{kind: 'edit', target: f.other, change: {pin: ''}}]);
   byID(f.render(), 'profile-forget-devices').props.onPress(); footerAction(dialog(f.render(), 'profile-forget-devices'), 'forget-devices')(); await tick();
@@ -178,7 +178,7 @@ test('limits use an opening-specific lease and a retired Close cannot close reop
   byID(f.render(), 'profile-limits').props.onPress(); const current = limits(f.render()); assert.ok(current);
   old.props.onClose(); old.props.onSaved(); assert.equal(current.props.lease.current(), true); assert.ok(limits(f.render()));
   actionSheet(f.render(), f.other.name).props.onOpenChange(false); assert.equal(current.props.lease.current(), false);
-  assert.deepEqual(f.writes, []);
+  assert.equal(f.writes.length, 0);
 });
 
 test('Add has an independent opening outside the profile sheet and ignores a cancelled draft', async () => {
@@ -188,7 +188,7 @@ test('Add has an independent opening outside the profile sheet and ignores a can
   const input = byID(old, 'profile-add-name').props.onChangeText;
   cancel(); byID(f.render(), 'settings-profile-add').props.onPress(); byID(f.render(), 'profile-add-name').props.onChangeText('Created');
   input('Late'); cancel(); save(); await tick();
-  const current = dialog(f.render(), 'profile-add'); assert.equal(current.props.open, true); assert.equal(byID(current, 'profile-add-name').props.value, 'Created'); assert.deepEqual(f.writes, []);
+  const current = dialog(f.render(), 'profile-add'); assert.equal(current.props.open, true); assert.equal(byID(current, 'profile-add-name').props.value, 'Created'); assert.equal(f.writes.length, 0);
   footerAction(current, 'save')(); await tick(); assert.deepEqual(f.writes, [{kind: 'create', name: 'Created', art: 'blue'}]);
 });
 
@@ -202,10 +202,10 @@ test('limits inputs, Save and Cancel cannot cross an opening or submit a replace
   const next = limits(f.render()); f.renderLimits(next); await tick();
   oldInput(false); oldSave(); oldCancel(); await tick();
   let current = f.renderLimits(next);
-  assert.equal(next.props.lease.current(), true); assert.equal(nodes(current).find(node => node.props.focusId === 'allow-unrated')!.props.checked, true); assert.deepEqual(f.writes, []);
+  assert.equal(next.props.lease.current(), true); assert.equal(nodes(current).find(node => node.props.focusId === 'allow-unrated')!.props.checked, true); assert.equal(f.writes.length, 0);
   const staleDraftSave = footerAction(current, 'save');
   nodes(current).find(node => node.props.focusId === 'allow-unrated')!.props.onCheckedChange(false);
-  staleDraftSave(); await tick(); assert.deepEqual(f.writes, []);
+  staleDraftSave(); await tick(); assert.equal(f.writes.length, 0);
   current = f.renderLimits(next); footerAction(current, 'save')(); await tick();
   assert.equal(f.writes.length, 1); assert.equal(f.writes[0].kind, 'limits'); assert.equal(f.writes[0].previous.profileId, f.other.id); assert.equal(f.writes[0].previous.revision, 3); assert.equal(f.writes[0].change.allowUnrated, false);
   assert.equal(next.props.lease.current(), false);

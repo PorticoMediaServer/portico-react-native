@@ -4,7 +4,7 @@ import type {AnalysisPolicy} from '../../../../../../packages/client-core/src/re
 import {MissingTitlesTab} from '../server/storage/MissingTitlesTab';
 import {loadInitialOwnerLibrary} from './initial-library';
 import type {NativeScreenLifetime} from '../lifetime';
-import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {BackHandler, ScrollView, Text, View} from 'react-native';
 import type {ManagedLibrary} from '../../../../../../packages/client-core/src/library-management';
 import type {InventorySource} from '../../../../../../packages/client-core/src/library-inventory';

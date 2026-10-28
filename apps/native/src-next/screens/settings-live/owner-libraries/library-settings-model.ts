@@ -11,7 +11,7 @@ export function libraryRowVisible(id: string, document: Pick<LibraryAdminDocumen
   return true;
 }
 
-export function libraryRowOptions(row: SettingsRow, document: LibraryAdminDocument): readonly SettingsOption[] {
+export function libraryRowOptions(row: SettingsRow, document: Pick<LibraryAdminDocument, 'libraryKind' | 'availableProviders'>): readonly SettingsOption[] {
   const kind = document.libraryKind === 'tv' || document.libraryKind === 'anime' ? 'show' : document.libraryKind === 'audiobook' ? 'book' : document.libraryKind;
   return (row.control.options ?? []).filter(option => {
     if (row.id === 'libraries.titlesFrom') return document.availableProviders.some(provider => provider.id === option.value && provider.mediaKinds.includes(kind));

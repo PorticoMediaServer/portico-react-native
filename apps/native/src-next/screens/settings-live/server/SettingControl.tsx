@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {Text, View} from 'react-native';
 import type {SettingsRow as SpecRow} from '../../../../../../packages/client-core/src/presentation/settings-spec';
 import type {defaultI18n} from '../../../../../../packages/i18n/src';
@@ -43,7 +43,8 @@ export function NativeSettingControl({row, value, disabled = false, t, onChange,
 
 function SettingNumber({row, value, disabled, t, onChange, onValidity}: Props) {
   const [text, setText] = useState(value === null ? '' : String(value)), [invalid, setInvalid] = useState(false);
-  useEffect(() => {setText(value === null ? '' : String(value)); setInvalid(false); onValidity?.(true);}, [value, disabled]);
+  const validity = useRef(onValidity); validity.current = onValidity;
+  useEffect(() => {setText(value === null ? '' : String(value)); setInvalid(false); validity.current?.(true);}, [value, disabled]);
   return <TextField testID={row.id} label={t(row.label)} description={row.help ? t(row.help) : undefined} value={text} editable={!disabled} keyboardType="numeric"
     placeholder={row.control.placeholder ? t(row.control.placeholder) : undefined} error={invalid ? t('error.invalidInput') : undefined}
     onChangeText={typed => {

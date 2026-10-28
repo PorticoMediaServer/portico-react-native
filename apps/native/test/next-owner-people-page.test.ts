@@ -31,7 +31,7 @@ test('People keeps a saved non-preset stream limit visible and unchanged when an
     return details ? details.type(details.props) : null;
   });
   render();host.flush();assert.ok(render());host.flush();
-  const streamSelect = () => nodes(render()).find((node: any) => node.type === 'Select' && node.props.label === 'Streams at once');
+  const streamSelect = () => nodes(render()).find((node: any) => node.type === 'Select' && node.props.label === t('web.access.maxStreams'));
   assert.equal(streamSelect().props.value, '5');
   assert.deepEqual(streamSelect().props.options.find((option: any) => option.value === '5'), {value: '5', label: '5', disabled: true});
   nodes(render()).find((node: any) => node.type === 'Switch').props.onCheckedChange(false);

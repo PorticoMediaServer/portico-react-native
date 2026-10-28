@@ -281,7 +281,7 @@ test('retiring the guide menu during its mapping read prevents owner Hide', asyn
   const controller = new NativeLiveOwnerController(lifetime, {request: async <T,>(path: string) => {
     calls.push(path);
     if (path.endsWith('/configuration')) return {serverId: 'server', result: configuration} as T;
-    return await new Promise(resolve => {finish = resolve;}) as T;
+    return await new Promise<unknown>(resolve => {finish = resolve;}) as T;
   }}, () => 'hide-operation');
   try {
     const hidden = controller.hideChannel('s1', 'c1', {signal: caller.signal, isCurrent: () => !caller.signal.aborted});

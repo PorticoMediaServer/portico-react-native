@@ -76,7 +76,7 @@ test('refresh retires pending person details and a stale finally cannot clear th
 test('People mutations require the current selected person and preserve the authoritative revisions', async () => {
   const f = await fixture(); await f.load(); await f.source.open(row);
   assert.equal(await f.source.enabled({...person}, false), false, 'an equal-looking object is not the selected revision');
-  assert.deepEqual(f.writes, []);
+  assert.equal(f.writes.length, 0);
   await f.source.enabled(person, false);
   assert.equal(f.writes.length, 1);
   assert.equal(f.writes[0].rows[0].revision, person.revision);

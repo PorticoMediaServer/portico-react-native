@@ -139,7 +139,7 @@ export function ProfileRoute({context, route, onBack, embedded = false}: {contex
     };
   }, [context, route]);
   const scopedTransport = useCallback((ticket: {lease: ProfileLease; controller: AbortController}) => ({
-    request: async <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
+    request: async <T,>(path: string, method?: string, body?: unknown, _signal?: AbortSignal): Promise<T> => {
       if (!ticket.lease.current() || ticket.controller.signal.aborted) throw profileAbort();
       const raw = await ticket.lease.lifetime.request(next => context.api.request<T>(path, method, body, next), ticket.controller.signal);
       if (!ticket.lease.current() || ticket.controller.signal.aborted) throw profileAbort();
@@ -200,7 +200,6 @@ export function ProfileRoute({context, route, onBack, embedded = false}: {contex
     const captured = lease;
     if (!manage || !captured || !captured.current() || activeTicket.current || (admitted ? !admitted() : embedded && !managementCurrent())) return false;
     const controller = new AbortController(), ticket = {lease: captured, controller};
-    activeTicket.current?.abort();
     activeTicket.current = controller;
     const manager = scopedManager(ticket), identity = scopedIdentity(ticket);
     setActionBusy(true); setProblem(''); setNotice('');

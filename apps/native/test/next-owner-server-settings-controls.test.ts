@@ -26,15 +26,17 @@ test('exact non-preset values stay Custom and dependent controls use actual boun
 
 test('Advanced summaries compare actual values and matrix defaults regardless of property order', () => {
   const matrix = row('segments.libraryModes');
-  assert.equal(settingsSummary([matrix], () => ({current: {movies: 'server', anime: 'server', tv: 'server'}, default: {tv: undefined, anime: undefined, movies: undefined}}), t), 'All at defaults');
-  assert.match(settingsSummary([matrix], () => ({current: {tv: 'server', anime: 'off', movies: 'server'}}), t), /Custom/);
-  assert.equal(settingsSummary([row('storage.analysisSpace')], () => ({current: '32'}), t), 'All at defaults');
+  assert.equal(settingsSummary([matrix], () => ({current: {movies: 'server', anime: 'server', tv: 'server'}, default: {tv: undefined, anime: undefined, movies: undefined}}), t), t('next.settings.allDefaults'));
+  assert.equal(settingsSummary([matrix], () => ({current: {tv: 'server', anime: 'off', movies: 'server'}}), t), `${t(matrix.label)}: ${t('server.channels.custom')}`);
+  assert.equal(settingsSummary([row('storage.analysisSpace')], () => ({current: '32'}), t), t('next.settings.allDefaults'));
   assert.match(settingsSummary([row('storage.analysisSpace')], () => ({current: '40'}), t), /40/);
 });
 
 test('missing-title presets roundtrip and dates use committed rules or the explicit server date', () => {
   const binding = bindings.settingsBinding('storage.missingRule'), sources = {forms: {runtime: {'library.missingTitles': 'after_days', 'library.missingTitlesDays': 30}}};
-  assert.equal(bindings.readSettingsBinding(binding, sources).current, '30d');
+  assert.ok(binding);
+  const value = bindings.readSettingsBinding(binding, sources); assert.ok(value);
+  assert.equal(value.current, '30d');
   for (const [preset, days] of [['7d', 7], ['30d', 30], ['90d', 90]] as const) assert.deepEqual(bindings.settingsBindingPatch(binding, preset, sources).values, {'library.missingTitles': 'after_days', 'library.missingTitlesDays': days});
   assert.deepEqual(bindings.settingsBindingPatch(binding, {days: 46}, sources).values, {'library.missingTitles': 'after_days', 'library.missingTitlesDays': 46});
   assert.throws(() => bindings.settingsBindingPatch(binding, {days: 0}, sources));
@@ -69,10 +71,11 @@ test('backup Custom days use the matrix binding and preserve the heavy-work wind
 
 test('generated-file presets change exactly their canonical fields and preserve exact custom values', () => {
   const draft = maintenance(), sources = {forms: {maintenance: draft}};
-  const read = (id: string) => bindings.readSettingsBinding(bindings.settingsBinding(id), sources).current;
+  const requiredBinding = (id: string) => {const value = bindings.settingsBinding(id); assert.ok(value); return value;};
+  const read = (id: string) => {const value = bindings.readSettingsBinding(requiredBinding(id), sources); assert.ok(value); return value.current;};
   const options = row('storage.keepFiles').control.options!;assert.equal(bindings.exactPresetValue(options, read), 'balanced');
   const patch = bindings.presetPatch(options, 'short', read);
-  const changed = Object.entries(patch).reduce((current: any, [id, value]) => bindings.applySettingsBindingPatch(current, bindings.settingsBindingPatch(bindings.settingsBinding(id), value, {forms: {maintenance: current}})), draft);
+  const changed = Object.entries(patch).reduce((current: any, [id, value]) => bindings.applySettingsBindingPatch(current, bindings.settingsBindingPatch(requiredBinding(id), value, {forms: {maintenance: current}})), draft);
   assert.deepEqual(changed.retention, {conversions: 1, prepared: 30, downloads: 14, subtitles: 90, trickplay: 90});assert.deepEqual(changed.windows, draft.windows);
   assert.equal(bindings.exactPresetValue(options, id => id === 'storage.keepConversions' ? '12' : read(id)), 'custom');
 });

@@ -9,11 +9,11 @@ import {SettingsRow} from '../../../kit/shell';
 import {shellType} from '../../../kit/shell/visual';
 import {useTheme} from '../../../kit/theme';
 
-const formats: Readonly<Record<string, string>> = {h264: 'H.264', hevc8: 'HEVC 8-bit', hevc10: 'HEVC 10-bit', av1: 'AV1', vp9: 'VP9', vc1: 'VC-1', mpeg2: 'MPEG-2'};
 
 /** These are measured facts, never the example devices or grid from the design spec. */
 export function NativeStreamingHardware({capacity, testing, disabled, onTest, t}: {capacity: TranscodeCapacity; testing: boolean; disabled: boolean; onTest: () => void; t: typeof defaultI18n.t}) {
   const theme = useTheme(), hardware = capacity.hardware, label = (id: string) => t(settingsRowIndex.get(id)!.row.label);
+  const formats: Readonly<Record<string, string>> = {h264: 'H.264', hevc8: 'HEVC 8-bit', hevc10: 'HEVC 10-bit', av1: t('next.kit.codec.av1'), vp9: t('next.kit.codec.vp9'), vc1: t('next.kit.codec.vc1'), mpeg2: t('next.kit.codec.mpeg2')};
   const grid = settingsRowIndex.get('streaming.hwFormats')!.row.control, test = settingsRowIndex.get('streaming.hwTest')!.row;
   return <View style={{gap: 12}} testID="server-streaming-hardware">
     <Text style={[theme.type.rowHeading, {color: theme.colors.textSecondary}]}>{t('next.settingsSpec.server.streaming.groups.3.title')}</Text>
@@ -25,7 +25,7 @@ export function NativeStreamingHardware({capacity, testing, disabled, onTest, t}
         {hardware.devices.map(device => <View key={device.id} style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
           <View style={{flex: 1}}><Text style={[shellType(15, 600), {color: theme.colors.text}]}>{device.name}</Text>
             {device.method && <Text style={[shellType(12.5), {color: theme.colors.textSecondary}]}>{device.method}</Text>}</View>
-          {device.inUse && <Text style={[shellType(12.5, 600), {color: theme.colors.healthy}]}>In use</Text>}
+          {device.inUse && <Text style={[shellType(12.5, 600), {color: theme.colors.healthy}]}>{t('web.metadata.inUse')}</Text>}
         </View>)}
       </View> : !!hardware.device && <SettingsRow label={t('settings.server.hardwareDevice')} value={hardware.device}/>}
       {hardware.formats.length > 0 && <View testID="server-streaming-formats" style={{padding: 14, gap: 8}}>

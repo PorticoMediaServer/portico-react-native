@@ -45,10 +45,10 @@ export function settingsSummary(rows: readonly SettingsRow[], read: (row: Settin
     const expected = published === undefined || incomplete ? fallback : published;
     if (!fact || fact.current === undefined || expected === undefined || sameSetting(fact.current, expected)) continue;
     const option = row.control.options?.find(value => String(value.value) === String(fact.current));
-    const shown = option ? translate(option.label) : typeof fact.current === 'boolean' ? fact.current ? 'On' : 'Off' : typeof fact.current === 'object' ? 'Custom' : String(fact.current);
+    const shown = option ? translate(option.label) : typeof fact.current === 'boolean' ? fact.current ? translate('web.dvr.on') : translate('settings.server.secure.badgeOff') : typeof fact.current === 'object' ? translate('server.channels.custom') : String(fact.current);
     parts.push(`${translate(row.label)}: ${shown}`);
   }
-  return parts.length ? parts.join(' · ') : 'All at defaults';
+  return parts.length ? parts.join(' · ') : translate('next.settings.allDefaults');
 }
 
 export function missingRemovalTime(row: Readonly<{missingSince: string; removedAt?: string}>, rule: string | undefined, days: number | undefined): number | undefined {

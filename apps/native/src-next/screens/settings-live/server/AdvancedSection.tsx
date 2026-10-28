@@ -7,7 +7,7 @@ import {shellType} from '../../../kit/shell/visual';
 import {useTheme} from '../../../kit/theme';
 
 /** The same collapsed bar for the owner pages; children retain their drafts on collapse. */
-export function NativeAdvancedSection({children, summary = 'All at defaults', open, onOpenChange, testID}: {
+export function NativeAdvancedSection({children, summary = defaultI18n.t('next.settings.allDefaults'), open, onOpenChange, testID}: {
   children: React.ReactNode;
   summary?: string;
   open?: boolean;

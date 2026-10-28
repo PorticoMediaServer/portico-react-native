@@ -3,6 +3,7 @@ import {Text, View} from 'react-native';
 import type {LibraryAdminDocument, LibrarySettings} from '../../../../../../packages/client-core/src/administration';
 import {patchLibrarySettingsBinding, readLibrarySettingsBinding} from '../../../../../../packages/client-core/src/presentation/settings-bindings';
 import {settingsSpec, type SettingsRow} from '../../../../../../packages/client-core/src/presentation/settings-spec';
+import {presentError} from '../../../../../../packages/client-core/src/presentation/errors';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {Button} from '../../../kit/controls/Button';
 import {Select} from '../../../kit/controls/Select';
@@ -29,13 +30,13 @@ export function LibrarySettingsRows({tab, document, busy, t, save}: Props) {
       // must not leave the saved preview mode Off.
       if (row.id === 'libraries.scrub' && read(row.id) === 'off') {
         try {setError(undefined); save(patchLibrarySettingsBinding(row.id, 'standard', document));}
-        catch (problem) {setError(problem instanceof Error ? problem.message : t('next.ownerLibraries.saveFailed'));}
+        catch (problem) {setError(presentError(problem, 'library', {operation: 'save'}).body);}
       }
       return;
     }
     setCustom(before => {const next = new Set(before); next.delete(row.id); return next;});
     try {setError(undefined); save(patchLibrarySettingsBinding(row.id, value, document));}
-    catch (problem) {setError(problem instanceof Error ? problem.message : t('next.ownerLibraries.saveFailed'));}
+    catch (problem) {setError(presentError(problem, 'library', {operation: 'save'}).body);}
   };
   const rowVisible = (row: SettingsRow) => {
     if (!libraryRowVisible(row.id, document) || read(row.id) === undefined) return false;
@@ -50,7 +51,7 @@ export function LibrarySettingsRows({tab, document, busy, t, save}: Props) {
     const disabled = busy || !!condition && ((condition.in !== undefined && !condition.in.includes(actual as never)) || (condition.notIn !== undefined && condition.notIn.includes(actual as never)));
     const label = t(row.label), help = row.help ? t(row.help) : undefined;
     const changed = fact.default !== undefined && JSON.stringify(fact.current) !== JSON.stringify(fact.default);
-    const reset = changed ? <Button variant="text" size="xs" disabled={disabled} onPress={() => change(row, fact.default)}>Reset</Button> : undefined;
+    const reset = changed ? <Button variant="text" size="xs" disabled={disabled} onPress={() => change(row, fact.default)}>{t('player.subtitles.positionReset')}</Button> : undefined;
     if (row.control.type === 'toggle') return <LibraryRow key={row.id} testID={row.id} first={index === 0} label={label} help={help}
       trailing={<Switch checked={fact.current === true} disabled={disabled} accessibilityLabel={label} onCheckedChange={value => change(row, value)}/>}/>;
     if (row.control.type === 'select') {

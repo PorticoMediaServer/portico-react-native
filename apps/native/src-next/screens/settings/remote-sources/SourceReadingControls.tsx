@@ -40,7 +40,7 @@ export function SourceReadingControls({values, baseline, disabled, onSelect, onL
       </Focusable>;
     })}
     {!selected && <Text style={[theme.type.caption, {color: theme.colors.accentStrong}]}>{t(`${readLabel}.4.label` as never)}</Text>}
-    <SectionTitle action={baseline && readingDiffers(values, baseline) ? <Button variant="text" size="xs" disabled={disabled} onPress={onReset}>Reset all</Button> : undefined}>Connection limits</SectionTitle>
+    <SectionTitle action={baseline && readingDiffers(values, baseline) ? <Button variant="text" size="xs" disabled={disabled} onPress={onReset}>{t('next.remoteSources.resetAll')}</Button> : undefined}>Connection limits</SectionTitle>
     <LibraryGroup>{fields.map((field, index) => {
       const changed = baseline !== undefined && values[field] !== baseline[field];
       return <View key={field} style={changed ? {borderWidth: 1, borderColor: theme.colors.accentStrong, borderRadius: 10} : undefined}>
@@ -53,7 +53,7 @@ export function SourceReadingControls({values, baseline, disabled, onSelect, onL
       <View style={{gap: 12}}><TextField label={editing ? label(editing) : ''} value={text} onChangeText={setText} keyboardType="number-pad" editable={!disabled}
         description={editing === 'bytesPerSecond' ? t('next.remoteSources.megabytesPerSecond') : undefined}/>
         {editing && baseline && <><Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{valueText(editing, baseline[editing])}</Text>
-          <Button variant="text" disabled={disabled} onPress={() => setText(String(editing === 'bytesPerSecond' ? baseline[editing] / 1000000 : baseline[editing]))}>Reset</Button></>}
+          <Button variant="text" disabled={disabled} onPress={() => setText(String(editing === 'bytesPerSecond' ? baseline[editing] / 1000000 : baseline[editing]))}>{t('player.subtitles.positionReset')}</Button></>}
       </View>
     </BottomSheet>
   </>;

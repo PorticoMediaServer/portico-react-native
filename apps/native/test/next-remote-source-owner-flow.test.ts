@@ -27,7 +27,7 @@ test('Back preserves the saved source and chosen folders, and never reopens a co
 });
 
 test('a confirmed write generation can advance the wizard before the directory refresh', () => {
-  const state = {sources: [{...source, generation: 1}], receipt: {source, removed: false}} as Pick<RemoteState, 'sources' | 'receipt'>;
+  const state: Pick<RemoteState, 'sources' | 'receipt'> = {sources: [{...source, generation: 1}], receipt: {operationId: 'source-operation', accepted: true, source, removed: false}};
   assert.equal(currentSourceGeneration(source, state), true);
   assert.equal(currentSourceGeneration({...source, generation: 1}, state), false);
   assert.equal(currentSourceGeneration(source, {...state, sources: [{...source, generation: 3}]}), false);
