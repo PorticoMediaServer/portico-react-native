@@ -4,8 +4,11 @@
  * An initialization segment has an ISO BMFF `moov` box. A media "segment" is a few
  * bytes of JSON saying `{pts, duration}` for media that starts at `pts` seconds on its own
  * clock. A buffer in `segments` mode keeps that clock; in `sequence` mode each segment follows the
- * one before it, as the real thing does. `world.sequenceMode = false` makes a device that refuses
- * `sequence`; `world.refuse` makes one that will not take a type.
+ * one before it, as the real thing does. `timestampOffset` moves that clock: in `sequence` mode the
+ * next segment begins where the offset is set and the ones after it follow on, and in `segments`
+ * mode the offset is added to each segment's own time — the rule the element follows.
+ * `world.sequenceMode = false` makes a device that refuses `sequence`; `world.refuse` makes one
+ * that will not take a type.
  */
 export const world = {sequenceMode: true, refuse: /** @type {RegExp | null} */ (null), players: /** @type {VideoPlayer[]} */ ([]), appendFails: false, seekClamp: /** @type {number | undefined} */ (undefined)};
 export function resetWorld() { world.sequenceMode = true; world.refuse = null; world.players = []; world.appendFails = false; world.seekClamp = undefined; }
@@ -22,14 +25,22 @@ const ranges = spans => ({length: spans.length, start: i => spans[i][0], end: i 
 class SourceBuffer extends Target {
   spans = [];
   updating = false;
-  timestampOffset = 0;
   appended = [];
   #mode = 'segments';
+  #offset = 0;
   #groupEnd = 0;
   constructor(source, type) { super(); this.source = source; this.type = type; }
   get mode() { return this.#mode; }
   set mode(value) { if (value === 'sequence' && !world.sequenceMode) throw new Error('sequence mode is not supported'); this.#mode = value; }
   get buffered() { return ranges(this.spans); }
+  get timestampOffset() { return this.#offset; }
+  /** Where appended timestamps are shifted to: the start of the next `sequence`-mode group, and
+   * the shift applied to `segments`-mode frames. */
+  set timestampOffset(value) {
+    if (!Number.isFinite(value) || value < 0) throw new TypeError('the timestamp offset is not a finite time');
+    this.#offset = value;
+    this.#groupEnd = value;
+  }
   #add(start, end) {
     const all = [...this.spans, [start, end]].sort((a, b) => a[0] - b[0]);
     const merged = [];
@@ -47,8 +58,11 @@ class SourceBuffer extends Target {
       if (world.appendFails) { this.emit('error'); return; }
       this.appended.push(segment);
       if (!segment.init) {
-        const start = this.#mode === 'sequence' ? this.#groupEnd : segment.pts;
+        const start = this.#mode === 'sequence' ? this.#groupEnd : segment.pts + this.#offset;
         this.#groupEnd = start + segment.duration;
+        // In sequence mode the element keeps the offset at the end of what it placed, so the
+        // segment after this one follows on from it.
+        if (this.#mode === 'sequence') this.#offset = this.#groupEnd;
         this.#add(start, start + segment.duration);
         this.source.player?.described();
       }

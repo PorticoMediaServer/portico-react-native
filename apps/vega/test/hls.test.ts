@@ -5,7 +5,7 @@
  */
 import test, {afterEach} from 'node:test';
 import assert from 'node:assert/strict';
-import {resetServer, segment, server} from './stubs/server.mjs';
+import {finishResponse, releaseResponse, resetServer, segment, server} from './stubs/server.mjs';
 import {mp4Init} from './stubs/mp4.mjs';
 import {VideoPlayer, resetWorld, world} from './stubs/w3cmedia.mjs';
 import {HlsSource, type SourceError} from '../src/bridge/hls.ts';
@@ -22,10 +22,10 @@ const near = (actual: number, expected: number, slack = 0.011) => assert.ok(Math
 let open: HlsSource[] = [];
 afterEach(() => { for (const source of open) source.close(); open = []; resetServer(); resetWorld(); });
 
-function start(url: string, originMs?: number) {
+function start(url: string, originMs?: number, now?: () => number) {
   const player = new VideoPlayer() as any;
   const failures: SourceError[] = [];
-  const source = new HlsSource(player, url, error => failures.push(error), originMs);
+  const source = new HlsSource(player, url, error => failures.push(error), originMs, now);
   open.push(source);
   return {player, source, failures};
 }
@@ -78,15 +78,32 @@ test('a title resumed part way is filled from there, and a seek refills only whe
 
 test('the connection is measured from segments big enough to say something, while it is fresh', async () => {
   film(40, 100000);
-  server.delay = 40;
-  const {source} = start(base + 'index.m3u8');
+  // The clock and each answer's completion are the test's: the figure is exact, not the machine's.
+  let clock = 1_800_000_000_000;
+  server.hold = url => url.endsWith('.m4s');
+  const {source} = start(base + 'index.m3u8', undefined, () => clock);
   assert.equal(source.throughputKbps(), undefined);
-  await source.open(0);
-  await until(() => server.log.includes(base + 's5.m4s'));
-  await sleep(120);
+  const bytes = (number: number) => Buffer.byteLength(JSON.stringify({pts: 1 + number * 6, duration: 6, bytes: 100000, pad: 'x'.repeat(100000)}));
+  let downloaded = 0;
+  /** Answers the segment's headers, then its last byte thirty counted milliseconds later. */
+  const answer = async (number: number) => {
+    const url = `${base}s${number}.m4s`;
+    await until(() => server.held.some(request => request.url === url));
+    releaseResponse(url);
+    clock += 30;
+    finishResponse(url);
+    downloaded += bytes(number);
+  };
+  const opening = source.open(0);
+  await answer(0);
+  await opening;
+  // Opened where it starts, five more segments fill the thirty seconds ahead.
+  for (let number = 1; number <= 5; number++) await answer(number);
   const kbps = source.throughputKbps();
-  // About 100 kB in about 40 ms: some 20 Mb/s. The exact figure is the test machine's.
-  assert.ok(kbps !== undefined && kbps > 4000 && kbps < 40000, `measured ${kbps}`);
+  assert.equal(kbps, Math.round(downloaded * 8 / 180), `measured ${kbps}`);
+  // Only what was downloaded in the last fifteen seconds says anything of the connection.
+  clock += 15001;
+  assert.equal(source.throughputKbps(), undefined);
 });
 
 test('small segments say nothing of the connection', async () => {
@@ -596,6 +613,52 @@ test('codec-less TS audio switches reuse the buffer while the resolved type stay
     assert.deepEqual(audio.spans, [[1, 7]]);
   }
   assert.equal(created, 0, 'neither rendition switch creates another SourceBuffer');
+  assert.deepEqual(failures, []);
+});
+
+/** A channel with a separate audio rendition whose segments are longer than the video's: the
+ * audio buffer's own sequence runs well ahead of the element clock, so only the offset the
+ * production code sets can put the replacement audio where playback is. */
+function liveAudioChannel() {
+  const playlist = (first: number, count: number, duration: number, init: string, media: string) => {
+    let text = `#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-TARGETDURATION:${duration}\n#EXT-X-MEDIA-SEQUENCE:${first}\n#EXT-X-MAP:URI="${init}"\n`;
+    for (let n = first; n < first + count; n++) text += `#EXT-X-PROGRAM-DATE-TIME:${new Date(origin + n * duration * 1000).toISOString()}\n#EXTINF:${duration}.000000,\n${media}${n}.m4s\n`;
+    return text;
+  };
+  server.routes.set(base + 'index.m3u8', [
+    '#EXTM3U',
+    '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="A",DEFAULT=YES,URI="a0.m3u8"',
+    '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="B",URI="a1.m3u8"',
+    '#EXT-X-STREAM-INF:BANDWIDTH=8000000,CODECS="avc1.64001f,mp4a.40.2",AUDIO="audio"',
+    'video.m3u8',
+  ].join('\n'));
+  server.routes.set(base + 'video.m3u8', playlist(100, 60, 5, 'v-init.mp4', 'v'));
+  server.routes.set(base + 'a0.m3u8', playlist(100, 60, 6, 'a0-init.mp4', 'a0-'));
+  server.routes.set(base + 'a1.m3u8', playlist(100, 60, 6, 'a1-init.mp4', 'a1-'));
+  for (const name of ['v-init.mp4', 'a0-init.mp4', 'a1-init.mp4']) server.routes.set(base + name, segment({init: true}));
+  for (let n = 100; n < 160; n++) {
+    server.routes.set(`${base}v${n}.m4s`, segment({pts: 5000 + n * 5, duration: 5}));
+    for (const prefix of ['a0-', 'a1-']) server.routes.set(`${base}${prefix}${n}.m4s`, segment({pts: n * 6, duration: 6}));
+  }
+}
+
+test('a live audio switch places the replacement audio at the element clock, not at its own sequence end', async () => {
+  liveAudioChannel();
+  const {player, source, failures} = start(base + 'index.m3u8', origin);
+  await source.open(500);
+  const video = player.source.buffers[0], audio = player.source.buffers[1];
+  // Twenty five-second segments in: the video's segment that starts at 100 s of element time is
+  // on air at 600 s of the channel's timeline, and the six-second audio segments have run past both.
+  for (let step = 0; step < 20; step++) {
+    player.advance(5);
+    await until(() => video.spans.some(([from, to]: number[]) => from <= player.currentTime && to > player.currentTime));
+  }
+  assert.equal(player.currentTime, 100);
+  assert.ok(audio.spans[audio.spans.length - 1][1] > 100, 'the audio sequence itself runs ahead of the clock');
+  await source.selectAudio(1, {current: () => true, sourceCurrent: () => true, willMutate() {}}).done;
+  assert.equal(source.audioIndex(), 1);
+  assert.equal(player.source.buffers[1], audio, 'the resolved type did not change, so the buffer is reused');
+  assert.deepEqual(audio.spans, [[100, 106]]);
   assert.deepEqual(failures, []);
 });
 

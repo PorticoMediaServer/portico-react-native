@@ -116,9 +116,10 @@ export class HlsSource {
   private begin = NaN;
   private samples: {bytes: number; ms: number; at: number}[] = [];
 
-  /** `originMs`: the channel's origin (milliseconds since 1970) for a live channel; absent for a title. */
+  /** `originMs`: the channel's origin (milliseconds since 1970) for a live channel; absent for a title.
+   * `now`: the clock the connection is measured against, in milliseconds. */
   private readonly stopExposure: () => void;
-  constructor(private readonly player: VideoPlayer, private readonly url: string, private readonly failed: (error: SourceError) => void, private readonly originMs?: number) {
+  constructor(private readonly player: VideoPlayer, private readonly url: string, private readonly failed: (error: SourceError) => void, private readonly originMs?: number, private readonly now: () => number = Date.now) {
     this.stopExposure = onCredentialExposure(({origin, origins = [origin]}) => {
       if (!this.closed && origins.includes(originOf(this.url))) { this.close(); this.failed(new SourceError(false, 'media credential exposed')); }
     });
@@ -173,7 +174,7 @@ export class HlsSource {
    * says nothing about the connection now).
    */
   throughputKbps(): number | undefined {
-    const now = Date.now();
+    const now = this.now();
     this.samples = this.samples.filter(sample => now - sample.at <= FRESH_MS);
     const bytes = this.samples.reduce((sum, sample) => sum + sample.bytes, 0), ms = this.samples.reduce((sum, sample) => sum + sample.ms, 0);
     if (!bytes || !ms) return undefined;
@@ -418,7 +419,7 @@ export class HlsSource {
         }
         const limit = type === 'text' ? 1048576 : MEDIA_BUDGET;
         const tooLarge = () => new SourceError(false, 'media response too large', 0, type === 'arraybuffer' ? 'unsupported' : '');
-        const sent = Date.now();
+        const sent = this.now();
         let answered = 0, loaded = 0;
         let idle: ReturnType<typeof setTimeout> | undefined;
         const done = () => {clearTimeout(idle); this.requests.delete(request); if (active === request) { active = undefined; finishActive = undefined; }};
@@ -439,7 +440,7 @@ export class HlsSource {
           if (Number(request.getResponseHeader('Content-Length')) > limit || size > limit) { done(); refuse(tooLarge()); try { request.abort(); } catch { /* already completed */ } return true; }
           return false;
         };
-        request.onreadystatechange = () => { if (!settled && active === request && request.readyState >= 2) { if (invalid()) return; if (!answered) answered = Date.now(); } };
+        request.onreadystatechange = () => { if (!settled && active === request && request.readyState >= 2) { if (invalid()) return; if (!answered) answered = this.now(); } };
         request.onprogress = event => {
           if (settled || active !== request || invalid()) return;
           if (event.loaded > limit) {
@@ -477,7 +478,7 @@ export class HlsSource {
    */
   private measure(bytes: number, answered: number, sent: number): void {
     if (bytes < MEASURED_BYTES) return;
-    const now = Date.now();
+    const now = this.now();
     const ms = now - answered >= 20 ? now - answered : Math.max(1, now - sent);
     this.samples.push({bytes, ms, at: now});
     if (this.samples.length > 6) this.samples.shift();
@@ -645,7 +646,7 @@ export class HlsSource {
       const selected = this.mediaType(playlist, codecs, kind, init?.data, separateAudio);
       const buffer = this.add(selected.mime);
       this.assertCurrent(generation);
-      const track: Track = {...selected, url, playlist, buffer, next: 0, loaded: Date.now()};
+      const track: Track = {...selected, url, playlist, buffer, next: 0, loaded: this.now()};
       this.tracks.push(track);
       if (this.live) {try {track.buffer.mode = 'sequence' as never;} catch { /* Native timestamps remain supported. */ }}
       if (init) {
@@ -989,7 +990,7 @@ export class HlsSource {
       requireCurrent();
       const clock = Number(this.player.currentTime);
       if (!this.audioRanges(track.buffer).some(([from, to]) => from <= clock && to > clock)) throw new SourceError(false, 'selected audio did not cover the playback clock');
-      track.url = rendition.url; track.playlist = playlist; track.loaded = Date.now(); track.next = segment.number + 1;
+      track.url = rendition.url; track.playlist = playlist; track.loaded = this.now(); track.next = segment.number + 1;
       track.bytesPerSecond = undefined;
       this.measureSegment(track, media.data.byteLength, segment.duration);
       requireCurrent();
@@ -1149,11 +1150,11 @@ export class HlsSource {
           if (this.audioHold) return 'held';
           // A playlist that is still growing (or sliding) is read again for its new segments.
           const reload = this.live ? Math.min(RELOAD_MS, Math.max(1000, track.playlist.targetDuration * 500)) : RELOAD_MS;
-          if (!track.playlist.ended && track.next >= track.playlist.sequence + track.playlist.segments.length && Date.now() - track.loaded > reload) {
+          if (!track.playlist.ended && track.next >= track.playlist.sequence + track.playlist.segments.length && this.now() - track.loaded > reload) {
             const playlist = this.read(await this.get(track.url, 'text', signal), track.url);
             if (generation !== this.generation) return;
             if (this.audioHold) return 'held';
-            track.playlist = playlist; track.loaded = Date.now();
+            track.playlist = playlist; track.loaded = this.now();
           }
           const segment = segmentNumbered(track.playlist, track.next);
           if (!segment) { if (!track.playlist.ended) finished = false; continue; }
@@ -1181,7 +1182,7 @@ export class HlsSource {
             const playlist = this.read(await this.get(track.url, 'text', signal), track.url);
             if (generation !== this.generation) return;
             if (this.audioHold) return 'held';
-            track.playlist = playlist; track.loaded = Date.now();
+            track.playlist = playlist; track.loaded = this.now();
             if (track.next >= playlist.sequence) throw error;
             continue;
           }
