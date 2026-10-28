@@ -68,16 +68,7 @@ export function tvServerSettingFact(state: TVServerSettingsState, row: SettingsR
   return readSettingsBinding(binding, tvServerSettingsSources(state), row.id);
 }
 
-/** The conversion location the stored directory makes ("a folder" while one is being picked). */
-function tvTranscodeLocation(state: TVServerSettingsState): Readonly<{value: string; memoryAvailable: boolean; stored: string}> | undefined {
-  const directory = state.capacity?.temporaryDirectory, stored = state.drafts.runtime?.temporaryDirectory;
-  if (!directory || typeof stored !== 'string') return undefined;
-  const located = transcodeLocationChoice(directory, stored);
-  return {value: state.custom.has('streaming.transcodeLocation') ? 'folder' : located.value, memoryAvailable: located.memoryAvailable, stored};
-}
-
 export function tvServerSettingRead(state: TVServerSettingsState, id: string): unknown {
-  if (id === 'streaming.transcodeLocation') return tvTranscodeLocation(state)?.value;
   if (state.custom.has(id)) return 'custom';
   if (id === 'remote.secure') return state.secure;
   const row = settingsRowIndex.get(id)?.row;
@@ -94,16 +85,14 @@ export function tvServerSettingGroups(state: TVServerSettingsState, groups: read
     const children = () => (row.children ?? []).flatMap(child => visit(child, true));
     if (row.id === 'remote.secure') return state.secure === undefined ? [] : [{id: row.id, row, dependent, kind: 'switch', checked: state.secure}, ...children()];
     if (row.id === 'streaming.transcodeLocation') {
-      // One stored directory drawn as the spec's choices; "a folder" reveals the folder row.
-      // Memory is offered only where the server has a RAM file system; a directory already
-      // stored there still reads as it is.
-      const located = tvTranscodeLocation(state);
-      if (!located) return [];
-      const {value, memoryAvailable, stored} = located;
-      const options: TVChoiceModel[] = (row.control.options ?? []).filter(option => option.value !== 'memory' || memoryAvailable || value === 'memory')
-        .map(option => ({value: String(option.value), label: option.label, hint: option.hint, disabled: option.value === 'memory' && !memoryAvailable}));
+      const fact = tvServerSettingFact(state, row);
+      if (!fact) return [];
+      const {value, memoryAvailable} = transcodeLocationChoice(state.capacity?.temporaryDirectory, typeof fact.current === 'string' ? fact.current : undefined);
+      const options: TVChoiceModel[] = (row.control.options ?? []).map(option => ({value: String(option.value), label: option.label, hint: option.hint}));
       const folder = row.children?.find(child => child.id === 'streaming.transcodeFolder');
-      return [{id: row.id, row, dependent, kind: 'choice', value, options}, ...(value === 'folder' && folder ? [{id: folder.id, row: folder, dependent: true, kind: 'folder' as const, value: stored}] : [])];
+      const stored = state.drafts.runtime?.temporaryDirectory;
+      return [{id: row.id, row: memoryAvailable ? row : {...row, help: 'next.settings.streaming.memoryUnavailable'}, dependent, kind: 'choice', value, options},
+        ...(folder && typeof stored === 'string' ? [{id: folder.id, row: folder, dependent: true, kind: 'folder' as const, value: stored}] : [])];
     }
     const fact = tvServerSettingFact(state, row);
     if (!fact) return children();
