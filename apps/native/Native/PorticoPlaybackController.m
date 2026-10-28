@@ -167,10 +167,12 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  AVPlayerItem *item=_observedItem;
  AVPlayerItemVideoOutput *replacement=[[AVPlayerItemVideoOutput alloc]initWithPixelBufferAttributes:@{(id)kCVPixelBufferPixelFormatTypeKey:@(kCVPixelFormatType_32BGRA)}];
  replacement.suppressesPlayerRendering=NO;
+ // Keep an output attached while the new consumer joins, so refreshing an idle
+ // consumer never leaves the playing item without its frame outlet.
+ [item addOutput:replacement];
  [item removeOutput:_videoOutput];
  [self clearCapturedVideoFrame];
  _videoOutput=replacement;
- [item addOutput:replacement];
  return [binding isEqual:self.externalPresentationBinding];
 }
 - (CVPixelBufferRef)copyVideoFrameForBinding:(NSDictionary *)binding displayTime:(CMTime *)displayTime transform:(CGAffineTransform *)transform {
