@@ -622,7 +622,7 @@ export class NativePlaybackRuntime {
     const close = () => { signal.removeEventListener('abort', abort); control?.close(); scoped.close(); rejectStart?.(new Error('stale_selection_context')); rejectStart = undefined; };
     try {
       // DELETE cleanup stays bound to its original authority after a Home context expires.
-      control = new V1ChannelControl({key: this.o.requestId, http: {send: async request => {
+      control = new V1ChannelControl({events: this.o.events, key: this.o.requestId, http: {send: async request => {
         if (request.method === 'DELETE') return this.http.send(request);
         if (!valid()) { control?.close(); throw new Error('stale_selection_context'); }
         const response = await this.http.send(adopted ? request : {...request, signal: scoped.signal});

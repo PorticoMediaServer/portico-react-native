@@ -5,7 +5,9 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.net.URI;
 import java.util.Collections;
+import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
@@ -16,6 +18,8 @@ public final class PorticoIsoAudioIdentity {
   private final Set<String> audio;
   private PorticoIsoAudioIdentity(Set<String> audio) { this.audio = Collections.unmodifiableSet(audio); }
   private static final PorticoIsoAudioIdentity NONE = new PorticoIsoAudioIdentity(Collections.emptySet());
+  private static final Set<String> BRANDS = new HashSet<>(Arrays.asList("isom", "iso2", "mp41", "mp42", "M4A ", "M4B "));
+  private static final Set<String> CODECS = new HashSet<>(Arrays.asList("mp4a", "ac-3", "ec-3", "Opus", "fLaC", "alac"));
 
   /** Only these pinned Media3 MP4 container facts prove the meaning of Format.id. */
   public Map<String, String> media3(String containerMimeType, String formatId) {
@@ -32,7 +36,10 @@ public final class PorticoIsoAudioIdentity {
   }
 
   private Map<String, String> identity(String id) {
-    return audio.contains(id) ? Map.of("container", "isobmff", "trackId", id) : null;
+    if (!audio.contains(id)) return null;
+    Map<String, String> result = new LinkedHashMap<>();
+    result.put("container", "isobmff"); result.put("trackId", id);
+    return Collections.unmodifiableMap(result);
   }
 
   /** One entry per producer, retired on URI/file change. A changed file never reuses old proof. */
@@ -107,7 +114,7 @@ public final class PorticoIsoAudioIdentity {
         if (b.type.equals("ftyp")) {
           if (brand || b.end - b.body < 8 || (b.end - b.body) % 4 != 0) throw new IOException();
           String major = four(read(b.body, 4, b.end), 0);
-          if (!Set.of("isom", "iso2", "mp41", "mp42", "M4A ", "M4B ").contains(major)) throw new IOException();
+          if (!BRANDS.contains(major)) throw new IOException();
           brand = true;
         } else if (b.type.equals("moov")) {
           if (movie) throw new IOException(); movie = true; movie(b);
@@ -162,7 +169,7 @@ public final class PorticoIsoAudioIdentity {
       if (uint(header, 0) != 0 || uint(header, 4) != 1) throw new IOException();
       Box entry = box(descriptions.body + 8, descriptions.end);
       if (entry.end != descriptions.end || entry.end - entry.body < 28 ||
-          !Set.of("mp4a", "ac-3", "ec-3", "Opus", "fLaC", "alac").contains(entry.type)) throw new IOException();
+          !CODECS.contains(entry.type)) throw new IOException();
       return true;
     }
     Box child(Box parent, String type) throws IOException {

@@ -205,3 +205,12 @@ test('same-engine reload and native catalogue changes re-resolve source proof in
   assert.equal(local.accept({type: 'localAudioTrackFailed', audioTrackRevision: refreshed.revision, catalogRevision: 4, trackId: refreshed.trackId}), 'failed');
   local.configure('mpv', 'four', ['ass']); local.accept(mpvInventory()); assert.equal(local.audioCommand(), null);
 });
+
+test('an empty settled replacement inventory fails a retained choice after preparation', () => {
+  const local = tracks(); local.configure('mpv', 'one', ['ass']); local.accept(mpvInventory()); local.choose({audioTrackId: 'a1'});
+  local.configure('native', 'two', ['text']);
+  const empty = {type: 'mediaInfo', audioTrackCatalogRevision: 1, audioTracks: []};
+  assert.equal(local.accept(empty), 'changed'); assert.equal(local.localAudioCommand(), null);
+  local.accept({type: 'ready'});
+  assert.equal(local.accept(empty), 'failed'); assert.equal(local.localAudioCommand(), null);
+});

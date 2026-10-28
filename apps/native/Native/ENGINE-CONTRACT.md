@@ -177,7 +177,7 @@ only `error` facts are sent. JavaScript drops any fact whose `instanceId`, bindi
 | `systemPaused` | The system paused a video the app wanted playing (the app left the screen). JavaScript sets its intent to paused. | `reason` (mpv: `'background'`) |
 | `audioMapped`, `audioObserved`, `audioApplied`, `audioFailed`, `audioUnavailable` | Section 6. | |
 | `audioTrackApplied`, `audioTrackFailed` (mpv) | An `audioTrack` choice finished. | `audioTrackRevision`, `streamIndex` |
-| `mediaInfo` (mpv) | After `ready`, and when the tracks, the picture or the length change. | `durationSeconds`; `chapters`: `{startSeconds, title}[]`; `video`: `{width, height, framesPerSecond, codec, dynamicRange (sdr, hdr10, hlg, dolby_vision), outputDynamicRange (sdr, hdr), hardwareDecoding}`; `audioTracks`, `subtitleTracks`: `{streamIndex, language, title, codec, channels, selected, external, default, forced}[]` |
+| `mediaInfo` (mpv; native local audio) | When the current inventory changes. mpv also reports after `ready`. | mpv: `durationSeconds`; `chapters`: `{startSeconds, title}[]`; `video`: `{width, height, framesPerSecond, codec, dynamicRange (sdr, hdr10, hlg, dolby_vision), outputDynamicRange (sdr, hdr), hardwareDecoding}`; `audioTracks`, `subtitleTracks`: `{streamIndex, language, title, codec, channels, selected, external, default, forced}[]`. Native local audio: `audioTrackCatalogRevision`, `audioTracks: {id, selected, language?, title?, codec?, channels?}[]`. Local audio can include the optional proven `sourceTrackIdentity` described in section 6. |
 
 Error classification, in order:
 
@@ -227,12 +227,58 @@ stream's index in the file. The engine answers `audioTrackApplied` or `audioTrac
 same `audioTrackRevision`. JavaScript sends the field only to an engine that has the feature, and
 only for the playback it was chosen in.
 
+`localAudioTrack` (native, downloaded files only) is `{revision, catalogRevision, trackId}`.
+`trackId` is an opaque token from the current `mediaInfo.audioTracks[].id`; `catalogRevision`
+must equal that inventory's `audioTrackCatalogRevision`. The engine answers
+`localAudioTrackApplied` only after actual selection readback, or `localAudioTrackFailed`,
+with `{audioTrackRevision, catalogRevision, trackId}`. No audio ordinal or file stream index
+can substitute for this token. Native catalogues retire when their loaded item/inventory changes.
+
+For one admitted downloaded file, an audio inventory entry may additionally carry
+`sourceTrackIdentity: {container: 'isobmff', trackId: string}`. The decimal `trackId` is the
+container's positive `tkhd.track_ID`, currently limited to 1..2147483647 for the pinned engines.
+It is independent of a native catalogue token, Media3's output-track number, mpv's user track
+ID, and mpv's absolute `ff-index`/`streamIndex`.
+
+Android emits this optional fact only after reading that exact local source with a bounded
+random-access parser (at most 64 KiB read, 1024 boxes, 128 container tracks and 64 audio tracks;
+media payload is skipped). The proof subset is classic ISO-BMFF with a supported major brand,
+unique `tkhd` IDs, audio handlers and one supported ordinary audio sample description. Damaged,
+fragmented, compressed, referenced or complex audio containers and exhausted limits omit proof.
+The single-entry cache is bound to the producer's loaded source and file size/mtime, retired
+on load replacement or observed file change; no file bytes or per-title choices are persisted.
+
+The producer must also prove the demux meaning of its engine fact. With pinned Media3 1.10.1,
+the actual MP4 `Format.containerMimeType` must be `audio/mp4` or `video/mp4`, and its exact
+`Format.id` must match one parsed audio `tkhd` ID. Duplicate format IDs omit proof. The
+[Media3 MP4 BoxParser](https://github.com/androidx/media/blob/1.10.1/libraries/extractor/src/main/java/androidx/media3/extractor/mp4/BoxParser.java)
+sets audio format IDs from the track header; [Mp4Extractor](https://github.com/androidx/media/blob/1.10.1/libraries/extractor/src/main/java/androidx/media3/extractor/mp4/Mp4Extractor.java)
+preserves that format ID and sets its MP4 container MIME type. This never interprets an arbitrary
+extractor's `Format.id` as an absolute stream index.
+
+With pinned mpv 0.41.0 / FFmpeg 8.1.2, the epoch-bound actual `file-format` must equal
+`mov,mp4,m4a,3gp,3g2,mj2`, and a unique nonexternal audio `src-id` must match the parsed ID.
+[mpv track properties](https://github.com/mpv-player/mpv/blob/v0.41.0/player/command.c)
+expose `src-id` and `ff-index` separately; [demux_lavf](https://github.com/mpv-player/mpv/blob/v0.41.0/demux/demux_lavf.c)
+maps MP4 `src-id` to the AVStream ID and reports the actual lavf format;
+[FFmpeg mov_read_tkhd](https://github.com/FFmpeg/FFmpeg/blob/n8.1.2/libavformat/mov.c)
+reads that ID from `tkhd`. Language, title, codec and ordering never supply identity.
+
+Only an explicit choice is retained, and only inside its `NativeOfflineTracks` playback/file
+binding. After an engine/instance replacement, JavaScript resolves exactly one current entry
+with the same proven source identity, sends a newly revisioned engine-specific command, and
+waits for that command's exact readback. Native also requires the replacement catalogue revision.
+The coordinator first fences facts by lease/instance/binding/sequence and command lifetime.
+Missing/ambiguous replacement proof fails the retained choice honestly; an original choice
+without proof has no cross-engine retention. Apple omits source identities it cannot prove.
+
 ## 7. Subtitles
 
 ```
 {binding: {intentId, sessionId, generation}, mode: 'off' | 'track', revision: number,
  resourceId: string, resourceRevision: number, offsetUs: string, refreshRevision: number,
  documentUrl?: string, manifestName?: string, origin?: string, language?: string, title?: string,
+ localSessionOffsetUs?: string,
  style?: {scale: number, background: 'none' | 'translucent' | 'opaque'},
  render?: {kind: 'text' | 'ass' | 'pgs' | 'vobsub' | 'dvb',
            embedded?: {streamIndex?: number, ordinal?: number, language?: string, title?: string},
@@ -251,6 +297,12 @@ Styled (ASS) tracks keep their own look.
 It applies only when its binding matches the command's. `mode: 'off'`, or no `subtitles`, shows
 nothing. `offsetUs` is a decimal string of microseconds, -600 s to +600 s; a positive value shows
 every line later.
+
+For Apple downloaded WebVTT only, `offsetUs` can already be baked into the saved document.
+Its optional `localSessionOffsetUs` (decimal microseconds, -600 s to +600 s, default zero)
+supplies only the additional playback-session adjustment. The Apple downloaded-VTT reader
+does not apply baked `offsetUs` again. Rich originals and Android/mpv retain their existing
+`offsetUs` behavior.
 
 Two ways to draw a track:
 
