@@ -85,6 +85,12 @@ export function NativeServerStreaming({ports, runtime, compactHeader = false}: {
   };
   const read = (id: string): unknown => {
     if (id === 'streaming.awayQuality' && customAway) return 'custom';
+    if (id === 'streaming.transcodeLocation') {
+      // The location has no binding of its own: the stored directory makes the choice, so the
+      // memory limit follows it.
+      const directory = capacity?.temporaryDirectory, draft = runtimeState.draft as {temporaryDirectory?: string} | undefined;
+      return directory && draft ? folderChosen ? 'folder' : transcodeLocationChoice(directory, draft.temporaryDirectory).value : undefined;
+    }
     const binding = settingsBinding(id); return binding ? readSettingsBinding(binding, sources, id)?.current : undefined;
   };
   const renderRow = (row: SpecRow): React.ReactNode => {

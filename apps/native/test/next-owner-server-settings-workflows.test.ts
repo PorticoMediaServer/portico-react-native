@@ -159,7 +159,7 @@ test('Restore picker retains its candidate through the encrypted step and closin
 });
 
 test('Streaming draws its backed Advanced rows and hardware testing is one explicit pending action', async () => {
-  const fixture = await formsFixture({runtime: {conversionMode: 'all', hardwareSelection: 'auto', hardwareDecode: true, hdrToneMapping: true, hdrToneMappingAlgorithm: 'hable', x264Preset: 'veryfast', planningPolicy: 'minimize_server_work', directStreamRemux: true, outputFormat: 'auto', maxConcurrentSessions: 0, maxHardwareSessions: 0, maxSoftwareSessions: 0, maxBackgroundSessions: 0, serverCap: 0, throttleBufferMs: 60000, playedRetentionMs: 180000, sessionStorageMiB: 4096, ffmpegPath: '', temporaryDirectory: '/transcode'}, connectivity: {uploadCapacityKbps: 0, remoteBitrateLimitKbps: 8000, pausedSessionTimeoutMinutes: 0}}), host = lifecycleHooks();
+  const fixture = await formsFixture({runtime: {conversionMode: 'all', hardwareSelection: 'auto', hardwareDecode: true, hdrToneMapping: true, hdrToneMappingAlgorithm: 'hable', x264Preset: 'veryfast', planningPolicy: 'minimize_server_work', directStreamRemux: true, outputFormat: 'auto', maxConcurrentSessions: 0, maxHardwareSessions: 0, maxSoftwareSessions: 0, maxBackgroundSessions: 0, serverCap: 0, throttleBufferMs: 60000, playedRetentionMs: 180000, sessionStorageMiB: 4096, memoryCap: 'quarter', ffmpegPath: '', temporaryDirectory: '/transcode'}, connectivity: {uploadCapacityKbps: 0, remoteBitrateLimitKbps: 8000, pausedSessionTimeoutMinutes: 0}}), host = lifecycleHooks();
   const capacity = {hardware: {effective: 'vaapi', devices: [{id: 'drm-0a1b', name: 'Intel UHD 770', inUse: true}]}, temporaryDirectory: {path: '/tmp/transcode', ready: true, freeBytes: 12000, memoryPath: '/dev/shm'}};
   const section = specification.settingsSpec.find((value: any) => value.scope === 'server' && value.id === 'streaming');
   const allRows = [...section!.groups!, ...section!.advanced!.groups!].flatMap((group: any) => values.settingRows(group.rows));
@@ -183,20 +183,24 @@ test('Streaming draws its backed Advanced rows and hardware testing is one expli
   assert.equal(nodes(tree).filter((node: any) => node.type === 'Advanced').length, 1);
   for (const id of ['streaming.toneMapping', 'streaming.toneMappingMethod', 'streaming.encoderSpeed', 'streaming.whenCantPlay', 'streaming.repackage', 'streaming.maxConversions', 'streaming.awayExact', 'streaming.ffmpegPath']) assert.ok(controls.some((node: any) => node.props.row.id === id), id);
   // Device lists Automatic, Processor only and each adapter the hardware report found; the
-  // memory limit stays absent until the server places conversions in memory.
+  // memory limit is drawn, and usable only while the location is memory.
   const device = controls.find((node: any) => node.props.row.id === 'streaming.hardware');
   assert.deepEqual(device.props.row.control.options.map((option: any) => option.value), ['auto', 'software', 'drm-0a1b']);
   assert.ok(controls.some((node: any) => node.props.row.id === 'streaming.hardwareDecode'));
-  assert.ok(!controls.some((node: any) => node.props.row.id === 'streaming.memoryCap'));
+  const memoryCap = () => nodes(render()).find((node: any) => node.type === 'Setting' && node.props.row.id === 'streaming.memoryCap');
+  assert.equal(memoryCap()?.props.value, 'quarter');assert.equal(memoryCap()?.props.disabled, true, 'the memory limit waits for the memory location');
   device.props.onChange('drm-0a1b');
   assert.equal(fixture.group.forms.runtime.getSnapshot().draft.hardwareSelection, 'drm-0a1b');
   // Conversion location reads the stored directory through the shared choice: a stored path is
   // "a folder", which reveals the usable folder row; Separate writes the empty directory.
   const location = controls.find((node: any) => node.props.row.id === 'streaming.transcodeLocation');
   assert.ok(location);assert.equal(location.props.value, 'folder');
-  assert.ok(!location.props.row.control.options.some((option: any) => option.value === 'memory'), 'In memory is not offered, even with a RAM file system');
+  assert.ok(location.props.row.control.options.some((option: any) => option.value === 'memory'), 'In memory is offered where the server has a RAM file system');
   const folder = controls.find((node: any) => node.props.row.id === 'streaming.transcodeFolder');
   assert.ok(folder);assert.equal(folder.props.disabled, false);assert.equal(folder.props.value, '/transcode');
+  location.props.onChange('memory');assert.equal(fixture.group.forms.runtime.getSnapshot().draft.temporaryDirectory, '/dev/shm');
+  assert.equal(memoryCap()?.props.disabled, false, 'the memory location enables its limit');
+  memoryCap()!.props.onChange('2gb');assert.equal(fixture.group.forms.runtime.getSnapshot().draft.memoryCap, '2gb');
   location.props.onChange('separate');assert.equal(fixture.group.forms.runtime.getSnapshot().draft.temporaryDirectory, '');
   assert.ok(!nodes(render()).some((node: any) => node.type === 'Setting' && node.props.row.id === 'streaming.transcodeFolder'), 'Separate hides the folder row');
   controls.find((node: any) => node.props.row.id === 'streaming.repackage').props.onChange(false);assert.equal(fixture.group.forms.runtime.getSnapshot().draft.directStreamRemux, false);

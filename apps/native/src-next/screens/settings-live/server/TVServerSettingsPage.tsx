@@ -78,7 +78,7 @@ function Page({page, group, ports, runtime}: {page: TVEditablePage; group: Stora
     if (row.id === 'streaming.transcodeLocation') {
       // "A folder" writes nothing until a folder is picked; the other choice writes its directory.
       if (value === 'folder') {setCustom(previous => new Set(previous).add(row.id)); return;}
-      const target = value === 'separate' ? transcodeLocationTarget('separate', capacity?.temporaryDirectory) : undefined;
+      const target = value === 'separate' || value === 'memory' ? transcodeLocationTarget(value, capacity?.temporaryDirectory) : undefined;
       if (target === undefined) return;
       forms.runtime.set((current: Readonly<Record<string, unknown>>) => ({...current, temporaryDirectory: target})); commit(); return;
     }
