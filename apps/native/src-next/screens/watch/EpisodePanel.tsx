@@ -6,6 +6,8 @@ import {durationText} from '../../../../../packages/client-core/src/presentation
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Artwork, type ArtworkSource} from '../../kit/artwork';
 import {Button, Focusable, Switch} from '../../kit/controls';
+import {FocusRegion} from '../../kit/focus';
+import {useTVPanelInteractive} from '../../kit/overlays/TVPanelMotion';
 import {useTheme} from '../../kit/theme';
 import {NativeSeasonsSheet} from './SeasonsSheet';
 import type {NativeTitleController, NativeTitlePageLease} from './title-controller';
@@ -34,7 +36,8 @@ export function NativeWatchEpisodes({controller, currentId, playing, text, artwo
   const theme = useTheme(), t = defaultI18n.t;
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [seasonsSheet, setSeasonsSheet] = useState<NativeTitlePageLease>();
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<ScrollView>(null), first = useRef<View>(null), seasonOpener = useRef<View>(null), entered = useRef(false);
+  const interactive = useTVPanelInteractive();
   useEffect(() => {void controller.open().catch(() => {});}, [controller]);
   const workspace = snapshot.workspace, data = workspace?.data;
   const seasons = snapshot.seasons, episodes = snapshot.episodes;
@@ -50,6 +53,12 @@ export function NativeWatchEpisodes({controller, currentId, playing, text, artwo
   // ever dressed up as one.
   const playingIndex = episodes.findIndex(entry => entry.id === currentId);
   const following = pane ? (playingIndex >= 0 ? episodes.slice(playingIndex + 1) : []) : episodes;
+  const initialId = episodes[playingIndex]?.id ?? episodes[0]?.id;
+  useEffect(() => {entered.current = false;}, [controller]);
+  useEffect(() => {
+    if (!theme.isTV || pane || !interactive || seasonsSheet || entered.current || !initialId) return;
+    if (first.current?.requestTVFocus) {first.current.requestTVFocus(); entered.current = true;}
+  }, [theme.isTV, pane, interactive, seasonsSheet, initialId]);
   // The sheet and the switch belong to the page and session this render shows.
   const lease = controller.pageLease();
   // The opener closes over this render's lease; a stale opener cannot recapture.
@@ -59,7 +68,7 @@ export function NativeWatchEpisodes({controller, currentId, playing, text, artwo
     const isPlaying = entry.id === currentId;
     const isNext = !isPlaying && nextUp?.id === entry.id;
     const progress = !isPlaying && entry.progressSeconds && entry.duration ? Math.max(0, Math.min(1, entry.progressSeconds / entry.duration)) : undefined;
-    return <Focusable key={entry.id} focusId={`episodes-${entry.id}`} testID={`episodes-${entry.id}`} focusKind="row" accessibilityRole="button"
+    return <Focusable key={entry.id} ref={entry.id === initialId ? first : undefined} focusId={`episodes-${entry.id}`} testID={`episodes-${entry.id}`} focusKind="row" accessibilityRole="button"
       accessibilityLabel={[entry.displayTitle ?? entry.title, isPlaying ? t('player.miniPlaying') : isNext ? t('player.queue') : undefined].filter(Boolean).join(', ')}
       onPress={() => {if (!isPlaying) onPlay(entry);}} onFocus={() => {}} style={({focused}) => ({minHeight: pane ? 66 : 64, paddingHorizontal: pane ? 8 : 10, paddingVertical: 8, borderRadius: 10,
         flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: focused ? 'rgba(237,245,250,.12)' : 'transparent'})}>
@@ -84,11 +93,11 @@ export function NativeWatchEpisodes({controller, currentId, playing, text, artwo
       {isPlaying && playing && <View style={{width: 4, height: 24, borderRadius: 2, backgroundColor: theme.colors.accentStrong}}/>}
     </Focusable>;
   };
-  return <View testID="watch-episodes-panel" style={{flex: 1, backgroundColor: pane ? 'transparent' : theme.colors.raised, borderRadius: pane || theme.isTV ? 0 : 20, overflow: 'hidden'}}>
+  const body = <View testID="watch-episodes-panel" style={{flex: 1, backgroundColor: pane ? 'transparent' : theme.colors.raised, borderRadius: pane || theme.isTV ? 0 : 20, overflow: 'hidden'}}>
     {!pane && <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8}}>
       <Text accessibilityRole="header" numberOfLines={1} style={{fontFamily: 'Manrope-ExtraBold', fontSize: 18, fontWeight: '800', letterSpacing: -.02, color: theme.colors.text, flexShrink: 1}}>{t('title.episodes')}</Text>
       <View style={{flex: 1}}/>
-      <Button testID="watch-episodes-seasons" variant="glass" size="small" trailingIcon="i-chdown" onPress={openSeasons}>{seasonLabel}</Button>
+      <Button ref={seasonOpener} testID="watch-episodes-seasons" variant="glass" size="small" trailingIcon="i-chdown" onPress={openSeasons}>{seasonLabel}</Button>
       <Button testID="watch-episodes-close" variant="text" iconOnly icon="i-close" accessibilityLabel={t('action.close')} onPress={onClose}/>
     </View>}
     {!pane && <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingBottom: 6}}>
@@ -110,10 +119,11 @@ export function NativeWatchEpisodes({controller, currentId, playing, text, artwo
       {loading && !episodes.length && <Text style={{padding: 16, color: theme.colors.textTertiary}}>{t('next.states.loading')}</Text>}
       {following.map(row)}
     </ScrollView>
-    {!pane && <NativeSeasonsSheet open={!!seasonsSheet} onOpenChange={value => {if (value) openSeasons(); else closeSeasons();}} seasons={seasons}
+    {!pane && <NativeSeasonsSheet open={!!seasonsSheet} returnFocusRef={seasonOpener} onOpenChange={value => {if (value) openSeasons(); else closeSeasons();}} seasons={seasons}
       total={data?.seasonTotalCount ?? seasons.length} selectedId={selected}
       onSelect={id => {const sheet = seasonsSheet; closeSeasons(); if (sheet) void controller.season(id, sheet).catch(() => {});}}
       onMore={() => {void controller.moreSeasons().catch(() => {});}}
       hideWatched={snapshot.place.hideWatched} onHideWatched={value => {if (seasonsSheet) void controller.hideWatched(value, seasonsSheet).catch(() => {});}}/>}
   </View>;
+  return theme.isTV && !pane ? <FocusRegion id="watch-episodes" orientation="vertical" entry={initialId ? `episodes-${initialId}` : 'watch-episodes-seasons'} enabled={interactive && !seasonsSheet} style={{flex: 1}}>{body}</FocusRegion> : body;
 }

@@ -85,6 +85,9 @@ class PorticoSystemMedia(context: ReactApplicationContext) : PorticoEventModule(
     val body = HashMap<String, Any?>(extra)
     body["command"] = name
     body["itemId"] = item
+    // A command belongs to the exact published source, even when a replacement
+    // plays the same item. JavaScript refuses a token from an older fence/lease.
+    (info?.get("sourceToken") as? String)?.let { body["sourceToken"] = it }
     body["reason"] = reason
     emit("PorticoSystemMediaCommand", Arguments.makeNativeMap(body))
   }

@@ -132,10 +132,11 @@ export class NativeSavedViewDestination {
     this.pending = task; return task;
   };
   retry = (): Promise<void> => this.state.route ? this.select(this.state.route) : Promise.resolve();
-  /** The exact playlist command port for the loaded playlist route, if it is loaded. */
+  /** The directory may create a playlist; all other commands still require its loaded resource. */
   mutateSaved = (intent: SavedIntent): Promise<void> => {
     this.current();
-    if (this.disposed || !this.saved || this.state.route?.view !== 'playlist') return Promise.reject(new Error('A loaded playlist is required before changing it.'));
+    if (this.disposed || !this.saved || (intent.action === 'create' ? this.state.route?.view !== 'playlists' : this.state.route?.view !== 'playlist'))
+      return Promise.reject(new Error('Open the matching playlist page before changing it.'));
     return this.saved.mutate(intent);
   };
   /** The exact personal-resource command port for the loaded collection/view route. */
@@ -143,6 +144,11 @@ export class NativeSavedViewDestination {
     this.current();
     if (this.disposed || !this.personal) return Promise.resolve(false);
     return this.personal.mutate(intent);
+  };
+  /** Retry the canonical personal command with its retained operation ID and payload. */
+  retryPersonalMutation = (): Promise<boolean> => {
+    this.current();
+    return !this.disposed && this.personal ? this.personal.retry() : Promise.resolve(false);
   };
   /** Re-read the current page in place after another Saved page changed it. */
   refresh = (): Promise<void> => {

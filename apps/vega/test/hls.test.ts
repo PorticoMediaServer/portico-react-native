@@ -6,6 +6,7 @@
 import test, {afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import {resetServer, segment, server} from './stubs/server.mjs';
+import {mp4Init} from './stubs/mp4.mjs';
 import {VideoPlayer, resetWorld, world} from './stubs/w3cmedia.mjs';
 import {HlsSource, type SourceError} from '../src/bridge/hls.ts';
 
@@ -494,6 +495,109 @@ function audioSwitchRoutes() {
   for (const name of ['v-init.mp4', 'a0-init.mp4', 'a1-init.mp4']) server.routes.set(base + name, segment({init: true}));
   for (const name of ['v.m4s', 'a0.m4s', 'a1.m4s']) server.routes.set(base + name, segment({pts: 1, duration: 6}));
 }
+
+test('missing CODECS is derived from init before creating a buffer, fetching init only once', async () => {
+  film(2);
+  server.routes.set(base + 'init.mp4', {bytes: mp4Init(['hvc1', 'ec-3'])});
+  const {source, player, failures} = start(base + 'index.m3u8');
+  await source.open(0);
+  assert.equal(player.source.buffers[0].type, 'video/mp4; codecs="hvc1.2.4.L120.B0,ec-3"');
+  assert.equal(server.log.filter(url => url === base + 'init.mp4').length, 1);
+  assert.deepEqual(failures, []);
+});
+
+test('invalid missing-CODECS initialization refuses the stream before adding a guessed buffer', async () => {
+  film(2);
+  server.routes.set(base + 'init.mp4', {bytes: Buffer.from('not mp4')});
+  const {source, player, failures} = start(base + 'index.m3u8');
+  await source.open(0);
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0].refused, 'unsupported');
+  assert.equal(player.source.buffers.length, 0);
+  assert.equal(server.log.includes(base + 's0.m4s'), false);
+});
+
+test('missing CODECS with alternate audio derives separate video and audio buffers', async () => {
+  audioSwitchRoutes();
+  server.routes.set(base + 'index.m3u8', server.routes.get(base + 'index.m3u8').replace(',CODECS="avc1.64001f,mp4a.40.2"', ''));
+  server.routes.set(base + 'v-init.mp4', {bytes: mp4Init(['avc1'])});
+  server.routes.set(base + 'a0-init.mp4', {bytes: mp4Init(['mp4a'])});
+  const {source, player, failures} = start(base + 'index.m3u8');
+  await source.open(0);
+  assert.deepEqual(player.source.buffers.map((buffer: any) => buffer.type), ['video/mp4; codecs="avc1.64001F"', 'audio/mp4; codecs="mp4a.40.2"']);
+  assert.deepEqual(failures, []);
+});
+
+test('missing CODECS refuses muxed primary plus alternate audio before misdeclaring or duplicating audio tracks', async () => {
+  audioSwitchRoutes();
+  server.routes.set(base + 'index.m3u8', server.routes.get(base + 'index.m3u8').replace(',CODECS="avc1.64001f,mp4a.40.2"', ''));
+  server.routes.set(base + 'v-init.mp4', {bytes: mp4Init(['avc1', 'mp4a'])});
+  const {source, player, failures} = start(base + 'index.m3u8');
+  await source.open(0);
+  assert.equal(player.source.buffers.length, 0);
+  assert.equal(failures.length, 1); assert.equal(failures[0].refused, 'unsupported');
+  assert.equal(failures[0].message, 'muxed_primary_with_external_audio');
+  assert.equal(server.log.includes(base + 'a0-init.mp4'), false);
+});
+
+test('missing CODECS uses an audio-only primary init as proof and does not add a second audio buffer', async () => {
+  audioSwitchRoutes();
+  server.routes.set(base + 'index.m3u8', server.routes.get(base + 'index.m3u8').replace(',CODECS="avc1.64001f,mp4a.40.2"', ''));
+  server.routes.set(base + 'v-init.mp4', {bytes: mp4Init(['mp4a'])});
+  const {source, player, failures} = start(base + 'index.m3u8');
+  await source.open(0);
+  assert.deepEqual(player.source.buffers.map((buffer: any) => buffer.type), ['audio/mp4; codecs="mp4a.40.2"']);
+  assert.equal(server.log.includes(base + 'a0-init.mp4'), false);
+  assert.deepEqual(failures, []);
+});
+
+test('mixed audio codecs use the selected init and replace the audio buffer when that codec changes', async () => {
+  audioSwitchRoutes();
+  server.routes.set(base + 'index.m3u8', server.routes.get(base + 'index.m3u8').replace('avc1.64001f,mp4a.40.2', 'avc1.64001f,mp4a.40.2,ec-3'));
+  server.routes.set(base + 'a0-init.mp4', {bytes: mp4Init(['mp4a'])});
+  server.routes.set(base + 'a1-init.mp4', {bytes: mp4Init(['ec-3'])});
+  const {source, player, failures} = start(base + 'index.m3u8');
+  await source.open(0);
+  player.currentTime = 1;
+  await until(() => player.source.buffers[1].spans.length > 0);
+  const video = player.source.buffers[0], audio = player.source.buffers[1];
+  assert.equal(audio.type, 'audio/mp4; codecs="mp4a.40.2"');
+  await source.selectAudio(1, {current: () => true, sourceCurrent: () => true, willMutate() {}}).done;
+  assert.equal(player.source.buffers[0], video);
+  assert.notEqual(player.source.buffers[1], audio);
+  assert.equal(player.source.buffers[1].type, 'audio/mp4; codecs="ec-3"');
+  assert.equal(source.audioIndex(), 1);
+  assert.ok(!(source as any).retained.size || [...(source as any).retained].every((entry: any) => entry.buffer !== audio));
+  assert.deepEqual(failures, []);
+});
+
+test('codec-less TS audio switches reuse the buffer while the resolved type stays the same', async () => {
+  audioSwitchRoutes();
+  server.routes.set(base + 'index.m3u8', server.routes.get(base + 'index.m3u8').replace(',CODECS="avc1.64001f,mp4a.40.2"', ''));
+  server.routes.set(base + 'v-init.mp4', {bytes: mp4Init(['avc1'])});
+  for (const index of [0, 1]) {
+    server.routes.set(`${base}a${index}.m3u8`, `#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\na${index}.ts\n#EXT-X-ENDLIST\n`);
+    server.routes.set(`${base}a${index}.ts`, segment({pts: 1, duration: 6}));
+  }
+  const {source, player, failures} = start(base + 'index.m3u8');
+  await source.open(0);
+  player.currentTime = 1;
+  await until(() => player.source.buffers[1]?.spans.length > 0);
+  const video = player.source.buffers[0], audio = player.source.buffers[1];
+  assert.equal(audio.type, 'video/mp2t');
+  let created = 0;
+  const add = player.source.addSourceBuffer.bind(player.source);
+  player.source.addSourceBuffer = (type: string) => {created++; return add(type);};
+  for (const index of [1, 0]) {
+    await source.selectAudio(index, {current: () => true, sourceCurrent: () => true, willMutate() {}}).done;
+    assert.equal(source.audioIndex(), index);
+    assert.equal(player.source.buffers[0], video);
+    assert.equal(player.source.buffers[1], audio);
+    assert.deepEqual(audio.spans, [[1, 7]]);
+  }
+  assert.equal(created, 0, 'neither rendition switch creates another SourceBuffer');
+  assert.deepEqual(failures, []);
+});
 
 test('audio switch holds the feed and stages init and media before replacing the old buffer', async () => {
   audioSwitchRoutes();

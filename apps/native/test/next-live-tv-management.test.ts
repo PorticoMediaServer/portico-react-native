@@ -27,6 +27,7 @@ import {NativeLiveController} from '../src-next/screens/settings-live/live-contr
 import {nativeServerAdmission} from '../src-next/screens/settings-live/server/tv-server-reader';
 import type {DirectSnapshot} from '../../../packages/client-core/src/profile-management';
 import {NativeLiveOwnerController} from '../src-next/screens/settings-live/live-owner-controller';
+import * as tvSettingsFocus from '../src-next/screens/settings-live/tv-settings-focus';
 const nodes = (tree: any): any[] => Array.isArray(tree) ? tree.flatMap(nodes) : tree ? [tree, ...nodes(tree.children)] : [];
 const noop = () => {}, subscribe = () => noop;
 const jsx = (type: any, props: any) => React.createElement(type, props);
@@ -99,6 +100,7 @@ async function fixture({isTV = true, role = 'owner', primary = 'main', canManage
   let activeOpening: object | undefined;
   if (realRecordings) {const begin = recordings.beginViewerOpening; recordings.beginViewerOpening = (opening: object) => {activeOpening = opening; begin(opening);};}
   const {NativeLiveScreen} = await screenModule(new URL('../src-next/screens/settings-live/LiveScreen.tsx', import.meta.url), {...common,
+    './tv-settings-focus': tvSettingsFocus,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0, left: 0, right: 0})}, 'react-native-gesture-handler': {GestureDetector: 'GestureDetector'},
     'react-native-reanimated': {default: {View: 'AnimatedView'}, useAnimatedStyle: (fn: () => unknown) => fn()}, '../../../../../packages/client-core/src/channel-guide': channels,
     '../../../../../packages/client-core/src/guide': guide, '../../../../../packages/client-core/src/guide/directory': directory, './GuideLoadingMarker': {GuideLoadingMarker: 'Loading'},

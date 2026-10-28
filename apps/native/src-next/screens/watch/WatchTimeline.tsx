@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {Text, View, useTVEventHandler} from 'react-native';
+import {Text, View} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import Animated, {runOnJS, useAnimatedStyle, useSharedValue} from 'react-native-reanimated';
 import {sameFence} from '../../../../../packages/player-core/src';
@@ -7,6 +7,8 @@ import {clockText} from '../../../../../packages/client-core/src/presentation/ki
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {NativePlaybackRuntimeSnapshot} from '../../platform/playback/types';
 import type {NativeShellPlaybackAdapter} from '../../shell/playback';
+import {useTVKeyEvent} from '../../platform/tv-keys';
+import {createTVSeekRepeat} from '../../platform/tv-seek-repeat';
 import {Focusable} from '../../kit/controls';
 import {useTheme} from '../../kit/theme';
 import type {NativeWatchControls} from './controls';
@@ -40,18 +42,24 @@ export function NativeWatchTimeline({source, playback, controls, compact, enable
   const theme = useTheme(), fence = source.fence, width = useRef(0), dragging = useRef(false);
   const [preview, setPreview] = useState<number>();
   const previewRef = useRef<number | undefined>(undefined), seekRef = useRef<View>(null), mounted = useRef(false);
+  const repeatStep = useRef<(direction: -1 | 1, seconds: number) => boolean>(() => false);
+  const repeat = useMemo(() => createTVSeekRepeat((direction, seconds) => repeatStep.current(direction, seconds)), []);
   const start = source.seekWindow?.startSeconds ?? 0, end = source.seekWindow?.endSeconds ?? source.playback.duration;
   const span = end - start;
   useLayoutEffect(() => {mounted.current = true; return () => {mounted.current = false;};}, []);
   const current = useCallback(() => {
     const live = playback.getSnapshot();
-    return mounted.current && !!fence && sameFence(live.fence, fence) && !source.retired && (!tv || live.dock.local?.expanded === true);
-  }, [fence, playback, source.retired, tv]);
-  useEffect(() => {dragging.current = false; setPreview(undefined); onPreview?.(undefined);}, [fence, onPreview]);
+    const chrome = controls.getSnapshot();
+    return mounted.current && !!fence && sameFence(live.fence, fence) && !live.retired
+      && (!tv || live.dock.local?.expanded === true && !chrome.panel && !chrome.panelReturning);
+  }, [controls, fence, playback, tv]);
+  useEffect(() => {repeat.stop(); dragging.current = false; previewRef.current = undefined; setPreview(undefined); onPreview?.(undefined);}, [fence, onPreview, repeat]);
+  useEffect(() => () => repeat.stop(), [repeat]);
   const clearRemotePreview = useCallback(() => {
+    repeat.stop();
     previewRef.current = undefined; setPreview(undefined); onPreview?.(undefined);
     if (fence) controls.scrub(fence, false);
-  }, [controls, fence, onPreview]);
+  }, [controls, fence, onPreview, repeat]);
   const remoteScrubbing = tv && preview !== undefined && previewRef.current !== undefined;
   useLayoutEffect(() => {
     if (!tv || !focused || !enabled || !fence) {clearRemotePreview(); return;}
@@ -59,18 +67,29 @@ export function NativeWatchTimeline({source, playback, controls, compact, enable
     const unregister = controls.registerScrubCancel(fence, clearRemotePreview);
     return () => {unregister(); clearRemotePreview();};
   }, [clearRemotePreview, controls, enabled, fence, focused, remoteScrubbing, tv]);
-  useTVEventHandler(event => {
-    if (!tv || !focused || !enabled || !fence || !current() || !source.capabilities.seek || !(span > 0) || event.eventKeyAction === 1) return;
-    if (event.eventType === 'down' && previewRef.current !== undefined) {
+  const remoteCurrent = () => tv && focused && enabled && !!fence && current() && playback.getSnapshot().capabilities.seek && span > 0;
+  repeatStep.current = (direction, seconds) => {
+    if (!remoteCurrent() || !fence) return false;
+    const position = previewRef.current ?? playback.getSnapshot().playback.positionSeconds;
+    const next = Math.max(start, Math.min(end, position + direction * seconds));
+    previewRef.current = next; setPreview(next); onPreview?.(next); controls.scrub(fence, true);
+    return next !== position && (direction < 0 ? next > start : next < end);
+  };
+  useTVKeyEvent(event => {
+    if (event.phase === 'long-end') {repeat.handle(event); return;}
+    if (!remoteCurrent() || !fence) {repeat.stop(); return;}
+    if ((event.key === 'down' || event.key === 'back') && previewRef.current !== undefined) {
       clearRemotePreview();
       return;
     }
-    const left = event.eventType === 'left' || event.eventType === 'longLeft';
-    const right = event.eventType === 'right' || event.eventType === 'longRight';
+    const left = event.key === 'left';
+    const right = event.key === 'right';
     if (!left && !right) return;
+    if (event.phase === 'long-begin' || event.repeat) {repeat.handle(event); return;}
+    repeat.stop();
     const live = playback.getSnapshot();
     const next = Math.max(start, Math.min(end, (previewRef.current ?? live.playback.positionSeconds) + (left ? -skipBackSeconds : skipForwardSeconds)));
-    if (previewRef.current !== undefined || live.playback.intent === 'paused' || event.eventType === 'longLeft' || event.eventType === 'longRight') {
+    if (previewRef.current !== undefined || live.playback.intent === 'paused') {
       previewRef.current = next; setPreview(next); onPreview?.(next); controls.scrub(fence, true);
     } else void playback.seek(fence, next).catch(reportError);
   });
@@ -137,9 +156,8 @@ export function NativeWatchTimeline({source, playback, controls, compact, enable
   const marks = markers.filter(marker => ['intro', 'recap', 'credits'].includes(marker.type) && marker.endMs > marker.startMs && marker.startMs / 1000 < end && marker.endMs / 1000 > start);
   const adjust = (seconds: number) => {if (fence && current()) void playback.seek(fence, Math.max(start, Math.min(end, position + seconds))).catch(reportError);};
   const track = tv ? focused ? 12 : 8 : compact ? 3 : 4, knob = tv ? focused ? 30 : 22 : 14;
-  const label = (marker: typeof marks[number]) => marker.type === 'intro' ? defaultI18n.t('player.marker.intro') : marker.type === 'recap' ? defaultI18n.t('player.marker.recap') : defaultI18n.t('player.marker.credits');
   const seek = (size: number) => <Focusable ref={seekRef} accessibilityRole="adjustable" accessibilityLabel={defaultI18n.t('player.position')} accessibilityValue={{min: start, max: Math.max(start, end), now: Math.max(start, Math.min(end, position))}}
-    focusId="watch-seek" testID="watch-seek" focusable={enabled} disabled={!enabled || !source.capabilities.seek}
+    focusId="watch-seek" testID="watch-seek" focusTreatment={tv ? 'none' : undefined} focusable={enabled} disabled={!enabled || !source.capabilities.seek}
     accessibilityActions={[{name: 'increment'}, {name: 'decrement'}]} onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'increment') adjust(skipForwardSeconds); else if (event.nativeEvent.actionName === 'decrement') adjust(-skipBackSeconds);}}
     onPress={() => {if (!fence || !current()) return; const landing = previewRef.current ?? position;
       clearRemotePreview();
@@ -167,18 +185,10 @@ export function NativeWatchTimeline({source, playback, controls, compact, enable
             backgroundColor: theme.colors.white, boxShadow: '0 2px 10px rgba(0,0,0,.55)'}, knobPaint]}/>}
     </View>}
   </Focusable>;
-  return <GestureDetector gesture={gesture}><View onLayout={event => {width.current = event.nativeEvent.layout.width; travel.value = event.nativeEvent.layout.width;}} style={{height: tv ? preview !== undefined ? 80 : 40 : 44, justifyContent: 'flex-start'}}>
+  return <GestureDetector gesture={gesture}><View onLayout={event => {width.current = event.nativeEvent.layout.width; travel.value = event.nativeEvent.layout.width;}} style={{height: tv ? 40 : 44, justifyContent: 'flex-start'}}>
     {tv && preview !== undefined && <NativeTrickplayStrip trickplay={source.options?.trickplay} seconds={preview} start={start} end={end}/>}
     {!tv && preview !== undefined && <View pointerEvents="none" style={{position: 'absolute', bottom: 44, left: `${Math.min(.9, Math.max(.1, progress)) * 100}%`, padding: 8, borderRadius: 6, backgroundColor: theme.colors.ink}}><Text style={[theme.type.caption, {color: theme.colors.text}]}>{clockText(preview)}</Text></View>}
     {tv && <View style={{height: 40, justifyContent: 'center'}}>{seek(40)}</View>}
-    {tv && preview !== undefined && <View style={{height: 30, marginTop: 10}}>
-      {span > 0 && marks.map(marker => {
-        const at = Math.max(0, Math.min(1, (marker.startMs / 1000 - start) / span));
-        return <View key={marker.id} pointerEvents="none" style={marker.type === 'credits' ? {position: 'absolute', top: 2, right: 0} : {position: 'absolute', top: 2, left: `${at * 100}%`}}>
-          <Text numberOfLines={1} style={{fontFamily: 'Manrope-Bold', fontSize: 20, fontWeight: '700', color: theme.colors.textSecondary}}>{label(marker)}</Text>
-        </View>;
-      })}
-    </View>}
     {!tv && seek(44)}
   </View></GestureDetector>;
 }

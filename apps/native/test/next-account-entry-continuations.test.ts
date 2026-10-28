@@ -77,7 +77,7 @@ async function fixture(context:import('node:test').TestContext,wrongAccount=fals
     '../../kit/states':{StateLayout:'Layout'},'../../kit/controls':{Button:'Button',TextField:'Field',Focusable:'Focusable'},
     '../../platform/account-work': accountWork, '../../platform/accounts':{nativeAccounts:accounts},'../../platform/server-sign-in':{NativeServerSignIn:Server},'../../platform/portico-sign-in':auth,
     '../../platform/server-connections':{browseNearby:async()=>[]},'../../platform/account-authority':{hostedUrl:'https://hosted.example'},
-    '../../platform/qr-scanner':{qrScannerAvailable:()=>false},'../../platform/setup-outcome':outcome,'./tv-code-opening':tvOpening,'./directory-chooser':chooser,
+    '../../platform/qr-scanner':{qrScannerAvailable:()=>false},'../../platform/setup-outcome':outcome,'../../platform/tv-menu': {useTVMenuCapture() {}}, './tv-code-opening':tvOpening,'./directory-chooser':chooser,
     './LegalAgreement': {LegalAgreement: 'LegalAgreement'}, './PhoneAccountForm': {PhoneAccountForm: 'Layout'}, './PasswordStrengthMeter': {PasswordStrengthMeter: 'PasswordStrengthMeter'}, './PhoneAccountSignIn':phone,'./directory-refusal':{directoryAccessRefused:()=>false,directoryClockSkew:()=>false,directoryIdentityUnconfirmed:()=>false},
     '../../platform/hosted-sign-in-unavailable':{HostedSignInUnavailable:class extends Error {}},
   };

@@ -1,3 +1,4 @@
+import {createTVKeyAdapter} from '../src-next/platform/tv-key-adapter.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
@@ -202,6 +203,7 @@ test('F-HOME-63 shared native boundary retries data once per Right stroke only o
   registry.configure({id: 'row', order: ['a', 'b']});
   registry.attach({regionId: 'row', childId: 'b'}, {nativeTag: 17, requestTVFocus() {throw new Error('Retry must not select a target');}} as Host);
   const mod = await screenModule(new URL('../src-next/kit/focus/page-boundary.ts', import.meta.url), {
+    '../../platform/tv-key-adapter': {createTVKeyAdapter}, '../../platform/tv-key-source': {tvKeySource: 'native'},
     react: {...React, default: React}, 'react-native': {findNodeHandle: (host: Host) => host.nativeTag,
       TVEventHandler: {addListener: (value: typeof listener) => {listener = value; return {remove() {listener = undefined; removed++;}};}}},
   });

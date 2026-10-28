@@ -9,6 +9,7 @@ import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeShellRoute} from '../../shell/routes';
 import {nativeShellRoutes, type NativeRouteRenderer} from '../../shell/route-registry';
+import {createNativePageSelection, type NativePageSelection} from '../search/selection';
 import {createNativeEntryActions} from '../destinations/entry-actions';
 import {createNativePersonController, type NativePersonController, type NativePersonSnapshot} from './controller';
 import {createNativePersonCreditWindow, type NativePersonCreditWindow} from './credit-window';
@@ -18,7 +19,7 @@ import {authorityKey} from '../../shell/model';
 type PersonRoute = Extract<NativeShellRoute, {kind: 'person'}>;
 type Entry = {
   route: PersonRoute; focusScope: string; source: NativePersonController; key: number; stop: () => void;
-  snapshot?: NativePersonSnapshot; window?: NativePersonCreditWindow; actions?: ReturnType<typeof createNativeEntryActions>;
+  snapshot?: NativePersonSnapshot; selection?: NativePageSelection; window?: NativePersonCreditWindow; actions?: ReturnType<typeof createNativeEntryActions>;
 };
 
 /** This handheld module owns one source/window for each actual retained Person
@@ -26,7 +27,7 @@ type Entry = {
 export function createNativePersonRenderer(context: NativeShellBootstrapContext): NativeRouteRenderer {
   const sources = new Map<PersonRoute, Entry>();
   let disposed = false, sequence = 0;
-  const releaseWindow = (entry: Entry) => {entry.actions?.dispose(); entry.actions = undefined; entry.window?.dispose(); entry.window = undefined;};
+  const releaseWindow = (entry: Entry) => {entry.selection?.dispose(); entry.selection = undefined; entry.actions?.dispose(); entry.actions = undefined; entry.window?.dispose(); entry.window = undefined;};
   const release = (entry: Entry) => {entry.stop(); releaseWindow(entry); entry.source.dispose();};
   const reconcile = () => {
     const routes = !disposed && context.current() ? [...context.navigation.retainedRoutes(), context.navigation.getSnapshot().route] : [];
@@ -51,6 +52,20 @@ export function createNativePersonRenderer(context: NativeShellBootstrapContext)
           return () => stops.forEach(stop => stop());
         },
       });
+      entry.selection = createNativePageSelection(context, {
+        current: () => !disposed && entry.source.activation.getSnapshot().visible,
+        subscribe: listener => {const stops = [entry.source.subscribe(listener), window.collection.subscribe(listener)]; return () => stops.forEach(stop => stop());},
+        getSnapshot: () => {
+          const page = entry.source.getSnapshot().page, viewer = context.session()?.viewer;
+          const credits = window.collection.residentItems();
+          return {context: page && viewer && (viewer.authority === 'local' || viewer.authority === 'hosted') ? {
+            scope: {serverId: viewer.serverId, authority: viewer.authority, accountId: viewer.accountId, profileId: viewer.profileId,
+              viewId: JSON.stringify(['native-person', entry.focusScope, entry.source.getSnapshot().group, page.person.revision]), privacyFence: page.viewerFence},
+            revision: {catalogRevision: String(page.revision.catalog), viewerRevision: String(page.revision.viewer)}} : undefined,
+            groups: [{id: 'known', status: 'success' as const, items: page?.person.knownFor ?? []},
+              {id: 'credits', status: 'success' as const, positions: credits.map(credit => window.positionOf(credit)!), items: credits.map(credit => credit.media)}]};
+        },
+      }, {aggregates: true, preserveEvicted: true});
     }
   };
   const stops = [context.navigation.subscribe(reconcile), context.subscribeAuthority(reconcile)];
@@ -79,7 +94,7 @@ function PersonHost({entry, runtime, back}: {entry: Entry; runtime: NativeShellR
   return <View pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible} importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'}
     style={{position: 'absolute', inset: 0, display: active.visible ? 'flex' : 'none', backgroundColor: theme.colors.ink}}>
     {state.phase === 'ready' && state.page && entry.window && entry.actions && 'role' in state.group ? <PersonScreen focusScope={entry.focusScope} page={state.page} role={state.group.role} collection={entry.window.collection}
-      runtime={runtime} actions={entry.actions} onRole={role => {void entry.source.select({role});}} onBack={back}/>
+      runtime={runtime} actions={entry.actions} selection={entry.selection} onRole={role => {void entry.source.select({role});}} onBack={back}/>
       : state.phase === 'error' ? <StateView variant="centered" {...runtime.error(state.error, () => {void entry.source.load();})}/>
       : <GridSkeleton elapsedMs={elapsed} scrollOffset={0} viewportHeight={dimensions.height} width={dimensions.width} totalCount={9} columns={3}/>}
     {state.phase !== 'ready' && <Focusable testID="person-pending-back" accessibilityLabel={defaultI18n.t('action.back')} onPress={back} style={{position: 'absolute', top: 20, left: 16, width: 40, height: 40, justifyContent: 'center', alignItems: 'center'}}><Icon name="i-left" size={22} color={theme.colors.text}/></Focusable>}

@@ -372,6 +372,7 @@ test('the renderer keeps one page per exact route object and navigation revision
  let pickerRenders=0, pickerDisposals=0;
  const picker={render:(runtime:any)=>{pickerRenders++;return {type:'PickerOutlet',props:{runtime}};},dispose:()=>{pickerDisposals++;},openAlbum:()=>{}};
  await screenModule(new URL('../src-next/screens/destinations/music/register.tsx',import.meta.url),{
+  './selection': {createNativeMusicSelection: () => ({dispose() {}, render() {return null;}})}, '../../../kit/artwork': {Artwork: 'Artwork'},
   react:{default:React},'react-native':{Platform:{isTV:false}},
   '../../../shell/route-registry':{nativeShellRoutes:{registerRoute:(_kind:string,value:any)=>{factory=value;}}},
   '../lifetime':{nativeDestinationLifetime:()=>({scope:{serverId:'server',viewerId:'viewer'},current:()=>current})},
@@ -436,6 +437,7 @@ test('a non-TV album mounts its own picker outlet once beside the page',async()=
  }
  const picker={render:(runtime:any)=>{pickerRenders++;return {type:'PickerOutlet',props:{runtime}};},dispose:()=>{pickerDisposals++;},openAlbum:()=>{}};
  await screenModule(new URL('../src-next/screens/destinations/music/register.tsx',import.meta.url),{
+  './selection': {createNativeMusicSelection: () => ({dispose() {}, render() {return null;}})}, '../../../kit/artwork': {Artwork: 'Artwork'},
   react:{default:React},'react-native':{Platform:{isTV:false}},
   '../../../shell/route-registry':{nativeShellRoutes:{registerRoute:(_kind:string,value:any)=>{factory=value;}}},
   '../lifetime':{nativeDestinationLifetime:()=>({scope:{serverId:'server',viewerId:'viewer'},current:()=>true})},
@@ -595,6 +597,7 @@ async function tvMusicScreens(){
  const hooks={createElement:(type:any,props:any,...children:any[])=>({type,props:{...props,children}}),useSyncExternalStore:(_off:any,get:any)=>get(),useMemo:(fn:any)=>fn(),useState:()=>[undefined,()=>{}],useRef:()=>({current:null}),useCallback:(fn:any)=>fn,useId:()=> 'real-test-gradient'};
  const {artistReleaseGroups}=await import('../../../packages/client-core/src/presentation/library-tabs.ts');
  const screens=await screenModule(new URL('../src-next/screens/destinations/music/TVMusicScreens.tsx',import.meta.url),{
+  '../../../kit/selection': {SelectionCircle: 'SelectionCircle'}, '../../../tv/layout/TVShelf': {TVShelf: 'TVShelf'},
   react:{default:hooks,...hooks},'react-native':{ScrollView:'ScrollView',Text:'Text',View:'View'},'react-native-svg':{default:'Svg',Defs:'Defs',LinearGradient:'LinearGradient',Rect:'Rect',Stop:'Stop'},
   '../../../../../../packages/i18n/src':{defaultI18n:{t:(key:string,args?:unknown)=>args?`${key}:${JSON.stringify(args)}`:key,number:String}},
   '../../../../../../packages/client-core/src/presentation/kit-model':{cardText:(e:any)=>({title:e.title,caption:[],detail:[]})},

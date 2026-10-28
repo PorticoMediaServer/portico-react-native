@@ -21,6 +21,7 @@ async function fixture() {
     '../../../../../packages/client-core/src/console': {},
     './lifetime': {NativeScreenLifetime}, './settings-controller': {}, './device-preference-consumer': {},
     './dashboard-controller': {}, './server/tv-server-reader': {}, './server/TVServerScreen': {}, './SettingsScreen': {}, './DashboardScreen': {}, './settings-ports': {},
+    './server/TVServerPageMenu': {isTVServerPage: () => false},
     './EqualizerSettingsScreen': {NativeEqualizerSettingsScreen: () => null},
     './downloads-summary': {createNativeSettingsDownloads},
   });

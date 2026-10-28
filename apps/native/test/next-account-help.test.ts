@@ -26,6 +26,7 @@ test('phone Portico sign-in offers account help and returns to its form', async 
   }
   const account = {synchronize: async () => {}, getSnapshot: () => ({session: undefined})};
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
+    '../../platform/tv-menu': {useTVMenuCapture() {}},
     './tv-code-opening': tvCodeOpening,
     '../../../../../packages/client-core/src/join-link': joinLink,
     '../../../../../packages/client-core/src/short-invitation-code': invitationCode,

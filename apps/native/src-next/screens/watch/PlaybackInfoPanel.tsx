@@ -128,7 +128,7 @@ export function NativePlaybackInfoPanel({context, read, renderError}: {
   context: NativeWatchHostContext; read: NativePlaybackInfoReader;
   renderError: (error: unknown, retry: () => void) => React.ReactNode;
 }) {
-  const theme = useTheme(), latest = useRef(context); latest.current = context;
+  const theme = useTheme(), latest = useRef(context), retryTarget = useRef<View>(null); latest.current = context;
   const [retry, setRetry] = useState(0), [result, setResult] = useState<{identity: string; runtime: NativeWatchHostContext['runtime']; value?: NativePlaybackInfo; error?: unknown}>();
   // The host remembers a panel's offset only for that panel and its fence; take it
   // once, when this panel opens, and let its own content apply it after layout.
@@ -155,11 +155,15 @@ export function NativePlaybackInfoPanel({context, read, renderError}: {
       .finally(() => clearTimeout(deadline));
     return () => {clearTimeout(deadline); abort.abort();};
   }, [identity, runtime, read, retry]);
+  useEffect(() => {
+    if (theme.isTV && result?.identity === identity && result.runtime === runtime && result.error === undefined && !result.value?.comparison
+      && latest.current.state.panel === 'playback-info' && sameFence(latest.current.state.fence, latest.current.fence) && latest.current.panelCurrent()) retryTarget.current?.requestTVFocus?.();
+  }, [theme.isTV, result, identity, runtime]);
   if (!result || result.identity !== identity || result.runtime !== runtime) return <ActivityIndicator accessibilityLabel={t('player.opt.info')}/>;
   if (result.error !== undefined) return <>{renderError(result.error, () => setRetry(value => value + 1))}</>;
   const comparison = result.value?.comparison;
   if (!comparison) return <View style={{gap: 12}}><Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.watch.info.unavailable')}</Text>
-    <Button variant="glass" onPress={() => setRetry(value => value + 1)}>{t('action.tryAgain')}</Button></View>;
+    <Button ref={retryTarget} focusId="watch-info-retry" testID="watch-info-retry" variant="glass" onPress={() => setRetry(value => value + 1)}>{t('action.tryAgain')}</Button></View>;
   if (theme.isTV && comparison) return <TvComparison context={context} comparison={comparison} restoreOffset={restoreOffset}/>;
   const label = [theme.type.caption, {color: theme.colors.textSecondary}], value = [theme.type.body, {color: theme.colors.text}];
   return <View testID="watch-playback-info-comparison" style={{gap: 18, padding: 16}}>

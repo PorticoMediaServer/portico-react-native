@@ -27,13 +27,13 @@ import {channelTint} from '../../../../../packages/client-core/src/presentation/
 const media = (entry: SearchEntry): entry is ContentEntry => entry.kind !== 'person' && entry.kind !== 'channel';
 
 export type NativeSearchScreenProps = Readonly<{
-  destination: NativeSearchDestination; runtime: NativeShellRuntime;
+  focusScope?: string; destination: NativeSearchDestination; runtime: NativeShellRuntime;
   explore: NativeSearchExplorePort; actions: NativeSearchActions; selection?: NativeSearchSelectionPort;
   activation: NativeDestinationActivationPort; tvCopy: NativeSearchTVCopy;
 }>;
 
 /** Actual SearchService results and per-profile history. The shell owns authority lifetime. */
-export function SearchScreen({destination, runtime, explore, actions, selection, activation, tvCopy}: NativeSearchScreenProps) {
+export function SearchScreen({focusScope, destination, runtime, explore, actions, selection, activation, tvCopy}: NativeSearchScreenProps) {
   const t = runtime.text.t;
   useSyncExternalStore(actions.menuState?.subscribe ?? (() => () => {}), actions.menuState?.getSnapshot ?? (() => 0));
   const theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions();
@@ -116,7 +116,7 @@ export function SearchScreen({destination, runtime, explore, actions, selection,
   const error = state.search.error && <StateView {...runtime.error(state.search.error, () => run(destination.retry()))}/>;
   const resultRows = groups.flatMap(group => group.items.filter(entry => !top || entry !== top.entry).slice(0, 3).map((entry, index) => ({entry, group: group.id, heading: index === 0})));
   const active = groups.find(group => group.id === state.group), wideSearch = theme.layoutMode === 'desktop' && !theme.isTV;
-  if (theme.isTV) return <TVSearchScreen destination={destination} runtime={runtime} activation={activation} explore={explore} actions={actions} selection={selection} copy={tvCopy}/>;
+  if (theme.isTV) return <TVSearchScreen focusScope={focusScope} destination={destination} runtime={runtime} activation={activation} explore={explore} actions={actions} selection={selection} copy={tvCopy}/>;
   return <View testID="native-search-screen" pointerEvents={activeRoute.visible ? 'auto' : 'none'} accessibilityElementsHidden={!activeRoute.visible}
     importantForAccessibility={activeRoute.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}} onLayout={event => setSurface(event.nativeEvent.layout.width)}>
     {fields}

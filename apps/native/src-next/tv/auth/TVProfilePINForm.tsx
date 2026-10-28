@@ -1,5 +1,6 @@
 import React, {useEffect, useRef} from 'react';
-import {Text, View, useTVEventHandler} from 'react-native';
+import {Text, View} from 'react-native';
+import {useTVKeyEvent} from '../../platform/tv-keys';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {ProfileOption} from '../../kit/artwork';
 import {FocusProvider} from '../../kit/focus';
@@ -36,7 +37,7 @@ function ProfilePINForm(props: TVProfilePINFormProps) {
   const id = `tv.auth.profile.${JSON.stringify(props.profile.id)}.pin`, submitted = useRef<string | undefined>(undefined);
   useEffect(() => {if (!props.code) submitted.current = undefined;}, [props.code]);
   const remove = () => {if (!props.busy) {submitted.current = undefined; props.onCodeChange(props.code.slice(0, -1));}};
-  useTVEventHandler(event => {if (event.eventType === 'playPause' && event.eventKeyAction !== 1) remove();});
+  useTVKeyEvent(event => {if (event.key === 'playPause' && event.phase === 'press') remove();});
   const digit = (value: string) => {
     if (props.busy || props.code.length >= 4 || !/^\d$/.test(value)) return;
     const next = props.code + value;

@@ -1,4 +1,5 @@
 import * as layoutModel from '../src-next/kit/layout/model.ts';
+import {createTVKeyAdapter} from '../src-next/platform/tv-key-adapter.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
@@ -100,14 +101,15 @@ test('DoorTiles original helper enters once, retains Setup host through busy, an
 });
 
 async function rowComposition(b: Awaited<ReturnType<typeof bindings>>) {
-  const page = await screenModule(new URL('../src-next/kit/focus/page-boundary.ts', import.meta.url), {react: b.react, 'react-native': b.native});
+  const page = await screenModule(new URL('../src-next/kit/focus/page-boundary.ts', import.meta.url), {
+    '../../platform/tv-key-adapter': {createTVKeyAdapter}, '../../platform/tv-key-source': {tvKeySource: 'native'},react: b.react, 'react-native': b.native});
   const row = await screenModule(new URL('../src-next/kit/layout/Row.tsx', import.meta.url), {react: b.react, 'react-native': b.native,
     'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'Gradient', Rect: 'Rect', Stop: 'Stop'}, 'react-native-reanimated': b.animation,
     '../../../../../packages/i18n/src': {defaultI18n}, '../Icon': {Icon: 'Icon'}, '../theme': {useTheme: () => b.theme}, '../focus': b.focus, './model': layoutModel, './row-state': rowState,
     '../focus/page-boundary': page, './FocusAnchor': {useFocusAnchor: () => ({anchor() {}, repeating: false, offset: {value: 0}, scrollRef: {current: null}, stop() {}, move() {}})},
     './MotionItem': {MotionItem: 'MotionItem'}, './types': layoutTypes});
   const shelf = await screenModule(new URL('../src-next/tv/layout/TVShelf.tsx', import.meta.url), {react: b.react, '../../kit/layout/Row': row});
-  const people = await screenModule(new URL('../src-next/screens/watch/TitlePeople.tsx', import.meta.url), {react: b.react, 'react-native': b.native,
+  const people = await screenModule(new URL('../src-next/screens/watch/TitlePeople.tsx', import.meta.url), {'../../kit/states': {SkeletonBlock: 'SkeletonBlock'}, '../../kit/focus': b.focus, '../../../../../packages/i18n/src': {defaultI18n}, react: b.react, 'react-native': b.native,
     '../../kit/artwork': {Artwork: 'Artwork', PersonCircle: 'PersonCircle'}, '../../tv/layout/TVShelf': shelf, '../../tv/layout/TVArtFocus': {TVArtFocus: 'TVArtFocus'},
     '../../kit/controls': {Focusable: b.Focusable}, '../../kit/theme': {useTheme: () => b.theme, nativeType, fontFamilies}});
   return {row, shelf, people};
@@ -117,7 +119,7 @@ for (const [name, actionable] of [['leading', [false, true, true]], ['interleave
   test(`actual TitlePeople/Shelf/Row ${name} preserves paint and binds only actionable native stops`, async () => {
     const b = await bindings(), c = await rowComposition(b); let tree: any; const commands: string[] = [];
     const credits = actionable.map((active, index) => ({id: `credit-${index}`, name: `Name ${index}`, role: 'Actor', ...(active ? {personId: `person-${index}`} : {})}));
-    const people = c.people.TitlePeople({credits, artwork: () => undefined, onPerson: (id: string) => commands.push(id), focus: {id: 'cast', edges: {left: 'rail', right: 'next'}}});
+    let people: any; const peopleDriver = createHookHost(() => {people = c.people.TitlePeople({credits, artwork: () => undefined, onPerson: (id: string) => commands.push(id), focus: {id: 'cast', edges: {left: 'rail', right: 'next'}}});}); peopleDriver.mount();
     const shelf = people.type(people.props), wrapper = shelf.type({...shelf.props, initialViewportWidth: 1920}), row = wrapper.props.children;
     const driver = createHookHost(() => {tree = row.type(row.props);}); driver.mount();
     const regionNode = nodes(tree).find(node => node.type?.name === 'RowRegion'), declared = regionNode.type(regionNode.props);
@@ -135,7 +137,7 @@ for (const [name, actionable] of [['leading', [false, true, true]], ['interleave
       assert.equal(targets.at(-1)!.props.nextFocusRight, 901);
       if (targets.length > 1) {assert.equal(targets.at(-1)!.props.nextFocusLeft, undefined); assert.equal(targets[0]!.props.nextFocusRight, undefined);}
       targets[0]!.props.onPress(); assert.deepEqual(commands, [credits.find((_, i) => actionable[i])!.personId]);
-    } finally {driver.unmount(); b.dispose();}
+    } finally {driver.unmount(); peopleDriver.unmount(); b.dispose();}
   });
 }
 
@@ -305,7 +307,7 @@ test('TV Saved caller passes original grid sort/filter roots through actual Menu
     '../../../kit/cards': {PosterCard: 'Poster', SquareCard: 'Square'}, '../../../kit/overlays': {...o.menu, Dialog: 'Dialog'}, '../../../kit/states': {StateView: 'State'},
     '../../../kit/focus': b.focus, '../../../kit/browse/presentation': {browseType: () => ({})}, '../../../kit/theme': {useTheme: () => b.theme},
     '../focus': {nativeDestinationFocusIds: (authority: any) => ({savedTabs: 'tabs', savedGrid: authority.grid, savedToolbar: 'toolbar', rail: 'rail'})},
-    '../../saved/SavedTVTabs': {SavedTVTabs: 'Tabs'}, '../../saved/SavedTVDirectory': {SavedTVDirectory: 'Directory'}});
+    '../../saved/SavedTVLoading': {SavedTVLoading: 'SavedTVLoading'}, '../../saved/SavedTVTabs': {SavedTVTabs: 'Tabs'}, '../../saved/SavedTVDirectory': {SavedTVDirectory: 'Directory'}});
   let tree: any, scope = 'original.saved'; const selected: any[] = [];
   const snapshot = {phase: 'ready', entries: [], resources: [], posters: {sections: []}, squares: {sections: []}};
   const props: any = {controller: {subscribe: () => () => {}, getSnapshot: () => snapshot, source: () => ({}), summary: async () => {}, select: async (...value: any[]) => {selected.push(value);}},
@@ -798,6 +800,8 @@ for (const kind of ['sort', 'filter'] as const) test(`actual Saved directory sup
     '../../kit/controls': {Focusable: b.Focusable, Segmented: 'Segmented'}, '../../kit/overlays': o.menu, '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/browse/presentation': presentation, '../../kit/theme': {useTheme: () => b.theme}});
   const {SavedTVDirectory} = await screenModule(new URL('../src-next/screens/saved/SavedTVDirectory.tsx', import.meta.url), {
+    '../../../../../packages/client-core/src/presentation/errors': {presentError: () => ({body: 'Saved failed'})},
+    './SavedForms': {SavedNameSheet: 'SavedNameSheet'}, './SavedTVLoading': {SavedTVLoading: 'SavedTVLoading'},
     react, 'react-native': b.native, '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/controls': {Focusable: b.Focusable},
     '../../kit/artwork': {}, '../../kit/cards/primitives': {}, '../../kit/focus': b.focus, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/states': {StateView: 'State'},
     '../../kit/browse/presentation': presentation, '../../kit/theme': {useTheme: () => b.theme}, './PlaylistToolbar': toolbar, './presentation': savedText});
@@ -808,7 +812,7 @@ for (const kind of ['sort', 'filter'] as const) test(`actual Saved directory sup
   const selects = [0, 1].map(index => (value: any) => routes[index]!.push(value));
   let enabled = true, overlay: any, renderer: ReturnType<typeof createHookHost> | undefined;
   const directoryProps = (index: number) => ({view: 'playlists', destination: destinations[index], runtime: {}, libraries: [], enabled: index ? true : enabled,
-    regionId: `saved.original-${index}`, select: selects[index], openPlaylist() {}, openResource() {}});
+    activation: {subscribe: () => () => {}, getSnapshot: () => ({visible: index ? true : enabled, revision: 1, intent: 'enter'})}, regionId: `saved.original-${index}`, select: selects[index], openPlaylist() {}, openResource() {}});
   try {
     for (const index of [0, 1]) {
       source[index] = createHookHost(() => {trees[index] = SavedTVDirectory(directoryProps(index));}); source[index]!.mount();

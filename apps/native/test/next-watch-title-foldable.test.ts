@@ -1,5 +1,5 @@
 import {presentError} from '../../../packages/client-core/src/presentation/errors.ts';
-import {tvTitleRegionMap} from '../src-next/screens/watch/tv-title-focus.ts';
+import {tvTitleRegionMap, tvTitleFocusSection} from '../src-next/screens/watch/tv-title-focus.ts';
 import {tvFocusIds} from '../src-next/shell/tv-focus.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -14,11 +14,13 @@ let width = 890, height = 626;
 let posture: any = {status: 'available', window: {width: 890, height: 626}, folds: [{bounds: {left: 445, top: 0, right: 445, bottom: 626}, orientation: 'vertical', state: 'flat', isSeparating: false, occlusion: 'none'}]};
 const theme = {isTV: false, platform: 'tablet', textScale: 1, colors: {ink: '#000', text: '#fff', textSecondary: '#ccc', textTertiary: '#999', raised: '#111', raisedHigh: '#151515', line: '#222', lineStrong: '#333', accent: '#3af', accentStrong: '#4bf'}, type: {bodyStrong: {}, body: {}, heading: {}, caption: {}, captionStrong: {}, meta: {}}};
 const {NativeTitleScreen} = await screenModule(new URL('../src-next/screens/watch/TitleScreen.tsx', import.meta.url), {
+  './TVTitleChrome': {TVTitleBackdrop: 'TVTitleBackdrop', TVTitleCompactHeader: 'TVTitleCompactHeader', TVTitleHeroCopy: 'TVTitleHeroCopy'},
+  '../../kit/useMotion': {useMotion: () => ({reduce: false})},
   '../../../../../packages/client-core/src/presentation/errors': {presentError},
   'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, right: 0, bottom: 0, left: 0})},
   '../../platform/native-blur': {BlurView: 'BlurView'},
   '../../tv/layout/TVShelf': {TVShelf: 'TVShelf', tvItemKey: (entry: {id: string}) => entry.id},
-  './tv-title-focus': {tvTitleRegionMap}, '../../shell/tv-focus': {tvFocusIds}, '../../kit/focus': {FocusRegion: 'FocusRegion', useOptionalFocusRegistry: () => undefined},
+  './tv-title-focus': {tvTitleRegionMap, tvTitleFocusSection}, '../../shell/tv-focus': {tvFocusIds}, '../../kit/focus': {FocusRegion: 'FocusRegion', useOptionalFocusRegistry: () => undefined},
   react: {...React, default: React},
   'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', useWindowDimensions: () => ({width, height})},
   '../../../../../packages/player-core/src': {sameFence: () => true}, '../../../../../packages/client-core/src/presentation/kit-model/text': {durationText},

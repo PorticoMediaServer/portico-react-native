@@ -102,7 +102,7 @@ RCT_REMAP_METHOD(currentRoute, currentRouteWithResolver:(RCTPromiseResolveBlock)
   NSString *itemId = raw[@"itemId"], *title = raw[@"title"];
   if (!PorticoSMText(itemId, 128) || ![itemId length] || !PorticoSMText(title, 512) || ![title length]) return nil;
   NSMutableDictionary *out = [@{@"itemId": itemId, @"title": title} mutableCopy];
-  NSDictionary<NSString *, NSNumber *> *limits = @{@"subtitle": @512, @"origin": @1024, @"bearer": @8192, @"posterPath": @1024};
+  NSDictionary<NSString *, NSNumber *> *limits = @{@"subtitle": @512, @"origin": @1024, @"bearer": @8192, @"posterPath": @1024, @"sourceToken": @128};
   for (NSString *key in limits) if (PorticoSMText(raw[key], limits[key].unsignedIntegerValue) && [raw[key] length]) out[key] = raw[key];
   out[@"durationSeconds"] = PorticoSMNumber(raw[@"durationSeconds"]) && [raw[@"durationSeconds"] doubleValue] > 0 ? raw[@"durationSeconds"] : @0;
   out[@"live"] = @([raw[@"live"] boolValue]);
@@ -301,6 +301,8 @@ RCT_REMAP_METHOD(currentRoute, currentRouteWithResolver:(RCTPromiseResolveBlock)
   if (!_active) return MPRemoteCommandHandlerStatusNoActionableNowPlayingItem;
   if (!_listening) return MPRemoteCommandHandlerStatusCommandFailed;
   NSMutableDictionary *event = [body mutableCopy]; event[@"itemId"] = _info[@"itemId"]; if (!event[@"reason"]) event[@"reason"] = @"remote";
+  // The command belongs to the exact published source; JavaScript refuses a missing or older token.
+  if (_info[@"sourceToken"]) event[@"sourceToken"] = _info[@"sourceToken"];
   [self send:@"PorticoSystemMediaCommand" body:event];
   return MPRemoteCommandHandlerStatusSuccess;
 }

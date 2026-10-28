@@ -21,6 +21,8 @@ export type FocusableProps = Omit<PressableProps, 'children'> & {
   focusInset?: boolean;
   /** Custom face/art layers may draw the focus look from the real render-prop state. */
   focusTreatment?: 'default' | 'none';
+  /** A card family may have its own authored TV focus scale. */
+  focusScale?: number;
   /** A specifically drawn press may override the ordinary quick press. */
   pressDurationMs?: number;
   pressScale?: number;
@@ -55,7 +57,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(PressableStyleAdapter
 /** The platform moves focus; this primitive only draws it and owns its Menu registration. */
 export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
   children, style, disabled, focusable, focusableWhenDisabled, onPress, onAccessibilityAction, onAccessibilityTap, onMagicTap, focusId, testID, focusKind = 'button', focusRadius = 10,
-  focusInset = false, focusTreatment = 'default', pressDurationMs, pressScale, onFocus, onBlur, onHoverIn, onHoverOut, onPressIn, onPressOut, onLongPress,
+  focusInset = false, focusTreatment = 'default', focusScale: focusedScale, pressDurationMs, pressScale, onFocus, onBlur, onHoverIn, onHoverOut, onPressIn, onPressOut, onLongPress,
   onLongPressAction, longPressAccessibilityAction, accessibilityActions, accessibilityState, ...props
 }, ref) {
   const {isTV, colors, layers, platform} = useTheme();
@@ -75,9 +77,9 @@ export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
 
   // motion.html 4.1: native focus draws with quick/out tokens.
   useEffect(() => {
-    scale.value = motion.transforms && focusTreatment === 'default' ? withTiming(focused && (!disabled || retainDisabledFocus) ? focusScale(focusKind, isTV) : 1, motion.timing('quick')) : 1;
+    scale.value = motion.transforms && focusTreatment === 'default' ? withTiming(focused && (!disabled || retainDisabledFocus) ? focusedScale ?? focusScale(focusKind, isTV) : 1, motion.timing('quick')) : 1;
     halo.value = withTiming(focused && (!disabled || retainDisabledFocus) ? 1 : 0, motion.timing('quick'));
-  }, [focused, disabled, retainDisabledFocus, isTV, focusKind, focusTreatment, motion, scale, halo]);
+  }, [focused, disabled, retainDisabledFocus, isTV, focusKind, focusTreatment, focusedScale, motion, scale, halo]);
   useFocusedMenu(isTV, focused, disabled || !paint.interactive, waiting || !paint.interactive ? undefined : onLongPressAction);
 
   const animated = useAnimatedStyle(() => ({transform: [{scale: motion.transforms && focusTreatment === 'default' ? scale.value * (isTV && pressScale === undefined ? 1 : 1 - pressed.value * (1 - (pressScale ?? .97))) : 1}]}));

@@ -1,4 +1,7 @@
 import {nativeSubtitleStyleKeys, nativeSubtitleStyleValue} from '../src-next/platform/playback/subtitle-style-choices.ts';
+import {nativePostPlayNavigation} from '../src-next/screens/watch/post-play-navigation.ts';
+import {playbackUserMessage} from '../../../packages/client-core/src/playback-messages.ts';
+import {clockText} from '../../../packages/client-core/src/presentation/kit-model/text.ts';
 import {nativeDeviceSettings} from '../src-next/platform/device-settings';
 import * as groupPort from '../src-next/screens/settings-live/group-port.ts';
 import {browseValueLabel} from '../../../packages/client-core/src/presentation/browse-toolbar.ts';
@@ -31,6 +34,9 @@ let captured: any, optionsDisposed = 0, screensDisposed = 0;
 const {createNativeWatchModule, nativeWatchChromeFacts} = await screenModule(new URL('../src-next/screens/watch/module.tsx', import.meta.url), {
   '../settings-live/group-port': groupPort,
   '../../platform/device-settings': {nativeDeviceSettings},
+  './system-media': {bindNativeVideoSystemMedia: () => () => {}}, './post-play-navigation': {nativePostPlayNavigation},
+  '../../../../../packages/client-core/src/playback-messages': {playbackUserMessage},
+  '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText}, '../../kit/states/DetailsPanel': {DetailsPanel: 'DetailsPanel'},
   '../../shell/model': {sameAuthority},
   '../../../../../packages/client-core/src/presentation/browse-toolbar': {browseValueLabel},
   '../../../../../packages/client-core/src/audiobook-preferences': {audiobookPreferences}, react, 'react-native': {Platform: {isTV: false}}, '../../../../../packages/player-core/src': {sameFence},

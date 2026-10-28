@@ -60,7 +60,7 @@ function Portrait({kind = 'poster', next, titleLines = 1, ...props}: PosterCardP
         <MediaArt {...props.artworkProps} visible={props.visible ?? props.artworkProps?.visible} priority={props.priority ?? props.artworkProps?.priority} source={props.artwork} fallback={props.artworkFallback} kind={kind} width={width} height={height} />
         <Marks {...props} />
       </ArtFrame>
-      <Caption {...props} selected={props.selection?.selected} lines={titleLines} />
+      <Caption {...props} selected={props.selection?.selected} focused={state.focused} tvRestingSecondary lines={titleLines} />
     </>}
   </Frame>;
 }
@@ -87,7 +87,7 @@ export function SquareCard(props: SquareCardProps) {
         </View>
         <Text style={{fontFamily: 'Manrope-ExtraBold', fontSize: 18 * t.textScale, lineHeight: 22 * t.textScale, fontWeight: '800', color: t.colors.text}}>{defaultI18n.t('player.miniPlaying')}</Text>
       </View>}
-    </ArtFrame><Caption {...props} selected={props.selection?.selected} titleTextStyle={props.playing ? {color: t.colors.accentStrong} : props.titleTextStyle} /></>}
+    </ArtFrame><Caption {...props} selected={props.selection?.selected} focused={s.focused} tvRestingSecondary titleTextStyle={props.playing ? {color: t.colors.accentStrong} : props.titleTextStyle} /></>}
   </Frame>;
 }
 

@@ -1,3 +1,4 @@
+import {createTVKeyAdapter, type TVKeyEvent} from '../src-next/platform/tv-key-adapter.ts';
 import * as playerCore from '../../../packages/player-core/src/index.ts';
 import {channelSeconds} from '../../../packages/client-core/src/playback/linear-protocol.ts';
 import {channelTint, playbackIdentity} from '../../../packages/client-core/src/presentation/kit-model/index.ts';
@@ -18,6 +19,7 @@ let event: (event: {eventType: string; eventKeyAction: number}) => void;
 let isTV = true;
 const motion = {duration: () => 180, timing: () => ({duration: 0})};
 const chromeModules = {
+  '../../platform/tv-keys': {useTVKeyEvent: (handler: (event: TVKeyEvent) => void) => {const adapter = React.useMemo(() => createTVKeyAdapter(), []); event = raw => {const normalized = adapter.read(raw); if (normalized) handler(normalized);};}},
   '../../kit/dock/PlayerMorphBridge': {useInitialPlayerPaint: () => undefined, usePublishedPlayerMorph: () => undefined},
   react: {...React, default: React}, 'react-native': {View: 'View', Text: 'Text', AccessibilityInfo: {announceForAccessibility() {}}, useTVEventHandler: (handler: typeof event) => {event = handler;}},
   'react-native-reanimated': {Easing: {linear: (value: number) => value}, default: {View: 'Animated'}, cancelAnimation() {}, useAnimatedStyle: (value: () => unknown) => value(), useSharedValue: (value: unknown) => React.useRef({value}).current, withTiming: (value: unknown) => value},
@@ -53,7 +55,7 @@ test('TV first Select event plus its genuine picture press only reveals; second 
   try {
     const all = (node: any): any[] => Array.isArray(node) ? node.flatMap(all) : React.isValidElement(node) ? [node, ...all((node as any).props.children)] : [];
     const picture = all(tree).find(node => node.props.testID === 'watch-picture');
-    event!({eventType: 'select', eventKeyAction: 0}); picture.props.onPress();
+    event!({eventType: 'select', eventKeyAction: 1}); picture.props.onPress();
     assert.equal(controls.getSnapshot().visible, true); assert.equal(controls.getSnapshot().focus, 'toggle'); assert.deepEqual(commands, []);
     host.flush();
     const descendants = (node: any): any[] => Array.isArray(node) ? node.flatMap(descendants) : React.isValidElement(node) ? [node, ...descendants((node as any).props.children)] : [];
@@ -134,7 +136,7 @@ for (const kind of ['skip', 'undo', 'up-next']) for (const visible of [false, tr
       assert.equal(region.props.edges.right, 'watch-skip');
     } else {
       assert.ok(requested.length > 0); assert.equal(controls.getSnapshot().visible, false);
-      event!({eventType: 'select', eventKeyAction: 0}); assert.equal(controls.getSnapshot().visible, false);
+      event!({eventType: 'select', eventKeyAction: 1}); assert.equal(controls.getSnapshot().visible, false);
       assert.equal(controls.back(fence), 'controls'); host.flush();
       assert.equal(controls.getSnapshot().visible, false);
       assert.equal(descendants(tree).some(node => node.props.testID === entry || kind === 'up-next' && node.type === 'UpNextCard'), false);

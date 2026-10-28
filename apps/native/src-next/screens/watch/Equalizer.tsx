@@ -1,5 +1,5 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {findNodeHandle, Platform, ScrollView, Text, View, useTVEventHandler} from 'react-native';
+import React, {useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import {findNodeHandle, Platform, ScrollView, Text, View} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import Svg, {Path} from 'react-native-svg';
 import Animated, {cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
@@ -9,6 +9,8 @@ import {FocusProvider, FocusRegion} from '../../kit/focus';
 import {Icon} from '../../kit/Icon';
 import {nativeType, useTheme} from '../../kit/theme';
 import {useMotion} from '../../kit/useMotion';
+import {useTVKeyEvent} from '../../platform/tv-keys';
+import {useDestinationEntryFocus} from '../../kit/focus/useDestinationEntryFocus';
 import {nativeEqualizerControls, nativeEqualizerFlat, nativeEqualizerGain, type NativeEqualizerTarget} from './equalizer-controls';
 import {equalizerDragFraction, equalizerDragGain, equalizerFillTransform, equalizerFractionFromGain, equalizerThumbTranslate, equalizerTooltipTranslate} from './equalizer-gesture-paint';
 
@@ -28,20 +30,24 @@ export type NativeWatchEqualizerProps = Readonly<{
   /** Settings and the player shortcut bind this same app/device record. */
   store?: DeviceEqualizerStore;
   response?: NativeEqualizerResponse;
+  focusScope?: string;
+  active?: boolean;
 }>;
 
 /** music-plus13b/13t content. The genuine Settings route owns its enclosing
  * phone sheet / TV1920 canvas, rail and retained music card. No route/store is
  * registered by importing or rendering this editor. */
-export function NativeWatchEqualizer({onBack, copy, reportError, store = nativeEqualizer, response}: NativeWatchEqualizerProps) {
+export function NativeWatchEqualizer({onBack, copy, reportError, store = nativeEqualizer, response, focusScope, active = true}: NativeWatchEqualizerProps) {
   const theme = useTheme(), snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const instance = useId(), scope = focusScope ?? `equalizer.${instance}`;
+  const actionsRegion = `${scope}.actions`, bandsRegion = `${scope}.bands`;
   const commands = useMemo(() => nativeEqualizerControls(store), [store]);
   const focused = useRef<NativeEqualizerTarget | undefined>(undefined);
   const [graphWidth, setGraphWidth] = useState(0);
   useEffect(() => {if (store.getSnapshot().supported && !store.getSnapshot().ready) void store.refresh().catch(reportError);}, [store, reportError]);
-  useTVEventHandler(event => {
-    if (!theme.isTV || focused.current === undefined || event.eventKeyAction === 1 || !['up', 'down', 'longUp', 'longDown'].includes(event.eventType)) return;
-    if (store.getSnapshot().value?.on) void commands.nudge(focused.current, event.eventType.toLowerCase().endsWith('up') ? 1 : -1).catch(reportError);
+  useTVKeyEvent(event => {
+    if (!theme.isTV || !active || focused.current === undefined || event.phase === 'long-end' || !['up', 'down'].includes(event.key)) return;
+    if (store.getSnapshot().value?.on) void commands.nudge(focused.current, event.key === 'up' ? 1 : -1).catch(reportError);
   });
   // Unsupported/missing producers never acquire a fabricated flat record or
   // an active editor. The route can keep its existing approved loading state.
@@ -79,19 +85,20 @@ export function NativeWatchEqualizer({onBack, copy, reportError, store = nativeE
     {responsePath && <Svg pointerEvents="none" width={graphWidth} height={height} style={{position: 'absolute', left: 0, top: tv ? 56 : 32}}><Path d={responsePath} stroke={theme.colors.accentStrong} strokeOpacity={.6} strokeWidth={tv ? 3 : 1.5} fill="none"/></Svg>}
     {value.gains.map((gain, index) => band(index, gain, index))}
   </View>;
-  if (tv) return <FocusProvider><View testID="watch-equalizer" style={{width: 1920, height: 1080}}>
+  if (tv) return <FocusProvider><FocusRegion id={`${scope}.root`} hold enabled={active} accessibilityViewIsModal testID="watch-equalizer" style={{width: 1920, height: 1080}}>
+    <EqualizerEntry active={active} region={actionsRegion}/>
     <View style={{position: 'absolute', left: 200, top: 56, width: 480}}>
       <Text style={[nativeType({size: 22, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary, marginLeft: 20, marginBottom: 4}]}>{copy.musicAndAudiobooks}</Text>
       <Text accessibilityRole="header" style={[nativeType({size: 44, weight: 800, tracking: -.03, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text, marginLeft: 20, marginBottom: 30}]}>{copy.title}</Text>
-      <FocusRegion id="equalizer-actions" entry="equalizer-enabled" orientation="vertical" edges={{right: 'equalizer-bands'}}>{toggle}{reset}</FocusRegion>
+      <FocusRegion id={actionsRegion} enabled={active} entry="equalizer-enabled" orientation="vertical" edges={{right: bandsRegion}}>{toggle}{reset}</FocusRegion>
     </View>
-    <FocusRegion id="equalizer-bands" entry="equalizer-preamp" orientation="horizontal" edges={{left: 'equalizer-actions'}} style={{position: 'absolute', left: 760, right: 96, top: 176, paddingTop: 30, paddingBottom: 34, paddingLeft: 20, paddingRight: 36, borderRadius: 18, backgroundColor: theme.colors.raised, flexDirection: 'row'}}>
+    <FocusRegion id={bandsRegion} enabled={active} entry="equalizer-preamp" orientation="horizontal" edges={{left: actionsRegion}} style={{position: 'absolute', left: 760, right: 96, top: 176, paddingTop: 30, paddingBottom: 34, paddingLeft: 20, paddingRight: 36, borderRadius: 18, backgroundColor: theme.colors.raised, flexDirection: 'row'}}>
       <View pointerEvents="none" style={{position: 'absolute', left: 96, right: 36, top: 86 + height / 2, borderTopWidth: 1, borderStyle: 'dashed', borderColor: '#edf5fa33'}}/>
       <View pointerEvents="none" style={{width: 76, height, marginTop: 56}}>{[12, 6, 0, -6, -12].map(gain => <Text key={gain} style={[nativeType({size: 18, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {position: 'absolute', top: (12 - gain) / 24 * height - 12, right: 16, color: theme.colors.textTertiary}]}>{copy.gain(gain, gain === 0)}</Text>)}</View>
       <View style={{width: 96}}>{band('preamp', value.preamp)}</View><View pointerEvents="none" style={{width: 28, height, marginTop: 56}}><View style={{position: 'absolute', left: 13, top: 0, width: 2, height, backgroundColor: theme.colors.line}}/></View>
       <View style={{flex: 1}}>{graph}</View>
     </FocusRegion>
-  </View></FocusProvider>;
+  </FocusRegion></FocusProvider>;
   return <View testID="watch-equalizer" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <View style={{height: 50, justifyContent: 'center', alignItems: 'center'}}><Button focusId="equalizer-back" variant="text" icon="i-left" onPress={onBack} style={{position: 'absolute', left: 6}}>{copy.back}</Button>
       <Text accessibilityRole="header" style={[nativeType({size: 18, weight: 800, tracking: -.015, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{copy.title}</Text></View>
@@ -101,6 +108,11 @@ export function NativeWatchEqualizer({onBack, copy, reportError, store = nativeE
       <View style={{marginHorizontal: 16, borderRadius: 14, backgroundColor: theme.colors.raised}}>{band('preamp', value.preamp)}{graph}</View>{reset}
     </ScrollView>
   </View>;
+}
+
+function EqualizerEntry({active, region}: {active: boolean; region: string}) {
+  useDestinationEntryFocus({visible: active, intent: 'enter', revision: 0}, {regionId: region, childId: 'equalizer-enabled'});
+  return null;
 }
 
 function EqualizerBand({target, value, height, disabled, horizontal = false, label, accessibilityLabel, copy, onChange, onNudge, onFocus, onBlur}: {

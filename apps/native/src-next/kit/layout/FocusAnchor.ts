@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {useTVEventHandler} from 'react-native';
+import {useTVKeyEvent} from '../../platform/tv-keys';
 import Animated, {cancelAnimation, scrollTo, useAnimatedReaction, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import {useTheme} from '../theme';
 import {useMotion} from '../useMotion';
@@ -18,14 +18,15 @@ export function useFocusAnchor(horizontal: boolean, ownsFocus = true, alignment:
   const repeatStroke = useRef(false), destination = useRef(0);
   const last = useRef({key: '', at: 0});
   const release = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useTVEventHandler(event => {
-    if (!isTV || !ownsFocus || !(horizontal ? ['left', 'right'] : ['up', 'down']).includes(event.eventType)) return;
+  useTVKeyEvent(event => {
+    if (!isTV || !ownsFocus || !(horizontal ? ['left', 'right'] : ['up', 'down']).includes(event.key)) return;
     if (release.current) clearTimeout(release.current);
-    const now = Date.now(), repeat = event.eventKeyAction !== 1 && last.current.key === event.eventType && now - last.current.at < 180;
-    last.current = event.eventKeyAction === 1 ? {key: '', at: 0} : {key: event.eventType, at: now};
+    const ended = event.phase === 'long-end';
+    const now = Date.now(), repeat = !ended && (event.repeat || event.phase === 'long-begin' || last.current.key === event.key && now - last.current.at < 180);
+    last.current = ended ? {key: '', at: 0} : {key: event.key, at: now};
     repeatStroke.current = repeat;
     setRepeating(repeat);
-    release.current = event.eventKeyAction === 1 ? undefined : setTimeout(() => {
+    release.current = ended ? undefined : setTimeout(() => {
       repeatStroke.current = false; last.current = {key: '', at: 0}; setRepeating(false);
     }, 180);
   });

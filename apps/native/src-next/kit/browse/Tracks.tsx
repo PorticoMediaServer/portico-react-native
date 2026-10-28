@@ -1,9 +1,9 @@
-import React, {useCallback, useEffect, useRef, useSyncExternalStore, type ReactNode, type RefObject} from 'react';
+import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject} from 'react';
 import {FlatList, Text, View, VirtualizedList, type ViewToken} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {CardTextModel, FactPart} from '../../../../../packages/client-core/src/presentation/kit-model';
 import type {WindowedCollection} from '../../../../../packages/client-core/src/collections';
-import {Button, Chip, Focusable} from '../controls';
+import {Button, Chip, Focusable, type FocusableProps} from '../controls';
 import {Icon} from '../Icon';
 import {CardFrame} from '../cards/primitives';
 import {cardAccessibilityLabel} from '../cards/model';
@@ -26,6 +26,7 @@ type TrackActions = Readonly<{
   isMenuOpen?: (id: string) => boolean;
   onToggleFavorite?: (id: string, favorite: boolean) => void;
 }>;
+type TVTrackFocus = Pick<FocusableProps, 'focusId' | 'testID' | 'onFocus' | 'onBlur' | 'disabled'> & Readonly<{index?: number; previousFocused?: boolean}>;
 type TrackVariant = 'album' | 'top-songs' | 'songs' | 'chapters';
 export type TrackColumn = 'number' | 'title' | 'artist' | 'album' | 'plays' | 'duration' | 'added';
 export type TrackTableProps = TrackActions & Readonly<{
@@ -61,14 +62,14 @@ function LevelMeter() {
 }
 
 /** tv-more6/8: the whole 84 dp row owns focus and its focused Menu action. */
-function TVTrackRow({row, onPress, onMenu, selection, selected, selectionMode = false, showArtwork = false, showCaption = false}: {
+function TVTrackRow({row, onPress, onMenu, selection, selected, selectionMode = false, showArtwork = false, showCaption = false, index = Math.max(0, (row.number ?? 1) - 1), previousFocused = false, ...focus}: TVTrackFocus & {
   row: TrackRowData; onPress: () => void; onMenu?: () => void; selection?: ReactNode; selected: boolean;
   selectionMode?: boolean; showArtwork?: boolean; showCaption?: boolean;
 }) {
   const theme = useTheme(), duration = row.duration ?? row.text.detail.find(part => part.id === 'duration');
   const grow = theme.fontScale > 1 || theme.textScale > 1;
-  return <Focusable accessibilityRole={selectionMode ? 'checkbox' : 'button'} focusKind="row" focusRadius={16} onPress={onPress} onLongPressAction={onMenu} accessibilityLabel={t(selectionMode ? 'card.select' : 'next.browse.native.play', {title: trackLabel(row)})} accessibilityState={selectionMode ? {checked: selected} : {selected}} style={{height: grow ? undefined : 84, minHeight: 84, borderRadius: 16}}>
-    {({focused}) => <View style={{height: grow ? undefined : 84, minHeight: 84, paddingVertical: grow ? 6 : undefined, paddingLeft: 18, paddingRight: 28, flexDirection: 'row', gap: 22, alignItems: 'center', borderRadius: 16, borderTopWidth: focused ? 0 : 1, borderTopColor: alpha(theme.colors.line, .6), backgroundColor: focused ? theme.colors.raisedHigh : selected ? alpha(theme.colors.accent, .18) : row.playing ? alpha(theme.colors.text, .07) : undefined}}>
+  return <Focusable {...focus} accessibilityRole={selectionMode ? 'checkbox' : 'button'} focusKind="row" focusScale={1.015} focusRadius={16} onPress={onPress} onLongPressAction={onMenu} accessibilityLabel={t(selectionMode ? 'card.select' : 'next.browse.native.play', {title: trackLabel(row)})} accessibilityState={selectionMode ? {checked: selected} : {selected}} style={{height: grow ? undefined : 84, minHeight: 84, borderRadius: 16}}>
+    {({focused}) => <View style={{height: grow ? undefined : 84, minHeight: 84, paddingVertical: grow ? 6 : undefined, paddingLeft: 18, paddingRight: 28, flexDirection: 'row', gap: 22, alignItems: 'center', borderRadius: 16, borderTopWidth: index === 0 || focused || previousFocused ? 0 : 1, borderTopColor: alpha(theme.colors.line, .6), backgroundColor: focused ? theme.colors.raisedHigh : selected ? alpha(theme.colors.accent, .18) : row.playing ? alpha(theme.colors.text, .07) : undefined}}>
       {selection}
       <View style={{width: 44, alignItems: 'center'}}>{row.playing ? <LevelMeter/> : <Text style={[browseType(theme, 24, 600), {color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{row.number}</Text>}</View>
       {showArtwork && row.artwork && <View style={{width: 56, height: 56, borderRadius: 8, overflow: 'hidden'}}>{row.artwork}</View>}
@@ -80,14 +81,14 @@ function TVTrackRow({row, onPress, onMenu, selection, selected, selectionMode = 
 }
 
 /** The row's title/caption are already canonical parts, never a parsed subtitle. */
-export function SongRow({row, onPlay, onMore, selection, selected = false, onSelectionChange, onEnter, isMenuOpen, ranked = false}: TrackActions & {
+export function SongRow({row, onPlay, onMore, selection, selected = false, onSelectionChange, onEnter, isMenuOpen, ranked = false, focusId, testID, onFocus, onBlur, disabled, index, previousFocused}: TrackActions & TVTrackFocus & {
   row: TrackRowData; selection?: ReactNode; selected?: boolean; onSelectionChange?: () => void; onEnter: () => void; ranked?: boolean;
 }) {
   const theme = useTheme(), tv = theme.isTV, duration = row.duration ?? row.text.detail.find(part => part.id === 'duration');
   const grow = theme.fontScale > 1 || theme.textScale > 1;
   const menuAnchorRef = useRef<View>(null);
   const caption = row.text.caption.filter(part => part.id === (ranked ? 'album' : 'artist'));
-  if (tv) return <TVTrackRow row={row} selected={selected} selectionMode={onSelectionChange !== undefined} selection={selection} onPress={onSelectionChange ?? (() => onPlay(row.id))} onMenu={onMore ? () => onMore(row.id) : undefined} showArtwork showCaption/>;
+  if (tv) return <TVTrackRow {...{focusId, testID, onFocus, onBlur, disabled, index, previousFocused}} row={row} selected={selected} selectionMode={onSelectionChange !== undefined} selection={selection} onPress={onSelectionChange ?? (() => onPlay(row.id))} onMenu={onMore ? () => onMore(row.id) : undefined} showArtwork showCaption/>;
   return <View style={{height: grow ? undefined : ranked ? 62 : 58, minHeight: ranked ? 62 : 58, paddingVertical: grow ? 6 : undefined, flexDirection: 'row', alignItems: 'center', gap: tv ? 20 : 14, paddingLeft: 6, paddingRight: 12, borderRadius: 10, backgroundColor: selected ? alpha(theme.colors.accent, .18) : undefined}}>
     {selection}
     <CardFrame menuAnchorRef={menuAnchorRef} moreExpanded={isMenuOpen?.(row.id)} title={row.text.title} primaryAction="play" onPlay={() => onPlay(row.id)} onMore={onMore ? () => onMore(row.id, menuAnchorRef) : undefined}
@@ -116,14 +117,14 @@ function columnStyle(column: TrackColumn, variant: TrackVariant) {
   return {width: column === 'number' ? 44 : column === 'duration' ? variant === 'songs' ? 86 : variant === 'chapters' ? 90 : 80 : column === 'plays' ? variant === 'songs' ? 64 : 90 : 124};
 }
 
-export function TrackRow({row, variant, columns = defaultColumns[variant], selection, onPlay, onMore, onToggleFavorite, isMenuOpen}: TrackActions & {row: TrackRowData; variant: TrackVariant; columns?: readonly TrackColumn[]; selection: TrackSelection}) {
+export function TrackRow({row, variant, columns = defaultColumns[variant], selection, onPlay, onMore, onToggleFavorite, isMenuOpen, focusId, testID, onFocus, onBlur, disabled, index, previousFocused}: TrackActions & TVTrackFocus & {row: TrackRowData; variant: TrackVariant; columns?: readonly TrackColumn[]; selection: TrackSelection}) {
   const theme = useTheme(), phone = theme.platform === 'phone', tv = theme.isTV, selected = selection.isSelected(row.id);
   const grow = theme.fontScale > 1 || theme.textScale > 1;
   const height = phone ? 54 : variant === 'chapters' && row.current ? 76 : variant === 'songs' ? 56 : 60;
   const menuAnchorRef = useRef<View>(null);
   const duration = row.duration ?? row.text.detail.find(part => part.id === 'duration');
   const progress = boundedProgress(row.progress ?? row.text.progress), remaining = row.text.detail.find(part => part.id === 'remaining');
-  if (tv) return <TVTrackRow row={row} selected={selected} selectionMode={selection.active} selection={selection.active ? selection.renderControl(row, selected, () => selection.onToggle(row.id)) : undefined} onPress={() => selection.active ? selection.onToggle(row.id) : onPlay(row.id)} onMenu={onMore ? () => onMore(row.id) : undefined} showArtwork={variant === 'top-songs' || variant === 'songs'} showCaption={variant === 'top-songs' || variant === 'songs'}/>;
+  if (tv) return <TVTrackRow {...{focusId, testID, onFocus, onBlur, disabled, index, previousFocused}} row={row} selected={selected} selectionMode={selection.active} selection={selection.active ? selection.renderControl(row, selected, () => selection.onToggle(row.id)) : undefined} onPress={() => selection.active ? selection.onToggle(row.id) : onPlay(row.id)} onMenu={onMore ? () => onMore(row.id) : undefined} showArtwork={variant === 'top-songs' || variant === 'songs'} showCaption={variant === 'top-songs' || variant === 'songs'}/>;
   const actions = <View style={{width: phone ? 44 : variant === 'chapters' ? 60 : 84, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center'}}>
     {variant === 'chapters' ? <Button variant="icon" size="small" iconOnly icon="i-play" accessibilityLabel={t('next.browse.native.play', {title: row.text.title})} onPress={() => onPlay(row.id)}/> : <>
     {row.favorite !== undefined && onToggleFavorite && !phone && <Button variant="icon" size="small" iconOnly icon={row.favorite ? 'i-heart-f' : 'i-heart'} accessibilityLabel={t(row.favorite ? 'next.browse.native.unfavorite' : 'next.browse.native.favorite')} accessibilityState={{checked: row.favorite}} onPress={() => onToggleFavorite(row.id, !row.favorite)}/>}
@@ -189,6 +190,7 @@ function useVisibleRange(onVisibleRange: TrackTableProps['onVisibleRange']) {
 function WindowedTracks({collection, ...props}: Omit<TrackTableProps, 'rows' | 'groups' | 'collection'> & {collection: WindowedCollection<TrackRowData>}) {
   const theme = useTheme(), snapshot = useSyncExternalStore(collection.subscribe, collection.getSnapshot, collection.getSnapshot);
   const grow = theme.fontScale > 1 || theme.textScale > 1;
+  const [focused, setFocused] = useState<number>();
   const rowHeight = theme.isTV ? 84 : theme.platform === 'phone' ? 54 : 56, headerHeight = theme.isTV || theme.platform === 'phone' ? 0 : 48, rangeCallback = useRef(props.onVisibleRange);
   useEffect(() => {rangeCallback.current = props.onVisibleRange;}, [props.onVisibleRange]);
   useEffect(() => {collection.ensureRange(0, 12);}, [collection]);
@@ -199,7 +201,7 @@ function WindowedTracks({collection, ...props}: Omit<TrackTableProps, 'rows' | '
     collection.ensureRange(first, last); rangeCallback.current?.(first, last);
   }, [collection]);
   return <VirtualizedList<number> testID={props.testID} data={collection} getItem={(_data, index) => index} getItemCount={() => snapshot.total ?? 0} keyExtractor={index => collection.keyAt(index)} extraData={`${snapshot.generation}:${theme.fontScale}:${theme.textScale}`}
-    renderItem={({item: index}) => <WindowedTrackSlot collection={collection} index={index} render={row => <TrackRow row={row} {...props}/>}/>}
+    renderItem={({item: index}) => <WindowedTrackSlot collection={collection} index={index} render={row => <TrackRow row={row} {...props} testID={props.testID ? `${props.testID}.row.${row.id}` : undefined} index={index} previousFocused={focused === index - 1} onFocus={() => setFocused(index)} onBlur={() => setFocused(value => value === index ? undefined : value)}/>}/>}
     getItemLayout={grow ? undefined : (_data, index) => ({length: rowHeight, offset: headerHeight + rowHeight * index, index})} onViewableItemsChanged={visible} viewabilityConfig={viewability} initialNumToRender={12} maxToRenderPerBatch={8} windowSize={5} removeClippedSubviews={!theme.isTV}
     ListHeaderComponent={<TrackHeader {...props}/>} ListEmptyComponent={<>{props.empty}</>}/>;
 }
@@ -207,9 +209,11 @@ function WindowedTracks({collection, ...props}: Omit<TrackTableProps, 'rows' | '
 /** Songs accepts the canonical sparse collection; no eager array is created from its total. */
 export function TrackTable(props: TrackTableProps) {
   const theme = useTheme(), visible = useVisibleRange(props.onVisibleRange);
+  const [focused, setFocused] = useState<number>();
+  const focus = (index: number) => ({index, previousFocused: focused === index - 1, onFocus: () => setFocused(index), onBlur: () => setFocused(value => value === index ? undefined : value)});
   if (props.collection) return <WindowedTracks {...props} collection={props.collection}/>;
-  if (props.groups) return <FlatList testID={props.testID} data={props.groups.find(group => group.id === props.disc.value)?.rows ?? []} keyExtractor={row => row.id} renderItem={({item}) => <TrackRow {...props} row={item}/>} onViewableItemsChanged={visible} viewabilityConfig={viewability} initialNumToRender={12} maxToRenderPerBatch={8} windowSize={5}
+  if (props.groups) return <FlatList testID={props.testID} data={props.groups.find(group => group.id === props.disc.value)?.rows ?? []} keyExtractor={row => row.id} renderItem={({item, index}) => <TrackRow {...props} {...focus(index)} testID={props.testID ? `${props.testID}.row.${item.id}` : undefined} row={item}/>} onViewableItemsChanged={visible} viewabilityConfig={viewability} initialNumToRender={12} maxToRenderPerBatch={8} windowSize={5}
     ListHeaderComponent={<><View style={{flexDirection: 'row', gap: theme.isTV ? 14 : 8, paddingHorizontal: theme.isTV ? 18 : 8, marginBottom: 16}}>{props.groups.map(group => <Chip key={group.id} variant="pill" selected={group.id === props.disc.value} onPress={() => props.disc.onValueChange(group.id)} accessibilityRole="radio" accessibilityState={{checked: group.id === props.disc.value}}>{group.title ?? t('next.browse.native.disc', {number: group.discNumber})}</Chip>)}</View><TrackHeader {...props}/></>}
     ListEmptyComponent={<>{props.empty}</>}/>;
-  return <FlatList testID={props.testID} data={props.rows} keyExtractor={row => row.id} renderItem={({item}) => <TrackRow {...props} row={item}/>} onViewableItemsChanged={visible} viewabilityConfig={viewability} initialNumToRender={12} maxToRenderPerBatch={8} windowSize={5} ListHeaderComponent={<TrackHeader {...props}/>} ListEmptyComponent={<>{props.empty}</>}/>;
+  return <FlatList testID={props.testID} data={props.rows} keyExtractor={row => row.id} renderItem={({item, index}) => <TrackRow {...props} {...focus(index)} testID={props.testID ? `${props.testID}.row.${item.id}` : undefined} row={item}/>} onViewableItemsChanged={visible} viewabilityConfig={viewability} initialNumToRender={12} maxToRenderPerBatch={8} windowSize={5} ListHeaderComponent={<TrackHeader {...props}/>} ListEmptyComponent={<>{props.empty}</>}/>;
 }

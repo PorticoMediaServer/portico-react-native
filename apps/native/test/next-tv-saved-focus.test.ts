@@ -28,6 +28,7 @@ test('TV Saved tabs have a mounted content target and return edges for every tab
       '../../../../../../packages/client-core/src/saved': {savedListFilters},
       '../../../tv/layout/TVFocusGrid': {TVFocusGrid: 'TVFocusGrid'},
       '../../saved/SavedForms': {SavedConfirmSheet: 'SavedConfirmSheet'},
+      '../../saved/SavedTVLoading': {SavedTVLoading: 'SavedTVLoading'},
       '../../library/LibraryJumpSheet': {LibraryJumpSheet: 'LibraryJumpSheet'},
       '../useTVPageBack': {useTVPageBack(_runtime: unknown, _route: unknown, _enabled: boolean, page: unknown) {back = page;}},
       '../useEntryFocus': {useDestinationEntryFocus(_active: unknown, target: unknown) {entry = target;}},
@@ -120,13 +121,15 @@ test('TV Saved directory keeps filters, retry and pagination inside its content 
   const host = hooks();
   let snapshot: any;
   const {SavedTVDirectory} = await screenModule(new URL('../src-next/screens/saved/SavedTVDirectory.tsx', import.meta.url), {
+    '../../../../../packages/client-core/src/presentation/errors': {presentError: () => ({body: 'Saved failed'})},
+    './SavedForms': {SavedNameSheet: 'SavedNameSheet'}, './SavedTVLoading': {SavedTVLoading: 'SavedTVLoading'},
     react: reactFixture(host),
     'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
     '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},
     '../../kit/controls': {Chip: 'Chip', Focusable: 'Focusable'},
     '../../kit/artwork': {AmbientArt: 'AmbientArt', CoverMosaic: 'CoverMosaic', MediaArt: 'MediaArt'},
     '../../kit/cards/primitives': {CardFrame: 'CardFrame'},
-    '../../kit/focus': {FocusRegion: 'FocusRegion', FocusItem: 'FocusItem'},
+    '../../kit/focus': {FocusRegion: 'FocusRegion', FocusItem: 'FocusItem', useFocusRegistry: () => ({focus() {}})},
     '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/states': {StateView: 'StateView'},
     '../../kit/browse/presentation': {alpha: () => '', browseType: () => ({})},
@@ -135,7 +138,7 @@ test('TV Saved directory keeps filters, retry and pagination inside its content 
     './presentation': Object.fromEntries(['savedCollectionCount', 'savedItemCount', 'savedLibraryName', 'savedTitleCount', 'savedViewCount', 'savedVisibility'].map(key => [key, String])),
   });
   const props: any = {
-    view: 'playlists', enabled: true, regionId: 'grid', edges: {up: 'tabs', left: 'rail'}, libraries: [],
+    view: 'playlists', enabled: true, activation: {subscribe: () => () => {}, getSnapshot: () => ({visible: true, revision: 1, intent: 'enter'})}, regionId: 'grid', edges: {up: 'tabs', left: 'rail'}, libraries: [],
     destination: {subscribe: () => () => {}, getSnapshot: () => snapshot},
     runtime: {error: () => ({primaryAction: {id: 'retry', label: 'Retry', onPress: () => {}}})},
   };
@@ -147,10 +150,10 @@ test('TV Saved directory keeps filters, retry and pagination inside its content 
       }, pagination: {next: [{sectionId: 'main'}]}}}),
     };
     let tree = host.render(() => SavedTVDirectory(props));
-    assert.equal(tree.type, 'FocusRegion', phase);
-    assert.equal(tree.props.id, 'grid');
-    assert.deepEqual(tree.props.edges, props.edges);
-    const children = nodes(tree.props.children);
+    const body = nodes(tree).find(node => node.type === 'FocusRegion' && node.props.id === 'grid');
+    assert.ok(body, phase);
+    assert.deepEqual(body.props.edges, props.edges);
+    const children = nodes(body.props.children);
     if (phase !== 'loading') assert.ok(children.some(node => node.type === 'PlaylistToolbar'), phase);
     if (phase === 'ready') {
       assert.ok(children.some(node => node.props.focusId === 'tv-saved-more'));
@@ -171,7 +174,7 @@ test('TV Saved directory keeps filters, retry and pagination inside its content 
     }
     if (phase === 'error') assert.equal(children.find(node => node.type === 'StateView').props.primaryAction.id, 'retry');
     props.enabled = false;
-    assert.equal(host.render(() => SavedTVDirectory(props)).props.enabled, false);
+    assert.equal(nodes(host.render(() => SavedTVDirectory(props))).find(node => node.type === 'FocusRegion' && node.props.id === 'grid').props.enabled, false);
     props.enabled = true;
   }
 });

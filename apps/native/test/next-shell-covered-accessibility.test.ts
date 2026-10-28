@@ -1,3 +1,4 @@
+import {canReturnToPage} from '../src-next/shell/page-focus-return.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as model from '../src-next/shell/model';
@@ -28,7 +29,7 @@ for (const tv of [false, true]) test(`${tv ? 'TV' : 'touch'} shell hides its cov
     '../screens/home/home-start': {homeStartModel: () => ({}), resolveTVHomeStart: () => undefined, canYieldTVHomeMenu: () => false},
     './model': model, './chrome': {nativeScreenChromeHidden: () => false, subscribeNativeScreenChrome: () => () => {}},
     './PhoneTabBar': {PhoneTabBar: 'PhoneTabBar'}, './PhoneHomeHeader': {PhoneHomeHeader: 'PhoneHomeHeader'}, './MediumRail': {MediumRail: 'MediumRail'},
-    './TVRail': {TVRail: 'TVRail'}, './TVProfileMenu': {TVProfileMenu: 'TVProfileMenu'}, './NativePlaybackLayer': {NativePlaybackLayer: 'NativePlaybackLayer'},
+    './page-focus-return': {canReturnToPage}, './TVRail': {TVRail: 'TVRail'}, './TVProfileMenu': {TVProfileMenu: 'TVProfileMenu'}, './NativePlaybackLayer': {NativePlaybackLayer: 'NativePlaybackLayer'},
   });
   const root = h.render(() => NativeShell({runtime}));
   const session = nodes(root).find(node => node.type?.name === 'ShellSession'); assert.ok(session);

@@ -53,6 +53,8 @@ export type NativeWatchHostBindings = Readonly<{
   postPlay?: (context: NativeWatchHostContext) => React.ReactNode;
   /** states 11: the failed-playback state, its own resume port and (where sanctioned) owner facts. */
   failed?: (context: NativeWatchHostContext, failure: NativePlaybackFailure, chromeVisible: boolean) => React.ReactNode;
+  /** True when the failure renderer actually offers a retry, details or version control. */
+  failureAction?: (context: NativeWatchHostContext, failure: NativePlaybackFailure) => boolean;
   /** Shell owns status/navigation application; Watch supplies canonical facts. */
   presentation?: (layout: PlayerPresentation | undefined) => void;
   scrubbing?: boolean;
@@ -220,7 +222,8 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   // The same predicates the module uses to draw a recovery control. The bar points Up
   // to that region only when the control really exists this render.
   const failureAction = isTV && !panelOpen && !!failureRef.current && source.playback.phase === 'error'
-    && source.capabilities.retry === true && !!playback.retry && !!fence && sameFence(source.fence, failureRef.current.failure.fence);
+    && (bindings.failureAction?.(context, failureRef.current.failure)
+      ?? (source.capabilities.retry === true && !!playback.retry && !!fence && sameFence(source.fence, failureRef.current.failure.fence)));
   const failed = bindings.failed && !panelOpen && failureRef.current
     ? bindings.failed(context, failureRef.current.failure, state.visible) : undefined;
   const content = <Animated.View testID="watch-panes" pointerEvents={initialPlayer && !initialPlayer.controlsAdmitted ? 'none' : 'box-none'} accessibilityElementsHidden={!!initialPlayer && !initialPlayer.controlsAdmitted}

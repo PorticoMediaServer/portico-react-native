@@ -87,6 +87,9 @@ const request = async <T>(api: Pick<NativeShellBootstrapContext['api'], 'request
 export class NativeTVMusicController {
   private options: Options;
   private api: Pick<NativeShellBootstrapContext['api'], 'request'>;
+  private songQuery?: string;
+  private allSongQuery?: string;
+  private topSongsRevision?: string;
   private entityWitness?: Readonly<{service: LibraryContentService; projection: ContentProjection; signal: AbortSignal}>;
   private similarEntries = new WeakSet<ContentEntry>();
   private releaseDTOs = new WeakMap<MusicAlbumRow,ContentEntry>();
@@ -114,6 +117,14 @@ export class NativeTVMusicController {
     this.state = Object.freeze({...this.state, entry: options.entry});
   }
   getSnapshot = (): NativeTVMusicSnapshot => this.state;
+  /** Every selection stays in the exact Browse query/revision that supplied its tracks. */
+  selectionPage = (group: 'songs' | 'all-songs'): Readonly<{generation: number; query: string; revision: string; offset: number}> | undefined => {
+    if (!this.current()) return;
+    const section = group === 'all-songs' ? this.state.allSongs : this.state.songPage;
+    const query = group === 'all-songs' ? this.allSongQuery : this.songQuery;
+    const revision = group === 'songs' && this.options.entry.kind === 'artist' ? this.topSongsRevision : section.revision;
+    return query && revision && section.phase !== 'refresh-required' ? {generation: this.generation, query, revision, offset: section.offset} : undefined;
+  };
   contains = (entry: ContentEntry): boolean => {
     if (!this.current()) return false;
     const state = this.state;
@@ -165,6 +176,7 @@ export class NativeTVMusicController {
     this.songPager?.dispose();this.releasePager?.dispose();this.allSongPager?.dispose();this.allSongsController?.abort();
     this.songPager=undefined;this.releasePager=undefined;this.allSongPager=undefined;
     this.entityWitness?.service.dispose();this.entityWitness=undefined;
+    this.songQuery = undefined; this.allSongQuery = undefined; this.topSongsRevision = undefined;
     this.publish({songs:[],albums:[],songPage:emptyMusicSection<ContentEntry>(),releases:emptyMusicSection<MusicAlbumRow>(),allSongs:Object.freeze({...emptyMusicSection<ContentEntry>(),songs:[]}),phase:'loading',error:undefined,albumDetails:undefined,similar:[],similarBySound:undefined,similarProjection:undefined,similarError:undefined});
     const task = (this.options.entry.kind === 'album' ? this.loadAlbum(controller.signal) : this.loadArtist(controller.signal))
       .catch(error => { if (this.current() && generation === this.generation && !controller.signal.aborted) this.publish({phase: 'error', error}); })
@@ -185,6 +197,7 @@ export class NativeTVMusicController {
   }
   private songSection(capabilities: BrowseCapabilities, build: (builder: BrowseQueryBuilder) => BrowseQueryBuilder, generation: number, all = false) {
     const path=browsePath(this.options.entry.libraryId!),original=build(new BrowseQueryBuilder(capabilities)).build();
+    if (all) this.allSongQuery = JSON.stringify([path, original]); else this.songQuery = JSON.stringify([path, original]);
     const pager = new MusicSectionPager<ContentEntry>({
       current: () => this.current() && generation === this.generation,
       read: async (cursor, signal) => {
@@ -273,9 +286,12 @@ export class NativeTVMusicController {
       this.capabilities('songs',signal),this.favoriteState(signal),this.artistAlbums(signal),
     ]);
     if (!this.current() || signal.aborted) return;
-    const page = await this.browse(capabilities, builder => builder.where('artist', 'equals', this.options.entry.title).sort('playCount', 'desc').limit(Math.min(5, capabilities.queryLimits.maximumLimit)), signal);
+    const original = new BrowseQueryBuilder(capabilities).where('artist', 'equals', this.options.entry.title).sort('playCount', 'desc').limit(Math.min(5, capabilities.queryLimits.maximumLimit)).build();
+    const path = browsePath(this.options.entry.libraryId!);
+    const page = parseBrowseResult(await request(this.api, path, 'POST', original, signal));
     if (!this.current() || signal.aborted) return;
     if (page.entries.some(entry => entry.kind !== 'song')) throw new Error(unreadableServerResponse);
+    this.songQuery = JSON.stringify([path, original]); this.topSongsRevision = page.pageInfo.revision;
     this.publish({phase:'ready',songs:page.entries,songTotal:page.pageInfo.totalIsLowerBound?undefined:page.pageInfo.total,favorite});
     // The optional entity projection supplies real Details and the Similar
     // revision; neither ever holds the artist's own songs and releases.

@@ -17,13 +17,15 @@ export type NativeSeasonsSheetProps = Readonly<{
   onMore?: () => void;
   hideWatched: boolean;
   onHideWatched: (value: boolean) => void;
+  returnFocusRef?: React.RefObject<View | null>;
 }>;
 
 /** phone-detail frame 5: the season sheet. Jump to leads on a long show, then
  * the server's own season counts and the viewer's watched progress. */
 export function NativeSeasonsSheet(props: NativeSeasonsSheetProps) {
   const theme = useTheme(), t = defaultI18n.t, [jump, setJump] = useState(''), viewport = useWindowDimensions();
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<ScrollView>(null), first = useRef<View>(null);
+  const initialSeason = props.seasons.find(season => season.id === props.selectedId)?.id ?? props.seasons[0]?.id;
   useEffect(() => {if (props.open) setJump('');}, [props.open]);
   const canJump = props.total > 30;
   const go = () => {
@@ -32,12 +34,13 @@ export function NativeSeasonsSheet(props: NativeSeasonsSheetProps) {
     const season = props.seasons.find(value => value.number === number);
     if (season) {setJump(''); props.onSelect(season.id); props.onOpenChange(false);}
   };
-  return <BottomSheet open={props.open} onOpenChange={props.onOpenChange} title={t('title.seasons')} showClose={false}
+  return <BottomSheet testID="watch-seasons" open={props.open} onOpenChange={props.onOpenChange} title={t('title.seasons')} showClose={false}
+    initialFocusRef={first} returnFocusRef={props.returnFocusRef}
     headerContent={<View style={{flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingBottom: 10}}>
       <Text accessibilityRole="header" style={{color: theme.colors.text, fontSize: 21, fontWeight: '800', letterSpacing: -0.4}}>{t('title.seasons')}</Text>
       <Text style={{color: theme.colors.textTertiary, fontSize: 14, fontWeight: '600'}}>{defaultI18n.number(props.total, {useGrouping: false})}</Text>
       <View style={{flex: 1}}/>
-      <Button variant="text" onPress={() => props.onOpenChange(false)}>{t('action.done')}</Button>
+      <Button ref={!initialSeason ? first : undefined} focusId="watch-seasons-done" testID="watch-seasons-done" variant="text" onPress={() => props.onOpenChange(false)}>{t('action.done')}</Button>
     </View>}
     contentStyle={{paddingHorizontal: 0, flex: 1}} detents={[Math.round(viewport.height * .72)]}>
     <View style={{flex: 1}}>
@@ -45,7 +48,7 @@ export function NativeSeasonsSheet(props: NativeSeasonsSheetProps) {
         <View style={{flex: 1}}><TextField label={t('title.jumpToSeason')} value={jump} onChangeText={setJump} keyboardType="number-pad"
           description={t('title.jumpToHint', {min: '1', max: String(props.total)})} onSubmitEditing={go} returnKeyType="go" testID="watch-seasons-jump"/>
         </View>
-        <Button variant="glass" size="small" onPress={go}>{t('title.go')}</Button>
+        <Button focusId="watch-seasons-go" testID="watch-seasons-go" variant="glass" size="small" onPress={go}>{t('title.go')}</Button>
       </View>}
       <View style={{marginHorizontal: 16, marginBottom: 6}}>
         <Switch variant="compact" checked={props.hideWatched} onCheckedChange={props.onHideWatched} testID="watch-seasons-hide-watched">{t('next.controls.hideWatched')}</Switch>
@@ -59,7 +62,7 @@ export function NativeSeasonsSheet(props: NativeSeasonsSheetProps) {
           const complete = watched !== undefined && total !== undefined && total > 0 && watched >= total;
           const partial = watched !== undefined && total !== undefined && !complete && watched > 0;
           const progress = complete ? t('card.watched') : partial ? t('title.seasonProgress', {watched, total}) : undefined;
-          return <Focusable key={season.id} testID={`watch-season-${season.id}`} focusKind="row" focusRadius={0} accessibilityRole="button"
+          return <Focusable key={season.id} ref={season.id === initialSeason ? first : undefined} focusId={`watch-season-${season.id}`} testID={`watch-season-${season.id}`} focusKind="row" focusRadius={0} accessibilityRole="button"
             accessibilityState={{selected}} onPress={() => {props.onSelect(season.id); props.onOpenChange(false);}}
             style={{position: 'relative', minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20,
               backgroundColor: selected ? '#409fd424' : 'transparent', borderTopWidth: 1, borderTopColor: selected ? 'transparent' : theme.colors.line}}>

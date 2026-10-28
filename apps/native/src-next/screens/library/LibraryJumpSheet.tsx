@@ -15,14 +15,14 @@ export function LibraryJumpSheet({open, panelId, letters, selected, onSelect, on
   onSelect: (key: string) => void; onClose: () => void;
 }) {
   const theme = useTheme(), registry = useFocusRegistry();
-  const first = selected ?? letters[0]?.key;
+  const first = selected ?? letters[0]?.key, lettersId = `${panelId}.letters`;
   const initialFocusRef = useMemo(() => ({current: {focus: () => {
-    if (first) registry.focus({regionId: panelId, childId: `jump:${first}`});
-  }}}), [registry, panelId, first]);
+    if (first) registry.focus({regionId: lettersId, childId: `jump:${first}`});
+  }}}), [registry, lettersId, first]);
   return <SidePanel testID={panelId} open={open} onOpenChange={next => {if (!next) onClose();}} showClose={false}
     title={defaultI18n.t('next.browse.native.jumpTo')} width={680} topInset={0} initialFocusRef={initialFocusRef}
     titleType={{size: 44, weight: 800, tracking: -.03, lineHeight: 52.8}} style={{paddingTop: 42, paddingLeft: 56, paddingRight: 96, paddingBottom: 56}}>
-    <FocusRegion id={panelId} entry={first ? `jump:${first}` : undefined} order={letters.map(letter => `jump:${letter.key}`)} orientation="vertical">
+    <FocusRegion id={lettersId} entry={first ? `jump:${first}` : undefined} order={letters.map(letter => `jump:${letter.key}`)} orientation="vertical">
       <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 12}}>
         {letters.map(letter => {
           const active = letter.key === selected;

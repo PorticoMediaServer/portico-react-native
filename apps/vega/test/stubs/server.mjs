@@ -3,6 +3,7 @@
  * address to what is answered for it (text, a segment description, a status, or a function of
  * the request). `log` is every address asked for, in order.
  */
+import {mp4Init} from './mp4.mjs';
 /** @type {{routes: Map<string, any>, log: string[], offline: boolean, delay: number}} */
 export const server = {routes: new Map(), log: [], offline: false, delay: 0};
 export function resetServer() { server.routes = new Map(); server.log = []; server.offline = false; server.delay = 0; }
@@ -27,7 +28,7 @@ class Request {
       if (typeof answer === 'function') answer = answer({url: this.url, headers: this.#headers});
       if (answer === undefined) answer = {status: 404};
       if (typeof answer === 'string') answer = {status: 200, text: answer};
-      if (answer.segment) answer = {status: 200, bytes: Buffer.from(JSON.stringify({...answer.segment, pad: 'x'.repeat(answer.segment.bytes ?? 0)}))};
+      if (answer.segment) answer = {status: 200, bytes: answer.segment.init ? mp4Init() : Buffer.from(JSON.stringify({...answer.segment, pad: 'x'.repeat(answer.segment.bytes ?? 0)}))};
       this.status = answer.status ?? 200;
       this.responseURL = answer.from ?? this.url;
       this.#answered = Object.fromEntries(Object.entries(answer.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]));

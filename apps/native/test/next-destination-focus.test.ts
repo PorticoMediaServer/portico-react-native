@@ -29,3 +29,14 @@ test('destination boundaries use the actual authority rail and keep real library
   assert.notEqual(ids.searchKeyboard, nativeDestinationFocusIds({...authority, epoch: 'new-login'}).searchKeyboard);
   assert.ok(!ids.searchKeyboard.includes('.home.'));
 });
+
+test('retained Search roots mount independently and share the actual authority rail', () => {
+  const authority = {serverId: 's', accountId: 'a', profileId: 'p', epoch: 'e', viewerFence: 'f'};
+  const first = nativeDestinationFocusIds(authority, 'search:1'), second = nativeDestinationFocusIds(authority, 'search:2');
+  const registry = createFocusRegistry(), releases: (() => void)[] = [];
+  for (const ids of [first, second]) for (const id of [ids.searchKeyboard, ids.searchChips, ids.searchResults]) releases.push(registry.mountRegion(id, {}));
+  assert.notEqual(first.searchKeyboard, second.searchKeyboard);
+  assert.equal(first.rail, second.rail); assert.equal(first.rail, tvFocusIds(authority).rail);
+  assert.throws(() => registry.mountRegion(first.searchKeyboard, {}), /Duplicate live focus region/);
+  releases.forEach(release => release());
+});

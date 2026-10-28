@@ -18,10 +18,11 @@ import {parsePreferenceSnapshot} from '../../../packages/client-core/src/prefere
 import {nextIcons} from '../../../packages/design/src/next-icons';
 import {createTheme} from '../src-next/kit/theme';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import * as tvSettingsFocus from '../src-next/screens/settings-live/tv-settings-focus';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
 
-async function fixture() {
+async function fixture(isTV = false) {
   const host = hooks(), bodyHost = hooks();
   let nested = false, language = 'CA';
   const react: any = {...host.react};
@@ -29,12 +30,13 @@ async function fixture() {
   // The body's layout effects own reconciliation, not this word-for-word render.
   react.useLayoutEffect = () => {}; react.useInsertionEffect = () => {};
   react.default = react;
-  const theme = createTheme({width: 800, isTV: false});
+  const theme = createTheme({width: isTV ? 1920 : 800, isTV});
   const safeMode = await screenModule(new URL('../src-next/screens/settings-live/NativeSafeModeRow.tsx', import.meta.url), {
     react, 'react-native': {View: 'View'}, '../../kit/controls': {Select: 'Select'}, '../../kit/states': {StateView: 'StateView'},
   });
   const module = await screenModule(new URL('../src-next/screens/settings-live/SettingsScreen.tsx', import.meta.url), {
     './use-tv-voice-search': {useTVVoiceSearch: () => ({start: undefined, busy: false})},
+    './tv-settings-focus': tvSettingsFocus,
     './NativeSafeModeRow': safeMode,
     '../../platform/playback/dynamic-range-matching': {nativeDynamicRangeMatchingAvailable: () => false},
     './NativeDynamicRangeRow': {NativeDynamicRangeRow: 'NativeDynamicRangeRow', nativeDynamicRangeFocusId: 'settings-device-match-dynamic-range'},
@@ -60,11 +62,11 @@ async function fixture() {
     '../../../../../packages/client-core/src/recommendation-feedback': {resetRecommendations: () => {throw Error('unexpected_mutation');}},
     '../../../../../packages/design/src/next-icons': {nextIcons},
     '../../kit/controls': {Button: 'Button', Focusable: 'Focusable', Select: 'Select', Switch: 'Switch', TextField: 'TextField'},
-    '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => ({capture: () => undefined, focus: () => false})},
+    '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => ({capture: () => undefined, focus: () => false, entryAddress: () => undefined, subscribe: () => () => {}, getSnapshot: () => 0})},
     '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/shell': {SettingsRow: 'SettingsRow', SettingsSearchResults: 'SettingsSearchResults', LanguageList: 'LanguageList', ShortcutTiles: 'ShortcutTiles'},
     '../../kit/artwork': {ProfileFace: 'ProfileFace'},
-    '../../kit/shell/visual': {alpha,shellType: () => ({})},
+    '../../kit/shell/visual': {alpha,shellType: (fontSize: number, fontWeight: number) => ({fontSize, fontWeight})},
     '../../kit/theme': {useTheme: () => theme},
     '../../kit/states': {StateView: 'StateView'},
     '../../kit/overlays': {Dialog: 'Dialog', Menu: 'Menu'},
@@ -128,4 +130,15 @@ test('Settings page body uses the same live translator for its own control and c
   assert.ok(nodes(nodes(rendered).find(node => node.type === 'Dialog').props.footer).some(node => node.type === 'Button' && node.props.children.includes('CA/action.cancel')));
   f.setLanguage('GB'); rendered = f.body(body);
   assert.ok(nodes(nodes(rendered).find(node => node.type === 'Dialog').props.footer).some(node => node.type === 'Button' && node.props.children.includes('GB/action.cancel')));
+});
+
+test('TV page column has an explicit Up crossing to Search and legible directional hints', async () => {
+  const f = await fixture(true), tree = f.render();
+  const column = nodes(tree).find(node => node.type === 'FocusRegion' && node.props.id === 'settings.pages');
+  const search = nodes(tree).find(node => node.type === 'FocusRegion' && node.props.id === 'settings.search');
+  assert.equal(column.props.edges.up, search.props.id);
+  assert.equal(search.props.edges.down, column.props.id);
+  const hints = nodes(nodes(tree).find(node => node.props.testID === 'settings-key-hints')).filter(node => node.type === 'Text');
+  assert.equal(hints.length, 3);
+  assert.ok(hints.every(node => node.props.style[0].fontSize === 20 && node.props.style[0].fontWeight === 600));
 });

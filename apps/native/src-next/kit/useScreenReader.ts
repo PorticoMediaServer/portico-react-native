@@ -10,7 +10,7 @@ export function useScreenReader(pending = false): boolean {
       changed = true;
       if (live) setEnabled(value);
     });
-    void AccessibilityInfo.isScreenReaderEnabled().then(value => {if (live && !changed) setEnabled(value);}, () => {});
+    void AccessibilityInfo.isScreenReaderEnabled().then(value => {if (live && !changed) setEnabled(value);}, () => {if (live) console.warn('portico_screen_reader_query_failed');});
     return () => {live = false; subscription.remove();};
   }, []);
   return enabled;

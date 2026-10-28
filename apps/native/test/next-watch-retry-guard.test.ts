@@ -1,4 +1,5 @@
 import {nativeSubtitleStyleKeys, nativeSubtitleStyleValue} from '../src-next/platform/playback/subtitle-style-choices.ts';
+import {nativePostPlayNavigation} from '../src-next/screens/watch/post-play-navigation.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -16,6 +17,9 @@ const {createNativeWatchModule} = await screenModule(new URL('../src-next/screen
   './PlaybackInfoPanel': {}, './WatchPanels': {}, './panel-options': {NativeWatchPanelOptions: class {dispose() {}}}, '../../shell/model': {sameAuthority},
   './track-identity': {}, './ChannelRoute': {}, './live-guide': {NativeTVLiveGuide: class {guideAction() {return () => {};} close() {return false;} dispose() {}}}, './live-actions': {NativeTVLiveActions: class {close() {return false;} dispose() {}}}, './LiveActionPanels': {}, './PlaybackFailed': {NativePlaybackFailed: 'TVFailure'},
   './HandheldPlaybackFailed': {NativeHandheldPlaybackFailed: 'HandheldFailure'}, './PostPlayScreen': {}, '../../platform/device-platform': {}, './panel-names': {},
+  './system-media': {bindNativeVideoSystemMedia: () => () => {}}, './post-play-navigation': {nativePostPlayNavigation},
+  '../../../../../packages/client-core/src/playback-messages': {playbackUserMessage: () => ''},
+  '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: String}, '../../kit/states/DetailsPanel': {DetailsPanel: 'DetailsPanel'},
   '../../platform/server-preferences': {}, '../../../../../packages/client-core/src/presentation/browse-toolbar': {},
 });
 

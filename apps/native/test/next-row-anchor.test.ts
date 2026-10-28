@@ -14,6 +14,7 @@ import * as registryModule from '../src-next/kit/focus/registry';
 import * as hostRefModule from '../src-next/kit/focus/useHostRef';
 import {act, createHookHost} from './hook-driver';
 import {screenModule} from './helpers/screen-harness.mjs';
+import {createTVKeyAdapter} from '../src-next/platform/tv-key-adapter';
 
 // Run the same component/worklet tests against git-show baseline files for red evidence.
 const source = (name: string) => process.env.PORTICO_ROW_ANCHOR_BASE
@@ -92,8 +93,11 @@ async function rig({count = 3, tv = true, reduced = false, initialWidth = 1920}:
     }};
     return motionPolicy.value;
   };
+  const nativeKeys = {useTVEventHandler(callback: any) {React.useEffect(() => {listeners.add(callback); return () => {listeners.delete(callback);};}, [callback]);}};
+  const keyModule = await screenModule(new URL('../src-next/platform/tv-keys.ts', import.meta.url), {react, 'react-native': nativeKeys,
+    './tv-key-adapter': {createTVKeyAdapter}, './tv-key-source': {tvKeySource: 'native'}});
   const anchorModule = await anchorCode(source('FocusAnchor.ts'), {react,
-    'react-native': {useTVEventHandler(callback: any) {React.useEffect(() => {listeners.add(callback); return () => {listeners.delete(callback);};}, [callback]);}},
+    'react-native': nativeKeys, '../../platform/tv-keys': keyModule,
     'react-native-reanimated': animated, '../theme': {useTheme: () => theme}, '../useMotion': {useMotion: motion}, './model': layoutModel,
   });
   const {Row} = await screenModule(source('Row.tsx'), {react, 'react-native': {View: 'View', Text: 'Text', Pressable: 'Pressable'},
@@ -199,13 +203,27 @@ test('actual row cancels/retargets from the sampled scroll offset; repeats use s
     await row.focus('item-0'); row.key('right'); await row.focus('item-1');
     assert.deepEqual(row.animations.at(-1)?.config, {duration: 320, curve: 'inOut'});
     await row.sample(120); const previous = row.animations.at(-1)!;
-    row.key('right'); await row.focus('item-2'); assert.equal(previous.cancelled, true);
+    row.key('longRight'); await row.focus('item-2'); assert.equal(previous.cancelled, true);
     assert.deepEqual(row.animations.at(-1)?.config, {duration: 320, curve: 'linear'});
     row.frame(); assert.equal(row.commands.at(-1), 120, 'a retarget starts at actual onScroll position');
     await row.finish(); assert.equal(row.position('item-2'), 200);
-    row.key('right', 1); row.key('left'); await row.focus('item-1');
+    row.key('longRight', 1); row.key('left'); await row.focus('item-1');
     assert.deepEqual(row.animations.at(-1)?.config, {duration: 320, curve: 'inOut'});
     await row.finish(); assert.deepEqual(row.requests, []);
+  } finally {row.close();}
+});
+
+test('release-only short Right reaches useFocusAnchor and anchors the native focus target', async () => {
+  const row = await rig();
+  try {
+    await row.focus('item-0');
+    row.key('right', 1); await row.focus('item-1');
+    assert.deepEqual(row.animations.at(-1)?.config, {duration: 320, curve: 'inOut'});
+    await row.finish(); assert.equal(row.position('item-1'), 200); assert.equal(row.offset, 428);
+    row.key('right', 1); await row.focus('item-2');
+    assert.deepEqual(row.animations.at(-1)?.config, {duration: 320, curve: 'linear'}, 'the second release-only tap reaches the anchor repeat policy');
+    await row.finish(); assert.equal(row.position('item-2'), 200); assert.equal(row.offset, 856);
+    assert.deepEqual(row.requests, [], 'native focus owns the target; the hook owns only its scroll');
   } finally {row.close();}
 });
 

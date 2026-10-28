@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {BackHandler, Text, View, useTVEventHandler} from 'react-native';
+import {BackHandler, Text, View} from 'react-native';
+import {useTVKeyEvent} from '../../platform/tv-keys';
 import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
 import {clockText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
@@ -82,10 +83,10 @@ export function NowPlayingCard({occupant, onAction, expanded = false, onExpanded
   const animated = useAnimatedStyle(() => ({opacity: fade.value}));
   const act = useCallback((type: DockAction) => {if (commandAllowed(occupant, type)) onAction(dockCommand(occupant, type));}, [occupant, onAction]);
   const seek = useCallback((value: number) => {const command = seekTo(occupant, value); if (command) onAction(command);}, [occupant, onAction]);
-  useTVEventHandler(event => {
-    if (!expanded || event.eventKeyAction === 1) return;
-    if (event.eventType === 'down') fold();
-    else if (seekFocused && (event.eventType === 'left' || event.eventType === 'right')) seek(playbackPosition(occupant) + (event.eventType === 'left' ? -p.skipBackSeconds : p.skipForwardSeconds ?? p.skipBackSeconds));
+  useTVKeyEvent(event => {
+    if (!expanded || !visible || event.phase !== 'press') return;
+    if (event.key === 'down') fold();
+    else if (seekFocused && (event.key === 'left' || event.key === 'right')) seek(playbackPosition(occupant) + (event.key === 'left' ? -p.skipBackSeconds : p.skipForwardSeconds ?? p.skipBackSeconds));
   });
   // TV never has a minimized video surface or a phone's sender controls.
   if (occupant.mode !== 'music' && occupant.mode !== 'audiobook') return null;

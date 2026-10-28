@@ -76,6 +76,7 @@ async function fixture(context: import('node:test').TestContext, initialStage: '
     '../../platform/accounts': {nativeAccounts: {accountCredentials: () => credentials}}, '../../platform/server-sign-in': {NativeServerSignIn: Server},
     '../../platform/portico-sign-in': {NativePorticoSignIn: Portico, porticoUsernameUnavailable: () => false},
     '../../platform/server-connections': {browseNearby: async () => []},
+    '../../platform/tv-menu': {useTVMenuCapture() {}},
     './PhoneFrontDoor': {PhoneFrontDoor: 'FrontDoor'}, './PhoneAccountSignIn': {PhoneAccountSignIn: 'AccountSignIn'},
     './LegalAgreement': legal, './PhoneAccountForm': {PhoneAccountForm: 'AccountForm'}, './PasswordStrengthMeter': {PasswordStrengthMeter: 'Strength'},
   };

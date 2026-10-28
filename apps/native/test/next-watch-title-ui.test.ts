@@ -32,6 +32,8 @@ async function fixture() {
     episode: {subscribe: () => () => {}, getSnapshot: () => ({phase: 'idle'}), close() {}}, pageLease: () => undefined,
     open: async () => {}, play: async () => {calls.push('play');}, personal: async () => {}, remember() {}, moreEpisodes: async () => {}};
   const modules = {
+    '../../kit/useMotion': {useMotion: () => ({reduce: false})},
+    './TVTitleChrome': {TVTitleBackdrop: 'TVTitleBackdrop', TVTitleCompactHeader: 'TVTitleCompactHeader', TVTitleHeroCopy: 'TVTitleHeroCopy'},
     react: {...react, default: react}, 'react-native': {View: 'View', Text: 'Text', ScrollView: 'Scroll', useWindowDimensions: () => viewport},
     'react-native-safe-area-context': {useSafeAreaInsets: () => insets}, '../../platform/native-blur': {BlurView: 'BlurView'},
     '../../../../../packages/client-core/src/presentation/kit-model': {cardText, episodeLabel, playbackIdentity, titleFactParts},

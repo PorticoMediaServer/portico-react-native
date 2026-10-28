@@ -50,7 +50,7 @@ const numbering = (entry: ContentEntry) => entry.absoluteNumber !== undefined ? 
  * the focus band that describes whatever holds focus. Only the visible page is
  * drawn; the list pages are the workspace's own. */
 export function TVEpisodeBrowser(props: TVEpisodeBrowserProps) {
-  const theme = useTheme(), t = defaultI18n.t, {episodes, open, nextUp} = props;
+  const theme = useTheme(), t = defaultI18n.t, {episodes, nextUp} = props;
   const fallback = nextUp && episodes.some(entry => entry.id === nextUp.id) ? nextUp : episodes[0];
   const [focus, setFocus] = useState<Focus>(() => fallback ? {kind: 'episode', entry: fallback} : props.seasons[0] ? {kind: 'season', season: props.seasons[0]} : {kind: 'empty'});
   const [menu, setMenu] = useState<WorkspaceSeason>();
@@ -61,10 +61,15 @@ export function TVEpisodeBrowser(props: TVEpisodeBrowserProps) {
     if (next) setFocus({kind: 'episode', entry: next}); else if (props.seasons[0]) setFocus({kind: 'season', season: props.seasons[0]}); else if (focus.kind !== 'empty') setFocus({kind: 'empty'});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [episodes, props.seasons, nextUp]);
-  const selectedSeason = focus.kind === 'season' ? focus.season : props.seasons.find(season => season.id === props.selectedSeasonId) ?? props.seasons[0];
+  const requested = props.requestedSeasonId ?? props.selectedSeasonId;
+  const lastRequested = useRef(requested), requestWitness = useRef(requested);
+  if (requestWitness.current !== requested) {requestWitness.current = requested; lastRequested.current = requested;}
   const seasonFocus = (season: WorkspaceSeason) => {
     setFocus({kind: 'season', season}); props.onSeasonFocus();
-    if (season.id !== props.selectedSeasonId) props.onSelectSeason(season.id);
+    // Focus followed immediately by accessibility/OK activation is one request,
+    // even before the service's requested route has reached this render.
+    if (season.id !== lastRequested.current) {lastRequested.current = season.id; props.onSelectSeason(season.id);}
+    if (props.seasons.indexOf(season) >= props.seasons.length - 3) props.onMoreSeasons();
   };
   const episodeFocus = (entry: ContentEntry) => {setFocus({kind: 'episode', entry}); props.onEpisodeFocus(entry);};
   const section = props.focus ?? {id: 'tv.episodes'};
@@ -88,7 +93,7 @@ export function TVEpisodeBrowser(props: TVEpisodeBrowserProps) {
           const counted = watched !== undefined && total !== undefined && total > 0;
           return <Focusable key={season.id} testID={`tv-season-${season.id}`} focusId={season.id} focusKind="row" focusRadius={14} accessibilityRole="button"
             accessibilityState={{selected: selected(season)}}
-            onFocus={() => seasonFocus(season)} onPress={() => {}}
+            onFocus={() => seasonFocus(season)} onPress={() => seasonFocus(season)}
             onLongPressAction={() => setMenu(season)} onLongPress={() => setMenu(season)}
             style={{minHeight: 84, marginBottom: 6, paddingHorizontal: 22, paddingVertical: 10, borderRadius: 14, justifyContent: 'center',
               backgroundColor: active ? '#409fd429' : 'transparent', overflow: 'hidden'}}>
@@ -132,7 +137,7 @@ export function TVTile({entry, more, ...props}: React.ComponentProps<typeof Epis
   return <EpisodeTile {...props} menuAnchorRef={anchor} onMore={() => more(entry, anchor)}/>;
 }
 
-export function FocusBand({focus, show, open, nextUp, text, onRetry, renderError}: {
+export function FocusBand({focus, open, text, onRetry, renderError}: {
   focus: Focus; show: TVEpisodeBrowserProps['show']; open: NativeTitleEpisodeSnapshot; nextUp?: ContentEntry; text: TextEnvironment;
   onRetry: () => void; renderError: TVEpisodeBrowserProps['renderError'];
 }) {

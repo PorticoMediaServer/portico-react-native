@@ -1,4 +1,4 @@
-import {DetailService, type DetailApi, type DetailScope, type PersonalIntent} from '../../../../../packages/client-core/src/detail';
+import {DetailService, readCreditPage, type DetailApi, type DetailScope, type PersonalIntent} from '../../../../../packages/client-core/src/detail';
 import {ShowWorkspaceService, saveShowSettings, type ShowSettings, type ShowWorkspaceData} from '../../../../../packages/client-core/src/show-workspace';
 import {getContainerState, setContainerState} from '../../../../../packages/client-core/src/container-state';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
@@ -9,6 +9,7 @@ import {sameAuthority, type ShellAuthority} from '../../shell/model';
 import {NativeTitleMemory, type NativeTitleAnchor, type NativeTitleTab} from './title-memory';
 import {NativeTitlePages} from './title-pages';
 import {NativeTitleEpisodeDetails} from './title-episode';
+import {NativeTitleCredits, type NativeTitleCreditsSnapshot} from './title-credits';
 
 export type NativeTitleControllerOptions = Readonly<{
   entry: ContentEntry;
@@ -42,6 +43,10 @@ export class NativeTitleController {
   readonly entry: ContentEntry;
   private readonly pages = new NativeTitlePages();
   private ingested: unknown;
+  private creditData?: object;
+  private credits?: NativeTitleCredits;
+  private creditReadHost?: NativeTitlePageHost;
+  private creditRefresh = false;
   private readonly options: NativeTitleControllerOptions;
   private listeners = new Set<() => void>();
   private off: (() => void)[] = [];
@@ -61,7 +66,10 @@ export class NativeTitleController {
       current: () => this.current() && !this.retired, play: (entry, target, startIntent) => this.options.playback.start({entry, target, startIntent})});
     this.snapshot = this.read();
     this.off = [this.detail.subscribe(this.changed), this.workspace.subscribe(this.changed), options.subscribeCurrent(() => {if (!this.current()) this.dispose();})];
-    this.offHost = options.subscribeHost?.(() => {for (const save of this.saves) if (!this.hostOf(save.lease)) save.request.abort();}) ?? (() => {});
+    this.offHost = options.subscribeHost?.(() => {
+      for (const save of this.saves) if (!this.hostOf(save.lease)) save.request.abort();
+      if (this.creditReadHost && !this.sameHost(this.creditReadHost)) this.credits?.cancel();
+    }) ?? (() => {});
   }
   private current(): boolean {return !this.retired && sameAuthority(this.options.authority, this.options.current());}
   /** The exact page and host a control was drawn under, captured once. */
@@ -69,16 +77,24 @@ export class NativeTitleController {
     const page = this.workspace.getSnapshot().data, host = this.options.host?.();
     return page && host ? Object.freeze({page, host}) : undefined;
   };
-  private hostOf(lease: NativeTitlePageLease): boolean {
+  private sameHost(expected: NativeTitlePageHost): boolean {
     const host = this.options.host?.();
-    if (!host || host.revision !== lease.host.revision) return false;
-    return host.fence === undefined ? lease.host.fence === undefined
-      : !!lease.host.fence && sameFence(host.fence, lease.host.fence);
+    if (!host || host.revision !== expected.revision) return false;
+    return host.fence === undefined ? expected.fence === undefined : !!expected.fence && sameFence(host.fence, expected.fence);
   }
+  private hostOf(lease: NativeTitlePageLease): boolean {return this.sameHost(lease.host);}
   private onLease(lease: NativeTitlePageLease): boolean {
     return this.current() && this.hostOf(lease) && this.workspace.getSnapshot().data === lease.page;
   }
   private read() {
+    const detail = this.retired ? undefined : this.detail.getSnapshot(), creditData = detail?.data ?? undefined;
+    if (creditData !== this.creditData) {
+      this.credits?.dispose(); this.credits = undefined; this.creditData = creditData ?? undefined;
+      if (creditData) this.credits = new NativeTitleCredits({id: creditData.item.id, revision: creditData.revision,
+        credits: creditData.metadata.credits, totals: creditData.metadata.creditTotals,
+        current: () => this.current() && this.detail.getSnapshot().data === creditData,
+        read: (group, cursor, signal) => readCreditPage(this.options.api, creditData.item.id, group, {cursor, limit: 37}, signal), changed: this.changed});
+    }
     const workspace = this.retired ? undefined : this.workspace.getSnapshot(), data = workspace?.data;
     if (workspace?.phase === 'ready' && data && data !== this.ingested) {
       this.ingested = data;
@@ -86,7 +102,7 @@ export class NativeTitleController {
         fence: JSON.stringify([data.scope.serverId, data.scope.libraryId, data.scope.viewerFence, data.revision.catalog, data.revision.viewer]),
         episodeCursor: workspace.pagination.cursor, seasonCursor: workspace.seasonPagination.cursor, episodes: data.episodes.sections[0]?.entries ?? [], seasons: data.seasons});
     }
-    return Object.freeze({entry: this.entry, detail: this.retired ? undefined : this.detail.getSnapshot(), workspace, ...this.pages.getSnapshot(), place: this.memory.getSnapshot(), retired: this.retired});
+    return Object.freeze({entry: this.entry, detail, credits: this.credits?.getSnapshot(), workspace, ...this.pages.getSnapshot(), place: this.memory.getSnapshot(), retired: this.retired});
   }
   getSnapshot = () => this.snapshot;
   subscribe = (listener: () => void): (() => void) => {this.listeners.add(listener); return () => {this.listeners.delete(listener);};};
@@ -153,6 +169,25 @@ export class NativeTitleController {
     await this.workspace.refresh();
     this.changed();
   };
+  /** A page boundary uses the exact credit snapshot it rendered and the current route/session host. */
+  moreCredits = async (expected: NativeTitleCreditsSnapshot): Promise<void> => {
+    const host = this.options.host?.(), owner = this.credits;
+    if (!this.current() || this.creditRefresh || this.options.host && !host || !owner || owner.getSnapshot() !== expected) return;
+    this.creditReadHost = host;
+    const code = (expected.error as {code?: string} | undefined)?.code;
+    if (['stale_continuation', 'cursor_expired', 'invalid_cursor', 'permission_changed'].includes(code ?? '')) {
+      // A page from a new revision cannot be spliced into this row. Refresh the
+      // actual Detail producer first, then use only its replacement cursor owner.
+      this.creditRefresh = true;
+      try {
+        await this.detail.refresh();
+        if (!this.current() || host && !this.sameHost(host) || this.credits === owner) return;
+        if (this.credits) await this.credits.next(this.credits.getSnapshot());
+      } finally {this.creditRefresh = false;}
+      return;
+    }
+    await owner.next(expected);
+  };
   moreEpisodes = async (): Promise<void> => {if (this.current() && this.workspace.getSnapshot().phase === 'ready') await this.workspace.nextEpisodes();};
   moreSeasons = async (): Promise<void> => {if (this.current() && this.workspace.getSnapshot().phase === 'ready') await this.workspace.nextSeasons();};
   /** Owner show settings, bound to the exact page and host the sheet opened on.
@@ -195,6 +230,7 @@ export class NativeTitleController {
     for (const save of this.saves) save.request.abort();
     this.saves.clear();
     for (const off of this.off) off(); this.off = [];
+    this.credits?.dispose(); this.credits = undefined;
     this.detail.dispose(); this.workspace.dispose(); this.pages.dispose(); this.episode.dispose(); this.snapshot = this.read();
     for (const listener of [...this.listeners]) listener(); this.listeners.clear();
   };

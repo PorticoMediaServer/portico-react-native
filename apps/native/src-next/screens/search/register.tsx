@@ -17,7 +17,7 @@ import {createNativeSearchSelection} from './selection';
 import {createNativeReadingSearchModule} from './reading-register';
 import {authorityKey} from '../../shell/model';
 
-type Root = Readonly<{route: NativeShellRoute; key: number; search: ReturnType<typeof createNativeSearchController>;
+type Root = Readonly<{route: NativeShellRoute; key: number; focusScope: string; search: ReturnType<typeof createNativeSearchController>;
   explore: NativeSearchExplore; selection: ReturnType<typeof createNativeSearchSelection>; actions: ReturnType<typeof createNativeSearchActions>}>;
 type GenreRoute = Extract<NativeShellRoute, {kind: 'search-genre'}>;
 type Genre = Readonly<{route: GenreRoute; key: number; focusScope: string; controller: ReturnType<typeof createNativeSearchGenreController>; actions: ReturnType<typeof createNativeEntryActions>}>;
@@ -52,7 +52,8 @@ export function createNativeSearchModule(context: NativeShellBootstrapContext): 
         if (visible(route) || showing.kind === 'search-genres' && all.get(showing)?.explore === explore && visible(showing)) openNativeSearchGenre(context, genre);
       }});
       const selection = createNativeSearchSelection(context, search.source, search.activation);
-      roots.set(route, {route, key: ++sequence, search, explore, selection, actions: createNativeSearchActions(context, search.source, search.activation, selection)});
+      const key = ++sequence;
+      roots.set(route, {route, key, focusScope: `search:${key}`, search, explore, selection, actions: createNativeSearchActions(context, search.source, search.activation, selection)});
     }
     for (const route of routes) {
       if (route.kind === 'search-genre' && !genres.has(route)) {
@@ -107,7 +108,7 @@ function SearchHost({entry, runtime}: {entry: Root; runtime: NativeShellRuntime}
   useEffect(() => {if (active.visible) entry.search.seed();}, [active.visible, entry]);
   return <View pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible} importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'}
     style={{position: 'absolute', inset: 0, display: active.visible ? 'flex' : 'none'}}>
-    <SearchScreen destination={entry.search.source} activation={entry.search.activation} explore={entry.explore} actions={entry.actions} selection={entry.selection} runtime={runtime}
+    <SearchScreen focusScope={entry.focusScope} destination={entry.search.source} activation={entry.search.activation} explore={entry.explore} actions={entry.actions} selection={entry.selection} runtime={runtime}
       tvCopy={{preferToTalk: 'next.search.preferToTalk', voiceHint: 'next.search.remoteMicrophoneHelp'}}/>
   </View>;
 }

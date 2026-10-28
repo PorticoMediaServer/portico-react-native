@@ -1,6 +1,7 @@
 import React from 'react';
-import {Text, View} from 'react-native';
-import type {MessageId} from '../../../../../../packages/i18n/src';
+import {ScrollView, Text, View} from 'react-native';
+import {settingsSpec} from '../../../../../../packages/client-core/src/presentation/settings-spec';
+import {nextIcons} from '../../../../../../packages/design/src/next-icons';
 import {Focusable} from '../../../kit/controls';
 import {FocusRegion} from '../../../kit/focus';
 import {Icon} from '../../../kit/Icon';
@@ -9,18 +10,18 @@ import {shellType} from '../../../kit/shell/visual';
 import {useTheme} from '../../../kit/theme';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 
-export type TVServerPage = 'dashboard' | 'libraries' | 'remote' | 'people' | 'troubleshooting';
-const pages: readonly {id: TVServerPage; label: MessageId; icon: React.ComponentProps<typeof Icon>['name']}[] = [
-  {id: 'dashboard', label: 'next.shell.dashboard', icon: 'i-pulse'},
-  {id: 'libraries', label: 'settings.server.libraries', icon: 'i-folder'},
-  {id: 'remote', label: 'settings.server.remote', icon: 'i-globe'},
-  {id: 'people', label: 'settings.server.people', icon: 'i-people'},
-  {id: 'troubleshooting', label: 'settings.server.troubleshooting', icon: 'i-wrench'},
-];
-/** Pages the drawn administrator view exposes (frame 39); the owner sees every
- * mounted page. This list never grants a reader authority. Their Troubleshooting
- * page is the coded event projection, never the owner's message log. */
-const administratorPages: ReadonlySet<TVServerPage> = new Set(['dashboard', 'people', 'troubleshooting']);
+export const tvServerPageOrder = ['general', 'dashboard', 'history', 'libraries', 'remote-sources', 'metadata', 'segments', 'live', 'people', 'signin', 'remote', 'integrations', 'streaming', 'storage'] as const;
+export type TVServerPage = typeof tvServerPageOrder[number];
+export const isTVServerPage = (value: unknown): value is TVServerPage => typeof value === 'string' && (tvServerPageOrder as readonly string[]).includes(value);
+export function tvServerPageDefinition(id: TVServerPage) {
+  const section = settingsSpec.find(value => value.scope === 'server' && value.id === id);
+  if (!section) throw new Error('native_tv_server_page_missing');
+  const icon = `i-${section.icon.replace(/^i-/, '')}`;
+  return {id, label: section.title, icon: Object.hasOwn(nextIcons, icon) ? icon as React.ComponentProps<typeof Icon>['name'] : 'i-sliders' as const};
+}
+// The primary-profile admission and reader still enforce these roles. G35 places
+// Troubleshooting off television for both roles; no message-log route is offered.
+const administratorPages: ReadonlySet<TVServerPage> = new Set(['dashboard', 'people']);
 
 /** Only pages with a real mounted reader enter the menu. Admission is still
  * checked by route composition; this list never grants a reader authority. */
@@ -31,15 +32,16 @@ export function TVServerPageMenu({role, page, serverName, runtime, column, rows,
   onSelect: (page: TVServerPage) => void;
 }) {
   const theme = useTheme(), t = runtime.text.t;
-  return <View style={{width: 480}}>
+  return <View style={{width: 480, flexShrink: 0}}>
     <Text accessibilityRole="header" style={[shellType(44, 800), {color: theme.colors.text, marginLeft: 20, marginBottom: 24}]}>{t('next.shell.serverSettings')}</Text>
     <ServerHeader serverName={serverName} viewerRole={role} audience={role === 'owner' ? 'owner' : 'administrators'} variant="group" style={{padding: 20}}/>
-    <FocusRegion id={column} entry={page} orientation="vertical" edges={{left: rail, right: rows}} onLayout={onLayout}>
-      {pages.filter(item => role === 'owner' || administratorPages.has(item.id)).map(item => <Focusable key={item.id} focusId={item.id} testID={`server-page-${item.id}`} focusKind="row" accessibilityRole="button" accessibilityLabel={t(item.label)} accessibilityState={{selected: page === item.id}}
-        onPress={() => onSelect(item.id)} style={{minHeight: 50, paddingHorizontal: 20, borderRadius: 14, backgroundColor: page === item.id ? `${theme.colors.accent}29` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 16}}>
-        <Icon name={item.icon} size={24} color={page === item.id ? theme.colors.accentStrong : theme.colors.text}/>
-        <Text style={[shellType(24, 600), {color: theme.colors.text}]}>{t(item.label)}</Text>
+    <ScrollView style={{flex: 1}} contentContainerStyle={{paddingHorizontal: 16, paddingBottom: 24}}><FocusRegion id={column} entry={page} orientation="vertical" edges={{left: rail, right: rows}} onLayout={onLayout}>
+      {tvServerPageOrder.filter(id => role === 'owner' || administratorPages.has(id)).map(tvServerPageDefinition).map(item => <Focusable key={item.id} focusId={item.id} testID={`server-page-${item.id}`} focusKind="row" accessibilityRole="button" accessibilityLabel={t(item.label)} accessibilityState={{selected: page === item.id}}
+        onFocus={() => {if (page !== item.id) onSelect(item.id);}} onPress={() => onSelect(item.id)} style={{minHeight: 56, paddingHorizontal: 20, borderRadius: 14, backgroundColor: page === item.id ? `${theme.colors.accent}29` : 'transparent', flexDirection: 'row', alignItems: 'center', gap: 16}}>
+        {page === item.id && <View pointerEvents="none" style={{position: 'absolute', left: 0, top: 14, bottom: 14, width: 4, borderRadius: 2, backgroundColor: theme.colors.accent}}/>}
+        <Icon name={item.icon} size={24} color={page === item.id ? theme.colors.accentStrong : theme.colors.textTertiary}/>
+        <Text style={[shellType(22, 600), {color: page === item.id ? theme.colors.text : theme.colors.textSecondary}]}>{t(item.label)}</Text>
       </Focusable>)}
-    </FocusRegion>
+    </FocusRegion></ScrollView>
   </View>;
 }

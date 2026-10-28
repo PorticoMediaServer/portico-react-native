@@ -49,19 +49,19 @@ const tvSearchR46 = {
   genreCopy: {position: 'absolute', left: 30, bottom: 26},
 } as const;
 export type NativeTVSearchScreenProps = Readonly<{
-  destination: NativeSearchDestination; runtime: NativeShellRuntime; activation: NativeDestinationActivationPort;
+  focusScope?: string; destination: NativeSearchDestination; runtime: NativeShellRuntime; activation: NativeDestinationActivationPort;
   explore: NativeSearchExplorePort; actions: NativeSearchActions; selection?: NativeSearchSelectionPort; copy: NativeSearchTVCopy;
 }>;
 
 /** The actual Search destination keeps its own service, IDs and navigation intent.
  * Only the shared keyboard requests entry focus; result arrival never moves it. */
-export function TVSearchScreen({destination, runtime, activation, explore, actions, selection, copy}: NativeTVSearchScreenProps) {
+export function TVSearchScreen({focusScope, destination, runtime, activation, explore, actions, selection, copy}: NativeTVSearchScreenProps) {
   useSyncExternalStore(actions.menuState?.subscribe ?? (() => () => {}), actions.menuState?.getSnapshot ?? (() => 0));
   const theme = useTheme(), dimensions = useWindowDimensions(), scroll = useRef<ScrollView>(null), [keyboardRow, setKeyboardRow] = useState<string>();
   const contentRoot = useRef<View>(null), [viewport, setViewport] = useState({y: 0, height: 1016}), [contentHeight, setContentHeight] = useState(0);
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot), landing = useSyncExternalStore(explore.subscribe, explore.getSnapshot);
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot), authority = runtime.getSnapshot().authority;
-  const ids = useMemo(() => nativeDestinationFocusIds(authority), [authority]), registry = useFocusRegistry();
+  const ids = useMemo(() => nativeDestinationFocusIds(authority, focusScope), [authority, focusScope]), registry = useFocusRegistry();
   useEffect(() => {
     if (!active.visible) return;
     return runtime.registerTVPageBack?.(() => {

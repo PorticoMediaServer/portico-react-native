@@ -201,7 +201,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     finally {if (epoch === commandEpoch.current) {busy.current = false; if (current()) setPending(false);}}
   };
   if (!state.panel || !sameFence(state.fence, fence)) return null;
-  if (state.panel === 'episodes') return episodes?.(context) ?? null;
+  if (state.panel === 'episodes') return <FocusRegion ref={first} id="watch-panel" hold orientation="vertical" entryRegion="watch-episodes" enabled={panelInteractive} style={{flex: 1}}>{episodes?.(context)}</FocusRegion>;
   const ready = choices.phase === 'ready' && sameFence(choices.fence, fence) ? choices.options : undefined;
   const onlineSubtitles = fence.kind === 'queue' ? source.subtitles : undefined;
   const subtitlePlan = onlineSubtitles?.plan, subtitleProvider = onlineSubtitles?.catalog?.provider, subtitleCandidates = onlineSubtitles?.candidates ?? [];
@@ -429,9 +429,12 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
       </View>
     </View>)}</View>;
   else if (state.panel === 'chapters' && ready) body = list(ready.chapters.map((chapter, index) => ({id: `${index}:${chapter.startMs}`, primary: chapter.title || t('player.chapter.numbered', {number: index + 1}), secondary: clockText(chapter.startMs / 1000), selected: source.playback.positionSeconds * 1000 >= chapter.startMs && (!ready.chapters[index + 1] || source.playback.positionSeconds * 1000 < ready.chapters[index + 1]!.startMs), value: chapter})), chapter => playback.seek(fence, chapter.startMs / 1000));
+  const renderedOptions: NativeWatchPanel[] = ['subtitles', ...(style?.fields.length && theme.isTV ? ['style' as const] : []), 'audio', ...(fence.kind !== 'local' ? ['quality' as const] : []), 'speed',
+    ...(sleep ? ['sleep' as const] : []), ...(following.length ? ['up-next' as const] : []), ...(ready?.chapters.length ? ['chapters' as const] : []), ...(playbackInfo ? ['playback-info' as const] : [])];
+  const initialOption = state.panelFocus && renderedOptions.includes(state.panelFocus) ? state.panelFocus : renderedOptions[0];
   const option = (panel: NativeWatchPanel, icon: IconName, value?: string) => {
     const open = state.panel === panel;
-    return <Focusable key={panel} ref={state.panel === 'options' && (state.panelFocus === panel || !state.panelFocus && panel === 'subtitles') ? first : undefined}
+    return <Focusable key={panel} ref={state.panel === 'options' && panel === initialOption ? first : undefined}
       focusId={`watch-option-${panel}`} testID={`watch-option-${panel}`} focusKind="row" accessibilityRole="button" accessibilityState={{expanded: open}} onPress={() => {if (current()) context.openPanel(panel);}}
       style={({focused}) => ({minHeight: theme.isTV ? 60 : 44, paddingHorizontal: theme.isTV ? 20 : 12, flexDirection: 'row', alignItems: 'center', gap: 12,
         borderRadius: theme.isTV ? open ? 0 : 14 : 0, ...(theme.isTV && open ? {borderTopLeftRadius: 14, borderTopRightRadius: 14} : {}),

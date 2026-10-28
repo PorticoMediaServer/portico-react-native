@@ -6,13 +6,15 @@ import {cardText, episodeLabel, playbackIdentity, titleFactParts, type TextEnvir
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {AmbientArt, Artwork, type AmbientArtSource, type ArtworkSource} from '../../kit/artwork';
 import {EpisodeTile, PosterCard, type EpisodeTileProps, type PosterCardProps} from '../../kit/cards';
-import {Button, Chip, Focusable, ResumeButton, Switch, Tabs} from '../../kit/controls';
+import {Button, Focusable, ResumeButton, Switch, Tabs} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
 import {TVShelf, tvItemKey} from '../../tv/layout/TVShelf';
 import {FocusRegion, useOptionalFocusRegistry, type FocusRegionProps} from '../../kit/focus';
 import {tvFocusIds} from '../../shell/tv-focus';
 import type {ShellAuthority} from '../../shell/model';
-import {tvTitleRegionMap} from './tv-title-focus';
+import {tvTitleRegionMap, tvTitleFocusSection} from './tv-title-focus';
+import {TVTitleBackdrop, TVTitleCompactHeader, TVTitleHeroCopy} from './TVTitleChrome';
+import {useMotion} from '../../kit/useMotion';
 import {HeroMetadata} from '../../kit/layout/Hero';
 import {StateLayout, TitleSkeleton} from '../../kit/states';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
@@ -90,7 +92,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const menuEntry = useSyncExternalStore(props.menu?.subscribe ?? noMenuSubscribe, props.menu?.getSnapshot ?? noMenuSnapshot);
   const openEpisode = useSyncExternalStore(controller.episode.subscribe, controller.episode.getSnapshot);
   const menuIsOpen = (entry: ContentEntry) => !!menuEntry && menuEntry.id === entry.id && menuEntry.kind === entry.kind && menuEntry.libraryId === entry.libraryId;
-  const theme = useTheme(), viewport = useWindowDimensions(), insets = useSafeAreaInsets(), t = defaultI18n.t;
+  const theme = useTheme(), viewport = useWindowDimensions(), insets = useSafeAreaInsets(), t = defaultI18n.t, motion = useMotion();
   const titleArt = useRef<View>(null), readyArt = useRef<ArtworkSource | undefined>(undefined), artScrollRevision = useRef(0);
   const drawnArt = useRef<{controller: NativeTitleController; key: string} | undefined>(undefined);
   const artListeners = useRef(new Set<() => void>()), artMounted = useRef(false);
@@ -124,6 +126,8 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const leftWidth = twoPane ? divider - rail : viewport.width, rightWidth = twoPane ? viewport.width - divider : viewport.width;
   const bodyWidth = props.watch?.width ?? (twoPane ? rightWidth : viewport.width);
   const scroll = useRef<ScrollView>(null), titleMore = useRef<View>(null), titlePlay = useRef<View>(null), titlePlayOn = useRef<View>(null), bodyTop = useRef(0), cells = useRef(new Map<string, {y: number; height: number}>());
+  const [tvBrowsing, setTVBrowsing] = useState(false), [tvTab, setTVTab] = useState<NativeTitleTab>(snapshot.place.tab);
+  const tvAnchor = useRef<Readonly<{browsing: boolean; anchor?: string}> | undefined>(undefined), tvAligned = useRef('');
   const [collapsed, setCollapsed] = useState(false), [elapsed, setElapsed] = useState(0), [pinnedWidth, setPinnedWidth] = useState(0);
   // Each sheet owns the exact page and host it opened on, and the settings sheet
   // also owns its ticket. A callback only ever acts for the sheet it was rendered
@@ -136,6 +140,29 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   useEffect(() => () => continueController.current?.abort(), []);
   const pendingAnchor = useRef<ReturnType<NativeTitleController['memory']['getSnapshot']>['anchor'] | undefined>(controller.memory.getSnapshot().anchor);
   const detail = snapshot.detail?.data, workspace = snapshot.workspace?.data;
+  const focusScope = JSON.stringify([props.authority, snapshot.entry.kind, snapshot.entry.libraryId, snapshot.entry.id]);
+  const relatedRows = (detail?.related?.rows ?? []).filter(row => row.entries.length > 0);
+  const hasPeople = !!props.person && ((snapshot.credits?.credits ?? detail?.metadata.credits ?? []).some(credit => !!credit.personId) || !!snapshot.credits?.hasMore);
+  const regions = tvTitleRegionMap(focusScope, props.authority ? tvFocusIds(props.authority).rail : undefined,
+    ['show', 'season', 'episode'].includes(snapshot.entry.kind) && !!workspace, relatedRows.map(row => row.id), !!detail?.collections?.[0], hasPeople);
+  const tvSection = theme.isTV ? tvTitleFocusSection(regions, activeFocus?.regionId) : undefined;
+  const alignTV = () => {
+    if (!theme.isTV) return;
+    const target = tvAnchor.current;
+    if (!target) return;
+    const cell = target.anchor ? cells.current.get(target.anchor) : undefined;
+    if (target.browsing && (!bodyTop.current || !cell)) return;
+    const y = target.browsing ? Math.max(0, bodyTop.current + cell!.y - 252) : 0;
+    const key = `${target.anchor ?? 'hero'}:${y}`;
+    if (tvAligned.current === key) return;
+    tvAligned.current = key; scroll.current?.scrollTo({y, animated: !motion.reduce});
+  };
+  useEffect(() => {
+    if (!tvSection) return;
+    tvAnchor.current = tvSection; setTVBrowsing(tvSection.browsing); if (tvSection.tab) setTVTab(tvSection.tab); alignTV();
+    // A row's focus identity, not each card or season in it, aligns the title body.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controller, tvSection?.browsing, tvSection?.anchor, motion.reduce]);
   const myList = props.myList ?? (detail?.actions.some(action => action.id === 'watchlist' && action.enabled)
     ? {selected: detail.personal.watchlisted, change: (value: boolean) => controller.personal({action: 'watchlist', value})} : undefined);
   const show = ['show', 'season', 'episode'].includes(snapshot.entry.kind);
@@ -171,13 +198,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   drawnArt.current = {controller, key: artKey};
   const selectedTab = snapshot.place.tab;
   const tabItems = [...(show ? [{value: 'episodes', label: t('title.episodes')}] : []), {value: 'related', label: t('next.controls.moreLikeThis')}, {value: 'details', label: t('title.details')}];
-  const focusScope = JSON.stringify([props.authority, snapshot.entry.kind, snapshot.entry.libraryId, snapshot.entry.id]);
-  const relatedRows = (detail?.related?.rows ?? []).filter(row => row.entries.length > 0);
-  const hasPeople = !!props.person && (detail?.metadata.credits ?? []).some(credit => !!credit.personId);
-  const regions = tvTitleRegionMap(focusScope, props.authority ? tvFocusIds(props.authority).rail : undefined,
-    show && !!workspace, relatedRows.map(row => row.id), !!detail?.collections?.[0], hasPeople);
-  const focusedSection = activeFocus?.regionId?.startsWith(`${regions.prefix}.episodes`) ? 'episodes'
-    : activeFocus?.regionId?.startsWith(`${regions.prefix}.related`) ? 'related' : activeFocus?.regionId === regions.people?.id ? 'details' : selectedTab;
+  const focusedSection = tvSection?.tab ?? tvTab;
   const tabs = <Tabs testID="watch-title-tabs" passive={theme.isTV} value={theme.isTV ? focusedSection : selectedTab}
     onValueChange={theme.isTV ? undefined : value => controller.tab(value as NativeTitleTab)} items={tabItems}
     contentContainerStyle={{paddingHorizontal: theme.isTV ? 0 : 20, justifyContent: centered ? 'center' : undefined}}/>;
@@ -333,20 +354,29 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
     const first = [...cells.current].filter(([, cell]) => cell.y + cell.height > local).sort((a, b) => a[1].y - b[1].y)[0];
     if (first) controller.remember({itemId: first[0], offset: Math.max(0, local - first[1].y)});
   };
-  const cell = (id: string, children: ReactNode) => <View key={id} onLayout={event => {cells.current.set(id, event.nativeEvent.layout); restore();}}>{children}</View>;
+  const cell = (id: string, children: ReactNode) => <View key={id} onLayout={event => {cells.current.set(id, event.nativeEvent.layout); restore(); alignTV();}}>{children}</View>;
   const detailRows = [
-    {label: t('title.releaseDate'), value: detail?.facts?.releaseDate ? new Intl.DateTimeFormat(text.locale ?? 'en-US', {month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC'}).format(new Date(detail.facts.releaseDate)) : undefined},
+    {id: 'released', label: t('title.releaseDate'), value: detail?.facts?.releaseDate ? new Intl.DateTimeFormat(text.locale ?? 'en-US', {month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC'}).format(new Date(detail.facts.releaseDate)) : undefined},
     {label: t('title.genres'), value: detail?.metadata.genres.map(genre => genre.name).join(', ')},
     {label: t('title.ratings'), value: detail?.metadata.ratings.map(rating => `${rating.provider} ${rating.value}`).join(', ')},
     {label: t('title.studio'), value: workspace?.show.studio ?? detail?.facts?.studio},
     {label: t('title.added'), value: detail?.item.addedAt ? new Intl.DateTimeFormat(text.locale ?? 'en-US', {month: 'long', day: 'numeric', year: 'numeric'}).format(new Date(detail.item.addedAt)) : undefined},
   ].filter(row => row.value);
   // A show's own workspace carries its credits; a movie's detail read carries them.
-  const credits = detail?.metadata.credits ?? (workspace?.show.credits ?? []).map(credit => ({
+  const credits = theme.isTV && snapshot.credits ? snapshot.credits.credits : detail?.metadata.credits ?? (workspace?.show.credits ?? []).map(credit => ({
     id: credit.id ?? `show-credit-${credit.ordinal}`, name: credit.name, role: credit.role ?? '', department: credit.department ?? '',
     provider: '', ...(credit.portraitUrl ? {portraitUrl: credit.portraitUrl} : {})})), creditNames = (departments: readonly string[]) =>
     [...new Set(credits.filter(credit => departments.includes(credit.department.toLowerCase())).map(credit => credit.name))];
   const directors = creditNames(['directing', 'director', 'direction']), writers = creditNames(['writing', 'writer', 'writers']);
+  const creditPage = theme.isTV ? snapshot.credits : undefined;
+  const creditPaging = creditPage ? {hasMore: creditPage.hasMore, loading: creditPage.loading, failed: !!creditPage.error,
+    waitingId: creditPage.waitingId, waitingItem: {id: creditPage.waitingId, name: '', role: '', department: '', provider: ''},
+    fulfilled: creditPage.fulfilled, requestNext: () => {void controller.moreCredits(creditPage).catch(props.reportError);}} : undefined;
+  const aboutRows = [...detailRows.filter(row => row.id === 'released'),
+    ...(directors.length ? [{label: t('title.directedBy', {names: ''}).trim(), value: defaultI18n.list(directors)}] : []),
+    ...(writers.length ? [{label: t('title.writtenBy', {names: ''}).trim(), value: defaultI18n.list(writers)}] : []),
+    ...detailRows.filter(row => row.id !== 'released')];
+
   const castNames = [...new Set(credits.filter(credit => ['acting', 'cast'].includes(credit.department.toLowerCase())).map(credit => credit.name))];
   // The drawn synopsis is 24/1.45 in 800 and ends in 30; the credits line follows it and ends in 30.
   const copyBlock = props.watch && !titleOnly ? null : <>
@@ -388,8 +418,8 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   const hero = (
       <View testID="watch-title-hero" style={props.watch ? {paddingTop: 18, paddingBottom: 18} : {height: heroHeight}}>
         {!theme.isTV && !props.watch ? <View ref={titleArt} collapsable={false} pointerEvents="none"
-          style={{position: 'absolute', top: 0, left: 0, right: 0, height: heroHeight + 120}}>{heroArt}</View> : heroArt}
-        <View style={props.watch ? {paddingHorizontal: 20} : {position: 'absolute', left: theme.isTV ? 200 : 20, right: theme.isTV ? 200 : 20, bottom: theme.isTV ? 60 : phoneTitle ? 4 : 24}}>
+          style={{position: 'absolute', top: 0, left: 0, right: 0, height: heroHeight + 120}}>{heroArt}</View> : theme.isTV ? null : heroArt}
+        <TitleHeroCopy browsing={tvBrowsing} style={props.watch ? {paddingHorizontal: 20} : {position: 'absolute', left: theme.isTV ? 200 : 20, right: theme.isTV ? 200 : 20, bottom: theme.isTV ? 60 : phoneTitle ? 4 : 24}}>
           {(theme.isTV || wide) && !props.watch && detail?.collections?.[0] ? <TitleRegion {...regions.collection}><Focusable focusId="watch-title-collection" testID="watch-title-collection" focusKind="row" focusRadius={8}
             onPress={() => props.openCollection?.({...detail.collections![0]!, libraryId: detail.scope.libraryId})}
             style={{alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 10 : 8, marginBottom: theme.isTV ? 12 : 6}}>
@@ -420,7 +450,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           </View>
           {!phoneTitle && titleProgress}
           {theme.isTV || wide || phoneTitle ? null : copyBlock}
-        </View>
+        </TitleHeroCopy>
       </View>
   );
   const heroNode = phoneTitle ? <View>{hero}<View style={{paddingTop: 18, paddingHorizontal: 20}}>{actions}{titleProgress}{copyBlock}</View></View> : hero;
@@ -450,8 +480,8 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
     });
   };
   const bodyNode = (
-      <View onLayout={event => {bodyTop.current = event.nativeEvent.layout.y; restore();}} style={{paddingHorizontal: theme.isTV ? 200 : 20, paddingTop: 20, paddingBottom: 60, gap: 20}}>
-        {(theme.isTV || selectedTab === 'episodes') && workspace && (theme.isTV ? <TVEpisodeBrowser focus={regions.episodes} requestedSeasonId={snapshot.workspace?.route?.selectedSeasonId} seasons={snapshot.seasons} selectedSeasonId={workspace.selected.seasonId ?? null}
+      <View onLayout={event => {bodyTop.current = event.nativeEvent.layout.y; restore(); alignTV();}} style={{paddingLeft: theme.isTV ? 200 : 20, paddingRight: theme.isTV ? 96 : 20, paddingTop: 20, paddingBottom: theme.isTV ? Math.max(60, viewport.height - 600) : 60, gap: 20}}>
+        {(theme.isTV || selectedTab === 'episodes') && workspace && (theme.isTV ? cell('episodes', <TVEpisodeBrowser focus={regions.episodes} requestedSeasonId={snapshot.workspace?.phase === 'loading' ? snapshot.workspace.route?.selectedSeasonId : undefined} seasons={snapshot.seasons} selectedSeasonId={workspace.selected.seasonId ?? null}
           episodes={episodes} nextUp={workspace.nextUp} show={{title: workspace.show.title, overview: workspace.show.overview, backdropUrl: workspace.show.backdropUrl}}
           open={openEpisode} text={text} artwork={props.artwork} more={props.more}
           onSeasonFocus={() => controller.episode.close()} onEpisodeFocus={entry => controller.episode.open(entry)}
@@ -461,7 +491,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           onMarkSeason={(id, watched) => {void controller.markSeason(id, watched).catch(props.reportError);}}
           onMoreSeasons={() => {void controller.moreSeasons().catch(props.reportError);}}
           onMoreEpisodes={() => {void controller.moreEpisodes().catch(props.reportError);}}
-          onRetryEpisode={() => controller.episode.retry()} renderError={props.renderError}/>
+          onRetryEpisode={() => controller.episode.retry()} renderError={props.renderError}/>)
           : <>
           <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
             <Button testID="watch-seasons-open" variant="glass" size="small" trailingIcon="i-chdown" style={{flexShrink: 0}}
@@ -514,15 +544,28 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           })()}
         </>)}
         {(theme.isTV || selectedTab === 'related') && relatedRows.map(row => cell(row.id, <View><Text style={[theme.isTV ? theme.type.rowHeading : theme.type.heading, {color: theme.colors.text, marginBottom: 14}]}>{row.heading}</Text>
-          {theme.isTV ? <TVShelf items={row.entries} getKey={tvItemKey} getFocusId={tvItemKey} focus={regions.related.get(row.id)} itemWidth={214} itemHeight={420} gap={10}
+          {theme.isTV ? <TVShelf items={row.entries} getKey={tvItemKey} getFocusId={tvItemKey} focus={regions.related.get(row.id)} itemWidth={214} itemHeight={420} gap={28}
             renderItem={(entry, slot) => <TitleRelated entry={entry} focusId={slot.focusId} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.displayTitle ?? entry.title} artwork={props.artwork(entry.posterUrl)} width={214}
+              caption={entry.year !== undefined ? [{id: 'year', text: defaultI18n.number(entry.year, {useGrouping: false}), role: 'value'}] : undefined}
+              watched={entry.watched} progress={entry.duration && Number.isFinite(entry.duration) && entry.duration > 0 && entry.progressSeconds !== undefined && Number.isFinite(entry.progressSeconds) ? Math.max(0, Math.min(1, entry.progressSeconds / entry.duration)) : undefined}
               onFocus={slot.onFocus} onBlur={slot.onBlur} onNavigate={() => props.navigate(entry)}/>}/>
             : <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 10}}>{row.entries.map(entry => <TitleRelated key={entry.id} entry={entry} more={props.more} moreExpanded={menuIsOpen(entry)} selection={props.selection?.(entry)} title={entry.displayTitle ?? entry.title} artwork={props.artwork(entry.posterUrl)} width={(bodyWidth - 60) / 3} caption={entry.year !== undefined ? [{id: 'year', text: String(entry.year), role: 'supplement'}] : undefined} onNavigate={() => props.navigate(entry)}/>)}</ScrollView>}</View>))}
         {(theme.isTV || selectedTab === 'details') && cell('details', <View style={{gap: 16}}>
-          <Text style={[theme.isTV ? theme.type.rowHeading : theme.type.heading, {color: theme.colors.text}]}>{props.aboutLabel}</Text>
-          {theme.isTV && detail?.facts?.tagline ? <Text style={[theme.type.body, {color: theme.colors.textTertiary, fontStyle: 'italic'}]}>{detail.facts.tagline}</Text> : null}
-          {overview && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{overview}</Text>}
-          <View style={{backgroundColor: theme.colors.raisedHigh, borderRadius: 14, paddingHorizontal: 14}}>{detailRows.map(row => <View key={row.label} style={{flexDirection: 'row', gap: 14, paddingVertical: 12, borderBottomWidth: 1, borderColor: theme.colors.line}}><Text style={[theme.type.caption, {width: 90, color: theme.colors.textTertiary}]}>{row.label}</Text><Text style={[theme.type.body, {flex: 1, color: theme.colors.text}]}>{row.value}</Text></View>)}</View>
+          {theme.isTV ? <View testID="watch-title-about" style={{flexDirection: 'row', alignItems: 'flex-start', gap: 88}}>
+            <View style={{width: 860}}>
+              <Text style={[nativeType({size: 32, weight: 700, tracking: -.019, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text, marginBottom: 14}]}>{props.aboutLabel}</Text>
+              {overview ? <Text style={[nativeType({size: 24, weight: 400, tracking: 0, lineHeight: 34.8}, theme.textScale), {color: theme.colors.textSecondary}]}>{overview}</Text> : null}
+              {detail?.facts?.tagline ? <Text style={[nativeType({size: 22, weight: 400, tracking: 0, lineHeight: 31.9}, theme.textScale), {color: theme.colors.textTertiary, marginTop: 16}]}>{detail.facts.tagline}</Text> : null}
+            </View>
+            <View style={{flex: 1, minWidth: 0, gap: 12, marginTop: 4}}>{aboutRows.map(row => <View key={row.label} style={{flexDirection: 'row', gap: 24}}>
+              <Text style={[nativeType({size: 22, weight: 400, tracking: 0, lineHeight: 28.6}, theme.textScale), {width: 170, color: theme.colors.textTertiary}]}>{row.label}</Text>
+              <Text style={[nativeType({size: 22, weight: 400, tracking: 0, lineHeight: 28.6}, theme.textScale), {flex: 1, color: theme.colors.text}]}>{row.value}</Text>
+            </View>)}</View>
+          </View> : <>
+            <Text style={[theme.type.heading, {color: theme.colors.text}]}>{props.aboutLabel}</Text>
+            {overview && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{overview}</Text>}
+            <View style={{backgroundColor: theme.colors.raisedHigh, borderRadius: 14, paddingHorizontal: 14}}>{detailRows.map(row => <View key={row.label} style={{flexDirection: 'row', gap: 14, paddingVertical: 12, borderBottomWidth: 1, borderColor: theme.colors.line}}><Text style={[theme.type.caption, {width: 90, color: theme.colors.textTertiary}]}>{row.label}</Text><Text style={[theme.type.body, {flex: 1, color: theme.colors.text}]}>{row.value}</Text></View>)}</View>
+          </>}
           {!theme.isTV && detail?.collections?.[0] ? <Focusable testID="title-collection-card" focusKind="row" focusRadius={14}
             onPress={() => props.openCollection?.({...detail.collections![0]!, libraryId: detail.scope.libraryId})}
             style={{flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: theme.colors.raised}}>
@@ -537,10 +580,11 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
             </View>
             <Icon name="i-right" size={18} color={theme.colors.textTertiary}/>
           </Focusable> : null}
-          {credits.length ? <View style={{gap: 10}}>
+          {credits.length || creditPaging?.hasMore ? <View style={{gap: 10}}>
             <Text style={[theme.isTV ? theme.type.rowHeading : theme.type.heading, {color: theme.colors.text}]}>{t('web.metadata.tabPeople')}</Text>
-            <TitlePeople credits={credits} artwork={props.artwork} onPerson={props.person} focus={regions.people}/>
-            {(directors.length > 0 || writers.length > 0) && <View style={{gap: 2}}>
+            <TitlePeople credits={credits} artwork={props.artwork} onPerson={props.person} focus={regions.people} paging={creditPaging}/>
+            {creditPage?.error ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{presentError(creditPage.error, 'detail').body}</Text> : null}
+            {!theme.isTV && (directors.length > 0 || writers.length > 0) && <View style={{gap: 2}}>
               {directors.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.directedBy', {names: defaultI18n.list(directors)})}</Text> : null}
               {writers.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('title.writtenBy', {names: defaultI18n.list(writers)})}</Text> : null}
             </View>}
@@ -549,6 +593,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
       </View>
   );
   return <View testID="watch-title-screen" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+    {theme.isTV && <TVTitleBackdrop source={source} foreground={foreground} browsing={tvBrowsing}/>}
     {twoPane ? <View style={{flex: 1, flexDirection: 'row'}}>
       <ScrollView style={{width: leftWidth, alignSelf: 'stretch'}} scrollEventThrottle={32} showsVerticalScrollIndicator={false}>
         {heroNode}
@@ -576,10 +621,11 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
       if ((theme.isTV || selectedTab === 'episodes') && contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.moreEpisodes().catch(props.reportError);
     }} scrollEventThrottle={32}>
       {!episodesOnly && heroNode}
-      <View accessibilityElementsHidden={pinned} importantForAccessibility={pinned ? 'no-hide-descendants' : 'auto'}
-        style={{backgroundColor: theme.colors.ink}}>{tabs}</View>
+      <View accessibilityElementsHidden={pinned || theme.isTV && tvBrowsing} importantForAccessibility={pinned || theme.isTV && tvBrowsing ? 'no-hide-descendants' : 'auto'}
+        style={{backgroundColor: theme.isTV ? 'transparent' : theme.colors.ink, opacity: theme.isTV && tvBrowsing ? 0 : 1, paddingLeft: theme.isTV ? 200 : 0, paddingRight: theme.isTV ? 96 : 0}}>{tabs}</View>
       {bodyNode}
     </ScrollView>}{pinnedBar ?? header}
+    {theme.isTV && <TVTitleCompactHeader title={title} browsing={tvBrowsing}>{tabs}</TVTitleCompactHeader>}
     {!theme.isTV && <NativeSeasonsSheet open={!!seasonsSheet} onOpenChange={value => {if (value) openSeasons(); else closeSeasons();}}
       seasons={snapshot.seasons} total={workspace?.seasonTotalCount ?? snapshot.seasons.length} selectedId={workspace?.selected.seasonId ?? null}
       onSelect={id => {const lease = seasonsSheet; closeSeasons(); if (lease) void controller.season(id, lease).catch(props.reportError);}}
@@ -605,4 +651,10 @@ export function TitleRelated({entry, more, ...props}: PosterCardProps & {entry: 
 function TitleRegion({children, style, ...config}: Partial<FocusRegionProps>) {
   const {isTV} = useTheme();
   return isTV && config.id ? <FocusRegion {...config} id={config.id} style={style}>{children}</FocusRegion> : <View style={style}>{children}</View>;
+}
+
+/** The retained touch title keeps its original ancestry; TV animates its hero copy. */
+function TitleHeroCopy({browsing, style, children}: React.ComponentProps<typeof TVTitleHeroCopy>) {
+  const {isTV} = useTheme();
+  return isTV ? <TVTitleHeroCopy browsing={browsing} style={style}>{children}</TVTitleHeroCopy> : <View style={style}>{children}</View>;
 }

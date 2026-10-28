@@ -25,6 +25,7 @@ import {LibraryJumpSheet} from '../../library/LibraryJumpSheet';
 import {useTVPageBack} from '../useTVPageBack';
 import {useDestinationEntryFocus} from '../useEntryFocus';
 import {sameAuthority, type ShellAuthority} from '../../../shell/model';
+import {SavedTVLoading} from '../../saved/SavedTVLoading';
 import {SavedTVDirectory, type SavedTVDirectoryHandle} from '../../saved/SavedTVDirectory';
 import type {NativeSavedViewDestination} from '../../saved/view-model';
 import type {NativeTVSavedController, NativeTVSavedTab} from './model';
@@ -310,7 +311,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
       ...(id === posterRegion && squares.length ? {next: squareRegion} : {})},
     screenStart: {regionId: ids.savedToolbar, childId: tab === 'history' ? 'saved-period-7d' : 'saved-sort'}});
   const body = snapshot.phase === 'error' ? <StateView testID="saved-error" variant="centered" {...runtime.error(snapshot.error, () => {run(controller.select(tab, {sort, filter, period}));})}/>
-    : snapshot.phase !== 'ready' ? null
+    : snapshot.phase !== 'ready' ? <SavedTVLoading key={`${scope}:${period}`} shape={tab === 'history' ? 'history' : 'posters'}/>
       : tab === 'history' ? (snapshot.entries.length ? <TVFocusGrid focus={{...gridFocus(historyRegion, entry => entry.id), getFocusId: row => `saved-history-${encodeURIComponent(row.id)}`, isFocusable: historyFocusable}} key={`${scope}:history:${period}`} items={snapshot.entries} getKey={itemID} itemWidth={1} itemHeight={104} gap={0} rowGap={0}
         scrollY={scrollY} viewportHeight={viewportHeight} coordinateRoot={contentRoot} initialWidth={1920 - theme.gutter - theme.layout.gutter.tvRight} layoutRevision={contentHeight} getRowHeight={historyHeight}
         renderItem={(row, cell) => {const index = cell.index;const day = dayLabel(row.updatedAt, runtime.text.locale), previous = index ? dayLabel(snapshot.entries[index - 1]?.updatedAt, runtime.text.locale) : undefined;
@@ -334,8 +335,9 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   const firstChild = tab === 'watchlist' || tab === 'favorites'
     ? (posters[0] ? `saved-poster-${encodeURIComponent(posters[0].id)}` : squares[0] ? `saved-square-${encodeURIComponent(squares[0].id)}` : undefined)
     : tab === 'history' ? (snapshot.entries.find(historyFocusable) ? `saved-history-${encodeURIComponent(snapshot.entries.find(historyFocusable)!.id)}` : undefined)
-      : tab === 'playlists' ? (firstPlaylist ? `saved-tv-playlists-${firstPlaylist.id}` : undefined)
-        : snapshot.resources[0] ? `saved-tv-${tab}-${snapshot.resources[0].id}` : undefined;
+      : tab === 'playlists' ? (snapshot.playlists?.actions?.includes('create_playlist') ? 'saved-tv-new-playlists' : firstPlaylist ? `saved-tv-playlists-${firstPlaylist.id}` : undefined)
+        : tab === 'collections' && snapshot.phase === 'ready' ? 'saved-tv-new-collections'
+          : snapshot.resources[0] ? `saved-tv-${tab}-${snapshot.resources[0].id}` : undefined;
   // An empty page draws its own Browse Home action, and that is where entry focus belongs when
   // there is no card to land on: the same child the empty state gives its primary action.
   const emptyEntry = !firstChild && snapshot.phase === 'ready'
@@ -360,7 +362,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
       <SavedTVTabs destination={tabsDestination} reportError={runtime.reportError} authority={authority} activation={activation} contentRegionId={ids.savedGrid}/>
       {directoryView ? <View style={{height: 860, paddingTop: 12}}>
         <SavedTVDirectory view={directoryView} destination={controller.source(directoryView)} runtime={runtime} libraries={runtime.getSnapshot().libraries}
-          pageRef={directoryPage} enabled={active.visible} regionId={ids.savedGrid} edges={{up: ids.savedTabs, left: ids.rail}} select={route => {if (route.view === 'playlists') run(controller.select('playlists', {sort: route.sort, direction: route.direction, filter: route.filter}));}}
+          pageRef={directoryPage} enabled={active.visible} activation={activation} regionId={ids.savedGrid} edges={{up: ids.savedTabs, left: ids.rail}} select={route => {if (route.view === 'playlists') run(controller.select('playlists', {sort: route.sort, direction: route.direction, filter: route.filter}));}}
           openPlaylist={card => openSaved({view: 'playlist', playlistId: card.id})} openResource={value => openSaved({view: 'resource', resourceId: value.id})}/>
       </View> : <View onLayout={event => {measurement.region = event.nativeEvent.layout.y;}}>
       <FocusRegion id={ids.savedToolbar} enabled={active.visible} orientation="horizontal" entry={tab === 'history' ? 'saved-period-7d' : 'saved-sort'}

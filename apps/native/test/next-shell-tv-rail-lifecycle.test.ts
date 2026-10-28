@@ -1,3 +1,4 @@
+import {canReturnToPage} from '../src-next/shell/page-focus-return.ts';
 import * as homeStart from '../src-next/screens/home/home-start';
 import {listeningCoverFixture} from './helpers/screen-harness.mjs';
 import assert from 'node:assert/strict';
@@ -36,7 +37,9 @@ test(`${adapter}: the real TV shell retains its page opener and retires Menu bef
   const dispatch = () => menu.dispatchMenuKey({eventType: adapter === 'native' ? 'menu' : 'context_menu', eventKeyAction: 1});
   let menuFallback: (() => void) | undefined, menuSetup: (() => void | (() => void)) | undefined;
   let activeSetup: (() => void | (() => void)) | undefined, registrations = 0, retiredReads = 0, abortDuringRegistration = false;
-  const useEffect: typeof React.useEffect = (setup, deps) => React.useEffect(() => {
+  // Forward the intercepted effect signature, including the caller-owned dependencies.
+  const forwardEffect = React.useEffect;
+  const useEffect: typeof React.useEffect = (setup, deps) => forwardEffect(() => {
     activeSetup = setup;
     try {return setup();} finally {activeSetup = undefined;}
     // This fixture forwards the production effect's dependency list verbatim.
@@ -57,6 +60,7 @@ test(`${adapter}: the real TV shell retains its page opener and retires Menu bef
     registerTVRailBack: (fn: () => boolean) => {railBack = fn; return () => {railBack = undefined;};},
     renderRoutes() {}, renderSelection() {}, renderDestination() {}};
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
+    './page-focus-return': {canReturnToPage},
     '../screens/home/home-start': homeStart,
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},

@@ -1,3 +1,4 @@
+import {createTVKeyAdapter} from '../src-next/platform/tv-key-adapter.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {defaultI18n} from '../../../packages/i18n/src';
@@ -76,6 +77,7 @@ for (const isTV of [false, true]) test(`actual ${isTV ? 'TV' : 'phone'} Home cho
   const theme = createTheme({width: isTV ? 1920 : 390, isTV});
   const h = hooks();
   const {HomeSavedViewChoices, HomeCustomize} = await screenModule(new URL('../src-next/screens/home/HomeCustomize.tsx', import.meta.url), {
+    '../../platform/tv-key-adapter': {createTVKeyAdapter}, '../../platform/tv-key-source': {tvKeySource: 'native'},
     react: {...h.react, useLayoutEffect: h.react.useEffect},
     'react-native': {ScrollView: 'Scroll', Text: 'Text', View: 'View'}, '../../../../../packages/i18n/src': {defaultI18n},
     '../../../../../packages/client-core/src/presentation/server-text': {serverTextLabel}, '../../kit/controls': {Focusable: 'Row', Button: 'Button', Switch: 'Switch'}, '../../kit/focus': {useFocusRegistry: () => ({})}, '../../kit/Icon': {Icon: 'Icon'},

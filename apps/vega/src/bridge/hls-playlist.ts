@@ -11,7 +11,7 @@
  *
  * Nothing here touches the device, so it runs under test as it is.
  */
-export type Rendition = Readonly<{name: string; language: string; url: string; isDefault: boolean}>;
+export type Rendition = Readonly<{name: string; language: string; url: string; isDefault: boolean; codecs?: readonly string[]}>;
 export type Segment = Readonly<{
   /** The segment's number in the stream: the playlist's media sequence plus its place in it. */
   number: number;
@@ -38,19 +38,21 @@ export const lines = (text: string): string[] => text.split(/\r?\n/).map(line =>
 
 export function parseMaster(text: string, base: string): Master | null {
   const all = lines(text);
-  let best: {url: string; codecs: string[]; bandwidth: number} | undefined;
-  const audio: Rendition[] = [];
+  let best: {url: string; codecs: string[]; bandwidth: number; audioGroup?: string} | undefined;
+  const audio: (Rendition & {group?: string})[] = [];
   all.forEach((line, index) => {
     if (line.startsWith('#EXT-X-MEDIA:')) {
       const a = attributes(line);
-      if (a.TYPE === 'AUDIO' && a.URI) audio.push({name: a.NAME ?? '', language: a.LANGUAGE ?? '', url: new URL(a.URI, base).href, isDefault: a.DEFAULT === 'YES'});
+      if (a.TYPE === 'AUDIO' && a.URI) audio.push({name: a.NAME ?? '', language: a.LANGUAGE ?? '', url: new URL(a.URI, base).href, isDefault: a.DEFAULT === 'YES', group: a['GROUP-ID']});
     } else if (line.startsWith('#EXT-X-STREAM-INF:')) {
       const a = attributes(line), next = all[index + 1];
       const bandwidth = Number(a.BANDWIDTH) || 0;
-      if (next && !next.startsWith('#') && (!best || bandwidth > best.bandwidth)) best = {url: new URL(next, base).href, codecs: (a.CODECS ?? '').split(',').map(codec => codec.trim()).filter(Boolean), bandwidth};
+      if (next && !next.startsWith('#') && (!best || bandwidth > best.bandwidth)) best = {url: new URL(next, base).href, codecs: (a.CODECS ?? '').split(',').map(codec => codec.trim()).filter(Boolean), bandwidth, audioGroup: a.AUDIO};
     }
   });
-  return best ? {video: best.url, codecs: best.codecs, audio} : null;
+  if (!best) return null;
+  const chosen = best, sound = chosen.codecs.filter(codec => !isVideoCodec(codec));
+  return {video: chosen.url, codecs: chosen.codecs, audio: audio.filter(rendition => !chosen.audioGroup || rendition.group === chosen.audioGroup).map(({group: _group, ...rendition}) => ({...rendition, ...(sound.length === 1 ? {codecs: sound} : {})}))};
 }
 
 export function parseMedia(text: string, base: string): Playlist {

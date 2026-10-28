@@ -16,6 +16,10 @@ target = "1.2"
 id = "/com.amazon.vega.os@IVega_1_2"
 
 [wants]
+# VoiceView state and accessibility events used by the shared player.
+[[wants.privilege]]
+id = "com.amazon.devconf.privilege.accessibility"
+
 # The system keyboard, for text fields.
 [[wants.service]]
 id = "com.amazon.inputmethod.service"

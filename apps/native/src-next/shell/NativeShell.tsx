@@ -25,6 +25,7 @@ import {MediumRail} from './MediumRail';
 import {TVRail} from './TVRail';
 import {TVProfileMenu} from './TVProfileMenu';
 import {NativePlaybackLayer} from './NativePlaybackLayer';
+import {canReturnToPage} from './page-focus-return';
 
 export function NativeShell({runtime}: {runtime: NativeShellRuntime}) {
   const snapshot = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
@@ -69,7 +70,8 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   }, [ids, registry, runtime, tvListeningPresent]);
   const currentPageFocus = pageFocusDestination.current === JSON.stringify(destination) ? pageFocus.current : undefined;
   const pageHold = theme.isTV && tvListeningPresent || snapshot.mediaExpanded || destination.kind === 'home' && !snapshot.homeVisible;
-  const heldPage = useRef<{opener: FocusSnapshot; release: () => void} | undefined>(undefined);
+  const heldPage = useRef<{opener: FocusSnapshot; destination: string; release: () => void} | undefined>(undefined);
+  const listeningPresent = useRef(tvListeningPresent); listeningPresent.current = tvListeningPresent;
   useEffect(() => () => {railRelease.current?.(); heldPage.current?.release();}, []);
   const [remembered, setRemembered] = useState<string>(), [memoryReady, setMemoryReady] = useState(false);
   const lastOpenedLibrary = useRef<string | undefined>(undefined);
@@ -123,14 +125,17 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const shift = useSharedValue(0), dim = useSharedValue(0), pageOpacity = useSharedValue(1);
   const current = useCallback(() => alive.current?.runtime === runtime && !runtime.retirementSignal?.aborted && sameAuthority(snapshot.authority, runtime.getSnapshot().authority), [runtime, snapshot.authority]);
   useLayoutEffect(() => {
-    if (!theme.isTV) return;
-    if (pageHold && !heldPage.current && pageFocus.current) heldPage.current = {opener: pageFocus.current, release: registry.retain(pageFocus.current)};
+    if (!theme.isTV || runtime.retirementSignal?.aborted) return;
+    const opener = pageFocusDestination.current === JSON.stringify(runtime.getSnapshot().destination) ? pageFocus.current : undefined;
+    if (pageHold && !heldPage.current && opener && pageFocusDestination.current) heldPage.current = {
+      opener, destination: pageFocusDestination.current, release: registry.retain(opener),
+    };
     if (pageHold || !heldPage.current) return;
     const held = heldPage.current; heldPage.current = undefined; held.release();
     const frame = requestAnimationFrame(() => {
       if (!current()) return;
       const now = runtime.getSnapshot();
-      if (now.homeVisible && !now.homeObscured && !now.mediaExpanded) registry.restore(held.opener);
+      if (canReturnToPage(held.destination, now, listeningPresent.current, registry.hasRetainedFocus())) registry.restore(held.opener);
     });
     return () => cancelAnimationFrame(frame);
   }, [current, pageHold, registry, runtime, theme.isTV]);

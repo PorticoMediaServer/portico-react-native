@@ -19,6 +19,9 @@ export function createNativePersonCreditWindow(context: NativeShellBootstrapCont
   }
   if (seed.pageOrigin !== 'initial') throw new Error('native_person_initial_page_required');
   const first = seed.page;
+  // Selection uses real sparse offsets, never the compact order of resident pages.
+  const positions = new WeakMap<PersonCredit, number>();
+  first.credits.forEach((credit, index) => positions.set(credit, index));
   let disposed = false;
   const pending = new Set<AbortController>(), cleanups: (() => void)[] = [];
   // Bounded cursor checkpoints contain no page bodies. Page zero is the real
@@ -55,6 +58,7 @@ export function createNativePersonCreditWindow(context: NativeShellBootstrapCont
       if (page.viewerFence !== first.viewerFence || page.revision.catalog !== first.revision.catalog || page.revision.viewer !== first.revision.viewer
         || page.person.revision !== first.person.revision || page.pageInfo.total !== first.pageInfo.total) throw changed();
       remember(index + 1, page.pageInfo.nextCursor || null);
+      page.credits.forEach((credit, offset) => positions.set(credit, index * 40 + offset));
       return page;
     } finally {signal.removeEventListener('abort', abort); pending.delete(controller);}
   };
@@ -81,7 +85,7 @@ export function createNativePersonCreditWindow(context: NativeShellBootstrapCont
     else collection.retry();
   };
   cleanups.push(context.navigation.subscribe(reconcile), context.subscribeAuthority(reconcile), source.subscribe(reconcile));
-  return Object.freeze({collection,
+  return Object.freeze({collection, positionOf: (credit: PersonCredit): number | undefined => positions.get(credit),
     contains: (entry: ContentEntry): boolean => visible() && collection.residentItems().some(credit => credit.media === entry),
     dispose,
   });

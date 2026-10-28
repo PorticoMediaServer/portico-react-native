@@ -1,6 +1,8 @@
 import {useLayoutEffect} from 'react';
 import {findNodeHandle, TVEventHandler, type HWEvent, type View} from 'react-native';
 import type {FocusRegistry} from './registry';
+import {createTVKeyAdapter} from '../../platform/tv-key-adapter';
+import {tvKeySource} from '../../platform/tv-key-source';
 
 type Page = {hasMore: boolean; failed?: boolean; loading: boolean; waitingId: string; requestNext: () => void};
 /** Observe the native tail boundary to retry data. Never consumes a key or selects a focus target. */
@@ -9,12 +11,10 @@ export function useRowPageBoundary(enabled: boolean, registry: FocusRegistry | n
   const failed = !!page?.hasMore && !!page.failed && !page.loading;
   useLayoutEffect(() => {
     if (!enabled || !registry || !regionId || !tailId || !failed || !waitingId || !retry) return;
-    let pressed = false;
-    const listener = TVEventHandler.addListener((event: HWEvent) => {
-      if (event.eventType !== 'right') return;
-      if (event.eventKeyAction === 1) {pressed = false; return;}
-      if (event.eventKeyAction !== 0 || pressed) return;
-      pressed = true;
+    const keys = createTVKeyAdapter({source: tvKeySource});
+    const listener = TVEventHandler.addListener((raw: HWEvent) => {
+      const event = keys.read(raw);
+      if (!event || event.key !== 'right' || event.phase !== 'press' || event.repeat) return;
       const active = registry.capture();
       if (active?.regionId !== regionId || active.childId !== tailId) return;
       const host = registry.child(active);

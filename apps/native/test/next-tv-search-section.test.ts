@@ -84,6 +84,10 @@ test('All mode is a windowed horizontal row whose offered cursor fills the origi
 test('the actual card accepts absent data only under its owned loading slot and forwards the retained native address', async () => {
   const host = hooks(), calls: unknown[] = []; let waiting = true;
   const {SearchGridCard} = await screenModule(new URL('../src-next/screens/search/SearchGridCard.tsx', import.meta.url), {
+    '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/cards/primitives': {CardFrame: 'CardFrame', ArtFrame: 'ArtFrame'},
+    '../../kit/browse': {SongRow: 'SongRow'}, '../../kit/selection': {SelectionCircle: 'SelectionCircle'}, '../../kit/Icon': {Icon: 'Icon'},
+    '../../kit/browse/presentation': {browseType: () => ({})}, '../../kit/theme': {useTheme: () => ({isTV: false})},
+    '../../../../../packages/client-core/src/presentation/kit-model': {cardText: () => ({caption: [], detail: []})},
     react: host.react, 'react-native': {View: 'View'}, '../../kit/focus': {useFocusWaiting: () => waiting},
     '../../kit/cards': {PosterCard: 'PosterCard', SquareCard: 'SquareCard', CircleCard: 'CircleCard', EpisodeTile: 'EpisodeTile'},
     '../home/model': {homeCardText: () => ({})}, './model': {nativeSearchEntryKey},

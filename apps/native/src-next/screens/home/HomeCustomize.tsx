@@ -11,6 +11,8 @@ import {BottomSheet, Dialog, SidePanel} from '../../kit/overlays';
 import {focusTarget} from '../../kit/overlays/OverlayHost';
 import {nativeType, useTheme} from '../../kit/theme';
 import {NativeHomeCustomizeController, type NativeHomeResetOpening} from './customize-controller';
+import {createTVKeyAdapter} from '../../platform/tv-key-adapter';
+import {tvKeySource} from '../../platform/tv-key-source';
 
 /** Exact catalogue values supplied by the canonical copy owner. No screen copy
  * or server row label is manufactured by this presentation. */
@@ -100,12 +102,14 @@ export function HomeCustomize({controller, copy, i18n, onClose, onAddView, views
   }, [choosing, controller, state.pickedId, theme.isTV]);
   useEffect(() => {
     if (!theme.isTV || !state.pickedId || state.pending) return;
-    const listener = TVEventHandler.addListener(event => {
-      if (event.eventKeyAction !== 0 || !['up', 'down'].includes(event.eventType)) return;
+    const keys = createTVKeyAdapter({source: tvKeySource});
+    const listener = TVEventHandler.addListener(raw => {
+      const event = keys.read(raw);
+      if (!event || event.phase !== 'press' || !['up', 'down'].includes(event.key)) return;
       const active = registry.capture();
       if (active?.regionId !== regionId || active.childId !== state.pickedId || !picked.current) return;
       if (event.tag !== undefined && event.tag !== findNodeHandle(picked.current)) return;
-      controller.move(event.eventType === 'up' ? -1 : 1);
+      controller.move(event.key === 'up' ? -1 : 1);
     });
     return () => listener?.remove();
   }, [controller, regionId, registry, state.pending, state.pickedId, theme.isTV]);

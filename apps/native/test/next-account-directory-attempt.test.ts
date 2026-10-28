@@ -42,6 +42,7 @@ test('a directory connect is fenced to its attempt: Choose another and a success
     subscribe: () => () => {}, synchronize: async () => {}, getSnapshot: () => ({session: account}), accessSession: async () => account,
   })};
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
+    '../../platform/tv-menu': {useTVMenuCapture() {}},
     './tv-code-opening': tvCodeOpening,
     // The real TV approval and invitation modules are loaded, so an unexpected
     // call cannot manufacture a successful opening or parse.

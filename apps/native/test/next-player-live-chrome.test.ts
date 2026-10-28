@@ -36,7 +36,7 @@ async function fixture(input: {compact?: boolean; bar?: boolean; tabletop?: 'col
     tune: async (row: unknown, state: unknown) => {calls.push(['tune', row, state]);}, close: () => {}, fullGuide: () => {}};
   const actions = {subscribe: noopSubscription, getSnapshot: () => actionState, restoreProof: () => () => true,
     record: async (state: unknown) => {calls.push(['record', state]);}, openMore: (state: unknown) => {calls.push(['more', state]);}, close: () => {}};
-  const {NativeWatchChrome} = await screenModule(new URL('../src-next/screens/watch/WatchChrome.tsx', import.meta.url), {
+  const {NativeWatchChrome} = await screenModule(new URL('../src-next/screens/watch/WatchChrome.tsx', import.meta.url), {'../../platform/tv-keys': {useTVKeyEvent: () => {}}, 
     react: {...h.react, useLayoutEffect: () => {}}, 'react-native': {View: 'View', Text: 'Text', useTVEventHandler: () => {}},
     'react-native-reanimated': {default: {View: 'Animated'}, Easing: {linear: (x: number) => x}, cancelAnimation() {}, useAnimatedStyle: (run: () => unknown) => run(), useSharedValue: (value: unknown) => h.react.useRef({value}).current, withTiming: (value: unknown) => value},
     'react-native-gesture-handler': {Gesture: {Pan: () => ({enabled: () => ({})})}, GestureDetector: 'GestureDetector'},

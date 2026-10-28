@@ -1,8 +1,8 @@
 /**
  * A media element, a media source and its buffers, as far as the Vega bridge uses them.
  *
- * A "segment" here is a few bytes of JSON saying what it holds: `{init: true}` for an
- * initialization segment, or `{pts, duration}` for media that starts at `pts` seconds on its own
+ * An initialization segment has an ISO BMFF `moov` box. A media "segment" is a few
+ * bytes of JSON saying `{pts, duration}` for media that starts at `pts` seconds on its own
  * clock. A buffer in `segments` mode keeps that clock; in `sequence` mode each segment follows the
  * one before it, as the real thing does. `world.sequenceMode = false` makes a device that refuses
  * `sequence`; `world.refuse` makes one that will not take a type.
@@ -38,7 +38,9 @@ class SourceBuffer extends Target {
   }
   appendBuffer(data) {
     if (this.updating) throw new Error('InvalidStateError: the buffer is updating');
-    const segment = JSON.parse(Buffer.from(data).toString('utf8'));
+    const bytes = Buffer.from(data);
+    const segment = bytes.length >= 8 && bytes.readUInt32BE(0) === bytes.length && bytes.toString('ascii', 4, 8) === 'moov'
+      ? {init: true} : JSON.parse(bytes.toString('utf8'));
     this.updating = true;
     setTimeout(() => {
       this.updating = false;
@@ -75,6 +77,10 @@ export class MediaSource extends Target {
     const buffer = new SourceBuffer(this, type);
     this.buffers.push(buffer);
     return buffer;
+  }
+  removeSourceBuffer(buffer) {
+    if (buffer.updating || !this.buffers.includes(buffer)) throw new Error('InvalidStateError: buffer cannot be removed');
+    this.buffers.splice(this.buffers.indexOf(buffer), 1);
   }
   endOfStream() { this.readyState = 'ended'; this.player?.sourceEnded(); }
 }

@@ -1,5 +1,5 @@
-import React, {useEffect, useMemo, useSyncExternalStore} from 'react';
-import {Text, View} from 'react-native';
+import React, {useEffect, useMemo, useRef, useSyncExternalStore} from 'react';
+import {AccessibilityInfo, Text, View} from 'react-native';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Button, Focusable} from '../../kit/controls';
 import {FocusItem, FocusRegion, useFocusRegistry} from '../../kit/focus';
@@ -40,9 +40,19 @@ export function TVNumericPad({id, busy, onDigit, onDelete, help, onHelp, helpTex
 
 export function TVCodeBoxes({code, length, masked = false, busy, error}: {code: string; length: 4 | 6; masked?: boolean; busy: boolean; error: boolean}) {
   const theme = useTheme();
-  return <View accessibilityLabel={defaultI18n.t(masked ? 'pin.fourDigit' : 'auth.verificationCode')}
-    accessibilityValue={{min: 0, max: length, now: code.length}} style={{flexDirection: 'row', gap: 18}}>
-    {Array.from({length}, (_, index) => <View key={index} accessible={false} style={{width: 104, height: 116, borderRadius: 18,
+  const count = Math.min(length, code.length), label = defaultI18n.t(masked ? 'pin.fourDigit' : 'auth.verificationCode');
+  // The catalogue owns the field name. Only counts may leave this secure entry
+  // through accessibility; individual PIN/verification digits stay hidden.
+  const value = defaultI18n.t('pin.progress', {count, length});
+  const previous = useRef({count, error});
+  useEffect(() => {
+    const changed = previous.current.count !== count || error && !previous.current.error;
+    previous.current = {count, error};
+    if (changed) AccessibilityInfo.announceForAccessibility([label, value, error ? defaultI18n.t(masked ? 'signIn.error.pinInvalid' : 'signIn.error.codeInvalid') : undefined].filter(Boolean).join('. '));
+  }, [count, error, label, masked, value]);
+  return <View accessible accessibilityLabel={label} accessibilityState={{busy}}
+    accessibilityValue={{min: 0, max: length, now: count, text: value}} style={{flexDirection: 'row', gap: 18}}>
+    {Array.from({length}, (_, index) => <View key={index} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{width: 104, height: 116, borderRadius: 18,
       alignItems: 'center', justifyContent: 'center', backgroundColor: `${theme.colors.ink}9E`, borderWidth: 2,
       borderColor: error ? theme.colors.danger : index === code.length ? theme.colors.accentStrong : theme.colors.lineStrong}}>
       {code[index] ? masked ? <View style={{width: 24, height: 24, borderRadius: 12, backgroundColor: theme.colors.text}}/>

@@ -80,10 +80,10 @@ export function TVPeoplePanel({ports, runtime, lifetime}: {ports: NativeSettings
   const tail = (section: keyof PeoplePages, index: number, length: number) => index >= length - 2 && state[section].error === undefined ? () => load(section) : undefined;
   return <View>
     {group('accounts', 'next.tvPeople.accounts', <>{state.members.items.length ? state.members.items.map((account, index) => {
-      const name = account.displayName || account.username;
+      const name = account.username;
       const meta = [t(roleLabel(account.role)), t(account.hostedAccountId ? 'next.tvPeople.portico' : 'next.tvPeople.local')];
       if (account.profileNames !== undefined) meta.push(t('next.tvPeople.profiles', {count: account.profileNames.length}));
-      const live = account.liveState === 'watching' ? t('next.settings.watchingNow') : account.liveState === 'listening' ? t('next.settings.listeningNow') : undefined;
+      const live = account.liveState === 'watching' || account.liveState === 'listening' ? t('next.shell.nowPlaying') : undefined;
       const last = when(account.lastActiveAt);
       const status = account.disabled ? t('next.tvPeople.turnedOff') : live ?? (last ? t('next.tvPeople.lastActive', {when: last}) : undefined);
       return row(`account:${account.accountId}`, name, meta, status, tail('members', index, state.members.items.length));

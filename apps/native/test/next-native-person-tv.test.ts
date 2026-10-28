@@ -11,7 +11,7 @@ const {TVPerson} = await screenModule(new URL('../src-next/screens/people/Person
   react,
   'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', VirtualizedList: 'VirtualizedList', useWindowDimensions: () => ({width: 1920, height: 1080})},
   'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0})},
-  '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/artwork': {PersonCircle: 'PersonCircle'},
+  '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/artwork': {PersonCircle: 'PersonCircle', AmbientArt: 'AmbientArt', Artwork: 'Artwork'},
   '../../kit/cards': {PosterCard: 'PosterCard'}, '../../kit/controls': {Chip: 'Chip', Focusable: 'Focusable'},
   '../../kit/Icon': {Icon: 'Icon'}, '../../kit/states': {StateView: 'StateView'},
   '../../kit/browse/presentation': {browseType: (_theme: unknown, size: number, weight: number, tracking = 0) => ({fontSize: size, fontWeight: weight, tracking})},
@@ -30,7 +30,7 @@ const collection = {pageSize: 60, pageOf: () => 0, subscribe: () => () => {}, su
   getSnapshot: () => ({generation: 1, total: 2, status: 'ready', refreshing: false, totalIsLowerBound: false}),
   getPageVersion: () => 'v1', itemAt: (index: number) => credits[index], ensureRange: () => {}, retry: () => {}} as any;
 let backHandler: (() => boolean) | undefined;
-const runtime = {artwork: () => undefined, text: {locale: 'en-US'}, registerTVPageBack: (handler: () => boolean) => {backHandler = handler; return () => {};}, error: () => ({})} as any;
+const runtime = {artwork: () => undefined, ambient: () => undefined, text: {locale: 'en-US'}, registerTVPageBack: (handler: () => boolean) => {backHandler = handler; return () => {};}, error: () => ({})} as any;
 
 test('TV person draws the ten-foot composition from the real person page', () => {
   const opened: any[] = [], roles: string[] = [], backs: number[] = [];
@@ -40,9 +40,9 @@ test('TV person draws the ten-foot composition from the real person page', () =>
   host.mount();
   try {
     const nodes = descendants(tree);
-    assert.equal(nodes.find(node => node.type === 'PersonCircle').props.size, 260);
+    assert.equal(nodes.find(node => node.type === 'PersonCircle').props.size, 280);
     const name = nodes.find(node => node.type === 'Text' && node.props.children === 'Steven Spielberg');
-    assert.equal(flat(name.props.style).fontSize, 76, 'tv-detail#5 name at display size');
+    assert.equal(flat(name.props.style).fontSize, 96, 'tv-detail#5 name at display size');
     const born = nodes.find(node => node.type === 'Text' && node.props.children === defaultI18n.t('web.person.born', {date: defaultI18n.date('1946-12-18', 'long')}));
     assert.ok(born);
     assert.ok(nodes.some(node => node.type === 'Text' && node.props.children === defaultI18n.t('web.person.titles', {count: 2})));

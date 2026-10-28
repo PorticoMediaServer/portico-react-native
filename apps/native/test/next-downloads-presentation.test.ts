@@ -119,6 +119,7 @@ test('Downloads rows use the shared hold/menu boundary with their actual native 
     './presentation': {downloadEntryIdentity, downloadGroups, downloadRowText, downloadStorageSegments, downloadTransferProgress}, './useDownloadArtwork': {useDownloadArtwork: () => ({})},
     './useReadingFacts': await screenModule(new URL('../src-next/screens/downloads/useReadingFacts.ts', import.meta.url), {react: {...React, default: React}}),
     '../saved/SavedForms': await screenModule(new URL('../src-next/screens/saved/SavedForms.tsx', import.meta.url), {
+      '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => undefined}, '../../kit/browse/presentation': {browseType: () => ({})}, '../search/TVKeyboard': {NativeTVKeyboard: 'NativeTVKeyboard'},
       react: {...React, default: React}, 'react-native': {Text: 'Text', View: 'View'}, '../../../../../packages/i18n/src': {defaultI18n},
       '../../kit/controls': {Button: 'Button', Switch: 'Switch', TextField: 'TextField'}, '../../kit/overlays': {Banner: 'Banner', BottomSheet: 'BottomSheet', Dialog: 'Dialog'},
       '../../kit/theme': {useTheme: () => theme}}),

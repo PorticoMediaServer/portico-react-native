@@ -42,6 +42,7 @@ test('the phone sign-in picker offers the account recovery, keeps its own operat
     dispose() {calls.push('dispose');}
   }
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
+    '../../platform/tv-menu': {useTVMenuCapture() {}},
     './tv-code-opening': tvCodeOpening,
     // The real TV approval and invitation modules are loaded, so an unexpected
     // call cannot manufacture a successful opening or parse.
@@ -165,6 +166,7 @@ test('a wrong profile PIN uses the profile error context and clears the boxes', 
     dispose() {}
   }
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
+    '../../platform/tv-menu': {useTVMenuCapture() {}},
     './tv-code-opening': tvCodeOpening,
     // The real TV approval and invitation modules are loaded, so an unexpected
     // call cannot manufacture a successful opening or parse.

@@ -24,8 +24,10 @@
  self.preview = [AVCaptureVideoPreviewLayer layerWithSession:self.session]; self.preview.videoGravity = AVLayerVideoGravityResizeAspectFill;
  [self.view.layer addSublayer:self.preview];
  UILabel *title = [UILabel new]; title.text = self.scanTitle; title.textColor = UIColor.whiteColor; title.numberOfLines = 0; title.textAlignment = NSTextAlignmentCenter;
+ title.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody]; title.adjustsFontForContentSizeCategory = YES;
  UIButton *cancel = [UIButton buttonWithType:UIButtonTypeSystem]; [cancel setTitle:self.cancelTitle forState:UIControlStateNormal];
  cancel.backgroundColor = UIColor.blackColor; [cancel setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+ cancel.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline]; cancel.titleLabel.adjustsFontForContentSizeCategory = YES;
  [cancel addTarget:self action:@selector(cancelScan) forControlEvents:UIControlEventTouchUpInside];
  for (UIView *v in @[title, cancel]) {v.translatesAutoresizingMaskIntoConstraints = NO; [self.view addSubview:v];}
  [NSLayoutConstraint activateConstraints:@[

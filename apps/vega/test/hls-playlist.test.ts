@@ -35,6 +35,21 @@ test('a title: segments are numbered from zero and placed by their running lengt
   assert.equal(segmentNumbered(list, 3), undefined);
 });
 
+test('only the chosen variant audio group is exposed and mixed codec declarations are never assigned to a rendition', () => {
+  const master = parseMaster([
+    '#EXTM3U',
+    '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="low",NAME="Other",URI="low.m3u8"',
+    '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="high",NAME="AAC",URI="aac.m3u8"',
+    '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="high",NAME="EAC3",URI="eac3.m3u8"',
+    '#EXT-X-STREAM-INF:BANDWIDTH=1,CODECS="avc1.64001f,mp4a.40.2",AUDIO="low"', 'low-video.m3u8',
+    '#EXT-X-STREAM-INF:BANDWIDTH=2,CODECS="hvc1.2.4.L120.B0,mp4a.40.2,ec-3",AUDIO="high"', 'high-video.m3u8',
+  ].join('\n'), base)!;
+  assert.deepEqual(master.audio.map(rendition => rendition.name), ['AAC', 'EAC3']);
+  assert.ok(master.audio.every(rendition => rendition.codecs === undefined));
+  const single = parseMaster('#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",NAME="AAC",URI="aac.m3u8"\n#EXT-X-STREAM-INF:BANDWIDTH=2,CODECS="avc1.64001f,mp4a.40.2",AUDIO="a"\nv.m3u8\n', base)!;
+  assert.deepEqual(single.audio[0].codecs, ['mp4a.40.2']);
+});
+
 test('a stream still being made: a position past what exists waits for the segment that comes next', () => {
   const list = parseMedia('#EXTM3U\n#EXT-X-TARGETDURATION:7\n#EXTINF:6,\ns0.ts\n#EXTINF:6,\ns1.ts\n', base);
   assert.equal(list.ended, false);

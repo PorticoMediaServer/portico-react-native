@@ -30,6 +30,11 @@ import {NativeWatchPostPlay} from './PostPlayScreen';
 import {createNativeWatchPanelNames} from './panel-names';
 import {nativeSubtitleStyleKeys, nativeSubtitleStyleValue} from '../../platform/playback/subtitle-style-choices';
 import {browseValueLabel} from '../../../../../packages/client-core/src/presentation/browse-toolbar';
+import {bindNativeVideoSystemMedia} from './system-media';
+import {nativePostPlayNavigation} from './post-play-navigation';
+import {playbackUserMessage} from '../../../../../packages/client-core/src/playback-messages';
+import {clockText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
+import {DetailsPanel, type StateFact} from '../../kit/states/DetailsPanel';
 
 export type NativeWatchEntryMenu = Readonly<{
   open: (entry: ContentEntry, entryCurrent: () => boolean, anchorRef?: React.RefObject<View | null>, select?: () => void) => Promise<void>;
@@ -77,6 +82,7 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
   const copy = bindings.copy ?? {sessionLead: defaultI18n.t('player.opt.temporaryChanges'), sessionDefaults: defaultI18n.t('player.opt.defaultsUnchanged'), audioContinues: defaultI18n.t('player.opt.hearingContinues')};
   let disposed = false;
   const current = () => !disposed && context.current();
+  const stopSystemMedia = bindNativeVideoSystemMedia(context, bindings.title.reportError);
   const liveGuide = new NativeTVLiveGuide(context, !Platform.isTV);
   // Media's retry changes the failed phase and source itself, so these controllers
   // belong to the module and its route, never to the error surface. They abort on a
@@ -174,6 +180,23 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
       }
     },
   };
+  const failureRecovery = (failure: NativePlaybackFailure) => {
+    const source = context.playback.getSnapshot(), route = context.navigation.getSnapshot();
+    // A chosen version changes the failed phase and source itself. Its host
+    // lifetime remains the original authority/route and expanded player.
+    const hostCurrent = () => current() && sameAuthority(context.authority(), authority) && context.navigation.getSnapshot() === route && expanded();
+    const active = () => {
+      const live = context.playback.getSnapshot();
+      return hostCurrent() && !live.retired && live.lease === source.lease && sameFence(live.fence, failure.fence) && live.playback.phase === 'error';
+    };
+    const entry = source.entry, failedVersion = source.session?.itemId === entry?.id ? source.session?.versionId : undefined;
+    const versions = source.options?.itemId === entry?.id ? source.options?.versions : undefined;
+    const alternate = active() && !!entry && entry.playback?.itemId === entry.id && failedVersion && bindings.openVersions && bindings.beginVersions && bindings.startVersion
+      && versions && new Set(versions.map(version => version.id)).size === versions.length && versions.some(version => version.id !== failedVersion);
+    const owner = () => active() && bindings.title.owner === true && context.session()?.viewer.role === 'owner';
+    return {source, active, hostCurrent, owner, entry, failedVersion, alternate: !!alternate};
+  };
+  let postPlayOpening: Readonly<{fence: NativePlaybackFailure['fence']; route: ReturnType<typeof context.navigation.getSnapshot>; navigation: ReturnType<typeof nativePostPlayNavigation>}> | undefined;
   const player: NativeWatchHostBindings = {
     noticePreferences,
     liveGuide,
@@ -194,36 +217,71 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
     content: host => screens.watch.body(host),
     details: host => screens.watch.details(host),
     episodes: host => screens.watch.upNext(host),
+    failureAction: (_host, failure) => {
+      const recovery = failureRecovery(failure);
+      return recovery.active() && (recovery.source.capabilities.retry === true && !!context.playback.retry || recovery.owner() || recovery.alternate);
+    },
     failed: (host, failure, chromeVisible) => {
       const route = {authority: context.authority(), revision: context.navigation.getSnapshot().revision};
       const live = context.playback.getSnapshot();
       const canRetry = live.capabilities.retry === true && !!context.playback.retry && !!live.fence && sameFence(live.fence, failure.fence);
       const retry = canRetry ? () => {retryFailed(failure, route, host.runtime.reportError);} : undefined;
-      const failedFence = live.fence, failedVersionId = live.session?.versionId;
-      // Queue advancement can supply metadata without a card's playback target.
-      // Recovery belongs to this failed session; the chosen version reads resume afresh.
-      const entry = live.entry && failedFence?.kind === 'queue' && live.session?.kind === 'vod'
-        && live.entry.id === failedFence.itemId && live.session.itemId === failedFence.itemId
-        && live.session.id === failedFence.sessionId && failedVersionId === failedFence.sourceId
-        ? {...live.entry, playback: {itemId: failedFence.itemId}} : undefined;
-      const versionCurrent = () => {
-        const source = context.playback.getSnapshot();
-        return current() && expanded() && source.playback.phase === 'error' && !!source.fence && sameFence(source.fence, failure.fence)
-          && source.session?.kind === 'vod' && source.session.id === failedFence?.sessionId
-          && source.session.itemId === entry?.id && source.session.versionId === failedVersionId;
-      };
-      const canChooseVersion = !Platform.isTV && !!bindings.openVersions && !!bindings.beginVersions && !!bindings.startVersion
-        && !!entry && !!failedVersionId && live.options?.itemId === entry.id
-        && live.options.versions.some(version => version.id !== failedVersionId) && versionCurrent();
-      const capture = canChooseVersion ? screens.capture(entry!, versionCurrent) : undefined;
-      const differentVersion = capture ? () => {if (versionCurrent()) void screens.versions(capture, failedVersionId).catch(host.runtime.reportError);} : undefined;
-      return Platform.isTV ? <NativePlaybackFailed context={host} failure={failure} chromeVisible={chromeVisible} retry={retry}/>
-        : <NativeHandheldPlaybackFailed failure={failure} retry={retry} differentVersion={differentVersion}/>;
+      if (!Platform.isTV) {
+        const failedFence = live.fence, failedVersionId = live.session?.versionId;
+        // Queue advancement can supply metadata without a card's playback target.
+        // Recovery belongs to this failed session; the chosen version reads resume afresh.
+        const entry = live.entry && failedFence?.kind === 'queue' && live.session?.kind === 'vod'
+          && live.entry.id === failedFence.itemId && live.session.itemId === failedFence.itemId
+          && live.session.id === failedFence.sessionId && failedVersionId === failedFence.sourceId
+          ? {...live.entry, playback: {itemId: failedFence.itemId}} : undefined;
+        const versionCurrent = () => {
+          const source = context.playback.getSnapshot();
+          return current() && expanded() && source.playback.phase === 'error' && !!source.fence && sameFence(source.fence, failure.fence)
+            && source.session?.kind === 'vod' && source.session.id === failedFence?.sessionId
+            && source.session.itemId === entry?.id && source.session.versionId === failedVersionId;
+        };
+        const canChooseVersion = !Platform.isTV && !!bindings.openVersions && !!bindings.beginVersions && !!bindings.startVersion
+          && !!entry && !!failedVersionId && live.options?.itemId === entry.id
+          && live.options.versions.some(version => version.id !== failedVersionId) && versionCurrent();
+        const capture = canChooseVersion ? screens.capture(entry!, versionCurrent) : undefined;
+        const differentVersion = capture ? () => {if (versionCurrent()) void screens.versions(capture, failedVersionId).catch(host.runtime.reportError);} : undefined;
+        return <NativeHandheldPlaybackFailed failure={failure} retry={retry} differentVersion={differentVersion}/>;
+      }
+      const recovery = failureRecovery(failure);
+      const differentVersion = recovery.alternate ? () => {
+        if (!recovery.active() || !recovery.entry || !recovery.failedVersion) return;
+        const captured = screens.capture(recovery.entry, recovery.hostCurrent);
+        if (captured) void screens.versions(captured, recovery.failedVersion).catch(error => {if (recovery.active()) host.runtime.reportError(error);});
+      } : undefined;
+      const details = recovery.owner() ? () => {
+        if (!recovery.owner()) return null;
+        const facts: StateFact[] = [
+          {id: 'reason', label: defaultI18n.t('next.states.whatHappened'), value: playbackUserMessage(recovery.source.playback.error)},
+          {id: 'position', label: defaultI18n.t('player.position'), value: clockText(failure.positionSeconds)},
+        ];
+        const session = recovery.source.session, info = session?.id === failure.fence.sessionId ? session.playbackInfo : undefined;
+        if (info) {
+          const routes = {original: 'next.info.routes.original', repackaged: 'next.info.routes.repackaged', converted: 'next.info.routes.converted'} as const;
+          facts.push({id: 'delivery', label: defaultI18n.t('next.states.sentAs'), value: defaultI18n.t(routes[info.route])});
+          const network = playbackInfoWords().network(info.network);
+          if (network) facts.push({id: 'network', label: defaultI18n.t('next.states.network'), value: network});
+        }
+        return <DetailsPanel audience="viewer" compact facts={facts} testID="watch-failed-facts"/>;
+      } : undefined;
+      return <NativePlaybackFailed context={host} failure={failure} chromeVisible={chromeVisible} retry={retry} details={details} differentVersion={differentVersion}/>;
     },
-    postPlay: host => host.source.entry ? <NativeWatchPostPlay entry={host.source.entry} api={context.api} scope={detailScope} requestId={bindings.requestId} compact={!Platform.isTV}
-      current={current} artwork={host.runtime.artwork} onReplay={() => {if (current()) void context.playback.replay(host.fence).catch(host.runtime.reportError);}}
-      onClose={() => {if (current()) void context.playback.stop(host.fence).catch(host.runtime.reportError);}} onOpen={entry => {if (current()) bindings.title.navigate(entry);}}
-      reportError={host.runtime.reportError}/> : null,
+    postPlay: host => {
+      if (!host.source.entry) return null;
+      const route = context.navigation.getSnapshot();
+      if (!postPlayOpening || !sameFence(postPlayOpening.fence, host.fence) || postPlayOpening.route !== route) postPlayOpening = {
+        fence: host.fence, route, navigation: nativePostPlayNavigation(context, host.fence, current, bindings.title.navigate, host.runtime.reportError),
+      };
+      const navigation = postPlayOpening.navigation;
+      return <NativeWatchPostPlay entry={host.source.entry} api={context.api} scope={detailScope} requestId={bindings.requestId} compact={!Platform.isTV}
+        current={navigation.current} artwork={host.runtime.artwork} onReplay={() => {if (navigation.current()) void context.playback.replay(host.fence).catch(host.runtime.reportError);}}
+        onClose={() => {if (navigation.current()) void context.playback.stop(host.fence).catch(host.runtime.reportError);}} onOpen={navigation.open}
+        reportError={host.runtime.reportError}/>;
+    },
     presentation: bindings.presentation,
   };
   const screens = createNativeWatchScreens({...bindings, api: context.api,
@@ -255,6 +313,6 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
       return screens.watch.back() || group?.closePlayer?.() === true;
     },
     screens,
-    dispose: () => {if (disposed) return; disposed = true; liveActions?.dispose(); liveGuide?.dispose(); abortAll(); stopPlayback(); stopGroup(); stopNavigation(); stopAuthority(); options.dispose(); screens.dispose(); bindings.presentation?.(undefined); bindings.dispose?.();},
+    dispose: () => {if (disposed) return; disposed = true; stopSystemMedia(); liveActions?.dispose(); liveGuide?.dispose(); abortAll(); stopPlayback(); stopGroup(); stopNavigation(); stopAuthority(); options.dispose(); screens.dispose(); bindings.presentation?.(undefined); bindings.dispose?.();},
   });
 }

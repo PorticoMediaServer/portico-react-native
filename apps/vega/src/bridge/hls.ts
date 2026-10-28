@@ -1,5 +1,6 @@
 import {MediaSource, type SourceBuffer, type VideoPlayer} from '@amazon-devices/react-native-w3cmedia';
 import {trace} from '../debug';
+import {mp4Codecs} from './mp4-codecs';
 import {checkResponse, onCredentialExposure, originOf, requestCredentials} from './credential-boundary';
 import {isVideoCodec, liveStart, numberAt, parseMaster, parseMedia, segmentAtDate, segmentNumbered, type Playlist, type Rendition, type Segment} from './hls-playlist';
 
@@ -68,7 +69,7 @@ function textExceedsBytes(text: string, limit: number): boolean {
 
 const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
-type Track = {kind: 'video' | 'audio'; url: string; playlist: Playlist; buffer: SourceBuffer; /** The number of the segment to fetch next. */ next: number; loaded: number; bytesPerSecond?: number; deferred?: {number: number; bytes: number}};
+type Track = {kind: 'video' | 'audio'; mime: string; url: string; playlist: Playlist; buffer: SourceBuffer; /** The number of the segment to fetch next. */ next: number; loaded: number; bytesPerSecond?: number; deferred?: {number: number; bytes: number}};
 /** A segment in the element's own time: where it landed in the buffer. */
 type Placed = {number: number; start: number; end: number; dateMs?: number};
 type Arrival = {dateMs: number; resolve(elementTime: number): void; reject(error: Error): void};
@@ -506,24 +507,18 @@ export class HlsSource {
       this.assertCurrent(generation);
       await this.attach(generation);
       this.assertCurrent(generation);
-      const videoCodecs = codecs.filter(isVideoCodec), audioCodecs = codecs.filter(codec => !isVideoCodec(codec));
-      // Music and audiobooks are a stream with no picture: its one track is the sound.
+      const videoCodecs = codecs.filter(isVideoCodec);
       const soundOnly = codecs.length > 0 && videoCodecs.length === 0;
-      const packets = (list: Playlist) => !list.init && /\.(ts|aac)(\?|$)/i.test(list.segments[0]?.url ?? '');
-      // With separate audio the first track carries the picture only; otherwise both are in it.
-      const firstType = soundOnly
-        ? `${packets(videoList) ? 'video/mp2t' : 'audio/mp4'}; codecs="${audioCodecs.join(',')}"`
-        : `${packets(videoList) ? 'video/mp2t' : 'video/mp4'}; codecs="${(audioList ? videoCodecs : codecs).join(',') || 'avc1.64001f,mp4a.40.2'}"`;
-      this.tracks = [{kind: soundOnly ? 'audio' : 'video', url: video, playlist: videoList, buffer: this.add(firstType), next: 0, loaded: Date.now()}];
-      if (audioList && chosen && !soundOnly) {
-        // The server writes its audio renditions as MPEG-TS; the media source takes that as it is.
-        const type = `${packets(audioList) ? 'video/mp2t' : 'audio/mp4'}; codecs="${audioCodecs.join(',') || 'mp4a.40.2'}"`;
-        this.tracks.push({kind: 'audio', url: chosen.url, playlist: audioList, buffer: this.add(type), next: 0, loaded: Date.now()});
-      }
+      const separateAudio = !!audioList && !soundOnly;
+      this.tracks = [];
+      // Every buffer declares only the codecs of its own selected rendition.
+      // Missing fMP4 metadata is read before addSourceBuffer; MPEG-TS may ask the
+      // media source to detect its container payload without invented codecs.
+      const firstTrack = await this.createTrack(video, videoList, separateAudio ? videoCodecs : codecs, soundOnly ? 'audio' : separateAudio && videoCodecs.length ? 'video' : undefined, generation, separateAudio);
+      if (audioList && chosen && firstTrack.kind !== 'audio') await this.createTrack(chosen.url, audioList, chosen.codecs ?? [], 'audio', generation);
       if (this.live) { await this.openLive(position, generation); return; }
       const total = Math.max(...this.tracks.map(track => track.playlist.segments.reduce((sum, segment) => sum + segment.duration, 0)));
       if (total > 0 && videoList.ended) { try { this.source.duration = total; } catch { /* the element works it out */ } }
-      for (const track of this.tracks) await this.start(track, generation);
       // Filled from where playback will begin: the element is still at zero until it is sent there.
       this.assertCurrent(generation);
       this.target = position;
@@ -563,7 +558,6 @@ export class HlsSource {
       // restarts it). A device that will not do that keeps the segments' own times, and playback
       // is carried over the gaps (`cross`).
       try { track.buffer.mode = 'sequence' as never; } catch { /* the segments' own times are used */ }
-      await this.start(track, generation);
     }
     this.assertCurrent(generation);
     const list = this.tracks[0].playlist;
@@ -616,15 +610,50 @@ export class HlsSource {
     });
   }
 
-  /** The track's initialization segment. */
-  private async start(track: Track, generation: number): Promise<void> {
+  private mediaType(playlist: Playlist, declared: readonly string[], kind?: 'video' | 'audio', init?: ArrayBuffer, separateAudio = false): Readonly<{mime: string; kind: 'video' | 'audio'}> {
+    const packets = !playlist.init && /\.(ts|aac)(\?|$)/i.test(playlist.segments[0]?.url ?? '');
+    let codecs = declared;
+    if (!codecs.length || kind === 'audio' && codecs.length !== 1) {
+      if (init) {
+        try {
+          const detected = mp4Codecs(init);
+          // Declaring a muxed init video-only does not remove its audio bytes.
+          // Refuse that ambiguous topology before adding a second audio buffer;
+          // a primary init proving audio-only still remains audio-only.
+          if (separateAudio && detected.some(isVideoCodec) && detected.some(codec => !isVideoCodec(codec))) throw new SourceError(false, 'muxed_primary_with_external_audio', 0, 'unsupported');
+          codecs = detected.filter(codec => kind === undefined || isVideoCodec(codec) === (kind === 'video'));
+        }
+        catch (error) {
+          if (error instanceof SourceError) throw error;
+          throw new SourceError(false, 'initialization codecs unavailable', 0, 'unsupported');
+        }
+        if (!codecs.length || kind === 'audio' && codecs.length !== 1) throw new SourceError(false, 'initialization has no unambiguous selected track', 0, 'unsupported');
+      } else if (!packets) throw new SourceError(false, 'initialization codecs unavailable', 0, 'unsupported');
+      else codecs = [];
+    }
+    const selectedKind = kind ?? (codecs.length && !codecs.some(isVideoCodec) ? 'audio' : 'video');
+    return {kind: selectedKind, mime: `${packets ? 'video/mp2t' : selectedKind === 'audio' ? 'audio/mp4' : 'video/mp4'}${codecs.length ? `; codecs="${codecs.join(',')}"` : ''}`};
+  }
+
+  /** Fetch once, resolve the exact MIME, then append those same initialization
+   * bytes under the existing in-flight reservation and retained-byte budget. */
+  private async createTrack(url: string, playlist: Playlist, codecs: readonly string[], kind: 'video' | 'audio' | undefined, generation: number, separateAudio = false): Promise<Track> {
     this.assertCurrent(generation);
-    if (!track.playlist.init) return;
-    const init = await this.getMedia(track.playlist.init, this.generationController.signal);
+    const init = playlist.init ? await this.getMedia(playlist.init, this.generationController.signal) : undefined;
     try {
-      this.charge(track.buffer, generation, init.data.byteLength, 'init');
-      await this.append(track.buffer, init.data, generation);
-    } finally { init.release(); }
+      this.assertCurrent(generation);
+      const selected = this.mediaType(playlist, codecs, kind, init?.data, separateAudio);
+      const buffer = this.add(selected.mime);
+      this.assertCurrent(generation);
+      const track: Track = {...selected, url, playlist, buffer, next: 0, loaded: Date.now()};
+      this.tracks.push(track);
+      if (this.live) {try {track.buffer.mode = 'sequence' as never;} catch { /* Native timestamps remain supported. */ }}
+      if (init) {
+        this.charge(track.buffer, generation, init.data.byteLength, 'init');
+        await this.append(track.buffer, init.data, generation);
+      }
+      return track;
+    } finally {init?.release();}
   }
 
   /** Wait for an existing buffer operation; closing the source retires its wait immediately. */
@@ -916,6 +945,7 @@ export class HlsSource {
       requireCurrent();
       const media = await stage(segment.url);
       requireCurrent();
+      const selectedType = this.mediaType(playlist, rendition.codecs ?? [], 'audio', init?.data).mime;
       if (!operation.clock()) throw new SourceError(false, 'audio clock moved during preparation');
       let sequenceStart: number | undefined;
       if (this.live) {
@@ -930,6 +960,21 @@ export class HlsSource {
       await this.remove(track.buffer, 0, Number.MAX_SAFE_INTEGER, operation.commitGeneration, operation);
       requireCurrent();
       if (this.audioRanges(track.buffer).length) throw new SourceError(false, 'previous audio remained after removal');
+      // Clearing samples does not change a SourceBuffer's decoding type. Replace
+      // it only when the resolved type changes, including container-only TS types.
+      if (selectedType !== track.mime) {
+        const previous = track.buffer;
+        this.audioMutation(operation.commitGeneration, operation, () => this.source.removeSourceBuffer(previous));
+        requireCurrent();
+        this.audioMutation(operation.commitGeneration, operation, () => {
+          const replacement = this.add(selectedType);
+          requireCurrent();
+          track.buffer = replacement; track.mime = selectedType;
+        });
+        requireCurrent();
+        for (const entry of staged) entry.buffer = track.buffer;
+        if (this.live) this.audioMutation(operation.commitGeneration, operation, () => {track.buffer.mode = 'sequence' as never;});
+      }
       if (sequenceStart !== undefined) {
         await this.free(track.buffer, operation.controller.signal); requireCurrent();
         this.audioMutation(operation.commitGeneration, operation, () => {track.buffer.timestampOffset = sequenceStart!;});

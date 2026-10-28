@@ -1,4 +1,5 @@
 import {useTVVoiceSearch} from './use-tv-voice-search';
+import {tvGroupEdges, tvSettingsResultGroups} from './tv-settings-focus';
 import {passthroughFormats} from '../../platform/playback/passthrough-formats';
 import {NativeDynamicRangeRow, nativeDynamicRangeFocusId} from './NativeDynamicRangeRow';
 import {nativeDynamicRangeMatchingAvailable} from '../../platform/playback/dynamic-range-matching';
@@ -63,6 +64,9 @@ import type {NativeDashboardController} from './dashboard-controller';
 import QRCode from 'react-native-qrcode-svg';
 import {nativeEqualizer} from '../../platform/playback/equalizer';
 import {publicTVHandoffAddress} from '../../tv/auth/TVHandoff';
+
+const noFocusSubscription = () => () => {};
+const noFocusSnapshot = () => 0;
 
 /** settings.html wins over the structure's group order. */
 const serverPageOrder = ['general', 'dashboard', 'history', 'libraries', 'remote-sources', 'metadata', 'segments', 'live', 'people', 'signin', 'remote', 'integrations', 'streaming', 'storage', 'troubleshooting'];
@@ -165,9 +169,12 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
     return groups;
   };
   const pageRow = (value: SettingsPage) => <Focusable key={value.id} focusId={value.id} testID={`settings-page-${value.id}`} accessibilityRole="button" accessibilityLabel={t(value.title)} accessibilityState={{selected: value.id === page.id}} onFocus={theme.isTV ? () => setSelected(value.id) : undefined} onPress={() => choose(value.id)} focusKind="row" focusRadius={14} style={{minHeight: theme.isTV ? 56 : 48, paddingHorizontal: 20, gap: 18, borderRadius: 14, flexDirection: 'row', alignItems: 'center', backgroundColor: value.id === page.id && !compact ? `${theme.colors.accent}29` : 'transparent'}}>
-    <Icon name={nativeSettingsIcon(value.icon)} size={theme.isTV ? 24 : 18}/><Text style={[shellType(theme.isTV ? 22 : 15.5), {color: theme.colors.text}]}>{t(value.title)}</Text>
+    {theme.isTV && value.id === page.id && <View pointerEvents="none" style={{position: 'absolute', left: 0, top: 14, bottom: 14, width: 4, borderRadius: 2, backgroundColor: theme.colors.accent}}/>}
+    <Icon name={nativeSettingsIcon(value.icon)} size={theme.isTV ? 24 : 18} color={theme.isTV ? value.id === page.id ? theme.colors.accentStrong : theme.colors.textTertiary : undefined}/><Text style={[shellType(theme.isTV ? 22 : 15.5), {color: theme.isTV && value.id !== page.id ? theme.colors.textSecondary : theme.colors.text}]}>{t(value.title)}</Text>
   </Focusable>;
   const [searching, setSearching] = useState(false), [searchRevision, setSearchRevision] = useState(0);
+  const trackSearchFocus = theme.isTV && searching;
+  useSyncExternalStore(trackSearchFocus ? registry.subscribe : noFocusSubscription, trackSearchFocus ? registry.getSnapshot : noFocusSnapshot, noFocusSnapshot);
   const voiceSearch = useTVVoiceSearch(theme.isTV && searching, controller.lifetime, setQuery, runtime.reportError);
   const [restoreRevision, setRestoreRevision] = useState(0);
   const liveControllers = useMemo(() => {
@@ -187,6 +194,10 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
   const page = serverPage ?? accountPages.find(value => value.id === selected) ?? accountPages[0];
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]);
   const column = ids.surface('settings.pages'), rows = ids.surface(`settings.rows.${page?.id ?? ''}`), keyboard = ids.surface('settings.keyboard'), searchField = ids.surface('settings.search');
+  // Actual attached controls decide which result groups participate in the focus graph.
+  // Conditional/unavailable rows must not strand focus in an empty intermediate group.
+  const matchRegions = tvSettingsResultGroups(matchingPages.map(value => ids.surface(`settings.matches.${value.id}`)), registry.entryAddress);
+  const matchEdges = (id: string) => tvGroupEdges(matchRegions, id, searchField);
   const enter = useScreenEntry(theme.isTV && page ? {regionId: column, childId: accountPages[0].id} : undefined, controller.lifetime.current);
   useDestinationEntryFocus({visible: theme.isTV && !searching, intent: restoreRevision ? 'enter' : 'restore', revision: restoreRevision}, page ? {regionId: column, childId: page.id} : undefined);
   const remoteSourcesPage = !theme.isTV && page?.id === 'remote-sources';
@@ -259,7 +270,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
           <TextField focusId="input" testID="settings-search" variant="search" leadingIcon="i-search" accessibilityLabel={t('next.shell.searchSettings')} placeholder={t('next.shell.searchSettings')} value={query} onChangeText={setQuery} showSoftInputOnFocus={!theme.isTV}
             onFocus={() => {if (theme.isTV && !searching) {setSearching(true); setSearchRevision(value => value + 1);}}} containerStyle={{marginHorizontal: theme.isTV ? 0 : 16}}/>
         </FocusRegion>
-        {theme.isTV && searching ? <View style={{marginTop: 32}}><NativeTVKeyboard id={keyboard} value={query} onChangeText={setQuery} activation={{visible: true, intent: 'enter', revision: searchRevision}} leftRegionId={ids.rail} rightRegionId={matchingPages[0] ? ids.surface(`settings.matches.${matchingPages[0].id}`) : undefined} width={500} testID="settings-keyboard" onVoice={voiceSearch.start} voiceBusy={voiceSearch.busy}/></View> : <ScrollView style={{marginTop: 20, marginHorizontal: theme.isTV ? -16 : 0}} contentContainerStyle={theme.isTV ? {paddingHorizontal: 16} : {paddingBottom: 24 + insets.bottom}}>
+        {theme.isTV && searching ? <View style={{marginTop: 32}}><NativeTVKeyboard id={keyboard} value={query} onChangeText={setQuery} activation={{visible: true, intent: 'enter', revision: searchRevision}} leftRegionId={ids.rail} rightRegionId={matchRegions[0]} width={500} testID="settings-keyboard" onVoice={voiceSearch.start} voiceBusy={voiceSearch.busy}/></View> : <ScrollView style={{marginTop: 20, marginHorizontal: theme.isTV ? -16 : 0}} contentContainerStyle={theme.isTV ? {paddingHorizontal: 16} : {paddingBottom: 24 + insets.bottom}}>
           {query.trim().length >= 2 ? <SettingsSearchResults matches={matches} query={query} onNavigate={address => choose(address)}/>
             : <>
               {compact && <>
@@ -273,7 +284,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
                 </Focusable>
                 {sheetShortcuts.length > 0 && <ShortcutTiles testID="settings-shortcuts" actions={sheetShortcuts}/>}
               </>}
-              <FocusRegion id={column} entry={orderedPages[0].id} order={orderedPages.map(value => value.id)} orientation="vertical" edges={{left: ids.rail, right: rows}} onLayout={enter}>
+              <FocusRegion id={column} entry={orderedPages[0].id} order={orderedPages.map(value => value.id)} orientation="vertical" edges={{left: ids.rail, right: rows, up: searchField}} onLayout={enter}>
                 <Text style={[shellType(theme.isTV ? 20 : 13, 600), {color: theme.colors.textTertiary, marginLeft: 20, marginBottom: 10}]}>{t('settings.heading.account')}</Text>
                 {theme.isTV
                   ? tvPageGroups.map((group, index) => <React.Fragment key={group.join('-')}>
@@ -288,8 +299,8 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
               </FocusRegion>
             </>}
             {theme.isTV && !searching && <View testID="settings-key-hints" style={{gap: 8, marginTop: 34, marginLeft: 20}}>
-              <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}><KeyCap label={t('next.controls.native.up')}/><KeyCap label={t('next.controls.native.down')}/><Text style={[shellType(15, 400), {color: theme.colors.textTertiary}]}>{t('next.shell.settingsHintChoose')}</Text></View>
-              <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}><KeyCap label={t('next.controls.native.right')}/><Text style={[shellType(15, 400), {color: theme.colors.textTertiary}]}>{t('next.shell.settingsHintEdit')}</Text><View style={{width: 12}}/><KeyCap label={t('next.controls.native.left')}/><Text style={[shellType(15, 400), {color: theme.colors.textTertiary}]}>{t('next.shell.settingsHintPages')}</Text></View>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}><KeyCap label={t('next.controls.native.up')}/><KeyCap label={t('next.controls.native.down')}/><Text style={[shellType(20, 600, 'normal', 0, theme.textScale), {color: theme.colors.textTertiary}]}>{t('next.shell.settingsHintChoose')}</Text></View>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}><KeyCap label={t('next.controls.native.right')}/><Text style={[shellType(20, 600, 'normal', 0, theme.textScale), {color: theme.colors.textTertiary}]}>{t('next.shell.settingsHintEdit')}</Text><View style={{width: 12}}/><KeyCap label={t('next.controls.native.left')}/><Text style={[shellType(20, 600, 'normal', 0, theme.textScale), {color: theme.colors.textTertiary}]}>{t('next.shell.settingsHintPages')}</Text></View>
             </View>}
           {!theme.isTV && serverPages.length > 0 && <View style={{marginHorizontal: 16, marginTop: 20, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised, borderWidth: 1, borderColor: alpha(theme.colors.accentStrong, .28)}}>
             <ServerHeader serverName={ports.serverName()} viewerRole={viewerRole} audience={viewerRole === 'administrator' ? 'administrators' : 'owner'} variant="phone"/>
@@ -312,7 +323,7 @@ export function NativeSettingsScreen({ports, controller, runtime, devicePreferen
           {theme.isTV && searching ? <>
             {query.trim().length >= 2 && matches.length > 0 && <Text testID="settings-search-count" style={[shellType(20, 600), {color: theme.colors.textTertiary, marginBottom: 18}]}>{t('next.shell.tvSettingsMatchCount', {count: matches.length})}</Text>}
             {query.trim().length >= 2 && !matches.length && <StateView title={t('next.states.noMatches', {query: query.trim()})}/>}
-            {matchingPages.map(value => <View key={value.id}><Text accessibilityRole="header" style={[shellType(32, 800), {color: theme.colors.text, marginBottom: 24}]}>{t(value.title)}</Text><SettingsPageBody reportedOutputs={reportedOutputs} awayLimitLabel={awayLimitLabel} onStreaming={() => choose('streaming')} onQuality={() => choose('quality')} page={value} ports={ports} controller={controller} runtime={runtime} devicePreferences={devicePreferences} region={ids.surface(`settings.matches.${value.id}`)} column={keyboard}/></View>)}
+            {matchingPages.map(value => <View key={value.id}><Text accessibilityRole="header" style={[shellType(32, 800), {color: theme.colors.text, marginBottom: 24}]}>{t(value.title)}</Text><SettingsPageBody reportedOutputs={reportedOutputs} awayLimitLabel={awayLimitLabel} onStreaming={() => choose('streaming')} onQuality={() => choose('quality')} page={value} ports={ports} controller={controller} runtime={runtime} devicePreferences={devicePreferences} region={ids.surface(`settings.matches.${value.id}`)} column={keyboard} verticalEdges={matchEdges(ids.surface(`settings.matches.${value.id}`))}/></View>)}
             <Text testID="settings-search-help" style={[shellType(18, 400), {color: theme.colors.textTertiary, marginTop: 24}]}>{t('next.shell.tvSettingsSearchHelp')}</Text>
           </> : <SettingsPageBody reportedOutputs={reportedOutputs} awayLimitLabel={awayLimitLabel} onStreaming={() => choose('streaming')} onQuality={() => choose('quality')} page={page} ports={ports} controller={controller} runtime={runtime} devicePreferences={devicePreferences} region={rows} column={column}/>}
         </ScrollView>}
@@ -357,7 +368,7 @@ function engineOpeningAlive(
     && live.preferences === opening.preferences && live.mount === opening.mount && live.route === opening.route
     && opening.route === navigation.getSnapshot() && controller.lifetime.current();
 }
-function SettingsPageBody({page, ports, controller, runtime, devicePreferences, region, column, reportedOutputs, awayLimitLabel, onStreaming, onQuality}: {reportedOutputs?: Readonly<{hdr: boolean; surround: boolean}>; awayLimitLabel?: string; onStreaming: () => void; onQuality: () => void; page: SettingsPage; ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; devicePreferences: NativeDevicePreferences; region: string; column: string}) {
+function SettingsPageBody({page, ports, controller, runtime, devicePreferences, region, column, reportedOutputs, awayLimitLabel, onStreaming, onQuality, verticalEdges}: {verticalEdges?: {up?: string; down?: string}; reportedOutputs?: Readonly<{hdr: boolean; surround: boolean}>; awayLimitLabel?: string; onStreaming: () => void; onQuality: () => void; page: SettingsPage; ports: NativeSettingsLivePorts; controller: NativeSettingsController; runtime: NativeShellRuntime; devicePreferences: NativeDevicePreferences; region: string; column: string}) {
   const theme = useTheme(), t = runtime.text.t, state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [advanced, setAdvanced] = useState(false);
   // The public browser handoff does not grant native password/two-step editing.
@@ -501,7 +512,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
   if (pageSections.some(section => section.advanced)) rowIds.push('settings-advanced');
   const device = Platform.isTV ? Platform.OS === 'ios' ? 'device.noun.appleTV' : String((Platform.constants as {Manufacturer?: string}).Manufacturer ?? '').toLowerCase() === 'amazon' ? 'device.noun.fireTV' : 'device.noun.androidTV'
     : Platform.OS === 'ios' ? (Platform as {isPad?: boolean}).isPad ? 'device.noun.iPad' : 'device.noun.iPhone' : Math.min(Dimensions.get('screen').width, Dimensions.get('screen').height) >= 600 ? 'device.noun.tablet' : 'device.noun.phone';
-  return <><FocusRegion id={region} entry={rowIds[0]} order={rowIds} orientation="vertical" edges={{left: column}}>
+  return <><FocusRegion id={region} entry={rowIds[0]} order={rowIds} orientation="vertical" edges={{left: column, ...verticalEdges}}>
     {actionError !== undefined && <StateView {...runtime.error(actionError, () => setActionError(undefined))}/>}
     {showSafeMode && <NativeSafeModeRow source={devicePreferences} runtime={runtime} current={controller.lifetime.current}/>}
     {sections.map(section => <React.Fragment key={section.id}><View style={{marginBottom: theme.isTV ? 30 : 24}}>
@@ -689,7 +700,7 @@ function ManagementCard({url, text}: {url: string; text: NativeShellRuntime['tex
 /** tv-more frame 22's key caps: a drawn key beside the action it performs. */
 function KeyCap({label}: {label: string}) {
   const theme = useTheme();
-  return <View style={{minWidth: 44, height: 32, paddingHorizontal: 10, borderRadius: 7, borderWidth: 1.5, borderColor: `${theme.colors.text}4D`, alignItems: 'center', justifyContent: 'center'}}>
-    <Text style={[shellType(13, 700), {color: theme.colors.textSecondary}]}>{label}</Text>
+  return <View style={{minWidth: 44, height: 36, paddingHorizontal: 10, borderRadius: 9, borderWidth: 1.5, borderColor: `${theme.colors.text}4D`, alignItems: 'center', justifyContent: 'center'}}>
+    <Text style={[shellType(17, 800, 'normal', 0, theme.textScale), {color: theme.colors.textSecondary}]}>{label}</Text>
   </View>;
 }

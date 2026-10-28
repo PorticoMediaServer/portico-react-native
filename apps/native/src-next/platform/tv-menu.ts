@@ -13,6 +13,5 @@ export function captureTVMenuKey(capture = true): () => void {
 }
 
 export function useTVMenuCapture(capture: boolean): void {
-  // AccountEntry releases its system recognizer in passive cleanup; acquire after it.
   useEffect(() => captureTVMenuKey(capture), [capture]);
 }

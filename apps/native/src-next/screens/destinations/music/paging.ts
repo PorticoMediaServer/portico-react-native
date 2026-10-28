@@ -3,7 +3,7 @@
  * treating a displayed window as whole-container membership. */
 export type MusicSection<T> = Readonly<{
   phase: 'idle' | 'loading' | 'ready' | 'error' | 'refresh-required';
-  items: readonly T[]; nextCursor: string; offset: number;
+  items: readonly T[]; nextCursor: string; offset: number; revision?: string;
   canNext: boolean; canPrevious: boolean; total?: number; totalIsLowerBound?: boolean;
   error?: unknown;
 }>;
@@ -102,7 +102,7 @@ export class MusicSectionPager<T extends {id: string}> {
         while (this.cursors.size > 64) {const oldest = [...this.cursors.keys()].filter(key => key !== 0 && key !== index && key !== index + 1).sort((a,b) => a-b)[0]; this.cursors.delete(oldest);}
         this.chunks = chunks; this.failedIndex = undefined;
         const first = chunks[0], last = chunks.at(-1)!;
-        this.publish({phase: 'ready', items: Object.freeze(chunks.flatMap(value => value.page.items)), offset: first.offset,
+        this.publish({phase: 'ready', items: Object.freeze(chunks.flatMap(value => value.page.items)), offset: first.offset, revision: this.revision,
           nextCursor: last.page.nextCursor, canNext: !!last.page.nextCursor, canPrevious: first.index > 0,
           total: this.total, totalIsLowerBound: this.lowerBound, error: undefined});
       } catch (error) {

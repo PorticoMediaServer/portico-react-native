@@ -43,7 +43,7 @@ export type NativeShellRoute = Readonly<
   | {kind: 'recordings'}
   | {kind: 'server-feedback'}
   | {kind: 'server-dashboard'}
-  | {kind: 'server-settings'; page?: 'libraries' | 'remote' | 'people' | 'troubleshooting'}
+  | {kind: 'server-settings'; page?: 'general' | 'history' | 'libraries' | 'remote-sources' | 'metadata' | 'segments' | 'live' | 'people' | 'signin' | 'remote' | 'integrations' | 'streaming' | 'storage'}
   | {kind: 'server-segments'}
   | {kind: 'collection'; libraryId: string; collectionId: string; title: string}
   | {kind: 'library-edit-pins' | 'library-settings'; libraryId: string}

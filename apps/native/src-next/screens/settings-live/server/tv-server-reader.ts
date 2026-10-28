@@ -11,8 +11,7 @@ export function nativeServerAdmission(account: DirectSnapshot, lifetime: NativeS
 }
 
 /** The server reads an administrator's TV pages actually make. People is shared
- * with administrators and the approved coded-events page is theirs; the owner's
- * message log, storage measurements, catalogue and remote-access reads are not.
+ * with administrators; logs, coded events, storage, catalogue and remote access are not.
  * An administrator is admitted to these exact paths, never to the role's whole
  * surface, so a page bug cannot turn the tier into an owner read. Keep this list
  * beside the page that reads it. */
@@ -20,7 +19,6 @@ const administratorReads: ReadonlySet<string> = new Set([
   routePath('get_admin_access_devices'),
   routePath('get_admin_access_invitations'),
   routePath('get_admin_access_members'),
-  '/v1/admin/access/events', // generated route id arrives with the §16 checkpoint
 ]);
 
 /** A TV settings reader is GET-only for the owner or an administrator whose primary
@@ -39,6 +37,8 @@ export function createTVServerReader(context: Context, lifetime: NativeScreenLif
     return lifetime.request(next => context.api.request<T>(path, 'GET', undefined, next), signal);
   }, request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
     const admission = nativeServerAdmission(context.account, lifetime);
+    const base = path.split('?')[0];
+    if (base === routePath('get_admin_logs') || base === '/v1/admin/access/events') return Promise.reject(new Error('native_tv_server_read_denied'));
     if (admission === 'denied' || method && method !== 'GET' || body !== undefined) return Promise.reject(new Error('native_tv_server_read_denied'));
     if (admission === 'administrator' && !administratorReads.has(path)) return Promise.reject(new Error('native_tv_server_read_denied'));
     return lifetime.request(next => context.api.request<T>(path, 'GET', undefined, next), signal);

@@ -1415,6 +1415,8 @@ for (const role of ['administrator', 'owner'] as const) test(`TV Dashboard ${rol
     await act(() => {});
     const row = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-session-first')!;
     assert.ok(row);
+    const identities = ofType(row, 'Text').flatMap(element => React.Children.toArray(element.props.children)).filter(value => ['person', 'profile', 'device'].includes(String(value)));
+    assert.deepEqual(identities, ['person', 'profile', 'device'], 'TV identity leads with username, then a differing profile, then device');
     if (role === 'owner') {
       const jobMore = ofType(panel.tree, Focusable).find(element => element.props.testID === 'dashboard-jobs-more')!; assert.ok(jobMore);
       withNativeControl(jobMore, host => host.props.onPress()); await act(() => {});

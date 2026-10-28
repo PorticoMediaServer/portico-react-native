@@ -159,11 +159,11 @@ export function Parts({parts = [], style, gap = 8, strong = false}: {parts?: rea
   ]}>{part.text}</Text>)}</View>;
 }
 
-export function Caption({title, titleLines, caption, detail, density, titleTextStyle, captionTextStyle, selected, centered, lines = titleLines ?? 1}: Pick<CardProps, 'title' | 'titleLines' | 'caption' | 'detail' | 'density' | 'titleTextStyle' | 'captionTextStyle'> & {selected?: boolean; centered?: boolean; lines?: number}) {
+export function Caption({title, titleLines, caption, detail, density, titleTextStyle, captionTextStyle, selected, centered, focused, tvRestingSecondary, lines = titleLines ?? 1}: Pick<CardProps, 'title' | 'titleLines' | 'caption' | 'detail' | 'density' | 'titleTextStyle' | 'captionTextStyle'> & {selected?: boolean; centered?: boolean; focused?: boolean; tvRestingSecondary?: boolean; lines?: number}) {
   const t = useTheme(), waiting = useFocusWaiting();
   const compact = density === 'grid' && !t.isTV;
   return <View accessibilityElementsHidden={waiting} importantForAccessibility={waiting ? 'no-hide-descendants' : 'auto'} style={{opacity: waiting ? 0 : 1, marginTop: compact ? 7 : t.spec.card.titleMargin[t.platform], gap: t.spec.card.subtitleMargin[t.platform], alignItems: centered ? 'center' : undefined}}>
-    <Text numberOfLines={lines} ellipsizeMode="tail" style={[t.type.cardTitle, compact && titleStyle(t, 12.5, 600), {color: selected ? t.colors.accentStrong : t.colors.text, textAlign: centered ? 'center' : 'left'}, titleTextStyle]}>{title}</Text>
+    <Text numberOfLines={lines} ellipsizeMode="tail" style={[t.type.cardTitle, compact && titleStyle(t, 12.5, 600), {color: selected ? t.colors.accentStrong : t.isTV && tvRestingSecondary && !focused ? t.colors.textSecondary : t.colors.text, textAlign: centered ? 'center' : 'left'}, titleTextStyle]}>{title}</Text>
     <Parts parts={caption} style={[compact && titleStyle(t, 11.5, 600), captionTextStyle]} /><Parts parts={detail} style={[compact && titleStyle(t, 11.5, 600), captionTextStyle]} />
   </View>;
 }

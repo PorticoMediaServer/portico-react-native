@@ -14,8 +14,10 @@ import {tvFocusIds} from '../../../shell/tv-focus';
 import {publicTVHandoffAddress} from '../../../tv/auth/TVHandoff';
 import {TVRemoteAccessPanel} from './TVRemoteAccessPanel';
 import {TVPeoplePanel} from './TVPeoplePanel';
-import {TVTroubleshootingPanel} from './TVTroubleshootingPanel';
-import {TVServerPageMenu} from './TVServerPageMenu';
+import {TVServerPageMenu, tvServerPageDefinition, type TVServerPage} from './TVServerPageMenu';
+import {TVServerReadOnlyPanel} from './TVServerReadOnlyPanel';
+import {NativeDashboardScreen} from '../DashboardScreen';
+import type {NativeDashboardController} from '../dashboard-controller';
 import {createTVServerReader, nativeServerAdmission} from './tv-server-reader';
 import {NativeScreenLifetime} from '../lifetime';
 import {ownerLibraryCounts, ownerLibraryKind, ownerLibraryState} from '../owner-libraries/presentation';
@@ -24,17 +26,16 @@ import {Screen, useScreenEntry} from '../Screen';
 
 /** TV36: GET-only library directory. No mutation service is exposed to a control.
  * Composition admits only the owner's primary profile; the lifetime fences every read. */
-export function NativeTVServerScreen({ports, runtime, initialPage = 'libraries'}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; initialPage?: 'libraries' | 'remote' | 'people' | 'troubleshooting'}) {
+export function NativeTVServerScreen({ports, runtime, initialPage = 'general', dashboard}: {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; initialPage?: TVServerPage; dashboard: NativeDashboardController}) {
   const theme = useTheme(), t = runtime.text.t;
-  const [page, setPage] = useState<'libraries' | 'remote' | 'people' | 'troubleshooting'>(initialPage);
+  const [page, setPage] = useState<TVServerPage>(initialPage);
   const lifetime = useMemo(() => new NativeScreenLifetime(ports.context), [ports]);
   const admission = nativeServerAdmission(ports.context.account, lifetime);
   const role: 'owner' | 'administrator' = admission === 'owner' ? 'owner' : 'administrator';
   const owner = admission === 'owner';
-  // The drawn page pill says who shares each page: People is shared with
-  // administrators; Libraries, Remote access and the owner-only message log are
-  // the owner's alone.
-  const audience = owner && page !== 'people' ? 'owner' : 'administrators';
+  // Dashboard and People are shared with administrators; the other read-only
+  // settings retain their existing owner admission.
+  const audience = owner && page !== 'people' && page !== 'dashboard' ? 'owner' : 'administrators';
   const service = useMemo(() => new LibraryManagementService({
     api: createTVServerReader(ports.context, lifetime),
     scope: {serverId: lifetime.authority.serverId, viewerId: JSON.stringify([lifetime.authority.epoch, lifetime.authority.accountId, lifetime.authority.profileId])},
@@ -59,17 +60,17 @@ export function NativeTVServerScreen({ports, runtime, initialPage = 'libraries'}
     <ServerBand viewerRole={role} audience={audience}/>
     <View style={{flex: 1, flexDirection: 'row', gap: 80}}>
       <TVServerPageMenu role={role} page={page} serverName={ports.serverName()} runtime={runtime} column={column} rows={rows} rail={ids.rail} onLayout={enter}
-        onSelect={next => {if (next === 'dashboard') ports.context.navigation.open({kind: 'server-dashboard'}, lifetime.authority); else setPage(next);}}/>
-      <ScrollView style={{flex: 1}} contentContainerStyle={{paddingBottom: 50}}>
+        onSelect={next => {if (lifetime.current() && (owner || next === 'dashboard' || next === 'people')) setPage(next);}}/>
+      {page === 'dashboard' ? <NativeDashboardScreen controller={dashboard} ports={ports} runtime={runtime} deniedFallback={null} tvContainer={{column, rows}}/> : <ScrollView style={{flex: 1}} contentContainerStyle={{paddingBottom: 50}}>
         <View style={{height: 60, overflow: 'hidden'}}><ServerHeader serverName={ports.serverName()} viewerRole={role} audience={audience}/></View>
-        <Text accessibilityRole="header" style={[shellType(44, 800), {color: theme.colors.text, marginBottom: 28}]}>{t(page === 'libraries' ? 'settings.server.libraries' : page === 'remote' ? 'settings.server.remote' : page === 'people' ? 'settings.server.people' : 'settings.server.troubleshooting')}</Text>
+        <Text accessibilityRole="header" style={[shellType(44, 800), {color: theme.colors.text, marginBottom: 28}]}>{t(tvServerPageDefinition(page).label)}</Text>
         <FocusRegion key={page} id={rows} orientation="vertical" edges={{left: column}}>
-          {page === 'people' ? <TVPeoplePanel ports={ports} runtime={runtime} lifetime={lifetime}/> : page === 'troubleshooting' ? <TVTroubleshootingPanel ports={ports} runtime={runtime} lifetime={lifetime} owner={owner}/> : page === 'remote' ? <TVRemoteAccessPanel ports={ports} runtime={runtime} lifetime={lifetime}/> : <>
+          {page === 'people' ? <TVPeoplePanel ports={ports} runtime={runtime} lifetime={lifetime}/> : page === 'remote' ? <TVRemoteAccessPanel ports={ports} runtime={runtime} lifetime={lifetime}/> : page !== 'libraries' ? <TVServerReadOnlyPanel page={page} ports={ports} runtime={runtime} lifetime={lifetime}/> : <>
           {state.phase === 'loading' && <StateView title={t('status.loading')}/>}
           {state.error && <StateView {...runtime.error(state.error, () => {void service.loadLibraries();})}/>}
           {state.data?.items.map(library => {
             const status = ownerLibraryState(library, {t});
-            return <Focusable key={library.id} focusId={library.id} focusKind="row" accessibilityRole="text" accessibilityLabel={library.name} style={{flexDirection: 'row', gap: 20, alignItems: 'center', padding: 22, marginBottom: 8, borderRadius: 16, backgroundColor: theme.colors.raised}}>
+            return <Focusable key={library.id} focusId={library.id} focusKind="row" accessibilityRole="text" accessibilityLabel={[library.name, ...ownerLibraryCounts(library, t), library.source.path, status.text].filter(Boolean).join('. ')} style={{flexDirection: 'row', gap: 20, alignItems: 'center', padding: 22, marginBottom: 8, borderRadius: 16, backgroundColor: theme.colors.raised}}>
               <Icon name={ownerLibraryKind(library.kind).icon} size={30}/>
               <View style={{flex: 1, gap: 5}}><Text style={[shellType(26, 700), {color: theme.colors.text}]}>{library.name}</Text>
                 <Text style={[shellType(20), {color: theme.colors.textSecondary}]}>{ownerLibraryCounts(library, t).join(' · ')}</Text>
@@ -85,7 +86,7 @@ export function NativeTVServerScreen({ports, runtime, initialPage = 'libraries'}
           <View style={{padding: 10, borderRadius: 10, backgroundColor: theme.colors.white}}><QRCode value={address.url} size={100}/></View>
           <View style={{flex: 1, gap: 10}}><Text style={[shellType(24, 700), {color: theme.colors.text}]}>{t('tv.server.handoffTitle')}</Text><Text style={[shellType(20, 400, 28), {color: theme.colors.textSecondary}]}>{t('tv.server.handoffBody', {url: address.display})}</Text></View>
         </View>}
-      </ScrollView>
+      </ScrollView>}
     </View>
   </Screen>;
 }

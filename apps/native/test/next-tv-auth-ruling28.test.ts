@@ -7,9 +7,14 @@ import {createFocusRegistry} from '../src-next/kit/focus/registry.ts';
 import {createInitialRegionEntry} from '../src-next/kit/focus/initial-entry.ts';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {createTheme, nativeType} from '../src-next/kit/theme';
+import {createTVKeyAdapter} from '../src-next/platform/tv-key-adapter';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
 const theme = createTheme({isTV: true, width: 1920});
+const remoteKeys = (accept: (handler: (event: any) => void) => void) => {
+  const adapter = createTVKeyAdapter();
+  return {useTVKeyEvent: (handler: (event: any) => void) => accept(raw => {const event = adapter.read(raw); if (event) handler(event);})};
+};
 const inScope = (component: (props: any) => any, props: any) => {
   const scope = component(props);
   assert.equal(scope.type, 'Provider', 'pre-sign-in entry supplies its own focus scope');
@@ -20,6 +25,7 @@ const inScope = (component: (props: any) => any, props: any) => {
  * (real hooks under the driver, or the harness stand-in for a single shallow render). */
 const entryRevision = (react: unknown) => screenModule(new URL('../src-next/tv/auth/entry-revision.ts', import.meta.url), {react});
 const common = async (react: unknown) => ({react, '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/theme': {nativeType, useTheme: () => theme},
+  '../../platform/tv-keys': {useTVKeyEvent() {}},
   '../../kit/controls': {Button: 'Button', Focusable: 'Focusable', TextField: 'Field'}, './TVAuthLayout': {TVAuthLayout: 'Layout'},
   '../../screens/destinations/useEntryFocus': {useDestinationEntryFocus() {}}, './entry-revision': await entryRevision(react)});
 // The existing caller vectors render the pad directly; give its real entry hooks
@@ -117,6 +123,7 @@ test('sixth MFA digit submits once, rejected controlled state can retry, and Pla
   const numeric = await numericModule({...React, default: React});
   const {TVVerificationForm} = await screenModule(new URL('../src-next/tv/auth/TVVerificationForm.tsx', import.meta.url), {
     ...await common({...React, default: React}), 'react-native': {Text: 'Text', View: 'View', useTVEventHandler: (fn: typeof remote) => {remote = fn;}},
+    '../../platform/tv-keys': remoteKeys(handler => {remote = handler;}),
     '../../kit/focus': {FocusProvider: 'Provider', FocusRegion: 'Region'}, '../../kit/Icon': {Icon: 'Icon'},
     './TVNumericPad': numeric,
   });
@@ -135,8 +142,10 @@ test('sixth MFA digit submits once, rejected controlled state can retry, and Pla
     assert.equal(props.code, '12345');
     remote({eventType: 'playPause', eventKeyAction: 1});
     assert.equal(props.code, '12345', 'key release does not delete twice');
+    await act(() => {remote({eventType: 'playPause', eventKeyAction: 1}); host.rerender();});
+    assert.equal(props.code, '1234', 'a release-only native tap deletes one digit');
     await act(() => {props.busy = true; host.rerender(); remote({eventType: 'playPause', eventKeyAction: 0}); press('9');});
-    assert.equal(props.code, '12345');
+    assert.equal(props.code, '1234');
     assert.ok(!nodes(tree).some(node => node.type === 'TextInput'));
   } finally {host.unmount();}
 });
@@ -163,6 +172,7 @@ test('profile PIN shares the actual pad, submits four digits once and exposes on
   const numeric = await numericModule(react);
   const {TVProfilePINForm} = await screenModule(new URL('../src-next/tv/auth/TVProfilePINForm.tsx', import.meta.url), {
     ...await common(react), 'react-native': {Text: 'Text', View: 'View', useTVEventHandler: (fn: typeof remote) => {remote = fn;}},
+    '../../platform/tv-keys': remoteKeys(handler => {remote = handler;}),
     '../../kit/focus': {FocusProvider: 'Provider'}, './TVAuthLayout': {TVProfilePINLayout: 'PINLayout'}, './TVNumericPad': numeric,
   });
   const profile = {id: 'actual-profile', name: 'Actual name', initial: 'A', color: 'blue'};

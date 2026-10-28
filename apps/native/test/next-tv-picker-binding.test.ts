@@ -1,3 +1,4 @@
+import {createTVMenuPolicy} from '../src-next/platform/tv-menu-policy';
 import * as accountWork from '../src-next/platform/account-work';
 import * as tvCodeOpening from '../src-next/screens/accounts/tv-code-opening';
 import * as tvApprovalCredentials from '../src-next/screens/accounts/tv-approval-credentials';
@@ -32,7 +33,7 @@ function backOwner() {
 }
 const shared = (back: ReturnType<typeof backOwner>) => ({
   react: {...React, default: React},
-  'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, BackHandler: back.api, Platform: {isTV: true}, Dimensions: {get: () => ({width: 1920, height: 1080})}, NativeModules: {}, TVEventControl: {enableTVMenuKey: () => menuCalls.push('enable'), disableTVMenuKey: () => menuCalls.push('disable')}, View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
+  'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, BackHandler: back.api, Platform: {OS: 'ios', isTV: true}, Dimensions: {get: () => ({width: 1920, height: 1080})}, NativeModules: {}, TVEventControl: {enableTVMenuKey: () => menuCalls.push('enable'), disableTVMenuKey: () => menuCalls.push('disable')}, View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
   '../../../../../packages/i18n/src': {defaultI18n},
   '../../../../../packages/client-core/src/route-identity': {routeOrigin},
   '../../../../../packages/client-core/src/presentation/errors': {presentError: () => ({body: 'PIN refused'})},
@@ -64,7 +65,11 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
     async chooseProfile() {calls.push('select');}
     dispose() {calls.push('dispose');}
   }
+  const menu = await screenModule(new URL('../src-next/platform/tv-menu.ts', import.meta.url), {
+    react: shared(back).react, 'react-native': shared(back)['react-native'], './tv-menu-policy': {createTVMenuPolicy},
+  });
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
+    '../../platform/tv-menu': menu,
     './tv-code-opening': tvCodeOpening,
     './tv-approval-credentials': tvApprovalCredentials, './tv-approval-finalization': tvApprovalFinalization,
     '../../../../../packages/client-core/src/join-link': joinLink, '../../../../../packages/client-core/src/short-invitation-code': invitationCode,

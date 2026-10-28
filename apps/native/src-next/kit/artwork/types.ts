@@ -50,7 +50,7 @@ export type ArtworkProps = Readonly<{
   testID?: string;
 }>;
 
-export type AmbientTreatment = 'hero' | 'title' | 'phone' | 'cover' | 'wash' | 'library' | 'artist';
+export type AmbientTreatment = 'hero' | 'title' | 'phone' | 'cover' | 'wash' | 'library' | 'artist' | 'music' | 'person';
 export type AmbientArtProps = Readonly<{
   source?: AmbientArtSource | null;
   sources?: readonly AmbientArtSource[];

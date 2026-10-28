@@ -11,6 +11,7 @@ import {nativeDevicePreferences} from './device-preference-consumer';
 import {NativeDashboardController, type NativeDashboardAdmission} from './dashboard-controller';
 import {nativeServerAdmission} from './server/tv-server-reader';
 import {NativeTVServerScreen} from './server/TVServerScreen';
+import {isTVServerPage} from './server/TVServerPageMenu';
 import {NativeEqualizerSettingsScreen} from './EqualizerSettingsScreen';
 import {NativeSettingsScreen} from './SettingsScreen';
 import {NativeDashboardScreen} from './DashboardScreen';
@@ -53,18 +54,13 @@ function createComposition(context: NativeShellBootstrapContext) {
       render: (route, runtime) => {
         lifetime.assert();
         if (route.kind !== 'server-settings') throw new Error('native_server_settings_route_mismatch');
-        // The drawn TV pages that have a real mounted reader: the owner sees Libraries
-        // and Remote access as well; an administrator sees People and Troubleshooting,
-        // with the Dashboard surface for Dashboard itself. Members and secondary
-        // profiles fall back to their permitted Settings page.
         const allowed = admission();
         const fallback = <NativeSettingsScreen ports={ports} controller={settings} runtime={runtime} devicePreferences={devicePreferences} dashboard={dashboard}/>;
         if (allowed === 'denied') return fallback;
         if (!Platform.isTV) return <NativeDashboardScreen ports={ports} controller={dashboard} runtime={runtime} deniedFallback={fallback}/>;
-        if (allowed === 'administrator' && !route.page) return <NativeDashboardScreen ports={ports} controller={dashboard} runtime={runtime} deniedFallback={fallback}/>;
-        const requested = route.page === 'libraries' || route.page === 'remote' || route.page === 'people' || route.page === 'troubleshooting' ? route.page : undefined;
-        const page = allowed === 'owner' ? requested ?? 'libraries' : requested === 'people' || requested === 'troubleshooting' ? requested : 'people';
-        return <NativeTVServerScreen key={page} ports={ports} runtime={runtime} initialPage={page}/>;
+        const requested = isTVServerPage(route.page) ? route.page : undefined;
+        const page = allowed === 'owner' ? requested ?? 'general' : requested === 'people' ? 'people' : 'dashboard';
+        return <NativeTVServerScreen ports={ports} runtime={runtime} dashboard={dashboard} initialPage={page}/>;
       },
       dispose,
     } satisfies NativeRouteRenderer,
@@ -72,6 +68,7 @@ function createComposition(context: NativeShellBootstrapContext) {
       render: (route, runtime) => {
         lifetime.assert();
         if (route.kind !== 'server-dashboard') throw new Error('native_server_dashboard_route_mismatch');
+        if (Platform.isTV && admission() !== 'denied') return <NativeTVServerScreen ports={ports} runtime={runtime} dashboard={dashboard} initialPage="dashboard"/>;
         return <NativeDashboardScreen ports={ports} controller={dashboard} runtime={runtime}
           deniedFallback={<NativeSettingsScreen ports={ports} controller={settings} runtime={runtime} devicePreferences={devicePreferences} dashboard={dashboard}/>}/>;
       },

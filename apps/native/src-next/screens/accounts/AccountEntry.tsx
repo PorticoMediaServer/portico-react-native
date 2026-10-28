@@ -1,6 +1,7 @@
 import {accountExpectation, nativeAccountRead} from '../../platform/account-work';
 import React, {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
-import {AppState, BackHandler, Linking, NativeModules, Platform, Share, TVEventControl, Image, Text, View} from 'react-native';
+import {AppState, BackHandler, Linking, NativeModules, Platform, Share, Image, Text, View} from 'react-native';
+import {useTVMenuCapture} from '../../platform/tv-menu';
 import QRCode from 'react-native-qrcode-svg';
 import {HttpHostedApi, type HostedServer} from '../../../../../packages/client-core/src';
 import {ServerSignInProbe, type ServerSignIn} from '../../../../../packages/client-core/src/sign-in';
@@ -433,12 +434,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     if (stageRef.current === 'welcome' && !onBackRef.current) return false;
     backRef.current(); return true;
   }); return () => listener.remove();}, []);
-  useEffect(() => {
-    if (!Platform.isTV) return;
-    if (stage !== 'welcome' || onBack) TVEventControl.enableTVMenuKey();
-    else TVEventControl.disableTVMenuKey();
-    return () => TVEventControl.disableTVMenuKey();
-  }, [stage, onBack]);
+  useTVMenuCapture(Platform.isTV && (stage !== 'welcome' || !!onBack));
   const consume = useCallback((result: Result) => {
     if (!lifetime.current) return;
     if (result.kind === 'required-setup') {

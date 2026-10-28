@@ -1,3 +1,6 @@
+import {playbackUserMessage} from '../../../packages/client-core/src/playback-messages.ts';
+import {clockText} from '../../../packages/client-core/src/presentation/kit-model/text.ts';
+import {nativePostPlayNavigation} from '../src-next/screens/watch/post-play-navigation.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {screenModule, hooks} from './helpers/screen-harness.mjs';
@@ -67,7 +70,7 @@ async function fixture() {
     './WatchChrome': {}, './picture-slot': {}, './WatchHost': {NativeWatchHost: 'WatchHost'}, './EpisodePanel': {},
   });
   let ports: any, screens: any;
-  const {createNativeWatchModule} = await screenModule(new URL('../src-next/screens/watch/module.tsx', import.meta.url), {
+  const {createNativeWatchModule} = await screenModule(new URL('../src-next/screens/watch/module.tsx', import.meta.url), {'./system-media': {bindNativeVideoSystemMedia: () => () => {}}, './post-play-navigation': {nativePostPlayNavigation}, '../../../../../packages/client-core/src/playback-messages': {playbackUserMessage}, '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText}, '../../kit/states/DetailsPanel': {DetailsPanel: 'DetailsPanel'}, 
     react, 'react-native': {Platform: {isTV: false}}, '../settings-live/group-port': {subscribeGroupPort: () => () => {}}, '../../platform/device-settings': {},
     '../../../../../packages/client-core/src/audiobook-preferences': {}, '../../../../../packages/player-core/src': {sameFence}, '../../../../../packages/i18n/src': {defaultI18n},
     '../../../../../packages/client-core/src/playback-v1/quality': {}, '../../shell/model': {sameAuthority},

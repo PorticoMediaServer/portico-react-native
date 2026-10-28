@@ -25,12 +25,12 @@ import {nativeDashboardIdentity} from './dashboard-presentation';
 import {NativeOwnerDashboardPhone} from './owner-dashboard/use-owner-dashboard';
 
 /** TV never exposes a mutation, secret, settings document or inferred administrator action. */
-export function NativeDashboardScreen({controller, ports, runtime, deniedFallback, inline = false, onDenied}: {controller: NativeDashboardController; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; deniedFallback: React.ReactNode; inline?: boolean; onDenied?: () => void}) {
+export function NativeDashboardScreen({controller, ports, runtime, deniedFallback, inline = false, onDenied, tvContainer}: {tvContainer?: Readonly<{column: string; rows: string}>; controller: NativeDashboardController; ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; deniedFallback: React.ReactNode; inline?: boolean; onDenied?: () => void}) {
   const theme = useTheme(), t = defaultI18n.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]);
-  const column = ids.surface('server.pages'), rows = ids.surface('server.dashboard');
-  const enter = useScreenEntry(theme.isTV && state.admission !== 'denied' ? {regionId: column, childId: 'dashboard'} : undefined, controller.lifetime.current);
+  const column = tvContainer?.column ?? ids.surface('server.pages'), rows = tvContainer?.rows ?? ids.surface('server.dashboard');
+  const enter = useScreenEntry(theme.isTV && !tvContainer && state.admission !== 'denied' ? {regionId: column, childId: 'dashboard'} : undefined, controller.lifetime.current);
   useEffect(() => {void controller.refresh(); return ports.context.events.on('admin.sessions', () => {void controller.refresh();});}, [controller, ports]);
   useEffect(() => {
     if (state.admission !== 'denied') return;
@@ -50,10 +50,11 @@ export function NativeDashboardScreen({controller, ports, runtime, deniedFallbac
   if (health.freeBytes !== undefined) facts.push({id: 'free', text: t('settings.server.health.free', {bytes: formatBytes(health.freeBytes)})});
   if (health.databaseBytes !== undefined) facts.push({id: 'database', text: t('settings.server.health.database', {bytes: formatBytes(health.databaseBytes)})});
   const role = state.admission;
-  return <Screen style={theme.isTV ? {paddingTop: 56} : undefined}>
-    <ServerBand viewerRole={role} audience="administrators"/>
+  const Container = tvContainer ? View : Screen;
+  return <Container style={tvContainer ? {flex: 1} : theme.isTV ? {paddingTop: 56} : undefined}>
+    {!tvContainer && <ServerBand viewerRole={role} audience="administrators"/>}
     <View style={{flex: 1, flexDirection: 'row', gap: theme.isTV ? 80 : 0}}>
-      {theme.isTV && <TVServerPageMenu role={role} page="dashboard" serverName={ports.serverName()} runtime={runtime} column={column} rows={rows} rail={ids.rail} onLayout={enter}
+      {theme.isTV && !tvContainer && <TVServerPageMenu role={role} page="dashboard" serverName={ports.serverName()} runtime={runtime} column={column} rows={rows} rail={ids.rail} onLayout={enter}
         onSelect={page => {if (page !== 'dashboard') ports.context.navigation.open({kind: 'server-settings', page}, controller.lifetime.authority);}}/>}
       <ScrollView contentContainerStyle={{paddingHorizontal: theme.isTV ? 0 : 20, paddingBottom: 80}} style={{flex: 1}}>
         {!theme.isTV && <Button variant="text" size="small" icon="i-left" onPress={() => ports.context.navigation.back(controller.lifetime.authority)}>{t('action.back')}</Button>}
@@ -77,7 +78,7 @@ export function NativeDashboardScreen({controller, ports, runtime, deniedFallbac
               {source && <View style={{width: theme.isTV ? 130 : 110, height: theme.isTV ? 76 : 70, borderRadius: 10, overflow: 'hidden'}}><Artwork source={source}/></View>}
               <View style={{flex: 1, gap: theme.isTV ? 8 : 10}}><Text numberOfLines={1} style={[shellType(theme.isTV ? 26 : 20, 700), {color: theme.colors.text}]}>{identity.title}</Text>
                 {identity.secondary.length > 0 && <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 16}}>{identity.secondary.map((value, index) => <Text numberOfLines={1} key={index} style={[shellType(theme.isTV ? 20 : 14), {color: theme.colors.textSecondary, flexShrink: 1}]}>{value}</Text>)}</View>}
-                <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: theme.isTV ? 16 : 10}}>{[session.profile || session.user, session.device, location?.text, delivery?.text].filter(Boolean).map((value, index) => <Text numberOfLines={1} key={index} style={[shellType(theme.isTV ? 20 : 14, index === 0 ? 700 : 400), {color: theme.colors.textSecondary}]}>{value}</Text>)}</View>
+                <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: theme.isTV ? 16 : 10}}>{[...(theme.isTV ? [session.user, session.profile !== session.user ? session.profile : undefined] : [session.profile || session.user]), session.device, location?.text, delivery?.text].filter(Boolean).map((value, index) => <Text numberOfLines={1} key={index} style={[shellType(theme.isTV ? 20 : 14, index === 0 ? 700 : 400), {color: theme.colors.textSecondary}]}>{value}</Text>)}</View>
               </View>
               {fraction !== undefined && <View style={{width: theme.isTV ? 160 : 80, height: theme.isTV ? 8 : 5, borderRadius: 4, overflow: 'hidden', backgroundColor: theme.colors.line}}><View style={{height: '100%', backgroundColor: theme.colors.accentStrong, width: `${fraction * 100}%`}}/></View>}
             </Focusable>;
@@ -104,5 +105,5 @@ export function NativeDashboardScreen({controller, ports, runtime, deniedFallbac
         </FocusRegion>
       </ScrollView>
     </View>
-  </Screen>;
+  </Container>;
 }

@@ -99,3 +99,14 @@ test('typed People reader refuses forged selectors and control cursors before di
   assert.equal(calls, 0);
   lifetime.dispose();
 });
+
+
+test('G35 keeps server logs and coded troubleshooting events off TV for every role', async () => {
+  for (const role of ['owner', 'admin'] as const) {
+    const lifetime = scope(); let reads = 0;
+    const reader = createTVServerReader({account: {...account, account: {...account.account, role}}, api: {request: async <T,>() => {reads++; return {} as T;}}}, lifetime);
+    for (const path of [routePath('get_admin_logs'), routePath('get_admin_logs') + '?limit=8', '/v1/admin/access/events']) await assert.rejects(reader.request(path), /native_tv_server_read_denied/);
+    assert.equal(reads, 0);
+    lifetime.dispose();
+  }
+});

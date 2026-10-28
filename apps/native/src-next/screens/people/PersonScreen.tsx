@@ -4,7 +4,8 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {WindowedCollection} from '../../../../../packages/client-core/src/collections/windowed';
 import type {PersonCredit, PersonPage, PersonRole} from '../../../../../packages/client-core/src/people';
 import {defaultI18n} from '../../../../../packages/i18n/src';
-import {PersonCircle} from '../../kit/artwork';
+import {AmbientArt, Artwork, PersonCircle} from '../../kit/artwork';
+import type {NativePageSelection} from '../search/selection';
 import {PosterCard} from '../../kit/cards';
 import {Chip, Focusable} from '../../kit/controls';
 import {Menu, type MenuEntry} from '../../kit/overlays';
@@ -18,7 +19,7 @@ import type {createNativeEntryActions} from '../destinations/entry-actions';
 
 export type NativePersonScreenProps = Readonly<{
   focusScope: string; page: PersonPage; role: PersonRole; collection: WindowedCollection<PersonCredit>;
-  runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>;
+  runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>; selection?: NativePageSelection;
   onRole: (role: PersonRole) => void; onBack: () => void;
 }>;
 const t = defaultI18n.t;
@@ -27,7 +28,7 @@ const creditSlotKey = (index: number) => String(index);
 
 /** phone-detail frame7: one sparse credits scroller, with the genuine person,
  * biography and bounded known-for shelf as its header. */
-export function PersonScreen({focusScope, page, role, collection, runtime, actions, onRole, onBack}: NativePersonScreenProps) {
+export function PersonScreen({focusScope, page, role, collection, runtime, actions, selection, onRole, onBack}: NativePersonScreenProps) {
   const theme = useTheme(), dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   const columns = theme.platform === 'phone' ? 3 : Math.max(3, Math.floor((dimensions.width - 40) / 150));
   const width = (dimensions.width - 32 - (columns - 1) * 10) / columns;
@@ -90,7 +91,7 @@ export function PersonScreen({focusScope, page, role, collection, runtime, actio
     </View>
   </>;
   const rows = useMemo(() => Math.ceil((state.total ?? page.pageInfo.total) / columns), [columns, page.pageInfo.total, state.total]);
-  if (theme.isTV) return <TVPerson focusScope={focusScope} page={page} role={role} collection={collection} runtime={runtime} actions={actions} onRole={onRole} onBack={onBack}/>;
+  if (theme.isTV) return <TVPerson focusScope={focusScope} page={page} role={role} collection={collection} runtime={runtime} actions={actions} selection={selection} onRole={onRole} onBack={onBack}/>;
   return <View style={{flex: 1, backgroundColor: theme.colors.ink}} testID="native-person">
     <VirtualizedList data={collection} getItem={(_data, index) => index} getItemCount={() => rows} keyExtractor={index => String(index)} extraData={version()}
       initialNumToRender={4} maxToRenderPerBatch={4} windowSize={5} ListHeaderComponent={header} onViewableItemsChanged={visible}
@@ -115,12 +116,14 @@ export function PersonScreen({focusScope, page, role, collection, runtime, actio
  * the person's own facts and biography, then the real windowed credits as a
  * horizontal row; Sort is not produced by the person read, so only the real
  * All/Cast/Crew filter is drawn. */
-export function TVPerson({focusScope, page, role, collection, runtime, actions, onRole, onBack}: {
+export function TVPerson({focusScope, page, role, collection, runtime, actions, selection, onRole, onBack}: {
   focusScope: string; page: PersonPage; role: PersonRole; collection: WindowedCollection<PersonCredit>;
-  runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>;
+  runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>; selection?: NativePageSelection;
   onRole: (role: PersonRole) => void; onBack: () => void;
 }) {
   const theme = useTheme(), t = defaultI18n.t;
+  useSyncExternalStore(selection?.subscribe ?? (() => () => {}), selection?.getSnapshot ?? (() => 0));
+  useSyncExternalStore(actions.menuState?.subscribe ?? (() => () => {}), actions.menuState?.getSnapshot ?? (() => 0));
   const [expanded, setExpanded] = useState(false), [filters, setFilters] = useState(false), [range, setRange] = useState({first: 0, last: 19});
   const firstPage = collection.pageOf(range.first), lastPage = collection.pageOf(range.last);
   const subscribePages = useCallback((listener: () => void) => {
@@ -146,20 +149,22 @@ export function TVPerson({focusScope, page, role, collection, runtime, actions, 
   const filterItems: MenuEntry[] = ([['all', 'title.creditsAll'], ['cast', 'web.person.cast'], ['crew', 'web.person.crew']] as const).map(([value, label]) =>
     ({id: value, label: t(label), selected: role === value, onSelect: () => onRole(value)}));
   return <View testID="native-person" style={{flex: 1, backgroundColor: theme.colors.ink}}>
-    <ScrollView contentContainerStyle={{paddingLeft: 200, paddingRight: 96, paddingTop: 88, paddingBottom: 80}}>
-      <View style={{flexDirection: 'row', alignItems: 'flex-start', gap: 44}}>
-        <PersonCircle size={260} initials={initials} source={runtime.artwork(person.portraitUrl)}
-          covers={known.flatMap(entry => {const art = runtime.artwork(entry.posterUrl); return art ? [art] : [];})}/>
-        <View style={{flex: 1, minWidth: 0}}>
-          {person.roles.length > 0 && <Text style={[browseType(theme, 24, 600), {color: theme.colors.textTertiary}]}>{defaultI18n.list(person.roles)}</Text>}
-          <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, 76, 800, -.035), {color: theme.colors.text, marginTop: 6}]}>{person.name}</Text>
-          <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 28, rowGap: 10, marginTop: 10}}>
+    <View pointerEvents="none" style={{position: 'absolute', inset: 0, overflow: 'hidden'}}><AmbientArt source={runtime.ambient(known[0]?.backdropUrl || person.portraitUrl || known[0]?.posterUrl)} treatment="person"/></View>
+    <ScrollView contentContainerStyle={{paddingLeft: 200, paddingRight: 96, paddingTop: 92, paddingBottom: 80}}>
+      <View style={{flexDirection: 'row', alignItems: 'flex-start', gap: 60, minHeight: 284}}>
+        <View style={{marginTop: 4}}><PersonCircle size={280} initials={initials} source={runtime.artwork(person.portraitUrl)}
+          covers={known.flatMap(entry => {const art = runtime.artwork(entry.posterUrl); return art ? [art] : [];})}/></View>
+        <View style={{width: 1180, minWidth: 0}}>
+          {person.roles.length > 0 && <Text style={[browseType(theme, 24, 600), {color: theme.colors.accentStrong, marginBottom: 16}]}>{defaultI18n.list(person.roles)}</Text>}
+          <Text accessibilityRole="header" numberOfLines={2} style={[browseType(theme, 96, 800, -.035, 94.08), {color: theme.colors.text, marginBottom: 16}]}>{person.name}</Text>
+          <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 28, rowGap: 10, marginBottom: 20}}>
             {dates && <Text style={[browseType(theme, 24, 700), {color: theme.colors.text}]}>{dates}</Text>}
+            {person.birthPlace && <Text style={[browseType(theme, 24), {color: theme.colors.textSecondary}]}>{person.birthPlace}</Text>}
             <Text style={[browseType(theme, 24, 500), {color: theme.colors.textSecondary}]}>{t('web.person.titles', {count: total})}</Text>
           </View>
           {person.biography && <Focusable testID="person-biography" onPress={() => setExpanded(value => !value)} accessibilityRole="button"
-            accessibilityState={{expanded}} focusKind="row" focusRadius={10} style={{marginTop: 18, paddingVertical: 6}}>
-            <Text numberOfLines={expanded ? undefined : 3} style={[browseType(theme, 26, 500), {lineHeight: 40, color: theme.colors.textSecondary}]}>{person.biography}</Text>
+            accessibilityState={{expanded}} focusKind="row" focusRadius={10} style={{maxWidth: 1060}}>
+            <Text numberOfLines={expanded ? undefined : 3} style={[browseType(theme, 24, 400, 0, 34.8), {color: theme.colors.textSecondary}]}>{person.biography}</Text>
           </Focusable>}
         </View>
       </View>
@@ -167,7 +172,7 @@ export function TVPerson({focusScope, page, role, collection, runtime, actions, 
         <Text accessibilityRole="header" style={[browseType(theme, 38, 800, -.02), {color: theme.colors.text, marginBottom: 22}]}>{t('web.person.knownFor')}</Text>
         <TVShelf items={known} getKey={knownShelfKey} itemWidth={214} itemHeight={420}
           renderItem={(entry, slot) => <PosterCard testID={`person-known-${entry.id}`} title={entry.displayTitle || entry.title} width={214}
-            onFocus={slot.onFocus} onBlur={slot.onBlur} hasTVPreferredFocus={slot.index === 0} artwork={runtime.artwork(entry.posterUrl)} caption={entry.year === undefined ? [] : [{id: 'year', text: String(entry.year), role: 'context'}]} onNavigate={() => actions.open(entry)}/>}/>
+            onFocus={slot.onFocus} onBlur={slot.onBlur} hasTVPreferredFocus={slot.index === 0} artwork={runtime.artwork(entry.posterUrl)} caption={entry.year === undefined ? [] : [{id: 'year', text: String(entry.year), role: 'context'}]} onNavigate={() => actions.open(entry)} onMore={() => actions.menu(entry, undefined, selection?.item('known', entry)?.onEnter)} moreExpanded={actions.isMenuOpen?.(entry)} selection={selection?.item('known', entry)}/>}/>
       </View>}
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 52, marginBottom: 24}}>
         <Text accessibilityRole="header" style={[browseType(theme, 38, 800, -.02), {color: theme.colors.text}]}>{t('web.person.credits')}</Text>
@@ -184,10 +189,11 @@ export function TVPerson({focusScope, page, role, collection, runtime, actions, 
             onFocus={slot.onFocus} onBlur={slot.onBlur} hasTVPreferredFocus={index === 0} artwork={runtime.artwork(entry.posterUrl)} watched={entry.watched} progress={entry.duration && entry.progressSeconds ? entry.progressSeconds / entry.duration : undefined}
             caption={[...(entry.year === undefined ? [] : [{id: 'year', text: String(entry.year), role: 'context' as const}]),
               ...(credit.character ? [{id: 'character', text: t('web.person.as', {character: credit.character}), role: 'context' as const}] : [])]}
-            onNavigate={() => actions.open(entry)}/>;
+            onNavigate={() => actions.open(entry)} onMore={() => actions.menu(entry, undefined, selection?.item('credits', entry)?.onEnter)} moreExpanded={actions.isMenuOpen?.(entry)} selection={selection?.item('credits', entry)}/>;
         }}/>
       {state.status === 'error' && <View style={{marginTop: 30, width: 900}}><StateView {...runtime.error(state.error, () => collection.retry())}/></View>}
     </ScrollView>
+    {selection?.render(path => <Artwork source={runtime.artwork(path)} width={40} height={40}/>)}
     <Menu testID={`${focusScope}.role-filter`} open={filters} onOpenChange={setFilters} title={t('next.browse.native.filters')} items={filterItems}/>
   </View>;
 }

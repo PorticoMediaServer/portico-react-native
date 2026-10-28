@@ -11,8 +11,8 @@ export type NativeDestinationActivationPort = Readonly<{
   getSnapshot: () => NativeDestinationActivation;
 }>;
 
-export function nativeDestinationFocusIds(authority: ShellAuthority) {
-  const prefix = `tv.${authorityKey(authority)}`, rail = tvFocusIds(authority).rail;
+export function nativeDestinationFocusIds(authority: ShellAuthority, focusScope?: string) {
+  const prefix = `tv.${authorityKey(authority)}${focusScope ? `.${JSON.stringify(focusScope)}` : ''}`, rail = tvFocusIds(authority).rail;
   return {
     rail,
     searchKeyboard: `${prefix}.search.keyboard`,
