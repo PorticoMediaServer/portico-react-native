@@ -31,6 +31,7 @@ async function fixture(deferPerson = false) {
       async create(input: any) {writes.push({kind: 'invite-create', input}); return {...input, id: 'invitation-fixture', revision: 1, state: 'pending'};}
       async edit(id: string, input: any) {writes.push({kind: 'invite-edit', id, input}); return {...input, id, revision: input.expectedRevision + 1, state: 'pending'};}
       async link(captured: any) {writes.push({kind: 'invite-link', captured}); return {code: 'synthetic-fixture-code'};}
+      async shortCode(captured: any, operationId: string) {writes.push({kind: 'invite-short-code', captured, operationId}); return {serverId: 'srv', expiresAt: '2099-01-01T00:00:00Z', shortCode: '7QK29MXPABCD1234'};}
     }, privatePersonNotes: (value: string) => value.trim() || null},
     '../../../../../../packages/client-core/src/server-administration': {
       parseAccessDevicePage: (raw: unknown) => raw,
@@ -170,5 +171,31 @@ test('Invitation creation, edit and share require the current opening and use th
   assert.equal(await f.source.saveInvitation(created, {...draft, role: 'admin'}), true);
   assert.equal(f.writes.at(-1).kind, 'invite-edit'); assert.equal(f.writes.at(-1).input.expectedRevision, 1);
   f.source.closeInvitation(); assert.equal(await f.source.invitationShareLink(created), undefined);
+  f.source.dispose();
+});
+
+test('A new invitation opens its ready card; a waiting one opens it to share, and its short code needs that exact card', async () => {
+  const f = await fixture(); await f.load(); f.source.beginInvitation(); const opening = f.source.getSnapshot().invitationOpening;
+  assert.equal(await f.source.saveInvitation(opening, {notes: 'Private', role: 'member', allowedLibraries: [], days: 7}), true);
+  const ready = f.source.getSnapshot().invitationOpening;
+  assert.equal(ready.ready, 'created'); assert.equal(ready.invitation.id, 'invitation-fixture');
+  f.reads.at(-1).resolve(page()); await tick();
+  const signal = new AbortController().signal;
+  const issued = await f.source.invitationShortCode(ready, 'code-operation', signal);
+  assert.equal(issued.shortCode, '7QK29MXPABCD1234');
+  assert.deepEqual(f.writes.filter((write: any) => write.kind === 'invite-short-code').map((write: any) => write.operationId), ['code-operation']);
+  // A stale or plain opening never issues a code.
+  await assert.rejects(f.source.invitationShortCode({...ready}, 'stale', signal));
+  // Sharing needs the current opening; it opens the same card without issuing a code.
+  f.source.shareInvitation({...ready});
+  assert.equal(f.source.getSnapshot().invitationOpening, ready);
+  f.source.shareInvitation(ready);
+  const shared = f.source.getSnapshot().invitationOpening;
+  assert.equal(shared.ready, 'shared'); assert.equal(shared.invitation, ready.invitation);
+  assert.equal(f.writes.filter((write: any) => write.kind === 'invite-short-code').length, 1);
+  await assert.rejects(f.source.invitationShortCode(ready, 'replaced-card', signal));
+  // Closed, nothing issues.
+  f.source.closeInvitation();
+  await assert.rejects(f.source.invitationShortCode(shared, 'closed', signal));
   f.source.dispose();
 });

@@ -1,5 +1,5 @@
 import React, {useLayoutEffect, useMemo, useState, useSyncExternalStore} from 'react';
-import {FlatList, ScrollView, Share, Text, View} from 'react-native';
+import {FlatList, ScrollView, Text, View} from 'react-native';
 import type {SettingsPeopleQuery, SettingsPersonRow} from '../../../../../../packages/client-core/src/settings-people';
 import type {ServerInvitation} from '../../../../../../packages/client-core/src/direct-account';
 import type {AccessDevice, AccessMember, MemberDeletionPreview, MemberLimits} from '../../../../../../packages/client-core/src/server-administration';
@@ -21,6 +21,7 @@ import {NativeAdvancedSection} from './AdvancedSection';
 import {NativeSettingControl} from './SettingControl';
 import {useStorageForms, useStorageSet, useFormState, type StorageForms} from './storage/forms';
 import {NativePeopleSource, type InvitationOpening} from './people-source';
+import {InvitationReadySheet} from './InvitationReadySheet';
 import {settingsPageHeading, settingsPageInset} from './page-layout';
 
 type Props = {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean};
@@ -112,7 +113,9 @@ function People({ports, runtime, compactHeader, source}: Props & {source: Native
       {state.person && <PersonDetails key={`${state.person.accountId}:${state.person.revision}:${state.person.limitsRevision}`} source={source} person={state.person} runtime={runtime} ask={ask}/>}
       {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {if (state.selected && current()) void source.open(state.selected);})}/>}
     </BottomSheet>
-    {state.invitationOpening && <InvitationEditor key={state.invitationOpening.invitation ? `${state.invitationOpening.invitation.id}:${state.invitationOpening.invitation.revision}` : 'new'} source={source} opening={state.invitationOpening} runtime={runtime}/>}
+    {state.invitationOpening?.ready && state.invitationOpening.invitation ? <InvitationReadySheet key={`ready:${state.invitationOpening.invitation.id}:${state.invitationOpening.invitation.revision}`} source={source} opening={state.invitationOpening} runtime={runtime} serverName={ports.context.serverName}
+        signIn={ports.context.account.account.hostedAccountId ? 'portico' : 'local'}/>
+      : state.invitationOpening && <InvitationEditor key={state.invitationOpening.invitation ? `${state.invitationOpening.invitation.id}:${state.invitationOpening.invitation.revision}` : 'new'} source={source} opening={state.invitationOpening} runtime={runtime}/>}
     <BottomSheet open={!!held} showClose={false} onOpenChange={open => {if (!open) close();}} title={held?.action === 'revoke' ? t('web.access.revoke') : held ? held.person.username : undefined}
       footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" onPress={close}>{t('action.cancel')}</Button><Button variant={held?.action === 'role' || held?.action === 'enable' ? 'primary' : 'danger'} disabled={!held || held.action === 'remove' && typedName !== held.preview.username} onPress={() => {void confirm();}}>{t(held?.action === 'remove' ? 'action.delete' : held?.action === 'revoke' ? 'web.access.revoke' : held?.action === 'devices' ? 'action.signOut' : 'action.save')}</Button></View>}>
       {held?.action === 'remove' ? <View style={{gap: 12}}><Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary}]}>{t('web.people.removeBody', {profiles: held.preview.profiles, devices: held.preview.devices, savedResources: held.preview.savedResources})}</Text><TextField label={held.preview.username} value={typedName} onChangeText={setTypedName} autoCapitalize="none" autoCorrect={false}/></View>
@@ -203,11 +206,7 @@ function InvitationEditor({source, opening, runtime}: {source: NativePeopleSourc
     <Select label={t('web.access.roleLabel')} value={role} disabled={state.busy} options={(['member', 'admin'] as const).map(value => ({value, label: roleLabel(t, value)}))} onValueChange={value => {if (current() && (value === 'admin' || value === 'member')) setRole(value);}}/>
     <LibraryAccess source={source} runtime={runtime} all={all} selected={libraries} disabled={state.busy} onChange={(next, ids) => {if (current()) {setAll(next); setLibraries(ids);}}}/>
     {!opening.invitation && <Select label={t('next.settingsSpec.server.people.advanced.groups.3.rows.0.label')} value={days} disabled={state.busy} options={(['1', '3', '7', '30'] as const).map((value, index) => ({value, label: t((['next.settingsSpec.server.people.advanced.groups.3.rows.0.control.options.0.label', 'next.settingsSpec.server.people.advanced.groups.3.rows.0.control.options.1.label', 'next.settingsSpec.server.people.advanced.groups.3.rows.0.control.options.2.label', 'next.settingsSpec.server.people.advanced.groups.3.rows.0.control.options.3.label'] as const)[index]!)}))} onValueChange={value => {if (current() && ['1', '3', '7', '30'].includes(value)) setDays(value);}}/>}
-    {opening.invitation?.state === 'pending' && <Button testID="people-share-invitation" variant="glass" disabled={state.busy} onPress={() => {
-      if (!current()) return;
-      void source.invitationShareLink(opening).then(link => {if (link && current()) return Share.share({message: link});}).catch(error => {if (source.current() && source.getSnapshot().invitationOpening === opening) runtime.reportError(error);});
-    }}>{t('invite.share')}</Button>}
-    {state.invitationLink && <TextField label={t('web.access.inviteLink')} value={state.invitationLink} editable={false} selectTextOnFocus/>}
+    {opening.invitation?.state === 'pending' && <Button testID="people-share-invitation" variant="glass" disabled={state.busy} onPress={() => {if (current()) source.shareInvitation(opening);}}>{t('invite.share')}</Button>}
     {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {if (current()) source.closeInvitation();})}/>}
   </BottomSheet>;
 }

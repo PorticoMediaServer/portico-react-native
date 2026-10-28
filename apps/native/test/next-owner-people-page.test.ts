@@ -22,7 +22,7 @@ async function fixture() {
     '../../../kit/shell/ServerIdentity': {ServerHeader: 'ServerHeader'}, './page-layout': {settingsPageInset: () => ({}), settingsPageHeading: () => ({})}, '../../../kit/shell/visual': {shellType: () => ({})},
     '../../../kit/states': {StateView: 'StateView'}, '../../../kit/theme': {useTheme: () => theme},
     './AdvancedSection': {NativeAdvancedSection: 'Advanced'}, './SettingControl': {NativeSettingControl: 'Setting'},
-    './storage/forms': {}, './people-source': {NativePeopleSource: class {constructor() {return source;}}},
+    './storage/forms': {}, './people-source': {NativePeopleSource: class {constructor() {return source;}}}, './InvitationReadySheet': {InvitationReadySheet: 'InvitationReadySheet'},
   });
   const ports = {context, requestId: () => 'operation-fixture'};
   // Render the private details component reached through the public page.

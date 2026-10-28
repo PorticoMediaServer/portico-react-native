@@ -136,6 +136,31 @@ class PorticoHighlightsSave(private val context: ReactApplicationContext) : Reac
       }
     }
   }
+  /** The invitation card as a PNG, at most 4 MB, under one fixed name. */
+  @ReactMethod fun saveInvitationPicture(id: String, png: String, promise: Promise) {
+    if (!Regex("^[A-Za-z0-9_-]{32}$").matches(id) || png.length > 5600000) { promise.reject("invalid_invitation_picture", "Invalid invitation picture"); return }
+    val bytes = try { android.util.Base64.decode(png, android.util.Base64.NO_WRAP) } catch (_: Exception) { null }
+    val signature = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+    if (bytes == null || bytes.size < 8 || bytes.size > 4194304 || !bytes.copyOfRange(0, 8).contentEquals(signature)) { bytes?.fill(0); promise.reject("invalid_invitation_picture", "Invalid invitation picture"); return }
+    synchronized(gate) {
+      if (closed || custody != null || nextCode > 65534) { bytes.fill(0); promise.reject("invitation_picture_busy", "Save unavailable"); return }
+      val activity = context.currentActivity
+      if (activity == null) { bytes.fill(0); promise.reject("invitation_picture_busy", "Save unavailable"); return }
+      val original = Operation(id, nextCode++, activity, bytes, promise, "invitation", "image/png")
+      operation = original; custody = original
+      activity.runOnUiThread {
+        synchronized(gate) {
+          if (!owns(original)) return@runOnUiThread
+          try { activity.startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(original.mime).putExtra(Intent.EXTRA_TITLE, "portico-invitation.png"), original.code) }
+          catch (_: Exception) { original.fail(); release(original) }
+        }
+      }
+    }
+  }
+  @ReactMethod fun cancelInvitationPicture(id: String) {
+    val original = synchronized(gate) { operation?.takeIf { it.id == id && it.kind == "invitation" } } ?: return
+    cancel(original)
+  }
   @ReactMethod fun cancelDiagnostics(id: String) {
     val original = synchronized(gate) { operation?.takeIf { it.id == id && it.kind == "diagnostics" } } ?: return
     cancel(original)

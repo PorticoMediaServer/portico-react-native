@@ -9,7 +9,9 @@ import {NativeScreenLifetime, screenScopeEnded} from '../lifetime';
 import {nativeStorageOwner} from './storage/space-source';
 
 export const nativePeopleQuery: SettingsPeopleQuery = Object.freeze({search: '', role: 'all', status: 'all', sort: 'person', direction: 'asc'});
-export type InvitationOpening = Readonly<{invitation?: ServerInvitation}>;
+/** `ready` is the Invitation ready card: right after creating (a short code is
+ * issued with it), or opened again to share a waiting invitation. */
+export type InvitationOpening = Readonly<{invitation?: ServerInvitation; ready?: 'created' | 'shared'}>;
 export type InvitationDraft = Readonly<{notes: string; role: 'member' | 'admin'; allowedLibraries: readonly string[]; days: number}>;
 type Tab = 'people' | 'invitations';
 type Snapshot = Readonly<{
@@ -170,9 +172,24 @@ export class NativePeopleSource {
       const invitation = opening.invitation ? await this.invitations.edit(opening.invitation.id, {...common, expectedRevision: opening.invitation.revision, expiresAt: opening.invitation.expiresAt})
         : await this.invitations.create({...common, expiresInHours: draft.days * 24});
       if (!owns()) return false;
-      this.publish({invitationOpening: Object.freeze({invitation}), invitationLink: undefined}); saved = true; return true;
+      this.publish({invitationOpening: Object.freeze(opening.invitation ? {invitation} : {invitation, ready: 'created' as const}), invitationLink: undefined}); saved = true; return true;
     } catch (error) {if (owns()) this.fail(error); return false;}
     finally {if (this.current() && this.mutation === token) {this.mutation = undefined; this.publish({busy: false}); if (saved) void this.load(this.state.cursor);}}
+  };
+  /** A fresh operation ID, from the same generator this source's own commands use. */
+  newOperationId = (): string => this.operationId();
+  /** Opens the share card for a waiting invitation. */
+  shareInvitation = (opening: InvitationOpening) => {
+    if (!this.current() || this.state.busy || this.state.invitationOpening !== opening || opening.invitation?.state !== 'pending') return;
+    this.publish({invitationOpening: Object.freeze({invitation: opening.invitation, ready: 'shared' as const}), invitationLink: undefined, error: undefined});
+  };
+  /** One short-code issuance for the card's own invitation; the issuer owns the operation ID. */
+  invitationShortCode = async (opening: InvitationOpening, operationId: string, signal: AbortSignal) => {
+    const invitation = opening.invitation;
+    if (!this.current() || this.state.invitationOpening !== opening || !opening.ready || invitation?.state !== 'pending') throw new DOMException('Invitation closed', 'AbortError');
+    const result = await this.invitations.shortCode(invitation, operationId, signal);
+    if (!this.current() || this.state.invitationOpening !== opening) throw new DOMException('Invitation closed', 'AbortError');
+    return result;
   };
   invitationShareLink = async (opening: InvitationOpening): Promise<string | undefined> => {
     if (!this.current() || this.state.busy || this.state.invitationOpening !== opening || opening.invitation?.state !== 'pending') return;

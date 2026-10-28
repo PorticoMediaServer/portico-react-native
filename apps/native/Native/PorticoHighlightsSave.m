@@ -87,6 +87,35 @@ RCT_REMAP_METHOD(saveDiagnostics, saveDiagnostics:(NSString *)operation kind:(NS
     [presenter presentViewController:picker animated:YES completion:nil];
   }
 }
+// The invitation card as a PNG, at most 4 MB, under one fixed name.
+RCT_REMAP_METHOD(saveInvitationPicture, saveInvitationPicture:(NSString *)operation png:(NSString *)png resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+  @synchronized(self) {
+    if(self.closed||self.operation) { reject(@"invitation_picture_unavailable",@"Save unavailable",nil); return; }
+    if(![operation isKindOfClass:NSString.class]||operation.length!=32||[operation rangeOfString:@"^[A-Za-z0-9_-]{32}$" options:NSRegularExpressionSearch].location==NSNotFound||![png isKindOfClass:NSString.class]||png.length>5600000) { reject(@"invalid_invitation_picture",@"Invalid invitation picture",nil); return; }
+    NSData *bytes=[[NSData alloc] initWithBase64EncodedString:png options:0];
+    static const unsigned char signature[8]={0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A};
+    if(!bytes||bytes.length<8||bytes.length>4194304||memcmp(bytes.bytes,signature,8)!=0) { reject(@"invalid_invitation_picture",@"Invalid invitation picture",nil); return; }
+    UIViewController *presenter=RCTPresentedViewController();
+    if(!presenter) { reject(@"invitation_picture_unavailable",@"Save unavailable",nil); return; }
+    NSURL *directory=[[NSURL fileURLWithPath:NSTemporaryDirectory() isDirectory:YES] URLByAppendingPathComponent:[@"portico-invitation-" stringByAppendingString:NSUUID.UUID.UUIDString] isDirectory:YES];
+    NSError *error=nil;
+    if(![[NSFileManager defaultManager] createDirectoryAtURL:directory withIntermediateDirectories:NO attributes:@{NSFileProtectionKey:NSFileProtectionComplete} error:&error]) { reject(@"invitation_picture_save_failed",@"Could not prepare the picture",nil); return; }
+    PorticoHighlightsOperation *original=[PorticoHighlightsOperation new];original.identifier=operation;original.kind=@"invitation";original.directory=directory;original.resolve=resolve;original.reject=reject;self.operation=original;
+    [directory setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:nil];
+    NSURL *file=[directory URLByAppendingPathComponent:@"portico-invitation.png" isDirectory:NO];
+    if(![bytes writeToURL:file options:NSDataWritingAtomic|NSDataWritingFileProtectionComplete error:&error]) { [self finish:original result:nil error:YES]; return; }
+    UIDocumentPickerViewController *picker=[[UIDocumentPickerViewController alloc] initForExportingURLs:@[file] asCopy:YES];picker.delegate=self;original.picker=picker;
+    if(self.closed||self.operation!=original||original.finished) { [self finish:original result:@"cancelled" error:NO]; return; }
+    [presenter presentViewController:picker animated:YES completion:nil];
+  }
+}
+RCT_REMAP_METHOD(cancelInvitationPicture, cancelInvitationPicture:(NSString *)identifier) {
+  @synchronized(self) {
+    PorticoHighlightsOperation *original=self.operation;
+    if(!original||![original.kind isEqual:@"invitation"]||![identifier isEqual:original.identifier]) return;
+    [original.picker dismissViewControllerAnimated:YES completion:nil];[self finish:original result:@"cancelled" error:NO];
+  }
+}
 RCT_REMAP_METHOD(cancelDiagnostics, cancelDiagnostics:(NSString *)identifier) {
   @synchronized(self) {
     PorticoHighlightsOperation *original=self.operation;
