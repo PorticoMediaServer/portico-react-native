@@ -146,7 +146,7 @@ export function ImportedSourceEditor({controller, source, t, isCurrent, onCancel
   const editable = !busy && !recovery && !snapshot.busy;
   return <Page title={source?.name ?? t(form === 's3' ? 'next.remoteSources.connectS3' : form === 'drive' || form === 'driveOAuth' ? 'next.remoteSources.connectDrive' : form === 'cloud' ? 'next.remoteSources.connectCloud' : 'next.remoteSources.kindRclone')} t={t} busy={busy} onCancel={onCancel}
     footer={recovery ? <Button disabled={busy} onPress={() => {void recover();}}>{t('next.remoteSources.checkResult')}</Button>
-      : <Button disabled={!editable || !valid || !tested} onPress={() => {void save();}}>{t('next.remoteSources.saveAndContinue')}</Button>}>
+      : <Button disabled={!editable || !valid || !tested} onPress={() => {void save();}}>{t('next.remoteSources.continue')}</Button>}>
     <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{program?.available && program.version
       ? t('next.remoteSources.bundledVersion', {version: program.version}) : t('next.remoteSources.bundledProgram')}</Text>
     {program && !program.available && <Problem message={t('next.remoteSources.bundledUnavailable')}/>}

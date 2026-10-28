@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import * as choices from '../../../packages/client-core/src/remote-source-choice.ts';
 import * as presentation from '../src-next/screens/settings/remote-sources/reading-presentation.ts';
 
 type Node = {type: unknown; props: Record<string, any>};
@@ -22,18 +23,20 @@ const rowPath = '../../settings-live/owner-libraries/controls';
 test('reading renders four real choice handlers and opens a validated number sheet for a changed limit', async () => {
   const h = hooks(), calls: unknown[] = [];
   const module = await screenModule(new URL('../src-next/screens/settings/remote-sources/SourceReadingControls.tsx', import.meta.url), {
-    react: h.react, 'react-native': {Text: 'Text', View: 'View'}, [corePath]: sourceNamespace,
+    react: h.react, 'react-native-svg': {default: 'Svg', Path: 'Path'}, 'react-native': {Text: 'Text', View: 'View'}, [corePath]: sourceNamespace, [corePath.replace('remote-sources', 'remote-source-choice')]: choices, '../../../kit/Icon': {Icon: 'Icon'}, '../../../../../../packages/i18n/src': {defaultI18n: {t, bytes: (value: number) => String(value)}},
     '../../../kit/controls/Button': {Button: 'Button'}, '../../../kit/controls/Focusable': {Focusable: 'Focusable'},
     '../../../kit/controls/TextField': {TextField: 'TextField'}, '../../../kit/overlays/BottomSheet': {BottomSheet: 'BottomSheet'},
     '../../../kit/shell/visual': {alpha: (value: string) => value}, '../../../kit/theme': {useTheme: () => theme},
     [rowPath]: {LibraryGroup: 'LibraryGroup', LibraryRow: 'LibraryRow', SectionTitle: 'SectionTitle'}, './reading-presentation': presentation,
   });
-  const props = {values: {...presets.once, connections: 5}, baseline: presets.once, disabled: false, t,
+  const definitions = Object.entries(presets).map(([name, reading]) => ({name, definitionRevision: 1, reading, advanced: {scanIntervalSeconds: 21600, cacheBytes: 8 * 1024 ** 3}}));
+  const profile = {values: presets.once, configurationGeneration: '1', choiceDefinitions: definitions, choiceApplicableFields: ['scanIntervalSeconds', 'scanDepth', 'cacheBytes']};
+  const props = {profile, comparison: {name: 'once', applicableFields: ['connections', 'scanDepth', 'cacheBytes'], changedFields: ['connections']}, values: {...presets.once, connections: 5}, baseline: presets.once, disabled: false, t,
     onSelect: (value: unknown) => calls.push(['preset', value]), onLimit: (...value: unknown[]) => calls.push(['limit', ...value]), onReset: () => calls.push(['reset'])};
   const render = () => h.render(() => module.SourceReadingControls(props));
   let tree = render();
-  const choices = ofType(tree, 'Focusable'); assert.equal(choices.length, 4); assert.ok(choices.every(value => value.props.accessibilityRole === 'radio'));
-  choices[2]!.props.onPress(); assert.deepEqual(calls.pop(), ['preset', 'everything']);
+  const cards = ofType(tree, 'Focusable'); assert.equal(cards.length, 4); assert.ok(cards.every(value => value.props.accessibilityRole === 'radio'));
+  cards[2]!.props.onPress(); assert.deepEqual(calls.pop(), ['preset', definitions[2]]);
   const limits = ofType(tree, 'LibraryRow'); assert.equal(limits.length, 3); assert.match(limits[0]!.props.help, /Changed/);
   limits[2]!.props.onPress(); tree = render();
   assert.equal(ofType(tree, 'BottomSheet')[0]!.props.open, true);
@@ -42,6 +45,7 @@ test('reading renders four real choice handlers and opens a validated number she
   ofType(tree, 'TextField')[0]!.props.onChangeText('25'); tree = render(); sheet = ofType(tree, 'BottomSheet')[0]!;
   ofType(sheet.props.footer, 'Button')[0]!.props.onPress(); assert.deepEqual(calls.pop(), ['limit', 'bytesPerSecond', 25_000_000]);
   tree = render(); assert.equal(ofType(tree, 'BottomSheet')[0]!.props.open, false);
+  props.profile = {...profile, choiceDefinitions: []}; tree = render(); assert.equal(ofType(tree, 'Focusable').length, 0, 'withheld definitions have no named cards');
   const section = ofType(tree, 'SectionTitle')[0]!; ofType(section.props.action, 'Button')[0]!.props.onPress(); assert.deepEqual(calls.pop(), ['reset']);
 });
 
@@ -49,8 +53,8 @@ async function connectionFixture(testConnection: (input: unknown) => Promise<unk
   const h = hooks();
   const react = {...h.react, createContext: (value: unknown) => ({value})};
   const module = await screenModule(new URL('../src-next/screens/settings/remote-sources/RemoteSourceForms.tsx', import.meta.url), {
-    react, 'react-native': {Text: 'Text', View: 'View', ScrollView: 'ScrollView'}, [corePath]: sourceNamespace,
-    '../../../../../../packages/i18n/src': {defaultI18n: {t}}, '../../../kit/controls/Button': {Button: 'Button'},
+    react, 'react-native': {Text: 'Text', View: 'View', ScrollView: 'ScrollView'}, [corePath]: sourceNamespace, [corePath.replace('remote-sources', 'remote-source-choice')]: choices, '../../../kit/Icon': {Icon: 'Icon'}, '../../../../../../packages/i18n/src': {defaultI18n: {t, bytes: (value: number) => String(value)}},
+    '../../../kit/controls/Button': {Button: 'Button'},
     '../../../kit/controls/TextField': {TextField: 'TextField'}, '../../../kit/controls/Switch': {Switch: 'Switch'}, '../../../kit/theme': {useTheme: () => theme},
     './SourceAnalysisConsent': {SourceAnalysisConsent: 'SourceAnalysisConsent'}, './SourceReadingControls': {SourceReadingControls: 'SourceReadingControls'},
     './ConnectionTestCard': {ConnectionTestCard: 'ConnectionTestCard'}, './reading-presentation': presentation,
@@ -72,6 +76,7 @@ test('a successful limited-range test folds the connection into its returned ori
   complete({origin: 'https://storage.example', rangeSupport: 'unsupported'}); await Promise.resolve(); await Promise.resolve();
   tree = f.render(); assert.equal(ofType(tree, 'TextField').length, 0);
   assert.equal(ofType(tree, 'ConnectionTestCard')[0]!.props.result.rangeSupport, 'unsupported');
+  assert.equal(typeof ofType(tree, 'ConnectionTestCard')[0]!.props.onTestAgain, 'function');
   assert.equal(ofType(tree, 'LibraryRow')[0]!.props.help, 'https://storage.example');
   ofType(tree, 'Button').find(button => words(button) === 'Edit')!.props.onPress(); tree = f.render();
   assert.equal(ofType(tree, 'TextField').length, 4); assert.equal(ofType(tree, 'ConnectionTestCard')[0]!.props.result, undefined);
@@ -83,6 +88,6 @@ test('the normalized credential refusal marks the credential field and offers a 
   await Promise.resolve(); await Promise.resolve();
   const tree = f.render(), password = ofType(tree, 'TextField').find(field => field.props.secureTextEntry)!;
   assert.match(password.props.error, /Check the user name and password/);
-  assert.ok(ofType(tree, 'Button').some(button => words(button) === 'Test again'));
+  const card = ofType(tree, 'ConnectionTestCard')[0]!; assert.equal(card.props.error, password.props.error); assert.equal(typeof card.props.onTestAgain, 'function');
   assert.equal(ofType(tree, 'ConnectionTestCard')[0]!.props.result, undefined);
 });

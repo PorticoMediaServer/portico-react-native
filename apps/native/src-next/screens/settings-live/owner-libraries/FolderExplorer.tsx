@@ -80,7 +80,7 @@ export function FolderExplorer({open, onOpenChange, api, title, subtitle, chosen
     <FlatList data={folders} keyExtractor={entry => entry.path} extraData={picked}
       initialNumToRender={16} maxToRenderPerBatch={16} windowSize={7} keyboardShouldPersistTaps="handled"
       contentContainerStyle={{paddingBottom: 8}}
-      renderItem={({item: entry, index}) => <ExplorerFolderRow entry={entry} first={index === 0}
+      renderItem={({item: entry, index}) => <ExplorerFolderRow entry={entry} first={index === 0} last={index === folders.length - 1}
         checked={has(entry)} multiple={multiple} onOpen={() => entry.kind === 'directory' ? choose(entry.path) : add(entry)} onCheck={() => add(entry)}/>}
       ListHeaderComponent={<View style={{gap: 12, paddingBottom: 8}}>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
@@ -136,10 +136,10 @@ function ExplorerCheck({checked, onPress, label}: {checked: boolean; onPress: ()
   </Focusable>;
 }
 
-function ExplorerFolderRow({entry, first, checked, multiple, onOpen, onCheck}: {entry: FilesystemEntry; first: boolean; checked: boolean; multiple: boolean; onOpen: () => void; onCheck: () => void}) {
+function ExplorerFolderRow({entry, first, last, checked, multiple, onOpen, onCheck}: {entry: FilesystemEntry; first: boolean; last: boolean; checked: boolean; multiple: boolean; onOpen: () => void; onCheck: () => void}) {
   const theme = useTheme(), t = defaultI18n.t;
   const tag = entry.hidden ? t('next.ownerLibraries.explorer.hidden') : entry.symlink ? t('next.ownerLibraries.explorer.link') : !entry.readable ? t('next.ownerLibraries.explorer.noAccess') : undefined;
-  return <View style={{flexDirection: 'row', alignItems: 'center', minHeight: 50, paddingRight: 8, borderTopWidth: first ? 0 : 1, borderTopColor: theme.colors.lineSoft, backgroundColor: theme.colors.raised, opacity: entry.readable ? 1 : .55}}>
+  return <View style={{flexDirection: 'row', alignItems: 'center', minHeight: 50, paddingRight: 8, borderTopWidth: first ? 0 : 1, borderTopColor: theme.colors.lineSoft, backgroundColor: theme.colors.raised, borderTopLeftRadius: first ? 14 : 0, borderTopRightRadius: first ? 14 : 0, borderBottomLeftRadius: last ? 14 : 0, borderBottomRightRadius: last ? 14 : 0, overflow: 'hidden', opacity: entry.readable ? 1 : .55}}>
     {(multiple || entry.kind === 'file') && entry.readable ? <View style={{paddingLeft: 12}}><ExplorerCheck checked={checked} label={entry.name} onPress={onCheck}/></View>
       : <View style={{width: 12}}/>}
     <Focusable accessibilityRole={entry.readable ? 'button' : 'text'} accessibilityLabel={entry.name} accessibilityHint={tag} disabled={!entry.readable} onPress={entry.readable ? onOpen : undefined} focusKind="row" focusRadius={8}

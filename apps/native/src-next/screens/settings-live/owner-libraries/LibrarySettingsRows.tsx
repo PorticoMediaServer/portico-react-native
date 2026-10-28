@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {Text, View} from 'react-native';
 import type {LibraryAdminDocument, LibrarySettings} from '../../../../../../packages/client-core/src/administration';
 import {patchLibrarySettingsBinding, readLibrarySettingsBinding} from '../../../../../../packages/client-core/src/presentation/settings-bindings';
@@ -14,12 +14,14 @@ import {LibraryGroup, LibraryRow, SectionTitle} from './controls';
 import {libraryNumberValue, libraryRowOptions, libraryRowVisible} from './library-settings-model';
 
 const libraryPanel = settingsSpec.find(section => section.scope === 'server' && section.id === 'libraries')?.panels?.library;
-type Props = {tab: 'general' | 'metadata' | 'scanning'; document: LibraryAdminDocument; busy: boolean; t: typeof defaultI18n.t; save: (settings: Partial<LibrarySettings>) => void};
+type Props = {tab: 'general' | 'metadata' | 'scanning'; document: LibraryAdminDocument; busy: boolean; t: typeof defaultI18n.t; save: (settings: Partial<LibrarySettings>) => void; fetchLyrics?: (current: () => boolean) => Promise<void>};
 
 /** Spec copy and control types, projected through the shared library writer. */
-export function LibrarySettingsRows({tab, document, busy, t, save}: Props) {
+export function LibrarySettingsRows({tab, document, busy, t, save, fetchLyrics}: Props) {
   const theme = useTheme(), [editing, setEditing] = useState<SettingsRow>(), [text, setText] = useState(''), [error, setError] = useState<string>();
   const [custom, setCustom] = useState<ReadonlySet<string>>(new Set());
+  const mounted = useRef(false);
+  useEffect(() => {mounted.current = true; return () => {mounted.current = false;};}, []);
   const read = (id: string) => readLibrarySettingsBinding(id, document)?.current;
   const change = (row: SettingsRow, value: unknown) => {
     if (busy) return;
@@ -38,6 +40,7 @@ export function LibrarySettingsRows({tab, document, busy, t, save}: Props) {
     catch (problem) {setError(problem instanceof Error ? problem.message : t('next.ownerLibraries.saveFailed'));}
   };
   const rowVisible = (row: SettingsRow) => {
+    if (row.control.type === 'action') return row.id === 'libraries.fetchLyrics' && !!fetchLyrics && document.libraryKind === 'music' && document.eligibleControls.includes('libraries.lyrics') && document.settings.lyricsSource === 'lrclib';
     if (!libraryRowVisible(row.id, document) || read(row.id) === undefined) return false;
     if (tab === 'general' && row.id !== 'libraries.collections') return false;
     if (row.id === 'libraries.analysisSteps') return custom.has('libraries.scanDepth') || read('libraries.scanDepth') === 'custom';
@@ -45,6 +48,7 @@ export function LibrarySettingsRows({tab, document, busy, t, save}: Props) {
     return true;
   };
   const renderRow = (row: SettingsRow, index: number) => {
+    if (row.control.type === 'action') return <LibraryRow key={row.id} testID={row.id} first={index === 0} label={t(row.label)} trailing={<Button variant="glass" size="small" disabled={busy} onPress={() => {if (!busy && mounted.current) void fetchLyrics?.(() => mounted.current);}}>{t(row.control.label!)}</Button>}/>;
     const fact = readLibrarySettingsBinding(row.id, document)!;
     const condition = row.enableWhen, actual = condition ? read(condition.id) : undefined;
     const disabled = busy || !!condition && ((condition.in !== undefined && !condition.in.includes(actual as never)) || (condition.notIn !== undefined && condition.notIn.includes(actual as never)));
@@ -76,7 +80,7 @@ export function LibrarySettingsRows({tab, document, busy, t, save}: Props) {
   const number = editing ? libraryNumberValue(text, editing) : undefined;
   return <>
     {libraryPanel?.tabs?.find(value => value.id === tab)?.groups?.map((group, index) => {
-      const rows = group.rows.filter(rowVisible); if (!rows.length) return null;
+      const rows = group.rows.flatMap(row => [row, ...(row.children ?? [])]).filter(rowVisible); if (!rows.length) return null;
       return <View key={index}>{group.title && <SectionTitle>{t(group.title)}</SectionTitle>}<LibraryGroup style={group.title ? undefined : {marginTop: 12}}>{rows.map(renderRow)}</LibraryGroup></View>;
     })}
     {error && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.record, marginTop: 12}]}>{error}</Text>}

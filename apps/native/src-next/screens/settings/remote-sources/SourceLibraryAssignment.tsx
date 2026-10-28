@@ -1,7 +1,7 @@
 import React, {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {Text, View} from 'react-native';
 import type {LibraryManagementService, ManagedLibrary} from '../../../../../../packages/client-core/src/library-management';
-import {sourceReadPresetName, type RemoteFolder, type RemoteSource, type SourceReadSettings} from '../../../../../../packages/client-core/src/remote-sources';
+import {type RemoteFolder, type RemoteSource, type SourceReadSettings} from '../../../../../../packages/client-core/src/remote-sources';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {Button} from '../../../kit/controls/Button';
 import {Select} from '../../../kit/controls/Select';
@@ -9,11 +9,13 @@ import {TextField} from '../../../kit/controls/TextField';
 import {useTheme} from '../../../kit/theme';
 import {LibraryKindTiles} from '../../settings-live/owner-libraries/LibraryKindTiles';
 import type {NativeRemoteSourcesController} from './controller';
-import {Page, Problem, remoteSourceError, sourceReadPresetLabel, useAttempt} from './RemoteSourceForms';
+import {SourceCompletionFacts} from './SourceCompletion';
+import {Page, Problem, remoteSourceError, useAttempt} from './RemoteSourceForms';
 export type ChosenSourceFolder = Pick<RemoteFolder, 'name' | 'path' | 'relative'>;
+export type AssignmentDraft = Readonly<{mode: 'new' | 'existing'; name: string; kind: ManagedLibrary['kind']; target: string}>;
 type Props = {controller: NativeRemoteSourcesController; source: RemoteSource; folders: readonly ChosenSourceFolder[];
   t: typeof defaultI18n.t; isCurrent: () => boolean; onCancel: () => void;
-  onChooseFolders: () => void; onOpen: () => void; onAddAnother: () => void; onCompleted?: () => void};
+  onChooseFolders: () => void; onOpen: () => void; onAddAnother: () => void; onCompleted?: () => void; initialDraft?: AssignmentDraft; onDraftChange?: (draft: AssignmentDraft) => void};
 
 export function SourceLibraryAssignment(props: Props) {
   const current = useAttempt(props.isCurrent), [service, setService] = useState<LibraryManagementService>(), [error, setError] = useState<string>();
@@ -30,13 +32,14 @@ export function SourceLibraryAssignment(props: Props) {
     : <Page title={props.t('next.remoteSources.attachTo')} t={props.t} busy={false} onCancel={props.onCancel} footer={null}><Problem message={error}/></Page>;
 }
 
-function Assignment({controller, source, folders, service, t, isCurrent, onCancel, onChooseFolders, onOpen, onAddAnother, onCompleted}: Props & {service: LibraryManagementService}) {
+function Assignment({controller, source, folders, service, t, isCurrent, onCancel, onChooseFolders, onOpen, onAddAnother, onCompleted, initialDraft, onDraftChange}: Props & {service: LibraryManagementService}) {
   const theme = useTheme(), snapshot = useSyncExternalStore(service.subscribe, service.getSnapshot), current = useAttempt(isCurrent);
   const flight = useRef(false), revision = useRef(0), renderedRevision = revision.current;
-  const [mode, setMode] = useState<'new' | 'existing'>('new'), [name, setName] = useState(source.name), [kind, setKind] = useState<ManagedLibrary['kind']>('movie');
-  const [target, setTarget] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState<string>(), [done, setDone] = useState<string>();
-  const [profile, setProfile] = useState<SourceReadSettings>();
+  const [mode, setMode] = useState<'new' | 'existing'>(initialDraft?.mode ?? 'new'), [name, setName] = useState(initialDraft?.name ?? source.name), [kind, setKind] = useState<ManagedLibrary['kind']>(initialDraft?.kind ?? 'movie');
+  const [target, setTarget] = useState(initialDraft?.target ?? ''), [busy, setBusy] = useState(false), [error, setError] = useState<string>(), [done, setDone] = useState<string>();
+  const [profile, setProfile] = useState<SourceReadSettings>(), [summaryError, setSummaryError] = useState<string>();
   const draft = useMemo(() => Object.freeze({mode, name, kind, target, source, folders}), [mode, name, kind, target, source, folders]);
+  useEffect(() => {onDraftChange?.({mode, name, kind, target});}, [mode, name, kind, target, onDraftChange]);
   const latestDraft = useRef(draft); latestDraft.current = draft;
   const owns = () => current() && revision.current === renderedRevision && latestDraft.current === draft;
   const selected = snapshot.directory.data?.items.find(value => value.id === target);
@@ -46,8 +49,9 @@ function Assignment({controller, source, folders, service, t, isCurrent, onCance
   // A summary read is supplementary: its failure omits the summary and never turns an
   // accepted create or attach into a failed one, nor repeats the accepted write.
   const readSummary = async () => {
+    setSummaryError(undefined);
     try {const next = await controller.readProfile(source, current); if (current()) setProfile(next);}
-    catch {if (current()) setProfile(undefined);}
+    catch (problem) {if (current()) {setProfile(undefined); setSummaryError(remoteSourceError(t, problem));}}
   };
   const save = async () => {
     if (flight.current || !owns() || !valid || ambiguous || done) return;
@@ -75,17 +79,15 @@ function Assignment({controller, source, folders, service, t, isCurrent, onCance
     } catch (problem) {if (owns()) setError(remoteSourceError(t, problem));}
     finally {flight.current = false; if (current()) setBusy(false);}
   };
-  const preset = profile ? sourceReadPresetName(profile.values) : undefined;
   return <Page title={t('next.remoteSources.attachTo')} t={t} busy={busy} onCancel={onCancel} wizardStep={done ? 5 : undefined}
     footer={done ? <View style={{flexDirection: 'row', gap: 12}}>
       <Button style={{flex: 1}} onPress={onOpen}>{t('next.remoteSources.openSource', {name: source.name})}</Button>
       <Button variant="glass" style={{flex: 1}} onPress={onAddAnother}>{t('next.remoteSources.addAnother')}</Button>
-    </View> : <Button disabled={busy || !valid || ambiguous} onPress={() => {void save();}}>{t('next.remoteSources.save')}</Button>}>
+    </View> : <Button disabled={busy || !valid || ambiguous} onPress={() => {void save();}}>{t('next.remoteSources.finish')}</Button>}>
     {done ? <>
-      <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('next.remoteSources.summaryLibrary', {library: done})}</Text>
-      <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t(folders.length === 1 ? 'next.remoteSources.summaryLibraryOne' : 'next.remoteSources.summaryLibraryMany', {count: folders.length, source: source.name})}</Text>
-      {profile && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.summaryLimits', {connections: profile.values.connections, requests: profile.values.requestsPerSecond})}</Text>}
-      {preset && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.summaryTreatment', {preset: sourceReadPresetLabel(t, preset)})}</Text>}
+      <SourceCompletionFacts source={source} profile={profile} library={done} count={folders.length} t={t}/>
+      <Problem message={summaryError}/>
+      {summaryError && <Button variant="glass" onPress={() => {void readSummary();}}>{t('next.remoteSources.retry')}</Button>}
     </> : <>
       {folders.map(folder => <Text key={folder.relative} style={[theme.type.body, {color: theme.colors.textSecondary}]}>{folder.path}</Text>)}
       <Button variant="glass" disabled={busy} onPress={() => {if (!flight.current && current()) onChooseFolders();}}>{t('next.remoteSources.chooseFolders')}</Button>

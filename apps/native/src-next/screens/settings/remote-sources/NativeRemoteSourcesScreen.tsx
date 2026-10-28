@@ -14,7 +14,7 @@ import {useTheme} from '../../../kit/theme';
 import {NativeRemoteSourcesController} from './controller';
 import {ConnectionEditor, DisconnectEditor, ReadingEditor, Page, SourceWizardContext, receiptCheckRequired, remoteSourceError} from './RemoteSourceForms';
 
-import {SourceLibraryAssignment, type ChosenSourceFolder} from './SourceLibraryAssignment';
+import {SourceLibraryAssignment, type ChosenSourceFolder, type AssignmentDraft} from './SourceLibraryAssignment';
 import {SourceAdvancedEditor} from './SourceAdvancedEditor';
 import {SourceFolderBrowser} from './SourceFolderBrowser';
 import {SourceStatusPanel} from './SourceStatusPanel';
@@ -51,8 +51,15 @@ function Viewport({controller, ports, runtime, onBackHandlerChange, initialCreat
   const [committedMount, setCommittedMount] = useState<{live: boolean}>(() => ({live: false}));
   const mounted = useRef<{live: boolean}>(committedMount);
   const rootRevision = useRef(0);
+  const wizardDraft = useRef<{sourceId?: string; chosen: readonly ChosenSourceFolder[]; assignment?: AssignmentDraft}>({chosen: []});
   const mode = opening?.mode;
   const show = useCallback((next: Mode) => {
+    const source = 'source' in next ? next.source : undefined;
+    if (next.kind === 'choose' || next.kind === 'detail' || source && wizardDraft.current.sourceId && source.id !== wizardDraft.current.sourceId) wizardDraft.current = {chosen: []};
+    if (source) wizardDraft.current.sourceId = source.id;
+    if (next.kind === 'folders') next = {...next, chosen: wizardDraft.current.chosen};
+    if (next.kind === 'assignment') {wizardDraft.current.chosen = next.folders;}
+
     const previous = openingRef.current;
     if (previous) previous.owner.live = false;
     const created: Opening = {id: ++attempt.current, mode: next, owner: {live: true}, mounted: mounted.current, completed: {value: false}};
@@ -96,7 +103,7 @@ function Viewport({controller, ports, runtime, onBackHandlerChange, initialCreat
   const back = useCallback(() => {
     const current = openingRef.current;
     if (!current || !current.owner.live || !current.mounted.live) return;
-    const previous = sourceBackMode(current.mode, current.completed.value);
+    const previous = sourceBackMode(current.mode.kind === 'folders' ? {...current.mode, chosen: wizardDraft.current.chosen} : current.mode, current.completed.value);
     if (previous) navigate(current, previous); else closeFrom(current);
   }, [closeFrom, navigate]);
   useLayoutEffect(() => {
@@ -144,6 +151,7 @@ function Viewport({controller, ports, runtime, onBackHandlerChange, initialCreat
   if (mode?.kind === 'connection') return page(<ConnectionEditor key={mode.source?.id ?? 'new'} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={() => closeFrom(opening!)}
     onSaved={source => saved(opening!, source)}/>);
   if (mode?.kind === 'assignment') return page(<SourceLibraryAssignment controller={controller} source={mode.source} folders={mode.folders} t={t} isCurrent={isCurrent}
+    initialDraft={wizardDraft.current.assignment} onDraftChange={draft => {if (opening!.owner.live && openingRef.current === opening) wizardDraft.current.assignment = draft;}}
     onCancel={() => closeFrom(opening!)}
     onCompleted={() => {if (opening!.owner.live && openingRef.current === opening) opening!.completed.value = true;}}
     onChooseFolders={() => navigate(opening!, {kind: 'folders', source: mode.source, chosen: mode.folders, from: 'assignment', wizard: mode.wizard, connection: mode.connection})}
@@ -151,7 +159,7 @@ function Viewport({controller, ports, runtime, onBackHandlerChange, initialCreat
     onAddAnother={() => navigate(opening!, {kind: 'choose', wizard: true})}/>);
   if (mode?.kind === 'advanced') return page(<SourceAdvancedEditor key={`${mode.source.id}:${mode.source.generation}`} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={() => closeFrom(opening!)}/>);
   if (mode?.kind === 'folders') return page(<SourceFolderBrowser key={`${mode.source.id}:${mode.source.generation}`} controller={controller} source={mode.source} t={t} isCurrent={isCurrent}
-    initial={mode.chosen} multiple={multipleFolders}
+    initial={mode.chosen} multiple={multipleFolders} onSelectionChange={folders => {if (opening!.owner.live && openingRef.current === opening) wizardDraft.current.chosen = folders;}}
     onCancel={() => closeFrom(opening!)}
     onLater={mode.wizard && !onChooseFolders ? () => navigate(opening!, {kind: 'complete', source: mode.source, wizard: true}) : undefined}
     onChoose={folders => {
@@ -159,10 +167,12 @@ function Viewport({controller, ports, runtime, onBackHandlerChange, initialCreat
       if (onChooseFolders) return onChooseFolders(mode.source, folders);
       else navigate(opening!, {kind: 'assignment', source: mode.source, folders, wizard: mode.wizard, connection: mode.connection});
     }}/>);
-  if (mode?.kind === 'reading') return page(<ReadingEditor key={mode.source.id} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={() => closeFrom(opening!)} onSaved={source => {
+  if (mode?.kind === 'reading') return page(<ReadingEditor key={`${mode.source.id}:${mode.source.generation}:${opening!.id}`} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={() => closeFrom(opening!)} onAccepted={source => {
+      if (opening!.owner.live && openingRef.current === opening && isCurrent() && source.id === mode.source.id) show({...mode, source});
+    }} onSaved={source => {
       if (!opening!.owner.live || openingRef.current !== opening || !isCurrent() || source.id !== mode.source.id) return;
       void controller.load();
-      if (mode.wizard) show({kind: 'folders', source, chosen: [], from: 'reading', wizard: true, connection: mode.connection});
+      if (mode.wizard) show({kind: 'folders', source, chosen: wizardDraft.current.chosen, from: 'reading', wizard: true, connection: mode.connection});
       else closeFrom(opening!);
     }}/>);
   if (mode?.kind === 'disconnect') return page(<DisconnectEditor key={mode.source.id} controller={controller} source={mode.source} t={t} isCurrent={isCurrent} onCancel={() => closeFrom(opening!)} onSaved={() => closeFrom(opening!)}/>);

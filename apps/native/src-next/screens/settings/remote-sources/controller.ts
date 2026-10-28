@@ -1,3 +1,5 @@
+import type {SourceChoiceDefinition} from '../../../../../../packages/client-core/src/remote-source-choice';
+import type {SourceChoiceIntent, SourceChoiceOpening} from '../../../../../../packages/client-core/src/remote-sources';
 import {LibraryManagementService} from '../../../../../../packages/client-core/src/library-management';
 import {readLibraryInventoryConfig, saveLibraryFolder} from '../../../../../../packages/client-core/src/server-admin/libraries';
 import type {LibraryContentApi} from '../../../../../../packages/client-core/src/library-content';
@@ -284,6 +286,34 @@ export class NativeRemoteSourcesController extends NativeScreenStore<NativeRemot
       if (!guard()) throw screenScopeEnded();
       return result;
     } finally {if (!this.allowed()) this.dispose();}
+  }
+
+  async saveProfileStartChoice(profile: SourceReadSettings, advanced: SourceAdvancedSettings, offered: SourceChoiceDefinition, opening: SourceChoiceOpening) {
+    this.assertAllowed();
+    if (!opening.isCurrent()) throw screenScopeEnded();
+    const result = await this.service.saveProfileStartChoice(profile, advanced, offered, opening);
+    this.assertAllowed();
+    if (!opening.isCurrent()) throw screenScopeEnded();
+    return result;
+  }
+
+  async recoverStartChoice(intent: SourceChoiceIntent, guard: () => boolean) {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    const result = await this.service.recoverStartChoice(intent);
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    return result;
+  }
+
+  /** A choice's accepted cache child may have a new generation; never require the historical parent's. */
+  async reconcileChoiceProfile(sourceId: string, guard: () => boolean) {
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    const result = await this.service.readProfile(sourceId, undefined, guard);
+    this.assertAllowed();
+    if (!guard()) throw screenScopeEnded();
+    return result;
   }
 
   async recover(): Promise<void> {

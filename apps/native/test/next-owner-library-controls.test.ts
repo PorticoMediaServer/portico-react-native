@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {screenModule} from './helpers/screen-harness.mjs';
+import {lifecycleHooks} from './helpers/owner-server-settings.mjs';
 import {settingsSpec} from '../../../packages/client-core/src/presentation/settings-spec.ts';
 import * as model from '../src-next/screens/settings-live/owner-libraries/library-settings-model.ts';
 
@@ -10,8 +11,8 @@ const find = (node: unknown, id: string) => elements(node).find(element => eleme
 const t = (id: string) => id;
 
 async function fixture(tab: string, kind: string, facts: Record<string, unknown>) {
-  const h = hooks(), writes: unknown[] = [];
-  const document = {libraryId: 'library', libraryKind: kind, eligibleControls: Object.keys(facts), settings: {},
+  const h = lifecycleHooks(), writes: unknown[] = [], lyrics: unknown[] = [];
+  const document = {libraryId: 'library', libraryKind: kind, eligibleControls: Object.keys(facts), settings: {lyricsSource: facts['libraries.lyrics']},
     availableProviders: [{id: 'tmdb', mediaKinds: ['movie', 'show']}, {id: 'anilist', mediaKinds: ['show']} ]};
   const module = await screenModule(new URL('../src-next/screens/settings-live/owner-libraries/LibrarySettingsRows.tsx', import.meta.url), {
     react: h.react, 'react-native': {Text: 'Text', View: 'View'}, '../../../../../../packages/client-core/src/presentation/settings-spec': {settingsSpec},
@@ -25,7 +26,7 @@ async function fixture(tab: string, kind: string, facts: Record<string, unknown>
     './library-settings-model': model,
   });
   const saves: unknown[] = [];
-  return {writes, saves, render: () => h.render(() => module.LibrarySettingsRows({tab, document, busy: false, t, save: (value: unknown) => saves.push(value)}))};
+  return {writes, saves, lyrics, flush: h.flush, dispose: h.dispose, render: () => h.render(() => module.LibrarySettingsRows({tab, document, busy: false, t, save: (value: unknown) => saves.push(value), fetchLyrics: async (current: () => boolean) => {if (current()) lyrics.push(document);}}))};
 }
 
 test('movie Collections dispatches its bound setting and remains absent from a TV General page', async () => {
@@ -55,4 +56,20 @@ test('Custom analysis exposes only published matrix operations, preserving the t
   find(tree, 'libraries.analysisSteps.checksum')!.props.onValueChange('run'); assert.deepEqual(f.writes.pop(), ['libraries.analysisSteps', {checksum: 'run'}]);
   find(tree, 'libraries.scrub')!.props.onValueChange('custom'); tree = f.render();
   assert.ok(find(tree, 'libraries.scrubWidth')); assert.ok(find(tree, 'libraries.scrubSpacing')); assert.ok(find(tree, 'libraries.scrubMax'));
+});
+
+
+test('Lyrics renders its child Fetch now only for eligible LRCLIB music and expires the row with its opening', async () => {
+  const f = await fixture('metadata', 'music', {'libraries.lyrics': 'lrclib'});
+  try {
+    const tree = f.render(); f.flush();
+    const row = find(tree, 'libraries.fetchLyrics')!; assert.ok(row);
+    const action = elements(row).find(value => value.type === 'Button')!;
+    action.props.onPress(); assert.equal(f.lyrics.length, 1); assert.equal(f.writes.length, 0);
+    f.dispose(); action.props.onPress(); assert.equal(f.lyrics.length, 1);
+  } finally {f.dispose();}
+  for (const [kind, facts] of [['music', {'libraries.lyrics': 'files'}], ['movie', {'libraries.lyrics': 'lrclib'}], ['music', {}]] as const) {
+    const unavailable = await fixture('metadata', kind, facts);
+    try {assert.equal(find(unavailable.render(), 'libraries.fetchLyrics'), undefined);} finally {unavailable.dispose();}
+  }
 });

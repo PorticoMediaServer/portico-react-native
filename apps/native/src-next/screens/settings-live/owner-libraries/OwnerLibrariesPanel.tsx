@@ -1,10 +1,11 @@
+import {jobStateName} from '../../../../../../packages/client-core/src/server-admin/console-catalogue';
 import type {LibraryContentApi} from '../../../../../../packages/client-core/src/library-content';
 import {EpisodeThumbnailsRow} from './EpisodeThumbnailsRow';
 import type {AnalysisPolicy} from '../../../../../../packages/client-core/src/remote-sources';
 import {MissingTitlesTab} from '../server/storage/MissingTitlesTab';
 import {loadInitialOwnerLibrary} from './initial-library';
 import type {NativeScreenLifetime} from '../lifetime';
-import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {BackHandler, ScrollView, Text, View} from 'react-native';
 import type {ManagedLibrary} from '../../../../../../packages/client-core/src/library-management';
 import type {InventorySource} from '../../../../../../packages/client-core/src/library-inventory';
@@ -95,7 +96,7 @@ export function NativeOwnerLibrariesPanel({ports, runtime, initialLibraryId, lif
       renameLibrary={() => setRename(true)} removeLibrary={() => setLeaving(true)} addFolder={() => setFolderForm({})} folderMenu={setFolderMenu} skipped={() => setSkipped(true)}
       moreUnmatched={() => {void controller.loadUnmatchedMore();}}
       save={patch => {void controller.save(patch);}} saveAgent={id => {void controller.saveAgent(id);}} scanAll={() => {void controller.scanAll();}}
-      parentCurrent={parentCurrent}
+      parentCurrent={parentCurrent} retryInventory={() => {void controller.reloadInventory();}} fetchLyrics={(document, current) => controller.fetchLyrics(document, current)}
       strmChange={(enabled, document, policy, lease) => {void controller.setStrm(enabled, document, policy, lease);}} strmRetry={document => {void controller.reloadStrm(document);}}
       sonicToggle={(enabled, document, sonic, lease) => {void controller.setSonicEnabled(enabled, document, sonic, lease);}}
       sonicRetry={(document, sonic, lease) => {void controller.retrySonic(document, sonic, lease);}}
@@ -168,11 +169,12 @@ function LibraryListRow({library, first, t, runtime, state, onOpen, onMenu}: {li
   </View>;
 }
 
-function LibraryPage({api, library, document, state, tab, tabChange, t, runtime, serverName, viewerRole, back, menu, scan, cancel, dashboard, renameLibrary, removeLibrary, addFolder, folderMenu, skipped, moreUnmatched, save, saveAgent, scanAll, parentCurrent, strmChange, strmRetry, sonicToggle, sonicRetry, sonicReload}: {
+function LibraryPage({api, library, document, state, tab, tabChange, t, runtime, serverName, viewerRole, back, menu, scan, cancel, dashboard, renameLibrary, removeLibrary, addFolder, folderMenu, skipped, moreUnmatched, save, saveAgent, scanAll, parentCurrent, retryInventory, fetchLyrics, strmChange, strmRetry, sonicToggle, sonicRetry, sonicReload}: {
   api: LibraryContentApi; library: ManagedLibrary; document?: LibraryAdminDocument; state: NativeOwnerLibrariesSnapshot; tab: string; tabChange: (id: string) => void;
   t: Translate; runtime: NativeShellRuntime; serverName: string; viewerRole: ViewerRole; back: () => void; menu: () => void; scan: () => void; cancel: () => void; dashboard: () => void;
   renameLibrary: () => void; removeLibrary: () => void; addFolder: () => void; folderMenu: (source: InventorySource) => void; skipped: () => void; moreUnmatched: () => void;
   save: (patch: Partial<LibrarySettings>) => void; saveAgent: (id: string) => void; scanAll: () => void; parentCurrent: () => boolean;
+  retryInventory: () => void; fetchLyrics: (document: LibraryAdminDocument, current: () => boolean) => Promise<void>;
   strmChange: (enabled: boolean, document: LibraryAdminDocument, policy: AnalysisPolicy, lease: SonicPageLease) => void;
   strmRetry: (document: LibraryAdminDocument) => void;
   sonicToggle: (enabled: boolean, document: LibraryAdminDocument, sonic: LibrarySonicDocument, lease: SonicPageLease) => void;
@@ -208,8 +210,8 @@ function LibraryPage({api, library, document, state, tab, tabChange, t, runtime,
         {state.detail === 'error' && <StateView {...runtime.error(state.detailError, () => {void runtime.reportError(state.detailError);})}/>}
         {state.error !== undefined && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.record}]}>{presentError(state.error, 'library', {operation: 'save'}).body}</Text>}
         {tab === 'general' && <GeneralTab library={library} document={document} t={t} renameLibrary={renameLibrary} removeLibrary={removeLibrary} busy={state.busy} save={save}/>}
-        {tab === 'folders' && <FoldersTab document={document} t={t} addFolder={addFolder} folderMenu={folderMenu}/>}
-        {tab === 'metadata' && <><MetadataTab document={document} metadata={state.metadata} busy={state.busy} t={t} save={save} saveAgent={saveAgent}/><SectionTitle>{t('next.ownerLibraries.tab.attention')}</SectionTitle><AttentionTab state={state} t={t} more={moreUnmatched}/></>}
+        {tab === 'folders' && <FoldersTab state={state} retry={retryInventory} t={t} addFolder={addFolder} folderMenu={folderMenu}/>}
+        {tab === 'metadata' && <><MetadataTab document={document} metadata={state.metadata} busy={state.busy} t={t} save={save} saveAgent={saveAgent} fetchLyrics={fetchLyrics} state={state} parentCurrent={parentCurrent}/><SectionTitle>{t('next.ownerLibraries.tab.attention')}</SectionTitle><AttentionTab state={state} t={t} more={moreUnmatched}/></>}
         {tab === 'scanning' && <ScanningTab api={api} library={library} document={document} metadata={state.metadata} state={state} t={t} locale={runtime.text.locale ?? defaultI18n.region.formatLocale} skipped={skipped} cancel={cancel} dashboard={dashboard} save={save} scanAll={scanAll} parentCurrent={parentCurrent} strmChange={strmChange} strmRetry={strmRetry} sonicToggle={sonicToggle} sonicRetry={sonicRetry} sonicReload={sonicReload}/>}
         {tab === 'advanced' && <AdvancedTab document={document} t={t} owner={viewerRole === 'owner'} busy={state.busy} save={save}/>}
       </View>
@@ -233,14 +235,16 @@ function GeneralTab({library, document, t, renameLibrary, removeLibrary, busy, s
   </>;
 }
 
-function FoldersTab({document, t, addFolder, folderMenu}: {document?: LibraryAdminDocument; t: Translate; addFolder: () => void; folderMenu: (source: InventorySource) => void}) {
-  const theme = useTheme(), source = document?.sources ?? [];
+function FoldersTab({state, retry, t, addFolder, folderMenu}: {state: NativeOwnerLibrariesSnapshot; retry: () => void; t: Translate; addFolder: () => void; folderMenu: (source: InventorySource) => void}) {
+  const theme = useTheme(), source = state.inventoryError === undefined ? state.inventory?.sources : undefined;
   return <>
-    <SectionTitle action={<Focusable accessibilityRole="button" accessibilityLabel={t('web.libraries.addFolder')} onPress={addFolder} focusKind="chip" focusRadius={8} hitSlop={10}><Text style={[shellType(13.5, 700), {color: theme.colors.accentStrong}]}>{t('web.libraries.addFolder')}</Text></Focusable>}>{t('next.ownerLibraries.folders')}</SectionTitle>
-    <LibraryGroup>
+    <SectionTitle action={<Focusable accessibilityRole="button" accessibilityLabel={t('web.libraries.addFolder')} disabled={!state.inventory || state.inventoryError !== undefined} onPress={state.inventory && state.inventoryError === undefined ? addFolder : undefined} focusKind="chip" focusRadius={8} hitSlop={10}><Text style={[shellType(13.5, 700), {color: theme.colors.accentStrong}]}>{t('web.libraries.addFolder')}</Text></Focusable>}>{t('next.ownerLibraries.folders')}</SectionTitle>
+    {state.inventoryError !== undefined && <><Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.record}]}>{presentError(state.inventoryError, 'library').body}</Text><Button variant="glass" onPress={retry}>{t('action.tryAgain')}</Button></>}
+    {state.inventoryLoading && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('web.libraries.loadingOne')}</Text>}
+    {source && <LibraryGroup>
       {!source.length && <LibraryRow first label={t('web.libraries.noFolders')}/>}
       {source.map((folder, index) => <LibraryRow key={folder.id} first={index === 0} icon="i-folder" label={folder.name || folder.path} help={`${folder.path} · ${ownerFolderLocation(folder, t)}`} value={ownerFolderState(folder, t)} onPress={() => folderMenu(folder)}/>)}
-    </LibraryGroup>
+    </LibraryGroup>}
   </>;
 }
 
@@ -276,7 +280,7 @@ function ContinueWatchingGroup({document, busy, t, save}: {document: LibraryAdmi
   </>;
 }
 
-function MetadataTab({document, metadata, busy, t, save, saveAgent}: {document?: LibraryAdminDocument; metadata?: LibraryMetadataAgent; busy: boolean; t: Translate; save: (patch: Partial<LibrarySettings>) => void; saveAgent: (id: string) => void}) {
+function MetadataTab({document, metadata, busy, t, save, saveAgent, fetchLyrics, state, parentCurrent}: {document?: LibraryAdminDocument; metadata?: LibraryMetadataAgent; busy: boolean; t: Translate; save: (patch: Partial<LibrarySettings>) => void; saveAgent: (id: string) => void; fetchLyrics: (document: LibraryAdminDocument, current: () => boolean) => Promise<void>; state: NativeOwnerLibrariesSnapshot; parentCurrent: () => boolean}) {
   const theme = useTheme();
   if (!document) return null;
   return <>
@@ -285,7 +289,9 @@ function MetadataTab({document, metadata, busy, t, save, saveAgent}: {document?:
       <LibraryGroup>{metadata.agents.map((option, index) => <MetadataAgentChoice key={option.id} option={option} first={index === 0} checked={option.id === metadata.agent} onPress={() => {if (!busy && option.id !== metadata.agent) saveAgent(option.id);}}/>)}</LibraryGroup>
       <Text style={[shellType(12.5, 500, 17.5), {color: theme.colors.textTertiary, marginTop: 8, paddingHorizontal: 4}]}>{t('next.ownerLibraries.metadataHelp')}</Text>
     </>}
-    <LibrarySettingsRows tab="metadata" document={document} busy={busy} t={t} save={save}/>
+    <LibrarySettingsRows tab="metadata" document={document} busy={busy || !!state.lyricsBusy} t={t} save={save} fetchLyrics={current => fetchLyrics(document, () => parentCurrent() && current())}/>
+    {state.lyricsError !== undefined && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.record}]}>{presentError(state.lyricsError, 'library').body}</Text>}
+    {state.lyricsJob && <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{jobStateName(t, id => defaultI18n.has(id), state.lyricsJob.state)}</Text>}
     <LibraryGroup style={{marginTop: 18}}><LibraryRow first label={t('server.library.ownKeys')} help={t('server.library.ownKeysHelp')}/></LibraryGroup>
   </>;
 }

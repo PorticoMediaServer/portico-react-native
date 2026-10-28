@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as routes from '../../../packages/contracts/src/routes.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 async function fixture() {
@@ -19,7 +20,7 @@ async function fixture() {
   }
   const base = '../../../../../../packages/client-core/src/';
   const module = await screenModule(new URL('../src-next/screens/settings-live/owner-libraries/controller.ts', import.meta.url), {
-    react: {default: {}}, [base + 'remote-sources']: {RemoteSourceService: RemotePolicy},
+    react: {default: {}}, '../../../../../../packages/contracts/src/routes': routes, [base + 'remote-sources']: {RemoteSourceService: RemotePolicy},
     [base + 'library-management']: {LibraryManagementService: Management, fetchEpisodeIssues: async () => ({issues: [], nextCursor: ''})},
     [base + 'library-inventory']: {LibraryInventoryService: Inventory},
     [base + 'server-admin/libraries']: {readLibrarySettings: async (_api: unknown, id: string) => ({libraryId: id, libraryKind: 'movie'})},
