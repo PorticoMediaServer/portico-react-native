@@ -49,6 +49,14 @@ test('real App Search keeps separate eligible previews and an artless All genres
       groups: [{id: 'movies', entityKind: 'movie', title: '', status: 'success', errorCode: '', totalCount: url.searchParams.get('q') === 'no matches' ? 0 : 1, totalCountExact: true, nextCursor: '', items: url.searchParams.get('q') === 'no matches' ? [] : [movie]}],
     }};
   }});
+  // The shared native boundary predates the durable mutation port. This
+  // read-only screen has empty synthetic custody; a write would fail the test.
+  const {NativeModules} = await import('react-native');
+  NativeModules.PorticoRuntime.userMutationTransaction = async (operation: string) => {
+    if (operation === 'read') return JSON.stringify({version: 1, revision: 0, entries: []});
+    assert.ok(operation === 'scope' || operation === 'retireScope', 'Search must not commit a user mutation');
+    return true;
+  };
   let runtime: RestoredNativeShellRuntime | undefined;
   try {
     const {restoreNativeShellRuntime} = await import('../src-next/shell/bootstrap');
