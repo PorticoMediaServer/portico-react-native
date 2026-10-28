@@ -3,7 +3,7 @@ import {Text, View} from 'react-native';
 import type {RuntimeSettings} from '../../../../../../../packages/client-core/src/console';
 import {readSettingsBinding, settingsBinding, settingsBindingPatch} from '../../../../../../../packages/client-core/src/presentation/settings-bindings';
 import {settingsRowIndex} from '../../../../../../../packages/client-core/src/presentation/settings-spec';
-import {Button, TextField} from '../../../../kit/controls';
+import {Button,Switch, TextField} from '../../../../kit/controls';
 import {SettingsRow} from '../../../../kit/shell';
 import {useTheme} from '../../../../kit/theme';
 import {StateView} from '../../../../kit/states';
@@ -50,7 +50,7 @@ function Advanced({group, runtime}: {group: StorageForms; runtime: NativeShellRu
     group.set.discard(); const saved = form.getSnapshot().draft as RuntimeSettings | undefined;
     replaceInput(saved ? String(saved.apiRequestsPerMinute) : '');
   };
-  return <NativeAdvancedSection testID="integrations-advanced" summary={fact ? settingsSummary([row], () => fact, t) : t('next.settings.loading')}>
+  return <><View style={{marginTop:16}}>{state.draft&&<Switch checked={state.draft['integrations.compatibilityEnabled']===true} disabled={save.saving||!live()} onCheckedChange={value=>{if(live()&&!form.getSnapshot().saving)form.set((draft:RuntimeSettings)=>({...draft,'integrations.compatibilityEnabled':value}));}}>{t('integrations.compatibility.title')}</Switch>}<Text style={{color:theme.colors.textSecondary,marginTop:4}}>{t('integrations.compatibility.help')}</Text></View><NativeAdvancedSection testID="integrations-advanced" summary={fact ? settingsSummary([row], () => fact, t) : t('next.settings.loading')}>
     {state.loadError !== undefined && <><Text accessibilityRole="alert" style={{color: theme.colors.record}}>{t('error.unavailable')}</Text><Button size="compact" variant="glass" onPress={() => {if (current()) void form.load();}}>{t('action.tryAgain')}</Button></>}
     {state.draft && <SettingsRow first label={t('next.settingsSpec.server.integrations.advanced.groups.1.rows.0.label')} description={t('next.settingsSpec.server.integrations.advanced.groups.1.rows.0.help')}
       control={<TextField accessibilityLabel={t('next.settingsSpec.server.integrations.advanced.groups.1.rows.0.label')} value={input} keyboardType="number-pad" editable={live() && !save.saving} error={input && !valid ? t('error.invalidInput') : undefined} onChangeText={text => {
@@ -60,7 +60,6 @@ function Advanced({group, runtime}: {group: StorageForms; runtime: NativeShellRu
         const patch = settingsBindingPatch(binding, next.value);
         form.set((draft: RuntimeSettings) => ({...draft, ...patch.values}));
       }}/>}/>} 
-    {save.dirty && <View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={save.saving || !live()} onPress={discard}>{t('action.discard')}</Button><Button disabled={save.saving || !live() || !valid || !!save.problem} loading={save.saving} onPress={commit}>{t('action.save')}</Button></View>}
-    {save.saveError !== undefined && <StateView variant="inline" {...runtime.error(save.saveError, commit)}/>}
-  </NativeAdvancedSection>;
+
+  </NativeAdvancedSection>    {save.saveError !== undefined && <StateView variant="inline" {...runtime.error(save.saveError, commit)}/>}{save.dirty&&<View style={{flexDirection:'row',gap:8,marginTop:8}}><Button variant="glass" disabled={save.saving||!live()} onPress={discard}>{t('action.discard')}</Button><Button disabled={save.saving||!live()||!valid||!!save.problem} loading={save.saving} onPress={commit}>{t('action.save')}</Button></View>}</>;
 }

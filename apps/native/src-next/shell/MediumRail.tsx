@@ -1,3 +1,4 @@
+import {headerWordmark} from '../kit/shell/brand';
 import React, {useState} from 'react';
 import {Image, ScrollView, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -58,7 +59,7 @@ export function MediumRail({libraries, hasLiveTV, destination, profile, unread, 
     <View style={{flex: 1, alignItems: 'center', paddingTop: padding.top, paddingBottom: padding.bottom}}>
       {onToggle && !expanded && <View style={{height: 44, alignItems: 'center', justifyContent: 'center'}}><SvgXml xml={brandSymbol} width={19} height={28}/></View>}
       {onToggle && <View style={{width: '100%', height: expanded ? 48 : 44, paddingHorizontal: expanded ? 24 : 0, flexDirection: 'row', alignItems: 'center', justifyContent: expanded ? 'space-between' : 'center'}}>
-        {expanded && <Image accessible accessibilityLabel={defaultI18n.t('next.platform.appName')} source={require('../../assets/wordmark.png')} resizeMode="contain" style={{width: 86, height: 17}}/>}
+        {expanded && <Image accessible accessibilityLabel={defaultI18n.t('next.platform.appName')} source={require('../../assets/wordmark.png')} resizeMode="contain" style={{...headerWordmark.tabletRail, flexShrink: 0}}/>}
         <Focusable testID="sidebar-toggle" accessibilityRole="button" accessibilityLabel={defaultI18n.t(expanded ? 'web.shell.collapse' : 'web.shell.expand')} accessibilityState={{expanded}} onPress={onToggle} focusRadius={12} style={{width: 44, height: 44, alignItems: 'center', justifyContent: 'center'}}>
           <Svg width={22} height={22} viewBox="0 0 24 24" color={theme.colors.textSecondary}><Rect x={3.5} y={4.5} width={17} height={15} rx={3} fill="none" stroke="currentColor" strokeWidth={2}/><Rect x={8.5} y={4.5} width={1.5} height={15} fill="currentColor"/></Svg>
         </Focusable>

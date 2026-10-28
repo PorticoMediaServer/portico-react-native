@@ -4,6 +4,7 @@ import type {NativeSubtitleFileLifetime, NativeSubtitleFileMetadata} from './sub
 
 type SourceService = Pick<SubtitleService, 'getSnapshot' | 'refresh' | 'refreshSources' | 'search' | 'apply' | 'save' | 'retry'>;
 export type NativePlaybackSubtitleUpload = Parameters<SubtitleService['save']>[0];
+export type NativePlaybackSubtitleFileUpload = Parameters<SubtitleService['upload']>[0];
 export type NativePlaybackSubtitleControls = Readonly<{
   refresh: () => Promise<void>;
   refreshSources: () => Promise<void>;

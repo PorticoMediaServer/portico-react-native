@@ -5,6 +5,7 @@ import {bindingModule, formsFixture as untypedFormsFixture, lifecycleHooks, main
 import * as values from '../src-next/screens/settings-live/server/settings-values.ts';
 import {secureConnectionView} from '../../../packages/client-core/src/server-admin/secure-connection.ts';
 import {certificateProblemMessage, retryCertificate} from '../../../packages/client-core/src/certificates.ts';
+import {restoreRecoveryNotice} from '../../../packages/client-core/src/backups.ts';
 
 import type {DraftForm} from '../../../packages/client-core/src/server-admin/draft-form.ts';
 import * as transcodeLocation from '../../../packages/client-core/src/presentation/transcode-location.ts';
@@ -101,7 +102,7 @@ async function backupsFixture() {
   }
   class Lifetime {current = () => active;request = (run: any) => run(new AbortController().signal);dispose() {active = false;}}
   const module = await screenModule(new URL('../src-next/screens/settings-live/server/storage/BackupsTab.tsx', import.meta.url), {
-    react: host.react, 'react-native': {Text: 'Text', View: 'View'}, '../../../../../../../packages/client-core/src/server-admin/backup-source': {SettingsBackupSource: Source}, '../../../../../../../packages/client-core/src/backups': {isAuthenticationFailure: () => false}, '../../../../../../../packages/contracts/src/routes': {routePath: (id: string) => id}, '../../../../../../../packages/client-core/src/presentation/settings-spec': specification,
+    react: host.react, 'react-native': {Text: 'Text', View: 'View'}, '../../../../../../../packages/client-core/src/server-admin/backup-source': {SettingsBackupSource: Source}, '../../../../../../../packages/client-core/src/backups': {isAuthenticationFailure: () => false, restoreRecoveryNotice}, '../../../../../../../packages/contracts/src/routes': {routePath: (id: string) => id}, '../../../../../../../packages/client-core/src/presentation/settings-spec': specification,
     '../../../../../../../packages/client-core/src/administration': {backupProgressFraction: (value: any) => value.bytesTotal > 0 ? value.bytesDone / value.bytesTotal : undefined}, '../../../../../../../packages/client-core/src/server-admin/console-words': {sentence: (value: string) => value.replaceAll('_', ' '), when: String}, '../../../../../../../packages/i18n/src': {defaultI18n: i18n},
     '../../../../kit/controls': {Button: 'Button', Focusable: 'Focusable', TextField: 'TextField'}, '../../../../kit/overlays': {BottomSheet: 'BottomSheet', Menu: 'Menu'}, '../../owner-libraries/FolderExplorer': {FolderExplorer: 'FolderExplorer'}, '../AdvancedSection': {NativeAdvancedSection: 'Advanced'}, '../../../../kit/shell/visual': {shellType: () => ({})}, '../../../../kit/theme': {useTheme: () => theme}, '../../lifetime': {NativeScreenLifetime: Lifetime, screenScopeEnded: () => new Error('ended')}, './space-source': {nativeStorageOwner: () => active}, './BackupFolder': {NativeBackupFolder: 'BackupFolder'}, './BackupProtection': {NativeBackupProtection: 'Protection'},
   });
@@ -123,6 +124,26 @@ test('Backups paints actual progress/metadata and keeps typed deletion behind th
   nodes(deletion()).find((node: any) => node.type === 'TextField').props.onChangeText('delete');assert.equal(erase().props.disabled, false);erase().props.onPress();await settle();assert.equal(fixture.snapshot().deleted, 'backup-1');fixture.stop();
 });
 
+test('Backups shows the manual pause warning, pressure failure and recovery outcome', async () => {
+  const fixture = await backupsFixture();
+  fixture.state.document.running.kind = 'manual';
+  assert.match(content(nodes(fixture.render())), /web\.maintenance\.backupMayPause/);
+  fixture.state.document.running.kind = 'scheduled';
+  assert.doesNotMatch(content(nodes(fixture.render())), /web\.maintenance\.backupMayPause/);
+  fixture.state.document.running = undefined;
+  fixture.state.document.lastBackup = {jobId: 'j', outcome: 'failed', errorCode: 'backup_busy'};
+  assert.match(content(nodes(fixture.render())), /web\.maintenance\.backupBusy/);
+  for (const [recovery, message] of [
+    [{indexesRebuilt: true}, 'restoreRepaired'],
+    [{salvaged: true}, 'restoreRecovered'],
+    [{salvaged: true, damagedTables: ['libraries']}, 'restorePartial'],
+  ] as const) {
+    fixture.state.document.lastRestore = {outcome: 'restored', recovery};
+    assert.ok(content(nodes(fixture.render())).includes(`web.maintenance.${message}`));
+  }
+  fixture.stop();
+});
+
 test('Restore picker retains its candidate through the encrypted step and closing fences stale choices', async () => {
   const fixture = await backupsFixture();fixture.state.document.running = undefined;
   const restore = () => nodes(fixture.render()).find((node: any) => node.type === 'Button' && content(node) === 'web.maintenance.restoreFromFile');
@@ -137,9 +158,9 @@ test('Restore picker retains its candidate through the encrypted step and closin
   restore().props.onPress();const stale = nodes(fixture.render()).find((node: any) => node.type === 'FolderExplorer');stale.props.onOpenChange(false);stale.props.onUse([{path: '/wrong.ptb', name: 'wrong.ptb'}]);assert.equal(sheet().props.open, false);fixture.stop();
 });
 
-test('Streaming draws its backed Advanced rows and hardware testing is one explicit pending action', async () => {
-  const fixture = await formsFixture({runtime: {conversionMode: 'all', hardwareSelection: 'auto', hardwareDecode: true, hdrToneMapping: true, hdrToneMappingAlgorithm: 'hable', x264Preset: 'veryfast', planningPolicy: 'minimize_server_work', directStreamRemux: true, outputFormat: 'auto', maxConcurrentSessions: 0, maxHardwareSessions: 0, maxSoftwareSessions: 0, maxBackgroundSessions: 0, serverCap: 0, throttleBufferMs: 60000, playedRetentionMs: 180000, sessionStorageMiB: 4096, ffmpegPath: '', temporaryDirectory: '/transcode'}, connectivity: {uploadCapacityKbps: 0, remoteBitrateLimitKbps: 8000, pausedSessionTimeoutMinutes: 0}}), host = lifecycleHooks();
-  const capacity = {hardware: {effective: 'vaapi', devices: [{id: 'drm-0a1b', name: 'Intel UHD 770', inUse: true}]}, temporaryDirectory: {path: '/tmp/transcode', ready: true, freeBytes: 12000, memoryPath: '/dev/shm'}};
+for (const memoryAvailable of [true, false]) test(`Streaming keeps memory preference selectable with host availability (${memoryAvailable})`, async () => {
+  const fixture = await formsFixture({runtime: {conversionMode: 'all', hardwareSelection: 'auto', hardwareDecode: true, hdrToneMapping: true, hdrToneMappingAlgorithm: 'hable', x264Preset: 'veryfast', planningPolicy: 'minimize_server_work', directStreamRemux: true, outputFormat: 'auto', maxConcurrentSessions: 0, maxHardwareSessions: 0, maxSoftwareSessions: 0, maxBackgroundSessions: 0, serverCap: 0, throttleBufferMs: 60000, playedRetentionMs: 180000, sessionStorageMiB: 4096, memoryCap: 'quarter', transcodeLocation: 'disk', ffmpegPath: '', temporaryDirectory: '/transcode'}, connectivity: {uploadCapacityKbps: 0, remoteBitrateLimitKbps: 8000, pausedSessionTimeoutMinutes: 0}}), host = lifecycleHooks();
+  const capacity = {hardware: {effective: 'vaapi', devices: [{id: 'drm-0a1b', name: 'Intel UHD 770', inUse: true}]}, temporaryDirectory: {path: '/tmp/transcode', ready: true, freeBytes: 12000, memoryPath: '/dev/shm', memoryAvailable}};
   const section = specification.settingsSpec.find((value: any) => value.scope === 'server' && value.id === 'streaming');
   const allRows = [...section!.groups!, ...section!.advanced!.groups!].flatMap((group: any) => values.settingRows(group.rows));
   const configuration = {fields: allRows.map((row: any) => ({id: row.id, configOnly: false}))};
@@ -162,22 +183,35 @@ test('Streaming draws its backed Advanced rows and hardware testing is one expli
   assert.equal(nodes(tree).filter((node: any) => node.type === 'Advanced').length, 1);
   for (const id of ['streaming.toneMapping', 'streaming.toneMappingMethod', 'streaming.encoderSpeed', 'streaming.whenCantPlay', 'streaming.repackage', 'streaming.maxConversions', 'streaming.awayExact', 'streaming.ffmpegPath']) assert.ok(controls.some((node: any) => node.props.row.id === id), id);
   // Device lists Automatic, Processor only and each adapter the hardware report found; the
-  // memory limit stays absent until the server places conversions in memory.
+  // memory limit is drawn, and usable only while the location is memory.
   const device = controls.find((node: any) => node.props.row.id === 'streaming.hardware');
   assert.deepEqual(device.props.row.control.options.map((option: any) => option.value), ['auto', 'software', 'drm-0a1b']);
   assert.ok(controls.some((node: any) => node.props.row.id === 'streaming.hardwareDecode'));
-  assert.ok(!controls.some((node: any) => node.props.row.id === 'streaming.memoryCap'));
+  const memoryCap = () => nodes(render()).find((node: any) => node.type === 'Setting' && node.props.row.id === 'streaming.memoryCap');
+  assert.equal(memoryCap()?.props.value, 'quarter');assert.equal(memoryCap()?.props.disabled, true, 'the memory limit waits for the memory location');
   device.props.onChange('drm-0a1b');
   assert.equal(fixture.group.forms.runtime.getSnapshot().draft.hardwareSelection, 'drm-0a1b');
-  // Conversion location reads the stored directory through the shared choice: a stored path is
-  // "a folder", which reveals the usable folder row; Separate writes the empty directory.
   const location = controls.find((node: any) => node.props.row.id === 'streaming.transcodeLocation');
-  assert.ok(location);assert.equal(location.props.value, 'folder');
-  assert.ok(!location.props.row.control.options.some((option: any) => option.value === 'memory'), 'In memory is not offered, even with a RAM file system');
-  const folder = controls.find((node: any) => node.props.row.id === 'streaming.transcodeFolder');
-  assert.ok(folder);assert.equal(folder.props.disabled, false);assert.equal(folder.props.value, '/transcode');
-  location.props.onChange('separate');assert.equal(fixture.group.forms.runtime.getSnapshot().draft.temporaryDirectory, '');
-  assert.ok(!nodes(render()).some((node: any) => node.type === 'Setting' && node.props.row.id === 'streaming.transcodeFolder'), 'Separate hides the folder row');
+  assert.ok(location);assert.equal(location.props.value, 'disk');
+  assert.deepEqual(location.props.row.control.options.map((option: any) => option.value), ['memory', 'disk']);
+  assert.ok(location.props.row.control.options.every((option: any) => !option.locked));
+  assert.equal(location.props.row.help, memoryAvailable ? section!.groups![2].rows[1].help : 'next.settings.streaming.memoryUnavailable');
+  const folder = () => nodes(render()).find((node: any) => node.type === 'Setting' && node.props.row.id === 'streaming.transcodeFolder');
+  assert.equal(folder().props.disabled, false);assert.equal(folder().props.value, '/transcode');
+  location.props.onChange('memory');
+  assert.equal(fixture.group.forms.runtime.getSnapshot().draft.transcodeLocation, 'memory');
+  assert.equal(fixture.group.forms.runtime.getSnapshot().draft.temporaryDirectory, '/transcode');
+  assert.equal(memoryCap()?.props.disabled, false, 'the memory preference enables its limit even when this host uses disk');
+  memoryCap()!.props.onChange('2gb');assert.equal(fixture.group.forms.runtime.getSnapshot().draft.memoryCap, '2gb');
+  assert.equal(folder().props.disabled, false, 'the disk folder remains accessible under memory');
+  folder().props.onChange('/mnt/disk');
+  assert.equal(fixture.group.forms.runtime.getSnapshot().draft.temporaryDirectory, '/mnt/disk');
+  assert.equal(fixture.group.forms.runtime.getSnapshot().draft.transcodeLocation, 'memory');
+  location.props.onChange('disk');
+  assert.equal(fixture.group.forms.runtime.getSnapshot().draft.transcodeLocation, 'disk');
+  assert.equal(fixture.group.forms.runtime.getSnapshot().draft.temporaryDirectory, '/mnt/disk');
+  assert.equal(memoryCap()?.props.disabled, true);
+  assert.equal(folder().props.disabled, false);
   controls.find((node: any) => node.props.row.id === 'streaming.repackage').props.onChange(false);assert.equal(fixture.group.forms.runtime.getSnapshot().draft.directStreamRemux, false);
   assert.equal(hardwareTests, 0);const hardware = nodes(tree).find((node: any) => node.type === 'Hardware');hardware.props.onTest();hardware.props.onTest();assert.equal(hardwareTests, 1);finish!(capacity);await settle();host.dispose();fixture.stop();
 });
@@ -200,5 +234,43 @@ test('History mounts real list/filter wiring and its named retention choices wri
   const row = tree.props.renderItem({item: entry});assert.match(content(row), /sam_k.*Kids/);assert.doesNotMatch(content(row), /192\.0\.2\.5/);
   nodes(tree).find((node: any) => node.props.testID === 'server-history-period').props.onValueChange('7d');await settle();assert.equal(calls.at(-1).period, '7d');
   const keep = () => nodes(render()).find((node: any) => node.props.testID === 'history.keepHistory');assert.equal(keep().props.value, 'custom');keep().props.onValueChange('forever');assert.equal(fixture.group.forms.runtime.getSnapshot().draft.playHistoryDays, 0);keep().props.onValueChange('3y');assert.equal(fixture.group.forms.runtime.getSnapshot().draft.playHistoryDays, 1095);
+  host.dispose();fixture.stop();
+});
+
+for (const memoryAvailable of [true, false]) test(`TV Streaming saves its explicit preference and independent disk folder (${memoryAvailable})`, async () => {
+  const fixture = await formsFixture({runtime: {conversionMode: 'all', transcodeLocation: 'disk', temporaryDirectory: '/disk', memoryCap: 'quarter'}, connectivity: {}}), host = lifecycleHooks();
+  const section = specification.settingsSpec.find((value: any) => value.scope === 'server' && value.id === 'streaming')!;
+  const allRows = [...section.groups!, ...section.advanced!.groups!].flatMap((group: any) => values.settingRows(group.rows));
+  const configuration = {fields: allRows.map((row: any) => ({id: row.id, configOnly: false}))};
+  const capacity = {hardware: {devices: []}, temporaryDirectory: {path: '/disk', memoryPath: '/dev/shm', memoryAvailable}};
+  const api = {request: async (path: string) => path === 'get_settings_configuration' ? configuration : capacity};
+  const model = await import('../src-next/screens/settings-live/server/tv-server-settings-model.ts');
+  const module = await screenModule(new URL('../src-next/screens/settings-live/server/TVServerSettingsPage.tsx', import.meta.url), {
+    ...chrome, react: host.react,
+    '../../../../../../packages/contracts/src/routes': {routePath: (id: string) => id},
+    '../../../../../../packages/client-core/src/settings-configuration': {parseSettingsConfiguration: (value: unknown) => value},
+    '../../../../../../packages/client-core/src/presentation/settings-bindings': bindings,
+    '../../../../../../packages/client-core/src/presentation/settings-spec': specification,
+    '../../../../../../packages/client-core/src/telemetry': {parseTranscodeCapacity: (value: unknown) => value},
+    '../use-settings-request-scope': {useSettingsRequestScope: () => ({api, lifetime: {current: fixture.group.context.current}})},
+    './storage/forms': fixture.hooks, './TVSettingRows': {TVChoiceRow: 'TVChoiceRow', TVEntryRow: 'TVEntryRow', TVSwitchRow: 'TVSwitchRow'},
+    './TVFolderPicker': {TVFolderRow: 'TVFolderRow'}, './tv-server-settings-model': model,
+  });
+  const render = () => host.render(() => {const outer = module.TVServerSettingsPage({page: 'streaming', ports: {context: fixture.group.context}, runtime});return outer.type(outer.props);});
+  const row = (id: string) => nodes(render()).find((node: any) => node.props.testID === id);
+  render();host.flush();await settle();
+  assert.equal(row('streaming.transcodeLocation').props.value, 'disk');
+  assert.equal(row('streaming.transcodeLocation').props.description, memoryAvailable ? section.groups![2].rows[1].help : 'next.settings.streaming.memoryUnavailable');
+  assert.ok(row('streaming.transcodeLocation').props.options.every((option: any) => !option.disabled));
+  row('streaming.transcodeLocation').props.onChange('memory');await settle();
+  assert.equal(fixture.group.forms.runtime.getSnapshot().draft.transcodeLocation, 'memory');
+  assert.equal(fixture.group.forms.runtime.getSnapshot().draft.temporaryDirectory, '/disk');
+  assert.equal(row('streaming.transcodeLocation').props.value, 'memory');
+  row('streaming.transcodeFolder').props.onChoose('/fast');await settle();
+  assert.equal(fixture.group.forms.runtime.getSnapshot().draft.temporaryDirectory, '/fast');
+  assert.equal(fixture.group.forms.runtime.getSnapshot().draft.transcodeLocation, 'memory');
+  row('streaming.transcodeLocation').props.onChange('disk');await settle();
+  assert.equal(fixture.group.forms.runtime.getSnapshot().draft.transcodeLocation, 'disk');
+  assert.equal(fixture.group.forms.runtime.getSnapshot().draft.temporaryDirectory, '/fast');
   host.dispose();fixture.stop();
 });

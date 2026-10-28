@@ -18,11 +18,8 @@ static void PorticoTestDispatchAsync(dispatch_queue_t queue,dispatch_block_t wor
 #import "../Native/PorticoSubtitleFiles.m"
 #undef dispatch_async
 
-// Only React registration/presenter lookup are supplied by this native test app.
-// The actual UIKit picker, production request lifetime and coordinated file reader run.
-void RCTRegisterModule(Class moduleClass) {}
+// Real React registration and presenter lookup are linked from the installed Pods.
 static UIViewController *testPresenter;
-UIViewController *RCTPresentedViewController(void) {return testPresenter;}
 static NSMutableArray<NSString *> *passed;
 static int failures;
 static BOOL check(BOOL condition,NSString *name) {if(condition){[passed addObject:name];return YES;}failures++;fprintf(stderr,"FAIL %s\n",name.UTF8String);return NO;}
@@ -72,8 +69,14 @@ static int tests(void) {@autoreleasepool {
  NSURL *file=[documents URLByAppendingPathComponent:@"selected.srt"];
  NSData *content=[@"1\n00:00:00,000 --> 00:00:01,000\nSubtitle\n" dataUsingEncoding:NSUTF8StringEncoding];[content writeToURL:file atomically:YES];
  [subject documentPicker:current didPickDocumentsAtURLs:@[file]];
- check(waitFor(^BOOL{return resolves+rejects>0;})&&resolves==1&&rejects==0&&[result[@"format"]isEqual:@"srt"]&&[result[@"title"]isEqual:@"selected.srt"]&&[[[NSData alloc]initWithBase64EncodedString:result[@"data"] options:0]isEqual:content],@"real coordinated file bytes resolve current request");settledPresentation();
+ check(waitFor(^BOOL{return resolves+rejects>0;})&&resolves==1&&rejects==0&&[result[@"format"]isEqual:@"srt"]&&[result[@"title"]isEqual:@"selected.srt"]&&[[NSData dataWithContentsOfURL:[NSURL URLWithString:result[@"fileUri"]]]isEqual:content]&&[result[@"fileUri"]hasPrefix:@"file://"]&&![result[@"fileUri"]isEqual:file.absoluteString]&&!result[@"data"],@"real coordinated file resolves a private staged copy");settledPresentation();
  check(!cancel(subject,@"request-B"),@"settled request cannot be cancelled again");
+ __block BOOL discarded=NO;
+ [subject discard:@[file.absoluteString] resolver:^(id value){discarded=[value boolValue];} rejecter:reject];
+ check(!discarded&&[NSFileManager.defaultManager fileExistsAtPath:file.path],@"discard refuses original user file");
+ NSURL *staged=[NSURL URLWithString:result[@"fileUri"]];
+ [subject discard:@[result[@"fileUri"]] resolver:^(id value){discarded=[value boolValue];} rejecter:reject];
+ check(discarded&&![NSFileManager.defaultManager fileExistsAtPath:staged.path],@"discard removes only staged file");
  NSProgress *progress=[NSProgress progressWithTotalUnitCount:1];NSError *error=nil;
  check([subject readSubtitle:file limit:content.length progress:progress error:&error].length==content.length,@"bounded reader accepts exact byte limit");
  check([subject readSubtitle:file limit:content.length-1 progress:progress error:&error]==nil,@"bounded reader refuses one byte over limit");
@@ -103,7 +106,7 @@ static int tests(void) {@autoreleasepool {
  [subject documentPickerWasCancelled:invalidatedPicker];check(rejects==1,@"late invalidated callback is discarded");settledPresentation();
 #endif
  [subject invalidate];code=nil;[subject pick:@"after-close" resolver:resolve rejecter:reject];check([code isEqual:@"bridge_closed"],@"invalidated bridge refuses new request");
- NSDictionary *receipt=@{@"exit":@(failures?1:0),@"passed":passed,@"failures":@(failures),@"scope":@"actual UIKit native boundary; no JS upload or genuine watch UI acceptance"};
+ NSDictionary *receipt=@{@"exit":@(failures?1:0),@"passed":passed,@"assertions":@(passed.count+failures),@"failures":@(failures),@"scope":@"actual UIKit native boundary; no JS upload or genuine watch UI acceptance"};
  NSURL *dir=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;[[NSJSONSerialization dataWithJSONObject:receipt options:NSJSONWritingPrettyPrinted error:nil]writeToURL:[dir URLByAppendingPathComponent:@"result.json"] atomically:YES];
  fprintf(stderr,"%s\n",receipt.description.UTF8String);return failures?1:0;
 }}

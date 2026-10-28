@@ -5,6 +5,7 @@ import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.ReadableType
+import java.io.File
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.net.ConnectException
@@ -24,6 +25,8 @@ import okhttp3.Dispatcher
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
@@ -40,13 +43,15 @@ import okio.BufferedSink
  *
  * One shared client, so connections and TLS sessions are reused; at most 12 requests in flight
  * and 64 waiting in order, the same admission the Apple transport applies. The bounds are per
- * request: 1 MB bodies (8 MB for API reads) and 15 seconds.
+ * request: 1 MB responses (8 MB for API reads) and 15 seconds, except subtitle uploads
+ * which have a 110-second total budget and 60-second read/write idle timeouts.
  */
 internal object PorticoTransport {
   private const val MAX_ACTIVE = 12
   private const val MAX_WAITING = 64
   const val DEFAULT_LIMIT = 1L shl 20
   const val READ_LIMIT = 8L shl 20
+  private object SubtitleUpload
 
   private class Entry(val identifier: String, val owner: Any, val limit: Long, var promise: Promise?, val critical: Boolean, val binary: Boolean, val streaming: Boolean) {
     var deadline: ScheduledFuture<*>? = null
@@ -89,7 +94,54 @@ internal object PorticoTransport {
   }
 
   /** Builds the wire request, or null when a header or the method cannot be sent as given. */
-  fun request(url: HttpUrl, method: String, headers: ReadableMap?, body: ByteArray?): Request? = try {
+  fun request(url: HttpUrl, method: String, headers: ReadableMap?, body: ByteArray?): Request? {
+    val bytes = when (method) { "GET", "HEAD" -> null; else -> body ?: ByteArray(0) }
+    val payload = bytes?.let { data ->
+      object : RequestBody() {
+        override fun contentType(): MediaType? = null
+        override fun contentLength(): Long = data.size.toLong()
+        override fun writeTo(sink: BufferedSink) { sink.write(data) }
+      }
+    }
+    return wireRequest(url, method, headers, payload)
+  }
+
+  /** Already validated private files; OkHttp reads them on its worker, with exact size bounds. */
+  fun uploadRequest(url: HttpUrl, method: String, headers: ReadableMap?, metadata: String, files: List<Pair<File, String>>): Request? {
+    val sizes = files.map { it.first.length() }
+    if (sizes.any { it <= 0 || it > 33554432L } || sizes.sum() > 33554432L) return null
+    val multipart = MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("metadata", metadata)
+    for ((index, entry) in files.withIndex()) {
+      val (file, name) = entry
+      val size = sizes[index]
+      val payload = object : RequestBody() {
+        override fun contentType(): MediaType = "application/octet-stream".toMediaType()
+        override fun contentLength(): Long = size
+        override fun writeTo(sink: BufferedSink) {
+          if (file.canonicalFile != file || !file.isFile || file.length() != size) throw IOException("Staged subtitle changed.")
+          file.inputStream().use { input ->
+            val buffer = ByteArray(65536)
+            var remaining = size
+            while (remaining > 0) {
+              if (Thread.currentThread().isInterrupted) throw InterruptedIOException("Subtitle upload cancelled.")
+              val count = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+              if (count < 1) throw IOException("Staged subtitle changed.")
+              sink.write(buffer, 0, count); remaining -= count
+            }
+            if (input.read() != -1) throw IOException("Staged subtitle changed.")
+          }
+        }
+      }
+      multipart.addFormDataPart(if (index == 0) "file" else "companion", name, payload)
+    }
+    val payload = multipart.build()
+    return wireRequest(url, method, headers, payload)?.newBuilder()
+        ?.tag(SubtitleUpload::class.java, SubtitleUpload)
+        ?.removeHeader("Content-Length")?.header("Content-Type", payload.contentType().toString())?.build()
+  }
+
+  /** Shared headers and one-shot policy for JSON and multipart bodies. */
+  private fun wireRequest(url: HttpUrl, method: String, headers: ReadableMap?, body: RequestBody?): Request? = try {
     val builder = Request.Builder().url(url)
     if (headers != null) {
       val keys = headers.keySetIterator()
@@ -98,32 +150,39 @@ internal object PorticoTransport {
         if (headers.getType(name) == ReadableType.String) builder.header(name, headers.getString(name) ?: "")
       }
     }
-    // The caller's own Content-Type header describes the body; none is invented here.
-    val bytes = when (method) {
-      "GET", "HEAD" -> null
-      else -> body ?: ByteArray(0)
-    }
-    // One-shot also prevents HTTP follow-ups (such as a retryable 503) from replaying a body.
-    val payload = bytes?.let { data ->
+    // One-shot prevents HTTP follow-ups (including retryable 503s) from replaying a write.
+    val payload = body?.let { data ->
       object : RequestBody() {
-        override fun contentType(): MediaType? = null
-        override fun contentLength(): Long = data.size.toLong()
+        override fun contentType(): MediaType? = data.contentType()
+        override fun contentLength(): Long = data.contentLength()
         override fun isOneShot(): Boolean = true
-        override fun writeTo(sink: BufferedSink) { sink.write(data) }
+        override fun writeTo(sink: BufferedSink) { data.writeTo(sink) }
       }
     }
     builder.method(method, payload).build()
-  } catch (_: IllegalArgumentException) {
-    null
-  }
+  } catch (_: IllegalArgumentException) { null }
+
+  internal fun bulkMetadataPreview(request: Request) = request.method == "POST" &&
+      request.url.encodedPath == "/v1/metadata/bulk/preview" && request.url.encodedQuery == null
 
   /** The selected production policy is also exercised by the JVM transport tests. */
-  internal fun clientFor(request: Request, streaming: Boolean = false): OkHttpClient =
-      if (streaming) streamClient else if (request.method !in setOf("GET", "HEAD")) writeClient else client
+  internal fun clientFor(request: Request, streaming: Boolean = false): OkHttpClient {
+    val preview = bulkMetadataPreview(request)
+    val base = if (streaming) streamClient else if (!preview && request.method !in setOf("GET", "HEAD")) writeClient else client
+    // A paged owner read may span millions of candidates. Keep connect/write
+    // bounds and caller cancellation, without a whole-scan/read-idle timer.
+    if (preview) return base.newBuilder().callTimeout(0, TimeUnit.MILLISECONDS).readTimeout(0, TimeUnit.MILLISECONDS).build()
+    // Derive from the trusted client, retaining its pool, dispatcher and one-shot write policy.
+    return if (request.tag(SubtitleUpload::class.java) != null) base.newBuilder()
+        .callTimeout(110, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .build() else base
+  }
 
   /** Admits a request: start it, queue it, or refuse it when 76 are already pending. */
   fun submit(owner: Any, identifier: String, request: Request, limit: Long, domain: String, busy: String, promise: Promise, binary: Boolean = false, streaming: Boolean = false) {
-    val critical = request.method !in setOf("GET", "HEAD")
+    val critical = request.method !in setOf("GET", "HEAD") && !bulkMetadataPreview(request)
     val entry = Entry(identifier, owner, limit, promise, critical, binary, streaming)
     val call: Call
     synchronized(entries) {
@@ -133,9 +192,10 @@ internal object PorticoTransport {
         return
       }
       entries[identifier] = entry
-      call = clientFor(request, streaming).newCall(request)
+      val requestClient = clientFor(request, streaming)
+      call = requestClient.newCall(request)
       entry.call = call
-      entry.deadline = deadlines.schedule({ finish(entry, "The request took too long.", null, TIMEOUT) }, 15, TimeUnit.SECONDS)
+      if (requestClient.callTimeoutMillis > 0) entry.deadline = deadlines.schedule({ finish(entry, "The request took too long.", null, TIMEOUT) }, requestClient.callTimeoutMillis.toLong(), TimeUnit.MILLISECONDS)
     }
     call.enqueue(object : Callback {
       override fun onFailure(call: Call, e: IOException) =

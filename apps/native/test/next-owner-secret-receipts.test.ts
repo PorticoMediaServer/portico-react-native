@@ -31,7 +31,7 @@ async function fixture(kind: 'key' | 'webhook') {
   const source: any = {subscribe: () => () => {}, getSnapshot: () => state, load: async () => {}, create: async (value: unknown) => {calls.push(value); return issued();}, update: async (_: unknown, value: unknown) => {calls.push(value); return issued();}, test: async (target: unknown) => {calls.push({test: target});}, reviewStep: () => 'done', close() {}, select: async () => {calls.push({select: hook}); state.selected = hook; state.deliveries = {items: [], nextCursor: ''};}};
   const modules: any = {
     react: host.react,
-    'react-native': {Text: 'Text', View: 'View', Share: {share: async () => {}}},
+    'react-native': {Platform: {OS: 'ios', isTV: false}, Text: 'Text', View: 'View', Share: {share: async () => {}}},
     '../../../../../../../packages/i18n/src': {defaultI18n: {t, date: String, dateTime: String, time: String, has: () => true}},
     '../../../../platform/clipboard': {copyText: async () => {}},
     '../../../../kit/controls': {Button: 'Button', Focusable: 'Focusable', Switch: 'Switch', Select: 'Select', TextField: 'TextField'},
@@ -58,7 +58,7 @@ async function fixture(kind: 'key' | 'webhook') {
   return {render, calls, source, state, retire: () => {alive = false;}};
 }
 
-test('API key receipt blocks every incidental dismissal and stale acknowledgement cannot close a later receipt', async () => {
+test('API key receipt blocks every incidental dismissal and stale Done handler cannot close a later receipt', async () => {
   const f = await fixture('key');
   const issue = async () => {
     find(f.render(), 'Button', 'web.access.createKey').props.onPress();
@@ -72,7 +72,7 @@ test('API key receipt blocks every incidental dismissal and stale acknowledgemen
   const first = await issue();
   assert.equal(first.props.open, true);
   for (const prop of ['dismissOnBack', 'dismissOnGesture', 'dismissOnOutsidePress', 'showClose']) assert.equal(first.props[prop], false, prop);
-  const oldAcknowledgement = find(first.props.footer, 'Button', 'web.access.copiedIt').props.onPress;
+  const oldAcknowledgement = find(first.props.footer, 'Button', 'action.done').props.onPress;
   oldAcknowledgement(); assert.equal(find(f.render(), 'BottomSheet', 'web.access.copyKeyTitle').props.open, false);
   await issue(); oldAcknowledgement();
   assert.equal(find(f.render(), 'BottomSheet', 'web.access.copyKeyTitle').props.open, true);

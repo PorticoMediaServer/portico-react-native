@@ -14,7 +14,9 @@ import {nativeDestinationLifetime} from '../lifetime';
 import {MusicSectionPager, emptyMusicSection, type MusicSection} from './paging';
 
 export type MusicAlbumRole = 'album' | 'ep' | 'single' | 'compilation' | 'appearance';
-export type MusicAlbumRow = Readonly<{id: string; libraryId: string; title: string; artist?: Readonly<{id: string; name: string}>; year?: number; posterUrl?: string; role?: MusicAlbumRole}>;
+/** `homeActions` is the release's aggregate selection offer (MOB-030), carried as sent: the
+ * catalogue selection adapter validates it, and an unreadable offer grants nothing. */
+export type MusicAlbumRow = Readonly<{id: string; libraryId: string; title: string; artist?: Readonly<{id: string; name: string}>; year?: number; posterUrl?: string; role?: MusicAlbumRole; homeActions?: ContentEntry['homeActions']}>;
 export type MusicPageEntry = Readonly<{kind: 'album' | 'artist'; entry: ContentEntry}>;
 export type NativeTVMusicSnapshot = Readonly<{
   phase: 'idle' | 'loading' | 'ready' | 'error';
@@ -80,7 +82,8 @@ const album = (value: unknown): MusicAlbumRow | undefined => {
   const role = ['album', 'ep', 'single', 'compilation', 'appearance'].includes(value.role as string) ? value.role as MusicAlbumRole : undefined;
   return Object.freeze({id: value.id, libraryId: value.libraryId, title: value.title,
     ...(artist ? {artist} : {}), ...(typeof value.year === 'number' && Number.isSafeInteger(value.year) && value.year > 0 ? {year: value.year} : {}),
-    ...(role ? {role} : {}), ...(text(value.posterUrl) && value.posterUrl.startsWith('/') ? {posterUrl: value.posterUrl} : {})});
+    ...(role ? {role} : {}), ...(text(value.posterUrl) && value.posterUrl.startsWith('/') ? {posterUrl: value.posterUrl} : {}),
+    ...(obj(value.homeActions) ? {homeActions: value.homeActions as ContentEntry['homeActions']} : {})});
 };
 const request = async <T>(api: Pick<NativeShellBootstrapContext['api'], 'request'>, path: string, method: 'GET' | 'POST', body: unknown, signal: AbortSignal): Promise<T> => {
   const value = await api.request<T>(path, method, body, signal);
@@ -205,7 +208,7 @@ export class NativeTVMusicController {
     if(!this.current()||this.state.releases.phase==='refresh-required'||!this.state.albums.includes(row))return undefined;
     const existing=this.releaseDTOs.get(row);if(existing)return existing;
     const entry:ContentEntry=Object.freeze({id:row.id,libraryId:row.libraryId,kind:'album',title:row.title,
-      ...(row.artist?{artist:row.artist}:{}),...(row.year?{year:row.year}:{}),...(row.posterUrl?{posterUrl:row.posterUrl}:{})});
+      ...(row.artist?{artist:row.artist}:{}),...(row.year?{year:row.year}:{}),...(row.posterUrl?{posterUrl:row.posterUrl}:{}),...(row.homeActions?{homeActions:row.homeActions}:{})});
     this.releaseDTOs.set(row,entry);this.releaseWitness.set(entry,row);return entry;
   };
   private releaseCurrent(entry:ContentEntry):boolean{

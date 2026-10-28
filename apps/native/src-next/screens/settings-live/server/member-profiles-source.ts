@@ -4,6 +4,8 @@ import type {ProfileRestrictions, RatingSystem} from '../../../../../../packages
 import type {ProfileArt} from '../../../../../../packages/client-core/src/profile-management';
 import type {AccessMember} from '../../../../../../packages/client-core/src/server-administration';
 import type {NativeShellBootstrapContext} from '../../../shell/bootstrap';
+import type {ArtworkSource} from '../../../kit/artwork/types';
+import {pickProfilePicture, profileAvatarUpload, profilePicturePickerAvailable, profilePictureSource} from '../../../platform/profile-avatars';
 import {NativeScreenLifetime, screenScopeEnded} from '../lifetime';
 
 export type PINConfirmation = Readonly<{profile: MemberProfile}>;
@@ -30,7 +32,12 @@ export class NativeMemberProfilesSource {
     this.lifetime = new NativeScreenLifetime(context);
     const api = {request: <T,>(path: string, method?: string, body?: unknown, caller?: AbortSignal): Promise<T> => this.current()
       ? this.lifetime.request(signal => context.api.request<T>(path, method, body, signal), caller) : Promise.reject(screenScopeEnded())};
-    this.client = new MemberProfilesClient(api, person.accountId);
+    const upload = profileAvatarUpload({requestRaw: (path, method, options) => {
+      const mutation = this.mutation;
+      if (!this.current() || !this.tier() || !mutation || mutation.signal.aborted) return Promise.reject(screenScopeEnded());
+      return this.lifetime.request(signal => context.api.requestRaw(path, method, {...options, signal}), mutation.signal);
+    }});
+    this.client = new MemberProfilesClient(api, person.accountId, upload);
     this.identity = new IdentityClient(api);
   }
   current = () => this.lifetime.current() && this.personCurrent();
@@ -45,6 +52,19 @@ export class NativeMemberProfilesSource {
     else this.publish({error});
   }
   canManage = (profile: MemberProfile): boolean => this.current() && this.tier() && !this.state.denied && !this.state.loading && !this.state.busy && !!this.state.items?.includes(profile);
+  canPickPicture = (profile: MemberProfile): boolean => this.canManage(profile) && profilePicturePickerAvailable();
+  picture = (profile: MemberProfile, pixels: number): ArtworkSource | undefined => {
+    if (!this.current() || !this.tier() || this.state.denied || !this.state.items?.includes(profile)) return undefined;
+    const avatar = profile.avatar;
+    // This surface must never fall back to the public profile-picture route.
+    const expected = `/v1/admin/access/members/${encodeURIComponent(this.person.accountId)}/profiles/${encodeURIComponent(profile.id)}/avatar?v=${avatar?.version}`;
+    if (!avatar || avatar.profileId !== profile.id || avatar.url !== expected) return undefined;
+    const picture = profilePictureSource(this.context.api, this.context.session()?.accessToken, avatar, pixels);
+    return picture && typeof picture === 'object' && 'uri' in picture && typeof picture.uri === 'string'
+      ? {uri: picture.uri, cacheKey: JSON.stringify(['member-avatar', this.lifetime.authority, this.person.accountId, profile.id, avatar.version, picture.uri]),
+        ...(picture.headers ? {headers: picture.headers as Readonly<Record<string, string>>} : {})}
+      : undefined;
+  };
   load = async (): Promise<void> => {
     if (!this.current() || this.state.busy) return;
     this.flight?.abort(); const flight = this.flight = new AbortController();
@@ -64,14 +84,14 @@ export class NativeMemberProfilesSource {
   close = () => {if (this.current() && !this.state.busy) this.publish({managing: undefined, pinConfirmation: undefined});};
   askRemovePIN = (profile: MemberProfile) => {if (this.canManage(profile) && this.state.managing === profile && profile.pinRequired) this.publish({pinConfirmation: Object.freeze({profile})});};
   cancelRemovePIN = () => {if (this.current() && !this.state.busy) this.publish({pinConfirmation: undefined});};
-  private async change(profile: MemberProfile, work: (signal: AbortSignal) => Promise<MemberProfile>): Promise<boolean> {
+  private async change(profile: MemberProfile, work: (signal: AbortSignal) => Promise<MemberProfile | undefined>): Promise<boolean> {
     if (!this.canManage(profile) || this.state.managing !== profile) return false;
     const flight = this.mutation = new AbortController();
-    const owns = () => this.current() && this.mutation === flight && !flight.signal.aborted && this.state.managing === profile && !!this.state.items?.includes(profile);
+    const owns = () => this.current() && this.tier() && !this.state.denied && this.mutation === flight && !flight.signal.aborted && this.state.managing === profile && !!this.state.items?.includes(profile);
     this.publish({busy: true, pinConfirmation: undefined, error: undefined, changed: false});
     try {
       const next = await work(flight.signal);
-      if (!owns()) return false;
+      if (!owns() || !next) return false;
       this.publish({items: this.state.items!.map(item => item === profile ? next : item), managing: next});
       return true;
     } catch (error) {
@@ -92,6 +112,17 @@ export class NativeMemberProfilesSource {
   rename = (profile: MemberProfile, name: string) => this.change(profile, signal => this.client.rename(profile, {name: name.trim()}, signal));
   colour = (profile: MemberProfile, art: ProfileArt) => this.change(profile, signal => this.client.rename(profile, {art}, signal));
   restrict = (profile: MemberProfile, changes: RestrictionChanges) => this.change(profile, signal => this.client.restrict(profile, changes, signal));
+  choosePicture = (profile: MemberProfile): Promise<boolean> => {
+    if (!this.canPickPicture(profile)) return Promise.resolve(false);
+    return this.change(profile, async signal => {
+      const current = () => this.current() && this.tier() && !signal.aborted && this.state.managing === profile && !!this.state.items?.includes(profile);
+      const picked = await pickProfilePicture({current});
+      if (!picked || !current()) return undefined;
+      return this.client.uploadPicture(profile, picked.bytes, picked.contentType);
+    });
+  };
+  removePicture = (profile: MemberProfile): Promise<boolean> => profile.avatar
+    ? this.change(profile, signal => this.client.removePicture(profile, signal)) : Promise.resolve(false);
   removePIN = (profile: MemberProfile, confirmation?: PINConfirmation): Promise<boolean> => !!confirmation && this.state.pinConfirmation === confirmation && confirmation.profile === profile && profile.pinRequired
     ? this.change(profile, signal => this.client.resetPIN(profile, signal)) : Promise.resolve(false);
   dispose = () => {this.flight?.abort(); this.mutation?.abort(); this.flight = undefined; this.mutation = undefined; this.lifetime.dispose(); this.state = initial; this.listeners.clear();};

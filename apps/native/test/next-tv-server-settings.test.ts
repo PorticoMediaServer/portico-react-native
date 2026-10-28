@@ -154,23 +154,28 @@ test('a number sheet steps within the row’s range and refuses a value off its 
   assert.deepEqual(saved, [120]);
 });
 
-test('Streaming on TV draws Location with a folder picker row and Device with each adapter found', () => {
-  const capacity = {hardware: {devices: [{id: 'drm-0a1b', name: 'Intel UHD 770', inUse: true}]}, temporaryDirectory: {path: '/var/portico/transcode', fallback: false, memoryPath: '/dev/shm', ready: true}} as any;
-  const drafts = {runtime: {conversionMode: 'all', hardwareSelection: 'drm-0a1b', hardwareDecode: true, temporaryDirectory: '/mnt/fast/convert'}, connectivity: {}};
+for (const memoryAvailable of [true, false]) test(`Streaming on TV uses an explicit preference and always keeps its disk folder (${memoryAvailable})`, () => {
+  const capacity = {hardware: {devices: [{id: 'drm-0a1b', name: 'Intel UHD 770', inUse: true}]}, temporaryDirectory: {path: '/var/portico/transcode', fallback: false, memoryPath: '/dev/shm', memoryAvailable, ready: true}} as any;
   const allIds = [...section('streaming').groups!, ...section('streaming').advanced!.groups!].flatMap(group => group.rows.flatMap(row => [row.id, ...(row.children ?? []).map(child => child.id)]));
   const configured = configuration(...allIds.map(id => field(id, null)));
-  const streaming = state('streaming', drafts, {capacity, configuration: configured});
-  const main = items(streaming);
-  const location = main.find(item => item.id === 'streaming.transcodeLocation') as any;
-  assert.equal(location.value, 'folder');
-  assert.ok(!location.options.some((option: any) => option.value === 'memory'), 'In memory is not offered');
-  const folder = main.find(item => item.id === 'streaming.transcodeFolder') as any;
-  assert.deepEqual([folder.kind, folder.value, folder.dependent], ['folder', '/mnt/fast/convert', true]);
-  const device = items(streaming, true).find(item => item.id === 'streaming.hardware') as any;
-  assert.deepEqual(device.options.map((option: any) => [option.value, !!option.plain]), [['auto', false], ['software', false], ['drm-0a1b', true]]);
-  assert.equal(device.value, 'drm-0a1b');
-  assert.ok(items(streaming, true).some(item => item.id === 'streaming.hardwareDecode'));
-  // Separate hides the folder row; without the capacity read Location is absent, never guessed.
-  assert.ok(!items(state('streaming', {...drafts, runtime: {...drafts.runtime, temporaryDirectory: ''}}, {capacity, configuration: configured})).some(item => item.id === 'streaming.transcodeFolder'));
-  assert.ok(!items(state('streaming', drafts, {configuration: configured})).some(item => item.id === 'streaming.transcodeLocation'));
+  for (const transcodeLocation of ['memory', 'disk']) {
+    const drafts = {runtime: {conversionMode: 'all', hardwareSelection: 'drm-0a1b', hardwareDecode: true, transcodeLocation, memoryCap: 'half', temporaryDirectory: '/mnt/fast/convert'}, connectivity: {}};
+    const streaming = state('streaming', drafts, {capacity, configuration: configured});
+    const main = items(streaming);
+    const location = main.find(item => item.id === 'streaming.transcodeLocation') as any;
+    assert.equal(location.value, transcodeLocation);
+    assert.deepEqual(location.options.map((option: any) => option.value), ['memory', 'disk']);
+    assert.ok(location.options.every((option: any) => !option.disabled), 'memory preference remains valid on a disk-only host');
+    assert.equal(location.row.help, memoryAvailable ? settingsRowIndex.get('streaming.transcodeLocation')!.row.help : 'next.settings.streaming.memoryUnavailable');
+    assert.equal((items(streaming, true).find(item => item.id === 'streaming.memoryCap') as any)?.value, transcodeLocation === 'memory' ? 'half' : undefined);
+    const folder = main.find(item => item.id === 'streaming.transcodeFolder') as any;
+    assert.deepEqual([folder.kind, folder.value], ['folder', '/mnt/fast/convert']);
+    const device = items(streaming, true).find(item => item.id === 'streaming.hardware') as any;
+    assert.deepEqual(device.options.map((option: any) => [option.value, !!option.plain]), [['auto', false], ['software', false], ['drm-0a1b', true]]);
+    assert.equal(device.value, 'drm-0a1b');
+    assert.ok(items(streaming, true).some(item => item.id === 'streaming.hardwareDecode'));
+    const noCapacity = items(state('streaming', drafts, {configuration: configured})).find(item => item.id === 'streaming.transcodeLocation') as any;
+    assert.equal(noCapacity.value, transcodeLocation);
+    assert.equal(noCapacity.row.help, 'next.settings.streaming.memoryUnavailable');
+  }
 });

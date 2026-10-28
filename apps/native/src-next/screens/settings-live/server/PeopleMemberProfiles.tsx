@@ -4,6 +4,7 @@ import type {AccessMember} from '../../../../../../packages/client-core/src/serv
 import type {MemberProfile} from '../../../../../../packages/client-core/src/member-profiles';
 import type {ProfileArt} from '../../../../../../packages/client-core/src/profile-management';
 import type {NativeShellRuntime} from '../../../shell/runtime';
+import {useAvatarRoute} from '../../../platform/profile-avatars';
 import {ProfileFace} from '../../../kit/artwork';
 import {Button, TextField} from '../../../kit/controls';
 import {BottomSheet} from '../../../kit/overlays';
@@ -25,11 +26,12 @@ export function PeopleMemberProfiles({people, person, runtime}: Props) {
 }
 
 export function Profiles({source, runtime}: {source: NativeMemberProfilesSource; runtime: NativeShellRuntime}) {
+  useAvatarRoute(source.context.api);
   const state = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot), t = runtime.text.t, theme = useTheme();
   const chip = (label: string) => <Text key={label} style={[theme.type.caption, {color: theme.colors.textSecondary, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: theme.colors.raised}]}>{label}</Text>;
   return <View testID="people-profiles" style={{gap: 12}}>
     {state.items?.map(profile => <View key={profile.id} testID={`people-profile-${profile.id}`} style={{flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 72, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.lineSoft}}>
-      <ProfileFace initial={profile.name.slice(0, 1).toUpperCase()} color={profile.art} locked={profile.pinRequired} size={44}/>
+      <ProfileFace initial={profile.name.slice(0, 1).toUpperCase()} color={profile.art} locked={profile.pinRequired} size={44} source={source.picture(profile, 44)}/>
       <View style={{flex: 1, gap: 6}}><Text style={[theme.type.body, {color: theme.colors.text, fontWeight: '700'}]}>{profile.name}</Text>
         <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 6}}>{profile.primary && chip(t('profile.main'))}{profile.pinRequired && chip(t('profile.protected'))}</View>
       </View>
@@ -43,6 +45,7 @@ export function Profiles({source, runtime}: {source: NativeMemberProfilesSource;
 }
 
 export function MemberProfileEditor({source, profile, runtime}: {source: NativeMemberProfilesSource; profile: MemberProfile; runtime: NativeShellRuntime}) {
+  useAvatarRoute(source.context.api);
   const state = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot), t = runtime.text.t, theme = useTheme();
   const [action, setAction] = useState<Readonly<{kind: 'rename' | 'colour' | 'limits'}>>(), [name, setName] = useState(profile.name), [art, setArt] = useState<ProfileArt>(profile.art), [draft, setDraft] = useState(profile.restrictions);
   const view = useMemo(() => ({source, profile, active: true, action: undefined as typeof action}), [source, profile]);
@@ -69,7 +72,9 @@ export function MemberProfileEditor({source, profile, runtime}: {source: NativeM
       footer={action ? <View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={state.busy} onPress={dismiss}>{t('action.cancel')}</Button>
         <Button testID="people-profile-save" loading={state.busy} disabled={state.busy || action?.kind === 'rename' && (!name.trim() || name.trim() === profile.name || /[\x00-\x1f\x7f]/.test(name)) || action?.kind === 'colour' && art === profile.art || action?.kind === 'limits' && !changed} onPress={save}>{t(action?.kind === 'limits' ? 'limits.save' : 'action.save')}</Button></View> : undefined}>
       {!action && <View style={{gap: 12}}>
-        <View style={{alignItems: 'center', paddingVertical: 12}}><ProfileFace initial={profile.name.slice(0, 1).toUpperCase()} color={profile.art} locked={profile.pinRequired} size={64}/></View>
+        <View style={{alignItems: 'center', paddingVertical: 12}}><ProfileFace initial={profile.name.slice(0, 1).toUpperCase()} color={profile.art} locked={profile.pinRequired} size={64} source={source.picture(profile, 64)}/></View>
+        {!theme.isTV && <Button testID="people-profile-picture" variant="glass" disabled={!source.canPickPicture(profile)} loading={state.busy} onPress={() => {if (current()) void source.choosePicture(profile);}}>{t(profile.avatar ? 'profile.changePicture' : 'profile.addPicture')}</Button>}
+        {profile.avatar && <Button testID="people-profile-remove-picture" variant="glass" disabled={!source.canManage(profile)} onPress={() => {if (current()) void source.removePicture(profile);}}>{t('profile.removePicture')}</Button>}
         <Button testID="people-profile-rename" variant="glass" disabled={state.busy} onPress={() => {open('rename');}}>{t('profile.rename')}</Button>
         <Button testID="people-profile-colour" variant="glass" disabled={state.busy} onPress={() => {open('colour');}}>{t('next.settingsSpec.account.profile.groups.1.rows.1.label')}</Button>
         <Button testID="people-profile-limits" variant="glass" disabled={state.busy} onPress={() => {open('limits');}}>{t('profile.limits')}</Button>
