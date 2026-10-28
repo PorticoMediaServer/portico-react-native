@@ -24,9 +24,11 @@ const label = (id: SelectionAction) => selectionText(`next.selection.native.acti
 
 // Admission belongs to the canonical model/server offers, including TV curation.
 // select 24: a TV selection has no owner area, so owner editing and deletion are
-// never drawn there even when a catalogue offer would allow them.
+// never drawn there even when a catalogue offer would allow them. Only disabled
+// whole-query Delete/Download explanations may pass; they have no executor.
 const tvHidden: ReadonlySet<SelectionAction> = new Set<SelectionAction>(['download', 'edit', 'refresh', 'delete']);
-function permitted(actions: readonly SelectionActionOffer[], isTV: boolean) {return actions.filter(action => !isTV || !tvHidden.has(action.id));}
+function permitted(actions: readonly SelectionActionOffer[], isTV: boolean, largeView: boolean) {return actions.filter(action => !isTV || !tvHidden.has(action.id)
+  || largeView && action.wholeQueryUnavailable === true && action.disabled === true && !!action.reason && (action.id === 'delete' || action.id === 'download'));}
 function SelectionMenus(props: SelectionBarProps & {returnFocusRef?: FocusRef}) {
   const {isTV, colors, platform} = useTheme();
   const queueFirst = useRef<View>(null);
@@ -34,7 +36,7 @@ function SelectionMenus(props: SelectionBarProps & {returnFocusRef?: FocusRef}) 
   const retainedMenu = useRef(props.menu ?? 'more'), retainedReturn = useRef(props.returnFocusRef);
   if (props.menu !== null) {retainedMenu.current = props.menu; retainedReturn.current = props.returnFocusRef;}
   const menu = props.menu ?? retainedMenu.current;
-  const actions = permitted(props.actions, isTV);
+  const actions = permitted(props.actions, isTV, props.count > 200);
   const menuIds: readonly SelectionAction[] = menu === 'queue' ? ['playNext', 'playLater'] : menu === 'watched' ? ['watched', 'unwatched'] : [...(props.fourthSlot === 'watched' ? ['myList' as const] : []), 'watched', 'unwatched', 'collection', 'favorite', 'download', 'removeMyList', 'edit', 'refresh', 'delete'];
   const items: MenuEntry[] = [];
   for (const id of menuIds) {
@@ -42,7 +44,7 @@ function SelectionMenus(props: SelectionBarProps & {returnFocusRef?: FocusRef}) 
     if (!offer || isTV && menu === 'more' && id === 'watched') continue;
     if (ownerActions.includes(id) && !items.some(item => 'section' in item)) items.push({id: 'owner', section: true, label: props.ownerTag, tone: 'owner'});
     items.push({id, label: id === 'watched' ? selectionText('next.selection.native.markWatched') : label(id), icon: icons[id], description: offer.reason ?? offer.description, disabled: offer.disabled,
-      tone: ownerActions.includes(id) ? 'owner' : 'default', destructive: id === 'delete', onSelect: () => props.onAction(id)});
+      tone: ownerActions.includes(id) ? 'owner' : 'default', destructive: id === 'delete', onSelect: () => {if (!offer.disabled) props.onAction(id);}});
   }
   const actionItems = items.filter((entry): entry is Extract<MenuEntry, {onSelect: unknown}> => 'onSelect' in entry);
   if (!isTV && (menu === 'queue' || menu === 'more')) {
@@ -91,13 +93,16 @@ export function SelectionBar(props: SelectionBarProps) {
   const moreRef = useRef<View>(null), queueRef = useRef<View>(null), watchedRef = useRef<View>(null);
   useSelectionBack(props.onCancel, props.menu);
   const tintId = useId().replace(/:/g, '');
-  const actions = permitted(props.actions, isTV);
+  const actions = permitted(props.actions, isTV, props.count > 200);
   if (!isTV) return <>
     <View style={{paddingTop: props.topInset ?? 0, backgroundColor: 'rgba(7,16,24,.9)', borderBottomWidth: 1, borderBottomColor: 'rgba(92,179,226,.25)'}}>
-      <View style={styles.header}>
+      <View style={[styles.header, props.selectAllUnavailable && {height: 62}]}>
         <Button testID={controlID(props.testID, 'dismiss')} variant="text" size="small" style={{paddingHorizontal: 0}} textStyle={{fontSize: 16.5 * textScale, color: colors.textSecondary}} onPress={props.onCancel}>{selectionText('next.selection.native.cancel')}</Button>
         <View pointerEvents="none" style={styles.count}><SelectionText size={17} weight={800}>{selectionText('next.selection.native.selected', {count: props.count})}</SelectionText></View>
-        {props.onSelectAll && props.selectAllLabel ? <Button testID={controlID(props.testID, 'select-all')} variant="text" size="small" style={{marginLeft: 'auto', paddingHorizontal: 0}} textStyle={{fontSize: 16 * textScale}} onPress={props.onSelectAll}>{props.selectAllLabel}</Button> : null}
+        {props.selectAllUnavailable ? <View style={{marginLeft: 'auto', alignItems: 'flex-end', maxWidth: '50%'}}>
+          <Button testID={controlID(props.testID, 'select-all')} variant="text" size="small" disabled accessibilityLabel={props.selectAllUnavailable.label} accessibilityHint={props.selectAllUnavailable.reason} accessibilityState={{disabled: true}} textStyle={{fontSize: 16 * textScale}}>{props.selectAllUnavailable.label}</Button>
+          <SelectionText size={11} secondary>{props.selectAllUnavailable.reason}</SelectionText>
+        </View> : props.onSelectAll && props.selectAllLabel ? <Button testID={controlID(props.testID, 'select-all')} variant="text" size="small" style={{marginLeft: 'auto', paddingHorizontal: 0}} textStyle={{fontSize: 16 * textScale}} onPress={props.onSelectAll}>{props.selectAllLabel}</Button> : null}
       </View>
       {props.subtitle ? <View style={{paddingHorizontal: 20, paddingBottom: 10}}><SelectionText size={13} weight={600} secondary>{props.subtitle}</SelectionText></View> : null}
     </View>
@@ -114,7 +119,10 @@ export function SelectionBar(props: SelectionBarProps) {
       {mainTV.filter(id => props.fourthSlot !== 'watched' || id !== 'myList').map(id => {const offer = actions.find(action => action.id === id);return offer ? <Button key={id} testID={controlID(props.testID, 'action', id)} ref={id === 'more' ? moreRef : id === 'queue' ? queueRef : id === 'watched' ? watchedRef : undefined} variant={id === 'play' ? 'primary' : 'glass'} size="compact" icon={icons[id]} iconOnly={id === 'more'} disabled={offer.disabled} accessibilityLabel={label(id)}
         style={{height: 64, borderRadius: 14, paddingHorizontal: id === 'more' ? 0 : id === 'play' ? 30 : 24}} textStyle={{fontSize: (id === 'play' ? 24 : 22) * textScale}} onPress={() => activate(props, id)}>{label(id)}</Button> : null;})}
       <View style={{flex: 1}} />
-      {props.onSelectAll && props.selectAllLabel ? <Button testID={controlID(props.testID, 'select-all')} variant="glass" size="compact" onPress={props.onSelectAll} style={{height: 64, paddingHorizontal: 24}} textStyle={{fontSize: 22 * textScale}}>{props.selectAllLabel}</Button> : null}
+      {props.selectAllUnavailable ? <View style={{alignItems: 'flex-end', maxWidth: 260, gap: 2}}>
+        <Button testID={controlID(props.testID, 'select-all')} variant="glass" size="compact" disabled accessibilityLabel={props.selectAllUnavailable.label} accessibilityHint={props.selectAllUnavailable.reason} accessibilityState={{disabled: true}} style={{height: 54, paddingHorizontal: 24}} textStyle={{fontSize: 22 * textScale}}>{props.selectAllUnavailable.label}</Button>
+        <SelectionText size={16} secondary>{props.selectAllUnavailable.reason}</SelectionText>
+      </View> : props.onSelectAll && props.selectAllLabel ? <Button testID={controlID(props.testID, 'select-all')} variant="glass" size="compact" onPress={props.onSelectAll} style={{height: 64, paddingHorizontal: 24}} textStyle={{fontSize: 22 * textScale}}>{props.selectAllLabel}</Button> : null}
       <Button testID={controlID(props.testID, 'dismiss')} variant="glass" size="compact" onPress={props.onCancel} style={{height: 64, paddingHorizontal: 24}} textStyle={{fontSize: 22 * textScale}}>{selectionText('next.selection.native.done')}</Button>
     </View>
     <SelectionMenus {...props} returnFocusRef={props.menu === 'more' ? moreRef : props.menu === 'queue' ? queueRef : props.menu === 'watched' ? watchedRef : undefined} />

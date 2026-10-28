@@ -7,15 +7,17 @@ import type {IconName} from '../Icon';
 
 export type SelectionSurfaceProps = Pick<SurfaceProps, 'open' | 'onOpenChange' | 'initialFocusRef' | 'returnFocusRef' | 'testID'>;
 export type SelectionAction = 'play' | 'queue' | 'playlist' | 'myList' | 'watched' | 'unwatched' | 'collection' | 'favorite' | 'removeMyList' | 'download' | 'edit' | 'refresh' | 'delete' | 'playNext' | 'playLater' | 'more';
-export type SelectionActionOffer = {id: SelectionAction; disabled?: boolean; reason?: string; /** Actual caller-owned operation detail; never an invented estimate. */ description?: string};
+export type SelectionActionOffer = {id: SelectionAction; disabled?: boolean; reason?: string; /** Disabled whole-query explanation only; grants no executor. */ wholeQueryUnavailable?: true; /** Actual caller-owned operation detail; never an invented estimate. */ description?: string};
 export type SelectionBarProps = {
   /** Caller-owned authority and surface identity, forwarded to each native control. */
   testID?: string;
   count: number;
   subtitle?: string;
-  /** Absent where the whole result cannot be selected (a windowed library with no
-   * whole-query membership): the bar then draws no Select all at all. */
+  /** Ready whole-view label, only when the host has a matching executor.
+   * Explicit server refusals use the count-free unavailable offer below. */
   selectAllLabel?: string;
+  /** Count-free unavailable whole-view control; carries no callback. */
+  selectAllUnavailable?: Readonly<{label: string; reason: string}>;
   onSelectAll?: () => void;
   onCancel: () => void;
   onAction: (action: SelectionAction) => void;

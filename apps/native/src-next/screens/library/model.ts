@@ -1,6 +1,6 @@
 import type {Library} from '../../../../../packages/client-core/src';
 import type {SavedDefinition} from '../../../../../packages/client-core/src/personal-saved';
-import {BrowseTotalsMemory, browseCapabilitiesPath, parseBrowseCapabilities, type BrowseCapabilities, type BrowseNode, type BrowseRememberedTotal, type BrowseSortSelection, type BrowseWholeSelection} from '../../../../../packages/client-core/src/browse';
+import {BrowseTotalsMemory, browseCapabilitiesPath, parseBrowseCapabilities, type BrowseCapabilities, type BrowseNode, type BrowseRememberedTotal, type BrowseSortSelection, type BrowseWholeSelection, type BrowseWholeSelectionUnavailable} from '../../../../../packages/client-core/src/browse';
 import {BrowseSession, browseSessionBuilder, type BrowseSessionQuery} from '../../../../../packages/client-core/src/browse-session';
 import {createWindowedCollection, type WindowedCollection} from '../../../../../packages/client-core/src/collections/windowed';
 import {LibraryContentService, type ContentEntry, type ContentScope, type LibraryContentApi, type LibraryContentSnapshot} from '../../../../../packages/client-core/src/library-content';
@@ -28,6 +28,7 @@ export type NativeLibrarySnapshot = Readonly<{
   revision?: string;
   /** The server's exact whole-view aggregate, present only on a replayable view's first page. */
   wholeSelection?: BrowseWholeSelection;
+  wholeSelectionUnavailable?: BrowseWholeSelectionUnavailable;
   unfilteredTotal?: BrowseRememberedTotal;
   sort?: BrowseSortSelection;
   defaultSort?: BrowseSortSelection;
@@ -127,7 +128,7 @@ export class NativeLibraryDestination {
     this.retireFilters(); this.controller?.abort(); this.discover.cancel(); this.state.collection?.dispose();
     this.session?.retire(); this.session = undefined;
     const controller = new AbortController(), revision = ++this.operation; this.controller = controller;
-    this.publish({tab, phase: 'loading', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, defaultSort: undefined, revision: undefined, wholeSelection: undefined, unfilteredTotal: undefined, error: undefined,
+    this.publish({tab, phase: 'loading', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, defaultSort: undefined, revision: undefined, wholeSelection: undefined, wholeSelectionUnavailable: undefined, unfilteredTotal: undefined, error: undefined,
       memory: {firstVisibleIndex: 0, offset: 0}});
     try {
       if (!this.initialApplied && this.options.initial && this.options.initial.definition.pivot !== tab.pivot) throw new Error('native_library_view_pivot_unavailable');
@@ -186,17 +187,22 @@ export class NativeLibraryDestination {
     const totalsKey = JSON.stringify([this.options.scope, this.options.library.id, tab.id, tab.pivot]);
     const session: BrowseSession<ContentEntry> = new BrowseSession<ContentEntry>({query: this.query(capabilities, tab, predicates, sort),
       request: (path, method, body, signal) => this.request(path, method, body, signal),
+      ...(this.options.api.requestRaw ? {requestRaw: this.options.api.requestRaw.bind(this.options.api)} : {}),
+      onPreparationError: error => this.publish({error}),
       current: () => this.current() && this.session === session && this.state.phase === 'ready',
       item: entry => entry,
       onRevision: revision => this.publish({revision}),
       // Only the first page of a replayable view carries the aggregate; later pages never
       // clear or restate it, and another query's descriptor is not adopted here.
-      onWhole: whole => {if (this.state.wholeSelection !== whole) this.publish({wholeSelection: whole});},
+      onWhole: whole => {if (this.state.wholeSelection !== whole) this.publish({wholeSelection: whole, wholeSelectionUnavailable: undefined});},
+      onWholeUnavailable: (value: BrowseWholeSelectionUnavailable | undefined) => {
+        if (this.state.wholeSelectionUnavailable !== value) this.publish({wholeSelectionUnavailable: value, ...(value ? {wholeSelection: undefined} : {})});
+      },
       onPage: page => {
         const total = this.totals.observe(totalsKey, page, base);
         if (this.state.unfilteredTotal !== total) this.publish({unfilteredTotal: total});
       },
-      onStale: error => this.publish({phase: 'error', error})});
+      onStale: error => this.publish({phase: 'error', error, wholeSelection: undefined, wholeSelectionUnavailable: undefined})});
     this.session = session;
     return session;
   }
@@ -207,7 +213,7 @@ export class NativeLibraryDestination {
     this.retireFilters(keep);
     const next = Object.freeze([...predicates]);
     this.session?.retire(); this.session = undefined;
-    this.publish({predicates: next, queryRevision: this.state.queryRevision + 1, revision: undefined, wholeSelection: undefined, sort, memory: {firstVisibleIndex: 0, offset: 0}});
+    this.publish({predicates: next, queryRevision: this.state.queryRevision + 1, revision: undefined, wholeSelection: undefined, wholeSelectionUnavailable: undefined, sort, memory: {firstVisibleIndex: 0, offset: 0}});
     collection.invalidate(this.open(capabilities, tab, next, sort).fetchPage);
   };
   setQuick = (id: string, enabled: boolean): void => {
@@ -227,7 +233,7 @@ export class NativeLibraryDestination {
   createFilters = (mode: Readonly<{live?: boolean}> = {}): NativeLibraryFilterDraft => {
     const source = this.getSnapshot();
     if (!this.current() || !source.capabilities || !source.tab.pivot || !source.sort || !source.collection) throw new Error('native_library_filter_source_required');
-    const draft = new NativeLibraryFilterDraft({api: {request: this.request}, capabilities: source.capabilities, pivot: source.tab.pivot, sort: source.sort,
+    const draft = new NativeLibraryFilterDraft({api: {request: this.request, ...(this.options.api.requestRaw ? {requestRaw: this.options.api.requestRaw.bind(this.options.api)} : {})}, capabilities: source.capabilities, pivot: source.tab.pivot, sort: source.sort,
       predicates: source.predicates, fixed: (source.tab.fixedFilter ?? []) as readonly BrowseNode[],
       current: () => this.current() && this.state.capabilities === source.capabilities
         && (mode.live === true || this.state.predicates === source.predicates) && this.state.sort === source.sort,
@@ -257,7 +263,7 @@ export class NativeLibraryDestination {
     this.discover.cancel(); this.discover.dispose(); this.state.collection?.dispose(); this.totals.clear();
     this.session?.retire(); this.session = undefined;
     this.memory = {firstVisibleIndex: 0, offset: 0};
-    this.state = Object.freeze({...this.state, phase: 'idle', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, revision: undefined, wholeSelection: undefined,
+    this.state = Object.freeze({...this.state, phase: 'idle', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, revision: undefined, wholeSelection: undefined, wholeSelectionUnavailable: undefined,
       discover: this.discover.getSnapshot(), memory: {firstVisibleIndex: 0, offset: 0}, unfilteredTotal: undefined, error: undefined});
     this.listeners.clear();
   };
