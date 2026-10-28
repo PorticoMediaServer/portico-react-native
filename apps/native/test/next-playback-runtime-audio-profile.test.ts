@@ -92,8 +92,8 @@ test('with the document published, a declared pair plays direct and the rest is 
   const server = new FakePlaybackServer({modeFromCapabilities: true, audioSource: id => sources[id]});
   assert.equal((await planFor(server, 'song-mp3'))?.mode, 'unavailable', 'no profile: nothing declared');
   const publisher = new CapabilityPublisher(fakeHttp(server) as unknown as V1Http);
-  assert.equal(await publisher.publish(document()), true);
-  assert.equal(await publisher.publish(document()), false, 'an unchanged document is not sent again');
+  assert.equal(await publisher.publish(document()), 'accepted');
+  assert.equal(await publisher.publish(document()), 'current', 'an unchanged document is not sent again');
   const mp3 = await planFor(server, 'song-mp3');
   assert.equal(mp3?.mode, 'direct');
   const opus = await planFor(server, 'song-opus');
