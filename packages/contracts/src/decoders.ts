@@ -75,6 +75,7 @@ export function decodeGetAdminAccessInvitationsResponse(input: unknown): types.G
 export function decodeGetAdminAccessMemberResponse(input: unknown): types.GetAdminAccessMemberResponse { return decode("GetAdminAccessMemberResponse", input) as types.GetAdminAccessMemberResponse; }
 export function decodeGetAdminAccessMembersResponse(input: unknown): types.GetAdminAccessMembersResponse { return decode("GetAdminAccessMembersResponse", input) as types.GetAdminAccessMembersResponse; }
 export function decodeGetAdminAccessMembersIdLimitsResponse(input: unknown): types.GetAdminAccessMembersIdLimitsResponse { return decode("GetAdminAccessMembersIdLimitsResponse", input) as types.GetAdminAccessMembersIdLimitsResponse; }
+export function decodeGetAdminAccessMembersIdProfilesResponse(input: unknown): types.GetAdminAccessMembersIdProfilesResponse { return decode("GetAdminAccessMembersIdProfilesResponse", input) as types.GetAdminAccessMembersIdProfilesResponse; }
 export function decodeGetAdminActivityResponse(input: unknown): types.GetAdminActivityResponse { return decode("GetAdminActivityResponse", input) as types.GetAdminActivityResponse; }
 export function decodeGetAdminAnalysisOperationsResponse(input: unknown): types.GetAdminAnalysisOperationsResponse { return decode("GetAdminAnalysisOperationsResponse", input) as types.GetAdminAnalysisOperationsResponse; }
 export function decodeGetAdminAttentionResponse(input: unknown): types.GetAdminAttentionResponse { return decode("GetAdminAttentionResponse", input) as types.GetAdminAttentionResponse; }
@@ -99,8 +100,6 @@ export function decodeGetAdminDvrRecordingOwnersResponse(input: unknown): types.
 export function decodeGetAdminDvrRecordingPermissionsResponse(input: unknown): types.GetAdminDvrRecordingPermissionsResponse { return decode("GetAdminDvrRecordingPermissionsResponse", input) as types.GetAdminDvrRecordingPermissionsResponse; }
 export function decodeGetAdminDvrRecordingRootResponse(input: unknown): types.GetAdminDvrRecordingRootResponse { return decode("GetAdminDvrRecordingRootResponse", input) as types.GetAdminDvrRecordingRootResponse; }
 export function decodeGetAdminDvrSettingsResponse(input: unknown): types.GetAdminDvrSettingsResponse { return decode("GetAdminDvrSettingsResponse", input) as types.GetAdminDvrSettingsResponse; }
-export function decodeGetAdminFeedbackResponse(input: unknown): types.GetAdminFeedbackResponse { return decode("GetAdminFeedbackResponse", input) as types.GetAdminFeedbackResponse; }
-export function decodeGetAdminFeedbackIdResponse(input: unknown): types.GetAdminFeedbackIdResponse { return decode("GetAdminFeedbackIdResponse", input) as types.GetAdminFeedbackIdResponse; }
 export function decodeGetAdminFeedbackReportsResponse(input: unknown): types.GetAdminFeedbackReportsResponse { return decode("GetAdminFeedbackReportsResponse", input) as types.GetAdminFeedbackReportsResponse; }
 export function decodeGetAdminFeedbackReportsIdResponse(input: unknown): types.GetAdminFeedbackReportsIdResponse { return decode("GetAdminFeedbackReportsIdResponse", input) as types.GetAdminFeedbackReportsIdResponse; }
 export function decodeGetAdminFilesystemResponse(input: unknown): types.GetAdminFilesystemResponse { return decode("GetAdminFilesystemResponse", input) as types.GetAdminFilesystemResponse; }
@@ -209,9 +208,7 @@ export function decodeGetDvrRecordingsIdImageResponse(input: unknown): types.Get
 export function decodeGetDvrStorageResponse(input: unknown): types.GetDvrStorageResponse { return decode("GetDvrStorageResponse", input) as types.GetDvrStorageResponse; }
 export function decodeGetDvrSummaryResponse(input: unknown): types.GetDvrSummaryResponse { return decode("GetDvrSummaryResponse", input) as types.GetDvrSummaryResponse; }
 export function decodeGetEventsResponse(input: unknown): types.GetEventsResponse { return decode("GetEventsResponse", input) as types.GetEventsResponse; }
-export function decodeGetFeedbackResponse(input: unknown): types.GetFeedbackResponse { return decode("GetFeedbackResponse", input) as types.GetFeedbackResponse; }
 export function decodeGetFeedbackCapabilitiesResponse(input: unknown): types.GetFeedbackCapabilitiesResponse { return decode("GetFeedbackCapabilitiesResponse", input) as types.GetFeedbackCapabilitiesResponse; }
-export function decodeGetFeedbackIdResponse(input: unknown): types.GetFeedbackIdResponse { return decode("GetFeedbackIdResponse", input) as types.GetFeedbackIdResponse; }
 export function decodeGetFeedbackReportsResponse(input: unknown): types.GetFeedbackReportsResponse { return decode("GetFeedbackReportsResponse", input) as types.GetFeedbackReportsResponse; }
 export function decodeGetFeedbackReportsIdResponse(input: unknown): types.GetFeedbackReportsIdResponse { return decode("GetFeedbackReportsIdResponse", input) as types.GetFeedbackReportsIdResponse; }
 export function decodeGetGuideResponse(input: unknown): types.GetGuideResponse { return decode("GetGuideResponse", input) as types.GetGuideResponse; }
@@ -360,6 +357,7 @@ export function decodeGetSetupStateResponse(input: unknown): types.GetSetupState
 export function decodeGetShowsIdEpisodesResponse(input: unknown): types.GetShowsIdEpisodesResponse { return decode("GetShowsIdEpisodesResponse", input) as types.GetShowsIdEpisodesResponse; }
 export function decodeGetShowsIdMetadataTvdbResponse(input: unknown): types.GetShowsIdMetadataTvdbResponse { return decode("GetShowsIdMetadataTvdbResponse", input) as types.GetShowsIdMetadataTvdbResponse; }
 export function decodeGetShowsIdRecommendationsResponse(input: unknown): types.GetShowsIdRecommendationsResponse { return decode("GetShowsIdRecommendationsResponse", input) as types.GetShowsIdRecommendationsResponse; }
+export function decodeGetShowsIdRecommendationsRowResponse(input: unknown): types.GetShowsIdRecommendationsRowResponse { return decode("GetShowsIdRecommendationsRowResponse", input) as types.GetShowsIdRecommendationsRowResponse; }
 export function decodeGetShowsIdSeasonsResponse(input: unknown): types.GetShowsIdSeasonsResponse { return decode("GetShowsIdSeasonsResponse", input) as types.GetShowsIdSeasonsResponse; }
 export function decodeGetShowsScreenMetadataResponse(input: unknown): types.GetShowsScreenMetadataResponse { return decode("GetShowsScreenMetadataResponse", input) as types.GetShowsScreenMetadataResponse; }
 export function decodeGetSignInMoveResponse(input: unknown): types.GetSignInMoveResponse { return decode("GetSignInMoveResponse", input) as types.GetSignInMoveResponse; }
@@ -430,8 +428,8 @@ export function decodeMcpResponse(input: unknown): types.McpResponse { return de
 export function decodeMcpStreamResponse(input: unknown): types.McpStreamResponse { return decode("McpStreamResponse", input) as types.McpStreamResponse; }
 export function decodeMergeTitlesResponse(input: unknown): types.MergeTitlesResponse { return decode("MergeTitlesResponse", input) as types.MergeTitlesResponse; }
 export function decodeMoveQueueEntryResponse(input: unknown): types.MoveQueueEntryResponse { return decode("MoveQueueEntryResponse", input) as types.MoveQueueEntryResponse; }
+export function decodePatchAdminAccessMembersIdProfilesProfileResponse(input: unknown): types.PatchAdminAccessMembersIdProfilesProfileResponse { return decode("PatchAdminAccessMembersIdProfilesProfileResponse", input) as types.PatchAdminAccessMembersIdProfilesProfileResponse; }
 export function decodePatchAdminDvrRecordingRootResponse(input: unknown): types.PatchAdminDvrRecordingRootResponse { return decode("PatchAdminDvrRecordingRootResponse", input) as types.PatchAdminDvrRecordingRootResponse; }
-export function decodePatchAdminFeedbackIdResponse(input: unknown): types.PatchAdminFeedbackIdResponse { return decode("PatchAdminFeedbackIdResponse", input) as types.PatchAdminFeedbackIdResponse; }
 export function decodePatchAdminLibrariesIdResponse(input: unknown): types.PatchAdminLibrariesIdResponse { return decode("PatchAdminLibrariesIdResponse", input) as types.PatchAdminLibrariesIdResponse; }
 export function decodePatchAdminLibrariesIdSourcesSourceResponse(input: unknown): types.PatchAdminLibrariesIdSourcesSourceResponse { return decode("PatchAdminLibrariesIdSourcesSourceResponse", input) as types.PatchAdminLibrariesIdSourcesSourceResponse; }
 export function decodePatchAdminLogsSettingsResponse(input: unknown): types.PatchAdminLogsSettingsResponse { return decode("PatchAdminLogsSettingsResponse", input) as types.PatchAdminLogsSettingsResponse; }
@@ -453,6 +451,7 @@ export function decodePostAdminAccessInvitationShortCodeResponse(input: unknown)
 export function decodePostAdminAccessInvitationsResponse(input: unknown): types.PostAdminAccessInvitationsResponse { return decode("PostAdminAccessInvitationsResponse", input) as types.PostAdminAccessInvitationsResponse; }
 export function decodePostAdminAccessInvitationsIdRevokeResponse(input: unknown): types.PostAdminAccessInvitationsIdRevokeResponse { return decode("PostAdminAccessInvitationsIdRevokeResponse", input) as types.PostAdminAccessInvitationsIdRevokeResponse; }
 export function decodePostAdminAccessMembersBulkResponse(input: unknown): types.PostAdminAccessMembersBulkResponse { return decode("PostAdminAccessMembersBulkResponse", input) as types.PostAdminAccessMembersBulkResponse; }
+export function decodePostAdminAccessMembersIdProfilesProfilePinResetResponse(input: unknown): types.PostAdminAccessMembersIdProfilesProfilePinResetResponse { return decode("PostAdminAccessMembersIdProfilesProfilePinResetResponse", input) as types.PostAdminAccessMembersIdProfilesProfilePinResetResponse; }
 export function decodePostAdminBackgroundPauseResponse(input: unknown): types.PostAdminBackgroundPauseResponse { return decode("PostAdminBackgroundPauseResponse", input) as types.PostAdminBackgroundPauseResponse; }
 export function decodePostAdminBackupsResponse(input: unknown): types.PostAdminBackupsResponse { return decode("PostAdminBackupsResponse", input) as types.PostAdminBackupsResponse; }
 export function decodePostAdminBackupsInspectResponse(input: unknown): types.PostAdminBackupsInspectResponse { return decode("PostAdminBackupsInspectResponse", input) as types.PostAdminBackupsInspectResponse; }
@@ -546,7 +545,6 @@ export function decodePostDvrRecordingsResponse(input: unknown): types.PostDvrRe
 export function decodePostDvrRecordingsIdCancelResponse(input: unknown): types.PostDvrRecordingsIdCancelResponse { return decode("PostDvrRecordingsIdCancelResponse", input) as types.PostDvrRecordingsIdCancelResponse; }
 export function decodePostDvrRulesPreviewResponse(input: unknown): types.PostDvrRulesPreviewResponse { return decode("PostDvrRulesPreviewResponse", input) as types.PostDvrRulesPreviewResponse; }
 export function decodePostEmptyDataCacheResponse(input: unknown): types.PostEmptyDataCacheResponse { return decode("PostEmptyDataCacheResponse", input) as types.PostEmptyDataCacheResponse; }
-export function decodePostFeedbackResponse(input: unknown): types.PostFeedbackResponse { return decode("PostFeedbackResponse", input) as types.PostFeedbackResponse; }
 export function decodePostFeedbackReportsResponse(input: unknown): types.PostFeedbackReportsResponse { return decode("PostFeedbackReportsResponse", input) as types.PostFeedbackReportsResponse; }
 export function decodePostHomeDestinationPickerResponse(input: unknown): types.PostHomeDestinationPickerResponse { return decode("PostHomeDestinationPickerResponse", input) as types.PostHomeDestinationPickerResponse; }
 export function decodePostHomeDestinationReceiptResponse(input: unknown): types.PostHomeDestinationReceiptResponse { return decode("PostHomeDestinationReceiptResponse", input) as types.PostHomeDestinationReceiptResponse; }
@@ -648,6 +646,7 @@ export function decodePublishRemoteLiveSourceResponse(input: unknown): types.Pub
 export function decodePutAdminAccessInvitationResponse(input: unknown): types.PutAdminAccessInvitationResponse { return decode("PutAdminAccessInvitationResponse", input) as types.PutAdminAccessInvitationResponse; }
 export function decodePutAdminAccessMemberNotesResponse(input: unknown): types.PutAdminAccessMemberNotesResponse { return decode("PutAdminAccessMemberNotesResponse", input) as types.PutAdminAccessMemberNotesResponse; }
 export function decodePutAdminAccessMembersIdLimitsResponse(input: unknown): types.PutAdminAccessMembersIdLimitsResponse { return decode("PutAdminAccessMembersIdLimitsResponse", input) as types.PutAdminAccessMembersIdLimitsResponse; }
+export function decodePutAdminAccessMembersIdProfilesProfileRestrictionsResponse(input: unknown): types.PutAdminAccessMembersIdProfilesProfileRestrictionsResponse { return decode("PutAdminAccessMembersIdProfilesProfileRestrictionsResponse", input) as types.PutAdminAccessMembersIdProfilesProfileRestrictionsResponse; }
 export function decodePutAdminAccessMembersIdRoleResponse(input: unknown): types.PutAdminAccessMembersIdRoleResponse { return decode("PutAdminAccessMembersIdRoleResponse", input) as types.PutAdminAccessMembersIdRoleResponse; }
 export function decodePutAdminBackupSettingsResponse(input: unknown): types.PutAdminBackupSettingsResponse { return decode("PutAdminBackupSettingsResponse", input) as types.PutAdminBackupSettingsResponse; }
 export function decodePutAdminConsoleSchedulesResponse(input: unknown): types.PutAdminConsoleSchedulesResponse { return decode("PutAdminConsoleSchedulesResponse", input) as types.PutAdminConsoleSchedulesResponse; }
@@ -709,6 +708,7 @@ export function decodePutStorageSourceReadProfileResponse(input: unknown): types
 export function decodePutStorageSourcesWebdavIdResponse(input: unknown): types.PutStorageSourcesWebdavIdResponse { return decode("PutStorageSourcesWebdavIdResponse", input) as types.PutStorageSourcesWebdavIdResponse; }
 export function decodePutV1ItemsItemIdSubtitlesResourceResponse(input: unknown): types.PutV1ItemsItemIdSubtitlesResourceResponse { return decode("PutV1ItemsItemIdSubtitlesResourceResponse", input) as types.PutV1ItemsItemIdSubtitlesResourceResponse; }
 export function decodeQueryTitlesResponse(input: unknown): types.QueryTitlesResponse { return decode("QueryTitlesResponse", input) as types.QueryTitlesResponse; }
+export function decodeRefreshAllMetadataResponse(input: unknown): types.RefreshAllMetadataResponse { return decode("RefreshAllMetadataResponse", input) as types.RefreshAllMetadataResponse; }
 export function decodeRefreshItemsMetadataResponse(input: unknown): types.RefreshItemsMetadataResponse { return decode("RefreshItemsMetadataResponse", input) as types.RefreshItemsMetadataResponse; }
 export function decodeRefreshShowsMetadataResponse(input: unknown): types.RefreshShowsMetadataResponse { return decode("RefreshShowsMetadataResponse", input) as types.RefreshShowsMetadataResponse; }
 export function decodeReleaseProfileDownloadsCacheResponse(input: unknown): types.ReleaseProfileDownloadsCacheResponse { return decode("ReleaseProfileDownloadsCacheResponse", input) as types.ReleaseProfileDownloadsCacheResponse; }

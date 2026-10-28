@@ -25,6 +25,7 @@ export const routes = [
       "downloads_unavailable",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -50,6 +51,7 @@ export const routes = [
       "queue_too_large",
       "queue_building",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -80,6 +82,7 @@ export const routes = [
       "transcode_not_allowed",
       "unsupported_media",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -105,6 +108,7 @@ export const routes = [
       "queue_too_large",
       "queue_building",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -126,6 +130,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -149,6 +154,7 @@ export const routes = [
       "not_found",
       "stale_continuation",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -171,6 +177,7 @@ export const routes = [
       "not_found",
       "internal",
       "revision_mismatch",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -195,6 +202,7 @@ export const routes = [
       "stale_continuation",
       "internal",
       "revision_mismatch",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -218,6 +226,7 @@ export const routes = [
       "request_in_progress",
       "internal",
       "revision_required",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -242,6 +251,7 @@ export const routes = [
       "rate_limited",
       "internal",
       "revision_required",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -270,6 +280,7 @@ export const routes = [
       "unsupported_media",
       "connection_too_slow",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -291,6 +302,7 @@ export const routes = [
       "rate_limited",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -317,6 +329,7 @@ export const routes = [
       "observation_owned",
       "observation_capacity",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -338,6 +351,7 @@ export const routes = [
       "invalid_request",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -366,6 +380,7 @@ export const routes = [
       "prepared_canceled",
       "not_implemented",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -392,6 +407,7 @@ export const routes = [
       "session_ended",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -418,6 +434,7 @@ export const routes = [
       "access_tokens_off",
       "administration_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -444,6 +461,7 @@ export const routes = [
       "access_tokens_off",
       "administration_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -474,6 +492,7 @@ export const routes = [
       "downloads_unavailable",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -504,6 +523,7 @@ export const routes = [
       "downloads_unavailable",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -528,6 +548,7 @@ export const routes = [
       "rate_limited",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -552,6 +573,7 @@ export const routes = [
       "rate_limited",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -584,6 +606,7 @@ export const routes = [
       "unsupported_media",
       "source_unavailable",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -612,6 +635,7 @@ export const routes = [
       "request_in_progress",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -640,6 +664,7 @@ export const routes = [
       "storage_allocation_recovery_required",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -666,6 +691,7 @@ export const routes = [
       "invalid_request",
       "administration_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -687,6 +713,7 @@ export const routes = [
       "not_found",
       "administration_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -708,6 +735,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -731,6 +759,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -754,6 +783,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -776,6 +806,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -796,6 +827,7 @@ export const routes = [
       "unauthorized",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -817,6 +849,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -839,6 +872,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -860,6 +894,7 @@ export const routes = [
       "invalid_request",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -880,6 +915,7 @@ export const routes = [
       "invalid_request",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -903,6 +939,7 @@ export const routes = [
       "revision_mismatch",
       "internal",
       "revision_required",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -924,6 +961,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -946,6 +984,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -967,6 +1006,7 @@ export const routes = [
       "not_permitted",
       "invalid_request",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -989,6 +1029,7 @@ export const routes = [
       "not_permitted",
       "invalid_request",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -1010,6 +1051,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -1032,6 +1074,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -1054,6 +1097,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -1076,6 +1120,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -1097,6 +1142,7 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -1119,6 +1165,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -1140,6 +1187,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -1166,6 +1214,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -1192,6 +1241,7 @@ export const routes = [
       "idempotency_key_reused",
       "rate_limited",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -1218,6 +1268,7 @@ export const routes = [
       "idempotency_key_reused",
       "rate_limited",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -1244,6 +1295,7 @@ export const routes = [
       "idempotency_key_reused",
       "rate_limited",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -1264,6 +1316,7 @@ export const routes = [
       "unauthorized",
       "not_found",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -1291,6 +1344,7 @@ export const routes = [
       "personal_state_conflict",
       "idempotency_key_reused",
       "operation_expired",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -1318,6 +1372,7 @@ export const routes = [
       "request_in_progress",
       "body_too_large",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -1341,6 +1396,7 @@ export const routes = [
       "not_found",
       "revision_mismatch",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -1364,6 +1420,7 @@ export const routes = [
       "not_found",
       "revision_mismatch",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -1389,6 +1446,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -1411,6 +1469,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -1433,6 +1492,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -1455,6 +1515,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -1481,6 +1542,7 @@ export const routes = [
       "administration_unavailable",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -1520,6 +1582,7 @@ export const routes = [
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
       "subtitle_provider_busy",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -1543,6 +1606,7 @@ export const routes = [
       "invalid_request",
       "administration_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -1561,7 +1625,8 @@ export const routes = [
     "errors": [
       "unauthorized",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -1584,6 +1649,7 @@ export const routes = [
       "invalid_request",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -1606,7 +1672,8 @@ export const routes = [
       "not_permitted",
       "invalid_request",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -1632,7 +1699,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "invalid_request",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -1652,7 +1720,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -1673,7 +1742,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -1703,7 +1773,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -1725,7 +1796,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -1756,7 +1828,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -1778,7 +1851,31 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "admin"
+  },
+  {
+    "id": "get_admin_access_members_id_profiles",
+    "method": "GET",
+    "path": "/v1/admin/access/members/{id}/profiles",
+    "summary": "Read another person's profiles to manage them",
+    "access": "admin_scope",
+    "adminScope": "access",
+    "requires": "admin",
+    "lane": "default",
+    "cost": "constant",
+    "bodyLimit": 0,
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -1798,7 +1895,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "invalid_request",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -1819,7 +1917,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -1840,7 +1939,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -1859,7 +1959,8 @@ export const routes = [
     "errors": [
       "unauthorized",
       "administration_unavailable",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -1877,7 +1978,8 @@ export const routes = [
     "errors": [
       "unauthorized",
       "administration_unavailable",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin-heavy"
@@ -1897,7 +1999,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -1918,7 +2021,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -1941,7 +2045,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -1961,7 +2066,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -1981,7 +2087,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2005,7 +2112,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -2025,7 +2133,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -2045,7 +2154,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -2065,7 +2175,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2106,7 +2217,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -2125,7 +2237,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "invalid_request",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -2145,7 +2258,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/zip",
@@ -2167,7 +2281,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2188,7 +2303,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -2210,7 +2326,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2231,7 +2348,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2252,7 +2370,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2278,7 +2397,8 @@ export const routes = [
       "password_change_required",
       "revision_mismatch",
       "administration_unavailable",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2299,54 +2419,11 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
-    "admission": "admin"
-  },
-  {
-    "id": "get_admin_feedback",
-    "method": "GET",
-    "path": "/v1/admin/feedback",
-    "summary": "Read or update the selected projection",
-    "access": "device",
-    "requires": "admin",
-    "lane": "default",
-    "cost": "page_sized",
-    "bodyLimit": 0,
-    "query": [
-      "cursor",
-      "limit"
-    ],
-    "errors": [
-      "invalid_request",
-      "unauthorized",
-      "not_permitted",
-      "not_found",
-      "internal"
-    ],
-    "status": 200,
-    "admission": "admin"
-  },
-  {
-    "id": "get_admin_feedback_id",
-    "method": "GET",
-    "path": "/v1/admin/feedback/{id}",
-    "summary": "Read or update the selected projection",
-    "access": "device",
-    "requires": "admin",
-    "lane": "default",
-    "cost": "page_sized",
-    "bodyLimit": 0,
-    "errors": [
-      "invalid_request",
-      "unauthorized",
-      "not_permitted",
-      "not_found",
-      "internal"
-    ],
-    "status": 200,
     "admission": "admin"
   },
   {
@@ -2373,7 +2450,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -2393,7 +2471,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -2423,7 +2502,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2445,7 +2525,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2467,7 +2548,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2489,7 +2571,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2511,7 +2594,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2533,7 +2617,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2559,7 +2644,8 @@ export const routes = [
       "library_configuration_conflict",
       "analysis_conflict",
       "analysis_unavailable",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2580,7 +2666,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2601,7 +2688,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2622,7 +2710,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2643,7 +2732,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2664,7 +2754,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2686,7 +2777,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2712,7 +2804,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2739,7 +2832,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2763,7 +2857,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "text/event-stream",
@@ -2785,7 +2880,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2804,7 +2900,8 @@ export const routes = [
     "errors": [
       "unauthorized",
       "administration_unavailable",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -2825,7 +2922,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2846,7 +2944,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2867,7 +2966,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2901,7 +3001,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -2932,7 +3033,8 @@ export const routes = [
       "invalid_request",
       "unauthorized",
       "not_permitted",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2964,7 +3066,8 @@ export const routes = [
       "invalid_request",
       "unauthorized",
       "not_permitted",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -2994,7 +3097,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -3014,7 +3118,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3040,7 +3145,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -3060,7 +3166,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "text/csv",
@@ -3082,7 +3189,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3108,7 +3216,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3127,7 +3236,8 @@ export const routes = [
     "errors": [
       "unauthorized",
       "not_permitted",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -3147,7 +3257,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3173,7 +3284,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3194,7 +3306,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3220,7 +3333,8 @@ export const routes = [
       "revision_mismatch",
       "session_ended",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "media"
@@ -3240,7 +3354,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3261,7 +3376,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3287,7 +3403,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3308,7 +3425,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3329,7 +3447,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3347,7 +3466,8 @@ export const routes = [
     "bodyLimit": 0,
     "errors": [
       "unauthorized",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -3367,7 +3487,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3392,7 +3513,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3411,7 +3533,8 @@ export const routes = [
     "errors": [
       "unauthorized",
       "session_required",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -3432,7 +3555,8 @@ export const routes = [
       "not_permitted",
       "revision_mismatch",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -3453,7 +3577,8 @@ export const routes = [
       "not_permitted",
       "revision_mismatch",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -3477,7 +3602,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3498,7 +3624,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3515,7 +3642,8 @@ export const routes = [
     "cost": "constant",
     "bodyLimit": 0,
     "errors": [
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "auth"
@@ -3531,7 +3659,8 @@ export const routes = [
     "cost": "constant",
     "bodyLimit": 0,
     "errors": [
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3556,7 +3685,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3581,7 +3711,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3607,7 +3738,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3630,7 +3762,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "invalid_request",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -3653,7 +3786,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -3682,7 +3816,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -3699,7 +3834,8 @@ export const routes = [
     "bodyLimit": 0,
     "errors": [
       "unauthorized",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -3717,7 +3853,8 @@ export const routes = [
     "errors": [
       "unauthorized",
       "not_permitted",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -3736,7 +3873,8 @@ export const routes = [
     "errors": [
       "unauthorized",
       "not_permitted",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -3754,7 +3892,8 @@ export const routes = [
     "errors": [
       "unauthorized",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -3776,7 +3915,8 @@ export const routes = [
     "errors": [
       "unauthorized",
       "invalid_request",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin-heavy"
@@ -3796,7 +3936,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -3825,7 +3966,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -3841,7 +3983,8 @@ export const routes = [
     "cost": "constant",
     "bodyLimit": 0,
     "errors": [
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -3859,7 +4002,8 @@ export const routes = [
     "errors": [
       "unauthorized",
       "not_permitted",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -3878,7 +4022,8 @@ export const routes = [
     "errors": [
       "unauthorized",
       "not_permitted",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -3900,7 +4045,8 @@ export const routes = [
       "revision_mismatch",
       "idempotency_key_reused",
       "rate_limited",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -3922,7 +4068,8 @@ export const routes = [
       "revision_mismatch",
       "idempotency_key_reused",
       "rate_limited",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -3947,6 +4094,7 @@ export const routes = [
       "internal",
       "downloads_unavailable",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -3970,7 +4118,8 @@ export const routes = [
       "revision_mismatch",
       "rate_limited",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -3990,7 +4139,8 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -4008,7 +4158,8 @@ export const routes = [
     "errors": [
       "unauthorized",
       "not_found",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -4029,7 +4180,8 @@ export const routes = [
     "errors": [
       "unauthorized",
       "invalid_request",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "auth"
@@ -4047,7 +4199,8 @@ export const routes = [
     "errors": [
       "unauthorized",
       "password_change_required",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -4067,7 +4220,8 @@ export const routes = [
       "not_permitted",
       "invalid_request",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "auth"
@@ -4087,7 +4241,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -4109,7 +4264,8 @@ export const routes = [
       "password_change_required",
       "factor_setup_required",
       "not_permitted",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "security-fence"
@@ -4127,7 +4283,8 @@ export const routes = [
     "errors": [
       "unauthorized",
       "password_change_required",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "auth"
@@ -4146,7 +4303,8 @@ export const routes = [
       "unauthorized",
       "password_change_required",
       "invalid_request",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "security-fence"
@@ -4166,7 +4324,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -4185,7 +4344,8 @@ export const routes = [
     "errors": [
       "unauthorized",
       "not_permitted",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "auth"
@@ -4205,7 +4365,8 @@ export const routes = [
       "unauthorized",
       "password_change_required",
       "not_permitted",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "auth"
@@ -4225,7 +4386,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -4249,7 +4411,8 @@ export const routes = [
       "not_permitted",
       "not_found",
       "invalid_request",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -4273,7 +4436,8 @@ export const routes = [
       "download_source_offline",
       "downloads_unavailable",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -4298,7 +4462,8 @@ export const routes = [
       "download_source_offline",
       "downloads_unavailable",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -4323,7 +4488,8 @@ export const routes = [
       "downloads_not_allowed",
       "downloads_unavailable",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -4347,7 +4513,8 @@ export const routes = [
       "download_source_offline",
       "downloads_unavailable",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -4375,7 +4542,8 @@ export const routes = [
       "downloads_not_allowed",
       "downloads_unavailable",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -4399,7 +4567,8 @@ export const routes = [
       "downloads_not_allowed",
       "downloads_unavailable",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -4426,7 +4595,8 @@ export const routes = [
       "idempotency_key_reused",
       "rate_limited",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -4450,7 +4620,8 @@ export const routes = [
       "downloads_not_allowed",
       "downloads_unavailable",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -4474,7 +4645,8 @@ export const routes = [
       "download_source_offline",
       "downloads_unavailable",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -4499,7 +4671,8 @@ export const routes = [
       "download_source_offline",
       "downloads_unavailable",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -4524,7 +4697,8 @@ export const routes = [
       "download_source_offline",
       "downloads_unavailable",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -4549,7 +4723,8 @@ export const routes = [
       "download_source_offline",
       "downloads_unavailable",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -4579,7 +4754,8 @@ export const routes = [
       "downloads_not_allowed",
       "downloads_unavailable",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -4606,7 +4782,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -4632,7 +4809,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -4657,7 +4835,8 @@ export const routes = [
       "invalid_request",
       "unauthorized",
       "not_permitted",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -4681,7 +4860,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -4702,7 +4882,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -4728,7 +4909,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -4750,7 +4932,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -4770,7 +4953,8 @@ export const routes = [
       "invalid_request",
       "unauthorized",
       "not_permitted",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -4797,35 +4981,12 @@ export const routes = [
       "event_wait_limit",
       "event_stream_exists",
       "stream_unavailable",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "sse": true,
     "admission": "realtime"
-  },
-  {
-    "id": "get_feedback",
-    "method": "GET",
-    "path": "/v1/feedback",
-    "summary": "Read or update the selected projection",
-    "access": "device",
-    "requires": "read",
-    "lane": "default",
-    "cost": "page_sized",
-    "bodyLimit": 0,
-    "query": [
-      "cursor",
-      "limit"
-    ],
-    "errors": [
-      "invalid_request",
-      "unauthorized",
-      "not_permitted",
-      "not_found",
-      "internal"
-    ],
-    "status": 200,
-    "admission": "default"
   },
   {
     "id": "get_feedback_capabilities",
@@ -4842,30 +5003,11 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
-    "admission": "default"
-  },
-  {
-    "id": "get_feedback_id",
-    "method": "GET",
-    "path": "/v1/feedback/{id}",
-    "summary": "Read or update the selected projection",
-    "access": "device",
-    "requires": "read",
-    "lane": "default",
-    "cost": "page_sized",
-    "bodyLimit": 0,
-    "errors": [
-      "invalid_request",
-      "unauthorized",
-      "not_permitted",
-      "not_found",
-      "internal"
-    ],
-    "status": 200,
     "admission": "default"
   },
   {
@@ -4892,7 +5034,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -4912,7 +5055,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -4947,7 +5091,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -4979,7 +5124,8 @@ export const routes = [
       "invalid_request",
       "unauthorized",
       "not_permitted",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5017,7 +5163,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5044,7 +5191,8 @@ export const routes = [
       "invalid_request",
       "unauthorized",
       "not_permitted",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5071,7 +5219,8 @@ export const routes = [
       "invalid_request",
       "unauthorized",
       "not_permitted",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5098,7 +5247,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -5123,7 +5273,8 @@ export const routes = [
       "invalid_request",
       "unauthorized",
       "not_permitted",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5148,7 +5299,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5167,7 +5319,8 @@ export const routes = [
     "errors": [
       "unauthorized",
       "not_permitted",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -5187,7 +5340,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5208,7 +5362,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseStatuses": [
@@ -5238,7 +5393,8 @@ export const routes = [
       "not_permitted",
       "not_found",
       "rate_limited",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -5258,7 +5414,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5291,7 +5448,8 @@ export const routes = [
       "not_permitted",
       "not_found",
       "rate_limited",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -5318,7 +5476,8 @@ export const routes = [
       "revision_mismatch",
       "idempotency_key_reused",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -5343,7 +5502,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -5363,7 +5523,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -5391,7 +5552,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5420,7 +5582,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5449,7 +5612,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -5476,7 +5640,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5500,7 +5665,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -5526,7 +5692,8 @@ export const routes = [
       "not_found",
       "stale_continuation",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -5546,7 +5713,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5572,7 +5740,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5598,7 +5767,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5620,7 +5790,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5641,7 +5812,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5666,7 +5838,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5687,7 +5860,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5720,7 +5894,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5747,7 +5922,8 @@ export const routes = [
       "not_found",
       "stale_continuation",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -5764,7 +5940,8 @@ export const routes = [
     "bodyLimit": 0,
     "query": [
       "limit",
-      "by"
+      "by",
+      "cursor"
     ],
     "errors": [
       "invalid_request",
@@ -5772,7 +5949,8 @@ export const routes = [
       "not_permitted",
       "not_found",
       "stale_continuation",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5793,7 +5971,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5814,7 +5993,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5835,7 +6015,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -5857,7 +6038,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5878,7 +6060,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5899,7 +6082,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5924,7 +6108,8 @@ export const routes = [
       "revision_mismatch",
       "request_in_progress",
       "body_too_large",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -5946,7 +6131,8 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -5969,7 +6155,8 @@ export const routes = [
       "revision_mismatch",
       "rate_limited",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -5996,7 +6183,8 @@ export const routes = [
       "rate_limited",
       "internal",
       "invalid_cursor",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -6017,7 +6205,8 @@ export const routes = [
       "not_permitted",
       "not_found",
       "revision_mismatch",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6042,7 +6231,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6067,7 +6257,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6096,7 +6287,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -6120,7 +6312,8 @@ export const routes = [
       "not_permitted",
       "not_found",
       "revision_mismatch",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6141,7 +6334,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6166,7 +6360,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6199,7 +6394,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -6219,7 +6415,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -6243,7 +6440,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6264,7 +6462,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6295,7 +6494,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -6315,7 +6515,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6337,7 +6538,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6359,7 +6561,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6391,7 +6594,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6416,7 +6620,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6438,7 +6643,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6460,7 +6666,8 @@ export const routes = [
       "not_permitted",
       "not_found",
       "stale_continuation",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6481,7 +6688,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -6512,7 +6720,8 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
-      "revision_mismatch"
+      "revision_mismatch",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -6542,7 +6751,8 @@ export const routes = [
       "not_found",
       "revision_mismatch",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin-heavy"
@@ -6562,7 +6772,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6587,7 +6798,8 @@ export const routes = [
       "revision_mismatch",
       "idempotency_key_reused",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -6607,7 +6819,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6636,7 +6849,8 @@ export const routes = [
       "source_network_policy",
       "source_credentials_required",
       "source_unavailable",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -6664,7 +6878,8 @@ export const routes = [
       "source_network_policy",
       "source_credentials_required",
       "source_unavailable",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -6692,7 +6907,8 @@ export const routes = [
       "source_network_policy",
       "source_credentials_required",
       "source_unavailable",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -6712,7 +6928,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6733,7 +6950,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6753,7 +6971,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6773,7 +6992,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6794,7 +7014,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -6816,7 +7037,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -6841,7 +7063,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -6862,7 +7085,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -6883,7 +7107,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -6905,7 +7130,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -6936,7 +7162,8 @@ export const routes = [
       "revision_mismatch",
       "rate_limited",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -6960,7 +7187,8 @@ export const routes = [
       "revision_mismatch",
       "rate_limited",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -6981,7 +7209,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7013,7 +7242,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -7039,7 +7269,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7061,7 +7292,8 @@ export const routes = [
       "invalid_request",
       "revision_mismatch",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -7082,7 +7314,8 @@ export const routes = [
       "not_permitted",
       "not_found",
       "stale_continuation",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7103,7 +7336,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7124,7 +7358,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7145,7 +7380,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7170,7 +7406,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -7190,7 +7427,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7217,7 +7455,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -7240,7 +7479,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -7264,7 +7504,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7290,7 +7531,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -7313,7 +7555,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "image/jpeg",
@@ -7344,7 +7587,8 @@ export const routes = [
       "not_permitted",
       "not_found",
       "rate_limited",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -7364,7 +7608,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7398,7 +7643,8 @@ export const routes = [
       "invalid_request",
       "unauthorized",
       "not_found",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "playback"
@@ -7416,7 +7662,8 @@ export const routes = [
     "errors": [
       "unauthorized",
       "not_found",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "security-fence"
@@ -7441,7 +7688,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7470,7 +7718,8 @@ export const routes = [
       "idempotency_key_reused",
       "rate_limited",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -7491,7 +7740,8 @@ export const routes = [
       "not_permitted",
       "not_found",
       "stale_continuation",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7521,7 +7771,8 @@ export const routes = [
       "not_found",
       "stale_continuation",
       "invalid_cursor",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7548,7 +7799,8 @@ export const routes = [
       "not_found",
       "stale_continuation",
       "invalid_cursor",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7572,7 +7824,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7596,7 +7849,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -7617,7 +7871,8 @@ export const routes = [
       "unauthorized",
       "not_found",
       "revision_mismatch",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -7641,7 +7896,8 @@ export const routes = [
       "not_found",
       "queue_building",
       "revision_mismatch",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -7666,7 +7922,8 @@ export const routes = [
       "unauthorized",
       "not_found",
       "revision_mismatch",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -7683,7 +7940,8 @@ export const routes = [
     "bodyLimit": 0,
     "errors": [
       "unauthorized",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -7703,7 +7961,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseStatuses": [
@@ -7736,7 +7995,8 @@ export const routes = [
       "revision_mismatch",
       "request_in_progress",
       "body_too_large",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7771,7 +8031,8 @@ export const routes = [
       "revision_mismatch",
       "request_in_progress",
       "body_too_large",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7794,7 +8055,8 @@ export const routes = [
       "not_found",
       "revision_mismatch",
       "stale_continuation",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7824,7 +8086,8 @@ export const routes = [
       "revision_mismatch",
       "request_in_progress",
       "body_too_large",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7852,7 +8115,8 @@ export const routes = [
       "not_found",
       "revision_mismatch",
       "request_in_progress",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7884,7 +8148,8 @@ export const routes = [
       "not_found",
       "revision_mismatch",
       "request_in_progress",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7916,7 +8181,8 @@ export const routes = [
       "request_in_progress",
       "body_too_large",
       "internal",
-      "search_busy"
+      "search_busy",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7943,7 +8209,8 @@ export const routes = [
       "not_found",
       "revision_mismatch",
       "request_in_progress",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -7975,7 +8242,8 @@ export const routes = [
       "revision_mismatch",
       "request_in_progress",
       "body_too_large",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8007,7 +8275,8 @@ export const routes = [
       "revision_mismatch",
       "request_in_progress",
       "body_too_large",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -8043,7 +8312,8 @@ export const routes = [
       "revision_mismatch",
       "request_in_progress",
       "body_too_large",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -8075,7 +8345,8 @@ export const routes = [
       "revision_mismatch",
       "request_in_progress",
       "body_too_large",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8106,7 +8377,8 @@ export const routes = [
       "request_in_progress",
       "body_too_large",
       "internal",
-      "search_busy"
+      "search_busy",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8135,7 +8407,8 @@ export const routes = [
       "revision_mismatch",
       "request_in_progress",
       "body_too_large",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 206,
     "responseContentType": "application/pdf",
@@ -8169,7 +8442,8 @@ export const routes = [
       "revision_mismatch",
       "session_ended",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "media"
@@ -8201,7 +8475,8 @@ export const routes = [
       "not_permitted",
       "not_found",
       "rate_limited",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -8221,7 +8496,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8249,7 +8525,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8270,7 +8547,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8298,7 +8576,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -8321,7 +8600,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8350,7 +8630,8 @@ export const routes = [
       "revision_mismatch",
       "idempotency_key_reused",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -8375,7 +8656,8 @@ export const routes = [
       "not_permitted",
       "not_found",
       "stale_continuation",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8396,7 +8678,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8422,7 +8705,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8439,7 +8723,8 @@ export const routes = [
     "cost": "constant",
     "bodyLimit": 0,
     "errors": [
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -8468,7 +8753,8 @@ export const routes = [
       "revision_mismatch",
       "rate_limited",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -8490,7 +8776,8 @@ export const routes = [
       "revision_mismatch",
       "idempotency_key_reused",
       "rate_limited",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -8510,7 +8797,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8536,7 +8824,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8557,7 +8846,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8578,11 +8868,39 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
     "admission": "expensive"
+  },
+  {
+    "id": "get_shows_id_recommendations_row",
+    "method": "GET",
+    "path": "/v1/shows/{id}/recommendations/rows/{row}",
+    "summary": "Page a show recommendation row to exhaustion",
+    "access": "device",
+    "requires": "read",
+    "lane": "browsing",
+    "cost": "page_sized",
+    "bodyLimit": 0,
+    "query": [
+      "cursor",
+      "limit"
+    ],
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "stale_continuation",
+      "internal",
+      "timeout",
+      "database_busy"
+    ],
+    "status": 200,
+    "admission": "browsing"
   },
   {
     "id": "get_shows_id_seasons",
@@ -8599,7 +8917,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8621,7 +8940,8 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -8646,7 +8966,8 @@ export const routes = [
       "move_collision",
       "move_confirmation",
       "move_code_invalid",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8672,7 +8993,8 @@ export const routes = [
       "move_collision",
       "move_confirmation",
       "move_code_invalid",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8695,7 +9017,8 @@ export const routes = [
       "revision_required",
       "revision_mismatch",
       "factor_setup_required",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8721,7 +9044,8 @@ export const routes = [
       "move_collision",
       "move_confirmation",
       "move_code_invalid",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8742,7 +9066,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8763,7 +9088,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8784,7 +9110,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8809,7 +9136,8 @@ export const routes = [
       "request_in_progress",
       "administration_unavailable",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -8842,7 +9170,8 @@ export const routes = [
       "source_folders_unsupported",
       "administration_unavailable",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -8862,7 +9191,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -8884,7 +9214,8 @@ export const routes = [
       "invalid_request",
       "administration_unavailable",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -8908,7 +9239,8 @@ export const routes = [
       "storage_command_conflict",
       "storage_operation_expired",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -8929,7 +9261,8 @@ export const routes = [
       "invalid_request",
       "administration_unavailable",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -8954,7 +9287,8 @@ export const routes = [
       "request_in_progress",
       "administration_unavailable",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -8977,7 +9311,8 @@ export const routes = [
       "administration_unavailable",
       "source_folders_unsupported",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -8997,7 +9332,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -9019,7 +9355,8 @@ export const routes = [
       "not_found",
       "invalid_request",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -9039,7 +9376,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "font/otf",
@@ -9073,7 +9411,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -9094,7 +9433,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -9115,7 +9455,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "http": true,
@@ -9139,7 +9480,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -9179,7 +9521,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "image/jpeg",
@@ -9218,7 +9561,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "image/jpeg",
@@ -9257,7 +9601,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "admission": "playback"
@@ -9295,7 +9640,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -9333,7 +9679,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "admission": "media-body"
@@ -9371,7 +9718,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "admission": "media-body"
@@ -9409,7 +9757,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "font/ttf",
@@ -9448,7 +9797,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "admission": "media-body"
@@ -9486,7 +9836,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "text/x-ssa",
@@ -9525,7 +9876,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "text/plain",
@@ -9564,7 +9916,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -9603,7 +9956,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "text/x-ssa",
@@ -9642,7 +9996,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -9681,7 +10036,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -9720,7 +10076,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "text/vtt",
@@ -9743,7 +10100,8 @@ export const routes = [
       "insufficient_scope",
       "invalid_request",
       "administration_unavailable",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -9767,7 +10125,8 @@ export const routes = [
       "download_source_offline",
       "downloads_unavailable",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -9788,7 +10147,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -9818,7 +10178,8 @@ export const routes = [
       "revision_mismatch",
       "request_in_progress",
       "body_too_large",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/pdf",
@@ -9861,7 +10222,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "font/ttf",
@@ -9900,7 +10262,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "text/x-ssa",
@@ -9939,7 +10302,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "text/plain",
@@ -9978,7 +10342,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -10017,7 +10382,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "text/x-ssa",
@@ -10056,7 +10422,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -10095,7 +10462,8 @@ export const routes = [
       "subtitle_provider_sign_in_failed",
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
-      "subtitle_provider_busy"
+      "subtitle_provider_busy",
+      "database_busy"
     ],
     "status": 200,
     "responseContentType": "application/octet-stream",
@@ -10126,6 +10494,7 @@ export const routes = [
       "downloads_unavailable",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -10151,7 +10520,8 @@ export const routes = [
       "session_required",
       "invalid_request",
       "administration_unavailable",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -10175,7 +10545,8 @@ export const routes = [
       "invalid_request",
       "unauthorized",
       "not_permitted",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -10200,7 +10571,8 @@ export const routes = [
       "session_required",
       "invalid_request",
       "administration_unavailable",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -10231,7 +10603,8 @@ export const routes = [
       "downloads_not_allowed",
       "downloads_unavailable",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -10255,7 +10628,8 @@ export const routes = [
       "downloads_not_allowed",
       "downloads_unavailable",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -10284,7 +10658,8 @@ export const routes = [
       "downloads_not_allowed",
       "downloads_unavailable",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -10313,7 +10688,8 @@ export const routes = [
       "downloads_not_allowed",
       "downloads_unavailable",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "security-fence"
@@ -10342,7 +10718,8 @@ export const routes = [
       "revision_mismatch",
       "administration_unavailable",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -10371,7 +10748,8 @@ export const routes = [
       "revision_mismatch",
       "administration_unavailable",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -10399,7 +10777,8 @@ export const routes = [
       "source_network_policy",
       "source_credentials_required",
       "source_unavailable",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -10426,7 +10805,8 @@ export const routes = [
       "not_found",
       "invalid_request",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -10445,7 +10825,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "internal",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -10470,7 +10851,8 @@ export const routes = [
       "unauthorized",
       "not_found",
       "revision_mismatch",
-      "timeout"
+      "timeout",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -10496,7 +10878,8 @@ export const routes = [
       "insufficient_scope",
       "invalid_request",
       "administration_unavailable",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -10517,7 +10900,8 @@ export const routes = [
       "insufficient_scope",
       "invalid_request",
       "administration_unavailable",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "admin"
@@ -10538,6 +10922,7 @@ export const routes = [
       "body_too_large",
       "unsupported_media_type",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -10554,7 +10939,8 @@ export const routes = [
     "cost": "constant",
     "bodyLimit": 0,
     "errors": [
-      "method_not_allowed"
+      "method_not_allowed",
+      "database_busy"
     ],
     "status": 200,
     "admission": "default"
@@ -10576,6 +10962,7 @@ export const routes = [
       "invalid_request",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -10601,10 +10988,36 @@ export const routes = [
       "queue_too_large",
       "queue_building",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
     "admission": "default"
+  },
+  {
+    "id": "patch_admin_access_members_id_profiles_profile",
+    "method": "PATCH",
+    "path": "/v1/admin/access/members/{id}/profiles/{profileId}",
+    "summary": "Rename or recolour another person's profile",
+    "access": "admin_scope",
+    "adminScope": "access",
+    "requires": "admin",
+    "lane": "security",
+    "cost": "constant",
+    "bodyLimit": 4096,
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "revision_mismatch",
+      "internal",
+      "database_busy",
+      "writer_capacity"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "admin"
   },
   {
     "id": "patch_admin_dvr_recording_root",
@@ -10632,32 +11045,12 @@ export const routes = [
       "rate_limited",
       "administration_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
     "http": true,
     "admission": "admin"
-  },
-  {
-    "id": "patch_admin_feedback_id",
-    "method": "PATCH",
-    "path": "/v1/admin/feedback/{id}",
-    "summary": "Read or update the selected projection",
-    "access": "device",
-    "requires": "admin",
-    "lane": "default",
-    "cost": "page_sized",
-    "bodyLimit": 1048576,
-    "errors": [
-      "invalid_request",
-      "unauthorized",
-      "not_permitted",
-      "not_found",
-      "internal",
-      "writer_capacity"
-    ],
-    "status": 200,
-    "admission": "admin-heavy"
   },
   {
     "id": "patch_admin_libraries_id",
@@ -10676,6 +11069,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -10700,6 +11094,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -10722,6 +11117,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -10744,6 +11140,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -10766,6 +11163,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -10787,6 +11185,7 @@ export const routes = [
       "invalid_request",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -10808,6 +11207,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -10830,6 +11230,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -10852,6 +11253,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -10874,6 +11276,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -10897,6 +11300,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -10923,6 +11327,7 @@ export const routes = [
       "idempotency_key_reused",
       "rate_limited",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -10945,6 +11350,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -10968,6 +11374,7 @@ export const routes = [
       "not_found",
       "revision_mismatch",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -10992,6 +11399,7 @@ export const routes = [
       "revision_mismatch",
       "factor_setup_required",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11017,6 +11425,7 @@ export const routes = [
       "sign_in_kind_portico",
       "factor_setup_required",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -11040,6 +11449,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11066,6 +11476,7 @@ export const routes = [
       "invitation_not_found",
       "idempotency_key_reused",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11089,6 +11500,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -11112,6 +11524,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11135,11 +11548,37 @@ export const routes = [
       "not_permitted",
       "revision_mismatch",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
     "http": true,
     "admission": "security-fence"
+  },
+  {
+    "id": "post_admin_access_members_id_profiles_profile_pin_reset",
+    "method": "POST",
+    "path": "/v1/admin/access/members/{id}/profiles/{profileId}/pin-reset",
+    "summary": "Clear the PIN on another person's profile",
+    "access": "admin_scope",
+    "adminScope": "access",
+    "requires": "admin",
+    "lane": "security",
+    "cost": "constant",
+    "bodyLimit": 4096,
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "revision_mismatch",
+      "internal",
+      "database_busy",
+      "writer_capacity"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "admin"
   },
   {
     "id": "post_admin_background_pause",
@@ -11158,6 +11597,7 @@ export const routes = [
       "revision_mismatch",
       "administration_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11180,6 +11620,7 @@ export const routes = [
       "insufficient_disk",
       "administration_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -11200,6 +11641,7 @@ export const routes = [
       "administration_unavailable",
       "restore_source_invalid",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11227,6 +11669,7 @@ export const routes = [
       "insufficient_disk",
       "administration_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -11248,6 +11691,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11270,6 +11714,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11291,6 +11736,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11312,6 +11758,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11333,6 +11780,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11354,6 +11802,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11376,6 +11825,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11398,6 +11848,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11420,6 +11871,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11442,6 +11894,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -11469,6 +11922,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -11500,6 +11954,7 @@ export const routes = [
       "analysis_conflict",
       "analysis_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11524,6 +11979,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11547,6 +12003,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11573,6 +12030,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -11595,6 +12053,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11617,6 +12076,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11639,6 +12099,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11661,6 +12122,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11683,6 +12145,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11708,6 +12171,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11730,6 +12194,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11752,6 +12217,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11774,6 +12240,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11796,6 +12263,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11818,6 +12286,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11840,6 +12309,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11862,6 +12332,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11884,6 +12355,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11906,6 +12378,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11928,6 +12401,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11950,6 +12424,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11972,6 +12447,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -11994,6 +12470,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12013,6 +12490,7 @@ export const routes = [
     "errors": [
       "unauthorized",
       "administration_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -12035,6 +12513,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12057,6 +12536,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12077,6 +12557,7 @@ export const routes = [
       "unauthorized",
       "administration_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12099,6 +12580,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12119,6 +12601,7 @@ export const routes = [
       "unauthorized",
       "invalid_request",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12141,6 +12624,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -12163,6 +12647,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -12185,6 +12670,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -12211,6 +12697,7 @@ export const routes = [
       "revision_mismatch",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -12237,6 +12724,7 @@ export const routes = [
       "move_confirmation",
       "move_code_invalid",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12264,6 +12752,7 @@ export const routes = [
       "move_confirmation",
       "move_code_invalid",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12291,6 +12780,7 @@ export const routes = [
       "move_confirmation",
       "move_code_invalid",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12318,6 +12808,7 @@ export const routes = [
       "move_confirmation",
       "move_code_invalid",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12342,6 +12833,7 @@ export const routes = [
       "internal",
       "rate_limited",
       "owner_reset_file_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12366,6 +12858,7 @@ export const routes = [
       "internal",
       "rate_limited",
       "owner_reset_expired",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12398,6 +12891,7 @@ export const routes = [
       "move_code_invalid",
       "portico_services_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12425,6 +12919,7 @@ export const routes = [
       "sign_in_kind_local",
       "portico_services_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12447,6 +12942,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12469,6 +12965,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -12488,6 +12985,7 @@ export const routes = [
     "errors": [
       "invalid_request",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12509,6 +13007,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12531,6 +13030,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12553,6 +13053,7 @@ export const routes = [
       "device_session_required",
       "client_log_budget",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -12574,6 +13075,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12594,6 +13096,7 @@ export const routes = [
       "unauthorized",
       "invalid_request",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -12614,6 +13117,7 @@ export const routes = [
       "invalid_request",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -12636,6 +13140,7 @@ export const routes = [
       "invalid_request",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -12658,6 +13163,7 @@ export const routes = [
       "invalid_request",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -12679,6 +13185,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -12703,6 +13210,7 @@ export const routes = [
       "internal",
       "rate_limited",
       "profile_changed",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12728,6 +13236,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -12753,6 +13262,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -12775,6 +13285,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -12798,6 +13309,7 @@ export const routes = [
       "not_found",
       "internal",
       "rate_limited",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12823,6 +13335,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12848,6 +13361,7 @@ export const routes = [
       "invalid_request",
       "request_in_progress",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12869,6 +13383,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -12891,6 +13406,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -12913,6 +13429,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -12942,6 +13459,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12964,6 +13482,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -12990,6 +13509,7 @@ export const routes = [
       "password_change_required",
       "factor_setup_required",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -13016,6 +13536,7 @@ export const routes = [
       "password_change_required",
       "factor_setup_required",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -13042,6 +13563,7 @@ export const routes = [
       "password_change_required",
       "factor_setup_required",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13068,6 +13590,7 @@ export const routes = [
       "password_change_required",
       "factor_setup_required",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13093,6 +13616,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13115,6 +13639,7 @@ export const routes = [
       "password_change_required",
       "not_permitted",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -13136,6 +13661,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -13167,6 +13693,7 @@ export const routes = [
       "factor_setup_required",
       "authentication_busy",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13189,6 +13716,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13211,6 +13739,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13233,6 +13762,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13255,6 +13785,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13277,31 +13808,11 @@ export const routes = [
       "not_found",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
     "admission": "admin"
-  },
-  {
-    "id": "post_feedback",
-    "method": "POST",
-    "path": "/v1/feedback",
-    "summary": "Read or update the selected projection",
-    "access": "device",
-    "requires": "playback",
-    "lane": "default",
-    "cost": "page_sized",
-    "bodyLimit": 1048576,
-    "errors": [
-      "invalid_request",
-      "unauthorized",
-      "not_permitted",
-      "not_found",
-      "internal",
-      "writer_capacity"
-    ],
-    "status": 200,
-    "admission": "default"
   },
   {
     "id": "post_feedback_reports",
@@ -13319,6 +13830,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13342,6 +13854,7 @@ export const routes = [
       "revision_mismatch",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13365,6 +13878,7 @@ export const routes = [
       "revision_mismatch",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13386,6 +13900,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13409,6 +13924,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -13431,6 +13947,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -13453,6 +13970,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13478,6 +13996,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13500,6 +14019,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13522,6 +14042,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13544,6 +14065,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13566,6 +14088,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13588,6 +14111,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13610,6 +14134,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -13632,6 +14157,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -13654,6 +14180,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -13677,6 +14204,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -13700,6 +14228,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -13722,6 +14251,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13750,6 +14280,7 @@ export const routes = [
       "internal",
       "metadata_conflict",
       "source_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13774,6 +14305,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -13796,6 +14328,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -13818,6 +14351,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13840,6 +14374,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -13862,6 +14397,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13888,6 +14424,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -13916,6 +14453,7 @@ export const routes = [
       "personal_needs_resolution",
       "operation_expired",
       "idempotency_key_reused",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13938,6 +14476,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13960,6 +14499,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -13986,6 +14526,7 @@ export const routes = [
       "rate_limited",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -14008,6 +14549,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14033,6 +14575,7 @@ export const routes = [
       "revision_mismatch",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14055,6 +14598,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14078,6 +14622,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14105,6 +14650,7 @@ export const routes = [
       "playlist_capacity",
       "idempotency_key_reused",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14127,6 +14673,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14149,6 +14696,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14171,6 +14719,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14193,6 +14742,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14215,6 +14765,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14237,6 +14788,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14259,6 +14811,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14281,6 +14834,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14306,6 +14860,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14328,6 +14883,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14350,6 +14906,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14372,6 +14929,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14394,6 +14952,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14416,6 +14975,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14438,6 +14998,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14460,6 +15021,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14482,6 +15044,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14507,6 +15070,7 @@ export const routes = [
       "idempotency_key_reused",
       "rate_limited",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14534,6 +15098,7 @@ export const routes = [
       "rate_limited",
       "operation_expired",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14556,6 +15121,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14578,6 +15144,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -14600,6 +15167,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -14622,6 +15190,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -14644,6 +15213,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14666,6 +15236,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14692,6 +15263,7 @@ export const routes = [
       "request_in_progress",
       "body_too_large",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14718,6 +15290,7 @@ export const routes = [
       "request_in_progress",
       "body_too_large",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14744,6 +15317,7 @@ export const routes = [
       "request_in_progress",
       "body_too_large",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14773,6 +15347,7 @@ export const routes = [
       "request_in_progress",
       "body_too_large",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14796,6 +15371,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14821,6 +15397,7 @@ export const routes = [
       "not_permitted",
       "rate_limited",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14843,6 +15420,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14865,6 +15443,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -14888,6 +15467,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -14911,6 +15491,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -14933,6 +15514,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -14960,6 +15542,7 @@ export const routes = [
       "move_confirmation",
       "move_code_invalid",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -14987,6 +15570,7 @@ export const routes = [
       "move_confirmation",
       "move_code_invalid",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15014,6 +15598,7 @@ export const routes = [
       "move_confirmation",
       "move_code_invalid",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15041,6 +15626,7 @@ export const routes = [
       "move_confirmation",
       "move_code_invalid",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -15068,6 +15654,7 @@ export const routes = [
       "move_confirmation",
       "move_code_invalid",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15090,6 +15677,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15112,6 +15700,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15135,6 +15724,7 @@ export const routes = [
       "administration_unavailable",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15158,6 +15748,7 @@ export const routes = [
       "administration_unavailable",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15180,6 +15771,7 @@ export const routes = [
       "administration_unavailable",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15203,6 +15795,7 @@ export const routes = [
       "administration_unavailable",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15224,6 +15817,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15246,6 +15840,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -15286,6 +15881,7 @@ export const routes = [
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
       "subtitle_provider_busy",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15325,6 +15921,7 @@ export const routes = [
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
       "subtitle_provider_busy",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15364,6 +15961,7 @@ export const routes = [
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
       "subtitle_provider_busy",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15403,6 +16001,7 @@ export const routes = [
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
       "subtitle_provider_busy",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15442,6 +16041,7 @@ export const routes = [
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
       "subtitle_provider_busy",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15481,6 +16081,7 @@ export const routes = [
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
       "subtitle_provider_busy",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15504,6 +16105,7 @@ export const routes = [
       "revision_mismatch",
       "source_unavailable",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -15535,6 +16137,7 @@ export const routes = [
       "conversion_capacity",
       "not_implemented",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15560,6 +16163,7 @@ export const routes = [
       "administration_unavailable",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15581,6 +16185,7 @@ export const routes = [
       "rate_limited",
       "invalid_request",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15610,6 +16215,7 @@ export const routes = [
       "source_credentials_required",
       "source_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15639,6 +16245,7 @@ export const routes = [
       "source_credentials_required",
       "source_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15658,6 +16265,7 @@ export const routes = [
       "invalid_request",
       "rate_limited",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15687,6 +16295,7 @@ export const routes = [
       "source_credentials_required",
       "source_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15709,6 +16318,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15732,6 +16342,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15755,6 +16366,32 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
+      "writer_capacity"
+    ],
+    "status": 200,
+    "http": true,
+    "admission": "admin"
+  },
+  {
+    "id": "put_admin_access_members_id_profiles_profile_restrictions",
+    "method": "PUT",
+    "path": "/v1/admin/access/members/{id}/profiles/{profileId}/restrictions",
+    "summary": "Replace another person's profile restrictions",
+    "access": "admin_scope",
+    "adminScope": "access",
+    "requires": "admin",
+    "lane": "security",
+    "cost": "constant",
+    "bodyLimit": 32768,
+    "errors": [
+      "invalid_request",
+      "unauthorized",
+      "not_permitted",
+      "not_found",
+      "revision_mismatch",
+      "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15778,6 +16415,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15799,6 +16437,7 @@ export const routes = [
       "invalid_request",
       "administration_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15820,6 +16459,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15841,6 +16481,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15863,6 +16504,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15885,6 +16527,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15908,6 +16551,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15931,6 +16575,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15958,6 +16603,7 @@ export const routes = [
       "analysis_conflict",
       "analysis_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -15981,6 +16627,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16003,6 +16650,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16025,6 +16673,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16051,6 +16700,7 @@ export const routes = [
       "administration_unavailable",
       "internal",
       "revision_required",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16072,6 +16722,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -16094,6 +16745,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -16115,6 +16767,7 @@ export const routes = [
       "unauthorized",
       "revision_mismatch",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -16139,6 +16792,7 @@ export const routes = [
       "revision_mismatch",
       "internal",
       "revision_required",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16160,6 +16814,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16181,6 +16836,7 @@ export const routes = [
       "not_permitted",
       "invalid_request",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16204,6 +16860,7 @@ export const routes = [
       "revision_mismatch",
       "source_unavailable",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -16235,6 +16892,7 @@ export const routes = [
       "internal",
       "timeout",
       "revision_required",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16256,6 +16914,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16278,6 +16937,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16300,6 +16960,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16321,6 +16982,7 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16344,6 +17006,7 @@ export const routes = [
       "not_found",
       "home_layout_conflict",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16366,6 +17029,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16388,6 +17052,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16410,6 +17075,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -16433,6 +17099,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -16455,6 +17122,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16483,6 +17151,7 @@ export const routes = [
       "operation_expired",
       "idempotency_key_reused",
       "stale_continuation",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16512,6 +17181,7 @@ export const routes = [
       "operation_expired",
       "idempotency_key_reused",
       "stale_continuation",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16541,6 +17211,7 @@ export const routes = [
       "operation_expired",
       "idempotency_key_reused",
       "stale_continuation",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16563,6 +17234,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16584,6 +17256,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16607,6 +17280,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -16630,6 +17304,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16657,6 +17332,7 @@ export const routes = [
       "internal",
       "timeout",
       "revision_required",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16678,6 +17354,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16700,6 +17377,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16722,6 +17400,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16746,6 +17425,7 @@ export const routes = [
       "internal",
       "timeout",
       "revision_required",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16771,6 +17451,7 @@ export const routes = [
       "observation_epoch_changed",
       "rate_limited",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16796,6 +17477,7 @@ export const routes = [
       "idempotency_key_reused",
       "rate_limited",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16824,6 +17506,7 @@ export const routes = [
       "personal_state_conflict",
       "idempotency_key_reused",
       "operation_expired",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16853,6 +17536,7 @@ export const routes = [
       "request_in_progress",
       "body_too_large",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16882,6 +17566,7 @@ export const routes = [
       "request_in_progress",
       "body_too_large",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16905,6 +17590,7 @@ export const routes = [
       "not_found",
       "revision_mismatch",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16927,6 +17613,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16950,6 +17637,7 @@ export const routes = [
       "not_found",
       "revision_mismatch",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16973,6 +17661,7 @@ export const routes = [
       "not_found",
       "revision_mismatch",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -16996,6 +17685,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -17019,6 +17709,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -17041,6 +17732,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17070,6 +17762,7 @@ export const routes = [
       "storage_executable_too_old",
       "timeout",
       "revision_required",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17099,6 +17792,7 @@ export const routes = [
       "internal",
       "timeout",
       "revision_required",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17126,6 +17820,7 @@ export const routes = [
       "internal",
       "timeout",
       "revision_required",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17147,6 +17842,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17187,6 +17883,7 @@ export const routes = [
       "subtitle_provider_sign_in_required",
       "subtitle_provider_quota",
       "subtitle_provider_busy",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17222,10 +17919,35 @@ export const routes = [
       "invalid_cursor",
       "cursor_expired",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
+  },
+  {
+    "id": "refresh_all_metadata",
+    "method": "POST",
+    "path": "/v1/admin/metadata/settings/refresh-all",
+    "summary": "Refresh every title's details from the providers within the refresh allowance",
+    "access": "owner",
+    "requires": "admin",
+    "lane": "default",
+    "cost": "constant",
+    "bodyLimit": 4096,
+    "errors": [
+      "unauthorized",
+      "not_permitted",
+      "invalid_request",
+      "revision_mismatch",
+      "internal",
+      "timeout",
+      "database_busy",
+      "writer_capacity"
+    ],
+    "status": 200,
+    "optionalBody": true,
+    "admission": "admin"
   },
   {
     "id": "refresh_items_metadata",
@@ -17245,6 +17967,7 @@ export const routes = [
       "invalid_request",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -17269,6 +17992,7 @@ export const routes = [
       "invalid_request",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -17293,6 +18017,7 @@ export const routes = [
       "downloads_unavailable",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17320,6 +18045,7 @@ export const routes = [
       "internal",
       "timeout",
       "revision_required",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -17345,6 +18071,7 @@ export const routes = [
       "queue_too_large",
       "queue_building",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17371,6 +18098,7 @@ export const routes = [
       "storage_command_capacity",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17393,6 +18121,7 @@ export const routes = [
       "not_found",
       "revision_mismatch",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17420,6 +18149,7 @@ export const routes = [
       "internal",
       "timeout",
       "revision_required",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17442,6 +18172,7 @@ export const routes = [
       "not_found",
       "revision_mismatch",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17465,6 +18196,7 @@ export const routes = [
       "body_too_large",
       "administration_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -17489,6 +18221,7 @@ export const routes = [
       "revision_mismatch",
       "rate_limited",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -17519,6 +18252,7 @@ export const routes = [
       "downloads_unavailable",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17542,6 +18276,7 @@ export const routes = [
       "not_found",
       "administration_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17565,6 +18300,7 @@ export const routes = [
       "not_found",
       "administration_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17595,6 +18331,7 @@ export const routes = [
       "downloads_unavailable",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17618,6 +18355,7 @@ export const routes = [
       "downloads_unavailable",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17647,6 +18385,7 @@ export const routes = [
       "source_credentials_required",
       "source_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17674,6 +18413,7 @@ export const routes = [
       "idempotency_key_required",
       "idempotency_key_reused",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -17705,7 +18445,8 @@ export const routes = [
       "unauthorized",
       "not_permitted",
       "not_found",
-      "internal"
+      "internal",
+      "database_busy"
     ],
     "status": 200,
     "admission": "expensive"
@@ -17727,6 +18468,7 @@ export const routes = [
       "invalid_request",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17752,6 +18494,7 @@ export const routes = [
       "internal",
       "timeout",
       "revision_required",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17782,6 +18525,7 @@ export const routes = [
       "source_unavailable",
       "internal",
       "revision_required",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17812,6 +18556,7 @@ export const routes = [
       "source_unavailable",
       "internal",
       "revision_required",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17833,6 +18578,7 @@ export const routes = [
       "rate_limited",
       "setup_already_complete",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -17894,6 +18640,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -17955,6 +18702,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -18016,6 +18764,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -18077,6 +18826,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -18137,7 +18887,8 @@ export const routes = [
       "rate_limited",
       "receiver_key_mismatch",
       "revision_conflict",
-      "target_unavailable"
+      "target_unavailable",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -18197,7 +18948,8 @@ export const routes = [
       "rate_limited",
       "receiver_key_mismatch",
       "revision_conflict",
-      "target_unavailable"
+      "target_unavailable",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -18257,7 +19009,8 @@ export const routes = [
       "rate_limited",
       "receiver_key_mismatch",
       "revision_conflict",
-      "target_unavailable"
+      "target_unavailable",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -18317,7 +19070,8 @@ export const routes = [
       "rate_limited",
       "receiver_key_mismatch",
       "revision_conflict",
-      "target_unavailable"
+      "target_unavailable",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -18377,7 +19131,8 @@ export const routes = [
       "rate_limited",
       "receiver_key_mismatch",
       "revision_conflict",
-      "target_unavailable"
+      "target_unavailable",
+      "database_busy"
     ],
     "status": 200,
     "sse": true,
@@ -18438,7 +19193,8 @@ export const routes = [
       "rate_limited",
       "receiver_key_mismatch",
       "revision_conflict",
-      "target_unavailable"
+      "target_unavailable",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -18498,7 +19254,8 @@ export const routes = [
       "rate_limited",
       "receiver_key_mismatch",
       "revision_conflict",
-      "target_unavailable"
+      "target_unavailable",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -18558,7 +19315,8 @@ export const routes = [
       "rate_limited",
       "receiver_key_mismatch",
       "revision_conflict",
-      "target_unavailable"
+      "target_unavailable",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -18618,7 +19376,8 @@ export const routes = [
       "rate_limited",
       "receiver_key_mismatch",
       "revision_conflict",
-      "target_unavailable"
+      "target_unavailable",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -18678,7 +19437,8 @@ export const routes = [
       "rate_limited",
       "receiver_key_mismatch",
       "revision_conflict",
-      "target_unavailable"
+      "target_unavailable",
+      "database_busy"
     ],
     "status": 200,
     "admission": "browsing"
@@ -18741,7 +19501,8 @@ export const routes = [
       "rate_limited",
       "receiver_key_mismatch",
       "revision_conflict",
-      "target_unavailable"
+      "target_unavailable",
+      "database_busy"
     ],
     "status": 200,
     "admission": "realtime"
@@ -18802,6 +19563,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -18863,6 +19625,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -18924,6 +19687,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -18985,6 +19749,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -19046,6 +19811,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -19107,6 +19873,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -19168,6 +19935,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -19229,6 +19997,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -19290,6 +20059,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -19351,6 +20121,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -19412,6 +20183,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -19473,6 +20245,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -19534,6 +20307,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -19595,6 +20369,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -19656,6 +20431,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -19717,6 +20493,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -19778,6 +20555,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -19839,6 +20617,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -19900,6 +20679,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -19961,6 +20741,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -20022,6 +20803,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -20083,6 +20865,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -20144,6 +20927,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -20205,6 +20989,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -20266,6 +21051,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -20327,6 +21113,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -20388,6 +21175,7 @@ export const routes = [
       "receiver_key_mismatch",
       "revision_conflict",
       "target_unavailable",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -20409,6 +21197,7 @@ export const routes = [
       "rate_limited",
       "setup_already_complete",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -20430,6 +21219,7 @@ export const routes = [
       "rate_limited",
       "setup_already_complete",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -20461,6 +21251,7 @@ export const routes = [
       "no_tuner_available",
       "queue_building",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 201,
@@ -20489,6 +21280,7 @@ export const routes = [
       "session_ended",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -20510,6 +21302,7 @@ export const routes = [
       "not_found",
       "revision_mismatch",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -20541,6 +21334,7 @@ export const routes = [
       "downloads_unavailable",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -20563,6 +21357,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 204,
@@ -20585,6 +21380,7 @@ export const routes = [
       "not_permitted",
       "not_found",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -20611,6 +21407,7 @@ export const routes = [
       "administration_unavailable",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -20635,6 +21432,7 @@ export const routes = [
       "request_in_progress",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -20658,6 +21456,7 @@ export const routes = [
       "administration_unavailable",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -20682,6 +21481,7 @@ export const routes = [
       "invalid_request",
       "administration_unavailable",
       "internal",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 202,
@@ -20707,6 +21507,7 @@ export const routes = [
       "internal",
       "operation_expired",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -20732,6 +21533,7 @@ export const routes = [
       "queue_too_large",
       "queue_building",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -20759,6 +21561,7 @@ export const routes = [
       "request_in_progress",
       "internal",
       "timeout",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,
@@ -20785,6 +21588,7 @@ export const routes = [
       "administration_unavailable",
       "internal",
       "revision_required",
+      "database_busy",
       "writer_capacity"
     ],
     "status": 200,

@@ -36,7 +36,7 @@ test('retired People continuation cannot publish a late page', async () => {
 });
 
 const member = (id: string) => ({accountId: id, username: id, profileId: 'primary', role: 'member', disabled: false, revision: 1, allowedLibraries: [], limitsRevision: 1, serverMaxStreams: null, effectiveMaxStreams: null, limits: {accessTokens: false, maxProfiles: 1, allowRemote: false, conversion: 'none', maxStreams: 0, maxStreamsMode: 'inherit'}});
-const invitation = (id: string) => ({id, revision: 1, role: 'member', state: 'pending', createdAt: '2026-01-01T00:00:00Z', expiresAt: '2027-01-01T00:00:00Z', allowedLibraries: []});
+const invitation = (id: string) => ({id, revision: 1, role: 'member', state: 'pending', createdAt: '2026-01-01T00:00:00Z', expiresAt: '2027-01-01T00:00:00Z', allowedLibraries: [], access: {maxStreamsMode: 'inherit', maxStreams: 0, allowRemote: false, accessTokens: false, maxContentRating: ''}});
 
 test('owner and administrator follow each real People section cursor and request pending invitations', async () => {
   for (const role of ['owner', 'admin'] as const) {

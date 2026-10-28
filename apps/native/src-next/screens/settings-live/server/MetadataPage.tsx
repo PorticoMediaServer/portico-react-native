@@ -20,8 +20,8 @@ import {NativeMetadataController, type MetadataPatch} from './metadata-controlle
 import {settingsPageHeading, settingsPageInset} from './page-layout';
 
 type Props = {ports: NativeSettingsLivePorts; runtime: NativeShellRuntime; compactHeader?: boolean; onLibraries: () => void};
-type CredentialKey = 'tmdbReadToken' | 'tvdbProjectKey' | 'openSubtitlesApiKey' | 'openSubtitlesUsername' | 'openSubtitlesPassword';
-const credentialKeys: Readonly<Record<string, CredentialKey>> = {'metadata.tmdb': 'tmdbReadToken', 'metadata.tvdb': 'tvdbProjectKey', 'metadata.osKey': 'openSubtitlesApiKey', 'metadata.osUser': 'openSubtitlesUsername', 'metadata.osPass': 'openSubtitlesPassword'};
+type CredentialKey = 'tmdbReadToken' | 'tvdbProjectKey' | 'openSubtitlesApiKey' | 'openSubtitlesUsername' | 'openSubtitlesPassword' | 'acoustidKey';
+const credentialKeys: Readonly<Record<string, CredentialKey>> = {'metadata.tmdb': 'tmdbReadToken', 'metadata.tvdb': 'tvdbProjectKey', 'metadata.osKey': 'openSubtitlesApiKey', 'metadata.osUser': 'openSubtitlesUsername', 'metadata.osPass': 'openSubtitlesPassword', 'metadata.acoustid': 'acoustidKey'};
 const section = settingsSpec.find(value => value.scope === 'server' && value.id === 'metadata');
 
 /** The Metadata settings producer supplies both values and write-only credential status. */
@@ -44,6 +44,7 @@ function MetadataPage({ports, runtime, compactHeader, onLibraries, controller, c
   const theme = useTheme(), t = runtime.text.t as typeof defaultI18n.t;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), settings = state.data;
   const [editing, setEditing] = useState<{row: SettingsRow; original: MetadataSettings; key: CredentialKey}>(), [text, setText] = useState('');
+  const [confirmRefresh, setConfirmRefresh] = useState(false);
   const disabled = state.busy || state.needsReload;
   const save = (patch: MetadataPatch) => {if (settings && current()) void controller.save(settings, patch);};
   const row = (id: string) => settingsRowIndex.get(id)!.row;
@@ -69,13 +70,16 @@ function MetadataPage({ports, runtime, compactHeader, onLibraries, controller, c
   };
   const credential = (id: string, configured: boolean, first = false) => {
     const definition = row(id), key = credentialKeys[id]!;
-    const status = key === 'openSubtitlesUsername' ? settings?.openSubtitlesUsername || 'No account set' : configured ? 'Your own value is saved' : key === 'tmdbReadToken' || key === 'tvdbProjectKey' ? t('server.metadata.keyOurs') : 'Not set up';
+    const status = key === 'openSubtitlesUsername' ? settings?.openSubtitlesUsername || 'No account set' : configured ? 'Your own value is saved' : key === 'tmdbReadToken' || key === 'tvdbProjectKey' ? t('server.metadata.keyOurs')
+      : key === 'acoustidKey' && settings?.advanced?.acoustidKeySource === 'environment' ? t('server.metadata.acoustidServer') : 'Not set up';
     return <LibraryRow key={id} first={first} label={t(definition.label)} help={definition.help ? t(definition.help) : undefined} value={status}
       trailing={<Button variant="text" size="xs" disabled={disabled} onPress={() => {if (settings && current()) {setEditing({row: definition, original: settings, key}); setText(key === 'openSubtitlesUsername' ? settings.openSubtitlesUsername : '');}}}>{t('web.metadataLookup.change')}</Button>}/>;
   };
   if (!settings) return state.error !== undefined ? <StateView {...runtime.error(state.error, () => {void controller.load();})}/>
     : <StateView title={t('next.ownerLibraries.loading')}/>;
   const subtitles = openSubtitlesSummary(settings.openSubtitles, {...defaultI18n, t});
+  const advanced = settings.advanced;
+  const advancedTitle = (index: number) => {const title = section?.advanced?.groups?.[index]?.title; return title ? t(title) : '';};
   return <View style={{flex: 1}}>
     <ScrollView contentContainerStyle={{...settingsPageInset(theme, compactHeader)}}>
       <ServerHeader serverName={ports.context.serverName} viewerRole="owner" audience="owner" variant="phone" style={{marginBottom: 12}}/>
@@ -107,11 +111,25 @@ function MetadataPage({ports, runtime, compactHeader, onLibraries, controller, c
         <LibraryRow label={t(row('metadata.osTest').label)} trailing={<Button variant="glass" size="xs" disabled={disabled} onPress={() => {if (current()) void controller.checkOpenSubtitles(settings);}}>{t(row('metadata.osTest').control.label!)}</Button>}/>
       </LibraryGroup>
       <NativeAdvancedSection testID="server-metadata-advanced" summary={`${artworkLimitText(settings.localArtworkLimitBytes)} GB · ${settings.artworkMaxEdge} px`}>
+        {advanced && <><SectionTitle>{advancedTitle(0)}</SectionTitle><LibraryGroup>
+          {select('metadata.refresh', advanced.refreshPolicy, value => ({refreshPolicy: value as typeof advanced.refreshPolicy}), true)}
+          <LibraryRow label={t(row('metadata.refreshAll').label)} help={advanced.refreshAll.running ? t('server.metadata.refreshAllRunning') : row('metadata.refreshAll').help ? t(row('metadata.refreshAll').help!) : undefined}
+            trailing={<Button testID="metadata.refreshAll" variant="glass" size="xs" disabled={disabled} onPress={() => {if (current()) setConfirmRefresh(true);}}>{t(row('metadata.refreshAll').control.label!)}</Button>}/>
+        </LibraryGroup>
+        <SectionTitle>{advancedTitle(1)}</SectionTitle><LibraryGroup>
+          {select('metadata.fallbackLanguage', advanced.fallbackLanguage, value => ({fallbackLanguage: value as typeof advanced.fallbackLanguage}), true)}
+          {select('metadata.animeTitles', advanced.animeTitles, value => ({animeTitles: value as typeof advanced.animeTitles}))}
+        </LibraryGroup>
+        <SectionTitle>{advancedTitle(2)}</SectionTitle></>}
         <LibraryGroup>
           {select('metadata.artworkLimit', artworkLimitText(settings.localArtworkLimitBytes), value => ({localArtworkLimitBytes: Number(value) * 2 ** 30}), true,
             t('server.metadata.artworkUsedHelp', {used: artworkLimitText(settings.localArtworkUsedBytes)}))}
           {select('metadata.artworkSize', settings.artworkMaxEdge === 1280 ? 'small' : settings.artworkMaxEdge === 2560 ? 'large' : 'standard', value => ({artworkMaxEdge: value === 'small' ? 1280 : value === 'large' ? 2560 : 1920}))}
+          {toggle('metadata.castPhotos', advanced?.castPhotos, castPhotos => ({castPhotos}))}
         </LibraryGroup>
+        {advanced && <><SectionTitle>{advancedTitle(3)}</SectionTitle><LibraryGroup>
+          {credential('metadata.acoustid', advanced.acoustidKeyConfigured, true)}
+        </LibraryGroup></>}
       </NativeAdvancedSection>
     </ScrollView>
     <BottomSheet open={!!editing} onOpenChange={open => {if (!open && !state.busy) {setEditing(undefined); setText('');}}} title={editing ? t(editing.row.label) : ''}
@@ -125,6 +143,14 @@ function MetadataPage({ports, runtime, compactHeader, onLibraries, controller, c
         description={editing?.row.help ? t(editing.row.help) : undefined}/>
       <Text style={[theme.type.caption, {color: theme.colors.textSecondary, marginTop: 8}]}>{t('server.metadata.clearValueHelp')}</Text>
       {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {setEditing(undefined); setText(''); void controller.load();})}/>}
+    </BottomSheet>
+    <BottomSheet open={confirmRefresh} onOpenChange={open => {if (!open && !state.busy) setConfirmRefresh(false);}} title={t(row('metadata.refreshAll').label)}
+      footer={<View style={{flexDirection: 'row', gap: 10}}><Button variant="glass" disabled={state.busy} onPress={() => setConfirmRefresh(false)}>{t('action.cancel')}</Button>
+        <Button testID="metadata.refreshAll.confirm" disabled={disabled} loading={state.busy} onPress={() => {
+          if (!settings || !current()) return;
+          void controller.refreshAll(settings).then(done => {if (done && current()) setConfirmRefresh(false);});
+        }}>{t(row('metadata.refreshAll').control.label!)}</Button></View>}>
+      <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t(row('metadata.refreshAll').control.confirm!)}</Text>
     </BottomSheet>
   </View>;
 }

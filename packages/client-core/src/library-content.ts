@@ -419,8 +419,10 @@ export const contentViewRehydratable = (view: ContentView): boolean => startView
  * The first page pins the viewer fence and catalogue revision. A later page from another one is a
  * changed library (`stale_continuation`), never spliced into the old offsets. Other views keep
  * `LibraryContentService`'s appended sections: their earlier pages cannot be read again.
+ * `onPage` receives each accepted page's projection (heading, sorts, query, scope and revision,
+ * without its sections), so a screen can draw its header from the same read as its window.
  */
-export function libraryContentPages(options: Readonly<{ api: LibraryContentApi; scope: ContentScope; route: ContentRoute; pageSize?: number }>): FetchPage<ContentEntry> {
+export function libraryContentPages(options: Readonly<{ api: LibraryContentApi; scope: ContentScope; route: ContentRoute; pageSize?: number; onPage?: (projection: ContentProjection) => void }>): FetchPage<ContentEntry> {
   const bound = scope(options.scope), selected = route(options.route), pageSize = options.pageSize ?? 40;
   if (!contentViewRehydratable(selected.view) || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) throw new Error('Invalid content window.');
   const changed = () => new ContentFailure('stale_continuation', 'The library changed. Refresh to continue.', true);
@@ -435,9 +437,10 @@ export function libraryContentPages(options: Readonly<{ api: LibraryContentApi; 
     if (pinned && (result.scope.viewerFence !== pinned.viewerFence || result.revision.catalog !== pinned.catalog)) throw changed();
     // The server leaves out an empty section: an empty library at the top, or a list that shrank under a later page.
     const grid = result.sections.find(section => section.id === 'items' && section.type === 'grid');
-    if (!grid) { if (start > 0) throw changed(); pinned ??= Object.freeze({ viewerFence: result.scope.viewerFence, catalog: result.revision.catalog }); return { items: Object.freeze([]), total: 0 }; }
+    if (!grid) { if (start > 0) throw changed(); pinned ??= Object.freeze({ viewerFence: result.scope.viewerFence, catalog: result.revision.catalog }); options.onPage?.(Object.freeze({ ...result, sections: Object.freeze([]) })); return { items: Object.freeze([]), total: 0 }; }
     if ((grid.start ?? 0) !== start || grid.entries.length > count) invalid();
     pinned ??= Object.freeze({ viewerFence: result.scope.viewerFence, catalog: result.revision.catalog });
+    options.onPage?.(Object.freeze({ ...result, sections: Object.freeze([]) }));
     return { items: grid.entries, total: grid.totalCount };
   };
 }
@@ -733,13 +736,15 @@ export { entry as validateContentEntry };
 /** A See all destination (`{pivot, query?, sort}`), or undefined when it is absent or cannot be read. Never throws. */
 export { seeAll as parseContentSeeAll };
 
-/** A bounded server ranking, read lazily when its title/artist page asks for it. This
- * read-only path needs only the viewer facts a scope carries; a caller's fuller queue
+/** A server ranking, read lazily when its title/artist page asks for it, a page at a time: `cursor`
+ * continues it from the page that returned `nextCursor` (relation-rows.ts `listeningSimilarPager` reads it to its end).
+ * This read-only path needs only the viewer facts a scope carries; a caller's fuller queue
  * scope is accepted structurally and its controller identity is never read. */
-export async function readListeningSimilar<S extends ListeningViewerScope>(api:LibraryContentApi,scope:S,itemId:string,options:{limit?:number;by?:'sound';signal?:AbortSignal}={}){
- const q=new URLSearchParams();if(options.limit!==undefined)q.set('limit',String(options.limit));if(options.by!==undefined){if(options.by!=='sound')invalid();q.set('by',options.by);}
+export async function readListeningSimilar<S extends ListeningViewerScope>(api:LibraryContentApi,scope:S,itemId:string,options:{limit?:number;by?:'sound';cursor?:string;signal?:AbortSignal}={}){
+ const q=new URLSearchParams();if(options.limit!==undefined)q.set('limit',String(options.limit));if(options.by!==undefined){if(options.by!=='sound')invalid();q.set('by',options.by);}if(options.cursor)q.set('cursor',options.cursor);
  const raw=listeningData(await api.request(encodedRoutePath('get_items_id_similar',{id:encodeURIComponent(itemId)})+(q.size?'?'+q:''),'GET',undefined,options.signal),scope);
- if(!record(raw)||raw.itemId!==itemId||!id(raw.libraryId)||!record(raw.revision)||!count(raw.revision.catalog)||!count(raw.revision.viewer)||typeof raw.bySound!=='boolean'||!Array.isArray(raw.entries)||raw.entries.length>24)invalid();
+ if(!record(raw)||raw.itemId!==itemId||!id(raw.libraryId)||!record(raw.revision)||!count(raw.revision.catalog)||!count(raw.revision.viewer)||typeof raw.bySound!=='boolean'||!Array.isArray(raw.entries)||raw.entries.length>24||raw.nextCursor!==undefined&&(typeof raw.nextCursor!=='string'||!raw.nextCursor||raw.nextCursor.length>4096))invalid();
  const entries=raw.entries.map(entry);if(entries.some(e=>!['artist','album','song','book'].includes(e.kind)||raw.bySound&&e.kind==='book'||e.playback!==undefined))invalid();
- return Object.freeze({itemId,libraryId:raw.libraryId,bySound:raw.bySound,revision:Object.freeze({catalog:raw.revision.catalog,viewer:raw.revision.viewer}),entries:Object.freeze(entries)});
+ return Object.freeze({itemId,libraryId:raw.libraryId,bySound:raw.bySound,revision:Object.freeze({catalog:raw.revision.catalog,viewer:raw.revision.viewer}),entries:Object.freeze(entries),...(raw.hasMore===true&&raw.nextCursor?{nextCursor:raw.nextCursor as string}:{})});
 }
+

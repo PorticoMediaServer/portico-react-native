@@ -19,7 +19,7 @@ const chrome = {'react-native': {ScrollView: 'ScrollView', View: 'View', Text: '
 
 test('General exposes backed Advanced controls and one Background speed setting, with draft-aware update checks', async () => {
   const feed = 'https://example.invalid/releases';
-  const fixture = await formsFixture({runtime: {name: 'Server', 'updates.feedUrl': feed}, maintenance: maintenance(), alerts: {storageWarningPercent: 15, storageCriticalPercent: 5, certificateWarningDays: 14}}), host = lifecycleHooks();
+  const fixture = await formsFixture({runtime: {name: 'Server', 'updates.feedUrl': feed}, maintenance: maintenance(), alerts: {storageWarningPercent: 15, storageCriticalPercent: 5, certificateWarningDays: 14, noticeAudience: {scan: 'both', storage: 'both', certificate: 'both', recording: 'off', feedback: 'both'}}}), host = lifecycleHooks();
   const configuration = {path: '/config/portico.toml', fields: [{id: 'general.updateFeed', current: feed, effective: feed, default: feed, configOnly: false}]};
   const api = {request: async (path: string) => path === 'get_settings_configuration' ? configuration : {current: {version: '0.0-test'}, updateAvailable: false, message: 'Current', checkedAt: '2026-10-01T00:00:00Z'}};
   const module = await screenModule(new URL('../src-next/screens/settings-live/server/GeneralPage.tsx', import.meta.url), {
@@ -33,10 +33,11 @@ test('General exposes backed Advanced controls and one Background speed setting,
   render();host.flush();await settle();
   const controls = () => nodes(render()).filter((node: any) => node.type === 'Setting');
   for (const id of ['general.updateChecks', 'general.backgroundSpeed', 'general.updateFeed']) assert.ok(controls().some((node: any) => node.props.row.id === id), id);
-  // Withheld until client-core and the spec agree: the shared alerts form refuses its own drawn
-  // default pair (critical 5 below warning 10) and would block the whole page's Save.
-  for (const id of ['general.alertStorageWarn', 'general.alertStorageCritical', 'general.alertCertificateDays']) assert.ok(!controls().some((node: any) => node.props.row.id === id), id);
-  assert.ok(!controls().some((node: any) => node.props.row.id === 'general.noticeAudience'));
+  // The alert thresholds (critical 5 below warning 15 is valid) and who sees each notice are Advanced rows.
+  for (const id of ['general.alertStorageWarn', 'general.alertStorageCritical', 'general.alertCertificateDays', 'general.noticeAudience']) assert.ok(controls().some((node: any) => node.props.row.id === id), id);
+  controls().find((node: any) => node.props.row.id === 'general.noticeAudience').props.onChange({scan: 'owner', storage: 'both', certificate: 'both', recording: 'off', feedback: 'both'});
+  assert.equal(fixture.group.forms.alerts.getSnapshot().draft.noticeAudience.scan, 'owner');
+  assert.equal(fixture.group.forms.alerts.getSnapshot().problem, undefined);
   assert.equal(nodes(render()).filter((node: any) => node.type === 'Advanced').length, 1);
   controls().find((node: any) => node.props.row.id === 'general.backgroundSpeed').props.onChange('fast');assert.equal(fixture.group.forms.maintenance.getSnapshot().draft.backgroundSpeed, 'fast');
   controls().find((node: any) => node.props.row.id === 'general.updateChecks').props.onChange('never');
@@ -137,8 +138,8 @@ test('Restore picker retains its candidate through the encrypted step and closin
 });
 
 test('Streaming draws its backed Advanced rows and hardware testing is one explicit pending action', async () => {
-  const fixture = await formsFixture({runtime: {conversionMode: 'all', hdrToneMapping: true, hdrToneMappingAlgorithm: 'hable', x264Preset: 'veryfast', planningPolicy: 'minimize_server_work', directStreamRemux: true, outputFormat: 'auto', maxConcurrentSessions: 0, maxHardwareSessions: 0, maxSoftwareSessions: 0, maxBackgroundSessions: 0, serverCap: 0, throttleBufferMs: 60000, playedRetentionMs: 180000, sessionStorageMiB: 4096, ffmpegPath: '', temporaryDirectory: '/transcode'}, connectivity: {uploadCapacityKbps: 0, remoteBitrateLimitKbps: 8000, pausedSessionTimeoutMinutes: 0}}), host = lifecycleHooks();
-  const capacity = {hardware: {effective: 'vaapi'}, temporaryDirectory: {path: '/tmp/transcode', ready: true, freeBytes: 12000}};
+  const fixture = await formsFixture({runtime: {conversionMode: 'all', hardwareSelection: 'auto', hardwareDecode: true, hdrToneMapping: true, hdrToneMappingAlgorithm: 'hable', x264Preset: 'veryfast', planningPolicy: 'minimize_server_work', directStreamRemux: true, outputFormat: 'auto', maxConcurrentSessions: 0, maxHardwareSessions: 0, maxSoftwareSessions: 0, maxBackgroundSessions: 0, serverCap: 0, throttleBufferMs: 60000, playedRetentionMs: 180000, sessionStorageMiB: 4096, ffmpegPath: '', temporaryDirectory: '/transcode'}, connectivity: {uploadCapacityKbps: 0, remoteBitrateLimitKbps: 8000, pausedSessionTimeoutMinutes: 0}}), host = lifecycleHooks();
+  const capacity = {hardware: {effective: 'vaapi', devices: [{id: 'drm-0a1b', name: 'Intel UHD 770', inUse: true}]}, temporaryDirectory: {path: '/tmp/transcode', ready: true, freeBytes: 12000, memoryPath: '/dev/shm'}};
   const section = specification.settingsSpec.find((value: any) => value.scope === 'server' && value.id === 'streaming');
   const allRows = [...section!.groups!, ...section!.advanced!.groups!].flatMap((group: any) => values.settingRows(group.rows));
   const configuration = {fields: allRows.map((row: any) => ({id: row.id, configOnly: false}))};
@@ -152,6 +153,7 @@ test('Streaming draws its backed Advanced rows and hardware testing is one expli
     '../../../../../../packages/client-core/src/server-admin/server-forms': {createServerForm: (id: string) => fixture.group.forms[id], withFormValue: (draft: object, key: string, value: unknown) => ({...draft, [key]: value})}, '../../../../../../packages/client-core/src/presentation/settings-bindings': bindings, '../../../../../../packages/client-core/src/presentation/settings-spec': specification,
     './StreamingHardware': {NativeStreamingHardware: 'Hardware'}, '../lifetime': {NativeScreenLifetime: Lifetime},
     '../../../../../../packages/client-core/src/presentation/transcode-location': transcodeLocation,
+    '../../../../../../packages/client-core/src/presentation/hardware-selection': await import('../../../packages/client-core/src/presentation/hardware-selection.ts'),
   });
   (fixture.group.context as any).api = {request: async () => configuration};
   const render = () => host.render(() => module.NativeServerStreaming({ports: {context: fixture.group.context}, runtime}));
@@ -159,12 +161,19 @@ test('Streaming draws its backed Advanced rows and hardware testing is one expli
   const tree = render(), controls = nodes(tree).filter((node: any) => node.type === 'Setting');
   assert.equal(nodes(tree).filter((node: any) => node.type === 'Advanced').length, 1);
   for (const id of ['streaming.toneMapping', 'streaming.toneMappingMethod', 'streaming.encoderSpeed', 'streaming.whenCantPlay', 'streaming.repackage', 'streaming.maxConversions', 'streaming.awayExact', 'streaming.ffmpegPath']) assert.ok(controls.some((node: any) => node.props.row.id === id), id);
-  assert.ok(!controls.some((node: any) => ['streaming.hardware', 'streaming.hardwareDecode', 'streaming.memoryCap'].includes(node.props.row.id)));
+  // Device lists Automatic, Processor only and each adapter the hardware report found; the
+  // memory limit stays absent until the server places conversions in memory.
+  const device = controls.find((node: any) => node.props.row.id === 'streaming.hardware');
+  assert.deepEqual(device.props.row.control.options.map((option: any) => option.value), ['auto', 'software', 'drm-0a1b']);
+  assert.ok(controls.some((node: any) => node.props.row.id === 'streaming.hardwareDecode'));
+  assert.ok(!controls.some((node: any) => node.props.row.id === 'streaming.memoryCap'));
+  device.props.onChange('drm-0a1b');
+  assert.equal(fixture.group.forms.runtime.getSnapshot().draft.hardwareSelection, 'drm-0a1b');
   // Conversion location reads the stored directory through the shared choice: a stored path is
   // "a folder", which reveals the usable folder row; Separate writes the empty directory.
   const location = controls.find((node: any) => node.props.row.id === 'streaming.transcodeLocation');
   assert.ok(location);assert.equal(location.props.value, 'folder');
-  assert.ok(!location.props.row.control.options.some((option: any) => option.value === 'memory'), 'Memory is offered only with a RAM file system');
+  assert.ok(!location.props.row.control.options.some((option: any) => option.value === 'memory'), 'In memory is not offered, even with a RAM file system');
   const folder = controls.find((node: any) => node.props.row.id === 'streaming.transcodeFolder');
   assert.ok(folder);assert.equal(folder.props.disabled, false);assert.equal(folder.props.value, '/transcode');
   location.props.onChange('separate');assert.equal(fixture.group.forms.runtime.getSnapshot().draft.temporaryDirectory, '');
