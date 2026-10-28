@@ -4,13 +4,13 @@ type Recovery = Readonly<{dispose(): void}>;
 type RecoveryEvents = Readonly<{
   onResync(listener: () => void): () => void;
   onResyncRead?(read: (context: RecoveryContext) => Promise<void>, options?: {priority?: number; admission?: 'external'}): Recovery;
-  resync?: {run<T>(signal: AbortSignal, read: () => Promise<T>): Promise<T>};
+  resyncReads?: {run<T>(signal: AbortSignal, read: () => Promise<T>): Promise<T>};
 }>;
 
 /** Actual GET admission only; mutations keep their existing priority and receipt owner. */
 export function readEventState<T>(events: RecoveryEvents, signal: AbortSignal, read: () => Promise<T>): Promise<T> {
   if (signal.aborted) return Promise.reject(new Error('cancelled'));
-  return events.resync ? events.resync.run(signal, read) : read();
+  return events.resyncReads ? events.resyncReads.run(signal, read) : read();
 }
 
 /** The service's own reads use readEventState, so this callback holds no nested read permit. */

@@ -103,6 +103,7 @@ export function NativeQuerySelectionActionSurface({action, kind, onClose, ownerH
         </> : <SelectionText secondary>{t('downloads.serverPrepares')}</SelectionText>}
       </>}
       {job && <View accessibilityLiveRegion="polite" style={{gap: 8}}>
+        {terminal && (job.state === 'cancelled' || job.errorCode === 'cancelled') && <SelectionText>{t('download.state.canceled')}</SelectionText>}
         {job.state === 'capturing' && <SelectionText secondary>{t('next.selection.jobPreparing')}</SelectionText>}
         <SelectionText>{t('next.selection.jobProgress', {done: job.state === 'capturing' ? job.admitted : job.done + job.failed, total: job.total})}</SelectionText>
         {kind === 'delete' && <SelectionText>{t('next.selection.native.deleteResult', {removed: job.done, failed: job.failed})}</SelectionText>}

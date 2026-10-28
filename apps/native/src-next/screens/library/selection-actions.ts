@@ -3,6 +3,8 @@ import {SelectionActionController, type SelectionActionSource} from '../../../..
 import type {BrowseSelectionContext, QuerySelectionTarget, SelectionOperation} from '../../../../../packages/client-core/src/selection-model';
 import type {HomeSelectionController} from '../../../../../packages/client-core/src/home-selection/index';
 import type {DownloadQualityChoice} from '../../../../../packages/client-core/src/downloads';
+import {musicQualityLadder} from '../../../../../packages/client-core/src/playback-v1/quality';
+import {musicQualityPresentation} from '../../../../../packages/client-core/src/playback-v1/quality-presentation';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {authorityKey} from '../../shell/model';
 import {offlineDownloads} from '../../platform/offline-downloads';
@@ -110,7 +112,7 @@ function createNativeSelectionAction<C>(context: NativeShellBootstrapContext, mo
   const changed = () => {if (!current()) abort.abort(); for (const listener of [...listeners]) listener();};
   const off = [context.subscribeAuthority(changed), context.navigation.subscribe(changed), origin.subscribe(changed), model.subscribe(changed)];
   signal?.addEventListener('abort', changed, {once: true});
-  const source: SelectionActionSource = Object.freeze({isCurrent: current, signal: abort.signal,
+  const source: SelectionActionSource = Object.freeze({isCurrent: current, signal: abort.signal, expectedTotal: target.total,
     subscribe: listener => {listeners.add(listener); return () => {listeners.delete(listener);};}});
   const check = () => {if (!current()) throw retired();};
   const input = (options: Options) => {
@@ -130,7 +132,11 @@ function createNativeSelectionAction<C>(context: NativeShellBootstrapContext, mo
     const owner = device();
     const pending = (async () => {
       await owner.device.open(); check();
-      const result = await owner.service.qualities(abort.signal); check();
+      const result: readonly DownloadQualityChoice[] = 'query' in target.selector && target.selector.query.pivot === 'songs'
+        ? musicQualityLadder.map(quality => Object.freeze({quality: quality.id, label: musicQualityPresentation(quality.id).label,
+          kind: quality.id === 'original' ? 'source' as const : 'optimized' as const, targetDisplayHeight: 0}))
+        : await owner.service.qualities(abort.signal);
+      check();
       choices = Object.freeze([...result]); return choices;
     })().finally(() => {if (readingChoices === pending) readingChoices = undefined;});
     readingChoices = pending; return pending;

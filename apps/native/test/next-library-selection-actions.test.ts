@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import * as actions from '../../../packages/client-core/src/selection-actions.ts';
 import {SelectionActionController} from '../../../packages/client-core/src/selection-actions-controller.ts';
+import {musicQualityLadder} from '../../../packages/client-core/src/playback-v1/quality.ts';
+import {musicQualityPresentation} from '../../../packages/client-core/src/playback-v1/quality-presentation.ts';
 import {authorityKey} from '../src-next/shell/model.ts';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
@@ -53,6 +55,8 @@ async function fixture() {
   const module = await screenModule(new URL('../src-next/screens/library/selection-actions.ts', import.meta.url), {
     react: {default: React}, '../../../../../packages/client-core/src/selection-actions': actions,
     '../../../../../packages/client-core/src/selection-actions-controller': {SelectionActionController},
+    '../../../../../packages/client-core/src/playback-v1/quality': {musicQualityLadder},
+    '../../../../../packages/client-core/src/playback-v1/quality-presentation': {musicQualityPresentation},
     '../../shell/model': {authorityKey}, '../../platform/offline-downloads': {offlineDownloads: {getSnapshot: () => ({supported})}},
     '../downloads/device': {createNativeDownloadsDevice: () => lease}, '../native-screen-services': {nativeScreenServices: () => ({requestId: async () => {ids++; return 'stable-operation';}})},
   });
@@ -111,9 +115,23 @@ test('native Home interception retains its actual document and model operation w
   const f = await fixture(), action = f.createHome();
   try {
     assert.equal(action.target, f.held); assert.ok(action.current()); assert.equal(f.calls.length, 0);
+    assert.equal(action.source.expectedTotal, total);
     f.changeHome(); assert.equal(action.current(), false); assert.equal(action.getSnapshot(), undefined);
   } finally {action.dispose();}
   assert.equal(f.listenerCount(), 0);
+});
+
+test('native music query choices use canonical audio qualities instead of the video settings menu', async () => {
+  const f = await fixture();
+  f.held.selector.query.pivot = 'songs'; f.held.summary.types = [{kind: 'song', count: total}];
+  const action = f.create();
+  try {
+    assert.equal(action.source.expectedTotal, total);
+    const choices = await action.downloadQualities();
+    assert.deepEqual(choices.map((choice: any) => choice.quality), musicQualityLadder.map(quality => quality.id));
+    assert.ok(choices.every((choice: any) => !!choice.label && choice.targetDisplayHeight === 0));
+    assert.deepEqual(f.events, ['device-open']); assert.equal(f.calls.length, 0);
+  } finally {action.dispose();}
 });
 
 test('native real controller prepares exact options and replays an ambiguous confirmation with the original ID/body', async () => {
@@ -193,10 +211,39 @@ test('native aggregate Delete dialog accepts 257 real preview totals and rejects
   const first = render(), confirm = first.find(node => node.props.testID === 'query-action-confirm');
   assert.equal(confirm.props.disabled, false); await confirm.props.onPress(); assert.equal(confirms, 1);
   assert.ok(first.some(node => node.type === 'TextField')); assert.ok(first.some(node => node.type === 'Switch'));
+  assert.equal(first.find(node => node.type === 'TextField').props.keyboardType, 'number-pad');
   state = {...ready, confirmation: ''}; confirm.props.onPress(); first.find(node => node.props.testID === 'query-delete-files').props.onCheckedChange(false);
   first.find(node => node.props.testID === 'query-action-close').props.onPress();
   assert.equal(confirms, 1); assert.equal(edits, 0); assert.equal(closes, 0);
   assert.equal(render().find(node => node.props.testID === 'query-action-confirm').props.disabled, true);
+});
+
+test('native terminal cancellation is explicit, partial Delete shows actual file effects, and Download says processed', async () => {
+  const host = hooks();
+  let state: any = {phase: 'result', input: {action: 'delete', options: {deleteFiles: true}}, preparation: null, confirmation: '', errorCode: null,
+    job: {...job('delete', 'partial'), done: 0, failed: 1, filesDeleted: 2, bytesDeleted: 1024, errorCode: 'cancelled'}};
+  const action: any = {target: target(), current: () => true, getSnapshot: () => state, subscribe: () => () => {},
+    controller: {getSnapshot: () => state}, downloadQualities: async () => []};
+  const module = await screenModule(new URL('../src-next/screens/library/SelectionActionSurface.tsx', import.meta.url), {
+    react: host.react, 'react-native': {View: 'View'}, '../../../../../packages/i18n/src': {defaultI18n: {
+      t: (key: string, values?: unknown) => `${key}:${JSON.stringify(values ?? {})}`, bytes: (n: number) => `bytes(${n})`}},
+    '../../../../../packages/client-core/src/selection-actions': actions,
+    '../../../../../packages/client-core/src/presentation/errors': {presentError: () => ({silent: true, body: undefined})},
+    '../../kit/controls/Button': {Button: 'Button'}, '../../kit/controls/Switch': {Switch: 'Switch'}, '../../kit/controls/TextField': {TextField: 'TextField'},
+    '../../kit/theme': {useTheme: () => ({isTV: false, colors: {danger: 'red'}})},
+    '../../kit/selection/surface': {SelectionSurface: 'SelectionSurface', SelectionText: 'SelectionText', selectionFooterProps: () => ({})},
+  });
+  const nodes = (value: any): any[] => Array.isArray(value) ? value.flatMap(nodes) : value?.props ? [value, ...nodes(value.props.footer), ...nodes(value.props.children)] : [];
+  const render = (kind: string) => nodes(host.render(() => module.NativeQuerySelectionActionSurface({action, kind, onClose: () => {}})));
+  const deletion = render('delete'), text = deletion.filter(node => node.type === 'SelectionText').flatMap(node => node.props.children);
+  assert.ok(text.includes('download.state.canceled:{}'), 'cancellation does not rely on the silent error presenter');
+  assert.ok(text.includes('next.selection.native.deleteResult:{"removed":0,"failed":1}'));
+  assert.ok(text.includes('next.selection.native.fileFacts:{"count":2,"size":"bytes(1024)"}'));
+  assert.ok(!deletion.some(node => node.props.testID === 'query-action-cancel'));
+  state = {...state, input: {action: 'download', options: {quality: 'original', deviceId: 'device'}}, job: job('download')};
+  const download = render('download').filter(node => node.type === 'SelectionText').flatMap(node => node.props.children);
+  assert.ok(download.includes('next.selection.jobProgress:{"done":257,"total":257}'));
+  assert.ok(!download.some((value: unknown) => typeof value === 'string' && value.startsWith('downloads.requestProgress')));
 });
 
 test('native exact inventory waits for terminal admission, honors real queue backpressure and reads one bounded filtered page', async () => {

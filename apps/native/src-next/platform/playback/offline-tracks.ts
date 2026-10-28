@@ -54,6 +54,7 @@ export class NativeOfflineTracks {
   private retainedAudio?: NativeSourceTrackIdentity;
   private restoringAudio = false;
   private awaitingAudioReadback = false;
+  private engineReady = false;
   private subtitleRevision = 1;
   constructor(media: LocalMedia, binding: AudioTrackBinding) {
     this.binding = Object.freeze({...binding});
@@ -79,6 +80,7 @@ export class NativeOfflineTracks {
       this.pendingAudio = retained ? Object.freeze({...retained, revision: ++this.audioRevision}) : undefined;
       this.restoringAudio = !retained && !!this.retainedAudio;
       this.awaitingAudioReadback = !!retained || this.restoringAudio;
+      this.engineReady = false;
       this.publish({audio: [], audioTrackId: undefined});
     }
     if (timingSupported !== this.snapshot.subtitleTimingSupported) this.publish({subtitleTimingSupported: timingSupported, ...(!timingSupported ? {subtitleOffsetMs: 0} : {})});
@@ -97,6 +99,7 @@ export class NativeOfflineTracks {
   }
   /** Facts have already passed the coordinator's instance/sequence/source fences. */
   accept(fact: Record<string, unknown>): 'changed' | 'failed' | undefined {
+    if (fact.type === 'ready') this.engineReady = true;
     if (fact.type === 'subtitleStatus' && this.snapshot.subtitleTrackId && typeof fact.error === 'string') {
       this.publish({subtitleError: !!fact.error || undefined}); return 'changed';
     }
@@ -126,6 +129,7 @@ export class NativeOfflineTracks {
       }
       this.catalogRevision = catalog; this.audio = Object.freeze(audio);
       // Native can announce an empty catalogue while preparing. Wait for its real tracks.
+      if (this.restoringAudio && !audio.length && this.engineReady) return this.failRestoration();
       if (this.restoringAudio && audio.length) {
         const matched = audio.filter(track => sameSource(track.sourceTrackIdentity, this.retainedAudio));
         this.restoringAudio = false;
