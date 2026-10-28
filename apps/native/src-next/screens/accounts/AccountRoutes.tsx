@@ -315,7 +315,6 @@ export function ProfileRoute({context, route, onBack, embedded = false}: {contex
   const managementActions = manage && lease && active ? <View testID="profile-actions" style={{marginTop: 18}}>
           <Text style={[theme.type.captionStrong, {color: theme.colors.textTertiary, marginBottom: 8}]}>{[active.name, active.primary ? t('profile.main') : active.id === current?.viewer.profileId ? t('profile.current') : ''].filter(Boolean).join(' · ')}</Text>
           <View style={{borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
-            <ProfileActionRow testID="profile-rename" label={t('profile.rename')} onPress={() => openEditor('rename')}/>
             {typeof NativeModules.PorticoImagePicker?.pick === 'function' ? <ProfileActionRow testID="profile-picture" label={t(avatars.some(value => value.profileId === active.id) ? 'profile.changePicture' : 'profile.addPicture')} onPress={() => {
               void runAction(async ({identity}) => {
                 const picked = await pickProfilePicture(lease!);
@@ -328,9 +327,10 @@ export function ProfileRoute({context, route, onBack, embedded = false}: {contex
             {avatars.some(value => value.profileId === active.id) ? <ProfileActionRow testID="profile-remove-picture" label={t('profile.removePicture')} onPress={() => {
               void runAction(async ({identity}) => {await identity.removeAvatar(active.id); const next = await identity.avatars(); if (lease!.current()) setAvatars(next);});
             }}/> : null}
+            <ProfileActionRow testID="profile-rename" label={t('profile.rename')} onPress={() => openEditor('rename')}/>
+            <ProfileActionRow testID="profile-limits" label={t('profile.limits')} description={t('profile.limitsHelp')} onPress={() => openEditor('limits')}/>
             <ProfileActionRow testID="profile-pin" label={t(active.pinRequired ? 'profile.changePin' : 'profile.setPin')} onPress={() => openEditor('pin')}/>
             {active.pinRequired ? <ProfileActionRow testID="profile-remove-pin" label={t('profile.removePin')} onPress={() => openEditor('remove-pin')}/>: null}
-            <ProfileActionRow testID="profile-limits" label={t('profile.limits')} description={t('profile.limitsHelp')} onPress={() => openEditor('limits')}/>
             <ProfileActionRow testID="profile-forget-devices" label={t('profile.forgetDevices')} onPress={() => openEditor('forget')}/>
             {embedded && profiles.indexOf(active) > 0 && <ProfileActionRow testID="profile-move-up" label={t('web.profile.moveUp')} onPress={() => moveProfile(active, -1)}/>}
             {embedded && profiles.indexOf(active) < profiles.length - 1 && <ProfileActionRow testID="profile-move-down" label={t('web.profile.moveDown')} onPress={() => moveProfile(active, 1)}/>}
@@ -389,7 +389,11 @@ export function ProfileRoute({context, route, onBack, embedded = false}: {contex
         if (!deletionCurrent(captured) || captured.preview.primary || deleteNameRef.current !== deleteName || deleteName !== (captured.preview.name ?? profiles.find(value => value.id === captured.preview.profileId)?.name)) return;
         void runAction(({manager}) => manager.delete(captured.preview), undefined, () => deletionCurrent(captured)).then(ok => {if (ok && deletionCurrent(captured)) {closeDeletion(); setManagedId(undefined);}});
       }}>{t('profile.delete')}</Button></View>}>
-      <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>This removes the profile, its history and saved items.</Text>
+      <View style={{gap: 4}}>
+        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('profile.deleteConfirm.body')}</Text>
+        {deletion?.preview.playlists ? <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('profile.deleteConfirm.playlists', {count: deletion.preview.playlists})}</Text> : null}
+        {deletion?.preview.savedResources ? <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{`${deletion.preview.savedResources} saved ${deletion.preview.savedResources === 1 ? 'item' : 'items'} will also be deleted.`}</Text> : null}
+      </View>
       <TextField label={t('profile.name')} description={deletion?.preview.name ?? profiles.find(value => value.id === deletion?.preview.profileId)?.name} value={deleteName} onChangeText={value => {if (deletionCurrent() && !activeTicket.current) {deleteNameRef.current = value; setDeleteName(value);}}} editable={!actionBusy}/>
       {problem ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{problem}</Text> : null}
     </BottomSheet>
