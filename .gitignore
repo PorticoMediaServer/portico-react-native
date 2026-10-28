@@ -6,6 +6,8 @@ Pods/
 .cache/
 .scratch/
 *.tsbuildinfo
+__pycache__/
+*.py[cod]
 .DS_Store
 xcuserdata/
 apps/native/ios/.xcode.env.local

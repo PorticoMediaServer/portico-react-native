@@ -61,7 +61,7 @@ static void PorticoConfigureItem(AVPlayerItem *item) {
  NSInteger _listeningRouteRevision; BOOL _listeningRouteReady; NSDictionary *_listeningRender; NSString *_listeningOrigin; NSDictionary *_listeningSeek; BOOL _listeningAllowed; BOOL _applyingListening;
  PorticoAudioRender *_audioRender;
  PorticoSubtitleOverlay *_subtitleOverlay;
- AVPlayer *_player; id _timeObserver; id _subtitleTimeObserver; PorticoAudioSelection *_audioSelection; PorticoSubtitleSelection *_subtitleSelection; NSString *_subtitleText;NSDictionary *_subtitleCue;
+ AVPlayer *_player; id _timeObserver; id _subtitleTimeObserver; PorticoAudioSelection *_audioSelection; PorticoLocalAudioSelection *_localAudioSelection; PorticoSubtitleSelection *_subtitleSelection; NSString *_subtitleText;NSDictionary *_subtitleCue;
  NSDictionary *_binding; NSString *_lease; NSString *_owner; NSInteger _commandRevision; NSInteger _factSequence;
  BOOL _hasPlayed;double _previousProgress;
  BOOL _routeSuspended; BOOL _routeResume; BOOL _routeSeeking; BOOL _routeFailed; NSInteger _routeEpoch; double _routePosition;
@@ -101,7 +101,19 @@ static void *PorticoExternalPlaybackContext=&PorticoExternalPlaybackContext;
   NSMutableDictionary *fact=[audioFact mutableCopy];fact[@"intentId"]=@(view->_intentId);fact[@"instanceId"]=view->_instanceId;
   double position=[view sourcePosition];fact[@"position"]=@(isfinite(position)?position:0);fact[@"paused"]=@((BOOL)(view->_player.timeControlStatus==AVPlayerTimeControlStatusPaused&&!view->_seeking&&!view->_routeResume));[fact addEntriesFromDictionary:[view rateFacts]];[view publish:fact];
  };
- _subtitleOverlay=[PorticoSubtitleOverlay new];_subtitleOverlay.onStatus=^(NSString *error){[weakSelf emit:@"subtitleStatus" error:error];};
+ _localAudioSelection=[PorticoLocalAudioSelection new];_localAudioSelection.onFact=^(NSDictionary *localFact){
+  PorticoPlaybackController *view=weakSelf;if(!view||!view->_source.length||![NSURL URLWithString:view->_source].isFileURL)return;
+  NSMutableDictionary *fact=[localFact mutableCopy];fact[@"instanceId"]=view->_instanceId;fact[@"intentId"]=@(view->_intentId);
+  double position=[view sourcePosition];fact[@"position"]=@(isfinite(position)?position:0);[view publish:fact];
+ };
+ _subtitleOverlay=[PorticoSubtitleOverlay new];_subtitleOverlay.onStatus=^(NSString *error){
+  PorticoPlaybackController *view=weakSelf;if(!view)return;[view emit:@"subtitleStatus" error:error];
+  if(error.length&&[NSURL URLWithString:view->_source].isFileURL&&!view->_subtitleOverlay.active){
+   NSDictionary *subtitles=[view scopedAudio:view->_command[@"subtitles"] binding:view->_binding];
+   if([subtitles[@"documentUrl"]isKindOfClass:NSString.class])[view->_subtitleSelection apply:subtitles item:view->_player.currentItem source:view->_source];
+  }
+ };
+ _subtitleOverlay.allowsLocalFile=^BOOL(NSURL *url){return PorticoAllowedLocalSource(url);};
  _subtitleSelection=[PorticoSubtitleSelection new];_subtitleText=@"";
  _subtitleSelection.allowsLocalFile=^BOOL(NSURL *url){return PorticoAllowedLocalSource(url);};
  _subtitleSelection.onText=^(NSDictionary *cue){PorticoPlaybackController *view=weakSelf;if(!view)return;view->_subtitleCue=[cue copy];view->_subtitleText=[cue[@"text"] copy];[[NSNotificationCenter defaultCenter]postNotificationName:@"PorticoPlaybackSubtitleChanged" object:view];};
@@ -237,6 +249,8 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
   if(![_lease isEqual:command[@"binding"][@"lease"]])return @"Playback lease is no longer active.";
   [self applyListeningCommand:command];return nil;
  }
+ id localTrack=command[@"localAudioTrack"];
+ if(localTrack&&localTrack!=NSNull.null&&(![localTrack isKindOfClass:NSDictionary.class]||!PorticoPlaybackInteger(localTrack[@"revision"],1)||!PorticoPlaybackInteger(localTrack[@"catalogRevision"],1)||![localTrack[@"trackId"]isKindOfClass:NSString.class]||![localTrack[@"trackId"]length]||[localTrack[@"trackId"]length]>512||![command[@"source"]isKindOfClass:NSString.class]||![NSURL URLWithString:command[@"source"]].isFileURL))return @"Invalid local audio track command.";
  NSDictionary *binding=command[@"binding"];
  if(![binding isKindOfClass:NSDictionary.class]||![_lease isEqual:binding[@"lease"]])return @"Playback lease is no longer active.";
  if(![command[@"paused"] isKindOfClass:NSNumber.class]||CFGetTypeID((__bridge CFTypeRef)command[@"paused"])!=CFBooleanGetTypeID())return @"Invalid paused flag.";
@@ -425,6 +439,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  if(pending&&(_routeResume||_routeSeeking||_routeFailed)){_routeResume=NO;_routeSeeking=NO;_routeFailed=NO;_routeEpoch++;[_player.currentItem cancelPendingSeeks];}
  if(!pending&&_seeking){_seeking=NO;[_player.currentItem cancelPendingSeeks];}
  [_audioSelection apply:[self scopedAudio:command[@"audio"] binding:_binding] item:_player.currentItem];
+ [_localAudioSelection apply:[command[@"localAudioTrack"]isKindOfClass:NSDictionary.class]?command[@"localAudioTrack"]:nil item:_player.currentItem];
  NSDictionary *subtitles=[self scopedAudio:command[@"subtitles"] binding:_binding];
  NSDictionary *style=[subtitles[@"style"] isKindOfClass:NSDictionary.class]?subtitles[@"style"]:nil;
  if(!(style==_subtitleStyle||[style isEqual:_subtitleStyle])){_subtitleStyle=[style copy];[[NSNotificationCenter defaultCenter]postNotificationName:@"PorticoPlaybackSubtitleChanged" object:self];}
@@ -675,6 +690,7 @@ static __weak PorticoPlaybackController *PorticoSharedPlaybackController;
  if(isfinite(now)){for(NSValue *value in item.loadedTimeRanges){CMTimeRange range=value.CMTimeRangeValue;double start=CMTimeGetSeconds(range.start),end=CMTimeGetSeconds(CMTimeRangeGetEnd(range));if(isfinite(start)&&isfinite(end)&&start<=now+0.5&&end>now){fact[@"bufferedSeconds"]=@(end-now);break;}}}
 }
 - (void)removeObservation{
+ [_localAudioSelection invalidate];
 #if TARGET_OS_TV
  // Every retired item also retires its pending match callback and owned criteria.
  // Audio and a verifying replacement must never inherit the previous title's request.

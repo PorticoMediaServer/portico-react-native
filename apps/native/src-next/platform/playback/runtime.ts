@@ -373,7 +373,14 @@ export class NativePlaybackRuntime {
     }));
     this.offs.push(this.o.api.subscribeRoute(() => this.routeChanged()));
     this.offs.push(this.o.events.on('session.updated', event => { if (this.active() && event.resource?.kind === 'session') this.path.transport.sessionUpdated(event.resource.id, event.revision, event.data); }));
-    this.offs.push(this.o.events.onResync(() => { if (this.active()) { void this.queue.refresh().catch(() => {}); void this.refreshAuthority(); } }));
+    if (this.o.events.onResyncRead) {
+      // The queue registers its own bounded recovery (including native terminal
+      // authority). Keep this runtime's detail read in the same dispatcher.
+      const recovery = this.o.events.onResyncRead(async context => {
+        if (this.active() && !context.signal.aborted) await this.detail?.service.refresh();
+      }, {priority: 0});
+      this.offs.push(() => recovery.dispose());
+    } else this.offs.push(this.o.events.onResync(() => { if (this.active()) { void this.queue.refresh().catch(() => {}); void this.refreshAuthority(); } }));
     this.routeChanged();
     this.coordinator.start();
     void this.playback.startRecovery();
@@ -1285,8 +1292,8 @@ export class NativePlaybackRuntime {
       this.clearForcedImage();
       this.audioTrackSelection.clear();
       const engine = this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', tracks = this.localTracks;
-      // Native rich renderers admit network resources; their local-file path is WebVTT only.
-      const rendering = engine === 'native' ? ['text'] : this.o.engineFeatures(engine).subtitleRendering;
+      // The local renderer validates every original, companion and font against the download.
+      const rendering = this.o.engineFeatures(engine).subtitleRendering;
       const offeredRendering = settings.engine !== 'native' && this.o.engines.transport('mpv')
         ? [...new Set([...rendering, ...this.o.engineFeatures('mpv').subtitleRendering])] : rendering;
       tracks?.configure(engine, this.coordinator.getInstanceId(), rendering, offeredRendering, engine === 'mpv' || this.o.nativeLocalSubtitleTiming === true);

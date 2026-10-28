@@ -23,6 +23,7 @@ async function fixture() {
     };}},
   };
   const {NativeReadingActions} = await screenModule(new URL('../src-next/screens/read/reading-actions.ts', import.meta.url), {
+    '../../../../../packages/client-core/src/reading-collection': {ReadingCollection: class {constructor() {throw new Error('unexpected collection opening');}}},
     react: {default: {}}, '../../shell/model': {sameAuthority: (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b)},
     '../../platform/server-connections': {nativeRouteCrypto: {random: () => {onRandom?.(); return new Uint8Array(16).fill(++random);}}},
     // Member fixtures never reach the owner's bulk editor (next-reading-selection-edit covers it).

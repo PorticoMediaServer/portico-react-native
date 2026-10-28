@@ -1515,3 +1515,29 @@ test('actual phone tablet and TV selection bars expose the disabled count-free s
  } finally {state.theme=previous;state.viewport=viewport;}
  assert.deepEqual(calls,['stale','stale','stale']);
 });
+
+test('Many values renders on actual native scalar, enum and list controls without an exact cardinality', async () => {
+  const many = {state: 'many' as const, atLeast: 65, truncated: true, values: [], entries: [{value: 'Preserved', count: 17}]};
+  for (const isTV of [false, true]) {
+    state.theme = createTheme({isTV, width: isTV ? 1920 : 390});
+    for (const field of [bulk().schema[0]!, {...bulk().schema[0]!, type: 'enum' as const, allowed: ['A']}, bulk().schema[1]!]) {
+      const calls: unknown[] = [], props = bulk({count: 70, schema: [field], values: {[field.field]: many}, onChangesChange: value => calls.push(value)});
+      const editor = await mount(BulkEditor, props);
+      try {
+        const rendered = elements(editor.tree).find(element => element.props.field?.field === field.field)!;
+        const input = await mount(rendered.type, rendered.props);
+        try {
+          const label = field.type === 'enum' ? ofType(input.tree, Select)[0]!.props.placeholder : text(input.tree);
+          assert.match(label, /Many values/); assert.doesNotMatch(label, /65|70 values/); assert.deepEqual(calls, []);
+          if (field.type === 'list') assert.match(text(input.tree), /Preserved/);
+          else if (field.type !== 'enum') {
+            const control = ofType(input.tree, TextField)[0]!;
+            assert.equal(control.props.value, ''); control.props.onChangeText('2020');
+            assert.deepEqual(calls, [{year: {value: '2020'}}]);
+          }
+        } finally {await input.host.unmount();}
+      } finally {await editor.host.unmount();}
+    }
+  }
+  state.theme = createTheme({isTV: true, width: 1920});
+});

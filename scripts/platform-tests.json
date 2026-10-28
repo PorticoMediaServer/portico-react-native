@@ -66,6 +66,18 @@
       ]
     },
     {
+      "source": "apps/native/test/apple-local-audio-tests.m",
+      "execution": "owned-apple",
+      "owner": "Native Apple qualification",
+      "requirements": "RN06 real AVPlayer local catalogue and public controller; authored local-audio.mp4 from test/make-local-track-fixtures.py. No physical-output acceptance."
+    },
+    {
+      "source": "apps/native/test/apple-local-subtitle-tests.m",
+      "execution": "owned-apple",
+      "owner": "Native Apple qualification",
+      "requirements": "RN06 local VTT and real rich renderer; authored VobSub pair from test/make-local-track-fixtures.py plus local Manrope font. No physical-route acceptance."
+    },
+    {
       "source": "apps/native/test/apple-playback-failures-tests.m",
       "execution": "macos-foundation",
       "frameworks": [

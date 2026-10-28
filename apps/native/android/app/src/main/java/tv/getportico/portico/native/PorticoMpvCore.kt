@@ -29,6 +29,8 @@ internal class PorticoMpvSnapshot(
     val cacheIdle: Boolean = true,
     /** Seconds of media held ahead of the position; NaN when unknown. */
     val cacheDuration: Double = Double.NaN,
+    /** Actual lavf demux format, sampled with this load's epoch, never inferred from a suffix. */
+    val fileFormat: String = "",
 )
 
 internal sealed class PorticoMpvEvent {
@@ -375,7 +377,8 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
       hwdec = string("hwdec-current") ?: "no",
       cacheSpeed = double("cache-speed") ?: 0.0,
       cacheIdle = flag("demuxer-cache-idle") ?: true,
-      cacheDuration = double("demuxer-cache-duration") ?: Double.NaN)
+      cacheDuration = double("demuxer-cache-duration") ?: Double.NaN,
+      fileFormat = string("file-format") ?: "")
 
   private fun deliver(event: PorticoMpvEvent) {
     val snapshot = readSnapshot()

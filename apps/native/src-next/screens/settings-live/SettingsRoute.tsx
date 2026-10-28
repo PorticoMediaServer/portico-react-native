@@ -1,3 +1,4 @@
+import {readEventState} from '../../platform/event-resync';
 import React from 'react';
 import {Platform} from 'react-native';
 import {AdminSessionsClient} from '../../../../../packages/client-core/src/playback-v1/admin-sessions';
@@ -34,9 +35,9 @@ function createComposition(context: NativeShellBootstrapContext) {
   try {if (!Platform.isTV) downloads = createNativeSettingsDownloads(context);} catch { /* No session/authority: the row stays out. */ }
   const ports = createNativeSettingsPorts(context, lifetime, route => context.navigation.open(route, context.authority()), downloads);
   const unsubscribe = context.subscribePreferences(() => {if (lifetime.current()) settings.accept(context.preferences());});
-  const api = {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => lifetime.request(next => context.api.request<T>(path, method, body, next), signal)};
+  const api = {request: <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => lifetime.request(next => (!method || method === 'GET') ? readEventState(context.events, next, () => context.api.request<T>(path, method, body, next)) : context.api.request<T>(path, method, body, next), signal)};
   const raw = localV1Http(context.api);
-  const sessions = new AdminSessionsClient({send: request => lifetime.request(signal => raw.send({...request, signal}), request.signal)}, nativeSettingsRequestId);
+  const sessions = new AdminSessionsClient({send: request => lifetime.request(signal => request.method === 'GET' ? readEventState(context.events, signal, () => raw.send({...request, signal})) : raw.send({...request, signal}), request.signal)}, nativeSettingsRequestId);
   const admission = (): NativeDashboardAdmission => nativeServerAdmission(context.account, lifetime);
   const dashboard = new NativeDashboardController(lifetime, admission, {sessions, console: new ConsoleClient(api, {serverId: lifetime.authority.serverId, viewerId: lifetime.authority.profileId})});
   let disposed = false;

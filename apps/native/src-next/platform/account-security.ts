@@ -87,10 +87,12 @@ export class NativeAccountSecurity {
     try {await this.prepare(opening); this.assert(opening); await work(opening);}
     catch (error) {if (this.owns(opening)) {
       const refused = error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408;
-      // A refused provider completion has spent its one-use return: start again from the form.
-      const restart = refused && this.state.step === 'factor';
-      if (refused) {opening.input = undefined; opening.intent = undefined; opening.operationId = undefined; opening.reconfirmed = undefined; opening.proof = undefined;}
-      this.publish({...this.state, ...(restart ? {step: 'form' as const} : {}), ...(refused ? {locked: false} : {}), failure: presentError(error, 'portico-account').body});
+      // A wrong factor leaves the verified transaction and callback code usable.
+      // Retain only this pending proof attempt; other refusals still restart.
+      const retryFactor = refused && error.status === 400 && error.code === 'challenge_invalid' && this.state.step === 'factor' && !!opening.reconfirmed && !opening.proof;
+      const restart = refused && !retryFactor && this.state.step === 'factor';
+      if (refused && !retryFactor) {opening.input = undefined; opening.intent = undefined; opening.operationId = undefined; opening.reconfirmed = undefined; opening.proof = undefined;}
+      this.publish({...this.state, ...(restart ? {step: 'form' as const} : {}), ...(refused && !retryFactor ? {locked: false} : {}), failure: presentError(error, 'portico-account').body});
     }}
     finally {opening.busy = false; if (this.owns(opening)) this.publish({...this.state, busy: false});}
   }
@@ -149,9 +151,10 @@ export class NativeAccountSecurity {
   async confirmWithProvider(providerId: string, input: NativeAccountSecurityInput = {}) {
     if (this.security.hasPassword || this.state.step !== 'form') return;
     const link = this.security.providers.find(value => value.id === providerId);
+    const expectedIdentity = link?.revision ? Object.freeze({id: link.id, revision: link.revision}) : undefined;
     return this.run(async opening => {
       const kind = opening.kind, signal = opening.controller.signal, bridge = NativeModules.PorticoAccountAuth;
-      if (!link || kind === 'export' || kind === 'delete') throw new Error('native_account_provider_unavailable');
+      if (!link || !expectedIdentity || kind === 'export' || kind === 'delete') throw new Error('native_account_provider_unavailable');
       opening.input ??= Object.freeze({...input});
       opening.intent ??= this.intent(kind, opening.input, opening.operationId!);
       this.publish({...this.state, locked: true});
@@ -162,7 +165,7 @@ export class NativeAccountSecurity {
       const nativeApple = link.provider === 'apple' && bridge.canSignInApple === true && !!offered?.native && offered.nativeClientIds.includes(bridge.bundleId);
       if (!offered || !nativeApple && bridge.canOpenBrowser !== true) throw new Error('native_account_provider_unavailable');
       const intent = opening.intent;
-      opening.reconfirmed = await this.work(opening, (token, client) => reconfirmWithProvider(client, {provider: link.provider, intent, nativeApple, accountOrigin: hostedUrl}, token, {
+      opening.reconfirmed = await this.work(opening, (token, client) => reconfirmWithProvider(client, {provider: link.provider, intent, nativeApple, accountOrigin: hostedUrl, expectedIdentity}, token, {
         newRequestId: async () => {const id: unknown = await bridge.newRequestId(); if (typeof id !== 'string' || id.length < 16 || id.length > 128) throw new Error('native_account_operation_invalid'); return id;},
         openBrowser: (url, transactionId) => bridge.openBrowser(url, transactionId),
         ...(nativeApple ? {signInApple: (nonce: string | undefined) => bridge.signInApple(nonce)} : {}),
