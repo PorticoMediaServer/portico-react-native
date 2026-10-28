@@ -16,7 +16,7 @@ export function NativeLiveActionPanels({actions, context, runtime}: {actions: Na
   const state = useSyncExternalStore(actions.subscribe, actions.getSnapshot);
   useSyncExternalStore(context.playback.subscribe, context.playback.getSnapshot);
   const theme = useTheme(), t = runtime.text.t, sheet = state.sheet;
-  if (!theme.isTV || !sheet || !sheet.lifetime.isCurrent()) return null;
+  if (!sheet || !sheet.lifetime.isCurrent()) return null;
   const channel = legacyChannel(sheet.offer.channel), programme = legacyProgramme(sheet.offer.programme);
   if (!channel || !programme) return null;
   const close = () => {if (sheet.lifetime.isCurrent()) actions.close(sheet);};

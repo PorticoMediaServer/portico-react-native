@@ -18,6 +18,8 @@ import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeWatchOutletPort} from '../../shell/watch-outlet';
 import {NativeWatchChrome, type NativeWatchChromeProps} from './WatchChrome';
 import {NativeWatchPicture} from './picture-slot';
+import {NativeHandheldMiniGuide} from './HandheldMiniGuide';
+import {emptyLiveGuide, noLiveGuideSubscription, type NativeTVLiveGuide} from './live-guide';
 import {nativeWatchTVPresentation} from './tv-presentation';
 import type {NativeWatchControls, NativeWatchControlContext, NativeWatchControlState, NativeWatchPanel} from './controls';
 
@@ -40,6 +42,8 @@ export type NativeWatchHostContext = Readonly<{
  * default track, invented quality, engine, route or copied presentation store. */
 export type NativeWatchHostBindings = Readonly<{
   chrome: (source: NativePlaybackRuntimeSnapshot, runtime: NativeShellRuntime) => Omit<NativeWatchChromeProps, 'source' | 'controls' | 'playback' | 'text' | 'width' | 'height' | 'compact' | 'fullWindowRequest' | 'onPanel' | 'edgeInsets' | 'tvPanelRight' | 'tablet' | 'tabletop' | 'bar'>;
+  /** Touch Guide uses the same measured panel geometry as player options. */
+  liveGuide?: NativeTVLiveGuide;
   content?: (context: NativeWatchHostContext) => React.ReactNode;
   details?: (context: NativeWatchHostContext) => React.ReactNode;
   /** foldable5: the episodes that follow, beside the tabletop's controls column. */
@@ -82,13 +86,15 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   const source = useSyncExternalStore(playback.subscribe, playback.getSnapshot);
   const groupVisible = useSyncExternalStore(subscribeGroupPort, groupPlayerVisible, noticesOn);
   const state = useSyncExternalStore(controls.subscribe, controls.getSnapshot);
+  const liveGuide = useSyncExternalStore(bindings.liveGuide?.subscribe ?? noLiveGuideSubscription, bindings.liveGuide?.getSnapshot ?? emptyLiveGuide);
   const window = useWindowDimensions(), posture = usePlatformPosture();
   const local = source.dock.local, fence = source.fence;
   const {scrubbing, focusHeld, presentation} = bindings;
   const screenReader = useScreenReader(), registry = useOptionalFocusRegistry();
   const expanded = (!isTV || groupVisible) && !source.retired && sameAuthority(authority, current()) && sameAuthority(authority, source.authority)
     && !!fence && !!local && sameFence(local.fence, fence) && local.expanded && (local.kind === 'video' || local.kind === 'live');
-  const panelOpen = expanded && sameFence(state.fence, fence) && !!state.panel;
+  const guideOpen = !isTV && expanded && sameFence(liveGuide.fence, fence) && liveGuide.open && !state.panel;
+  const panelOpen = guideOpen || expanded && sameFence(state.fence, fence) && !!state.panel;
   const [lossNotice, setLossNotice] = useState<{key: string; value: NativeWatchNotice}>();
   const noticeLive = useRef({read: bindings.notice, runtime, playback, fence, authority: source.authority, disposed: source.retired, expanded});
   noticeLive.current = {read: bindings.notice, runtime, playback, fence, authority: source.authority, disposed: source.retired, expanded};
@@ -231,7 +237,9 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
         tvPanelRight={television?.backdropRight} failureAction={failureAction}
         edgeInsets={layout.mode === 'book' && layout.controls ? {right: layout.surface.width - layout.controls.width} : undefined}/>
     </View>}
-    {isTV ? <TVWatchPanel context={context} render={bindings.panel}/> : panelOpen && <View testID="watch-panel-pane" pointerEvents="box-none" style={context.renderer.panel ? positioned(context.renderer.panel) : {position: 'absolute', inset: 0}}>{bindings.panel(context)}</View>}
+    {isTV ? <TVWatchPanel context={context} render={bindings.panel}/> : panelOpen && <View testID="watch-panel-pane" pointerEvents="box-none" style={context.renderer.panel ? positioned(context.renderer.panel) : {position: 'absolute', inset: 0}}>
+      {guideOpen && bindings.liveGuide ? <NativeHandheldMiniGuide key={JSON.stringify(fence)} context={context} guide={bindings.liveGuide} snapshot={liveGuide}/> : bindings.panel(context)}
+    </View>}
     {failed && <View testID="watch-failed-pane" pointerEvents="box-none" style={isTV ? {position: 'absolute', inset: 0} : positioned(layout.surface)}>{failed}</View>}
     </>}
   </Animated.View>;

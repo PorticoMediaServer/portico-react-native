@@ -17,7 +17,7 @@ type Item = QueuePlaybackView['items'][number];
 export type NativeUpNextCardProps = Readonly<{
   item: Item;
   artwork?: ArtworkSource;
-  offer: UpNextOffer;
+  offer?: UpNextOffer;
   countdown: UpNextCountdown | null;
   /** The credits end before the title does: a scene follows them. */
   sceneAfter: boolean;
@@ -28,15 +28,18 @@ export type NativeUpNextCardProps = Readonly<{
   onPlayNow: () => void;
   onWatchCredits: () => void;
   onSkipCredits: () => void;
+  /** Once the title has ended, its canonical policy owns Cancel and the next
+   * action. The same card also asks for an explicit still-watching response. */
+  postPlay?: Readonly<{onCancel: () => void; onReplay: () => void; onClose: () => void}>;
 }>;
 
-export function NativeUpNextCard({item, artwork, countdown, countdownTotal, sceneAfter, compact = false, onPlayNow, onWatchCredits, onSkipCredits}: NativeUpNextCardProps) {
+export function NativeUpNextCard({item, artwork, countdown, countdownTotal, sceneAfter, compact = false, onPlayNow, onWatchCredits, onSkipCredits, postPlay}: NativeUpNextCardProps) {
   const theme = useTheme(), t = defaultI18n.t;
   const code = item.episode ? t('next.kit.episodeCode', {season: item.episode.seasonNumber, episode: item.episode.number}) : undefined;
   const minutes = item.durationMs && item.durationMs > 0 ? t('next.kit.duration.minutes', {minutes: Math.round(item.durationMs / 60_000)}) : undefined;
   const still = compact ? {width: 112, height: 63} : {width: 256, height: 144};
   // tv-player 5 draws the card's own buttons smaller than the player's: 64 high, 22px.
-  const button = (id: string, variant: 'primary' | 'glass', icon: 'i-play' | 'i-next' | undefined, label: string, onPress: () => void) => <Button key={id} focusId={`watch-up-next-${id}`} testID={`watch-up-next-${id}`}
+  const button = (id: string, variant: 'primary' | 'glass', icon: 'i-play' | 'i-next' | 'i-replay' | undefined, label: string, onPress: () => void) => <Button key={id} focusId={`watch-up-next-${id}`} testID={`watch-up-next-${id}`}
     variant={variant} size={compact ? 'compact' : 'hero'} hasTVPreferredFocus={false} {...(icon ? {icon} : {})}
     style={compact ? {height: 40, paddingHorizontal: 15, borderRadius: 10} : {height: 64, paddingHorizontal: 28}}
     textStyle={compact ? {fontSize: 14.5, fontWeight: '700'} : {fontSize: 22, fontWeight: '700'}} onPress={onPress}>{label}</Button>;
@@ -60,23 +63,29 @@ export function NativeUpNextCard({item, artwork, countdown, countdownTotal, scen
         {(code || minutes) && <Text style={{fontFamily: compact ? 'Manrope-SemiBold' : 'Manrope-Regular', fontSize: compact ? 12.5 : 22, fontWeight: compact ? '600' : '400', marginTop: compact ? 2 : 0, color: compact ? theme.colors.textTertiary : theme.colors.textSecondary}}>{[code, minutes].filter(Boolean).join(' · ')}</Text>}
         {countdown && <View style={{flexDirection: 'row', alignItems: 'baseline', marginTop: compact ? 5 : 10}}>
           {countdown.automatic
-            ? <Text style={{fontSize: compact ? 13 : 20, fontWeight: '600', color: compact ? theme.colors.textSecondary : theme.colors.textTertiary}}>{t('player.post.playingIn', {seconds: countdown.seconds})}</Text>
-            : <><Text style={{fontSize: compact ? 13 : 20, fontWeight: '600', color: compact ? theme.colors.textSecondary : theme.colors.textTertiary}}>{t('player.post.startsIn', {time: ''})}</Text>
-              <Text style={{fontSize: compact ? 13 : 20, fontWeight: '600', color: theme.colors.text}}>{clockText(countdown.seconds)}</Text></>}
+            ? <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: compact ? 13 : 20, fontWeight: '600', color: compact ? theme.colors.textSecondary : theme.colors.textTertiary}}>{t('player.post.playingIn', {seconds: Math.ceil(countdown.seconds)})}</Text>
+            : <><Text style={{fontFamily: 'Manrope-SemiBold', fontSize: compact ? 13 : 20, fontWeight: '600', color: compact ? theme.colors.textSecondary : theme.colors.textTertiary}}>{t('player.post.startsIn', {time: ''})}</Text>
+              <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: compact ? 13 : 20, fontWeight: '600', color: theme.colors.text}}>{clockText(countdown.seconds)}</Text></>}
         </View>}
       </View>
     </View>
     {countdown?.automatic && <View style={{height: compact ? 3 : 4, borderRadius: 2, marginTop: compact ? 12 : 18, overflow: 'hidden', backgroundColor: 'rgba(237,245,250,.16)'}}>
       <View style={{height: compact ? 3 : 4, borderRadius: 2, backgroundColor: '#fff', width: `${Math.max(0, Math.min(1, countdown.seconds / Math.max(1, countdownTotal))) * 100}%`}}/>
     </View>}
-    <View style={{flexDirection: 'row', gap: compact ? 8 : 18, marginTop: compact ? 12 : 24}}>
+    <View style={{flexDirection: 'row', flexWrap: postPlay ? 'wrap' : undefined, gap: compact ? 8 : 18, marginTop: compact ? 12 : 24}}>
       {button('play', 'primary', 'i-play', t('player.post.playNow'), onPlayNow)}
-      {sceneAfter && button('skip', 'glass', 'i-next', t('player.skip', {kind: 'credits'}), onSkipCredits)}
-      {button('watch', 'glass', undefined, t('player.post.watchCredits'), onWatchCredits)}
+      {postPlay ? <>
+        {countdown?.automatic && button('cancel', 'glass', undefined, t('action.cancel'), postPlay.onCancel)}
+        {button('replay', 'glass', 'i-replay', t('player.post.replay'), postPlay.onReplay)}
+        {button('close', 'glass', undefined, t('player.post.close'), postPlay.onClose)}
+      </> : <>
+        {sceneAfter && button('skip', 'glass', 'i-next', t('player.skip', {kind: 'credits'}), onSkipCredits)}
+        {button('watch', 'glass', undefined, t('player.post.watchCredits'), onWatchCredits)}
+      </>}
     </View>
     {sceneAfter && !compact && <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 20}}>
       <View style={{width: 9, height: 9, borderRadius: 4.5, backgroundColor: theme.colors.accentStrong}}/>
-      <Text style={{fontSize: 20, fontWeight: '600', color: theme.colors.textSecondary}}>{t('player.post.sceneAfterSkip')}</Text>
+      <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 20, fontWeight: '600', color: theme.colors.textSecondary}}>{t('player.post.sceneAfterSkip')}</Text>
     </View>}
   </View>;
 }

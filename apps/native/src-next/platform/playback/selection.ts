@@ -1,3 +1,4 @@
+import {nativeStartSeconds} from './start-intent';
 import type {HomeSelectionPlaybackItem} from '../../../../../packages/client-core/src/home-selection/types';
 import type {SegmentInput} from '../../../../../packages/client-core/src/playback-v1/queue';
 import {id} from '../../../../../packages/client-core/src/playback-v1/types';
@@ -38,7 +39,8 @@ export function selectionSegments(items: readonly HomeSelectionPlaybackItem[], p
   return segments;
 }
 
+/** Resume lets the server decide; Start over is zero; only a chosen position is sent. */
 export function selectionStartSeconds(items: readonly HomeSelectionPlaybackItem[]): number | undefined {
   const first = items[0];
-  return first && 'target' in first ? first.target.startSeconds : undefined;
+  return first && 'target' in first ? nativeStartSeconds(first) : undefined;
 }

@@ -42,7 +42,7 @@ export function IntroCreditsReview({context, lifetime, t, runtime}: NativeSettin
     if (!alive.current || controller.getSnapshot().review !== state.review || item.id !== entry.itemId || item.libraryId !== state.libraryId || !item.available) return;
     const display = validateContentEntry({id: item.id, libraryId: item.libraryId, kind: item.kind, title: item.title, available: item.available, year: item.year, posterUrl: item.posterUrl, backdropUrl: item.backdropUrl, overview: item.overview});
     const target = {itemId: item.id, startSeconds: Number(fromUS) / 1e6};
-    await context.playback.start({entry: {...display, duration: item.duration, playback: target}, target});
+    await context.playback.start({entry: {...display, duration: item.duration, playback: target}, target, startIntent: 'explicit'});
   };
   const copy = (value: string, secondary = false) => <Text style={[secondary ? theme.type.caption : theme.type.bodyStrong, {color: secondary ? theme.colors.textSecondary : theme.colors.text}]}>{value}</Text>;
   const card = {padding: 14, gap: 12, borderRadius: 14, backgroundColor: theme.colors.raised};

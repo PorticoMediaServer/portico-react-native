@@ -15,6 +15,8 @@ let posture: any = {status: 'available', window: {width: 890, height: 626}, fold
 const theme = {isTV: false, platform: 'tablet', textScale: 1, colors: {ink: '#000', text: '#fff', textSecondary: '#ccc', textTertiary: '#999', raised: '#111', raisedHigh: '#151515', line: '#222', lineStrong: '#333', accent: '#3af', accentStrong: '#4bf'}, type: {bodyStrong: {}, body: {}, heading: {}, caption: {}, captionStrong: {}, meta: {}}};
 const {NativeTitleScreen} = await screenModule(new URL('../src-next/screens/watch/TitleScreen.tsx', import.meta.url), {
   '../../../../../packages/client-core/src/presentation/errors': {presentError},
+  'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, right: 0, bottom: 0, left: 0})},
+  '../../platform/native-blur': {BlurView: 'BlurView'},
   '../../tv/layout/TVShelf': {TVShelf: 'TVShelf', tvItemKey: (entry: {id: string}) => entry.id},
   './tv-title-focus': {tvTitleRegionMap}, '../../shell/tv-focus': {tvFocusIds}, '../../kit/focus': {FocusRegion: 'FocusRegion', useOptionalFocusRegistry: () => undefined},
   react: {...React, default: React},

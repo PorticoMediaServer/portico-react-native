@@ -38,6 +38,7 @@ export type MediaBarProps = DockRenderProps & {
 export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotAdmission, onMenuOpenChange, isCurrent, morph, menuOpen, takeVideoExit, style, testID}: MediaBarProps) {
   const theme = useTheme(), motion = useMotion(), t = defaultI18n.t;
   const bar = useRef<View>(null), art = useRef<View>(null), openerRef = useRef<View>(null), firstMenu = useRef<View>(null);
+  const castButton = useRef<View>(null);
   const [internalMenu, setMenu] = useState(false), [expandedWidth, setExpandedWidth] = useState(0);
   const menu = menuOpen ?? internalMenu;
   const width = useSharedValue(374), localX = useSharedValue(0), xOrigin = useSharedValue(0), held = useSharedValue(1), localFade = useSharedValue(1);
@@ -52,7 +53,9 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
   const terminal = !!remote && ['stopped', 'replaced', 'error'].includes(remote.phase);
   const connecting = !!remote && ['connecting', 'pairing', 'waiting'].includes(remote.phase);
   const progress = progressOf(occupant);
-  const act = useCallback((type: DockAction) => {if (commandAllowed(occupant, type)) onAction(dockCommand(occupant, type));}, [occupant, onAction]);
+  const act = useCallback((type: DockAction, anchorRef?: React.RefObject<View | null>) => {
+    if (commandAllowed(occupant, type)) onAction({...dockCommand(occupant, type), ...(type === 'cast' ? {anchorRef: anchorRef ?? castButton} : {})});
+  }, [occupant, onAction]);
   const seekBy = useCallback((seconds: number) => {
     const command = seekTo(occupant, playbackPosition(occupant) + seconds);
     if (command) onAction(command);
@@ -258,7 +261,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
   const button = (type: DockAction, icon: IconName, name: string, size = 22, close = false, skip?: 'back' | 'forward', primary = false) => {
     const enabled = commandAllowed(occupant, type);
     const seconds = skip === 'forward' ? p.skipForwardSeconds ?? 30 : p.skipBackSeconds;
-    return <Focusable key={`${type}:${skip ?? ''}:${primary ? 'p' : ''}`} accessibilityRole="button" accessibilityLabel={name} disabled={!enabled} focusRadius={expandedBar ? 22 : 20}
+    return <Focusable key={`${type}:${skip ?? ''}:${primary ? 'p' : ''}`} ref={type === 'cast' ? castButton : undefined} accessibilityRole="button" accessibilityLabel={name} disabled={!enabled} focusRadius={expandedBar ? 22 : 20}
       hitSlop={{top: 2, bottom: 2, left: 0, right: 0}}
       style={[expandedBar ? primary ? s.expandedPrimary : s.expandedButton : s.phoneButton, !expandedBar && theme.platform === 'tablet' && s.mediumButton, !expandedBar && close && s.close, {opacity: enabled ? 1 : .32}]}
       onPress={() => skip === 'back' ? seekBack() : skip === 'forward' ? seekForward() : act(type)}>
@@ -376,7 +379,7 @@ export function MediaBar({occupant, onAction, visible = true, onVideoSlot, slotA
       style={{backgroundColor: theme.colors.raisedBright, borderRadius: 14}} contentStyle={{paddingVertical: 6}}>
       {menuRows.map((row, index) => <Focusable key={row.id} ref={index === 0 ? firstMenu : undefined} accessibilityRole="menuitem" accessibilityLabel={row.label}
         disabled={!commandAllowed(occupant, row.action)}
-        onPress={() => {changeMenu(false); act(row.action);}} style={{height: 42, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 14, borderTopWidth: index ? 1 : 0, borderTopColor: alpha(theme.colors.text, .06)}}>
+        onPress={() => {changeMenu(false); act(row.action, bar);}} style={{height: 42, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 14, borderTopWidth: index ? 1 : 0, borderTopColor: alpha(theme.colors.text, .06)}}>
         <Icon name={row.icon} size={20} color={row.id === 'stop' ? theme.colors.record : theme.colors.textSecondary}/><Text style={[dockType(theme, 14.5, 600), {color: theme.colors.text}]}>{row.label}</Text>
       </Focusable>)}
     </Popover>

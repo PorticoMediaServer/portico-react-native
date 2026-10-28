@@ -264,6 +264,8 @@ test('actual WatchHost panel/control geometry reaches the persistent layer throu
     '../../platform/layout/player-presentation': {resolvePlayerPresentation, playerControlsRevealDeadline, playerPostureCrossFadeMs: 250},
     '../../platform/platformPosture': {usePlatformPosture: () => posture},
     './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},
+    './HandheldMiniGuide': {NativeHandheldMiniGuide: 'HandheldMiniGuide'},
+    './live-guide': {noLiveGuideSubscription: () => () => {}, emptyLiveGuide: () => ({open: false, rows: []})},
     './tv-presentation': {nativeWatchTVPresentation},
     'react-native-reanimated': {default: {View: 'AnimatedView'}, useSharedValue: (value: any) => React.useRef({value}).current, useAnimatedStyle: (run: any) => run(),
       withTiming: (value: any) => value, cancelAnimation: () => {}},

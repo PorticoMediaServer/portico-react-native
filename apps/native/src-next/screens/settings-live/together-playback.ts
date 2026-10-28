@@ -96,7 +96,7 @@ export function bindNativeTogether(context: NativeTogetherPlaybackContext, telev
         if (!current()) return;
         if (item.id !== itemId || !item.available || !contentEntryKind(item.kind)) throw new Error('together_media_unavailable');
         const entry: ContentEntry = {...item, kind: item.kind, playback: {itemId}};
-        await playback.start({entry, target: {itemId, startSeconds: positionSeconds}, state: playing ? 'playing' : 'paused', lifetime: {signal: abort.signal, isCurrent: current}});
+        await playback.start({entry, target: {itemId, startSeconds: positionSeconds}, startIntent: 'explicit', state: playing ? 'playing' : 'paused', lifetime: {signal: abort.signal, isCurrent: current}});
         if (!current()) return;
         const bound = boundOccurrence();
         if (!bound || bound.fence.itemId !== itemId) return;

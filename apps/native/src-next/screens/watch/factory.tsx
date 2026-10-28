@@ -311,7 +311,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
       subscribe: listener => detail!.subscribe(listener),
       ...(primary ? {play: async () => {
         const operation = new AbortController();
-        await ports.playback.start({entry, target: primary, lifetime: {signal: operation.signal, isCurrent: () => current(captured)}});
+        await ports.playback.start({entry, target: primary, ...(entry.kind === 'chapter' && primary.startSeconds !== undefined ? {startIntent: 'explicit' as const} : {}), lifetime: {signal: operation.signal, isCurrent: () => current(captured)}});
       }} : {}),
       ...(catalogue && ['song', 'album', 'artist'].includes(entry.kind) ? {startRadio: async () => {
         const operation = new AbortController();
@@ -411,11 +411,11 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
       // and the playback's own cast capability, exactly as the search action does:
       // a retained handler can never open a chooser under a later route.
       const onPlayOn = navigation.route === route && runtime.playOn && ports.playback.getSnapshot().capabilities.cast
-        ? () => {
+        ? (anchorRef?: React.RefObject<View | null>) => {
             const now = ports.navigation.getSnapshot();
             if (!alive() || !sameAuthority(now.authority, ports.authority) || now.route !== route || now.revision !== navigation.revision) return;
             if (!runtime.playOn || !ports.playback.getSnapshot().capabilities.cast) return;
-            runtime.playOn.open();
+            runtime.playOn.open(anchorRef);
           } : undefined;
       return <NativeTitleScreen authority={ports.authority} {...ports.title} search={search} removeContinue={removeContinue} onPlayOn={onPlayOn} key={key} controller={controller} text={runtime.text} artwork={runtime.artwork} ambient={runtime.ambient}
         back={() => {ports.navigation.back(ports.authority);}} more={(entry, anchorRef) => {

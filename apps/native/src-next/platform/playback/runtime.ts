@@ -1,4 +1,5 @@
-import {AppState, NativeModules} from 'react-native';
+import {AppState, NativeModules, type View} from 'react-native';
+import type {RefObject} from 'react';
 import {startFailureHttp, type NativePlaybackStartFailure} from './start-failure';
 import {capacityRetryHttp, type NativePlaybackCapacityWait} from './capacity-retry';
 import {createNativeListeningReadPort} from './listening-controls';
@@ -30,7 +31,8 @@ import {forcedChoiceOf, parseSubtitleLines} from '../../../../../packages/client
 import {forcedImageLinesPath} from './forced-image';
 import type {PlaybackSubject, CardSubject} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {serviceText} from '../../../../../packages/client-core/src/presentation/service-text';
-import {PlaybackDock, PlayerSessionChoices, activeSegment, skipsAutomatically, skipTarget, parseQueueSnapshot, playbackFence, sameFence, sameScope, type ChannelPlaybackFence, type QueuePlaybackFence, type DockPlayback, type DockTransition, type PlaybackFence, type QueueScope, type SegmentMarker, type RemoteDock} from '../../../../../packages/player-core/src';
+import {PlaybackDock, PlayerSessionChoices, parseQueueSnapshot, playbackFence, sameFence, sameScope, type ChannelPlaybackFence, type QueuePlaybackFence, type DockPlayback, type DockTransition, type PlaybackFence, type QueueScope, type RemoteDock} from '../../../../../packages/player-core/src';
+import type {PolicyCommand} from '../../../../../packages/player-core/src/playback-policy';
 import {NativePlaybackCoordinator, type NativeBinding} from './NativePlaybackCoordinator';
 import {nativeExternalPresentationBinding, sameNativePresentation} from './external-presentation';
 import {NativePlayback, automaticSteps} from './native-playback';
@@ -41,6 +43,9 @@ import {captureNativeStartPresentation, nativeFirstVideoFrame, type NativeStartP
 import {NativeOfflinePlayback, type NativeOfflineSource} from './offline-playback';
 import type {OfflineEntry} from '../../../platform/offline-downloads';
 import {captionStyle} from './caption-style';
+import {NativeSubtitleStyleChoices} from './subtitle-style-choices';
+import {nativeStartSeconds} from './start-intent';
+import {NativeVideoPlaybackPolicy, nativeVideoPolicyMarkers, nativeVideoPolicyPostPlay, type NativeVideoPolicyFrame} from './video-policy';
 import {boundSubtitleControls, type NativePlaybackSubtitleControls} from './subtitle-controls';
 import {uploadPickedSubtitle} from './subtitle-file-upload';
 import {deviceDrawnTrack, engineSubtitleRender, externalSubtitlePreparation, fontsUrlOf, linesUrlOf, parseSubtitleFonts, type SubtitleFonts} from './engine-media';
@@ -93,6 +98,8 @@ export class NativePlaybackRuntime {
   readonly coordinator: NativePlaybackCoordinator;
   readonly dock: PlaybackDock;
   readonly choices = new PlayerSessionChoices();
+  private readonly subtitleStyles = new NativeSubtitleStyleChoices();
+  private readonly videoPolicy: NativeVideoPlaybackPolicy;
   private readonly o: NativePlaybackRuntimeOptions;
   private readonly bound: PlaybackAuthority;
   private readonly sessionFamilyId: string;
@@ -171,9 +178,6 @@ export class NativePlaybackRuntime {
   private captureEpoch = 0;
   private routeRecovery?: ReturnType<typeof setTimeout>;
   private recoverySince = 0;
-  private completionTimer?: unknown;
-  private completionKey = '';
-  private skipped = new Set<string>();
   private cleanupSessions = new Set<string>();
   private initialPresentation?: NativeStartPresentationOwner;
   private initialPresentationTarget?: {owner: NativeStartPresentationOwner; epoch: number; itemId: string; session?: Session};
@@ -231,7 +235,7 @@ export class NativePlaybackRuntime {
         && this.playback.getSnapshot().session?.id !== session.id && this.path.controller.getSnapshot().session?.id !== session.id),
       audiobookPreferences: () => this.o.settings().audiobook ?? {skipBackMs:15000,skipForwardMs:30000,resumeRewindMs:0},
       retainQueueIds: () => this.retainedQueueIds()});
-    // Video completion remains held for the later player. Music follows the server's real policy.
+    // The shared video policy owns the held end card. Listening keeps its owner.
     this.queue.setCompletionPolicy(({kind}) => audioKind(kind) ? 'advance' : 'hold');
     this.dock = new PlaybackDock(this.scope, this.offline?.owner());
     this.coordinator = new NativePlaybackCoordinator(this.playback, options.transport, options.requestId,
@@ -245,6 +249,13 @@ export class NativePlaybackRuntime {
         try { return options.api.mediaUrl(state.session.streamUrl); }
         catch { this.playback.fail(state.intentId, serviceText('queuePlayer.startFailed')); return ''; }
       }, fact => this.acceptFact(fact), options.engines);
+    this.videoPolicy = new NativeVideoPlaybackPolicy({
+      read: () => this.videoPolicyFrame(), current: fence => this.videoPolicyCurrent(fence), execute: command => this.executeVideoPolicy(command),
+      changed: () => this.publish(), failed: (fence, _error) => {if (this.videoPolicyCurrent(fence)) this.playback.fail(this.playback.getSnapshot().intentId, serviceText('queuePlayer.startFailed'));},
+      now: options.timers?.now ?? (() => Math.floor(performance.now())),
+      setTimer: options.timers?.setTimer ?? ((run, ms) => setTimeout(run, ms)),
+      clearTimer: options.timers?.clearTimer ?? (timer => clearTimeout(timer as ReturnType<typeof setTimeout>)),
+    });
     this.snapshot = this.makeSnapshot(0);
   }
   getSnapshot = () => this.snapshot;
@@ -632,7 +643,8 @@ export class NativePlaybackRuntime {
     if (!callerCurrent()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});
     this.connect();
     if (!this.active()) return;
-    if (!wireId(input.target.itemId) || input.target.startSeconds !== undefined && (!Number.isFinite(input.target.startSeconds) || input.target.startSeconds < 0)) throw new Error('Invalid playback target.');
+    if (!wireId(input.target.itemId)) throw new Error('Invalid playback target.');
+    nativeStartSeconds(input);
     const epoch = this.beginOperation();
     const controller = new AbortController(); this.startController = controller;
     const abort = () => controller.abort();
@@ -888,7 +900,7 @@ export class NativePlaybackRuntime {
       // This final read owns resume. An earlier card/menu position has no authority here.
       const positionMs = discTitle ? 0 : offered.resume?.positionMs ?? 0;
       if (!Number.isFinite(positionMs) || positionMs < 0) throw new Error(serviceText('queuePlayer.unsupported'));
-      const fresh = {...input, target: {...input.target, startSeconds: positionMs / 1000}};
+      const fresh = {...input, startIntent: 'explicit' as const, target: {...input.target, startSeconds: positionMs / 1000}};
       epoch = this.beginOperation(scoped.signal);
       await this.queue.cancel();
       if (!current()) return;
@@ -917,7 +929,7 @@ export class NativePlaybackRuntime {
     this.expanded = !audioKind(offered.kind);
     try {
       if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});
-      await this.queue.playItem(input.target.itemId, input.target.startSeconds, undefined, undefined, undefined, versionId ? {versionId, ...(discTitle ? {discTitle} : {})} : undefined,
+      await this.queue.playItem(input.target.itemId, nativeStartSeconds(input), undefined, undefined, undefined, versionId ? {versionId, ...(discTitle ? {discTitle} : {})} : undefined,
         {...lifetime, state: input.state ?? 'playing', isCurrent: current, propagateError: true});
     } catch (error) {
       // Keep the original typed admission refusal, including its closed reason,
@@ -1070,7 +1082,7 @@ export class NativePlaybackRuntime {
           this.expanded = !audioKind(this.queue.getSnapshot().view?.items.find(item => item.entryId === fence.entryId)?.kind);
           this.expandAtStart = undefined;
         }
-        this.choices.begin(fence.playback); this.choices.bindSource(fence);
+        this.choices.begin(fence.playback); this.choices.bindSource(fence); this.subtitleStyles.bind(fence);
         const local = this.local(fence), before = this.dock.getSnapshot().local;
         if (before && sameFence(before.fence, fence)) this.dock.update(local);
         else {
@@ -1087,11 +1099,10 @@ export class NativePlaybackRuntime {
           || previous.session?.id !== state.session?.id || previous.session?.generation !== state.session?.generation)) {
           this.expanded = true; this.dock.expand(fence);
         }
-      }
+      } else if (state.phase === 'idle') this.subtitleStyles.clear();
       const key = state.session && state.itemId && (state.phase === 'starting' || state.phase === 'ready') ? `${state.intentId}/${state.session.id}/${state.session.generation}/${state.itemId}` : '';
       if (key !== this.sourceKey) this.selectSource(key);
       this.applyOptions();
-      this.completionChanged();
       this.publish();
     } finally { this.updating = false; }
   }
@@ -1213,14 +1224,14 @@ export class NativePlaybackRuntime {
     this.path.setRate(rate);
     const session = this.currentSession(), plan = this.subtitleService?.getSnapshot().plan;
     this.path.setTracks(session?.presentation.audioTrackId, session?.presentation.subtitle?.trackId ?? null);
-    const style = captionStyle({
+    const style = captionStyle(this.subtitleStyles.read(fence, {
       ...settings.subtitles,
       size: this.choices.get('subtitleSize', fence.playback, settings.subtitles.size),
       // The existing player offers three box overrides. Outline/shadow remain
       // genuine profile choices; do not narrow them to that older choice set.
       background: this.choices.has('subtitleBackground', fence.playback)
         ? this.choices.get('subtitleBackground', fence.playback, 'none') : settings.subtitles.background,
-    });
+    }));
     const binding = {intentId: state.intentId, sessionId: state.session.id, generation: state.session.generation};
     let subtitles: Record<string, unknown> | null = null;
     let forcedPath: string | undefined;
@@ -1295,6 +1306,11 @@ export class NativePlaybackRuntime {
     return this.choices.set('forcedOnly', fence.playback, on, fence);
   };
 
+  setSubtitleStyle = (fence: PlaybackFence, key: string, value: string): boolean => {
+    if (!this.matches(fence) || fence.kind !== 'queue' || !this.subtitleStyles.set(fence, key, value)) return false;
+    this.applyOptions(); this.publish(); return true;
+  };
+
   private makeSnapshot(sequence: number): NativePlaybackRuntimeSnapshot {
     const playback = this.playback.getSnapshot(), nextFence = this.retired ? undefined : this.fence(), queue = this.queue.getSnapshot(), view = queue.view;
     const previousFence = this.snapshot?.fence;
@@ -1335,18 +1351,21 @@ export class NativePlaybackRuntime {
       && acknowledgement.sessionId === fence.sessionId && acknowledgement.generation === fence.generation
       && acknowledgement.itemId === playback.itemId ? acknowledgement : null;
     const seekWindow = playback.channel && playback.linear ? {startSeconds: channelSeconds(playback.linear.media.windowStartUs), endSeconds: channelSeconds(playback.linear.media.windowEndUs)} : undefined;
-    return Object.freeze({authority: this.bound, sequence, dock: this.dock.getSnapshot(), playback, fence, subject: this.subject, entry: this.entry, queue, session,
+    return Object.freeze({authority: this.bound, sequence, dock: this.dock.getSnapshot(), playback, fence, subject: this.subject, entry: this.entry, queue, session, policy: this.videoPolicy.getSnapshot(),
       ...(fence?.kind === 'channel' && this.channelGuide && legacyChannel(this.channelGuide.row)?.id === fence.channelId
         && legacyChannel(this.channelGuide.row)?.sourceId === fence.sourceId && legacyChannel(this.channelGuide.row)?.provenance === fence.channelKind
         && legacyChannel(this.channelGuide.row)?.generation === fence.channelGeneration ? {channelGuide: this.channelGuide} : {}),
       startFailure: this.startFailure, capacityWait: this.capacityWait, firstVideoFrame,
       initialPresentation: this.initialPresentation?.read(fence),
       ...(fence && this.forcedImageAvailable(fence) ? {forcedOnly: Object.freeze({on: this.choices.get('forcedOnly', fence.playback, false)})} : {}),
-      options: this.options, subtitles: this.subtitleService?.getSnapshot(), seekWindow, engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, externalPresentationBinding,
+      options: this.options, subtitles: this.subtitleService?.getSnapshot(), ...(fence?.kind === 'queue' ? {subtitleStyle: this.subtitleStyles.read(fence, this.o.settings().subtitles)} : {}), seekWindow, engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, externalPresentationBinding,
       ...(this.o.pictureInPictureControls ? {pictureInPicture: Object.freeze({request: this.pictureRequests, active: this.pictureAttempt?.state === 'active', state: this.pictureState,
         ...(this.pictureBinding && externalPresentationBinding && sameNativePresentation(this.pictureBinding, externalPresentationBinding) ? {binding: this.pictureBinding} : {})})} : {}), retired: this.retired,
       capabilities: Object.freeze({queueSelection: queueSelectionReady, queueEdit: queueEditReady, queuePolicy: ready && fence?.kind === 'queue' && !!view && session?.queue?.queueId === view.queue.id && view.queue.currentEntryId === fence.entryId, retry: playback.phase === 'error' && !this.preparing && fence?.kind === 'queue' && session?.kind === 'vod' && session.presentation.subtitle?.delivery !== 'other' && view?.queue.currentEntryId === fence.entryId && view.queue.entries.some(entry => entry.id === fence.entryId && !entry.hidden && !entry.removed), play: ready && playback.intent === 'paused', pause: ready && playback.intent === 'playing', stop: !!fence, seek: ready && (seekWindow ? seekWindow.endSeconds > seekWindow.startSeconds : playback.duration > 0),
         previous: ready && fence?.kind === 'queue' && (playback.positionSeconds > 3 || currentIndex > 0), next: ready && fence?.kind === 'queue' && !!view && view.next.reason !== 'end', cast: ready && fence?.kind === 'queue' && !!this.o.openDestinations,
+        // The system route picker moves the retained player; Portico adds no second transport.
+        airPlayVideo: ready && fence?.kind === 'queue' && localPicture?.kind === 'video' && !this.path.controller.getSnapshot().changing
+          && this.o.engineFeatures(this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native').airPlayVideo,
         quality: ready && !playback.nativeListening && !!this.options?.qualities.length, version: ready && !playback.nativeListening && (this.options?.versions.length ?? 0) > 1,
         audioTrack: ready && !playback.nativeListening && !!this.options?.versions.find(value => value.id === session?.versionId)?.audio.length,
         subtitleTrack: ready && !playback.nativeListening && !!this.subtitleService?.getSnapshot().plan,
@@ -1357,6 +1376,7 @@ export class NativePlaybackRuntime {
     // queue before its observation is settled. React must see that transaction
     // once, after all those listeners have run, rather than re-enter their fanout.
     if (this.factDepth) { this.factPublication = true; return; }
+    this.videoPolicy.update();
     this.snapshot = this.makeSnapshot(this.snapshot.sequence + 1);
     for (const listener of [...this.listeners]) listener();
   }
@@ -1405,45 +1425,70 @@ export class NativePlaybackRuntime {
       else this.playback.fail(before.intentId, serviceText('queuePlayer.startFailed'));
     }
     if (fact.rateError && before.intent === 'playing') this.playback.pause();
-    this.automaticSkip();
     this.publish();
   }
 
-  private automaticSkip(): void {
-    const state = this.playback.getSnapshot(), fence = this.fence();
-    if (!fence || fence.kind !== 'queue' || state.phase !== 'ready' || state.intent !== 'playing' || state.pendingSeek || state.failedSeek) return;
-    const modes = this.o.settings().skips;
-    const markers = (this.options?.markers ?? []).flatMap((marker): SegmentMarker[] => {
-      const kind = marker.type;
-      // Wire preview/other markers have no corresponding skip kind in player-core.
-      if (kind !== 'intro' && kind !== 'recap' && kind !== 'credits' && kind !== 'commercial') return [];
-      return [{id: marker.id, kind, startSeconds: marker.startMs / 1000, endSeconds: marker.endMs / 1000, automaticSafe: marker.automaticSafe}];
-    });
-    const prefix = `${fence.playback.run}/${fence.sourceId}/`;
-    const dismissed = new Set([...this.skipped].filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length)));
-    const marker = activeSegment(markers, state.positionSeconds, modes, dismissed);
-    if (!marker || !skipsAutomatically(marker, modes)) return;
-    this.skipped.add(prefix + marker.id);
-    this.playback.markerSkipped(marker.id, 'automatic', state.positionSeconds);
-    this.playback.seek(skipTarget(marker, state.duration));
+  private videoPolicyCurrent(fence: QueuePlaybackFence): boolean {
+    const live = this.fence();
+    return this.currentAuthority() && !!live && sameFence(live, fence);
+  }
+  private videoPolicyFrame(): NativeVideoPolicyFrame | undefined {
+    const state = this.playback.getSnapshot(), fence = this.fence(), queue = this.queue.getSnapshot(), view = queue.view;
+    const session = this.currentSession();
+    if (this.retired || this.preparing || this.transitionEpoch !== undefined || !fence || fence.kind !== 'queue'
+      || !session || session.kind !== 'vod' || session.role !== 'local' || !view || view.queue.currentEntryId !== fence.entryId
+      || session.queue?.queueId !== view.queue.id || session.queue.entryId !== fence.entryId) return;
+    const duration = Number.isFinite(state.duration) ? Math.max(0, state.duration) : 0;
+    const position = Number.isFinite(state.positionSeconds) ? Math.max(0, state.positionSeconds) : 0;
+    if (duration > 1e9 || position > 1e9) return;
+    const markers = nativeVideoPolicyMarkers(this.options?.itemId === fence.itemId ? this.options.markers : [], duration);
+    const item = view.items.find(entry => entry.entryId === fence.entryId);
+    const rate = this.effectiveRate > 0 ? this.effectiveRate : this.choices.get('speed', fence.playback, this.o.settings().videoRate);
+    return {markers, frame: {fence, nowMs: 0, positionSeconds: duration > 0 ? Math.min(position, duration) : position,
+      durationSeconds: duration, rate: Math.max(.25, Math.min(4, rate)), kind: item?.kind ?? this.entry?.kind ?? 'movie',
+      playing: state.phase === 'ready' && state.intent === 'playing' && !state.recovering && !state.pendingSeek && !state.failedSeek,
+      expanded: this.expanded, ended: state.phase === 'ended' && queue.completion?.sessionId === fence.sessionId,
+      modes: this.o.settings().skips, postPlay: nativeVideoPolicyPostPlay(view.postPlay),
+      ...(state.phase === 'error' ? {attention: 'playback-error' as const} : {})}};
   }
 
-  private clearCompletion(): void {
-    if (this.completionTimer !== undefined) (this.o.timers?.clearTimer ?? (timer => clearTimeout(timer as ReturnType<typeof setTimeout>)))(this.completionTimer);
-    this.completionTimer = undefined; this.completionKey = '';
+  private async executeVideoPolicy(command: PolicyCommand): Promise<void> {
+    const fence = command.fence;
+    if (!this.videoPolicyCurrent(fence)) return;
+    if (command.kind === 'expand') {
+      // changed() already reveals each new failed source once. A later Back or
+      // Minimize must not be undone by another policy tick for that same error.
+      if (command.reason === 'playback-error') return;
+      this.expanded = true; this.dock.expand(fence); this.applyOptions(); this.publish(); return;
+    }
+    if (command.kind === 'seek') {
+      const state = this.playback.getSnapshot();
+      if (state.phase !== 'ready' || state.recovering || state.pendingSeek || state.failedSeek) return;
+      if (command.reason !== 'undo') this.playback.markerSkipped(command.markerId, command.reason === 'automatic-skip' ? 'automatic' : 'manual', state.positionSeconds);
+      this.playback.seek(command.positionSeconds); return;
+    }
+    const queue = this.queue.getSnapshot(), view = queue.view;
+    if (!view || view.queue.currentEntryId !== fence.entryId || view.next.entryId !== command.nextEntryId || !view.next.available) return;
+    if (queue.completion?.sessionId === fence.sessionId) await this.queue.continueCompletion(command.mode);
+    else if (command.mode === 'automatic') await this.queue.advanceFromCredits(view.queue.id, view.queue.revision);
+    else await this.queue.next(view.queue.id, view.queue.revision);
   }
-  private completionChanged(): void {
-    const held = this.queue.getSnapshot().completion, fence = this.fence();
-    if (!held || !fence || held.sessionId !== fence.sessionId) { this.clearCompletion(); return; }
-    if (held.postPlay.passoutCheckDue) { this.clearCompletion(); this.expanded = true; this.dock.expand(fence); return; }
-    if (!held.postPlay.autoplay || !held.nextAvailable) { this.clearCompletion(); return; }
-    if (this.completionKey === held.sessionId) return;
-    this.clearCompletion(); this.completionKey = held.sessionId;
-    this.completionTimer = (this.o.timers?.setTimer ?? ((fn, ms) => setTimeout(fn, ms)))(() => {
-      this.completionTimer = undefined;
-      if (this.matches(fence) && this.queue.getSnapshot().completion === held) void this.queue.continueCompletion('automatic').catch(() => {});
-    }, held.postPlay.countdownSeconds * 1000);
+
+  private async applyPolicySeek(fence: PlaybackFence, action: Readonly<{kind: 'skip'; markerId: string}> | Readonly<{kind: 'undo'}>): Promise<void> {
+    const state = this.playback.getSnapshot();
+    // Do not consume a prompt or Undo before the current output can accept its
+    // seek. The executor rechecks the same conditions before touching playback.
+    if (fence.kind !== 'queue' || !this.videoPolicyCurrent(fence) || state.phase !== 'ready'
+      || state.recovering || state.pendingSeek || state.failedSeek) return;
+    if (action.kind === 'skip') await this.videoPolicy.skip(fence, action.markerId);
+    else await this.videoPolicy.undo(fence);
   }
+
+  policyDismiss = (fence: PlaybackFence): boolean => fence.kind === 'queue' && this.videoPolicy.dismiss(fence);
+  policySkip = (fence: PlaybackFence, markerId: string): Promise<void> => this.applyPolicySeek(fence, {kind: 'skip', markerId});
+  policyUndo = (fence: PlaybackFence): Promise<void> => this.applyPolicySeek(fence, {kind: 'undo'});
+  policyAdvance = async (fence: PlaybackFence, mode: 'manual' | 'still-watching'): Promise<void> => {if (fence.kind === 'queue') await this.videoPolicy.advance(fence, mode);};
+  policyCancelAutoplay = (fence: PlaybackFence): void => {if (fence.kind === 'queue') this.videoPolicy.cancelAutoplay(fence);};
 
   toggle = async (fence: PlaybackFence): Promise<void> => { if (this.matches(fence)) { const state = this.playback.getSnapshot(); if (state.intent === 'playing') this.playback.pause(); else this.playback.resume(); } };
   selectQueuedEntry = async (fence: PlaybackFence, request: V1QueuedEntrySelection, lifetime: NativePlaybackReadLifetime): Promise<void> => {
@@ -1592,7 +1637,7 @@ export class NativePlaybackRuntime {
       }
     } : undefined);
   };
-  cast = async (fence: PlaybackFence): Promise<void> => { if (this.matches(fence) && this.o.openDestinations) await this.o.openDestinations(fence); };
+  cast = async (fence: PlaybackFence, anchorRef?: RefObject<View | null>): Promise<void> => { if (this.matches(fence) && this.o.openDestinations) await this.o.openDestinations(fence, anchorRef); };
 
   /** Same queue occurrence/session, then an actual native acknowledgement. The
    * caller owns host/navigation lifetime; the accepted new generation is ours. */
@@ -1971,8 +2016,8 @@ export class NativePlaybackRuntime {
     }
     this.beginOperation(); this.retired = true; ++this.sourceEpoch; this.externalPresentationBinding = null;
     this.cancelSnapshot(); for (const release of this.videoExitImages) void release().catch(() => {}); this.snapshotCapture?.dispose();
-    this.startController?.abort(); this.sourceController?.abort(); this.clearForcedImage(); this.http.dispose(); this.clearCompletion();
-    const identity = this.snapshot.fence?.playback; if (identity) this.choices.stop(identity); this.skipped.clear();
+    this.startController?.abort(); this.sourceController?.abort(); this.clearForcedImage(); this.http.dispose(); this.videoPolicy.dispose();
+    const identity = this.snapshot.fence?.playback; if (identity) this.choices.stop(identity); this.subtitleStyles.clear();
     if (this.routeRecovery) clearTimeout(this.routeRecovery);
     this.subtitleOff?.(); this.subtitleService?.stop(); this.subtitleService = undefined;
     this.detailOff?.(); this.detailOff = undefined;

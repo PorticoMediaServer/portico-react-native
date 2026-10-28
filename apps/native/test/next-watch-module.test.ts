@@ -1,7 +1,6 @@
-import {isTablet} from '../src-next/platform/device-platform';
+import {nativeSubtitleStyleKeys, nativeSubtitleStyleValue} from '../src-next/platform/playback/subtitle-style-choices.ts';
 import {nativeDeviceSettings} from '../src-next/platform/device-settings';
 import * as groupPort from '../src-next/screens/settings-live/group-port.ts';
-import {nativeServerPreferences} from '../src-next/platform/server-preferences.ts';
 import {browseValueLabel} from '../../../packages/client-core/src/presentation/browse-toolbar.ts';
 import {sameAuthority} from '../src-next/shell/model.ts';
 import {NativeShellNavigation} from '../src-next/shell/routes.ts';
@@ -31,18 +30,18 @@ const menuCalls: any[][] = [];
 let captured: any, optionsDisposed = 0, screensDisposed = 0;
 const {createNativeWatchModule, nativeWatchChromeFacts} = await screenModule(new URL('../src-next/screens/watch/module.tsx', import.meta.url), {
   '../settings-live/group-port': groupPort,
-  '../../platform/device-platform': {isTablet},
   '../../platform/device-settings': {nativeDeviceSettings},
-  '../../platform/server-preferences': {nativeServerPreferences},
   '../../shell/model': {sameAuthority},
   '../../../../../packages/client-core/src/presentation/browse-toolbar': {browseValueLabel},
   '../../../../../packages/client-core/src/audiobook-preferences': {audiobookPreferences}, react, 'react-native': {Platform: {isTV: false}}, '../../../../../packages/player-core/src': {sameFence},
+  '../../platform/playback/subtitle-style-choices': {nativeSubtitleStyleKeys, nativeSubtitleStyleValue},
   '../../../../../packages/client-core/src/playback-v1/quality': {qualityOptionSelected}, './track-identity': {nativeWatchTracks},
   '../../../../../packages/i18n/src': {defaultI18n}, './panel-names': {createNativeWatchPanelNames},
   './ChannelRoute': {NativeWatchChannelRoute: 'Channel'},
   './PlaybackInfoPanel': {NativePlaybackInfoPanel: 'PlaybackInfo', playbackInfoWords: infoPanel.playbackInfoWords},
   './WatchPanels': {NativeWatchPanels: 'Panels'}, './panel-options': {NativeWatchPanelOptions: class {dispose() {optionsDisposed++;}}},
-  './live-guide': {NativeTVLiveGuide: 'LiveGuide'}, './live-actions': {NativeTVLiveActions: 'LiveActions'},
+  './live-guide': {NativeTVLiveGuide: class {guideAction() {return () => {};} close() {return false;} dispose() {}}},
+  './live-actions': {NativeTVLiveActions: class {close() {return false;} dispose() {}}},
   './LiveActionPanels': {NativeLiveActionPanels: 'LiveActionPanels'}, './PlaybackFailed': {NativePlaybackFailed: 'PlaybackFailed'},
   './HandheldPlaybackFailed': {NativeHandheldPlaybackFailed: 'HandheldPlaybackFailed'}, './PostPlayScreen': {NativeWatchPostPlay: 'PostPlay'},
   './factory': {createNativeWatchScreens: (ports: any) => {captured = ports; return {title: {render: () => 'title'}, watch: {

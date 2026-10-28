@@ -75,7 +75,7 @@ export type NowPlayingScreenProps = Readonly<{
   /** A retained Try again for the failed output this screen drew, through the adapter's retry port. */
   retry?: Readonly<{enabled: boolean; run: (fence: PlaybackFence) => void}>;
   /** The real Play on controller, opened only for the output and page this screen drew. */
-  playOn?: Readonly<{enabled: boolean; open: (fence: PlaybackFence) => void}>;
+  playOn?: Readonly<{enabled: boolean; open: (fence: PlaybackFence, anchorRef?: React.RefObject<View | null>) => void}>;
   /** The guarded queue edit for loaded upcoming rows, bound to the fence this screen drew. */
   queueEdit?: Readonly<{enabled: boolean; lease?: object; apply: (fence: PlaybackFence, intent: V1QueueEditIntent, queueId: string, expectedRevision: string) => void}>;
   /** The current song's issued Detail token and its one favorite ticket; touch only. */
@@ -112,6 +112,7 @@ export function TVListeningRoute({value, scope, onPresenceChange}: {value?: NowP
 
 function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInset = 0, bottomInset = 0, backgroundHosted = false, onAction, onQueuePlay, queuePolicy, policyLifetime, retry, playOn, queueEdit, song, onClose, signal, notice, reportError = () => {}, testID = 'now-playing', lyrics}: NowPlayingScreenProps) {
   const theme = useTheme(), {presentation: p, playback} = occupant;
+  const playOnButton = useRef<View>(null);
   const paintPermit = useListeningPaintPermit(playback.fence), paintActive = useListeningPageActive(playback.fence);
   // Repeat and shuffle are the queue's own facts, and the answer to a change is the server's
   // queue read that follows, never a locally flipped control. A request keeps the exact queue
@@ -281,8 +282,8 @@ function TouchNowPlayingScreen({occupant, queue, artwork, width, height, topInse
         accessibilityState={{expanded: sheet === 'queue'}} onPress={() => setSheet(open => open === 'queue' ? null : 'queue')}>{t('player.queue')}</Button> : null}
       {!side && lyrics ? <Button testID={`${testID}-lyrics-toggle`} variant={sheet === 'lyrics' ? 'primary' : 'glass'} size="small" icon="i-cc"
         accessibilityState={{expanded: sheet === 'lyrics'}} onPress={() => setSheet(open => open === 'lyrics' ? null : 'lyrics')}>{t('player.lyrics')}</Button> : null}
-      {playOn?.enabled ? <Button testID={`${testID}-play-on`} variant="glass" size="small" icon="i-cast" accessibilityLabel={t('player.playOn')}
-        onPress={() => playOn.open(playback.fence)}>{t('device.thisDevice')}</Button> : null}
+      {playOn?.enabled ? <Button ref={playOnButton} testID={`${testID}-play-on`} variant="glass" size="small" icon="i-cast" accessibilityLabel={t('player.playOn')}
+        onPress={() => playOn.open(playback.fence, playOnButton)}>{t('device.thisDevice')}</Button> : null}
       {equalizer.supported ? <Button testID={`${testID}-equalizer`} variant="glass" size="small" icon="i-gauge" accessibilityLabel={t('next.media.eq.title')}
         onPress={() => setPanel('eq')}>{t('next.media.eq.title')}</Button> : null}
       <Button testID={`${testID}-close`} variant="glass" size="small" icon="i-down" accessibilityLabel={t('player.minimize')} onPress={onClose}>{t('action.close')}</Button>

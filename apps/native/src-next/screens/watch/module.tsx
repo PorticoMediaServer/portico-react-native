@@ -4,7 +4,7 @@ import React from 'react';
 import {audiobookPreferences} from '../../../../../packages/client-core/src/audiobook-preferences';
 import {Platform, type View} from 'react-native';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
-import {sameFence, type SkipMode} from '../../../../../packages/player-core/src';
+import {sameFence} from '../../../../../packages/player-core/src';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {qualityOptionSelected} from '../../../../../packages/client-core/src/playback-v1/quality';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
@@ -27,9 +27,8 @@ import {NativeLiveActionPanels} from './LiveActionPanels';
 import {NativePlaybackFailed} from './PlaybackFailed';
 import {NativeHandheldPlaybackFailed} from './HandheldPlaybackFailed';
 import {NativeWatchPostPlay} from './PostPlayScreen';
-import {isTablet} from '../../platform/device-platform';
 import {createNativeWatchPanelNames} from './panel-names';
-import {nativeServerPreferences} from '../../platform/server-preferences';
+import {nativeSubtitleStyleKeys, nativeSubtitleStyleValue} from '../../platform/playback/subtitle-style-choices';
 import {browseValueLabel} from '../../../../../packages/client-core/src/presentation/browse-toolbar';
 
 export type NativeWatchEntryMenu = Readonly<{
@@ -39,7 +38,7 @@ export type NativeWatchEntryMenu = Readonly<{
 }>;
 
 export type NativeWatchModuleBindings = Pick<NativeWatchFactoryPorts,
-  'requestId' | 'title' | 'manageFile' | 'openFileInfo' | 'openMenu' | 'openVersions' | 'startVersion'> & Readonly<{
+  'requestId' | 'title' | 'manageFile' | 'openFileInfo' | 'openMenu' | 'openVersions' | 'beginVersions' | 'startVersion'> & Readonly<{
   /** Canonical localized names/copy and real error UI; no selection enters here. */
   names?: NativeWatchPanelNames;
   /** One playlist picker per authority-local module, rendered by its overlay outlet. */
@@ -76,7 +75,7 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
   const copy = bindings.copy ?? {sessionLead: defaultI18n.t('player.opt.temporaryChanges'), sessionDefaults: defaultI18n.t('player.opt.defaultsUnchanged'), audioContinues: defaultI18n.t('player.opt.hearingContinues')};
   let disposed = false;
   const current = () => !disposed && context.current();
-  const liveGuide = Platform.isTV ? new NativeTVLiveGuide(context) : undefined;
+  const liveGuide = new NativeTVLiveGuide(context, !Platform.isTV);
   // Media's retry changes the failed phase and source itself, so these controllers
   // belong to the module and its route, never to the error surface. They abort on a
   // route/authority replacement, a collapsed watch or disposal — not on phase,
@@ -138,31 +137,24 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid_playback_preference');
     return value / 1000;
   };
-  // The same Settings keys the runtime's automatic skip reads; an unreadable value
-  // behaves as the player's own default, which asks.
-  const skipModes = (): Readonly<Record<'intro' | 'recap' | 'credits', SkipMode>> => {
-    const values = context.preferences().effective;
-    const read = (key: string): SkipMode => values[key] === 'auto' ? 'auto' : values[key] === 'off' ? 'off' : 'ask';
-    return {intro: read('playback.introSkip'), recap: read('playback.recapSkip'), credits: read('playback.creditsSkip')};
-  };
-  // The viewer's subtitle style, read from the registry the server publishes and
-  // written to the scope that registry allows; the panel renders only fields the
-  // server actually publishes.
-  const stylePort = (): NativeWatchStylePort | undefined => {
-    const snapshot = context.preferences(), keys = ['playback.subtitleSize', 'playback.subtitleColor', 'playback.subtitleBackground', 'playback.subtitlePosition', 'playback.subtitleFont'];
-    const fields = keys.flatMap(key => {
+  // The registry supplies the offered values; player edits stay with this run.
+  // Settings remains the only owner of the persisted preference documents.
+  const stylePort = (source: NativePlaybackRuntimeSnapshot): NativeWatchStylePort | undefined => {
+    const fence = source.fence, appearance = source.subtitleStyle;
+    if (!fence || !appearance || !context.playback.setSubtitleStyle) return undefined;
+    const snapshot = context.preferences();
+    const fields = nativeSubtitleStyleKeys.flatMap(key => {
       const field = snapshot.registry.fields.find(entry => entry.key === key);
       if (!field?.allowedValues?.length) return [];
-      return [{key, label: defaultI18n.t(field.labelKey as Parameters<typeof defaultI18n.t>[0]), current: String(snapshot.effective[key] ?? ''),
+      return [{key, label: defaultI18n.t(field.labelKey as Parameters<typeof defaultI18n.t>[0]), current: nativeSubtitleStyleValue(key, appearance),
         values: field.allowedValues.map(value => ({value: String(value), label: browseValueLabel(String(value))}))}];
     });
     if (!fields.length) return undefined;
     return {fields, apply: async (key: string, value: string) => {
-      const current = context.preferences(), field = current.registry.fields.find(entry => entry.key === key);
-      const scope = (['profile-device', 'profile-device-class', 'profile-server'] as const).find(candidate => field?.scopes.includes(candidate));
-      const document = scope ? current.documents.find(entry => entry.scope === scope) : undefined;
-      if (!scope || !document) throw new Error('native_preferences_scope_missing');
-      await nativeServerPreferences(context).applyPreferences(scope, current.deviceClass, document.revision, {[key]: value});
+      if (!current()) return;
+      const field = context.preferences().registry.fields.find(entry => entry.key === key);
+      if (!field?.allowedValues?.some(allowed => String(allowed) === value)) throw new Error('invalid_playback_preference');
+      context.playback.setSubtitleStyle?.(fence, key, value);
     }};
   };
   const sleepPort = (): NonNullable<NativeWatchPanelsProps['sleep']> => {
@@ -182,20 +174,19 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
   };
   const player: NativeWatchHostBindings = {
     noticePreferences,
+    liveGuide,
     chrome: (source, runtime) => ({...nativeWatchChromeFacts(source, bindings.names ?? createNativeWatchPanelNames(runtime.text)), skipBackSeconds: skipSeconds(source, 'playback.skipBackMs'),
-      skipForwardSeconds: skipSeconds(source, 'playback.skipForwardMs'), reportError: runtime.reportError, skipModes: skipModes(), artwork: runtime.artwork,
+      skipForwardSeconds: skipSeconds(source, 'playback.skipForwardMs'), reportError: runtime.reportError, artwork: runtime.artwork,
       onMinimize: fence => {if (current()) {const transition = context.playback.dock.collapse(fence); if (transition) void context.playback.onTransition(transition).catch(runtime.reportError);}},
-      ...(context.playback.cast ? {onCast: fence => {if (current()) void context.playback.cast?.(fence).catch(runtime.reportError);}} : {}),
+      ...(context.playback.cast ? {onCast: (fence, anchorRef) => {if (current()) void context.playback.cast?.(fence, anchorRef).catch(runtime.reportError);}} : {}),
       ...(context.playback.goLive ? {goLive: fence => {if (current()) void context.playback.goLive!(fence).catch(runtime.reportError);}} : {}),
-      // tablet-play8 / tv-player: the guide opens from the live player on a television
-      // and on a tablet, where the mini guide docks beside the picture; a phone has none.
-      ...(liveGuide ? {liveGuide} : {}),
+      liveGuide,
       ...(liveActions ? {liveActions} : {}),
-      ...(liveGuide ? {onGuide: liveGuide.guideAction()} : isTablet ? {onGuide: () => {if (current()) context.navigation.open({kind: 'shell', destination: {kind: 'live'}}, context.authority());}} : {}),
+      onGuide: liveGuide.guideAction(),
       ...(bindings.onPictureInPicture ? {onPictureInPicture: bindings.onPictureInPicture} : {}),
     }),
     panel: host => <NativeWatchPanels context={host} options={options} playback={context.playback} names={bindings.names ?? createNativeWatchPanelNames(host.runtime.text)} copy={copy}
-      subtitleControls={fence => context.playback.subtitleControls?.(fence)} sleep={context.playback.setSleepTimer ? sleepPort() : undefined} style={stylePort()}
+      subtitleControls={fence => context.playback.subtitleControls?.(fence)} sleep={context.playback.setSleepTimer ? sleepPort() : undefined} style={stylePort(host.source)}
       reportError={host.runtime.reportError} renderError={bindings.title.renderError} playbackInfo={bindings.playbackInfo ?? (value => <NativePlaybackInfoPanel context={value} read={screens.readPlaybackInfo} renderError={bindings.title.renderError}/>)} episodes={bindings.episodes ?? screens.watch.episodes}/>,
     notice: (fence, lifetime) => screens.readPlaybackInfo(fence, playbackInfoWords(), lifetime).then(info => info?.notice),
     content: host => screens.watch.body(host),
@@ -206,8 +197,26 @@ export function createNativeWatchModule(context: NativeShellBootstrapContext, bi
       const live = context.playback.getSnapshot();
       const canRetry = live.capabilities.retry === true && !!context.playback.retry && !!live.fence && sameFence(live.fence, failure.fence);
       const retry = canRetry ? () => {retryFailed(failure, route, host.runtime.reportError);} : undefined;
+      const failedFence = live.fence, failedVersionId = live.session?.versionId;
+      // Queue advancement can supply metadata without a card's playback target.
+      // Recovery belongs to this failed session; the chosen version reads resume afresh.
+      const entry = live.entry && failedFence?.kind === 'queue' && live.session?.kind === 'vod'
+        && live.entry.id === failedFence.itemId && live.session.itemId === failedFence.itemId
+        && live.session.id === failedFence.sessionId && failedVersionId === failedFence.sourceId
+        ? {...live.entry, playback: {itemId: failedFence.itemId}} : undefined;
+      const versionCurrent = () => {
+        const source = context.playback.getSnapshot();
+        return current() && expanded() && source.playback.phase === 'error' && !!source.fence && sameFence(source.fence, failure.fence)
+          && source.session?.kind === 'vod' && source.session.id === failedFence?.sessionId
+          && source.session.itemId === entry?.id && source.session.versionId === failedVersionId;
+      };
+      const canChooseVersion = !Platform.isTV && !!bindings.openVersions && !!bindings.beginVersions && !!bindings.startVersion
+        && !!entry && !!failedVersionId && live.options?.itemId === entry.id
+        && live.options.versions.some(version => version.id !== failedVersionId) && versionCurrent();
+      const capture = canChooseVersion ? screens.capture(entry!, versionCurrent) : undefined;
+      const differentVersion = capture ? () => {if (versionCurrent()) void screens.versions(capture, failedVersionId).catch(host.runtime.reportError);} : undefined;
       return Platform.isTV ? <NativePlaybackFailed context={host} failure={failure} chromeVisible={chromeVisible} retry={retry}/>
-        : <NativeHandheldPlaybackFailed failure={failure} retry={retry}/>;
+        : <NativeHandheldPlaybackFailed failure={failure} retry={retry} differentVersion={differentVersion}/>;
     },
     postPlay: host => host.source.entry ? <NativeWatchPostPlay entry={host.source.entry} api={context.api} scope={detailScope} requestId={bindings.requestId} compact={!Platform.isTV}
       current={current} artwork={host.runtime.artwork} onReplay={() => {if (current()) void context.playback.replay(host.fence).catch(host.runtime.reportError);}}

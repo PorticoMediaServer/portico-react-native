@@ -1,4 +1,6 @@
-import {AppState, Dimensions, Platform} from 'react-native';
+import type {RefObject} from 'react';
+import {AppState, Dimensions, Platform, type View} from 'react-native';
+import type {PlaybackFence} from '../../../../packages/player-core/src';
 import {NativeScreenLifetime} from '../screens/settings-live/lifetime';
 import {sendNativeDeviceReport} from '../screens/settings-live/device-client-report';
 import {bindNativeTogether} from '../screens/settings-live/together-playback';
@@ -233,7 +235,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
         const off = navigation!.subscribe(listener);listeners.add(listener);
         return () => {off();listeners.delete(listener);};
       },
-      ...(!Platform.isTV ? {openDestinations: () => {playOn?.open(); return Promise.resolve();}} : {}),
+      ...(!Platform.isTV ? {openDestinations: (_fence: PlaybackFence, anchorRef?: RefObject<View | null>) => {playOn?.open(anchorRef); return Promise.resolve();}} : {}),
       settings: () => {
         // The sample-rate match is this device's own engine value, never the profile's.
         let matching: 'smart' | 'strict' | 'off' | undefined;

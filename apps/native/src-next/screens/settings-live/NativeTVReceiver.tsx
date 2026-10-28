@@ -80,7 +80,7 @@ export function NativeTVReceiver({context, runtime}: {context: NativeShellBootst
               if (!['movie', 'episode', 'extra', 'song', 'audiobook_file'].includes(kind)) throw new Error('native_receiver_item_unsupported');
               const target = {itemId, startSeconds: positionSeconds};
               const entry = {...item, kind: kind as ContentEntry['kind'], playback: target} as ContentEntry;
-              return context.playback.start({entry, target, lifetime: {signal: opening.signal, isCurrent: playingHere}});
+              return context.playback.start({entry, target, startIntent: 'explicit', lifetime: {signal: opening.signal, isCurrent: playingHere}});
             }).catch(error => {if (current()) runtime.reportError(error);});
           },
           state: () => {

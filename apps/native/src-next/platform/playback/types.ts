@@ -1,5 +1,6 @@
 import type {V1QueueEditIntent, V1QueuedEntrySelection, V1QueuePolicyIntent} from '../../../../../packages/client-core/src/playback-v1/v1-queue-player';
-import type {ComponentType} from 'react';
+import type {ComponentType, RefObject} from 'react';
+import type {View} from 'react-native';
 import type {OfflineEntry} from '../../../platform/offline-downloads';
 import type {NativeOfflinePlaybackDevice} from './offline-playback';
 import type {HttpLocalApi, LocalSession, PlaybackSnapshot} from '../../../../../packages/client-core/src/index';
@@ -32,9 +33,12 @@ import type {ListeningSnapshot} from '../../../../../packages/client-core/src/li
 import type {AudiobookPreferences} from '../../../../../packages/client-core/src/audiobook-preferences';
 import type {PlayerChapter, PlayerChaptersData, PlayerChaptersSnapshot} from '../../../../../packages/client-core/src/player-chapters';
 import type {NativeStartArtworkOffer, NativeStartPresentation, NativeFirstVideoFrame} from './start-presentation';
+import type {PolicyView} from '../../../../../packages/player-core/src/playback-policy';
 
 export type PlaybackAuthority = Readonly<{serverId: string; accountId: string; profileId: string; epoch: string; viewerFence: string}>;
 export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNullable<ContentEntry['playback']>; origin?: Readonly<{kind: 'home-row'; rowId: string}>;
+  /** Ordinary Play/Resume asks the server for its current position. */
+  startIntent?: 'resume' | 'start-over' | 'explicit';
   /** Optional pixels measured at this original touch, never playback authority. */
   presentation?: NativeStartArtworkOffer;
   /** A group prepares this title paused until its authoritative clock plays. */
@@ -115,13 +119,17 @@ export type NativePlaybackSettings = Readonly<{
   skips: Readonly<Record<'intro' | 'recap' | 'credits', SkipMode>>;
   subtitles: SubtitlePreferences;
 }>;
-export type NativePlaybackCapabilities = Readonly<{play: boolean; pause: boolean; stop: boolean; retry?: boolean; queuePolicy?: boolean; queueEdit?: boolean; queueSelection?: boolean; seek: boolean; previous: boolean; next: boolean; cast: boolean; quality: boolean; version: boolean; audioTrack: boolean; subtitleTrack: boolean; subtitlesCanHide: boolean}>;
+export type NativePlaybackCapabilities = Readonly<{play: boolean; pause: boolean; stop: boolean; retry?: boolean; queuePolicy?: boolean; queueEdit?: boolean; queueSelection?: boolean; seek: boolean; previous: boolean; next: boolean; cast: boolean; airPlayVideo?: boolean; quality: boolean; version: boolean; audioTrack: boolean; subtitleTrack: boolean; subtitlesCanHide: boolean}>;
 export type NativePictureInPictureState = 'idle' | 'started' | 'restore' | 'stopped' | 'unavailable';
 
 export type NativePlaybackRuntimeSnapshot = Readonly<{
   authority: PlaybackAuthority; sequence: number; dock: DockState; playback: PlaybackSnapshot;
   fence?: PlaybackFence; subject?: PlaybackSubject; entry?: ContentEntry;
   queue: QueuePlayerState; session?: Session; options?: PlaybackOptions; subtitles?: SubtitleSnapshot;
+  /** Effective Settings plus appearance overrides for this playback run only. */
+  subtitleStyle?: SubtitlePreferences;
+  /** Shared skip, credits and end-card policy for this exact video source. */
+  policy?: PolicyView;
   channelGuide?: NativeChannelGuideOrigin;
   seekWindow?: Readonly<{startSeconds: number; endSeconds: number}>;
   capabilities: NativePlaybackCapabilities; engine: EngineKind; lease: string;
@@ -167,7 +175,7 @@ export type NativePlaybackRuntimeOptions = Readonly<{
   offlineDevice?: NativeOfflinePlaybackDevice;
   timers?: Timers;
   /** Optional actual destination binding. Its absence removes Cast from capabilities and API. */
-  openDestinations?: (fence: PlaybackFence) => Promise<void>;
+  openDestinations?: (fence: PlaybackFence, anchorRef?: RefObject<View | null>) => Promise<void>;
   /** Platform-owned picker only; upload stays in the one current-source SubtitleService. */
   subtitleFilePicker?: NativeSubtitleFilePicker;
   /** The platform factory actually wires the retained view's existing request props. */
@@ -194,6 +202,7 @@ export interface NativePlaybackAdapter {
   chooseQuality: (fence: PlaybackFence, quality: QualityOption) => Promise<void>;
   setRate: (fence: PlaybackFence, rate: number) => void;
   setForcedOnly?: (fence: PlaybackFence, on: boolean) => boolean;
+  setSubtitleStyle?: (fence: PlaybackFence, key: string, value: string) => boolean;
   subtitleControls: (fence: PlaybackFence) => NativePlaybackSubtitleControls | undefined;
   /** Fresh read only; never adopts/replans the session or fabricates report facts. */
   readSession?: (fence: PlaybackFence, lifetime: NativePlaybackReadLifetime) => Promise<Session | undefined>;
@@ -216,7 +225,12 @@ export interface NativePlaybackAdapter {
   skip: (fence: PlaybackFence, seconds: number) => Promise<void>;
   previous: (fence: PlaybackFence) => Promise<void>;
   next: (fence: PlaybackFence) => Promise<void>;
-  cast?: (fence: PlaybackFence) => Promise<void>;
+  policyDismiss?: (fence: PlaybackFence) => boolean;
+  policySkip?: (fence: PlaybackFence, markerId: string) => Promise<void>;
+  policyUndo?: (fence: PlaybackFence) => Promise<void>;
+  policyAdvance?: (fence: PlaybackFence, mode: 'manual' | 'still-watching') => Promise<void>;
+  policyCancelAutoplay?: (fence: PlaybackFence) => void;
+  cast?: (fence: PlaybackFence, anchorRef?: RefObject<View | null>) => Promise<void>;
   prepareExternalPresentation?: (fence: PlaybackFence, lifetime: NativeExternalPresentationLifetime) => Promise<NativeBinding | undefined>;
   requestPictureInPicture?: (fence: PlaybackFence, lifetime: NativeExternalPresentationLifetime) => Promise<boolean>;
   /** Channels only: return to the live edge of the retained window. */

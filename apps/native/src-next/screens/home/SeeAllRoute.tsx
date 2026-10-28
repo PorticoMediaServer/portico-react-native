@@ -135,7 +135,7 @@ export function createNativeHomeRows(context: NativeShellBootstrapContext, repor
         const captured = context.navigation.getSnapshot();
         const operation = nativeHomeEntryLifetime(() => current(source) && context.navigation.getSnapshot() === captured && entryCurrent(),
           [context.navigation.subscribe, source.controller.subscribe, source.controller.collection.subscribe], source.abort.signal);
-        void context.playback.start({entry, target: entry.playback, lifetime: operation.lifetime})
+        void context.playback.start({entry, target: entry.playback, ...(entry.kind === 'chapter' && entry.playback.startSeconds !== undefined ? {startIntent: 'explicit' as const} : {}), lifetime: operation.lifetime})
           .catch(error => {if (operation.lifetime.isCurrent()) reportError(error);}).finally(operation.dispose);
       }}
       onNotInterested={(entry, value) => markNotInterested(source, entry, value)} kindLabel={id => source.labels.get(id)!}/>),

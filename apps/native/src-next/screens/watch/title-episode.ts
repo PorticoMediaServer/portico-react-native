@@ -14,7 +14,7 @@ export type NativeTitleEpisodeOptions = Readonly<{
   requestId: () => Promise<string>;
   /** The retained title owner's authority and lifetime. */
   current: () => boolean;
-  play: (entry: ContentEntry, target: NonNullable<ContentEntry['playback']>) => Promise<void>;
+  play: (entry: ContentEntry, target: NonNullable<ContentEntry['playback']>, startIntent: 'resume' | 'start-over') => Promise<void>;
 }>;
 
 /** One episode opened in place under its row (Justin, 18 Oct 2026). The
@@ -75,7 +75,7 @@ export class NativeTitleEpisodeDetails {
     const action = data?.actions.find(value => value.enabled && value.playback && (fromStart ? value.id === 'start_over' : ['resume', 'play'].includes(value.id)));
     const target = (fromStart ? action?.playback : action?.playback ?? entry.playback);
     if (!target) return;
-    await this.options.play(entry, target);
+    await this.options.play(entry, target, fromStart ? 'start-over' : 'resume');
   };
   personal = async (intent: PersonalIntent): Promise<void> => {
     if (!this.alive() || !this.service || !this.snapshot.data) return;

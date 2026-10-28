@@ -50,11 +50,12 @@ test('title reads canonical show pages, sends Hide watched and retains it throug
   } finally {d.controller.dispose();}
 });
 
-test('show Play uses only the genuine projected continuation and its exact resume position', async () => {
+test('show Play names the genuine continuation and asks for authoritative Resume', async () => {
   const d = fixture();
   try {
     await d.controller.open(); await d.controller.play();
     assert.equal(d.starts.length, 1); assert.deepEqual(d.starts[0].target, {itemId: 'e2', startSeconds: 17});
+    assert.equal(d.starts[0].startIntent, 'resume', 'the retained position is not an explicit seek');
     await d.controller.play(d.controller.entry, true); assert.equal(d.starts.length, 1);
   } finally {d.controller.dispose();}
 });

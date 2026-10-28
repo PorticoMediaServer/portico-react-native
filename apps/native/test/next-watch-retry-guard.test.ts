@@ -1,3 +1,4 @@
+import {nativeSubtitleStyleKeys, nativeSubtitleStyleValue} from '../src-next/platform/playback/subtitle-style-choices.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -10,9 +11,10 @@ let captured: any;
 const {createNativeWatchModule} = await screenModule(new URL('../src-next/screens/watch/module.tsx', import.meta.url), {
   react: {...React, default: React}, 'react-native': {Platform: {isTV: false}}, '../settings-live/group-port': {}, '../../platform/device-settings': {},
   '../../../../../packages/client-core/src/audiobook-preferences': {}, '../../../../../packages/player-core/src': {sameFence}, '../../../../../packages/i18n/src': {defaultI18n: {t: (s: string) => s}},
+  '../../platform/playback/subtitle-style-choices': {nativeSubtitleStyleKeys, nativeSubtitleStyleValue},
   '../../../../../packages/client-core/src/playback-v1/quality': {}, './factory': {createNativeWatchScreens: (ports: any) => {captured = ports; return {watch: {}, dispose() {}};}},
   './PlaybackInfoPanel': {}, './WatchPanels': {}, './panel-options': {NativeWatchPanelOptions: class {dispose() {}}}, '../../shell/model': {sameAuthority},
-  './track-identity': {}, './ChannelRoute': {}, './live-guide': {}, './live-actions': {}, './LiveActionPanels': {}, './PlaybackFailed': {NativePlaybackFailed: 'TVFailure'},
+  './track-identity': {}, './ChannelRoute': {}, './live-guide': {NativeTVLiveGuide: class {guideAction() {return () => {};} close() {return false;} dispose() {}}}, './live-actions': {NativeTVLiveActions: class {close() {return false;} dispose() {}}}, './LiveActionPanels': {}, './PlaybackFailed': {NativePlaybackFailed: 'TVFailure'},
   './HandheldPlaybackFailed': {NativeHandheldPlaybackFailed: 'HandheldFailure'}, './PostPlayScreen': {}, '../../platform/device-platform': {}, './panel-names': {},
   '../../platform/server-preferences': {}, '../../../../../packages/client-core/src/presentation/browse-toolbar': {},
 });

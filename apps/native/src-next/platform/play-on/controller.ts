@@ -1,8 +1,12 @@
+import type {RefObject} from 'react';
+import type {View} from 'react-native';
 import type {CastDockIdentity} from '../../kit/dock';
 import type {CastSnapshot} from '../../../../../packages/client-core/src/cast';
 import {playbackControlsService} from '../../../../../packages/client-core/src/playback-controls';
 import {HandoffController, type HandoffPhase, type HandoffSnapshot} from '../../../../../packages/client-core/src/remote-playback';
 import type {Receiver} from '../../../../../packages/client-core/src/social-playback';
+import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
+import type {QueueEntry} from '../../../../../packages/client-core/src/playback-v1/types';
 import type {LocalSession} from '../../../../../packages/client-core/src/index';
 import {sameFence, type DockPlayback, type PlaybackFence, type RemoteDock} from '../../../../../packages/player-core/src';
 import {routePath} from '../../../../../packages/contracts/src/routes';
@@ -27,7 +31,13 @@ export type PlayOnRemote = Readonly<{
   id: string;
   device: string;
   title?: string;
+  itemId?: string;
+  /** Captured display facts belong only to this item, never a later local title. */
+  entry?: ContentEntry;
+  /** The receiving session's own next entry, when the controls report supplies it. */
+  next?: QueueEntry;
   positionSeconds: number;
+  positionKnown: boolean;
   durationSeconds: number;
   playing: boolean;
   stopped: boolean;
@@ -37,6 +47,8 @@ export type PlayOnRemote = Readonly<{
 
 export type PlayOnSnapshot = Readonly<{
   open: boolean;
+  /** The actual opener, measured by the tablet popover and used for focus return. */
+  anchorRef?: RefObject<View | null>;
   cast?: NativeCastState;
   castRemoteOpen?: boolean;
   receivers: readonly Receiver[];
@@ -139,7 +151,7 @@ export class NativePlayOn {
     this.publish(patch);
   }
 
-  open = (): boolean => {
+  open = (anchorRef?: RefObject<View | null>): boolean => {
     if (this.disposed || !this.options.current()) return false;
     const session = this.options.session();
     if (!this.controller && session?.deviceId) {
@@ -154,7 +166,7 @@ export class NativePlayOn {
       this.offController = stop;
     }
     if (!this.controller) return false;
-    this.publish({open: true, error: undefined});
+    this.publish({open: true, anchorRef, error: undefined});
     void this.controller.refresh().catch(error => {if (this.options.current()) this.options.reportError(error);});
     return true;
   };
@@ -211,7 +223,7 @@ export class NativePlayOn {
    * this device's own, captured before the handoff starts; a replacement dock playback
    * is never stopped and its title is never restored. */
   startCast = (): void => {if(!this.state.sending&&!this.state.remote){this.cast.start();this.publish({castRemoteOpen:false});}};
-  openCastRemote = (): void => {this.publish({castRemoteOpen:true});};
+  openCastRemote = (): void => {this.publish({castRemoteOpen:true,open:false});};
   closeCastRemote = (): void => {this.publish({castRemoteOpen:false});};
   castCommand=(type:string,position?:number,expected?:CastDockIdentity,takeover?:CastSnapshot['takeover']):void=>{this.cast.controls(type,position,expected,takeover);};
 
@@ -221,7 +233,7 @@ export class NativePlayOn {
     if (!playback || !session) return;
     const snapshot = playback.getSnapshot(), fence = snapshot.fence, local = snapshot.dock.local;
     if (!fence || fence.kind !== 'queue' || snapshot.playback.phase !== 'ready' || !local || !sameFence(local.fence, fence)) return;
-    if (!this.open()) return;
+    if (!this.open(this.state.anchorRef)) return;
     const attempt = ++this.attempt;
     const connection = `playon_${wire(receiver.id)}_${attempt.toString(36)}${Date.now().toString(36)}`;
     this.stopPolling();
@@ -242,11 +254,12 @@ export class NativePlayOn {
       return;
     }
     this.receiverPlaybackId = this.controller!.getSnapshot().receiverPlaybackId;
-    const entry = now.entry;
+    const entry = snapshot.entry?.id === fence.itemId ? snapshot.entry : undefined;
     this.publish({open: false, sending: false, message: this.controller!.getSnapshot().message, target: receiver, error: undefined,
-      remote: {id: connection, device: receiver.displayName, title: entry?.displayTitle ?? entry?.title,
+      remote: {id: connection, device: receiver.displayName, title: entry?.displayTitle ?? entry?.title, itemId: fence.itemId,
+        entry,
         positionSeconds: snapshot.playback.positionSeconds, durationSeconds: snapshot.playback.duration,
-        playing: true, stopped: false, allows: NONE}});
+        positionKnown: false, playing: true, stopped: false, allows: NONE}});
     await this.push('playing', true, attempt, connection);
     this.startPolling(attempt, connection);
   };
@@ -289,7 +302,7 @@ export class NativePlayOn {
       const current = this.state.remote;
       if (!report || !current) {
         // No report is not a grant: every control stays off until the device answers.
-        if (current) this.publish({remote: {...current, allows: NONE}});
+        if (current) this.publish({remote: {...current, positionKnown: false, next: undefined, allows: NONE}});
         return;
       }
       // An unavailable read is not an ended session: only its own report can say ended.
@@ -297,37 +310,42 @@ export class NativePlayOn {
       const allows = {pause: report.actions.includes('pause'), resume: report.actions.includes('resume'),
         seek: report.actions.includes('seek'), stop: report.actions.includes('stop')};
       this.publish({remote: {...current, positionSeconds: Math.max(0, report.positionMs / 1000),
-        durationSeconds: report.durationMs ? report.durationMs / 1000 : current.durationSeconds, playing: report.state === 'playing' && !stopped,
-        stopped, allows, ...(report.item?.title ? {title: report.item.title} : {}), ...(report.device.name ? {device: report.device.name} : {})}});
+        positionKnown: true, itemId: report.item?.id, entry: report.item?.id === current.entry?.id ? current.entry : undefined,
+        next: report.next?.available ? report.next : undefined,
+        durationSeconds: report.durationMs ? report.durationMs / 1000 : report.item?.id === current.itemId ? current.durationSeconds : 0,
+        playing: report.state === 'playing' && !stopped, stopped, allows, title: report.item?.title,
+        ...(report.device.name ? {device: report.device.name} : {})}});
       if (stopped) {this.stopPolling(); await this.push('stopped', false, attempt, connection);}
       else await this.push('playing', false, attempt, connection);
     } catch (error) {
       const current = this.state.remote;
       if (this.bound(attempt, connection, sessionId)) {
-        if (current) this.publish({remote: {...current, allows: NONE}});
+        if (current) this.publish({remote: {...current, positionKnown: false, next: undefined, allows: NONE}});
         this.options.reportError(error);
       }
     } finally {this.polling = false;}
   }
 
-  private remoteBound(remoteId?: string): boolean {
-    return !!remoteId && remoteId === this.connection && !this.disposed && this.options.current();
+  private remoteBound(remoteId?: string, action?: keyof PlayOnRemote['allows']): boolean {
+    const remote = this.state.remote;
+    return !!remoteId && remoteId === this.connection && !this.disposed && this.options.current()
+      && (!action || !!remote && !remote.stopped && remote.allows[action]);
   }
-  pause = async (remoteId?: string): Promise<void> => {const controller = this.controller; if (!controller || !this.remoteBound(remoteId)) return;
+  pause = async (remoteId?: string): Promise<void> => {const controller = this.controller; if (!controller || !this.remoteBound(remoteId, 'pause')) return;
     const attempt = this.attempt, connection = this.connection, sessionId = this.receiverPlaybackId;
     await controller.pause().catch(() => {});
     if (this.bound(attempt, connection, sessionId)) await this.poll(attempt, connection);};
-  resume = async (remoteId?: string): Promise<void> => {const controller = this.controller; if (!controller || !this.remoteBound(remoteId)) return;
+  resume = async (remoteId?: string): Promise<void> => {const controller = this.controller; if (!controller || !this.remoteBound(remoteId, 'resume')) return;
     const attempt = this.attempt, connection = this.connection, sessionId = this.receiverPlaybackId;
     await controller.play().catch(() => {});
     if (this.bound(attempt, connection, sessionId)) await this.poll(attempt, connection);};
-  startOver = async (remoteId?: string): Promise<void> => {const controller = this.controller; if (!controller || !this.remoteBound(remoteId)) return;
+  startOver = async (remoteId?: string): Promise<void> => {const controller = this.controller; if (!controller || !this.remoteBound(remoteId, 'seek')) return;
     const attempt = this.attempt, connection = this.connection, sessionId = this.receiverPlaybackId;
     await controller.seek(0).catch(() => {});
     if (this.bound(attempt, connection, sessionId)) await this.poll(attempt, connection);};
   skip = async (deltaSeconds: number, remoteId?: string): Promise<void> => {
     const controller = this.controller, remote = this.state.remote;
-    if (!controller || !remote || !this.remoteBound(remoteId) || !Number.isFinite(deltaSeconds)) return;
+    if (!controller || !remote || !this.remoteBound(remoteId, 'seek') || !Number.isFinite(deltaSeconds)) return;
     const attempt = this.attempt, connection = this.connection, sessionId = this.receiverPlaybackId;
     const target = Math.max(0, Math.min(remote.durationSeconds || Number.POSITIVE_INFINITY, remote.positionSeconds + deltaSeconds));
     await controller.seek(target).catch(() => {});
@@ -338,6 +356,7 @@ export class NativePlayOn {
     if (!controller || !this.remoteBound(remoteId)) return;
     // While it is still asking or preparing, Stop cancels the request: nothing has moved.
     if (controller.getSnapshot().phase !== 'done') {this.attempt++; controller.cancel(); this.publish({sending: false, phase: 'idle', message: undefined}); return;}
+    if (!this.remoteBound(remoteId, 'stop')) return;
     const attempt = this.attempt, connection = this.connection, sessionId = this.receiverPlaybackId;
     const accepted = await controller.stop().catch(() => false);
     if (!this.bound(attempt, connection, sessionId)) return;
@@ -364,7 +383,7 @@ export class NativePlayOn {
     this.clearRemote();
     if (adapter) {try {await adapter.dismissRemote?.(current.id);} catch (error) {if (this.options.current()) this.options.reportError(error);}}
   };
-  openRemote = (): void => {if (this.state.remote) this.publish({remoteOpen: true});};
+  openRemote = (): void => {if (this.state.remote) this.publish({remoteOpen: true, open: false});};
   closeRemote = (): void => {if (this.state.remoteOpen) this.publish({remoteOpen: false});};
   private clearRemote(): void {
     this.attempt++;
@@ -389,9 +408,10 @@ export class NativePlayOn {
       case 'play': case 'resume': return this.resume(remoteId);
       case 'seek': {
         const controller = this.controller;
-        if (controller && this.remoteBound(remoteId) && positionSeconds !== undefined && Number.isFinite(positionSeconds)) {
+        if (controller && this.remoteBound(remoteId, 'seek') && positionSeconds !== undefined && Number.isFinite(positionSeconds)) {
           const attempt = this.attempt, connection = this.connection, sessionId = this.receiverPlaybackId;
-          await controller.seek(Math.max(0, positionSeconds)).catch(() => {});
+          const duration = this.state.remote?.durationSeconds;
+          await controller.seek(Math.max(0, Math.min(duration || Number.POSITIVE_INFINITY, positionSeconds))).catch(() => {});
           if (this.bound(attempt, connection, sessionId)) await this.poll(attempt, connection);
         }
         return;

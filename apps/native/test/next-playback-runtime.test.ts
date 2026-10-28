@@ -162,7 +162,7 @@ function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFil
       clearTimer: id => { if (typeof id === 'number') timers.delete(id); },
     },
   });
-  const start = async (id: string, startSeconds = 30) => { await runtime.start({entry: {id, kind: itemKind(id), title: id, libraryId: 'library', playback: {itemId: id, startSeconds}}, target: {itemId: id, startSeconds}}); await settle(); };
+  const start = async (id: string, startSeconds = 30) => { await runtime.start({entry: {id, kind: itemKind(id), title: id, libraryId: 'library', playback: {itemId: id, startSeconds}}, target: {itemId: id, startSeconds}, startIntent: 'explicit'}); await settle(); };
   return {server, engine, runtime, requests, scopedRequests, start, api,
     getAuthority: () => authority, getSession: () => session,
     subscribeAuthority: (listener: () => void) => {authorityListeners.add(listener);return () => {authorityListeners.delete(listener);};},
@@ -622,6 +622,8 @@ test('PiP replan preserves the actual source/track/file clock then waits for new
     assert.equal(!!d.runtime.path.controller.getSnapshot().changing, false); assert.ok(source.pictureInPicture);
     assert.equal(source.subtitles?.suppressed, false);
     assert.equal(externalSubtitlePreparation(source.subtitles?.plan, source.session!).kind, 'burn');
+    // As in the earlier player, AirPlay is offered for ready video whatever its caption mode.
+    assert.equal(d.runtime.getSnapshot().capabilities.airPlayVideo, true);
     const pending = d.runtime.requestPictureInPicture(source.fence!, versionLifetime());
     await settle();
     const change = d.requests.find(request => request.method === 'PATCH' && record(request.body) && record(request.body.subtitles) && request.body.subtitles.delivery === 'burn');
@@ -1152,6 +1154,54 @@ test('quality and audio changes replan the real session and fence old generation
   } finally { d.runtime.dispose(); }
 });
 
+test('ordinary Resume lets each authoritative start resolve its position while Start over and explicit seeks stay explicit', async () => {
+  const d = fixture();
+  let authoritativePositionMs = 45000;
+  // The protocol fake does not store resume bookmarks for queue starts. Supply
+  // that missing server fact at the response boundary, retaining its real queue,
+  // session, revision and generation handling and the actual outbound requests.
+  d.respond(async request => {
+    if (request.method !== 'POST' || request.path !== routePath('create_queue') && request.path !== routePath('start_playback_session')) return;
+    const response = await d.server.handle(request);
+    if (response.status >= 300 || !record(response.body) || !record(request.body)) return response;
+    const start = record(request.body.startPlayback) ? request.body.startPlayback : request.body;
+    if (typeof start.startPositionMs === 'number') return response;
+    const body = response.body, session = record(body.session) ? body.session : body;
+    if (!record(session.presentation)) return response;
+    const resumed = {...session, presentation: {...session.presentation, startPositionMs: authoritativePositionMs}};
+    return {...response, body: record(body.session) ? {...body, session: resumed} : resumed};
+  });
+  const entry = {id: 'movie-1', kind: 'movie' as const, title: 'Movie', libraryId: 'library', playback: {itemId: 'movie-1', startSeconds: 17}};
+  const input = {entry, target: entry.playback, startIntent: 'resume' as const};
+  try {
+    d.resume(27000);
+    await d.runtime.start(input); await settle();
+    const create = d.requests.find(request => request.method === 'POST' && request.path === routePath('create_queue'));
+    assert.ok(create && record(create.body) && record(create.body.startPlayback));
+    assert.equal('startPositionMs' in create.body.startPlayback, false);
+    assert.equal(d.runtime.getSnapshot().playback.positionSeconds, 45);
+
+    authoritativePositionMs = 63000;
+    const before = d.requests.length;
+    await d.runtime.start(input); await settle();
+    const restart = d.requests.slice(before).find(request => request.method === 'POST' && request.path === routePath('start_playback_session'));
+    assert.ok(restart && record(restart.body));
+    assert.equal(restart.body.startFrom, 'resume');
+    assert.equal('startPositionMs' in restart.body, false);
+    assert.equal(d.runtime.getSnapshot().playback.positionSeconds, 63);
+
+    for (const [startIntent, targetSeconds, expectedSeconds] of [['start-over', 17, 0], ['explicit', 80.5, 80.5]] as const) {
+      const sent = d.requests.length;
+      await d.runtime.start({...input, startIntent, target: {...input.target, startSeconds: targetSeconds}}); await settle();
+      const request = d.requests.slice(sent).find(value => value.method === 'POST' && value.path === routePath('start_playback_session'));
+      assert.ok(request && record(request.body));
+      assert.equal(request.body.startPositionMs, expectedSeconds * 1000);
+      assert.equal('startFrom' in request.body, false);
+      assert.equal(d.runtime.getSnapshot().playback.positionSeconds, expectedSeconds);
+    }
+  } finally {d.runtime.dispose();}
+});
+
 test('a selected grouped version uses the command final Options resume rather than a caller or earlier menu position', async () => {
   const d=fixture(true);
   try {
@@ -1229,7 +1279,7 @@ test('a superseded preflight cannot create or mount a late session for its previ
 
 const selectionContext = (): SelectionContext => ({scope: {serverId: 'server', authority: 'local', accountId: 'account', profileId: 'profile', viewId: 'home', privacyFence: homeFence}, revision: {catalogRevision: '1', viewerRevision: '2'}});
 function selected(id: string, kind: 'movie' | 'show' | 'album' = 'movie', target = id): HomeSelectionPlaybackItem {
-  return {identity: {id, kind, libraryId: 'library'}, entry: {id, kind, libraryId: 'library', title: id, playback: {itemId: target}}, target: {itemId: target}};
+  return {identity: {id, kind, libraryId: 'library'}, entry: {id, kind, libraryId: 'library', title: id, playback: {itemId: target}}, target: {itemId: target}, startIntent: 'resume'};
 }
 function homeChannel(): HomeChannel {
   return {actions: {play: true, favorite: false}, source: {id: 'source-1', name: 'source-1', generation: 'g1', publishedAt: '2026-10-22T00:00:00Z', availableStart: '2026-10-22T00:00:00Z', availableEnd: '2026-10-23T00:00:00Z', provenance: 'live-source', refreshState: 'ready'},
@@ -2257,7 +2307,7 @@ test('regular start lifetime abandons the actual late 201 session after row reti
       assert.equal(response.status, 201); assert.ok(record(response.body) && typeof response.body.id === 'string');
       created = response.body.id; return response;
     });
-    const start = d.runtime.start({entry: {id: 'movie-2', kind: 'movie', title: 'Actual row', libraryId: 'library'}, target: {itemId: 'movie-2', startSeconds: 17},
+    const start = d.runtime.start({entry: {id: 'movie-2', kind: 'movie', title: 'Actual row', libraryId: 'library'}, target: {itemId: 'movie-2', startSeconds: 17}, startIntent: 'explicit',
       lifetime: {signal: controller.signal, isCurrent: () => owned}});
     await settle(); assert.equal(entered, true); owned = false;
     release(); await assert.rejects(start, {name: 'AbortError', message: 'Playback start retired'}); await settle();

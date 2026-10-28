@@ -1,4 +1,5 @@
-import type {ComponentType} from 'react';
+import type {ComponentType, RefObject} from 'react';
+import type {View} from 'react-native';
 import type {HomeSelectionPlaybackPort} from '../../../../packages/client-core/src/home-selection/types';
 import type {SelectionContext} from '../../../../packages/client-core/src/selection-model/index';
 import type {PlaybackSnapshot} from '../../../../packages/client-core/src/index';
@@ -20,6 +21,8 @@ export type NativeShellPlaybackStart = Readonly<{
   entry: ContentEntry;
   target: NonNullable<ContentEntry['playback']>;
   origin?: Readonly<{kind: 'home-row'; rowId: string}>;
+  /** Ordinary Play/Resume asks the server for its current position. */
+  startIntent?: 'resume' | 'start-over' | 'explicit';
   presentation?: NativeStartArtworkOffer;
 }>;
 export type NativeShellBounds = Readonly<{x: number; y: number; width: number; height: number}>;
@@ -49,7 +52,7 @@ export type NativeShellPlaybackSnapshot = Readonly<{
   /** The runtime's admitted retained-view fact, passed through without inference. */
   pictureInPicture?: NativePlaybackRuntimeSnapshot['pictureInPicture'];
   seekWindow?: Readonly<{startSeconds: number; endSeconds: number}>;
-  capabilities: Readonly<{play: boolean; pause: boolean; stop: boolean; retry?: boolean; queueEdit?: boolean; seek: boolean; previous: boolean; next: boolean; cast: boolean}>;
+  capabilities: Readonly<{play: boolean; pause: boolean; stop: boolean; retry?: boolean; queueEdit?: boolean; seek: boolean; previous: boolean; next: boolean; cast: boolean; airPlayVideo?: boolean}>;
 }>;
 
 /** TV video has no collapsed state. Audio folds away; phones retain their video dock. */
@@ -112,7 +115,7 @@ export interface NativeShellPlaybackAdapter {
   updateRemote?: (value: RemoteDock) => Promise<void>;
   dismissRemote?: (id: string) => Promise<void>;
   continueHere?: (id: string) => Promise<void>;
-  cast?: (fence: PlaybackFence) => Promise<void>;
+  cast?: (fence: PlaybackFence, anchorRef?: RefObject<View | null>) => Promise<void>;
   stop: (fence: PlaybackFence) => Promise<void>;
   open: (fence: PlaybackFence) => void;
 }

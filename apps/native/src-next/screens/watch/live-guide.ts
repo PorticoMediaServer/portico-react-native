@@ -1,5 +1,7 @@
 import {sameFence, type ChannelPlaybackFence} from '../../../../../packages/player-core/src';
-import {legacyChannel, legacyGuideSource} from '../../../../../packages/client-core/src/guide/legacy-source';
+import {legacyChannel, legacyChannelRow, legacyGuideSource, type LegacyGuideOptions} from '../../../../../packages/client-core/src/guide/legacy-source';
+import {parseChannelGuide, type GuideRoute} from '../../../../../packages/client-core/src/channel-guide';
+import {routePath} from '../../../../../packages/contracts/src/routes';
 import {fetchGuideSourceSummaries} from '../../../../../packages/client-core/src/guide/directory';
 import type {GuideChannelRow, GuideProgram} from '../../../../../packages/client-core/src/guide/types';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
@@ -26,10 +28,10 @@ export class NativeTVLiveGuide {
   private disposed = false;
   private panel?: AbortController;
   private command?: {controller: AbortController; fromMini: boolean};
-  private opening?: {controller: AbortController; fence: ChannelPlaybackFence; origin: NativeChannelGuideOrigin;
+  private opening?: {controller: AbortController; fence: ChannelPlaybackFence; origin?: NativeChannelGuideOrigin; options: LegacyGuideOptions;
     route: ReturnType<NativeShellBootstrapContext['navigation']['getSnapshot']>; principal: string; authority: ReturnType<NativeShellBootstrapContext['authority']>;
     viewerFence?: string; busy: boolean};
-  constructor(private readonly context: NativeShellBootstrapContext) {
+  constructor(private readonly context: NativeShellBootstrapContext, private readonly touch = false) {
     this.off = [context.playback.subscribe(this.update), context.navigation.subscribe(this.update), context.subscribeAuthority(this.update)];
     this.update();
   }
@@ -37,7 +39,7 @@ export class NativeTVLiveGuide {
   /** Borrow only this exact source/route opening for other live-player reads. */
   captureSource = () => {
     const opening = this.opening;
-    if (!opening || !this.current(opening)) return undefined;
+    if (!opening?.origin || !this.current(opening)) return undefined;
     return Object.freeze({fence: opening.fence, origin: opening.origin, authority: opening.authority, route: opening.route,
       signal: opening.controller.signal, current: () => this.current(opening), api: this.source(opening).api});
   };
@@ -63,7 +65,7 @@ export class NativeTVLiveGuide {
       if (!this.current(opening) || signal?.aborted) throw aborted();
       return value;
     }};
-    return {api, source: legacyGuideSource(api, opening.authority.serverId, opening.origin.options)};
+    return {api, source: legacyGuideSource(api, opening.authority.serverId, opening.options)};
   }
   private update = () => {
     if (this.disposed || this.opening && this.current(this.opening)) return;
@@ -73,22 +75,51 @@ export class NativeTVLiveGuide {
     const value = this.context.playback.getSnapshot(), fence = value.fence, origin = value.channelGuide, route = this.context.navigation.getSnapshot();
     const raw = origin && legacyChannel(origin.row);
     if (!this.context.current() || !this.principal() || value.retired || value.dock.local?.expanded !== true || fence?.kind !== 'channel'
-      || route.route.kind !== 'channel' || route.route.sourceId !== fence.sourceId || route.route.channelId !== fence.channelId
-      || !origin || !raw || raw.id !== fence.channelId || raw.sourceId !== fence.sourceId || raw.generation !== fence.channelGeneration) {
+      || !this.touch && (route.route.kind !== 'channel' || route.route.sourceId !== fence.sourceId || route.route.channelId !== fence.channelId)
+      || !this.touch && (!origin || !raw) || origin && (!raw || raw.id !== fence.channelId || raw.sourceId !== fence.sourceId || raw.provenance !== fence.channelKind || raw.generation !== fence.channelGeneration)) {
       this.publish(empty);return;
     }
-    const opening = {controller: new AbortController(), fence, origin, route, principal: this.principal(), authority: this.context.authority(), busy: false};
+    let options = origin?.options;
+    if (!options) {
+      // A Home/direct start has no guide query to inherit. Resolve its one actual
+      // accepted channel, then ask the server for neighbors in that source.
+      if (!fence.sourceId) {this.publish(empty);return;}
+      const channel = value.playback.channel, linear = value.playback.linear?.channel;
+      if (!channel || channel.kind !== fence.channelKind || channel.sourceId !== fence.sourceId || channel.channelId !== fence.channelId || channel.generation !== fence.channelGeneration
+        || !linear || linear.kind !== fence.channelKind || linear.sourceId !== fence.sourceId || linear.channelId !== fence.channelId || linear.generation !== fence.channelGeneration) {this.publish(empty);return;}
+      try {
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (!timezone) {this.publish(empty);return;}
+        new Intl.DateTimeFormat(undefined, {timeZone: timezone});
+        options = Object.freeze({kind: fence.channelKind, sourceId: fence.sourceId, timezone});
+      } catch {this.publish(empty);return;}
+    }
+    const opening: NonNullable<NativeTVLiveGuide['opening']> = {controller: new AbortController(), fence, origin, options, route, principal: this.principal(), authority: this.context.authority(), busy: false};
     this.opening = opening;
     if (!this.current(opening)) {opening.controller.abort();this.opening = undefined;this.publish(empty);return;}
-    this.publish({fence, phase: 'loading', open: false, rows: [], busy: false, timezone: origin.options.timezone});
+    this.publish({fence, phase: 'loading', open: false, rows: [], busy: false, timezone: options.timezone});
     void this.load(opening);
   };
   private async load(opening: NonNullable<NativeTVLiveGuide['opening']>) {
     const {api, source} = this.source(opening), signal = opening.controller.signal;
     try {
-      const directory = await fetchGuideSourceSummaries(api, opening.authority.serverId, opening.origin.options.timezone, signal);
+      const directory = await fetchGuideSourceSummaries(api, opening.authority.serverId, opening.options.timezone, signal);
       if (!directory.sources.some(row => row.id === opening.fence.sourceId && row.provenance === opening.fence.channelKind && row.generation === opening.fence.channelGeneration)) throw new Error('channel_source_unavailable');
       opening.viewerFence = directory.viewerFence;
+      if (!opening.origin) {
+        const sourceId = opening.fence.sourceId;
+        if (!sourceId) throw new Error('channel_source_unavailable');
+        const now = Date.now(), route: GuideRoute = {kind: opening.fence.channelKind, sourceId, timezone: opening.options.timezone, search: '',
+          start: new Date(now).toISOString(), end: new Date(now + 3 * 3600_000).toISOString()};
+        const query = new URLSearchParams({kind: route.kind, sourceId, timezone: route.timezone, search: route.search, start: route.start, end: route.end, channels: opening.fence.channelId, limit: '1', cursor: ''});
+        const guide = parseChannelGuide(await api.request<unknown>(`${routePath('get_guide')}?${query}`, 'GET', undefined, signal), opening.authority.serverId, route);
+        if (!this.current(opening)) return;
+        const channel = guide.channels[0];
+        if (guide.viewerFence !== directory.viewerFence || guide.channels.length !== 1 || !channel || channel.id !== opening.fence.channelId
+          || channel.sourceId !== opening.fence.sourceId || channel.provenance !== opening.fence.channelKind || channel.generation !== opening.fence.channelGeneration
+          || !channel.tuneAvailable || channel.hidden) throw new Error('channel_source_unavailable');
+        opening.origin = Object.freeze({row: legacyChannelRow(channel), options: opening.options});
+      }
       const rows: NativeLiveGuideRow[] = [{channel: opening.origin.row, step: 0, programmes: []}], seen = new Set([identity(opening.origin.row)]);
       for (const direction of [-1, 1] as const) {
         let anchor = opening.origin.row;
@@ -111,7 +142,7 @@ export class NativeTVLiveGuide {
     try {
       const complete = await Promise.all(rows.map(async row => {
         const raw = legacyChannel(row.channel)!;
-        const named = legacyGuideSource(api, opening.authority.serverId, {...opening.origin.options, kind: raw.provenance, sourceId: raw.sourceId});
+        const named = legacyGuideSource(api, opening.authority.serverId, {...opening.options, kind: raw.provenance, sourceId: raw.sourceId});
         // Only the five named rows and a bounded current programme window.
         try {
           const now = Date.now(), programmes = await named.programs([raw.id], now, now + 3 * 60 * 60 * 1000, signal);
@@ -153,7 +184,7 @@ export class NativeTVLiveGuide {
   };
   tune = async (advertised: NativeLiveGuideRow, expected: NativeLiveGuideSnapshot, onError?: (error: unknown) => void) => {
     const opening = this.opening;
-    if (this.state !== expected || !opening || !this.current(opening) || opening.busy || this.state.phase !== 'ready' || !this.state.rows.includes(advertised)) return;
+    if (this.state !== expected || !opening?.origin || !this.current(opening) || opening.busy || this.state.phase !== 'ready' || !this.state.rows.includes(advertised)) return;
     if (advertised.step === 0) {this.close();return;}
     const command = {controller: new AbortController(), fromMini: this.state.open};this.command = command;
     const stop = () => command.controller.abort();opening.controller.signal.addEventListener('abort', stop, {once: true});
@@ -165,13 +196,17 @@ export class NativeTVLiveGuide {
       for (let step = 0; step < Math.abs(advertised.step) && target; step++) target = await source.neighbor!(target, advertised.step < 0 ? -1 : 1, signal);
       if (!target || !sameTarget(target, advertised.channel)) throw new Error('channel_lineup_changed');
       const raw = legacyChannel(target)!;
-      const directory = await fetchGuideSourceSummaries(api, opening.authority.serverId, opening.origin.options.timezone, signal);
+      const directory = await fetchGuideSourceSummaries(api, opening.authority.serverId, opening.options.timezone, signal);
       if (directory.viewerFence !== opening.viewerFence
         || !directory.sources.some(row => row.id === opening.fence.sourceId && row.provenance === opening.fence.channelKind && row.generation === opening.fence.channelGeneration)
         || !directory.sources.some(row => row.id === raw.sourceId && row.provenance === raw.provenance && row.generation === raw.generation)) throw new Error('channel_source_unavailable');
       if (!current()) return;
-      this.context.navigation.replaceChannel(opening.route, {kind: 'channel', sourceId: raw.sourceId, channelId: raw.id,
-        guide: Object.freeze({row: target, options: opening.origin.options}), tune: {fence: opening.fence, sourceGeneration: raw.generation}}, opening.authority);
+      const route = {kind: 'channel' as const, sourceId: raw.sourceId, channelId: raw.id,
+        guide: Object.freeze({row: target, options: opening.options}), tune: {fence: opening.fence, sourceGeneration: raw.generation}};
+      // Touch consumes each accepted launch page and restores the original route;
+      // TV keeps its channel page and replaces that exact opening when zapping.
+      if (this.touch) this.context.navigation.open(route, opening.authority);
+      else this.context.navigation.replaceChannel(opening.route, route, opening.authority);
     } catch (error) {
       if (current()) {
         this.publish({...this.state, error});

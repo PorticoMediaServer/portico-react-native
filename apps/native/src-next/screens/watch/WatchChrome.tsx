@@ -4,14 +4,12 @@ import {AccessibilityInfo, Text, View, useTVEventHandler} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import Animated, {cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, Path, Rect, Stop, Text as SvgText} from 'react-native-svg';
-import {sameFence, activeSegment, skipTarget, skipsAutomatically, followedByScene, UNDO_SECONDS, type PlaybackFence, type SegmentMarker, type SegmentMarkerKind, type SkipMode} from '../../../../../packages/player-core/src';
-import {upNextCountdown, upNextOffer} from '../../../../../packages/client-core/src/up-next';
+import {followedByScene, sameFence, UNDO_SECONDS, type PlaybackFence, type SegmentMarker} from '../../../../../packages/player-core/src';
 import {channelSeconds} from '../../../../../packages/client-core/src/playback/linear-protocol';
-import {playbackIdentity, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
+import {channelTint, playbackIdentity, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {clockText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
 import {defaultI18n} from '../../../../../packages/i18n/src';
-import type {NativePlaybackRuntimeSnapshot} from '../../platform/playback/types';
-import type {NativeShellPlaybackAdapter} from '../../shell/playback';
+import type {NativePlaybackAdapter, NativePlaybackRuntimeSnapshot} from '../../platform/playback/types';
 import {Button, Focusable} from '../../kit/controls';
 import {FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {Icon, type IconName} from '../../kit/Icon';
@@ -36,7 +34,7 @@ import {emptyLiveActions, noLiveActionsSubscription, type NativeTVLiveActions} f
 export type NativeWatchChromeProps = Readonly<{
   source: NativePlaybackRuntimeSnapshot;
   controls: NativeWatchControls;
-  playback: Pick<NativeShellPlaybackAdapter, 'getSnapshot' | 'toggle' | 'skip' | 'seek' | 'previous' | 'next' | 'goLive'>;
+  playback: Pick<NativePlaybackAdapter, 'getSnapshot' | 'toggle' | 'skip' | 'seek' | 'previous' | 'next' | 'goLive' | 'replay' | 'stop' | 'policyDismiss' | 'policySkip' | 'policyUndo' | 'policyAdvance' | 'policyCancelAutoplay'>;
   text: TextEnvironment;
   /** Delivered by the current-fence producers, never the first/default offer or a policy ceiling. */
   quality: string;
@@ -61,14 +59,12 @@ export type NativeWatchChromeProps = Readonly<{
   skipBackSeconds: number;
   skipForwardSeconds: number;
   onMinimize: (fence: PlaybackFence) => void;
-  /** Live TV's Guide leaves the player for the guide. */
+  /** Live TV opens the mini guide for this presented session. */
   onGuide?: () => void;
   liveGuide?: NativeTVLiveGuide;
   liveActions?: NativeTVLiveActions;
   /** Channels only: return the same session to the live edge. */
   goLive?: (fence: PlaybackFence) => void;
-  /** The viewer's Settings choice per segment kind; the engine already applies `auto`. */
-  skipModes: Readonly<Record<'intro' | 'recap' | 'credits', SkipMode>>;
   /** The current authority's artwork resolver, for the next episode's still. */
   artwork?: (path?: string) => ArtworkSource | undefined;
   onPanel?: (panel: NativeWatchPanel, fence: PlaybackFence) => void;
@@ -76,7 +72,7 @@ export type NativeWatchChromeProps = Readonly<{
   tvPanelRight?: number;
   reportError: (error: unknown) => void;
   onPictureInPicture?: (fence: PlaybackFence) => void;
-  onCast?: (fence: PlaybackFence) => void;
+  onCast?: (fence: PlaybackFence, anchorRef?: React.RefObject<View | null>) => void;
   /** states 11: the failure block drew a real action region this render, so Up can reach it. */
   failureAction?: boolean;
   /** tv-player/phone-player 5 and 13: the committed plan's one loss note, once per playback. */
@@ -147,7 +143,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   // owner at dispatch, rather than its pre-modal render's enabled boolean.
   const playback = useMemo<NativeWatchChromeProps['playback']>(() => {
     const guide = props.liveGuide;
-    if (!theme.isTV || !guide) return originalPlayback;
+    if (!guide) return originalPlayback;
     const allowed = (fence: PlaybackFence) => {const live = guide.getSnapshot(), actions = props.liveActions?.getSnapshot();
       return !(live.open && sameFence(live.fence, fence) || actions?.sheet && sameFence(actions.fence, fence));};
     return {...originalPlayback,
@@ -158,11 +154,11 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       next: async fence => {if (allowed(fence)) await originalPlayback.next(fence);},
       ...(originalPlayback.goLive ? {goLive: async (fence: PlaybackFence) => {if (allowed(fence)) await originalPlayback.goLive!(fence);}} : {}),
     };
-  }, [originalPlayback, props.liveGuide, props.liveActions, theme.isTV]);
+  }, [originalPlayback, props.liveGuide, props.liveActions]);
   const registry = useFocusRegistry();
   useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
   const focus = registry.capture();
-  const opacity = useSharedValue(0), toggle = useRef<View>(null), picture = useRef<View>(null), guideButton = useRef<View>(null);
+  const opacity = useSharedValue(0), toggle = useRef<View>(null), picture = useRef<View>(null), guideButton = useRef<View>(null), castButton = useRef<View>(null);
   const liveGuide = useSyncExternalStore(props.liveGuide?.subscribe ?? noLiveGuideSubscription, props.liveGuide?.getSnapshot ?? emptyLiveGuide);
   const miniRestoreProof = useMemo(() => props.liveGuide?.restoreProof(liveGuide) ?? (() => false), [props.liveGuide, liveGuide]);
   const liveActions = useSyncExternalStore(props.liveActions?.subscribe ?? noLiveActionsSubscription, props.liveActions?.getSnapshot ?? emptyLiveActions);
@@ -172,29 +168,29 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const fence = source.fence;
   const current = useCallback(() => !!fence && !source.retired && sameFence(playback.getSnapshot().fence, fence) && sameFence(state.fence, fence), [fence, source.retired, playback, state.fence]);
   const visible = current() && state.visible;
-  const liveCurrent = theme.isTV && fence?.kind === 'channel' && sameFence(liveGuide.fence, fence);
+  const liveCurrent = fence?.kind === 'channel' && sameFence(liveGuide.fence, fence);
   const miniOpen = liveCurrent && liveGuide.open;
-  const actionsCurrent = theme.isTV && fence?.kind === 'channel' && sameFence(liveActions.fence, fence);
+  const actionsCurrent = fence?.kind === 'channel' && sameFence(liveActions.fence, fence);
   const actionsOpen = actionsCurrent && !!liveActions.sheet;
   const liveOverlayOpen = miniOpen || actionsOpen;
   const miniScope = fence ? JSON.stringify(fence) : undefined;
   const [miniPresenceScope, setMiniPresenceScope] = useState<string>();
-  const miniPaintPresent = miniOpen || !!miniScope && miniPresenceScope === miniScope;
-  useLayoutEffect(() => {if (miniOpen) setMiniPresenceScope(miniScope);}, [miniOpen, miniScope]);
+  const miniPaintPresent = theme.isTV && (miniOpen || !!miniScope && miniPresenceScope === miniScope);
+  useLayoutEffect(() => {if (theme.isTV && miniOpen) setMiniPresenceScope(miniScope);}, [miniOpen, miniScope, theme.isTV]);
   const miniExited = useCallback(() => {setMiniPresenceScope(value => value === miniScope ? undefined : value);}, [miniScope]);
   const controlsEnabled = visible && !liveOverlayOpen && !miniPaintPresent && !state.panelReturning;
   const controlsCurrent = useCallback(() => {
-    const live = props.liveGuide?.getSnapshot(), actions = props.liveActions?.getSnapshot();
-    return current() && !controls.getSnapshot().panelReturning && !miniPaintPresent && !(theme.isTV && fence && (live?.open && sameFence(live.fence, fence) || actions?.sheet && sameFence(actions.fence, fence)));
-  }, [current, theme.isTV, fence, props.liveGuide, props.liveActions, controls, miniPaintPresent]);
+    const owner = playback.getSnapshot(), live = props.liveGuide?.getSnapshot(), actions = props.liveActions?.getSnapshot();
+    return current() && !owner.retired && owner.dock.local?.expanded === true && !controls.getSnapshot().panel && !controls.getSnapshot().panelReturning && !miniPaintPresent && !(fence && (live?.open && sameFence(live.fence, fence) || actions?.sheet && sameFence(actions.fence, fence)));
+  }, [current, playback, fence, props.liveGuide, props.liveActions, controls, miniPaintPresent]);
   useLayoutEffect(() => {
     if (!liveOverlayOpen || !fence) return;
     miniReturn.current = {fence, current: miniOpen ? miniRestoreProof : actionsRestoreProof, target: miniOpen ? 'guide' : 'more'};
     controls.holdOverlay(fence, true);
     return () => {controls.holdOverlay(fence, false);};
   }, [liveOverlayOpen, miniOpen, fence, controls, miniRestoreProof, actionsRestoreProof]);
-  useEffect(() => {if (miniOpen && (!visible || state.panel)) props.liveGuide?.close(liveGuide);}, [miniOpen, visible, state.panel, props.liveGuide, liveGuide]);
-  useEffect(() => {if (actionsOpen && (!visible || state.panel)) props.liveActions?.close(liveActions.sheet);}, [actionsOpen, visible, state.panel, props.liveActions, liveActions.sheet]);
+  useEffect(() => {if (miniOpen && (theme.isTV && !visible || state.panel)) props.liveGuide?.close(liveGuide);}, [miniOpen, visible, state.panel, props.liveGuide, liveGuide, theme.isTV]);
+  useEffect(() => {if (actionsOpen && (theme.isTV && !visible || state.panel)) props.liveActions?.close(liveActions.sheet);}, [actionsOpen, visible, state.panel, props.liveActions, liveActions.sheet, theme.isTV]);
   // Chrome and the native picture follow the same progress and release guard;
   // each physical detector still owns a distinct native RNGH instance.
   const pictureMorph = usePublishedPlayerMorph(fence);
@@ -215,71 +211,58 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const [groupPillPresent, setGroupPillPresent] = useState(false);
   const groupPillHost = useCallback((host: number | undefined) => setGroupPillPresent(host !== undefined), []);
   const groupSheetChange = useCallback((open: boolean) => {if (fence) controls.holdOverlay(fence, open);}, [controls, fence]);
-  // tv-player 3: the prompt offers the segment the viewer is in, and an unattended
-  // skip leaves a six-second note whose Undo goes back to where the skip happened.
-  const markers = source.options?.itemId === (fence?.kind === 'queue' ? fence.itemId : undefined) ? source.options?.markers ?? [] : [];
-  const segments: readonly SegmentMarker[] = markers.flatMap(marker => marker.type === 'intro' || marker.type === 'recap' || marker.type === 'credits'
-    ? [{id: marker.id, kind: marker.type, startSeconds: marker.startMs / 1000, endSeconds: marker.endMs / 1000, automaticSafe: marker.automaticSafe}] : []);
+  // The retained playback owner supplies the shared policy's prompts, Undo and
+  // countdown. Chrome paints those facts; it never infers a skip from a seek or
+  // advances a separate wall clock while playback is paused.
+  const policy = fence?.kind === 'queue' ? source.policy : undefined;
+  const segments = policy?.markers ?? [];
   const promptScope = JSON.stringify(fence);
-  const dismissed = useMemo(() => ({scope: promptScope, current: new Set<string>()}), [promptScope]);
-  const [noticeState, setNotice] = useState<{fence: PlaybackFence; kind: SegmentMarkerKind; fromSeconds: number}>();
-  const notice = fence && sameFence(noticeState?.fence, fence) ? noticeState : undefined;
-  const seen = useRef({scope: promptScope, at: source.playback.positionSeconds}), undoLine = useSharedValue(1);
-  useEffect(() => {
-    const at = source.playback.positionSeconds, previous = seen.current, from = previous.at;
-    seen.current = {scope: promptScope, at};
-    if (previous.scope !== promptScope || at === from || !fence) return;
-    const skipped = segments.find(marker => skipsAutomatically(marker, props.skipModes) && from >= marker.startSeconds && from < marker.endSeconds
-      && at >= skipTarget(marker, source.playback.duration) - .5);
-    if (!skipped) return;
-    dismissed.current.add(skipped.id);
-    setNotice({fence, kind: skipped.kind, fromSeconds: from});
-  }, [source.playback.positionSeconds, source.playback.duration, segments, props.skipModes, fence, dismissed, promptScope]);
+  const promptEnabled = current() && source.dock.local?.expanded === true && !state.panel && !liveOverlayOpen;
+  const [dismissedUndo, setDismissedUndo] = useState<string>();
+  // JUSTIN-ANSWERS #29: with a screen reader the Undo note stays, announced, until
+  // used or dismissed. After the policy's own window it returns to the marker start.
+  const [heldUndo, setHeldUndo] = useState<Readonly<{scope: string; marker: SegmentMarker}>>();
+  const liveUndo = promptEnabled ? policy?.undo : undefined;
+  useEffect(() => {if (screenReader && liveUndo) setHeldUndo({scope: promptScope, marker: liveUndo.marker});}, [screenReader, liveUndo, promptScope]);
+  const held = screenReader && promptEnabled && heldUndo?.scope === promptScope ? heldUndo : undefined;
+  const undo = liveUndo ?? (held ? {marker: held.marker, remainingSeconds: 0} : undefined);
+  const undoKey = undo ? `${promptScope}:${undo.marker.id}` : undefined;
+  const notice = undoKey !== dismissedUndo ? undo : undefined;
+  const undoLine = useSharedValue(1);
   useEffect(() => {
     if (!notice) return;
-    undoLine.value = 1;
-    if (screenReader) return;
-    undoLine.value = withTiming(0, {duration: UNDO_SECONDS * 1000, easing: Easing.linear});
-    const timer = setTimeout(() => setNotice(undefined), UNDO_SECONDS * 1000);
-    return () => {clearTimeout(timer); cancelAnimation(undoLine);};
-  }, [notice, undoLine, screenReader]);
+    if (screenReader) {undoLine.value = 1; return;}
+    undoLine.value = Math.max(0, Math.min(1, notice.remainingSeconds / UNDO_SECONDS));
+    undoLine.value = withTiming(0, {duration: Math.max(0, notice.remainingSeconds) * 1000, easing: Easing.linear});
+    return () => {cancelAnimation(undoLine);};
+  }, [undoKey, notice, undoLine, screenReader]);
   const undoLineStyle = useAnimatedStyle(() => ({transform: [{scaleX: Math.max(0, Math.min(1, undoLine.value))}]}));
-  // tv-player 5 and 6: the closing-credits offer and its countdown come from the
-  // queue's own post-play facts; nothing here starts a title by itself.
   const view = source.queue.view;
-  const currentItem = view?.current ? view.items.find(item => item.entryId === view.current!.id) : undefined;
   const nextItem = view?.next.entryId ? view.items.find(item => item.entryId === view.next.entryId) : undefined;
-  const credits = segments.find(segment => segment.kind === 'credits');
-  const sceneAfter = !!credits && followedByScene(credits, source.playback.duration);
-  const offer = fence && fence.kind === 'queue' && view ? upNextOffer({markers: segments, positionSeconds: source.playback.positionSeconds,
-    durationSeconds: source.playback.duration, kind: currentItem?.kind ?? source.entry?.kind, mode: props.skipModes.credits, nextAvailable: view.next.available, passoutDue: view.postPlay.passoutCheckDue}) : null;
-  const dismissedOffer = useMemo(() => ({scope: promptScope, current: undefined as string | undefined}), [promptScope]);
-  const [, tick] = useState(0), offerId = useRef<string | undefined>(undefined), offerSince = useRef(Date.now());
-  const currentOfferId = offer?.id;
-  useEffect(() => {if (!currentOfferId) return; if (offerId.current !== currentOfferId) {offerId.current = currentOfferId; offerSince.current = Date.now();}}, [currentOfferId]);
-  const countdown = offer && view ? upNextCountdown({offer, positionSeconds: source.playback.positionSeconds, durationSeconds: source.playback.duration,
-    rate: source.effectiveRate, autoplay: view.postPlay.autoplay, countdownSeconds: view.postPlay.countdownSeconds,
-    elapsedSeconds: (Date.now() - offerSince.current) / 1000, startDuringCredits: view.postPlay.startDuringCredits}) : null;
-  useEffect(() => {if (!countdown?.automatic) return; const timer = setInterval(() => tick(value => value + 1), 1000); return () => clearInterval(timer);}, [countdown?.automatic]);
-  // Offers remain on the picture with chrome down. Arrival never replaces a focused control.
-  const [, refreshPrompt] = useState(0);
-  const promptEnabled = current() && source.dock.local?.expanded === true && !state.panel && !liveOverlayOpen;
-  const skipNoticeLabel = notice ? t('player.skipped', {kind: notice.kind}) : undefined;
+  const policyPrompt = promptEnabled ? policy?.prompt : undefined;
+  const endCard = promptEnabled && policy?.finished === true && !!nextItem && view?.next.available === true && (!policy.attention || policy.attention === 'still-watching');
+  const prompt = !notice && policyPrompt?.kind === 'skip' ? policyPrompt.marker : undefined;
+  const visibleOffer = !notice && nextItem && policyPrompt?.kind === 'up-next' ? policyPrompt.offer : undefined;
+  const countdown = endCard ? policy?.endCountdown ?? null : policyPrompt?.kind === 'up-next' ? policyPrompt.countdown : null;
+  const sceneAfter = policyPrompt?.kind === 'up-next' ? policyPrompt.sceneAfterCredits : !!prompt && prompt.kind === 'credits' && followedByScene(prompt, source.playback.duration);
+  const credits = visibleOffer?.marker ?? segments.find(segment => segment.kind === 'credits');
+  const promptMotion = useSkipPromptMotion(!endCard && !visibleOffer && !notice ? prompt : undefined, current() && source.dock.local?.expanded === true ? JSON.stringify(fence) : undefined, visible, !theme.isTV && !props.bar && !props.tabletop ? 90 : 0);
+  const promptEntry = !promptEnabled ? undefined : endCard || visibleOffer ? 'watch-up-next-play' : notice ? 'watch-skip-undo' : prompt ? 'watch-skip-action' : undefined;
+  const skipNoticeLabel = notice ? t('player.skipped', {kind: notice.marker.kind}) : undefined;
   useEffect(() => {
     if (promptEnabled && skipNoticeLabel) AccessibilityInfo.announceForAccessibility(`${skipNoticeLabel}, ${t('action.undo')}`);
-  }, [promptEnabled, notice, skipNoticeLabel, t]);
-  const offered = promptEnabled && !notice ? activeSegment(segments, source.playback.positionSeconds, props.skipModes, dismissed.current) : undefined;
-  const prompt = offered && (offered.kind === 'intro' || offered.kind === 'recap' || offered.kind === 'credits') && props.skipModes[offered.kind] === 'ask' ? offered : undefined;
-  const visibleOffer = promptEnabled && !notice && offer && nextItem && offer.id !== dismissedOffer.current ? offer : undefined;
-  const promptMotion = useSkipPromptMotion(!visibleOffer && !notice ? prompt : undefined, current() && source.dock.local?.expanded === true ? JSON.stringify(fence) : undefined, visible, !theme.isTV && !props.bar && !props.tabletop ? 90 : 0);
-  const promptEntry = !promptEnabled ? undefined : visibleOffer ? 'watch-up-next-play' : notice ? 'watch-skip-undo' : prompt ? 'watch-skip-action' : undefined;
+  }, [promptEnabled, undoKey, skipNoticeLabel, t]);
   const promptLive = useRef<{entry: string | undefined; dismiss: () => boolean}>({entry: promptEntry, dismiss: () => false});
   promptLive.current = {entry: promptEntry, dismiss: () => {
-    if (registry.capture()?.regionId !== 'watch-skip' || !promptLive.current.entry) return false;
-    if (visibleOffer) {dismissedOffer.current = visibleOffer.id; if (credits) dismissed.current.add(credits.id);}
-    else if (notice) setNotice(undefined);
-    else if (prompt) dismissed.current.add(prompt.id);
-    promptLive.current.entry = undefined; refreshPrompt(value => value + 1); return true;
+    if (registry.capture()?.regionId !== 'watch-skip' || !promptLive.current.entry || !fence || !controlsCurrent()) return false;
+    // Back can put away the note without executing Undo. Its actual lifetime and
+    // return point remain owned by PlaybackPolicy for this same playback.
+    if (endCard) {
+      if (!playback.getSnapshot().policy?.endCountdown || !playback.policyCancelAutoplay) return false;
+      playback.policyCancelAutoplay(fence);
+    } else if (notice && undoKey) dismissUndo();
+    else if (!playback.policyDismiss?.(fence)) return false;
+    promptLive.current.entry = undefined; return true;
   }};
   useEffect(() => {
     if (!theme.isTV || !fence) return;
@@ -347,14 +330,15 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   });
   if (!fence || !current() || source.dock.local?.expanded !== true) return null;
   const act = (command: (expected: PlaybackFence) => Promise<void>) => {if (controlsCurrent()) {controls.reveal(fence); void command(fence).catch(props.reportError);}};
-  const skipSegment = (marker: SegmentMarker) => {if (!controlsCurrent()) return; dismissed.current.add(marker.id); setNotice(undefined); refreshPrompt(value => value + 1); if (theme.isTV) controls.hide(fence); if (controlsCurrent()) void playback.seek(fence, skipTarget(marker, source.playback.duration)).catch(props.reportError);};
+  const skipSegment = (marker: Pick<SegmentMarker, 'id'>) => {if (!controlsCurrent() || !playback.policySkip) return; if (theme.isTV) controls.hide(fence); if (controlsCurrent()) void playback.policySkip(fence, marker.id).catch(props.reportError);};
   const panel = (value: NativeWatchPanel) => {if (controlsCurrent() && controls.open(value, fence, registry.capture())) props.onPanel?.(value, fence);};
   const identity = source.subject ? playbackIdentity(source.subject, 'full', props.text) : undefined;
   const queue = fence.kind === 'queue' && (source.queue.view?.items.length ?? 0) > 1;
   // tv-player 11: a channel is the normal player with the guide's programme in it.
   const linear = fence?.kind === 'channel' ? source.playback.linear : undefined;
   const liveOffer = actionsCurrent ? liveActions.offer : undefined;
-  const channelNumber = liveOffer ? liveOffer.channel.number : source.channelGuide?.row.number;
+  const liveRow = liveOffer?.channel ?? source.channelGuide?.row ?? liveGuide.rows?.find(row => row.step === 0)?.channel;
+  const channelNumber = liveRow?.number;
   const recordState = liveActions.recording?.state ?? liveOffer?.programme.recording?.state;
   const recordingLabel = (value?: string): string => {
     switch (value) {
@@ -412,22 +396,29 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const small = theme.isTV ? 64 : bar ? 48 : tabletop ? 56 : compact ? 46 : 58;
   const channelStep = (direction: -1 | 1) => {
     const target = liveCurrent ? direction < 0 ? liveGuide.previous : liveGuide.next : undefined;
-    if (!target) return <View style={{width: small, height: small}}/>;
+    const size = theme.isTV ? small : bar ? 48 : 46;
+    if (!target) return <View style={{width: size, height: size}}/>;
     const id = direction < 0 ? 'watch-channel-down' : 'watch-channel-up';
     return <TVControlLabel focused={controlsEnabled && focus?.childId === id} label={t(direction < 0 ? 'player.channelDown' : 'player.channelUp')} detail={[target.channel.number, target.channel.name].filter(Boolean).join(' ')}>
       <Focusable focusId={id} testID={id} accessibilityRole="button" focusable={controlsEnabled} disabled={!controlsEnabled || liveGuide.busy}
         accessibilityLabel={t(direction < 0 ? 'next.live.channelDown' : 'next.live.channelUp', {channel: target.channel.name, number: target.channel.number})}
         onPress={() => {if (controlsCurrent()) void props.liveGuide?.tune(target, liveGuide, props.reportError);}}
-        style={{width: small, height: small, borderRadius: small / 2, alignItems: 'center', justifyContent: 'center'}}>
-        {direction < 0 && !!target.channel.number && <Text style={{fontSize: 20, lineHeight: 20, fontFamily: 'Manrope-ExtraBold', color: theme.colors.textSecondary}}>{target.channel.number}</Text>}
-        <Icon name={direction < 0 ? 'i-chdown' : 'i-chup'} size={24} color={theme.colors.text}/>
-        {direction > 0 && !!target.channel.number && <Text style={{fontSize: 20, lineHeight: 20, fontFamily: 'Manrope-ExtraBold', color: theme.colors.textSecondary}}>{target.channel.number}</Text>}
+        style={{width: size, height: size, borderRadius: size / 2, alignItems: 'center', justifyContent: 'center'}}>
+        {theme.isTV && direction < 0 && !!target.channel.number && <Text style={{fontSize: 20, lineHeight: 20, fontFamily: 'Manrope-ExtraBold', color: theme.colors.textSecondary}}>{target.channel.number}</Text>}
+        <Icon name={direction < 0 ? 'i-chdown' : 'i-chup'} size={theme.isTV || bar ? 24 : 30} color={theme.colors.text}/>
+        {!theme.isTV && bar && !!target.channel.number && <Text style={[theme.type.captionStrong, {fontSize: 11, color: theme.colors.textSecondary}]}>{target.channel.number}</Text>}
+        {theme.isTV && direction > 0 && !!target.channel.number && <Text style={{fontSize: 20, lineHeight: 20, fontFamily: 'Manrope-ExtraBold', color: theme.colors.textSecondary}}>{target.channel.number}</Text>}
       </Focusable>
     </TVControlLabel>;
   };
-  const icon = (id: string, name: IconName, label: string, onPress: () => void, primary = false, disabled = false, size?: number) => <TVControlLabel focused={controlsEnabled && focus?.childId === `watch-${id}`} label={label} primary={primary} align={id === 'options' || id === 'pip' ? 'end' : 'center'}><Button focusId={`watch-${id}`} testID={`watch-${id}`} variant={primary ? 'primary' : theme.isTV ? 'icon' : 'text'} iconOnly icon={name} accessibilityLabel={label}
+  const icon = (id: string, name: IconName, label: string, onPress: () => void, primary = false, disabled = false, size?: number) => <TVControlLabel focused={controlsEnabled && focus?.childId === `watch-${id}`} label={label} primary={primary} align={id === 'options' || id === 'pip' ? 'end' : 'center'}><Button ref={id === 'cast' ? castButton : undefined} focusId={`watch-${id}`} testID={`watch-${id}`} variant={primary ? 'primary' : theme.isTV ? 'icon' : 'text'} iconOnly icon={name} accessibilityLabel={label}
     focusable={controlsEnabled} disabled={disabled || !controlsEnabled} onPress={() => {if (controlsCurrent()) onPress();}} style={{width: size ?? (primary ? big : small), height: size ?? (primary ? big : small), borderRadius: (size ?? (primary ? big : small)) / 2}}
     iconSize={size ? Math.round(size * .6) : primary ? theme.isTV ? 40 : 28 : theme.isTV ? 26 : 22}/></TVControlLabel>;
+  const liveButtons = (size?: number, compact = true) => linear && liveOffer && props.liveActions ? <TVLiveActions enabled={controlsEnabled} size={size} compact={compact}
+    record={liveOffer.channel.kind === 'live' && liveOffer.channel.recordAvailable ? {label: recordingLabel(recordState), recording: recordState === 'recording',
+      busy: liveActions.busy, disabled: liveActions.busy || !!liveActions.recording || !!liveOffer.programme.recording,
+      onPress: () => {if (controlsCurrent()) void props.liveActions?.record(liveActions, props.reportError);}} : undefined}
+    more={{disabled: liveActions.busy, onPress: () => {if (controlsCurrent()) props.liveActions?.openMore(liveActions);}}}/> : null;
   const skip = (forward: boolean) => <TVControlLabel focused={controlsEnabled && focus?.childId === (forward ? 'watch-skip-forward' : 'watch-skip-back')} label={t(forward ? 'player.skipForwardSeconds' : 'player.skipBackSeconds', {seconds: forward ? props.skipForwardSeconds : props.skipBackSeconds})}><Focusable focusId={forward ? 'watch-skip-forward' : 'watch-skip-back'} testID={forward ? 'watch-skip-forward' : 'watch-skip-back'} focusable={controlsEnabled} disabled={!controlsEnabled || !source.capabilities.seek} accessibilityRole="button"
     accessibilityLabel={t(forward ? 'player.skipForwardSeconds' : 'player.skipBackSeconds', {seconds: forward ? props.skipForwardSeconds : props.skipBackSeconds})}
     onPress={() => act(expected => playback.skip(expected, forward ? props.skipForwardSeconds : -props.skipBackSeconds))}
@@ -465,32 +456,52 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const barUp = theme.isTV && source.playback.phase === 'error' && props.failureAction === true;
   // states 11: only the centred transport gives way while nothing can play.
   const transport = source.playback.phase === 'error' && theme.isTV ? null : <View style={{flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 22 : bar ? 14 : tabletop ? 36 : compact ? 12 : 38}}>
-    {theme.isTV && fence.kind === 'channel' ? channelStep(-1) : queue && icon('previous', 'i-prev', t('player.previous'), () => act(playback.previous), false, !source.capabilities.previous, bar ? 48 : theme.isTV || compact ? undefined : 46)}
+    {fence.kind === 'channel' ? channelStep(-1) : queue && icon('previous', 'i-prev', t('player.previous'), () => act(playback.previous), false, !source.capabilities.previous, bar ? 48 : theme.isTV || compact ? undefined : 46)}
     {skip(false)}
     <TVControlLabel focused={controlsEnabled && focus?.childId === 'watch-toggle'} label={t(source.playback.intent === 'playing' ? 'action.pause' : 'action.play')} primary><Button ref={toggle} testID="watch-toggle" focusId="watch-toggle" variant="primary" iconOnly icon={source.playback.intent === 'playing' ? 'i-pause' : 'i-play'}
       accessibilityLabel={t(source.playback.intent === 'playing' ? 'action.pause' : 'action.play')} hasTVPreferredFocus={false}
       focusable={controlsEnabled} disabled={!controlsEnabled || !source.capabilities.play && !source.capabilities.pause} onPress={() => act(playback.toggle)}
       style={{width: big, height: big, borderRadius: big / 2}} iconSize={theme.isTV ? 40 : compact && tablet ? 34 : 28}/></TVControlLabel>
     {skip(true)}
-    {theme.isTV && fence.kind === 'channel' ? channelStep(1) : queue && icon('next', 'i-next', t('player.next'), () => act(playback.next), false, !source.capabilities.next, bar ? 48 : theme.isTV || compact ? undefined : 46)}
+    {fence.kind === 'channel' ? channelStep(1) : queue && icon('next', 'i-next', t('player.next'), () => act(playback.next), false, !source.capabilities.next, bar ? 48 : theme.isTV || compact ? undefined : 46)}
   </View>;
   // tv-player 3 / phone-player 2: the same prompt, notice and offer on a phone,
   // where the controls may be down and the note's line rides its bottom edge.
   const phone = !theme.isTV;
-  const skipOfferNode = visibleOffer && nextItem ? <NativeUpNextCard compact={phone} item={nextItem} artwork={props.artwork?.(nextItem.stillUrl ?? nextItem.backdropUrl)} offer={visibleOffer}
-    countdown={countdown} countdownTotal={view?.postPlay.countdownSeconds ?? 10} sceneAfter={sceneAfter} onPlayNow={() => {if (controlsCurrent()) {if (theme.isTV) controls.hide(fence); void playback.next(fence).catch(props.reportError);}}}
-    onWatchCredits={() => {if (!controlsCurrent()) return; dismissedOffer.current = visibleOffer.id; if (credits) dismissed.current.add(credits.id); refreshPrompt(value => value + 1); if (theme.isTV) controls.hide(fence);}} onSkipCredits={() => {if (credits) skipSegment(credits);}}/> : undefined;
-  const undoSkip = () => {if (!notice || !controlsCurrent()) return; const from = notice.fromSeconds; setNotice(undefined); if (theme.isTV) controls.hide(fence); if (controlsCurrent()) void playback.seek(fence, from).catch(props.reportError);};
+  const endCurrent = () => {const live = playback.getSnapshot();return controlsCurrent() && live.policy?.finished === true && live.policy.attention === policy?.attention && live.queue.view?.next.entryId === nextItem?.entryId;};
+  const skipOfferNode = (endCard || visibleOffer) && nextItem ? <NativeUpNextCard compact={phone} item={nextItem} artwork={props.artwork?.(nextItem.stillUrl ?? nextItem.backdropUrl)} offer={visibleOffer}
+    countdown={countdown} countdownTotal={view?.postPlay.countdownSeconds ?? 10} sceneAfter={!endCard && sceneAfter} onPlayNow={() => {
+      const live = playback.getSnapshot(), mode = endCard && policy?.attention === 'still-watching' ? 'still-watching' : 'manual';
+      if (!controlsCurrent() || !playback.policyAdvance || !live.queue.view?.next.available || live.queue.view.next.entryId !== nextItem.entryId
+        || endCard && (!live.policy?.finished || (live.policy.attention === 'still-watching') !== (mode === 'still-watching'))) return;
+      if (theme.isTV) controls.hide(fence);
+      void playback.policyAdvance(fence, mode).catch(props.reportError);
+    }}
+    onWatchCredits={() => {if (controlsCurrent() && playback.policyDismiss?.(fence) && theme.isTV) controls.hide(fence);}} onSkipCredits={() => {if (credits) skipSegment(credits);}}
+    postPlay={endCard ? {
+      onCancel: () => {if (endCurrent() && playback.getSnapshot().policy?.endCountdown) playback.policyCancelAutoplay?.(fence);},
+      onReplay: () => {if (endCurrent()) void playback.replay(fence).catch(props.reportError);},
+      onClose: () => {if (endCurrent()) void playback.stop(fence).catch(props.reportError);},
+    } : undefined}/> : undefined;
+  const dismissUndo = () => {if (undoKey) setDismissedUndo(undoKey); setHeldUndo(undefined);};
+  const undoSkip = () => {
+    if (!notice || !controlsCurrent()) return;
+    const current = playback.getSnapshot().policy?.undo;
+    if (theme.isTV) controls.hide(fence);
+    if (current?.marker.id === notice.marker.id && playback.policyUndo) {setHeldUndo(undefined); void playback.policyUndo(fence).catch(props.reportError); return;}
+    // A held screen-reader note outlived the policy's window: return to where the segment began.
+    if (held && held.marker.id === notice.marker.id) {dismissUndo(); void playback.seek(fence, held.marker.startSeconds).catch(props.reportError);}
+  };
   const skipNoticeNode = notice ? <View accessible accessibilityLabel={skipNoticeLabel}
     accessibilityActions={[{name: 'activate', label: t('action.undo')}, {name: 'dismiss', label: t('next.overlays.native.dismissToast')}]}
-    onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'activate') undoSkip(); else if (event.nativeEvent.actionName === 'dismiss') setNotice(undefined);}}
+    onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'activate') undoSkip(); else if (event.nativeEvent.actionName === 'dismiss') dismissUndo();}}
     style={{flexDirection: 'row', alignItems: 'center', gap: phone ? 14 : 28, paddingLeft: phone ? 16 : 30, paddingRight: 6, paddingVertical: phone ? 6 : 16,
     borderRadius: phone ? 12 : 22, overflow: 'hidden', backgroundColor: phone ? 'rgba(7,16,24,.76)' : 'rgba(9,19,27,.8)',
     boxShadow: `inset 0 0 0 1px rgba(237,245,250,.1), 0 14px 30px -12px rgba(0,0,0,.8)`}}>
     <View style={{gap: 8}}>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: phone ? 8 : 12}}>
         {!phone && <Icon name="i-check" size={26} color={theme.colors.accentStrong}/>}
-        <Text style={{fontFamily: 'Manrope-Bold', fontSize: phone ? 14.5 : 24, fontWeight: phone ? '600' : '700', color: phone ? theme.colors.textSecondary : theme.colors.text}}>{t('player.skipped', {kind: notice.kind})}</Text>
+        <Text style={{fontFamily: 'Manrope-Bold', fontSize: phone ? 14.5 : 24, fontWeight: phone ? '600' : '700', color: phone ? theme.colors.textSecondary : theme.colors.text}}>{t('player.skipped', {kind: notice.marker.kind})}</Text>
       </View>
       {!phone && <View style={{height: 3, width: 240, borderRadius: 2, backgroundColor: 'rgba(237,245,250,.18)'}}>
         <Animated.View style={[{width: '100%', transformOrigin: 'left center', height: 3, borderRadius: 2, backgroundColor: theme.colors.accentStrong}, undoLineStyle]}/>
@@ -518,15 +529,32 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         <View style={{flex: 1}}>
           <View style={{height: 115, paddingTop: 26, paddingHorizontal: 32, flexDirection: 'row', alignItems: 'flex-start', gap: 16}}>
             {icon('minimize', 'i-down', t('player.minimize'), () => props.onMinimize(fence), false, false, 48)}
+            {linear && <View testID="watch-live-identity" style={{flexDirection: 'row', alignItems: 'flex-start', gap: 14, flexShrink: 1, minWidth: 0, paddingTop: 2}}>
+              <View style={{width: 48, height: 48, borderRadius: 11, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: liveRow?.mark ? channelTint(liveRow.mark.seed) : '#edf5fa14'}}>
+                <Text numberOfLines={1} style={[nativeType({size: 13, weight: 800, tracking: -.01, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{liveRow?.mark?.text ?? channelNumber}</Text>
+                {linear.media.logoUrl && <Artwork source={props.artwork?.(linear.media.logoUrl)} width={48} height={48} style={{position: 'absolute', inset: 0}}/>}
+              </View>
+              <View style={{flexShrink: 1, minWidth: 0}}>
+                <Text numberOfLines={1} style={[nativeType({size: 26, weight: 800, tracking: -.03, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{linear.programme?.title ?? linear.name}</Text>
+                <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 1}}>
+                  <Text numberOfLines={1} style={[nativeType({size: 15, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary, flexShrink: 1}]}>{linear.name}</Text>
+                  {!!channelNumber && <Text style={[theme.type.caption, {fontSize: 15, color: theme.colors.textSecondary}]}>{channelNumber}</Text>}
+                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}><View style={{width: 7, height: 7, borderRadius: 3.5, backgroundColor: theme.colors.record}}/>
+                    <Text style={[theme.type.captionStrong, {fontSize: 13.5, color: theme.colors.record}]}>{t('next.kit.live')}</Text></View>
+                </View>
+                {linear.programme && <Text numberOfLines={1} style={[theme.type.caption, {fontSize: 15, marginTop: 4, color: theme.colors.textSecondary}]}>{t('next.kit.range', {start: wallClock(linear.programme.startMs), end: wallClock(linear.programme.endMs)})}</Text>}
+              </View>
+            </View>}
             {!linear && identity && <View style={{flexShrink: 1, minWidth: 0, paddingTop: 2}}>
               <Text numberOfLines={1} style={{fontFamily: 'Manrope-ExtraBold', fontSize: 26, fontWeight: '800', letterSpacing: -.03, color: theme.colors.text}}>{identity.title}</Text>
               <Text numberOfLines={1} style={{fontFamily: 'Manrope-SemiBold', fontSize: 15, fontWeight: '600', marginTop: 1, color: theme.colors.textSecondary}}>{identity.subtitle.map(part => part.text).join('  ')}</Text>
             </View>}
             <View style={{flex: 1}}/>
             <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-              {props.onCast && !linear && icon('cast', 'i-cast', t('player.playOn'), () => props.onCast!(fence), false, false, 48)}
+              {props.onCast && !linear && icon('cast', 'i-cast', t('player.playOn'), () => props.onCast!(fence, castButton), false, false, 48)}
               {pipOffered && icon('pip', 'i-pip', t('player.pictureInPicture'), () => props.onPictureInPicture!(fence), false, false, 48)}
               {icon('options', 'i-sliders', t('player.opt.menu'), () => panel('options'), false, false, 48)}
+              {liveButtons(48, false)}
             </View>
           </View>
           <View style={{marginTop: 'auto', height: 164}}>
@@ -578,9 +606,10 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
               <Text numberOfLines={1} style={{fontFamily: 'Manrope-SemiBold', fontSize: 13.5, fontWeight: '600', marginTop: 1, color: theme.colors.textSecondary}}>{identity.subtitle.map(part => part.text).join('  ')}</Text>
             </View>}
             <View style={{flex: 1}}/>
-            {props.onCast && !linear && icon('cast', 'i-cast', t('player.playOn'), () => props.onCast!(fence), false, false, 44)}
+            {props.onCast && !linear && icon('cast', 'i-cast', t('player.playOn'), () => props.onCast!(fence, castButton), false, false, 44)}
             {pipOffered && icon('pip', 'i-pip', t('player.pictureInPicture'), () => props.onPictureInPicture!(fence), false, false, 44)}
             {icon('options', 'i-sliders', t('player.opt.menu'), () => panel('options'), false, false, 44)}
+            {liveButtons(44)}
           </View>
           <View style={{height: 44, flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: stacked ? 12 : 0}}>
             <Text style={[theme.type.bodyStrong, {fontSize: 12.5, color: theme.colors.text, fontVariant: ['tabular-nums']}]}>{clockText(source.playback.positionSeconds)}</Text>
@@ -592,7 +621,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
           </View>
           <View style={{height: stacked ? 80 : 84, alignItems: 'center', justifyContent: 'center', marginTop: stacked ? 9 : 0}}>{transport}</View>
           <View style={{height: 44, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: stacked ? 10 : 0}}>
-            {stacked && (linear
+            {(stacked || linear) && (linear
               ? (props.onGuide ? chip('episodes', 'i-list', t('player.live.guide'), undefined, () => {if (controlsCurrent() && props.onGuide) props.onGuide();}, true) : null)
               : fence.kind === 'queue' && fence.showId ? chip('episodes', 'i-stack', t('title.episodes'), undefined, undefined, true) : null)}
             <View style={{flex: 1}}/>
@@ -660,18 +689,15 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
             <Text numberOfLines={1} style={[theme.type.bodyStrong, {fontSize: 13, marginTop: 1, color: theme.colors.textSecondary}]}>{identity.subtitle.map(part => part.text).join('  ')}</Text>
           </View>}
           <View style={{flex: 1}}/>
-          {theme.isTV && linear && liveOffer && props.liveActions && <TVLiveActions enabled={controlsEnabled}
-            record={liveOffer.channel.kind === 'live' && liveOffer.channel.recordAvailable ? {label: recordingLabel(recordState), recording: recordState === 'recording',
-              busy: liveActions.busy, disabled: liveActions.busy || !!liveActions.recording || !!liveOffer.programme.recording,
-              onPress: () => {if (controlsCurrent()) void props.liveActions?.record(liveActions, props.reportError);}} : undefined}
-            more={{disabled: liveActions.busy, onPress: () => {if (controlsCurrent()) props.liveActions?.openMore(liveActions);}}}/>}
+          {theme.isTV && liveButtons()}
           {theme.isTV && !linear && <View style={{marginLeft: 14, alignItems: 'flex-end'}}>
             <Text style={{fontFamily: 'Manrope-Bold', fontSize: 32, lineHeight: 40, fontWeight: '700', color: theme.colors.text, fontVariant: ['tabular-nums']}}>{wallClock(now)}</Text>
             <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 22, lineHeight: 26, fontWeight: '600', marginTop: 2, color: theme.colors.textSecondary}}>{t('next.watch.ends', {time: wallClock(now + Math.max(0, source.playback.duration - source.playback.positionSeconds) * 1000)})}</Text>
           </View>}
-          {props.onCast && !theme.isTV && !linear && icon('cast', 'i-cast', t('player.playOn'), () => props.onCast!(fence))}
+          {props.onCast && !theme.isTV && !linear && icon('cast', 'i-cast', t('player.playOn'), () => props.onCast!(fence, castButton))}
           {pipOffered && !theme.isTV && icon('pip', 'i-pip', t('player.pictureInPicture'), () => props.onPictureInPicture!(fence))}
           {!theme.isTV && icon('options', 'i-sliders', t('player.opt.menu'), () => panel('options'))}
+          {!theme.isTV && liveButtons(compact ? 46 : 48)}
         </View>
         {!theme.isTV && <View style={{position: 'absolute', left: 0, right: 0, top: height / 2 - big / 2, alignItems: 'center'}}>{transport}</View>}
         {theme.isTV && <View style={{position: 'absolute', left: 96 + (props.edgeInsets?.left ?? 0), right: 96 + (props.edgeInsets?.right ?? 0), bottom: 80}}>
@@ -744,8 +770,13 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
                   <Text style={{fontFamily: 'Manrope-Bold', fontSize: 12.5, fontWeight: '700', color: theme.colors.text}}>{t('player.live.goLive')}</Text>
                 </Focusable>
               : <Text style={[theme.type.bodyStrong, {fontSize: 12.5, color: theme.colors.textSecondary, fontVariant: ['tabular-nums']}]}>{clockText(Math.max(0, source.playback.duration - source.playback.positionSeconds))}</Text>)}
-            {compact && <>{qualityChip(true)}{props.fullWindowRequest?.() && controls.canFullWindow() && !controls.getSnapshot().fullWindow && icon('fullscreen', 'i-fs', t('next.states.shortcut.fullscreen'), () => {if (current() && props.fullWindowRequest?.()) controls.setFullWindow(fence, true);})}</>}
+            {compact && !linear && <>{qualityChip(true)}{props.fullWindowRequest?.() && controls.canFullWindow() && !controls.getSnapshot().fullWindow && icon('fullscreen', 'i-fs', t('next.states.shortcut.fullscreen'), () => {if (current() && props.fullWindowRequest?.()) controls.setFullWindow(fence, true);})}</>}
           </View>
+          {compact && linear && <View testID="watch-live-pills" style={{flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 8}}>
+            {props.onGuide && chip('episodes', 'i-list', t('player.live.guide'), undefined, props.onGuide)}
+            <View style={{flex: 1}}/>{qualityChip(true)}
+            {props.fullWindowRequest?.() && controls.canFullWindow() && !controls.getSnapshot().fullWindow && icon('fullscreen', 'i-fs', t('next.states.shortcut.fullscreen'), () => {if (current() && props.fullWindowRequest?.()) controls.setFullWindow(fence, true);})}
+          </View>}
           {!compact && <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 8}}>
             {linear
               ? (props.onGuide ? chip('episodes', 'i-list', t('player.live.guide'), undefined, () => {if (controlsCurrent() && props.onGuide) props.onGuide();}) : null)

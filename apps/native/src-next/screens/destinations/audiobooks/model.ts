@@ -195,7 +195,7 @@ export class NativeAudiobookController {
   private start = async (lease: AudiobookLease, entry: ContentEntry | undefined, startSeconds?: number): Promise<void> => {
     if (!this.live(lease) || !entry?.playback || !this.contains(entry)) return;
     const target = {...entry.playback, ...(startSeconds === undefined ? {} : {startSeconds})};
-    await this.options.context.playback.start({entry, target, lifetime: {signal: lease.signal, isCurrent: () => this.live(lease) && this.contains(entry)}});
+    await this.options.context.playback.start({entry, target, startIntent: startSeconds === undefined ? 'resume' : 'explicit', lifetime: {signal: lease.signal, isCurrent: () => this.live(lease) && this.contains(entry)}});
   };
   private books(): readonly ContentEntry[] {
     return this.state.sections.find(section => section.id === 'books')?.entries ?? [];

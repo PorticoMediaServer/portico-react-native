@@ -49,7 +49,7 @@ export function createNativeEntryActions(context: NativeShellBootstrapContext, m
         if (!catalogue) throw Object.assign(new Error('native_radio_playback_unavailable'), {code: 'unavailable'});
         await catalogue.playSegments([{source: {container: {kind: 'radio', id: entry.radioSeed.id}}}], {signal: operation.abort.signal, isCurrent});
       } else if (entry.playback) {
-        await context.playback.start({entry, target: entry.playback, lifetime: {signal: operation.abort.signal, isCurrent}});
+        await context.playback.start({entry, target: entry.playback, ...(entry.kind === 'chapter' && entry.playback.startSeconds !== undefined ? {startIntent: 'explicit' as const} : {}), lifetime: {signal: operation.abort.signal, isCurrent}});
       }
     };
     void execute().catch(error => {if (isCurrent()) common.reportError(error, 'detail');}).finally(() => {pending.delete(operation);});

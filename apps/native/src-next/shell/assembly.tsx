@@ -296,7 +296,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
           try {const member = find(entry); return member.id === selected.id && member.key === selected.key && member.owner === selected.owner;} catch {return false;}
         }, [context.navigation.subscribe, context.home.subscribe, controller.subscribe], signal.signal);
         homeActionDiagnostics.action('home-assembly', 'primary-play', 'dispatch');
-        void context.playback.start({entry, target, lifetime: operation.lifetime})
+        void context.playback.start({entry, target, ...(entry.kind === 'chapter' && same(entry.playback, target) && target.startSeconds !== undefined ? {startIntent: 'explicit' as const} : {}), lifetime: operation.lifetime})
           .catch(error => {if (operation.lifetime.isCurrent()) reportError(error);})
           .finally(() => {operation.dispose(); operations.delete(signal);});
   };

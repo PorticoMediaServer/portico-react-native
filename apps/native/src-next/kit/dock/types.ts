@@ -16,6 +16,8 @@ export type DockCommand = Readonly<{
   fence: PlaybackFence | CastDockIdentity;
   remote?: Readonly<{id: string; sequence: string}>;
   positionSeconds?: number;
+  /** Measured opener for the tablet Play on popover; never playback authority. */
+  anchorRef?: React.RefObject<View | null>;
 }>;
 /** Capabilities are the adapter's current allowed controls, including queue/chapter boundaries. */
 export type DockCapabilities = Readonly<{

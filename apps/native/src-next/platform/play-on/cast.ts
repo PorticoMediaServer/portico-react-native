@@ -294,6 +294,17 @@ export class NativeCastCaller {
     sameCastRemote(identity.remote,this.controller?.getSnapshot().remoteIdentity)&&
     (this.controller?.getSnapshot().phase==='casting'||this.controller?.getSnapshot().remoteStopped===true)&&
     (!this.returning||this.returning.generation===this.bridgeGeneration);
+  /** Track choices use only the current receiver's offered track ids. The selected
+   * track is not inferred: the protocol does not yet report a selected id. */
+  selectTrack = (kind: 'audio' | 'subtitles', trackId: number | null, expected: CastDockIdentity): void => {
+    const cast = this.state.cast;
+    if (!this.controller || !this.viewIsCurrent(expected) || cast.phase !== 'casting' || cast.controlPending
+      || !this.receiver || this.receiver.itemId !== cast.itemId) return;
+    const tracks = kind === 'audio' ? cast.audioTracks : cast.textTracks;
+    if (trackId === null ? kind !== 'subtitles' || !tracks.length : !Number.isSafeInteger(trackId) || !tracks.some(track => track.id === trackId)) return;
+    if (kind === 'audio') this.controller.setAudioTrack(trackId!, expected.remote);
+    else this.controller.setSubtitleTrack(trackId, expected.remote);
+  };
   controls = (type:string,position?:number,expected?:CastDockIdentity,takeover?:CastSnapshot['takeover']):void => {
     if (!this.viewerCurrent() || !this.controller) return;
     const cast = this.state.cast;
@@ -342,7 +353,7 @@ export class NativeCastCaller {
         playback:Object.freeze({itemId:item.id,startSeconds:report.positionSeconds})});
       const latestAttachment=await this.bridge?.current();
       if(latestAttachment?.attachmentId!==expected.attachmentId||!current()||!localUnchanged())return;
-      await adapter.start({entry,target:entry.playback!,lifetime:{signal:this.abort.signal,isCurrent:current}});
+      await adapter.start({entry,target:entry.playback!,startIntent:'explicit',lifetime:{signal:this.abort.signal,isCurrent:current}});
       if(current())await this.dismiss();return;
     }
 
@@ -357,7 +368,7 @@ export class NativeCastCaller {
     const entry:ContentEntry=Object.freeze({id:item.id,kind:item.kind as ContentEntry['kind'],title:item.title,
       ...(typeof item.libraryId==='string'?{libraryId:item.libraryId}:{}),...(typeof item.posterUrl==='string'&&item.posterUrl.startsWith('/v1/')?{posterUrl:item.posterUrl}:{}),
       playback:Object.freeze({itemId:item.id,startSeconds:report.positionSeconds})});
-    await source.adapter.start({entry,target:entry.playback!,lifetime:{signal:this.abort.signal,isCurrent:()=>this.source===source&&this.viewerCurrent()&&this.state.cast.phase==='off'&&this.receiver===report}});
+    await source.adapter.start({entry,target:entry.playback!,startIntent:'explicit',lifetime:{signal:this.abort.signal,isCurrent:()=>this.source===source&&this.viewerCurrent()&&this.state.cast.phase==='off'&&this.receiver===report}});
     await this.dismiss();
   };
   dispose(): void {

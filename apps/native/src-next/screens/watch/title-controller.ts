@@ -58,7 +58,7 @@ export class NativeTitleController {
     this.workspace = new ShowWorkspaceService({api: options.api, scope: options.scope});
     this.memory = new NativeTitleMemory(['show', 'season', 'episode'].includes(this.entry.kind));
     this.episode = new NativeTitleEpisodeDetails({api: options.api, scope: options.scope, requestId: options.requestId,
-      current: () => this.current() && !this.retired, play: (entry, target) => this.options.playback.start({entry, target})});
+      current: () => this.current() && !this.retired, play: (entry, target, startIntent) => this.options.playback.start({entry, target, startIntent})});
     this.snapshot = this.read();
     this.off = [this.detail.subscribe(this.changed), this.workspace.subscribe(this.changed), options.subscribeCurrent(() => {if (!this.current()) this.dispose();})];
     this.offHost = options.subscribeHost?.(() => {for (const save of this.saves) if (!this.hostOf(save.lease)) save.request.abort();}) ?? (() => {});
@@ -185,7 +185,7 @@ export class NativeTitleController {
     // Shows play only the actual server-projected continuation. No guessed first episode.
     const actual = fromStart ? primary?.playback : target ?? (entry.id === this.entry.id ? this.workspace.getSnapshot().data?.nextUp?.playback ?? entry.playback : entry.playback);
     if (!actual || fromStart && entry.id !== data?.item.id) return;
-    await this.options.playback.start({entry, target: actual, ...(presentation ? {presentation} : {})});
+    await this.options.playback.start({entry, target: actual, startIntent: fromStart ? 'start-over' : 'resume', ...(presentation ? {presentation} : {})});
   };
   personal = async (intent: PersonalIntent): Promise<void> => {if (this.current()) await this.detail.mutate(intent);};
   dispose = (): void => {

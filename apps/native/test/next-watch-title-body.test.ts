@@ -12,6 +12,8 @@ import {durationText} from '../../../packages/client-core/src/presentation/kit-m
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 const {NativeTitleScreen, TitleEpisode} = await screenModule(new URL('../src-next/screens/watch/TitleScreen.tsx', import.meta.url), {
   '../../../../../packages/client-core/src/presentation/errors': {presentError},
+  'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, right: 0, bottom: 0, left: 0})},
+  '../../platform/native-blur': {BlurView: 'BlurView'},
   '../../tv/layout/TVShelf': {TVShelf: 'TVShelf', tvItemKey: (entry: {id: string}) => entry.id},
   './tv-title-focus': {tvTitleRegionMap}, '../../shell/tv-focus': {tvFocusIds}, '../../kit/focus': {FocusRegion: 'FocusRegion', useOptionalFocusRegistry: () => undefined},
   react: {...React, default: React}, 'react-native': {View: 'View', Text: 'Text', ScrollView: 'Scroll', useWindowDimensions: () => ({width: 390, height: 844})},
@@ -88,8 +90,7 @@ test('phone details draws the real cast and crew row, its credit lines and the i
     assert.ok(descendants(tree).some(node => node.type === 'Text' && node.props.children === remaining));
     assert.ok(descendants(tree).some(node => node.type === 'Button' && node.props.icon === 'i-replay'));
     assert.ok(descendants(tree).some(node => node.type === 'Text' && node.props.children === 'PG-13'), 'the phone facts line draws the rating tag it names');
-    const metadata = descendants(tree).find(node => node.type === 'Facts');
-    assert.equal(metadata.props.facts.some((fact: any) => fact.id === 'content-rating'), false, 'the tag is not repeated inside the plain facts row');
+    assert.equal(descendants(tree).filter(node => node.type === 'Text' && node.props.children === 'PG-13').length, 1, 'the tag is not repeated inside the plain facts row');
   } finally {host.unmount();}
 });
 

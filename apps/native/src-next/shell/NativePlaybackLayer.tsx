@@ -153,10 +153,10 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
       policyLifetime: lifetime,
       ...(adapter.retry ? {retry: {enabled: snapshot.capabilities.retry === true,
         run: (fence: PlaybackFence) => {void adapter.retry!(fence, lifetime).catch(runtime.reportError);}}} : {}),
-      ...(runtime.playOn && snapshot.capabilities.cast ? {playOn: {enabled: true, open: (fence: PlaybackFence) => {
+      ...(runtime.playOn && snapshot.capabilities.cast ? {playOn: {enabled: true, open: (fence: PlaybackFence, anchorRef?: React.RefObject<View | null>) => {
         const current = adapter.getSnapshot();
         if (!lifetime.isCurrent() || current.capabilities.cast !== true || !current.fence || !sameFence(current.fence, fence)) return;
-        runtime.playOn?.open();
+        runtime.playOn?.open(anchorRef);
       }}} : {}),
       ...(adapter.editQueue ? {queueEdit: {enabled: snapshot.capabilities.queueEdit === true, lease: lifetime,
         apply: (fence: PlaybackFence, intent: V1QueueEditIntent, queueId: string, expectedRevision: string) => {
@@ -490,7 +490,8 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
       : <TouchStartFailure failure={snapshot.startFailure} wait={snapshot.capacityWait} runtime={runtime}/>)}
     {/* One Play on sheet for every surface: the dock, a title page's control and the touch
         listening output all open the same shell controller, so it is mounted once here. */}
-    {runtime.playOn && <NativePlayOnSheets controller={runtime.playOn} artwork={runtime.artwork} posterUrl={snapshot.entry?.posterUrl}
+    {runtime.playOn && <NativePlayOnSheets controller={runtime.playOn} artwork={runtime.artwork} ambient={runtime.ambient}
+      airPlayVideo={snapshot.capabilities.airPlayVideo === true} skipBackSeconds={runtime.skipBackSeconds} skipForwardSeconds={runtime.skipForwardSeconds ?? 30}
       onLinkTV={() => {
         // A retained sheet may only leave for another page while the same shell and playback
         // context still own it; a retired viewer never navigates from a stale sheet.

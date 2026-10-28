@@ -384,18 +384,18 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     {subtitleProvider?.enabled && !subtitleSearching && actionRow('subtitle-search', t('player.opt.findSubtitles'), t('player.opt.providedByOpenSubtitles'),
       () => {setSubtitleSearching(true); void run(async () => {const controls = subtitleControls?.(fence); if (controls) await controls.search((context.runtime.text.locale ?? 'en').split('-')[0] ?? 'en');});})}
     {subtitleProvider?.enabled && subtitleSearching && <>
-      {source.subtitles?.busy && !subtitleCandidates.length && <Text style={{marginHorizontal: theme.isTV ? 14 : 18, marginVertical: 10, color: theme.colors.textSecondary}}>{t('player.opt.lookingForSubtitles')}</Text>}
+      {source.subtitles?.busy && !subtitleCandidates.length && <Text style={[theme.type.body, {marginHorizontal: theme.isTV ? 14 : 18, marginVertical: 10, color: theme.colors.textSecondary}]}>{t('player.opt.lookingForSubtitles')}</Text>}
       {subtitleCandidates.map(candidate => actionRow(`subtitle-candidate-${candidate.id}`, candidate.title, `${candidate.language.toUpperCase()} · ${candidate.attribution}`,
         () => {void run(async () => {const controls = subtitleControls?.(fence); if (controls) {await controls.apply(candidate.id, 'personal', 'Downloaded by the viewer for personal viewing'); setSubtitleSearching(false);}});}))}
-      {!source.subtitles?.busy && !subtitleCandidates.length && !source.subtitles?.error && <Text style={{marginHorizontal: theme.isTV ? 14 : 18, marginVertical: 10, color: theme.colors.textTertiary}}>{t('player.opt.noSubtitlesFound')}</Text>}
+      {!source.subtitles?.busy && !subtitleCandidates.length && !source.subtitles?.error && <Text style={[theme.type.body, {marginHorizontal: theme.isTV ? 14 : 18, marginVertical: 10, color: theme.colors.textTertiary}]}>{t('player.opt.noSubtitlesFound')}</Text>}
       {source.subtitles?.error && <View style={{marginHorizontal: theme.isTV ? 14 : 18, marginVertical: 10}}>
-        <Text style={{color: theme.colors.textSecondary}}>{source.subtitles.error}</Text>
-        <Text style={{marginTop: 6, color: theme.colors.textTertiary}}>{t('player.opt.providedByOpenSubtitles')}</Text>
+        <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{source.subtitles.error}</Text>
+        <Text style={[theme.type.caption, {marginTop: 6, color: theme.colors.textTertiary}]}>{t('player.opt.providedByOpenSubtitles')}</Text>
       </View>}
     </>}
     {style && style.fields.length > 0 && !theme.isTV && actionRow('subtitle-style', t('player.opt.subtitleStyle'), styleSummary,
       () => {if (current()) context.openPanel('style');})}
-    {subtitleReasonText && <Text style={{marginHorizontal: theme.isTV ? 14 : 18, marginTop: 8, color: theme.colors.textTertiary}}>{subtitleReasonText}</Text>}
+    {subtitleReasonText && <Text style={[theme.type.caption, {marginHorizontal: theme.isTV ? 14 : 18, marginTop: 8, color: theme.colors.textTertiary}]}>{subtitleReasonText}</Text>}
     {selected.resource && source.subtitles?.plan && <View style={{marginHorizontal: theme.isTV ? 14 : 18, marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 6}}>
       <Text style={[theme.type.bodyStrong, {color: theme.colors.text, flex: 1}]}>{t('player.opt.timing')}</Text>
       <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('player.opt.offsetSeconds', {seconds: new Intl.NumberFormat(context.runtime.text.locale, {minimumFractionDigits: 1, maximumFractionDigits: 1}).format(Number(source.subtitles.plan.offsetUs) / 1_000_000)})}</Text>

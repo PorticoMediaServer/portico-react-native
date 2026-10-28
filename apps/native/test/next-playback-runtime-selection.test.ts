@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import type {HomeSelectionPlaybackItem} from '../../../packages/client-core/src/home-selection/types.ts';
 import {selectionSegments, selectionStartSeconds} from '../src-next/platform/playback/selection.ts';
 
-function entry(id: string, kind: 'movie' | 'show' | 'album' = 'movie', target = id): HomeSelectionPlaybackItem {
-  return {identity: {id, kind, libraryId: 'library'}, entry: {id, kind, libraryId: 'library', title: id, playback: {itemId: target, startSeconds: 41}}, target: {itemId: target, startSeconds: 41}};
+function entry(id: string, kind: 'movie' | 'show' | 'album' = 'movie', target = id, startIntent: 'resume' | 'start-over' | 'explicit' = 'resume'): HomeSelectionPlaybackItem {
+  return {identity: {id, kind, libraryId: 'library'}, entry: {id, kind, libraryId: 'library', title: id, playback: {itemId: target, startSeconds: 41}}, target: {itemId: target, startSeconds: 41}, startIntent};
 }
 const collection: HomeSelectionPlaybackItem = {identity: {id: 'collection-1', kind: 'collection', libraryId: 'library'}, collection: {
   mediaKind: 'movie',
@@ -25,7 +25,9 @@ test('the first real show resume target is an anchor, while enqueue keeps the wh
   const show = entry('show-1', 'show', 'episode-9');
   assert.deepEqual(selectionSegments([show], true), [{source: {container: {kind: 'show', id: 'show-1'}}, anchor: {itemId: 'episode-9'}}]);
   assert.deepEqual(selectionSegments([show], false), [{source: {container: {kind: 'show', id: 'show-1'}}}]);
-  assert.equal(selectionStartSeconds([show]), 41);
+  // RN-08: an ordinary Resume leaves the position to the server; a card's retained one is display data.
+  assert.equal(selectionStartSeconds([show]), undefined);
+  assert.equal(selectionStartSeconds([entry('show-1', 'show', 'episode-9', 'explicit')]), 41);
   assert.equal(selectionStartSeconds([collection]), undefined);
 });
 
@@ -33,10 +35,11 @@ test('real resume and start-over targets need not equal the display entry playba
   const show = entry('show-1', 'show', 'episode-default');
   assert.ok('entry' in show);
   const resumed = {...show, target: {itemId: 'episode-resume', startSeconds: 72}};
-  assert.equal(selectionStartSeconds([resumed]), 72);
+  assert.equal(selectionStartSeconds([resumed]), undefined, 'Resume asks the server for its current position');
+  assert.equal(selectionStartSeconds([{...resumed, startIntent: 'explicit' as const}]), 72);
   assert.deepEqual(selectionSegments([resumed], true)[0]?.anchor, {itemId: 'episode-resume'});
   const movie = entry('movie-1'); assert.ok('entry' in movie);
-  const fromStart = {...movie, target: {itemId: 'movie-1', startSeconds: 0}};
+  const fromStart = {...movie, target: {itemId: 'movie-1', startSeconds: 41}, startIntent: 'start-over' as const};
   assert.equal(selectionStartSeconds([fromStart]), 0);
   assert.deepEqual(selectionSegments([fromStart], true), [{source: {items: {ids: ['movie-1']}}}]);
 });

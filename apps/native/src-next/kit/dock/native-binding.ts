@@ -43,7 +43,7 @@ export function bindNativeDock(adapter: NativeDockAdapter, options: {remote?: Re
       case 'seek': if (!current || !cap.seek || command.positionSeconds === undefined || !Number.isFinite(command.positionSeconds)) return false; await adapter.seek(command.fence, command.positionSeconds); return true;
       case 'previous': if (!current || !cap.previous) return false; await adapter.previous(command.fence); return true;
       case 'next': if (!current || !cap.next) return false; await adapter.next(command.fence); return true;
-      case 'cast': if (!current || !cap.cast || !adapter.cast) return false; await adapter.cast(command.fence); return true;
+      case 'cast': if (!current || !cap.cast || !adapter.cast) return false; await adapter.cast(command.fence, command.anchorRef); return true;
       default: return false;
     }
   };

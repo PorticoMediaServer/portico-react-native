@@ -23,6 +23,8 @@ const {NativeWatchHost} = await screenModule(new URL('../src-next/screens/watch/
   '../../platform/layout/player-presentation': {resolvePlayerPresentation, playerControlsRevealDeadline, playerPostureCrossFadeMs: 250},
   '../../platform/platformPosture': {usePlatformPosture: () => posture},
   './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},
+  './HandheldMiniGuide': {NativeHandheldMiniGuide: 'HandheldMiniGuide'},
+  './live-guide': {noLiveGuideSubscription: () => () => {}, emptyLiveGuide: () => ({open: false, rows: []})},
   '../../kit/overlays/TVPanelMotion': {TVPanelTransition: 'Transition', TVPanelSlide: 'Slide', TVPanelScrim: 'Scrim', useTVPanelPresence: (value: unknown) => ({value, open: value !== undefined})},
   './tv-presentation': {nativeWatchTVPresentation},
   'react-native-reanimated': {default: {View: 'AnimatedView'}, useSharedValue: (value: any) => React.useRef({value}).current, useAnimatedStyle: (run: any) => run(),
