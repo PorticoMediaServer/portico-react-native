@@ -903,6 +903,7 @@ for (const failed of [false, true]) test(`actual Library selection result footer
   const b = await bindings(), o = await overlayBindings(b), selection = await import('../../../packages/client-core/src/selection-model');
   const scope = await import('../src-next/screens/destinations/lifetime'), display = await import('../src-next/shell/selection-display');
   const module = await screenModule(new URL('../src-next/screens/library/selection.tsx', import.meta.url), {
+    './selection-actions': {nativeSelectionActionInput: () => {throw new Error('unexpected query action');}}, '../downloads/request': {}, '../../platform/offline-downloads': {},
     react: b.react, 'react-native': b.native, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 0})},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src/presentation/errors': await import('../../../packages/client-core/src/presentation/errors'),
     '../../../../../packages/client-core/src/catalogue-query-selection': await import('../../../packages/client-core/src/catalogue-query-selection'),
@@ -922,7 +923,7 @@ for (const failed of [false, true]) test(`actual Library selection result footer
   let busy = false, token = 1, active = true, clears = 0, retries = 0, tree: any, panel: any;
   const view = {active: true, selectedKeys: ['original'], target: {mode: 'explicit'}, summary: {count: 1, types: [{kind: 'movie', count: 1}], every: {}}};
   // The selection operation port is controlled; all presenter guards and kit bindings are real.
-  const store = {subscribe: () => () => {}, getSnapshot: () => 1, snapshot: () => view, active: () => active, personal: () => ({results: [{key: 'original', title: 'Original', status: failed ? 'failed' : 'saved'}]}),
+  const store = {queryAction: () => undefined, queryOffer: () => false, subscribe: () => () => {}, getSnapshot: () => 1, snapshot: () => view, active: () => active, personal: () => ({results: [{key: 'original', title: 'Original', status: failed ? 'failed' : 'saved'}]}),
     personalBusy: () => busy, busy: () => busy, resultsToken: () => token, whole: () => undefined, wholeUnavailable: () => undefined, destination: () => undefined, destinationKind: () => undefined, bulk: () => undefined,
     queueControl: () => false, loadedCount: () => 1, entries: () => [], clear() {clears++; active = false;}, async retryPersonal() {retries++;}};
   const source = createFabricHookHost(() => {tree = element.type({...element.props, store});});

@@ -81,13 +81,12 @@ export type PickerProps = SelectionSurfaceProps & {
 export type BulkListValue = Readonly<{value: string; count: number}>;
 /** Structural projection of the actual bulk metadata preview, including bounded examples. */
 export type BulkFieldValue = Readonly<{
-  state: 'shared' | 'mixed';
-  distinctCount: number;
   truncated: boolean;
   value?: string;
   values: readonly BulkListValue[];
   entries: readonly BulkListValue[];
-}>;
+} & ({state: 'shared' | 'mixed'; distinctCount: number; atLeast?: never}
+  | {state: 'many'; distinctCount?: never; atLeast: number; value?: never})>;
 /** A presentation of latest target outcomes, never a new operation receipt. */
 export type BulkResultView = Pick<BulkReceipt, 'results' | 'updated' | 'failed'>;
 export type BulkFieldChange = {value: string} | {add: readonly string[]; remove: readonly string[]};

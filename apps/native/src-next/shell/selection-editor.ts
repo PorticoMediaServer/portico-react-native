@@ -3,13 +3,12 @@ import type {HomeSelectionEditor} from '../../../../packages/client-core/src/hom
 import type {BulkFieldEdit} from '../../../../packages/client-core/src/metadata-bulk';
 import type {BulkChanges, BulkFieldValue} from '../kit/selection';
 
-/** The full-result distinctCount stays exact even when only64 example values are returned. */
+/** Preserve exact shared/mixed values and the honest saturated many-state bound. */
 export function nativeBulkValues(preview: BulkMetadataPreview): Readonly<Record<string, BulkFieldValue>> {
   return Object.fromEntries(preview.schema.map(spec => {
     const field = preview.fields[spec.field];
     if (!field) throw new Error('invalid_metadata_preview');
-    return [spec.field, {state: field.state, distinctCount: field.distinctCount, truncated: field.truncated,
-      ...(field.value === undefined ? {} : {value: field.value}), values: field.values, entries: field.entries}];
+    return [spec.field, field];
   }));
 }
 

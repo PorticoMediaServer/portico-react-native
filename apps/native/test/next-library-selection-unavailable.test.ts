@@ -50,6 +50,7 @@ test('actual native Library selection composes the refusal without an executor a
  const producer={model:{getSnapshot:()=>selectionState,subscribe:()=>()=>{},clear(){}},whole:()=>undefined,dispose(){disposed++;}};
  const source={getSnapshot:()=>sourceState,subscribe:(fn:()=>void)=>{listeners.add(fn);return()=>listeners.delete(fn);}};
  const {createNativeLibrarySelection}=await screenModule(new URL('../src-next/screens/library/selection.tsx',import.meta.url),{
+    './selection-actions': {nativeSelectionActionInput: () => {throw new Error('unexpected query action');}}, '../downloads/request': {}, '../../platform/offline-downloads': {},
   react:host.react,'react-native':{Text:'Text',View:'View'},'react-native-safe-area-context':{useSafeAreaInsets:()=>({top:0,bottom:0})},
   '../../../../../packages/i18n/src':{defaultI18n:{t:(key:string)=>key}},
   '../../../../../packages/client-core/src/presentation/errors':{},

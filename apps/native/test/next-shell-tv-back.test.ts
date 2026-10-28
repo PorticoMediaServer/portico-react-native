@@ -36,6 +36,7 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
     '../kit/overlays': {ToastHost: 'Toast'}, '../kit/states': {StateView: 'State'},
   });
   const {createNativeShellBindings} = await screenModule(new URL('../src-next/shell/assembly.tsx', import.meta.url), {
+    '../screens/library/selection-actions': {}, '../screens/downloads/request': {}, '../platform/offline-downloads': {}, './selection-display': {},
     react: h.react, 'react-native': {BackHandler: {addEventListener: (_: string, fn: () => boolean) => {back = fn; return {remove() {}};}}, NativeModules: {}, Platform: {isTV: true}, View: 'View'},
     '../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},
     '../../../../packages/client-core/src/user-mutation-recovery': mutationRecovery,

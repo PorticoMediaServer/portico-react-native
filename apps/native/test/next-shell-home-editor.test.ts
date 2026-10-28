@@ -3,11 +3,14 @@ import test from 'node:test';
 import {nativeBulkChanges, nativeBulkDraft, nativeBulkValues} from '../src-next/shell/selection-editor';
 import type {BulkMetadataPreview} from '../../../packages/client-core/src/home-selection/metadata-preview';
 
-test('Mixed uses the authoritative distinct count rather than its truncated example window', () => {
+test('native Home editor preserves exact Mixed and the saturated Many lower bound', () => {
   const preview: BulkMetadataPreview = {serverId: 's', viewerFence: 'v', contentKind: 'movie', kind: 'item', total: 100, targets: [], singleItemFields: [], excludedFields: [],
     schema: [{field: 'year', label: 'year', group: 'numbers', type: 'integer', bulk: true}],
-    fields: {year: {state: 'mixed', distinctCount: 90, values: Array.from({length: 64}, (_, index) => ({value: String(index), count: 1})), entries: [], locked: 0, truncated: true}}};
-  assert.deepEqual(nativeBulkValues(preview).year, {state: 'mixed', distinctCount: 90, truncated: true, values: preview.fields.year.values, entries: []});
+    fields: {year: {state: 'mixed', distinctCount: 2, values: [{value: '2000', count: 40}, {value: '2001', count: 60}], entries: [], locked: 0, truncated: false}}};
+  assert.deepEqual(nativeBulkValues(preview).year, preview.fields.year);
+  const many: BulkMetadataPreview = {...preview, fields: {year: {state: 'many', atLeast: 65, values: [], entries: [], locked: 23, truncated: true}}};
+  assert.deepEqual(nativeBulkValues(many).year, many.fields.year);
+  assert.equal(Object.hasOwn(nativeBulkValues(many).year!, 'distinctCount'), false);
   assert.deepEqual(nativeBulkDraft({}, true), {lockEdited: true});
 });
 

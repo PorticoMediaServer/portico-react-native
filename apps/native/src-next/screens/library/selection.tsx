@@ -1,5 +1,8 @@
 import {nativeSelectionActionUnavailable, nativeSelectionUnavailableActions} from './selection-unavailable-actions';
 import {nativeWholeQueryUnavailableActions} from './whole-query-unavailable';
+import {createNativeLibrarySelectionAction, nativeSelectionActionInput, type NativeLibrarySelectionAction} from './selection-actions';
+import {askNativeDownload, closeNativeDownload, getNativeDownloadSnapshot} from '../downloads/request';
+import {offlineDownloads} from '../../platform/offline-downloads';
 import React, {useRef, useState, useSyncExternalStore} from 'react';
 import {Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -61,6 +64,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
   let destinations: NativeLoadedDestinations | undefined, destinationKind: 'playlist' | 'collection' | undefined;
   let destinationController: AbortController | undefined, stopDestinations: (() => void) | undefined;
   let bulk: NativeBulkMedia | undefined, bulkController: AbortController | undefined, stopBulk: (() => void) | undefined;
+  let queryAction: NativeLibrarySelectionAction | undefined, stopQueryAction: (() => void) | undefined;
   let personal: ReturnType<typeof createCataloguePersonalSelection> | undefined, personalCurrent: (() => boolean) | undefined, personalToken = 0;
   const emit = () => {revision++; for (const listener of [...listeners]) listener();};
   const visible = () => !disposed && lifetime.current() && activation.getSnapshot().visible;
@@ -80,7 +84,18 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     if (expected && bulk !== expected) return;
     bulkController?.abort(); bulkController = undefined; stopBulk?.(); stopBulk = undefined;
     bulk?.dispose(); bulk = undefined;};
-  const reset = () => {
+  const closeQueryAction = (expected?: NativeLibrarySelectionAction) => {
+    if (expected && queryAction !== expected) return;
+    const closing = queryAction; queryAction = undefined;
+    stopQueryAction?.(); stopQueryAction = undefined;
+    if (closing) {
+      const request = getNativeDownloadSnapshot();
+      if (request?.queryAction === closing) closeNativeDownload(request);
+      closing.dispose(); emit();
+    }
+  };
+  const reset = (preserveQueryAction = false) => {
+    if (!preserveQueryAction) closeQueryAction();
     closeDestinations();
     closeBulk();
     pending?.abort(); pending = undefined; queued = undefined;
@@ -98,6 +113,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
   // The producer disposes itself when the applied view changes; rebuild it there
   // so every registration belongs to exactly one real query.
   const ensure = (): Producer | undefined => {
+    if (queryAction?.current()) return producer;
     const next = sourceToken();
     if (!next || !visible()) {if (token) reset(); return undefined;}
     if (producer && next === token) return producer;
@@ -155,6 +171,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
   };
   const selectedKeys = () => snapshot()?.selectedKeys ?? [];
   const toggle = (key: string) => {
+    if (queryAction) return;
     const entry = entryForKey(key);
     if (!entry) return;
     const window = windowForEntry(entry);
@@ -168,7 +185,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     }
     try {window.toggle(entry); entering = true; emit();} catch (error) {if (visible()) services.reportError(error, 'library');}
   };
-  const clear = () => {entering = false; model()?.clear(); emit();};
+  const clear = () => {closeQueryAction(); entering = false; model()?.clear(); emit();};
   const loaded = (): ContentEntry[] => [...windows.values()].flatMap(window => [...window.entries]);
   const queueControl = () => {
     const role = context.playback.getSnapshot().session?.role;
@@ -178,7 +195,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     // A retained menu acts on the selection it was drawn for, never on a successor.
     if (view !== snapshot()) return;
     const current = producer, op = current?.model.captureOperation();
-    if (!current || !op || !visible() || pending || destinations || bulk || personal?.service.getSnapshot().busy
+    if (!current || !op || !visible() || pending || destinations || bulk || queryAction || personal?.service.getSnapshot().busy
       || !!personal?.service.getSnapshot().results.length) return;
     const query = op.target.mode === 'query' ? op.target : undefined;
     if (nativeSelectionActionUnavailable(view.summary, action) || query && !queryExecutable(query, action === 'play' ? 'play' : 'queue')) return;
@@ -250,7 +267,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
   const openAdmin = (kind: 'edit' | 'delete', view: SelectionSnapshot<BrowseSelectionContext>) => {
     if (view !== snapshot() || kind === 'delete' && nativeSelectionActionUnavailable(view.summary, 'delete')) return;
     const current = producer, model = current?.model;
-    if (!current || !model || !view.active || !view.selectedKeys.length || destinations || bulk || pending || personalController
+    if (!current || !model || !view.active || !view.selectedKeys.length || destinations || bulk || queryAction || pending || personalController
       || !!personal?.service.getSnapshot().results.length || personal?.service.getSnapshot().busy || !visible()) return;
     const op = model.captureOperation();
     if (!op || op.target.mode !== 'explicit') return;
@@ -265,6 +282,26 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     void (kind === 'edit' ? bulk.openEditor() : bulk.openDelete()).catch(error => {if (live()) services.reportError(error, 'detail');});
     emit();
   };
+  const queryOffer = (kind: 'delete' | 'download', view: SelectionSnapshot<BrowseSelectionContext> | undefined) => {
+    if (!view || view !== snapshot() || view.target?.mode !== 'query' || !visible()) return false;
+    try {nativeSelectionActionInput(view.target, kind, context); return true;} catch {return false;}
+  };
+  const openQueryAction = (kind: 'delete' | 'download', view: SelectionSnapshot<BrowseSelectionContext>) => {
+    if (!queryOffer(kind, view) || !producer || queryAction || bulk || destinations || pending || personalController
+      || personal?.service.getSnapshot().busy || personal?.service.getSnapshot().results.length) return;
+    try {
+      const action = createNativeLibrarySelectionAction(context, source, activation, producer.model, undefined, {
+        follow: (operationId, deviceId) => offlineDownloads.followSelectionAction(operationId, deviceId),
+      });
+      if (snapshot() !== view || action.target !== view.target) {action.dispose(); return;}
+      queryAction = action;
+      stopQueryAction = action.subscribe(() => {if (!action.current()) closeQueryAction(action); else emit();});
+      if (kind === 'delete') void action.openDelete().catch(error => {if (queryAction === action && action.current()) services.reportError(error, 'detail');});
+      else askNativeDownload({title: selectedItemsLabel(view.summary), queryAction: action,
+        lifetime: {signal: action.source.signal!, isCurrent: action.current}});
+      emit();
+    } catch (error) {services.reportError(error, 'detail');}
+  };
   const retryPersonal = async () => {
     if (!personal || !personalCurrent?.() || personal.service.getSnapshot().busy) return;
     try {await personal.service.retry();} catch (error) {if (personalCurrent?.()) services.reportError(error, 'library');}
@@ -273,7 +310,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     getSnapshot: () => revision, snapshot, loadedCount: () => loaded().length, personal: () => personal?.service.getSnapshot(),
     personalBusy: () => !!personal?.service.getSnapshot().busy, resultsToken: () => personalToken,
     // An open bulk dialog owns the current operation: the bar must not offer another.
-    busy: () => !!pending || !!personal?.service.getSnapshot().busy || !!destinations?.snapshot().busy || !!bulk, active: () => entering || !!snapshot()?.active, queueControl, clear, execute, applyPersonal, retryPersonal,
+    busy: () => !!pending || !!personal?.service.getSnapshot().busy || !!destinations?.snapshot().busy || !!bulk || !!queryAction, active: () => entering || !!snapshot()?.active || !!queryAction, queueControl, clear, execute, applyPersonal, retryPersonal,
     destination: () => destinations, destinationKind: () => destinationKind, openDestination, closeDestinations,
     // Only an active captured view with a validated descriptor can offer Select all.
     /** Bar Done/Cancel/Back: only the view it was drawn for may force-clear, and a
@@ -288,9 +325,10 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     selectWhole: (view: SelectionSnapshot<BrowseSelectionContext>, id: string) => {
       if (!producer || view !== snapshot() || producer.whole()?.id !== id || !visible() || pending || destinations
         || personalController || !!personal?.service.getSnapshot().results.length || personal?.service.getSnapshot().busy
-        || !!bulk) return;
+        || !!bulk || !!queryAction) return;
       if (producer.selectWhole(id)) emit();
     },
+    queryAction: () => queryAction, queryOffer, openQueryAction, closeQueryAction,
     bulk: () => bulk, openAdmin, closeBulk, entries: () => entriesFor(selectedKeys()).filter(leaf)};
   // useSyncExternalStore compares snapshots by identity: one layout object per
   // revision, never a fresh object on every read.
@@ -334,7 +372,7 @@ export function createNativeLibrarySelection(context: NativeShellBootstrapContex
     },
     render: (artwork?: (path?: string) => React.ReactNode) => <LibrarySelectionBars store={store} artwork={artwork ?? (() => null)}/>,
   };
-  const off = [source.subscribe(() => {if (producer && sourceToken() !== token) reset(); emit();}), activation.subscribe(() => {if (!visible()) reset(); emit();}), context.subscribeAuthority(() => {reset(); emit();})];
+  const off = [source.subscribe(() => {if (producer && sourceToken() !== token) {const state = queryAction?.getSnapshot(); reset(!!queryAction?.current() && (!!state?.job || state?.phase === 'submitting' || state?.phase === 'uncertain'));} emit();}), activation.subscribe(() => {if (!visible()) reset(); emit();}), context.subscribeAuthority(() => {reset(); emit();})];
   return Object.freeze({...port, dispose: () => {if (disposed) return; disposed = true; off.forEach(stop => stop()); reset(); listeners.clear();}});
 }
 
@@ -351,6 +389,8 @@ type Store = {subscribe(listener: () => void): () => void; getSnapshot(): number
   destination(): NativeLoadedDestinations | undefined; destinationKind(): 'playlist' | 'collection' | undefined;
   openDestination(kind: 'playlist' | 'collection', view: SelectionSnapshot<BrowseSelectionContext>): void; closeDestinations(expected?: NativeLoadedDestinations): void;
   bulk(): NativeBulkMedia | undefined; openAdmin(kind: 'edit' | 'delete', view: SelectionSnapshot<BrowseSelectionContext>): void; closeBulk(expected?: NativeBulkMedia): void;
+  queryAction(): NativeLibrarySelectionAction | undefined; queryOffer(kind: 'delete' | 'download', view: SelectionSnapshot<BrowseSelectionContext> | undefined): boolean;
+  openQueryAction(kind: 'delete' | 'download', view: SelectionSnapshot<BrowseSelectionContext>): void; closeQueryAction(expected?: NativeLibrarySelectionAction): void;
   entries(): readonly ContentEntry[]};
 
 function LibrarySelectionBars({store, artwork}: {store: Store; artwork: (path?: string) => React.ReactNode}) {
@@ -360,16 +400,16 @@ function LibrarySelectionBars({store, artwork}: {store: Store; artwork: (path?: 
   const doneRef = useRef<View>(null), retryRef = useRef<View>(null);
   const state = store.snapshot();
   if (!store.active()) return null;
-  const summary = state?.summary;
+  const queryAction = store.queryAction(), summary = state?.summary ?? queryAction?.target.summary;
   let actions: SelectionActionOffer[] = [];
   // Whole views have Play/Queue executors. Large-query Delete/Download retain
   // their unavailable controls and reasons without inventing a producer.
-  const explicit = state?.target?.mode !== 'query';
+  const explicit = !!state && state.target?.mode !== 'query';
   const queryTarget = state?.target?.mode === 'query' ? state.target : undefined;
   // Unchecking one title refines the whole-view target, and the query executor refuses
   // that refinement: the control is hidden rather than offered and guaranteed to fail.
-  const playable = !!summary?.every.play && (!queryTarget || queryExecutable(queryTarget, 'play'));
-  const queueable = !!summary?.every.queue && store.queueControl() && (!queryTarget || queryExecutable(queryTarget, 'queue'));
+  const playable = !!state && !!summary?.every.play && (!queryTarget || queryExecutable(queryTarget, 'play'));
+  const queueable = !!state && !!summary?.every.queue && store.queueControl() && (!queryTarget || queryExecutable(queryTarget, 'queue'));
   if (playable) actions.push({id: 'play', disabled: store.busy()});
   if (queueable) actions.push({id: 'queue', disabled: store.busy()}, {id: 'playNext', disabled: store.busy()}, {id: 'playLater', disabled: store.busy()});
   if (explicit && summary?.every.myList) actions.push({id: 'myList', disabled: store.busy()}, {id: 'removeMyList', disabled: store.busy()});
@@ -381,7 +421,12 @@ function LibrarySelectionBars({store, artwork}: {store: Store; artwork: (path?: 
   if (explicit && summary?.every.watched) actions.push({id: 'watched', disabled: store.busy()}, {id: 'unwatched', disabled: store.busy()});
   const unavailable = nativeWholeQueryUnavailableActions(state); actions.push(...unavailable);
   actions = nativeSelectionUnavailableActions(actions, summary);
-  if ((explicit || unavailable.length > 0) && actions.some(action => ['removeMyList', 'favorite', 'watched', 'unwatched', 'edit', 'delete', 'download'].includes(action.id))) actions.push({id: 'more', disabled: store.busy()});
+  // Only the exact A1 producer replaces its own 47b unavailable offer.
+  for (const kind of ['delete', 'download'] as const) if (store.queryOffer(kind, state)) {
+    actions = actions.filter(offer => offer.id !== kind);
+    actions.push({id: kind, disabled: store.busy()});
+  }
+  if ((explicit || queryTarget || unavailable.length > 0) && actions.some(action => ['removeMyList', 'favorite', 'watched', 'unwatched', 'edit', 'delete', 'download'].includes(action.id))) actions.push({id: 'more', disabled: store.busy()});
   const personal = store.personal(), destination = store.destination(), destinationKind = store.destinationKind(), whole = store.whole(), wholeUnavailable = store.wholeUnavailable();
   const bulk = store.bulk(), bulkState = bulk?.getSnapshot(), preview: BulkMetadataPreview | undefined = bulkState?.preview;
   const bulkSummary: readonly {id: string; text: string}[] = bulkState ? Object.entries(bulkState.changes).flatMap(([field, change]) => {
@@ -394,11 +439,12 @@ function LibrarySelectionBars({store, artwork}: {store: Store; artwork: (path?: 
     return parts.length ? [{id: field, text: `${spec.label}: ${parts.join(' · ')}`}] : [];
   }) : [];
   const props: SelectionBarProps = {count: summary?.count ?? 0, selectionLabel: summary ? selectedItemsLabel(summary) : undefined,
-    onCancel: () => {setMenu(null); store.cancel(state!);}, actions, menu, onMenuChange: setMenu,
+    onCancel: () => {setMenu(null); if (queryAction) store.closeQueryAction(queryAction); else store.cancel(state!);}, actions, menu, onMenuChange: setMenu,
     ...(wholeUnavailable ? {selectAllUnavailable: {label: defaultI18n.t('next.selection.selectAllUnavailableLabel'), reason: defaultI18n.t('next.selection.selectAllSearchNotBounded')}} : whole ? {selectAllLabel: defaultI18n.t('next.selection.selectAll', {count: whole.total}), onSelectAll: () => store.selectWhole(state!, whole.id)} : {}),
     fourthSlot: summary && selectionFourthAction(summary) === 'mark-watched' ? 'watched' : 'myList',
     onAction: action => {
-      if (action === 'play' || action === 'playNext' || action === 'playLater') {setMenu(null); void store.execute(action, state!);}
+      if ((action === 'delete' || action === 'download') && state?.target?.mode === 'query') {setMenu(null); store.openQueryAction(action, state);}
+      else if (action === 'play' || action === 'playNext' || action === 'playLater') {setMenu(null); void store.execute(action, state!);}
       else if (action === 'myList' || action === 'removeMyList' || action === 'favorite' || action === 'watched' || action === 'unwatched') {setMenu(null); void store.applyPersonal(action, state!);}
       else if (action === 'playlist' || action === 'collection') {setMenu(null); store.openDestination(action, state!);}
       else if (action === 'edit' || action === 'delete') {setMenu(null); store.openAdmin(action, state!);}
@@ -430,6 +476,8 @@ function LibrarySelectionBars({store, artwork}: {store: Store; artwork: (path?: 
     {destination && destinationKind && <NativeDestinationPicker controller={destination} kind={destinationKind} open
       selectionLabel={summary ? selectedItemsLabel(summary) : ''} count={summary?.count ?? 0} artwork={artwork}
       onOpenChange={open => {if (!open && !destination.snapshot().busy) store.closeDestinations(destination);}}/>}
+    {queryAction && queryAction.controller.getSnapshot().input?.action === 'delete' && <DeleteMediaDialog queryAction={queryAction}
+      ownerHeader={summary ? selectedItemsLabel(summary) : undefined} onClose={() => store.closeQueryAction(queryAction)}/>}
     {bulk && bulkState && (bulkState.deletion
       ? <DeleteMediaDialog open owner ownerHeader={<Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{summary ? selectedItemsLabel(summary) : ''}</Text>}
           selectionCount={summary?.count ?? 0} preview={bulkState.deletion.preview ?? null} loading={bulkState.deletion.phase === 'loading'} error={bulkState.deletion.error}
