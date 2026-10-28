@@ -34,7 +34,8 @@ test('catalog hints refresh the open Home once; directory and notification hints
   freshness.hub.accept(event('library.changed', 'movies', '1'));
   await tick(); assert.deepEqual(calls, {home: 1, libraries: 0, preferences: 0, unread: 0, guide: 0, identity: 0});
   freshness.hub.accept(event('libraries.changed', 'directory'));
-  await tick(); assert.equal(calls.home, 2); assert.equal(calls.libraries, 1);
+  await tick(); assert.equal(calls.home, 1, 'content hints retain debt behind the canonical five-second pace'); assert.equal(calls.libraries, 1);
+  await tick(4_990); assert.equal(calls.home, 2, 'directory debt is read at the content pace boundary');
   freshness.hub.accept(event('notification.changed', 'inbox'));
   await tick(); assert.equal(calls.unread, 1); assert.equal(calls.home, 2); assert.equal(calls.guide, 0);
 });
@@ -62,7 +63,8 @@ test('a hint arriving during a Home read produces a trailing read instead of bei
   freshness.hub.accept(event('library.changed', 'movies', '1')); await tick(); assert.equal(reads, 1);
   for (const revision of ['2', '3', '4']) freshness.hub.accept(event('library.changed', 'movies', revision));
   await tick(100); assert.equal(reads, 1);
-  first.resolve(); await settle(); await tick(); assert.equal(reads, 2);
+  first.resolve(); await settle(); await tick(); assert.equal(reads, 1, 'completion does not bypass the content pace');
+  await tick(4_990); assert.equal(reads, 2, 'the paced trailing hint remains owed');
 });
 
 test('background, covering and retirement cancel owned reads and keep only valid pending work', async t => {
