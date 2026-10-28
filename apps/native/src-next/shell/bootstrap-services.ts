@@ -14,6 +14,8 @@ type Facts = Readonly<{preferences: PreferenceSnapshot; unread: number; hasLiveT
 type Options = {
   viewer: LocalSession['viewer']; deviceClass: Extract<DeviceClass, 'mobile' | 'television'>;
   signal: AbortSignal; current: () => boolean; onAuthorityEnded: () => void;
+  /** CC-03: the server changed this account's role; role-dependent services rebuild. */
+  onRoleChanged?: () => void;
   accountBinding: NativeShellAccountBinding;
 };
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -95,6 +97,11 @@ export class NativeShellBootstrapServices {
     if (!this.disposed) {this.dispose(); this.options.onAuthorityEnded();}
     throw error;
   }
+  private retireForRole(): never {
+    const error = this.retirement ??= changed();
+    if (!this.disposed) {this.dispose(); (this.options.onRoleChanged ?? this.options.onAuthorityEnded)();}
+    throw error;
+  }
   private checkFence(domain: Domain, raw: unknown): void {
     if (!object(raw)) throw invalid();
     const scope = domain === 'preferences' || domain === 'inbox' ? raw.scope : raw;
@@ -160,7 +167,8 @@ export class NativeShellBootstrapServices {
     await this.assertAccountBinding(account);
     this.assertCurrent();
     if (signal?.aborted) throw cancelled();
-    if (account.account.disabled || account.account.role !== viewer.role) this.retire();
+    if (account.account.disabled) this.retire();
+    if (account.account.role !== viewer.role) this.retireForRole();
     return account;
   };
   private async readInbox(): Promise<number> {

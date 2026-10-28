@@ -594,7 +594,7 @@ export async function standardHomeApp({
       if (response) return response;
     }
     if (path === routePath('get_system')) return {status: 200, body: {id: pin.serverId, name: 'Synthetic living room', version: '1', move: null, signIn: 'local', setupRequired: false, hostedConfigured: false, hostedAttached: false}};
-    if (path === routePath('get_me')) return {status: 200, body: {viewer}};
+    if (path === routePath('get_me')) return {status: 200, body: {viewer: {...viewer, role: accountRole}}};
     if (path === routePath('get_home')) return {status: 200, body: homeDoc()};
     if (path === routePath('get_preferences'))
       return {status: 200, body: envelope('preferences', prefs())};
@@ -889,6 +889,10 @@ export async function standardHomeApp({
     receipts,
     setDeleteCapability: value => {
       deleteCapability = value;
+    },
+    // CC-03: the server changes this account's role between reads.
+    setAccountRole: value => {
+      accountRole = value;
     },
     // Synthetic native store only; never connected to device authentication.
     syntheticStorage: () => ({

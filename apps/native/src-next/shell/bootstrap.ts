@@ -87,7 +87,9 @@ export type NativeShellBindingsFactory = (context: NativeShellBootstrapContext) 
 export type RestoredNativeShellRuntime = NativeShellRuntime & {readonly firstLibraryContext?: NativeShellBootstrapContext; readonly appearanceMotion?: 'follow' | 'reduce'; readonly appearanceTextSize?: 'standard' | 'large'; readonly appearanceCardSizePercent?: 85 | 100 | 125; readonly appearanceShowBackdrops?: boolean; dispose: () => void; refresh: () => Promise<void>};
 
 function cancelled(): Error {return Object.assign(new Error('native_shell_cancelled'), {name: 'AbortError'});}
-const sameViewer = (a: LocalSession, b: LocalSession): boolean => a.sessionFamilyId === b.sessionFamilyId && (['serverId', 'accountId', 'profileId', 'authority', 'role'] as const).every(key => a.viewer[key] === b.viewer[key]);
+// CC-03: the server may change this account's role; client-core reconciles it into the
+// session, so a role change is a rebuild of role-dependent services, not another viewer.
+const sameViewer = (a: LocalSession, b: LocalSession): boolean => a.sessionFamilyId === b.sessionFamilyId && (['serverId', 'accountId', 'profileId', 'authority'] as const).every(key => a.viewer[key] === b.viewer[key]);
 
 /** Uses the existing encrypted native sign-in, signed routes and current membership verification.
  * It registers the persisted installation before restoring credentials; it creates no sign-in UI. */
@@ -125,6 +127,19 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     authorityListeners.clear(); preferenceListeners.clear(); listeners.clear();
   };
   const end = (error?: NativeIdentityFailure | NativeSignInEnded) => {if (alive) {homeActionDiagnostics.lifetime?.('bootstrap-authority-ended', signal.signal, installation);dispose(); options.onAuthorityEnded(error);}};
+  // Role-dependent services (owner pages, inbox audience, privileged actions) restart from the
+  // committed selection through the ordinary renewal path; nothing privileged survives a demotion.
+  const rebuild = () => {if (!alive) return; homeActionDiagnostics.lifetime?.('bootstrap-role-changed', signal.signal, installation); if (options.onSessionRenewed) options.onSessionRenewed(); else end();};
+  // A refused privileged read after a demotion is a role change, not a sign-out. Ask the
+  // server who this viewer is now; only a changed role rebuilds, anything else ends.
+  let roleProbe: Promise<void> | undefined;
+  const endUnlessRoleChanged = () => {
+    if (!alive || roleProbe) return;
+    const before = session?.viewer.role;
+    roleProbe = (api ? api.request<RouteResponse<'get_me'>>(routePath('get_me'), 'GET', undefined, signal.signal) : Promise.reject(cancelled()))
+      .then(me => {if (alive && session && before !== undefined && me.viewer.role !== before
+        && (['accountId', 'profileId', 'serverId', 'authority'] as const).every(key => me.viewer[key] === session!.viewer[key])) rebuild(); else end();}, () => end());
+  };
   const abort = () => {if (alive) homeActionDiagnostics.lifetime?.('bootstrap-owner-abort', signal.signal, installation);dispose();};
   options.signal?.addEventListener('abort', abort, {once: true});
   cleanups.push(() => options.signal?.removeEventListener('abort', abort));
@@ -160,7 +175,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       session: () => session, pin: () => local.getRouteConnection()?.pin, readSelected: () => nativeAppSessions.selected(),
     });
     services = new NativeShellBootstrapServices(local, {viewer: session.viewer, deviceClass: Platform.isTV ? 'television' : 'mobile',
-      signal: signal.signal, current: () => alive && installation.current(), accountBinding, onAuthorityEnded: end});
+      signal: signal.signal, current: () => alive && installation.current(), accountBinding, onAuthorityEnded: () => endUnlessRoleChanged(), onRoleChanged: () => rebuild()});
     const readers = services;
     home = readers.home;
     const documentService = home;
@@ -230,7 +245,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
         const selected = await readNativeSelectedViewer(); assertCurrent();
         if (requestSignal.aborted || !selected || selected.serverUrl !== original.serverUrl || !sameViewer(selected.session, session!)) throw cancelled();
         try {await accountBinding.assertCurrent();}
-        catch (error) {if (nativeShellPermissionDenied(error)) end(); throw error;}
+        catch (error) {if (nativeShellPermissionDenied(error)) endUnlessRoleChanged(); throw error;}
         assertCurrent(); if (requestSignal.aborted) throw cancelled();
         readOrder.libraries.apply(ticket, () => {libraries = Object.freeze(result.items); publish();}); return libraries;
       }};
@@ -289,6 +304,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     cleanups.push(context.subscribePreferences(publish));
     refresher = new LocalSessionRefresher({env, api: local, session, onRotated: renewed => {
       if (!current() || !sameViewer(session!, renewed)) {end(); return;}
+      if (renewed.viewer.role !== session!.viewer.role) {session = renewed; rebuild(); return;}
       if (renewed.authorizationHorizon !== session!.authorizationHorizon) {
         // Local renewal slides its inactivity horizon. Re-enter the normal
         // bootstrap from the committed selection instead of treating a new
@@ -332,9 +348,9 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
         assertCurrent();
         const nextProfile = nextAccount.profiles.find(value => value.id === authority.profileId);
         if (!selection || selection.serverUrl !== original.serverUrl || !sameViewer(selection.session, session!)
-          || (['accountId', 'profileId', 'serverId', 'authority', 'role'] as const).some(key => me.viewer[key] !== session!.viewer[key])
-          || !nextProfile || nextProfile.revision !== profile.revision || nextProfile.pinRevision !== profile.pinRevision
-          || nextAccount.account.role !== currentAccount().account.role) {end(); return;}
+          || (['accountId', 'profileId', 'serverId', 'authority'] as const).some(key => me.viewer[key] !== session!.viewer[key])
+          || !nextProfile || nextProfile.revision !== profile.revision || nextProfile.pinRevision !== profile.pinRevision) {end(); return;}
+        if (me.viewer.role !== session!.viewer.role || nextAccount.account.role !== currentAccount().account.role) {rebuild(); return;}
         // Revalidate Home before committing the other private facts. Same-scope read failures
         // retain the entire published body; a changed Home fence retires it in the transport.
         // A sheet over Home still leaves its document on screen; only a hidden Home waits.
@@ -356,7 +372,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
         for (const listener of [...preferenceListeners]) listener();
         publish();
       } catch (error) {
-        if (nativeShellPermissionDenied(error)) end();
+        if (nativeShellPermissionDenied(error)) endUnlessRoleChanged();
         throw error;
       } finally {round.abort(); signal.signal.removeEventListener('abort', abortRound);}
     }, current);
@@ -367,7 +383,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     };
     const guarded = (read: (requestSignal: AbortSignal) => Promise<void>) => async ({signal: requestSignal}: {signal: AbortSignal}) => {
       try {await resourceCurrent(requestSignal); await read(requestSignal);}
-      catch (error) {if (nativeShellPermissionDenied(error)) end(); throw error;}
+      catch (error) {if (nativeShellPermissionDenied(error)) endUnlessRoleChanged(); throw error;}
     };
     const freshness = new NativeShellFreshness({
       hasHome: () => !!documentService.getSnapshot().document,
@@ -375,7 +391,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
         try {
           await resourceCurrent(context.signal);
           await documentService.revalidate({...context, settle: async () => {await context.settle(); await resourceCurrent(context.signal);}});
-        } catch (error) {if (nativeShellPermissionDenied(error)) end(); throw error;}
+        } catch (error) {if (nativeShellPermissionDenied(error)) endUnlessRoleChanged(); throw error;}
       },
       libraries: guarded(async requestSignal => {
         await contextBase.readLibraries!(requestSignal);
@@ -404,9 +420,9 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
         ]);
         await resourceCurrent(requestSignal);
         const nextProfile = nextAccount.profiles.find(value => value.id === authority.profileId);
-        if ((['accountId', 'profileId', 'serverId', 'authority', 'role'] as const).some(key => me.viewer[key] !== session!.viewer[key])
-          || !nextProfile || nextProfile.revision !== profile.revision || nextProfile.pinRevision !== profile.pinRevision
-          || nextAccount.account.role !== currentAccount().account.role) {end(); return;}
+        if ((['accountId', 'profileId', 'serverId', 'authority'] as const).some(key => me.viewer[key] !== session!.viewer[key])
+          || !nextProfile || nextProfile.revision !== profile.revision || nextProfile.pinRevision !== profile.pinRevision) {end(); return;}
+        if (me.viewer.role !== session!.viewer.role || nextAccount.account.role !== currentAccount().account.role) {rebuild(); return;}
         readOrder.identity.apply(ticket, () => {account = nextAccount; avatars = nextAvatars; publish();});
       }),
     });
