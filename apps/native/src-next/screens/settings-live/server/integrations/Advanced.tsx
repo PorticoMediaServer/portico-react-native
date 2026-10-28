@@ -60,7 +60,6 @@ function Advanced({group, runtime}: {group: StorageForms; runtime: NativeShellRu
         const patch = settingsBindingPatch(binding, next.value);
         form.set((draft: RuntimeSettings) => ({...draft, ...patch.values}));
       }}/>}/>} 
-    {save.dirty && <View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={save.saving || !live()} onPress={discard}>{t('action.discard')}</Button><Button disabled={save.saving || !live() || !valid || !!save.problem} loading={save.saving} onPress={commit}>{t('action.save')}</Button></View>}
-    {save.saveError !== undefined && <StateView variant="inline" {...runtime.error(save.saveError, commit)}/>}
-  </NativeAdvancedSection>{save.dirty&&<View style={{flexDirection:'row',gap:8,marginTop:8}}><Button variant="glass" disabled={save.saving||!live()} onPress={discard}>{t('action.discard')}</Button><Button disabled={save.saving||!live()||!valid||!!save.problem} loading={save.saving} onPress={commit}>{t('action.save')}</Button></View>}</>;
+
+  </NativeAdvancedSection>    {save.saveError !== undefined && <StateView variant="inline" {...runtime.error(save.saveError, commit)}/>}{save.dirty&&<View style={{flexDirection:'row',gap:8,marginTop:8}}><Button variant="glass" disabled={save.saving||!live()} onPress={discard}>{t('action.discard')}</Button><Button disabled={save.saving||!live()||!valid||!!save.problem} loading={save.saving} onPress={commit}>{t('action.save')}</Button></View>}</>;
 }
