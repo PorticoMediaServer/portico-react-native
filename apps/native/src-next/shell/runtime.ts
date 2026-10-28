@@ -87,7 +87,7 @@ export interface NativeShellRuntime {
   renderDestination: (destination: ShellDestination, openLibrary: (id: string) => void) => ReactNode;
   renderHomeEmpty: () => ReactNode;
   /** The drawn Switch server action, when the installed source offers that route. */
-  openServers?: () => void;
+  openServers?: (initialPanel?: 'consent-kind') => void;
   /** Sanctioned, already-known connection facts for a recovery panel: the server's display
    * name and the address this session is reaching it on. The address is neither proof of a
    * home/local route nor of a secure one - this client has no authoritative distinct producer

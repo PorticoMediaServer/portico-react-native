@@ -6,6 +6,7 @@ import {downloadEntryIdentity} from '../src-next/screens/downloads/presentation'
 import {createTheme} from '../src-next/kit/theme';
 import * as serverConnections from '../src-next/platform/server-connections';
 import * as secureRecords from '../src-next/platform/secure-records';
+import * as startupRecovery from '../src-next/shell/startup-recovery';
 import {act, createHookHost} from './hook-driver';
 import {screenModule} from './helpers/screen-harness.mjs';
 
@@ -17,7 +18,7 @@ function modules(state: {
 }) {
   return {
     react: {...React, default: React},
-    'react-native': {Platform: {OS: 'ios'}, View: 'View', Text: 'Text'},
+    'react-native': {Platform: {OS: 'ios'}, View: 'View', Text: 'Text', AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}},
     '../platform/invitation-links': {nativeInvitationLinks: {getSnapshot: () => undefined, subscribe: () => () => {}, acquire: () => () => {}}},
     '../platform/installation': {beginNativeInstallation: (signal?: AbortSignal) => {
       let disposed = false;
@@ -29,12 +30,15 @@ function modules(state: {
     '../kit/states': {HomeSkeleton: 'HomeSkeleton', StateView: 'StateView', StateLayout: 'StateLayout'},
     '../kit/artwork': {CoverFan: 'CoverFan'},
     '../kit/controls': {Focusable: 'Focusable'},
+    '../kit/overlays/TVDesignCanvas': {TVDesignCanvas: 'TVDesignCanvas'},
     '../kit/Icon': {Icon: 'Icon'},
     '../kit/theme': {useTheme: () => createTheme({isTV: false, width: 390})},
     '../platform/server-connections': serverConnections,
     '../platform/home-action-diagnostics': {homeActionDiagnostics: {error() {}, lifetime() {}}},
     '../platform/secure-records': secureRecords,
     './SecureRecordsRecovery': {SecureRecordsRecovery: 'SecureRecordsRecovery'},
+    './StartupBoot': {StartupBoot: 'StartupBoot'},
+    './startup-recovery': startupRecovery,
     '../../../../packages/client-core/src/presentation/errors': {presentError: () => ({title: 'failed', body: 'failed'})},
     './assembly': {createNativeShellBindings: () => ({})},
     './bootstrap': {restoreNativeShellRuntime: () => {
@@ -67,7 +71,7 @@ test('a storage hint before the entry completes does not unmount a settled entry
     reads: async () => stored, hints: listener => {hint = listener; return () => {};}, restores, deferred: false,
   }));
   let tree: any;
-  const host = createHookHost(() => {tree = RestoredShell({});});
+  const host = createHookHost(() => {tree = RestoredShell({}).props.children;});
   await act(() => host.mount());
   try {
     assert.equal(tree.type, 'AccountEntry');
@@ -88,7 +92,7 @@ test('a storage hint while a restore is pending still fences and restarts it', a
     reads: async () => stored, hints: listener => {hint = listener; return () => {};}, restores, deferred: true,
   }));
   let tree: any;
-  const host = createHookHost(() => {tree = RestoredShell({});});
+  const host = createHookHost(() => {tree = RestoredShell({}).props.children;});
   await act(() => host.mount());
   try {
     assert.equal(restores.length, 1, 'the first restore is pending');
@@ -112,7 +116,7 @@ test('a restore that reports the saved-records key lost opens the real recovery,
     failure, onFallback: () => {fallbacks++;},
   }));
   let tree: any;
-  const host = createHookHost(() => {tree = RestoredShell({});});
+  const host = createHookHost(() => {tree = RestoredShell({}).props.children;});
   await act(() => host.mount());
   try {
     assert.equal(tree.type, 'SecureRecordsRecovery', 'the real classifier reads the key-loss code');
@@ -130,7 +134,7 @@ test('an unexpected restore failure is never misread as a lost saved-records key
     failure, onFallback: () => {fallbacks++;},
   }));
   let tree: any;
-  const host = createHookHost(() => {tree = RestoredShell({});});
+  const host = createHookHost(() => {tree = RestoredShell({}).props.children;});
   await act(() => host.mount());
   try {
     assert.notEqual(tree.type, 'SecureRecordsRecovery', 'an ordinary failure never opens the records recovery');

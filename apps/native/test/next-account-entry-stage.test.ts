@@ -26,13 +26,13 @@ type FixtureOptions = Readonly<{providers?: boolean; setupRequired?: boolean; pr
 
 async function fixture(initialStage: 'welcome' | 'address' = 'welcome', options: FixtureOptions = {}) {
   const events: string[] = [], stages: NativeAccountEntryStage[] = [], back = new Set<() => boolean>();
-  let tree: any, phase = 'render', complete = 0, observed = true, providerCalls = 0;
+  let tree: any, phase = 'render', complete = 0, observed = true, providerCalls = 0, prepareCalls = 0;
   const finishes: ReturnType<typeof deferred<any>>[] = [];
   const credentials = {synchronize: async () => {}, getSnapshot: () => ({session: undefined})};
   const available = {password: true, registration: false, recovery: false, providers: options.providers
     ? [{id: 'google', enabled: true, native: false, nativeClientIds: []}] : []};
   class Portico {
-    async prepare() {return available;}
+    async prepare() {prepareCalls++; return available;}
     async provider() {providerCalls++; return options.providerTransaction;}
     dispose() {}
   }
@@ -57,10 +57,13 @@ async function fixture(initialStage: 'welcome' | 'address' = 'welcome', options:
     '../../../../../packages/client-core/src/join-link': joinLink,
     '../../../../../packages/client-core/src/short-invitation-code': invitationCode,
     '../../platform/qr-scanner': qrScanner,
-    './PhoneAccountSignIn': {PhoneAccountSignIn: 'PhoneAccountSignIn'},
+    './LegalAgreement': {LegalAgreement: 'LegalAgreement'}, './PhoneAccountForm': {PhoneAccountForm: 'Layout'}, './PasswordStrengthMeter': {PasswordStrengthMeter: 'PasswordStrengthMeter'}, './PhoneAccountSignIn': {PhoneAccountSignIn: 'PhoneAccountSignIn'},
     './tv-approval-finalization': tvApprovalFinalization, './tv-approval-credentials': tvApprovalCredentials,
     react: {...React, default: React,
+      // The harness forwards the component’s dependency array unchanged.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       useLayoutEffect: (create: () => void | (() => void), deps: readonly unknown[]) => React.useLayoutEffect(() => {phase = 'layout'; try {return create();} finally {phase = 'render';}}, deps),
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       useEffect: (create: () => void | (() => void), deps: readonly unknown[]) => React.useEffect(() => {phase = 'passive'; try {return create();} finally {phase = 'render';}}, deps)},
     'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, BackHandler: {addEventListener: (_: string, handler: () => boolean) => {back.add(handler); return {remove: () => back.delete(handler)};}}, Platform: {isTV: false}, NativeModules: {PorticoAccountAuth: {canOpenBrowser: options.providers === true}}, Linking: {openURL: async () => {}}, View: 'View', Text: 'Text'},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src': {},
@@ -83,29 +86,29 @@ async function fixture(initialStage: 'welcome' | 'address' = 'welcome', options:
   };
   const host = createHookHost(() => {tree = AccountEntry({initialStage, onComplete: () => {complete++;}, onStageChange: observed ? onStageChange : undefined});});
   await act(() => host.mount());
-  return {host, stages, events, back, tree: () => tree, complete: () => complete, providerCalls: () => providerCalls, finishes,
+  return {host, stages, events, back, tree: () => tree, complete: () => complete, providerCalls: () => providerCalls, prepareCalls: () => prepareCalls, finishes,
     omitObserver: () => {observed = false; host.rerender();}};
 }
 
 test('AccountEntry reports initial/current stages in layout before discovery, preserving real commands and reporting Back without reopening policy', async () => {
   const f = await fixture();
   try {
-    assert.deepEqual(f.stages, ['welcome', 'portico']); assert.deepEqual(f.events, ['stage:welcome', 'stage:portico']); assert.equal(f.tree().type, 'PhoneAccountSignIn'); assert.equal(f.tree().props.passwordEnabled, true);
+    assert.deepEqual(f.stages, ['welcome']); assert.deepEqual(f.events, ['stage:welcome']); assert.equal(f.tree().type, 'PhoneFrontDoor'); assert.equal(f.prepareCalls(), 0);
     await act(() => f.tree().props.onLocal());
-    assert.deepEqual(f.stages, ['welcome', 'portico', 'address']);
+    assert.deepEqual(f.stages, ['welcome', 'address']);
     assert.ok(f.events.indexOf('stage:address') < f.events.indexOf('discovery'), 'capture retirement precedes address-stage passive work');
     await act(() => nodes(f.tree().props.beforeActions).find(node => node.type === 'Field').props.onChangeText('https://public.example'));
-    assert.deepEqual(f.stages, ['welcome', 'portico', 'address'], 'field changes are not observer events');
+    assert.deepEqual(f.stages, ['welcome', 'address'], 'field changes are not observer events');
     await act(() => f.tree().props.primaryAction.onPress());
-    assert.deepEqual(f.stages, ['welcome', 'portico', 'address', 'local']); assert.ok(f.events.includes('inspect')); assert.ok(f.events.includes('confirm-identity'));
+    assert.deepEqual(f.stages, ['welcome', 'address', 'local']); assert.ok(f.events.includes('inspect')); assert.ok(f.events.includes('confirm-identity'));
     const fields = nodes(f.tree().props.beforeActions).filter(node => node.type === 'Field');
     await act(() => {fields[0].props.onChangeText('fixture-user'); fields[1].props.onChangeText('fixture-password');});
-    assert.deepEqual(f.stages, ['welcome', 'portico', 'address', 'local']);
+    assert.deepEqual(f.stages, ['welcome', 'address', 'local']);
     await act(() => {assert.equal([...f.back][0]!(), true);});
-    assert.deepEqual(f.stages, ['welcome', 'portico', 'address', 'local', 'welcome', 'portico'], 'the observer reports genuine Back; the public-launch gate owns its monotonic retirement');
-    assert.equal(f.complete(), 0);
+    assert.deepEqual(f.stages, ['welcome', 'address', 'local', 'welcome'], 'the observer reports genuine Back; the public-launch gate owns its monotonic retirement');
+    assert.equal(f.complete(), 0); assert.equal(f.prepareCalls(), 0, 'local entry and Back never contact Services');
     f.omitObserver(); await act(() => f.tree().props.onLocal());
-    assert.deepEqual(f.stages, ['welcome', 'portico', 'address', 'local', 'welcome', 'portico'], 'the optional observer does not alter navigation when absent');
+    assert.deepEqual(f.stages, ['welcome', 'address', 'local', 'welcome'], 'the optional observer does not alter navigation when absent');
     assert.equal(f.tree().type, 'Layout');
   } finally {f.host.unmount();}
   assert.equal(f.back.size, 0);
@@ -124,7 +127,9 @@ test('actual AccountEntry seeds the committed provider name once and a newer dra
   const f = await fixture('welcome', {providers: true, providerTransaction: {transactionId: 'provider-original', provider: 'google',
     status: 'pending', needsUsername: true, suggestedName: 'Suggested Name', mfaRequired: false, contactVerified: false}});
   try {
-    assert.equal(f.tree().type, 'PhoneAccountSignIn');
+    assert.equal(f.tree().type, 'PhoneFrontDoor'); assert.equal(f.prepareCalls(), 0);
+    await act(() => f.tree().props.onPortico());
+    assert.equal(f.tree().type, 'PhoneAccountSignIn'); assert.equal(f.prepareCalls(), 1);
     await act(() => f.tree().props.onProvider('google'));
     assert.equal(f.providerCalls(), 1);
     assert.equal(f.stages.at(-1), 'provider');

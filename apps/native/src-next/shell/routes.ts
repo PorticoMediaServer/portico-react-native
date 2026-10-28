@@ -28,7 +28,7 @@ export type NativeShellRoute = Readonly<
   | {kind: 'home-see-all'; destination: HomeSeeAll}
   | {kind: 'home-customize'}
   | {kind: 'profiles'; profileId?: string}
-  | {kind: 'servers'}
+  | {kind: 'servers'; initialPanel?: 'consent-kind'}
   | {kind: 'notifications'}
   | {kind: 'licenses'}
   | {kind: 'together'}

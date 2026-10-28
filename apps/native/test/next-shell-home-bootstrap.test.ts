@@ -150,6 +150,39 @@ for (const deviceClass of ['mobile', 'television'] as const) test(`native ${devi
   assert.ok(f.state.calls.filter(value => value.url.pathname === routePath('get_guide_sources')).every(value => value.url.searchParams.get('timezone') === Intl.DateTimeFormat().resolvedOptions().timeZone));
 });
 
+test('Home and required preferences can finish while auxiliary badges and guide are still waiting', async t => {
+  const f = fixture(t), delayed = deferred<void>(), entered = deferred<void>();
+  f.state.reply = async request => {
+    if (new Set<string>([routePath('get_notifications_inbox'), routePath('get_guide_sources')]).has(request.url.pathname)) {entered.resolve(); await delayed.promise;}
+    return f.response(request);
+  };
+  let auxiliaryReady = false;
+  const auxiliary = Promise.all([f.services.readUnread(), f.services.readGuideAvailability()]).then(value => {auxiliaryReady = true; return value;});
+  await entered.promise;
+  const [preferences] = await Promise.all([f.services.readPreferences('mobile'), f.services.home.load()]);
+  assert.equal(preferences.deviceClass, 'mobile'); assert.equal(f.services.home.getSnapshot().phase, 'ready');
+  assert.equal(auxiliaryReady, false, 'the ready Home does not wait for inbox or guide');
+  delayed.resolve(); assert.deepEqual(await auxiliary, [5, true]);
+});
+
+test('a preference-only refresh never requests inbox, guide, libraries, account or Home', async t => {
+  const f = fixture(t);
+  const preferences = await f.services.readPreferences('mobile');
+  assert.equal(preferences.deviceClass, 'mobile');
+  assert.deepEqual(f.state.calls.map(request => request.url.pathname), [routePath('get_preferences')]);
+});
+
+test('a delayed auxiliary permission denial still retires an already-admitted Home', async t => {
+  const f = fixture(t), delayed = deferred<void>();
+  await Promise.all([f.services.readPreferences('mobile'), f.services.home.load()]);
+  f.state.reply = async request => {
+    if (request.url.pathname === routePath('get_notifications_inbox')) {await delayed.promise; return {status: 403, value: {error: {code: 'forbidden'}}};}
+    return f.response(request);
+  };
+  const unread = f.services.readUnread(); delayed.resolve(); await assert.rejects(unread);
+  assert.equal(f.state.ended, 1); assert.equal(f.services.home.getSnapshot().document, undefined);
+});
+
 test('an unscoped preference snapshot and the wrong returned device class are refused', async t => {
   const f = fixture(t);
   f.state.reply = async request => request.url.pathname === routePath('get_preferences') ? {value: preferenceData('mobile', 1.85)} : f.response(request);

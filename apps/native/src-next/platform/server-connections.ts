@@ -387,6 +387,7 @@ export async function restoreNativeConnection(
   credentials: CredentialSessionService | (() => CredentialSessionService) | undefined,
   expected: LocalSession,
   env = nativeServerEnvironment(expected.viewer.serverId),
+  signal?: AbortSignal,
 ) {
   return restoreNativeSession(
     env,
@@ -395,6 +396,7 @@ export async function restoreNativeConnection(
         ? nativeHostedSource(origin, credentials, record.hosted.accountId)
         : undefined,
     expected,
+    signal,
   );
 }
 export async function forgetNativeConnection(session: LocalSession) {

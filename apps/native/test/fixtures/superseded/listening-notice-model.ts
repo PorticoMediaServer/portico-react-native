@@ -1,5 +1,6 @@
-import type {ListeningSnapshot} from '../../../../../../packages/client-core/src/listening';
-import type {NativeListeningStatus} from '../../../../../../packages/client-core/src/playback/native-listening';
+// Test-only historical model; no production consumer mounts this module.
+import type {ListeningSnapshot} from '../../../../../packages/client-core/src/listening';
+import type {NativeListeningStatus} from '../../../../../packages/client-core/src/playback/native-listening';
 
 /** No lease/credential values enter a display model. The caller captures observed
  * alongside the ListeningService snapshot under its playback authority, then

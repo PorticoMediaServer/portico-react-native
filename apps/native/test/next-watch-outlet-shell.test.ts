@@ -15,7 +15,7 @@ const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : 
 test('the real shell mounts one persistent player and a separate box-none watch chrome outlet below menus', async () => {
   const authority = {serverId: 's', accountId: 'a', profileId: 'p', epoch: 'e', viewerFence: 'v'};
   const registry = createFocusRegistry(), theme = createTheme({isTV: true, width: 1920});
-  const snapshot = {authority, destination: {kind: 'home'}, libraries: [], profile: {}, account: {actions: []}, selectionActive: false, homeVisible: true};
+  const snapshot = {authority, destination: {kind: 'home'}, libraries: [], profile: {}, account: {actions: []}, selectionActive: false, homeVisible: true, contentVisible: true, mediaExpanded: false};
   let root: any, tree: any;
   const runtime = {home: {getSnapshot: () => ({document: undefined})}, getSnapshot: () => snapshot, subscribe: () => () => {}, playback: {}, memory: {read: async () => undefined}, reportError(error: unknown) {throw error;},
     renderWatch: () => React.createElement('WatchChrome'),
@@ -51,5 +51,20 @@ test('the real shell mounts one persistent player and a separate box-none watch 
     assert.equal(chrome.props.style.zIndex, theme.layers.player + 1);
     assert.ok(chrome.props.style.zIndex < theme.layers.menu);
     assert.ok(rendered.indexOf(player[0]) < rendered.findIndex(node => node.type === 'WatchChrome'));
+    const base = () => nodes(tree).find(node => node.type === 'AnimatedView' && nodes(node.props.children).some(child => child.type === 'HomeScreen'));
+    assert.equal(base().props.accessibilityElementsHidden, false);
+    assert.equal(base().props.importantForAccessibility, 'auto');
+    snapshot.contentVisible = false;
+    await act(() => {sessionHost!.rerender();});
+    assert.equal(base().props.accessibilityElementsHidden, true);
+    assert.equal(base().props.importantForAccessibility, 'no-hide-descendants');
+    snapshot.contentVisible = true; snapshot.mediaExpanded = true;
+    await act(() => {sessionHost!.rerender();});
+    assert.equal(base().props.accessibilityElementsHidden, true);
+    const watch = nodes(tree).find(node => node.type === 'View' && node.props.children?.type === 'WatchChrome');
+    assert.notEqual(watch.props.importantForAccessibility, 'no-hide-descendants', 'visible split watch panes stay exposed in their separate outlet');
+    snapshot.mediaExpanded = false;
+    await act(() => {sessionHost!.rerender();});
+    assert.equal(base().props.accessibilityElementsHidden, false, 'a collapsed dock leaves the destination accessible');
   } finally {sessionHost?.unmount(); rootHost.unmount();}
 });

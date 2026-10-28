@@ -397,7 +397,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     renderHomeEmpty: () => <NativeHomeEmpty owner={context.account.account.role === 'owner'} serverName={context.serverName}
       hasLibraries={context.libraries().length > 0} onSwitchServer={nativeMenuRouteAvailable({kind: 'servers'}) ? () => open({kind: 'servers'}) : undefined}/>,
     renderDownloads: () => <NativeDownloadSheet context={context}/>,
-    openServers: nativeMenuRouteAvailable({kind: 'servers'}) ? () => open({kind: 'servers'}) : undefined,
+    openServers: nativeMenuRouteAvailable({kind: 'servers'}) ? initialPanel => open({kind: 'servers', ...(initialPanel ? {initialPanel} : {})}) : undefined,
     connectionFacts: {serverName: context.serverName, connectionAddress: nativeServerHost(context.api.baseUrl)},
     libraryMenu: library => {
       homeActionDiagnostics.libraryMenu('producer', runtime);

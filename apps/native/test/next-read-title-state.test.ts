@@ -4,7 +4,7 @@ import {HttpLocalApi, ReadingError, type LocalSession} from '../../../packages/c
 import {NativeShellNavigation, type NativeShellRoute} from '../src-next/shell/routes';
 import {nativeReadRouteAllowed} from '../src-next/screens/read/platform';
 import {openNativeRead} from '../src-next/screens/read/eligibility';
-import {NativeReadTitleState, type NativeReadTitleContext, type NativeReadTitleRoute} from '../src-next/screens/read/title-state';
+import {NativeReadTitleState, type NativeReadTitleContext, type NativeReadTitleRoute} from './fixtures/superseded/read-title-state';
 
 const revision = 'a'.repeat(64);
 const version = (sourceId: string, inventoryAvailable = true) => ({sourceId, inventoryAvailable, format: 'pdf', size: 1200});

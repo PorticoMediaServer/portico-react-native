@@ -67,11 +67,11 @@ async function setup() {
     './view-summary-owner': savedSummaryOwner, './rename-view': savedRename,
     '../downloads/device': {createNativeDownloadsDevice: () => {devices++; return {device: offline, dispose: () => {releases++;}};}},
   });
-  const {createNativeTVSavedState} = await screenModule(new URL('../src-next/tv/saved/state.ts', import.meta.url), {
-    react: {default: {}}, '../../screens/destinations/lifetime': {nativeDestinationLifetime}, '../../screens/destinations/entry-actions': {createNativeEntryActions},
-    '../../screens/native-screen-services': {nativeScreenServices: () => common}, '../../screens/saved/state': {createNativeSavedState},
-    '../../screens/saved/navigation': savedNavigation,
-    '../../screens/saved/view-model': {NativeSavedViewDestination},
+  const {createNativeTVSavedState} = await screenModule(new URL('./fixtures/superseded/tv-saved-state.ts', import.meta.url), {
+    react: {default: {}}, '../../../src-next/screens/destinations/lifetime': {nativeDestinationLifetime}, '../../../src-next/screens/destinations/entry-actions': {createNativeEntryActions},
+    '../../../src-next/screens/native-screen-services': {nativeScreenServices: () => common}, '../../../src-next/screens/saved/state': {createNativeSavedState},
+    '../../../src-next/screens/saved/navigation': savedNavigation,
+    '../../../src-next/screens/saved/view-model': {NativeSavedViewDestination},
   });
   const state = createNativeTVSavedState(context);
   return {state, context, navigation, authority, paths, signals, errors, menus, menuListeners, offline, listeners,

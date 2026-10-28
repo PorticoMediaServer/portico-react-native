@@ -4,7 +4,7 @@ import {HttpLocalApi, ReadingError, type LocalSession} from '../../../packages/c
 import {NativeShellNavigation} from '../src-next/shell/routes';
 import {sameAuthority, type ShellAuthority} from '../src-next/shell/model';
 import {nativeReadRouteAllowed} from '../src-next/screens/read/platform';
-import {NativeReadingContinueBindings, type NativeReadingContinuePage, type NativeReadingContinueRow} from '../src-next/screens/read/continue-bindings';
+import {NativeReadingContinueBindings, type NativeReadingContinuePage, type NativeReadingContinueRow} from './fixtures/superseded/reading-continue-bindings';
 import type {NativeReadNavigationContext} from '../src-next/screens/read/eligibility';
 
 const revision = 'a'.repeat(64);

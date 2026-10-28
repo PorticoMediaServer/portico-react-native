@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {downloadEntryIdentity} from '../src-next/screens/downloads/presentation';
+import * as startupRecovery from '../src-next/shell/startup-recovery';
 import {fabricHost, React} from './helpers/fabric-host.mjs';
 import {screenModule} from './helpers/screen-harness.mjs';
 
@@ -12,7 +13,8 @@ const flatten = (nodes: NativeNode[]): NativeNode[] => nodes.flatMap(node => [no
  * root/receipt ports. This does not claim native signed-publication admission. */
 for (const category of ['offline', 'unreachable', 'timeout'] as const)
 for (const condition of ['publication-only', 'mixed', 'refused', 'missing-cache', 'av-without-player', 'retired'] as const)
-test(`compact ${category} recovery admits only original usable downloads: ${condition}`, async () => {
+test(`compact ${category} recovery admits only original usable downloads: ${condition}`, async t => {
+  t.mock.timers.enable({apis: ['setTimeout', 'Date'], now: 0});
   const host = await fabricHost(); let live = true, opened = 0, expectedSource: any, callback: any;
   const listeners = new Set<() => void>(), book = {id: 'publication', itemId: 'book', kind: 'ebook', state: 'ready', title: 'Saved book', artworkUrl: ''};
   const movie = {id: 'movie', itemId: 'film', kind: 'movie', state: 'ready', title: 'Saved film', artworkUrl: ''};
@@ -27,11 +29,12 @@ test(`compact ${category} recovery admits only original usable downloads: ${cond
     ...(condition !== 'missing-cache' ? {canRead: (entry: unknown) => entry === book && live && condition !== 'refused'} : {}),
     dispose() {live = false; for (const listener of [...listeners]) listener();}};
   const theme = {platform: 'phone', isTV: false, colors: {ink: '#000', raised: '#111', text: '#fff', textTertiary: '#888'}, type: {bodyStrong: {}, caption: {}}};
-  const native = {Platform: {OS: 'ios'}, View: 'RCTView', Text: 'RCTText'};
+  const native = {Platform: {OS: 'ios'}, View: 'RCTView', Text: 'RCTText', AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}};
   const {RestoredShell} = await screenModule(new URL('../src-next/shell/RestoredShell.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': native,
     '../kit/states': {HomeSkeleton: 'HomeSkeleton', StateView: 'StateView', StateLayout: ({beforeActions}: any) => React.createElement('StateLayout', null, beforeActions)},
     '../kit/artwork': {CoverFan: 'CoverFan'}, '../kit/controls': {Focusable: 'Focusable'}, '../kit/Icon': {Icon: 'Icon'}, '../kit/theme': {useTheme: () => theme},
+    '../kit/overlays/TVDesignCanvas': {TVDesignCanvas: ({children}: any) => children},
     '../../../../packages/client-core/src/presentation/errors': {presentError: () => ({category, action: 'try-again', title: 'Unavailable', body: 'Unavailable', actionLabel: 'Retry'})},
     '../platform/server-connections': {deviceOnline: () => category !== 'offline', onNetworkChange: () => () => {}},
     './assembly': {createNativeShellBindings: () => ({})}, './bootstrap': {restoreNativeShellRuntime: async () => {throw new Error(category);}},
@@ -49,9 +52,12 @@ test(`compact ${category} recovery admits only original usable downloads: ${cond
     '../platform/home-action-diagnostics': {homeActionDiagnostics: {error() {}, lifetime() {}}},
     '../platform/secure-records': {acknowledgeSecureRecordsRecovered() {}, isSecureRecordsLost: () => false, secureRecordsRecoveredNotice: () => undefined},
     './SecureRecordsRecovery': {SecureRecordsRecovery: 'SecureRecordsRecovery'},
+    './StartupBoot': {StartupBoot: ({children}: any) => children}, './startup-recovery': startupRecovery,
   });
   try {
     await host.render(React.createElement(RestoredShell));
+    assert.equal(flatten(host.root).some(node => node.props?.testID === 'recovery-downloads'), false, 'the first connection failure stays behind Boot');
+    t.mock.timers.tick(category === 'offline' ? 1_000 : 15_000); await host.settle();
     const card = flatten(host.root).find(node => node.props?.testID === 'recovery-downloads');
     const expected = condition === 'publication-only' || condition === 'mixed' || condition === 'retired';
     assert.equal(!!card, expected);

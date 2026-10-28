@@ -52,6 +52,7 @@ import {NativeWatchOutlet} from './watch-outlet';
 import {NativeShellBootstrapServices, nativeShellDirectViewer, nativeShellPermissionDenied} from './bootstrap-services';
 import {createNativeShellAccountBinding} from './account-binding';
 import {homeActionDiagnostics} from '../platform/home-action-diagnostics';
+import {NativeReadOrder, NativeShellFreshness, nativeQueuedRefresh} from './freshness';
 
 export type NativeShellBootstrapContext = Readonly<{
   api: HttpLocalApi;
@@ -143,7 +144,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     signInHint = await readNativeSignInHint(original.session, original.serverUrl, selected.connection.pin.fingerprint, selected.signIn).catch(() => undefined); assertCurrent();
     // A server-local session renews locally even while Portico Services is unreachable.
     const hostedCredentials = connection?.hosted?.origin === hostedUrl ? () => nativeAccounts.accountCredentials() : undefined;
-    const restored = await restoreNativeConnection(connection?.hosted?.origin ?? original.serverUrl, hostedCredentials, original.session, env);
+    const restored = await restoreNativeConnection(connection?.hosted?.origin ?? original.serverUrl, hostedCredentials, original.session, env, signal.signal);
     api = restored?.api; assertCurrent();
     if (!restored || !sameViewer(original.session, restored.session)) throw Object.assign(new Error('native_viewer_changed'), {code: 'identity_mismatch'});
     const reread = await readNativeSelectedViewer(); assertCurrent();
@@ -163,11 +164,11 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     home = readers.home;
     const documentService = home;
     const identities = new IdentityClient(readers);
-    const [librariesResult, initialAccount, initialAvatars, initialFacts, server] = await Promise.all([
+    const [librariesResult, initialAccount, initialAvatars, initialPreferences, server] = await Promise.all([
       readers.request(routePath('get_libraries'), 'GET', undefined, signal.signal).then(parseLibraryList),
       readers.readAccount(),
       identities.avatars(signal.signal),
-      readers.read(),
+      readers.readPreferences(Platform.isTV ? 'television' : 'mobile', signal.signal),
       rememberNativeServerDisplay(local, {serverId: session.viewer.serverId,
         signal: signal.signal, isCurrent: () => alive && installation.current()}),
       documentService.load(),
@@ -183,11 +184,11 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     avatars = initialAvatars;
     const profile = account.profiles.find(value => value.id === session!.viewer.profileId);
     if (!profile) throw Object.assign(new Error('profile_unavailable'), {code: 'access_refused'});
-    preferences = initialFacts.preferences;
+    preferences = initialPreferences;
     const records = new NativeQueueStore();
     installationSettings = await records.change('preferences:v1', raw => ({record: raw, value: raw}));
     assertCurrent();
-    let unread = initialFacts.unread;
+    let unread = 0;
     const authority: ShellAuthority = Object.freeze({serverId: session.viewer.serverId, accountId: session.viewer.accountId, profileId: session.viewer.profileId,
       epoch: JSON.stringify([session.sessionFamilyId, session.authorizationHorizon, profile.revision, profile.pinRevision]), viewerFence: document.viewerFence});
     const scopeIdentity = authorityKey(authority);
@@ -210,10 +211,11 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     };
     const profileOption: ProfileOption = Object.freeze({id: profile.id, name: profile.name, initial: [...profile.name.trim()][0] ?? '', color: profile.art, primary: profile.primary, pinRequired: profile.pinRequired});
     libraries = Object.freeze(librariesResult.items);
-    let hasLiveTV = initialFacts.hasLiveTV;
+    let hasLiveTV = false;
     const events = new EventsClient({http: localV1Http(local)});
     navigation = new NativeShellNavigation(authority, () => authority,
       (route, origin) => nativeReadRouteAllowed(route, libraries, Platform.isTV, origin));
+    const readOrder = {libraries: new NativeReadOrder(), unread: new NativeReadOrder(), guide: new NativeReadOrder(), identity: new NativeReadOrder()};
     const contextBase: Omit<NativeShellBootstrapContext, 'playback' | 'watch'> = {api: local, home: documentService, events, session: () => current() ? session : undefined, authority: () => authority,
       subscribeAuthority: listener => {authorityListeners.add(listener); return () => {authorityListeners.delete(listener);};},
       preferences: currentPreferences, subscribePreferences: listener => {preferenceListeners.add(listener); return () => {preferenceListeners.delete(listener);};},
@@ -221,11 +223,15 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       get account() {return currentAccount();}, libraries: () => current() ? libraries : [], navigation,
       readLibraries: async requestSignal => {
         assertCurrent();
+        const ticket = readOrder.libraries.begin();
         const result = parseLibraryList(await readers.request(routePath('get_libraries'), 'GET', undefined, requestSignal));
         assertCurrent(); if (requestSignal.aborted) throw cancelled();
         const selected = await readNativeSelectedViewer(); assertCurrent();
         if (requestSignal.aborted || !selected || selected.serverUrl !== original.serverUrl || !sameViewer(selected.session, session!)) throw cancelled();
-        libraries = Object.freeze(result.items); publish(); return libraries;
+        try {await accountBinding.assertCurrent();}
+        catch (error) {if (nativeShellPermissionDenied(error)) end(); throw error;}
+        assertCurrent(); if (requestSignal.aborted) throw cancelled();
+        readOrder.libraries.apply(ticket, () => {libraries = Object.freeze(result.items); publish();}); return libraries;
       }};
     let playOn: NativePlayOn | undefined;
     playback = createNativeShellPlaybackAdapter({api: local, authority: contextBase.authority, session: contextBase.session, subscribeAuthority: contextBase.subscribeAuthority, events,
@@ -311,10 +317,10 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       // to selected-viewer storage could overwrite a newer profile while awaiting the bridge.
       session = renewed; publish();
     }, onSignedOut: error => {if (alive) homeActionDiagnostics.lifetime?.('bootstrap-session-ended', signal.signal, installation);end(nativeSignInEnded(error, signInHint, session?.expiresAt ?? originalExpiresAt));}});
-    let refreshing: Promise<void> | undefined;
-    const refresh = () => refreshing ??= (async () => {
+    const refresh = nativeQueuedRefresh(async () => {
       assertCurrent();
       const round = new AbortController(), abortRound = () => round.abort();
+      const tickets = {libraries: readOrder.libraries.begin(), unread: readOrder.unread.begin(), guide: readOrder.guide.begin(), identity: readOrder.identity.begin()};
       signal.signal.addEventListener('abort', abortRound, {once: true});
       try {
         const [selection, me, nextLibraries, nextFacts, nextAccount, nextAvatars] = await Promise.all([
@@ -330,23 +336,85 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
           || nextAccount.account.role !== currentAccount().account.role) {end(); return;}
         // Revalidate Home before committing the other private facts. Same-scope read failures
         // retain the entire published body; a changed Home fence retires it in the transport.
-        await documentService.revalidate({signal: round.signal}); assertCurrent();
+        if (AppState.currentState === 'active' && bound.getState().homeVisible && !bound.getState().homeObscured && !playback!.getSnapshot().dock.local?.expanded) {
+          await documentService.revalidate({signal: round.signal}); assertCurrent();
+        } else freshness.invalidateHome();
         const selectedBeforeRefreshPublish = await readNativeSelectedViewer(); assertCurrent();
         if (!selectedBeforeRefreshPublish || selectedBeforeRefreshPublish.serverUrl !== original.serverUrl || !sameViewer(selectedBeforeRefreshPublish.session, session!)) {end(); return;}
         // Observe the native record after all network/identity awaits. An older
         // parallel read must not overwrite a device setting committed meanwhile.
         const nextInstallation = await records.change('preferences:v1', raw => ({record: raw, value: raw})); assertCurrent();
         await accountBinding.assertCurrent(); assertCurrent();
-        preferences = currentPreferenceSnapshot(preferences, nextFacts.preferences); installationSettings = nextInstallation; libraries = Object.freeze(nextLibraries.items);
+        preferences = currentPreferenceSnapshot(preferences, nextFacts.preferences); installationSettings = nextInstallation;
+        readOrder.libraries.apply(tickets.libraries, () => {libraries = Object.freeze(nextLibraries.items);});
         text.refreshDeviceRegion();
-        account = nextAccount; avatars = nextAvatars; unread = nextFacts.unread; hasLiveTV = nextFacts.hasLiveTV;
+        readOrder.identity.apply(tickets.identity, () => {account = nextAccount; avatars = nextAvatars;});
+        readOrder.unread.apply(tickets.unread, () => {unread = nextFacts.unread;});
+        readOrder.guide.apply(tickets.guide, () => {hasLiveTV = nextFacts.hasLiveTV;});
         for (const listener of [...preferenceListeners]) listener();
         publish();
       } catch (error) {
         if (nativeShellPermissionDenied(error)) end();
         throw error;
       } finally {round.abort(); signal.signal.removeEventListener('abort', abortRound);}
-    })().finally(() => {refreshing = undefined;});
+    }, current);
+    const resourceCurrent = async (requestSignal: AbortSignal) => {
+      assertCurrent(); if (requestSignal.aborted) throw cancelled();
+      await accountBinding.assertCurrent(); assertCurrent();
+      if (requestSignal.aborted) throw cancelled();
+    };
+    const guarded = (read: (requestSignal: AbortSignal) => Promise<void>) => async ({signal: requestSignal}: {signal: AbortSignal}) => {
+      try {await resourceCurrent(requestSignal); await read(requestSignal);}
+      catch (error) {if (nativeShellPermissionDenied(error)) end(); throw error;}
+    };
+    const freshness = new NativeShellFreshness({
+      hasHome: () => !!documentService.getSnapshot().document,
+      home: async context => {
+        try {
+          await resourceCurrent(context.signal);
+          await documentService.revalidate({...context, settle: async () => {await context.settle(); await resourceCurrent(context.signal);}});
+        } catch (error) {if (nativeShellPermissionDenied(error)) end(); throw error;}
+      },
+      libraries: guarded(async requestSignal => {
+        await contextBase.readLibraries!(requestSignal);
+      }),
+      preferences: guarded(async requestSignal => {
+        const next = await readers.readPreferences(Platform.isTV ? 'television' : 'mobile', requestSignal);
+        await resourceCurrent(requestSignal);
+        const confirmed = currentPreferenceSnapshot(preferences, next);
+        if (confirmed !== preferences) {preferences = confirmed; for (const listener of [...preferenceListeners]) listener(); publish();}
+      }),
+      unread: guarded(async requestSignal => {
+        const ticket = readOrder.unread.begin();
+        const next = await readers.readUnread(requestSignal, true); await resourceCurrent(requestSignal);
+        readOrder.unread.apply(ticket, () => {unread = next; publish();});
+      }),
+      guide: guarded(async requestSignal => {
+        const ticket = readOrder.guide.begin();
+        const next = await readers.readGuideAvailability(requestSignal, true); await resourceCurrent(requestSignal);
+        readOrder.guide.apply(ticket, () => {hasLiveTV = next; publish();});
+      }),
+      identity: guarded(async requestSignal => {
+        const ticket = readOrder.identity.begin();
+        const [me, nextAccount, nextAvatars] = await Promise.all([
+          readers.request<RouteResponse<'get_me'>>(routePath('get_me'), 'GET', undefined, requestSignal),
+          readers.readAccount(requestSignal), identities.avatars(requestSignal),
+        ]);
+        await resourceCurrent(requestSignal);
+        const nextProfile = nextAccount.profiles.find(value => value.id === authority.profileId);
+        if ((['accountId', 'profileId', 'serverId', 'authority', 'role'] as const).some(key => me.viewer[key] !== session!.viewer[key])
+          || !nextProfile || nextProfile.revision !== profile.revision || nextProfile.pinRevision !== profile.pinRevision
+          || nextAccount.account.role !== currentAccount().account.role) {end(); return;}
+        readOrder.identity.apply(ticket, () => {account = nextAccount; avatars = nextAvatars; publish();});
+      }),
+    });
+    const updateHomeFreshness = () => {
+      if (!current()) return;
+      const state = bound.getState();
+      freshness.setHomeOpen(state.homeVisible && !state.homeObscured && !playback!.getSnapshot().dock.local?.expanded);
+    };
+    freshness.setActive(AppState.currentState === 'active'); updateHomeFreshness(); freshness.attach(events);
+    cleanups.push(() => freshness.dispose(), bound.subscribe(updateHomeFreshness), playback.subscribe(updateHomeFreshness));
     const routeChanged = () => {
       if (!alive) return;
       const route = local.getRouteConnection()?.getSnapshot();
@@ -361,11 +429,16 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     let expanded = playback.getSnapshot().dock.local?.expanded === true;
     cleanups.push(playback.subscribe(() => {const next = playback!.getSnapshot().dock.local?.expanded === true; if (next !== expanded) {expanded = next; publish();}}));
     const refreshQuietly = () => {if (current()) void refresh().catch(error => {if (current()) bound.reportError(error);});};
-    cleanups.push(events.onResync(refreshQuietly), events.on('library.', refreshQuietly), events.on('personal.', refreshQuietly), events.on('preferences.', refreshQuietly), events.on('notification.changed', refreshQuietly));
-    const app = AppState.addEventListener('change', value => {if (value === 'active') {refresher?.wake(); refreshQuietly();}});
+    const app = AppState.addEventListener('change', value => {
+      freshness.setActive(value === 'active');
+      if (value === 'active') {refresher?.wake(); refreshQuietly();}
+    });
     cleanups.push(() => app.remove(), runEventFeed(events, undefined, {visible: () => AppState.currentState === 'active', onVisibility: listener => {const subscription = AppState.addEventListener('change', listener); return () => subscription.remove();},
       busy: () => !!playback?.getSnapshot().dock.local, onBusy: playback.subscribe}));
     ready = true;
+    // Justin's approved startup order: render the admitted Home before its
+    // auxiliary badges. Each failed read retries independently in the hub.
+    freshness.loadAuxiliary();
     // Preserve only already-admitted canonical settings for later receipt-only
     // playback. A failed optional cache never changes normal admission.
     const rememberPlaybackSettings = () => {

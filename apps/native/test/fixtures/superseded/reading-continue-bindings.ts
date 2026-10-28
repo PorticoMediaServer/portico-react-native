@@ -1,6 +1,7 @@
+// Test-only historical model; no production consumer mounts this module.
 import {ReadingError, type LocalSession, type ReadingClient} from '../../../../../packages/client-core/src';
-import {sameAuthority, type ShellAuthority} from '../../shell/model';
-import {openNativeRead, type NativeReadNavigationContext} from './eligibility';
+import {sameAuthority, type ShellAuthority} from '../../../src-next/shell/model';
+import {openNativeRead, type NativeReadNavigationContext} from '../../../src-next/screens/read/eligibility';
 
 /** The canonical decoded page and row, never a second Continue DTO. */
 export type NativeReadingContinuePage = Awaited<ReturnType<ReadingClient['continue']>>;

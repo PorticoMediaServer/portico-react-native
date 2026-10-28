@@ -1,7 +1,5 @@
 import * as accountWork from '../src-next/platform/account-work';
 import {presentError} from '../../../packages/client-core/src/presentation/errors';
-import {routeOrigin} from '../../../packages/client-core/src/route-identity';
-import {NativeLocalInvitation} from '../src-next/platform/local-invitation';
 import * as joinLink from '../../../packages/client-core/src/join-link';
 import * as invitationCode from '../../../packages/client-core/src/short-invitation-code';
 import * as tvCodeOpening from '../src-next/screens/accounts/tv-code-opening';
@@ -32,7 +30,7 @@ test('phone Portico sign-in offers account help and returns to its form', async 
     '../../../../../packages/client-core/src/join-link': joinLink,
     '../../../../../packages/client-core/src/short-invitation-code': invitationCode,
     '../../platform/qr-scanner': {qrScannerAvailable: () => false, scanQRCode: async () => undefined},
-    './PhoneAccountSignIn': {PhoneAccountSignIn: 'PhoneAccountSignIn'},
+    './LegalAgreement': {LegalAgreement: 'LegalAgreement'}, './PhoneAccountForm': {PhoneAccountForm: 'Layout'}, './PasswordStrengthMeter': {PasswordStrengthMeter: 'PasswordStrengthMeter'}, './PhoneAccountSignIn': {PhoneAccountSignIn: 'PhoneAccountSignIn'},
     './tv-approval-finalization': {}, './tv-approval-credentials': {},
     react: {...React, default: React},
     'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, BackHandler: {addEventListener: () => ({remove() {}})}, Linking: {openURL: async () => {}}, Platform: {isTV: false},
@@ -61,6 +59,7 @@ test('phone Portico sign-in offers account help and returns to its form', async 
   const host = createHookHost(() => {tree = AccountEntry({onComplete: () => {}});});
   await act(() => host.mount());
   try {
+    assert.equal(tree.type, 'PhoneFrontDoor'); await act(() => tree.props.onPortico());
     assert.equal(tree.type, 'PhoneAccountSignIn'); assert.equal(tree.props.passwordEnabled, true); assert.equal(tree.props.recovery, true);
     await act(() => tree.props.onForgot());
     assert.equal(tree.props.title, defaultI18n.t('auth.forgotPasswordTitle'));

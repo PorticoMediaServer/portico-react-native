@@ -27,7 +27,7 @@ async function fixture(context:import('node:test').TestContext,wrongAccount=fals
   const calls={join:0,login:0,provider:0,register:0,verify:[] as any[],read:[] as any[],inspect:[] as string[],signOut:[] as any[],complete:0};
   let session:any=wrongAccount?{account:{id:'wrong',username:'wrong'},familyId:'wrong-family'}:undefined;
   const entry={raw:'original-link',server:'https://verified.example',id:'verified-server',fingerprint:'proved-pin',signIn:'portico',expiresAt:new Date(Date.now()+60000).toISOString()};
-  const preview={serverName:'Verified server',allLibraries:true,libraries:[]};
+  const preview={serverName:'Verified server',role:'admin',allLibraries:true,libraries:[]};
   const registration={kind:'registration',registrationId:'original-registration',status:'contact_pending',revision:'1',maskedAddress:'a***@example.test',expiresAt:entry.expiresAt,contactVerified:false};
   let options:()=>Promise<any>=async()=>offered,verify:(input:any)=>Promise<any>=async()=>{throw new ApiError(409,'username_unavailable','taken',false);};
   const nextSession=()=>({account:{id:'intended',username:'intended'},familyId:'intended-family'});
@@ -66,7 +66,7 @@ async function fixture(context:import('node:test').TestContext,wrongAccount=fals
     Platform:{isTV:false,OS:'ios'},NativeModules:{PorticoAccountAuth:bridge},Image:'Image',View:'View',Text:'Text',ScrollView:'ScrollView',
     Keyboard:{isVisible:()=>false,addListener:()=>({remove(){}})},KeyboardAvoidingView:'KeyboardAvoidingView',Linking:{openURL:async()=>{}}};
   const phone=await screenModule(new URL('../src-next/screens/accounts/PhoneAccountSignIn.tsx',import.meta.url),{
-    react:{...React,default:React},'react-native':rn,'react-native-safe-area-context':{useSafeAreaInsets:()=>({top:0,bottom:0,left:0,right:0})},
+    './LegalAgreement': {LegalAgreement: 'LegalAgreement'}, react:{...React,default:React},'react-native':rn,'react-native-safe-area-context':{useSafeAreaInsets:()=>({top:0,bottom:0,left:0,right:0})},
     '../../../../../packages/i18n/src':{defaultI18n},'../../kit/artwork':{ColourBackdrop:'Backdrop'},'../../kit/controls':{Button:'Button',TextField:'Field'},'../../kit/theme':{nativeType,useTheme:()=>theme},
   });
   const modules:any={react:{...React,default:React},'react-native':rn,'react-native-qrcode-svg':{default:'QR'},
@@ -78,7 +78,7 @@ async function fixture(context:import('node:test').TestContext,wrongAccount=fals
     '../../platform/account-work': accountWork, '../../platform/accounts':{nativeAccounts:accounts},'../../platform/server-sign-in':{NativeServerSignIn:Server},'../../platform/portico-sign-in':auth,
     '../../platform/server-connections':{browseNearby:async()=>[]},'../../platform/account-authority':{hostedUrl:'https://hosted.example'},
     '../../platform/qr-scanner':{qrScannerAvailable:()=>false},'../../platform/setup-outcome':outcome,'./tv-code-opening':tvOpening,'./directory-chooser':chooser,
-    './PhoneAccountSignIn':phone,'./directory-refusal':{directoryAccessRefused:()=>false,directoryClockSkew:()=>false,directoryIdentityUnconfirmed:()=>false},
+    './LegalAgreement': {LegalAgreement: 'LegalAgreement'}, './PhoneAccountForm': {PhoneAccountForm: 'Layout'}, './PasswordStrengthMeter': {PasswordStrengthMeter: 'PasswordStrengthMeter'}, './PhoneAccountSignIn':phone,'./directory-refusal':{directoryAccessRefused:()=>false,directoryClockSkew:()=>false,directoryIdentityUnconfirmed:()=>false},
     '../../platform/hosted-sign-in-unavailable':{HostedSignInUnavailable:class extends Error {}},
   };
   const ports=new Proxy(modules,{get:(obj,name)=>name in obj?obj[name]:new Proxy({},{get:(_,exported)=>(..._args:any[])=>{throw new Error('Unexpected port '+String(name)+'.'+String(exported));}})});
@@ -102,12 +102,15 @@ async function fixture(context:import('node:test').TestContext,wrongAccount=fals
 const byID=(tree:any,id:string)=>nodes(tree).find(n=>n.props.testID===id);
 
 test('signed-out invitation prepares its exact offered controls, signs in and returns to original preview before explicit Join',async context=>{
-  const f=await fixture(context);await f.preview();await act(()=>f.tree().props.primaryAction.onPress());
+  const f=await fixture(context);await f.preview();
+  assert.ok(nodes(f.tree().props.beforeActions).some(n=>n.props.children==="You'll join as an administrator."));
+  await act(()=>f.tree().props.primaryAction.onPress());
   let phone=await f.phone();assert.ok(byID(phone,'accounts-auth-google'));assert.ok(byID(phone,'accounts-auth-continue'));
   await act(()=>{byID(phone,'accounts-auth-username').props.onChangeText('intended');byID(phone,'accounts-auth-password').props.onChangeText('password');});
   phone=await f.phone();const stale=byID(phone,'accounts-auth-google').props.onPress;
   await act(()=>byID(phone,'accounts-auth-continue').props.onPress());
   assert.equal(f.calls.login,1);assert.equal(f.tree().props.testID,'accounts-portico-invitation');assert.equal(f.calls.join,0);
+  assert.ok(nodes(f.tree().props.beforeActions).some(n=>n.props.children==="You'll join as an administrator."));
   await act(()=>stale());assert.equal(f.calls.provider,0);
   await act(()=>f.tree().props.primaryAction.onPress());assert.equal(f.calls.join,1);assert.equal(f.calls.complete,1);
   assert.deepEqual(f.calls.inspect,['https://verified.example','https://verified.example']);
@@ -115,7 +118,7 @@ test('signed-out invitation prepares its exact offered controls, signs in and re
 
 test('verified registration collision offers replacement name on the same original without code or mail and rejects retained submits',async context=>{
   const f=await fixture(context);await f.preview();await act(()=>f.tree().props.secondaryAction.onPress());
-  await act(()=>{const fields=f.fields();fields[0].props.onChangeText('taken');fields[1].props.onChangeText('Retained Name');fields[2].props.onChangeText('a@example.test');fields[3].props.onChangeText('password');});
+  await act(()=>{const fields=f.fields();fields[0].props.onChangeText('a@example.test');fields[1].props.onChangeText('taken');fields[2].props.onChangeText('Retained Name');fields[3].props.onChangeText('password');});
   await act(()=>f.tree().props.primaryAction.onPress());assert.equal(f.calls.register,1);
   await act(()=>f.fields()[0].props.onChangeText('123456'));
   const stale=f.tree().props.primaryAction.onPress;await act(()=>stale());
@@ -172,7 +175,7 @@ test('replacing an invitation during prepare retires old options and keeps succe
 
 test('an actual collision lookup cannot update or complete a replacement entry and retained verification controls retire',async context=>{
   const f=await fixture(context),pending=deferred<any>();await f.preview();await act(()=>f.tree().props.secondaryAction.onPress());
-  await act(()=>{const fields=f.fields();fields[0].props.onChangeText('taken');fields[1].props.onChangeText('Name');fields[2].props.onChangeText('a@example.test');fields[3].props.onChangeText('password');});
+  await act(()=>{const fields=f.fields();fields[0].props.onChangeText('a@example.test');fields[1].props.onChangeText('taken');fields[2].props.onChangeText('Name');fields[3].props.onChangeText('password');});
   await act(()=>f.tree().props.primaryAction.onPress());await act(()=>f.fields()[0].props.onChangeText('123456'));
   const oldSubmit=f.tree().props.primaryAction.onPress,oldEdit=f.fields()[0].props.onChangeText;
   f.read(()=>pending.promise);await act(()=>oldSubmit());assert.equal(f.calls.read.length,1);

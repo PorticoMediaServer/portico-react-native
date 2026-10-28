@@ -4,7 +4,7 @@ import {defaultI18n} from '../../../packages/i18n/src';
 import type {MusicSignalInput} from '../../../packages/client-core/src/music-signal';
 import type {ListeningSnapshot} from '../../../packages/client-core/src/listening';
 import {nativeSignalPath} from '../src-next/screens/destinations/music/signal-path-model';
-import {nativeListeningNotice, type NativeNoticeIdentity} from '../src-next/screens/destinations/music/listening-notice-model';
+import {nativeListeningNotice, type NativeNoticeIdentity} from './fixtures/superseded/listening-notice-model';
 
 const t = defaultI18n.t;
 const signal: MusicSignalInput = {

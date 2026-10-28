@@ -1,8 +1,9 @@
-import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {BackHandler, Dimensions, NativeModules, Platform, Text, View} from 'react-native';
+import {profileArtColors} from '@portico/design';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
-import {ManagedProfilesClient, type ManagedProfile} from '../../../../../packages/client-core/src/profile-management';
+import {ManagedProfilesClient, type ManagedProfile, type ProfileArt, PROFILE_ART} from '../../../../../packages/client-core/src/profile-management';
 import {IdentityClient} from '../../../../../packages/client-core/src/identity-client';
 import type {ProfileRestrictions, RatingSystem} from '../../../../../packages/client-core/src/identity-restrictions';
 import {HttpHostedApi} from '../../../../../packages/client-core/src';
@@ -33,6 +34,7 @@ import {useTheme} from '../../kit/theme';
 import {AccountEntry} from './AccountEntry';
 import {createAccountDownloadsEntry, type AccountDownloadsEntry} from './downloads-entry';
 import {PhonePINEntry} from './PhonePINEntry';
+import {addHiddenLabel, completeTVLinkCode, formatTVLinkCode} from './account-form-values';
 import {PhoneProfileRecovery} from './PhoneProfileRecovery';
 import {PhoneServerChooser} from './PhoneServerChooser';
 import {TVTrustedCertificates} from './TVTrustedCertificates';
@@ -47,7 +49,7 @@ type Panel = 'servers' | 'add' | 'sign-out-server' | 'sign-out-account' | 'conse
  * remain with their existing owners. Runtime disposal retires every private view below. */
 export function AccountRoute({route, context}: {route: NativeShellRoute; context: NativeShellBootstrapContext}) {
   const back = () => {context.navigation.back(context.authority());};
-  return route.kind === 'profiles' ? <ProfileRoute context={context} route={route} onBack={back}/> : <ServersRoute context={context} onBack={back}/>;
+  return route.kind === 'profiles' ? <ProfileRoute context={context} route={route} onBack={back}/> : <ServersRoute context={context} initialPanel={route.kind === 'servers' ? route.initialPanel : undefined} onBack={back}/>;
 }
 
 type ProfileLease = Readonly<{
@@ -87,6 +89,7 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
   const [removePin, setRemovePin] = useState<ManagedProfile>(), [forgetProfile, setForgetProfile] = useState<ManagedProfile>(), [limitsProfile, setLimitsProfile] = useState<ManagedProfile>();
   const [nameDraft, setNameDraft] = useState(''), [pinDraft, setPinDraft] = useState(''), [pinAgain, setPinAgain] = useState('');
   const [addOpen, setAddOpen] = useState(false), [addName, setAddName] = useState('');
+  const [addArt, setAddArt] = useState<ProfileArt>('blue'), [artDraft, setArtDraft] = useState<ProfileArt>('blue');
   const [actionBusy, setActionBusy] = useState(false), [problem, setProblem] = useState(''), [notice, setNotice] = useState('');
   const [lease, setLease] = useState<ProfileLease>();
   const activeTicket = useRef<AbortController | undefined>(undefined);
@@ -119,7 +122,7 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
     };
   }, [context, route]);
   const scopedTransport = useCallback((ticket: {lease: ProfileLease; controller: AbortController}) => ({
-    request: async <T,>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
+    request: async <T,>(path: string, method?: string, body?: unknown, _signal?: AbortSignal): Promise<T> => {
       if (!ticket.lease.current() || ticket.controller.signal.aborted) throw profileAbort();
       const raw = await ticket.lease.lifetime.request(next => context.api.request<T>(path, method, body, next), ticket.controller.signal);
       if (!ticket.lease.current() || ticket.controller.signal.aborted) throw profileAbort();
@@ -227,7 +230,7 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
   const submitRename = () => {
     const target = edit?.kind === 'rename' ? edit.profile : undefined;
     if (!target || !nameDraft.trim()) return;
-    void runAction(({manager}) => manager.edit(target, {name: nameDraft.trim()})).then(ok => {if (ok) closeEdit();});
+    void runAction(({manager}) => manager.edit(target, {name: nameDraft.trim(), art: artDraft})).then(ok => {if (ok) closeEdit();});
   };
   const submitPin = () => {
     const target = edit?.kind === 'pin' ? edit.profile : undefined;
@@ -243,7 +246,7 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
   const submitAdd = () => {
     const name = addName.trim();
     if (!name) return;
-    void runAction(({manager}) => manager.create(name, 'blue'), t('profile.added', {name})).then(ok => {if (ok) {setAddOpen(false); setAddName('');}});
+    void runAction(({manager}) => manager.create(name, addArt), t('profile.added', {name})).then(ok => {if (ok) {setAddOpen(false); setAddName('');}});
   };
   const forgetAction = () => {
     const target = forgetProfile;
@@ -272,11 +275,11 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
           selectedId={current?.viewer.profileId} preferredProfileId={theme.isTV && lease ? profileFocus.get(lease) : undefined}
           onFocusChange={id => {if (id && lease) profileFocus.set(lease, id);}} showTitle={false} onSelect={id => {const value = profiles.find(item => item.id === id)!;
             if (id === current?.viewer.profileId) onBack(); else if (value.pinRequired) {setProfile(value); setPin('');} else void choose(id);}}/>
-        {manage && profiles.length < 8 ? <View style={{flexDirection: 'row', marginTop: 12}}><Button size="compact" variant="glass" icon="i-plus" onPress={() => {setAddName(''); setProblem(''); setNotice(''); setAddOpen(true);}}>{t('profile.add')}</Button></View> : null}
+        {manage && profiles.length < 8 ? <View style={{flexDirection: 'row', marginTop: 12}}><Button size="compact" variant="glass" icon="i-plus" onPress={() => {setAddName(''); setAddArt('blue'); setProblem(''); setNotice(''); setAddOpen(true);}}>{t('profile.add')}</Button></View> : null}
         {manage && lease && active ? <View testID="profile-actions" style={{marginTop: 18}}>
           <Text style={[theme.type.captionStrong, {color: theme.colors.textTertiary, marginBottom: 8}]}>{active.name}{' · '}{t(active.primary ? 'profile.main' : 'profile.current')}</Text>
           <View style={{borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
-            <ProfileActionRow testID="profile-rename" label={t('profile.rename')} onPress={() => {setNameDraft(active.name); setProblem(''); setNotice(''); setEdit({kind: 'rename', profile: active});}}/>
+            <ProfileActionRow testID="profile-rename" label={t('profile.rename')} onPress={() => {setNameDraft(active.name); setArtDraft(active.art); setProblem(''); setNotice(''); setEdit({kind: 'rename', profile: active});}}/>
             {typeof NativeModules.PorticoImagePicker?.pick === 'function' ? <ProfileActionRow testID="profile-picture" label={t(avatars.some(value => value.profileId === active.id) ? 'profile.changePicture' : 'profile.addPicture')} onPress={() => {
               void runAction(async ({identity}) => {
                 const picked = await pickProfilePicture(lease!);
@@ -303,15 +306,25 @@ function ProfileRoute({context, route, onBack}: {context: NativeShellBootstrapCo
     <Dialog testID="profile-add" open={addOpen} onOpenChange={open => {if (!open) {activeTicket.current?.abort(); setAddOpen(false);}}} title={t('profile.addTitle')}
       footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={actionBusy} onPress={() => {activeTicket.current?.abort(); setAddOpen(false);}}>{t('action.cancel')}</Button><Button focusId="save" loading={actionBusy} disabled={!addName.trim()} onPress={submitAdd}>{t('action.save')}</Button></View>}>
       <TextField label={t('profile.name')} value={addName} onChangeText={setAddName} maxLength={120} testID="profile-add-name"/>
+      {!theme.isTV && <ProfileColorPicker value={addArt} onChange={setAddArt} disabled={actionBusy} testID="profile-add-colors"/>}
     </Dialog>
     <Dialog testID="profile-rename" open={edit?.kind === 'rename'} onOpenChange={open => {if (!open) closeEdit();}} title={t('profile.renameTitle', {name: edit?.profile.name ?? ''})}
       footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={actionBusy} onPress={closeEdit}>{t('action.cancel')}</Button><Button focusId="save" loading={actionBusy} disabled={!nameDraft.trim()} onPress={submitRename}>{t('action.save')}</Button></View>}>
       <TextField label={t('profile.name')} value={nameDraft} onChangeText={setNameDraft} maxLength={120} testID="profile-rename-name"/>
+      {!theme.isTV && <ProfileColorPicker value={artDraft} onChange={setArtDraft} disabled={actionBusy} testID="profile-rename-colors"/>}
     </Dialog>
     <Dialog testID="profile-pin-edit" open={edit?.kind === 'pin'} onOpenChange={open => {if (!open) closeEdit();}} title={t('profile.pinTitle', {name: edit?.profile.name ?? ''})}
       footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={actionBusy} onPress={closeEdit}>{t('action.cancel')}</Button><Button focusId="save" loading={actionBusy} disabled={pinDraft.length !== 4 || pinAgain.length !== 4} onPress={submitPin}>{t('action.save')}</Button></View>}>
-      <TextField label={t('profile.pinChoose')} value={pinDraft} onChangeText={setPinDraft} keyboardType="number-pad" secureTextEntry maxLength={4} testID="profile-pin-new"/>
-      <TextField label={t('profile.pinRepeat')} value={pinAgain} onChangeText={setPinAgain} keyboardType="number-pad" secureTextEntry maxLength={4} testID="profile-pin-again" containerStyle={{marginTop: 12}}/>
+      {theme.isTV ? <>
+        <TextField label={t('profile.pinChoose')} value={pinDraft} onChangeText={setPinDraft} keyboardType="number-pad" secureTextEntry maxLength={4} testID="profile-pin-new"/>
+        <TextField label={t('profile.pinRepeat')} value={pinAgain} onChangeText={setPinAgain} keyboardType="number-pad" secureTextEntry maxLength={4} testID="profile-pin-again" containerStyle={{marginTop: 12}}/>
+      </> : <View style={{gap: 12}}>
+        <Text style={[theme.type.captionStrong, {color: theme.colors.text}]}>{t('profile.pinChoose')}</Text>
+        <PhonePINEntry testID="profile-pin-new" label={t('profile.pinChoose')} value={pinDraft} onChange={setPinDraft} busy={actionBusy}/>
+        <Text style={[theme.type.captionStrong, {color: theme.colors.text}]}>{t('profile.pinRepeat')}</Text>
+        <PhonePINEntry testID="profile-pin-again" label={t('profile.pinRepeat')} value={pinAgain} onChange={setPinAgain} busy={actionBusy} autoFocus={false}/>
+      </View>}
+      {problem ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginTop: 12}]}>{problem}</Text> : null}
     </Dialog>
     <Dialog testID="profile-remove-pin" open={!!removePin} onOpenChange={open => {if (!open) {activeTicket.current?.abort(); setRemovePin(undefined);}}} title={t('profile.removePinConfirm.title', {name: removePin?.name ?? ''})} description={t('profile.removePinConfirm.body', {name: removePin?.name ?? ''})}
       footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={actionBusy} onPress={() => setRemovePin(undefined)}>{t('action.cancel')}</Button><Button focusId="remove-pin" loading={actionBusy} onPress={removePinAction}>{t('profile.removePin')}</Button></View>}><View/></Dialog>
@@ -330,6 +343,31 @@ function ProfileActionRow({label, description, onPress, testID}: {label: string;
   </Focusable>;
 }
 
+const profileArtLabels = {
+  blue: 'next.settingsSpec.account.profile.groups.1.rows.1.control.options.0.label',
+  violet: 'next.settingsSpec.account.profile.groups.1.rows.1.control.options.1.label',
+  mint: 'next.settingsSpec.account.profile.groups.1.rows.1.control.options.2.label',
+  coral: 'next.settingsSpec.account.profile.groups.1.rows.1.control.options.3.label',
+  gold: 'next.settingsSpec.account.profile.groups.1.rows.1.control.options.4.label',
+  slate: 'next.settingsSpec.account.profile.groups.1.rows.1.control.options.5.label',
+  rose: 'next.settingsSpec.account.profile.groups.1.rows.1.control.options.6.label',
+  sky: 'next.settingsSpec.account.profile.groups.1.rows.1.control.options.7.label',
+} as const;
+
+function ProfileColorPicker({value, onChange, disabled, testID}: {value: ProfileArt; onChange: (value: ProfileArt) => void; disabled: boolean; testID: string}) {
+  const theme = useTheme();
+  return <View testID={testID} style={{gap: 10, marginTop: 16}}>
+    <Text style={[theme.type.captionStrong, {color: theme.colors.text}]}>{t('next.settingsSpec.account.profile.groups.1.rows.1.label')}</Text>
+    <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 6}}>{PROFILE_ART.map(art => <Focusable key={art} testID={`${testID}-${art}`}
+      accessibilityRole="radio" accessibilityLabel={t(profileArtLabels[art])} accessibilityState={{selected: art === value}}
+      disabled={disabled} onPress={() => onChange(art)} focusRadius={24} style={{width: 46, height: 46, alignItems: 'center', justifyContent: 'center'}}>
+      <View style={{width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: art === value ? 2 : 0, borderColor: theme.colors.text}}>
+        <View style={{width: 34, height: 34, borderRadius: 17, backgroundColor: profileArtColors[art]}}/>
+      </View>
+    </Focusable>)}</View>
+  </View>;
+}
+
 type ProfileLimitsOwner = {
   /** Private witness: the opening names only the id and revision it was drawn for. The sheet's
    * copy and its own save guard keep reading the original profile prop. */
@@ -346,6 +384,7 @@ function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {pr
   const ownerRef = useRef<ProfileLimitsOwner | undefined>(undefined);
   const [restrictions, setRestrictions] = useState<ProfileRestrictions>(), [systems, setSystems] = useState<readonly RatingSystem[]>();
   const [draft, setDraft] = useState<ProfileRestrictions>(), [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false);
+  const [labelsOpen, setLabelsOpen] = useState(false), [labelsDraft, setLabelsDraft] = useState<readonly string[]>([]), [labelDraft, setLabelDraft] = useState('');
   const profileId = profile.id, profileRevision = profile.revision;
   const current = (candidate: ProfileLimitsOwner) => candidate === ownerRef.current && !candidate.retired && candidate.profile.id === profileId
     && candidate.profile.revision === profileRevision && candidate.lease.current();
@@ -356,7 +395,7 @@ function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {pr
     next.controller = controller;
     ownerRef.current = next;
     setOwner(next);
-    setRestrictions(undefined); setSystems(undefined); setDraft(undefined); setError(undefined); setBusy(false);
+    setRestrictions(undefined); setSystems(undefined); setDraft(undefined); setError(undefined); setBusy(false); setLabelsOpen(false); setLabelsDraft([]); setLabelDraft('');
     const live = () => next === ownerRef.current && !next.retired && next.profile.id === profileId
       && next.profile.revision === profileRevision && next.lease.current();
     const identity = identityFor(controller);
@@ -385,7 +424,7 @@ function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {pr
     setBusy(true); setError(undefined);
     const identity = identityFor(controller);
     void identity.saveRestrictions(currentRestrictions, {
-      ratingSystem: chosen.ratingSystem, maximumAgeRating: chosen.maximumAgeRating, allowUnrated: chosen.allowUnrated,
+      ratingSystem: chosen.ratingSystem, maximumAgeRating: chosen.maximumAgeRating, allowUnrated: chosen.allowUnrated, blockedLabels: chosen.blockedLabels,
       allowDownloads: chosen.allowDownloads, allowLiveTv: chosen.allowLiveTv, allowDvr: chosen.allowDvr, allowWatchTogether: chosen.allowWatchTogether,
     }).then(next => {
       if (!current(sheet) || controller.signal.aborted || next.profileId !== sheet.profile.id || next.revision <= (sheet.loadedRevision ?? 0)) return;
@@ -405,18 +444,34 @@ function ProfileLimitsSheet({profile, lease, identityFor, onClose, onSaved}: {pr
         onValueChange={value => setDraft(current => current ? {...current, maximumAgeRating: value} : current)}/> : null}
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}><Switch focusId="allow-unrated" checked={draft.allowUnrated} onCheckedChange={value => setDraft(current => current ? {...current, allowUnrated: value} : current)}/><Text style={[theme.type.body, {color: theme.colors.text}]}>{t('limits.allowUnrated')}</Text></View>
       <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('limits.allowUnratedHelp')}</Text>
+      {theme.isTV ? draft.blockedLabels.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('limits.hiddenLabels', {labels: draft.blockedLabels.join(', ')})}</Text> : null : <ProfileActionRow testID="profile-hidden-labels" label={t('web.limits.hiddenLabels')} description={draft.blockedLabels.join(', ') || t('web.dvr.none')} onPress={() => {
+        if (busy || !owner || !current(owner)) return;
+        setLabelsDraft([...draft.blockedLabels]); setLabelDraft(''); setLabelsOpen(true);
+      }}/>}
       <Text style={[theme.type.captionStrong, {color: theme.colors.textTertiary, marginTop: 6}]}>{t('limits.features')}</Text>
       {([['allowDownloads', 'limits.feature.downloads'], ['allowLiveTv', 'limits.feature.liveTv'], ['allowDvr', 'limits.feature.dvr'], ['allowWatchTogether', 'limits.feature.watchTogether']] as const).map(([key, label]) =>
         <View key={key} style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12}}><Text style={[theme.type.body, {color: theme.colors.text}]}>{t(label)}</Text>
           <Switch focusId={`feature:${key}`} checked={draft[key]} onCheckedChange={value => setDraft(current => current ? {...current, [key]: value} : current)}/></View>)}
-      {draft.blockedLabels.length ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{t('limits.hiddenLabels', {labels: draft.blockedLabels.join(', ')})}</Text> : null}
+
     </View>}
+    <Dialog testID="profile-hidden-labels-picker" open={labelsOpen} onOpenChange={setLabelsOpen} title={t('web.limits.hiddenLabels')} description={t('next.settingsSpec.account.profile.groups.3.rows.2.help')}
+      footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" onPress={() => setLabelsOpen(false)}>{t('action.cancel')}</Button>
+        <Button onPress={() => {if (!owner || !current(owner) || busy) return; setDraft(value => value ? {...value, blockedLabels: [...labelsDraft]} : value); setLabelsOpen(false);}}>{t('action.done')}</Button></View>}>
+      <View style={{gap: 10}}>
+        {labelsDraft.length ? labelsDraft.map(label => <View key={label.toLowerCase()} style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+          <Text style={[theme.type.body, {color: theme.colors.text, flex: 1}]}>{label}</Text>
+          <Button variant="text" accessibilityLabel={t('web.metadata.removeLabel', {label})} onPress={() => setLabelsDraft(values => values.filter(value => value !== label))}>{t('action.remove')}</Button>
+        </View>) : <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('web.dvr.none')}</Text>}
+        <TextField label={t('web.metadata.addLabelChip')} value={labelDraft} onChangeText={setLabelDraft} maxLength={120} autoCorrect={false}/>
+        <Button variant="glass" disabled={!addHiddenLabel(labelsDraft, labelDraft)} onPress={() => {const next = addHiddenLabel(labelsDraft, labelDraft); if (next) {setLabelsDraft(next); setLabelDraft('');}}}>{t('web.metadata.addLabelChip')}</Button>
+      </View>
+    </Dialog>
   </BottomSheet>;
 }
 
 /** Also usable when no selected server can restore: retained servers remain reachable. */
-export function ServersRoute({context, fallbackDownloads, onBack, onComplete, onSetupComplete}: {context?: NativeShellBootstrapContext; fallbackDownloads?: AccountDownloadsEntry; onBack?: () => void; onComplete?: () => void; onSetupComplete?: (serverId: string) => void}) {
-  const theme = useTheme(), [panel, setPanel] = useState<Panel>('servers'), [servers, setServers] = useState<Awaited<ReturnType<typeof nativeAccounts.snapshot>>>(), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
+export function ServersRoute({context, fallbackDownloads, initialPanel = 'servers', onBack, onComplete, onSetupComplete}: {context?: NativeShellBootstrapContext; fallbackDownloads?: AccountDownloadsEntry; initialPanel?: 'servers' | 'consent-kind'; onBack?: () => void; onComplete?: () => void; onSetupComplete?: (serverId: string) => void}) {
+  const theme = useTheme(), [panel, setPanel] = useState<Panel>(initialPanel), [servers, setServers] = useState<Awaited<ReturnType<typeof nativeAccounts.snapshot>>>(), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [captured, setCaptured] = useState<{session: AppServerSession; name: string}>(), [accountScope, setAccountScope] = useState<{accountId: string; familyId: string}>(), [code, setCode] = useState('');
   const [preview, setPreview] = useState<Readonly<SetupPreview>>(), [consentKind, setConsentKind] = useState<'local' | 'portico'>(), [done, setDone] = useState('');
   const [removeDownloads, setRemoveDownloads] = useState(false);
@@ -467,8 +522,8 @@ export function ServersRoute({context, fallbackDownloads, onBack, onComplete, on
     <Button variant="glass" disabled={busy} onPress={() => {void run(async () => {approver.current = await nativeAccounts.porticoTVConsent(); setConsentKind('portico'); setPanel('consent-code');});}}>{t('account.portico')}</Button>
   </View>);
   if (panel === 'consent-code') return layout(t('settings.linkTV'), t(consentKind === 'portico' ? 'accounts.consent.portico' : 'accounts.consent.local'),
-    <TextField label={t('linkTV.enterCode')} value={code} onChangeText={setCode} autoCapitalize="characters" autoCorrect={false} editable={!busy} containerStyle={{marginBottom: 20}}/>,
-    action('review-tv', t('web.device.review'), async () => {setPreview(await approver.current!.review(code)); setPanel('consent-review');}, !code));
+    <TextField label={t('linkTV.enterCode')} value={code} onChangeText={value => setCode(formatTVLinkCode(value))} autoCapitalize="characters" maxLength={9} autoCorrect={false} editable={!busy} containerStyle={{marginBottom: 20}}/>,
+    action('review-tv', t('web.device.review'), async () => {setPreview(await approver.current!.review(code)); setPanel('consent-review');}, !completeTVLinkCode(code)));
   if (panel === 'consent-review') return layout(t('linkTV.askConfirm'), t('web.device.approveWarn'),
     <View style={{marginBottom: 20}}>{[preview!.deviceName, preview!.platform, preview!.appVersion, preview!.userCode, t(consentKind === 'portico' ? 'accounts.session.portico' : 'accounts.session.local')].map((value, index) => <Text key={index} style={[theme.type.body, {color: theme.colors.text}]}>{value}</Text>)}</View>,
     action('consent-approve', t('web.device.signItIn'), async () => {await approver.current!.decide(preview!, 'approve'); setDone(t('linkTV.approved', {device: preview!.deviceName})); setPanel('consent-done');}),
@@ -510,7 +565,7 @@ export function ServersRoute({context, fallbackDownloads, onBack, onComplete, on
       <Text style={[theme.type.body, {color: theme.colors.text, flex: 1}]}>{t('settings.signOutConfirm.removeDownloads')}</Text>
     </Focusable>}
   </BottomSheet> : null;
-  if (!Platform.isTV) return <><PhoneServerChooser snapshot={servers} busy={busy} error={errorView} onBack={onBack ? cancel : undefined}
+  if (!Platform.isTV) return <><PhoneServerChooser certificates={<TVTrustedCertificates context={context}/>} snapshot={servers} busy={busy} error={errorView} onBack={onBack ? cancel : undefined}
     onSelect={value => {void run(async () => {await nativeAccounts.switchServer(value.id); onComplete?.();});}}
     onSignOut={value => {void run(async () => {
       const state = await nativeAppSessions.read(), found = state.servers.find(item => item.connection.pin.serverId === value.id);
@@ -552,7 +607,7 @@ export function ServersRoute({context, fallbackDownloads, onBack, onComplete, on
 
 const createAccountRoute: NativeRouteFactory = context => ({render: route => {
   if (route.kind !== 'profiles' && route.kind !== 'servers') throw new Error('native_account_route_mismatch');
-  return <AccountRoute route={route} context={context}/>;
+  return <AccountRoute key={context.navigation.getSnapshot().revision} route={route} context={context}/>;
 }});
 nativeShellRoutes.registerRoute('profiles', createAccountRoute);
 nativeShellRoutes.registerRoute('servers', createAccountRoute);

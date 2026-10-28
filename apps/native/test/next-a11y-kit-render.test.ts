@@ -110,7 +110,7 @@ test('single-line fields keep text scaling enabled and release the fixed parent 
     const f = fixture(scale);
     const {TextField} = await screenModule(new URL('../src-next/kit/controls/TextField.tsx', import.meta.url), {
       ...f.common, '@portico/design': {fieldSpec}, './control-model': controlModel, '../Icon': {Icon: 'Icon'},
-      '../overlays/OverlayPaintContext': liveOverlayPaint,
+      '../overlays/OverlayPaintContext': liveOverlayPaint, '../../platform/native-blur': {BlurView: 'BlurView', glassRecipe: () => ({nativeBlur: false})},
     });
     const tree = f.host.render(() => TextField({value: 'Editable text', fieldStyle: {height: 28, minHeight: 35}}));
     const field = nodes(tree).find(node => node.type === 'View' && flatten(node.props.style).borderRadius !== undefined);

@@ -497,7 +497,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
         // context still own it; a retired viewer never navigates from a stale sheet.
         const live = adapter.getSnapshot();
         if (!runtime.openServers || !sameAuthority(live.authority, authority)) return;
-        runtime.openServers(); runtime.playOn?.close();
+        runtime.openServers('consent-kind'); runtime.playOn?.close();
       }}/>}
   </DockVideoExitProvider></View>;
 }

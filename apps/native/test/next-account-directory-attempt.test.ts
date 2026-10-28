@@ -50,7 +50,7 @@ test('a directory connect is fenced to its attempt: Choose another and a success
     '../../../../../packages/client-core/src/join-link': joinLink,
     '../../../../../packages/client-core/src/short-invitation-code': invitationCode,
     '../../platform/qr-scanner': qrScanner,
-    './PhoneAccountSignIn': {PhoneAccountSignIn: 'PhoneAccountSignIn'},
+    './LegalAgreement': {LegalAgreement: 'LegalAgreement'}, './PhoneAccountForm': {PhoneAccountForm: 'Layout'}, './PasswordStrengthMeter': {PasswordStrengthMeter: 'PasswordStrengthMeter'}, './PhoneAccountSignIn': {PhoneAccountSignIn: 'PhoneAccountSignIn'},
     react: {...React, default: React},
     'react-native': {AppState: {currentState: 'active', addEventListener: (_: string, listener: (state: string) => void) => {appState = listener; return {remove() {}};}}, BackHandler: {addEventListener: () => ({remove() {}})}, Platform: {isTV: false}, Dimensions: {get: () => ({width: 390, height: 844})},
       NativeModules: {}, View: 'View', Text: 'Text', ScrollView: 'ScrollView', Linking: {openURL: async () => {}}},
@@ -84,6 +84,7 @@ test('a directory connect is fenced to its attempt: Choose another and a success
   const host = createHookHost(() => {tree = AccountEntry({onComplete: () => {completed++;}});});
   await act(() => host.mount());
   try {
+    assert.equal(tree.type, 'Phone'); await act(() => tree.props.onPortico());
     await act(() => host.rerender());
     assert.equal(tree.type, 'Layout'); assert.equal(tree.props.title, defaultI18n.t('portico.landing.pickTitle'));
     const rows = () => nodes(tree.props.beforeActions).filter(node => node.type === 'Focusable');

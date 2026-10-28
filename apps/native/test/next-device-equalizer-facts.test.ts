@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createDeviceEqualizer, type DeviceEqualizer} from '../platform/equalizer-store.ts';
 import type {DeviceEqualizerSnapshot} from '../src-next/platform/playback/equalizer.ts';
-import {nativeSettingsEqualizerFacts} from '../src-next/screens/settings/device-equalizer-facts.ts';
+import {nativeSettingsEqualizerFacts} from './fixtures/superseded/device-equalizer-facts.ts';
 
 const flat = (on = false): DeviceEqualizer => ({on, preamp: 0, gains: Array(10).fill(0)});
 

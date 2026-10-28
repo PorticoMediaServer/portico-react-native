@@ -258,6 +258,18 @@ export class NativePorticoSignIn {
     const value = await this.api().register({username, displayName, password, contactAddress, requestId}, this.abort.signal);
     this.check(); this.registration = Object.freeze({...value}); return this.registration;
   }
+  async resendRegistration(original: Registration, caller: Readonly<{isCurrent: () => boolean}>) {
+    const current = () => caller.isCurrent() && this.registration === original;
+    this.checkCaller(current);
+    if (original.contactVerified || original.status !== 'contact_pending') throw new CodedError('cancelled', 'native_registration_changed');
+    const requestId = await this.bridge.newRequestId(); this.checkCaller(current);
+    const fresh = await this.api().resendRegistration(original.registrationId, requestId, this.abort.signal);
+    this.checkCaller(current);
+    if (fresh.registrationId !== original.registrationId || fresh.maskedAddress !== original.maskedAddress
+      || fresh.status === 'completed') throw new CodedError('account_changed', 'native_registration_changed');
+    this.registrationCollision = undefined;
+    this.registration = Object.freeze({...fresh}); return this.registration;
+  }
   async verifyRegistration(code: string, original: Registration, caller: Readonly<{isCurrent: () => boolean}>, replacement?: Readonly<{username: string; displayName: string}>) {
     const registration = original;
     if (!registration || this.registration !== registration) throw new Error('native_registration_missing');

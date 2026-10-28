@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
+import {porticoPublicLinks} from '../../../packages/client-core/src/public-links';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {createTheme, nativeType} from '../src-next/kit/theme';
 import {act, createHookHost} from './hook-driver';
@@ -17,9 +18,15 @@ test('phone account presenter exposes only its offered password and provider cap
   }});
   let host: ReturnType<typeof createHookHost> | undefined;
   try {
+    const links: string[] = []; let linkFailure = false;
+    const legal = await screenModule(new URL('../src-next/screens/accounts/LegalAgreement.tsx', import.meta.url), {
+      react: {...React, default: React}, 'react-native': {Text: 'Text'},
+      '../../../../../packages/i18n/src': {defaultI18n},
+      '../../../../../packages/client-core/src/public-links': {porticoPublicLinks},
+    });
     const {PhoneAccountSignIn} = await screenModule(new URL('../src-next/screens/accounts/PhoneAccountSignIn.tsx', import.meta.url), {
-      react: {...React, default: React},
-      'react-native': {Image: 'Image', Keyboard: {isVisible: () => false, addListener: () => ({remove() {}})}, KeyboardAvoidingView: 'KeyboardAvoidingView', Linking: {}, Platform: {OS: 'ios'}, ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
+      './LegalAgreement': legal, react: {...React, default: React},
+      'react-native': {Image: 'Image', Keyboard: {isVisible: () => false, addListener: () => ({remove() {}})}, KeyboardAvoidingView: 'KeyboardAvoidingView', Linking: {openURL: async (url: string) => {links.push(url); if (linkFailure) throw new Error('browser unavailable');}}, Platform: {OS: 'ios'}, ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
       'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0, left: 0, right: 0})},
       '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/artwork': {ColourBackdrop: 'Backdrop'},
       '../../kit/controls': {Button: 'Button', TextField: 'Field'}, '../../kit/theme': {nativeType, useTheme: () => createTheme({isTV: false, width: 390})},
@@ -31,6 +38,12 @@ test('phone account presenter exposes only its offered password and provider cap
       onContinue: () => calls.push('password'), onProvider: (id: string) => calls.push(id),
       onForgot: () => calls.push('forgot'), onCreate: () => calls.push('create'), onLocal: () => calls.push('local')});});
     await act(() => host!.mount());
+    const agreement = nodes(tree).find(node => node.type === legal.LegalAgreement);
+    const footer = agreement.type(agreement.props);
+    const anchors = nodes(footer).filter(node => node.props.accessibilityRole === 'link');
+    await act(() => anchors[0].props.onPress());
+    linkFailure = true; await act(() => anchors[1].props.onPress());
+    assert.deepEqual(links, [porticoPublicLinks.terms, porticoPublicLinks.privacy], 'phone legal links preserve their non-blocking failure behaviour');
     const byID = (id: string) => nodes(tree).find(node => node.props?.testID === id);
     assert.ok(byID('accounts-auth-google')); assert.equal(byID('accounts-auth-continue'), undefined);
     assert.equal(byID('accounts-auth-create'), undefined); assert.equal(byID('accounts-auth-forgot'), undefined);

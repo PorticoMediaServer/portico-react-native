@@ -1,7 +1,8 @@
-import React, {useCallback, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
-import {HomeSkeleton, StateLayout, StateView} from '../kit/states';
+import React, {useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
+import {StateLayout, StateView} from '../kit/states';
 import {CoverFan} from '../kit/artwork';
 import {Focusable} from '../kit/controls';
+import {TVDesignCanvas} from '../kit/overlays/TVDesignCanvas';
 import {Icon} from '../kit/Icon';
 import {useTheme} from '../kit/theme';
 import {presentError} from '../../../../packages/client-core/src/presentation/errors';
@@ -23,17 +24,19 @@ import {beginNativeInstallation} from '../platform/installation';
 import {createRememberedDownloadsOpening, type RememberedDownloadsOpening} from './remembered-downloads-opening';
 import {RememberedDownloadsScreen, RememberedDownloadsShortcut} from '../screens/downloads/RememberedDownloadsScreen';
 import {downloadEntryIdentity} from '../screens/downloads/presentation';
-import {Platform, Text, View} from 'react-native';
+import {AccessibilityInfo, AppState, Image, Platform, Text, View, findNodeHandle} from 'react-native';
 import {NativeSettingsAppearance} from '../screens/settings/NativeSettingsAppearance';
 import {homeActionDiagnostics} from '../platform/home-action-diagnostics';
 import {acknowledgeSecureRecordsRecovered, isSecureRecordsLost, secureRecordsRecoveredNotice} from '../platform/secure-records';
 import {SecureRecordsRecovery} from './SecureRecordsRecovery';
+import {StartupBoot} from './StartupBoot';
+import {createNativeStartupRecovery, startupRetrySeconds, startupWait, type NativeStartupWait} from './startup-recovery';
 
 type RestoreState = Readonly<{phase: 'loading' | 'ready' | 'ended'; runtime?: RestoredNativeShellRuntime; error?: unknown}>;
-type RootOpening = {attempt: number; active: boolean; source?: RememberedDownloadsOpening; input?: NativeInvitationLink; finishInput?: () => void; current?: () => boolean; recoveryCurrent?: () => boolean; retire?: () => void; restart?: () => void};
+type RecoveryPause = 'accounts' | 'downloads' | 'invitation';
+type RootOpening = {attempt: number; active: boolean; source?: RememberedDownloadsOpening; input?: NativeInvitationLink; finishInput?: () => void; current?: () => boolean; recoveryCurrent?: () => boolean; retire?: () => void; restart?: () => void; retry?: () => boolean; canRecover?: () => boolean; pauseRecovery?: (reason: RecoveryPause) => void; resumeRecovery?: (reason: RecoveryPause) => void};
 
-/** Informational only: a path change re-renders the error projection. It never
- * retries the restore, starts a timer or adopts a newer source. */
+/** The copy and the captured recovery read the same native path fact. */
 const subscribePathChange = (listener: () => void) => onNetworkChange(() => listener());
 
 /** Restore only the captured canonical server selection; current account entry owns sign-in. */
@@ -42,7 +45,8 @@ export function RestoredShell() {
   const online = useSyncExternalStore(subscribePathChange, deviceOnline, deviceOnline);
   const incoming = useSyncExternalStore(nativeInvitationLinks.subscribe, nativeInvitationLinks.getSnapshot, nativeInvitationLinks.getSnapshot);
   useLayoutEffect(() => nativeInvitationLinks.acquire(), []);
-  const [attempt, setAttempt] = useState(0), [state, setState] = useState<RestoreState>({phase: 'loading'}), [elapsed, setElapsed] = useState(0);
+  const [attempt, setAttempt] = useState(0), [state, setState] = useState<RestoreState>({phase: 'loading'});
+  const [waiting, setWaiting] = useState(() => startupWait(0, online));
   const [firstLibrary, setFirstLibrary] = useState<string>();
   const [serverDisplay, setServerDisplay] = useState<{attempt: number; name?: string}>();
   const [showAccounts, setShowAccounts] = useState(false), [retained, setRetained] = useState(false);
@@ -51,6 +55,7 @@ export function RestoredShell() {
   const [downloadView, setDownloadView] = useState<DownloadView>();
   const viewOwner = useRef<DownloadView | undefined>(undefined), viewSerial = useRef(0);
   const [recovered, setRecovered] = useState<{opening: RootOpening; notice: object}>();
+  const recoveryTitle = useRef<Text>(null);
   const root = useRef<RootOpening | undefined>(undefined);
   if (root.current && root.current.attempt !== attempt) root.current.retire?.();
   useLayoutEffect(() => {
@@ -64,14 +69,15 @@ export function RestoredShell() {
     ticket.current = rootCurrent;
     // Reset/restart completion only; never a runtime, server or session admission.
     ticket.recoveryCurrent = ownsRoot;
-    let clock: ReturnType<typeof setInterval> | undefined;
+    let recovery: ReturnType<typeof createNativeStartupRecovery> | undefined;
+    const pauses = new Set<RecoveryPause>();
     ticket.retire = () => {
       if (!ticket.active) return;
       homeActionDiagnostics.lifetime?.('root-retire', ticket, installation);
       ticket.active = false; alive = false;
       const previous = owned, previousSource = ticket.source; owned = undefined; ticket.source = undefined;
       if (root.current === ticket) viewOwner.current = undefined;
-      if (clock) clearInterval(clock);
+      recovery?.dispose();
       // Revoke original IO synchronously, before render can expose a successor.
       for (const release of [() => abort.abort(), () => previousSource?.dispose(), () => previous?.dispose()]) {
         try {release();} catch { /* All original capabilities are retired; finish remaining cleanup. */ }
@@ -97,20 +103,23 @@ export function RestoredShell() {
       fallbackFlight = createRememberedDownloadsOpening(installation, {signal: abort.signal, isCurrent: () => rootCurrent() && !owned,
         onOpen: source => {
           if (!rootCurrent() || owned || ticket.source !== source || !source.current() || viewOwner.current) return;
+          ticket.pauseRecovery?.('downloads');
           const view = {source, serial: ++viewSerial.current}; viewOwner.current = view; setDownloadView(previous => rootCurrent() && viewOwner.current === view ? view : previous);
         }, onRetired: () => {
           if (!captured || ticket.source !== captured || !rootCurrent()) return;
           ticket.source = undefined; setDownloads(previous => rootCurrent() && previous === captured ? undefined : previous);
-          if (viewOwner.current?.source === captured) {viewOwner.current = undefined; setDownloadView(previous => rootCurrent() && previous?.source === captured ? undefined : previous);}
+          if (viewOwner.current?.source === captured) {viewOwner.current = undefined; setDownloadView(previous => rootCurrent() && previous?.source === captured ? undefined : previous); ticket.resumeRecovery?.('downloads');}
         },
       }).then(source => {captured = source;
         if (!rootCurrent() || owned || source && !source.current()) {source?.dispose(); return;}
         ticket.source = source; setDownloads(previous => rootCurrent() && ticket.source === source ? source : previous);
       }, () => { /* Offline is optional; the original restore refusal remains visible. */ });
     };
-    let selection: string | undefined, reads = 0, fenced = false, settledFence = false, restored = false;
+    let selection: string | undefined, reads = 0, fenced = false, settledFence = false, restored = false, entrySelectionChanged = false;
     ticket.finishInput = () => {
-      if (rootCurrent() && fenced && settledFence && !owned && !ticket.input?.current()) restart();
+      if (!rootCurrent()) return;
+      if (fenced && settledFence && !owned && !ticket.input?.current()) restart();
+      else ticket.resumeRecovery?.('invitation');
     };
     const checkSelection = async () => {
       if (!rootCurrent()) return;
@@ -123,10 +132,12 @@ export function RestoredShell() {
           // A pending restore or a ready runtime must be fenced. Once the entry is settled
           // and owns sign-in, the new selection is its own publication: its onComplete
           // starts the restore, so aborting here would unmount it mid-publish.
-          if (!restored || owned) {homeActionDiagnostics.lifetime?.('root-selection-changed', ticket, installation);restart(); return;}
+          const entryOwnsSelection = pauses.has('accounts') || pauses.has('invitation');
+          if (owned || !restored && !entryOwnsSelection) {homeActionDiagnostics.lifetime?.('root-selection-changed', ticket, installation);restart(); return;}
+          if (entryOwnsSelection) entrySelectionChanged = true;
         }
         selection = key;
-      } catch (error) {if (rootCurrent()) {homeActionDiagnostics.lifetime?.('root-selection-read-failed', ticket, installation);homeActionDiagnostics.error('restore-error', error); const previous = owned; owned = undefined; previous?.dispose(); if (rootCurrent()) publishState({phase: 'ended', error});}}
+      } catch (error) {if (rootCurrent()) {homeActionDiagnostics.lifetime?.('root-selection-read-failed', ticket, installation);homeActionDiagnostics.error('restore-error', error); restored = true; recovery?.finish(); const previous = owned; owned = undefined; previous?.dispose(); if (rootCurrent()) publishState({phase: 'ended', error});}}
     };
     const unsubscribe = subscribeNativeAppSessions(() => {if (rootCurrent()) void checkSelection();});
     // A ready shell refreshes when a publication settles. While an entry is publishing
@@ -152,36 +163,75 @@ export function RestoredShell() {
       if (rootCurrent()) publishState({phase: 'loading'});
     });
     void checkSelection();
+    // Native first-frame time must eventually be supplied by the platform host.
+    // This opening's clock is never reset by its automatic or manual retries.
     const started = Date.now();
-    if (rootCurrent()) {setElapsed(previous => rootCurrent() ? 0 : previous); publishState({phase: 'loading'}); setShowAccounts(previous => rootCurrent() ? false : previous); setServerDisplay(previous => rootCurrent() ? {attempt} : previous);}
+    if (rootCurrent()) {publishState({phase: 'loading'}); setShowAccounts(previous => rootCurrent() ? false : previous); setServerDisplay(previous => rootCurrent() ? {attempt} : previous);}
     if (rootCurrent()) void nativeAccounts.snapshot().then(value => {if (rootCurrent()) {
       setRetained(previous => rootCurrent() ? value.servers.length > 0 : previous);
       const selected = value.servers.find(server => server.id === value.selectedServerId);
       setServerDisplay(previous => rootCurrent() ? {attempt, ...(selected?.name ? {name: selected.name} : {})} : previous);
     }}, () => {});
-    if (rootCurrent()) clock = setInterval(() => {if (rootCurrent()) setElapsed(previous => rootCurrent() ? Date.now() - started : previous);}, 120);
-    if (rootCurrent()) void restoreNativeShellRuntime(createNativeShellBindings, {signal: abort.signal, installationOwner: installation, onSessionRenewed: () => {
-      if (rootCurrent()) {homeActionDiagnostics.lifetime?.('root-renewal', ticket, installation);restart();}
-    }, onAuthorityEnded: error => {
-      if (rootCurrent()) {homeActionDiagnostics.lifetime?.('root-authority-ended', ticket, installation);homeActionDiagnostics.error('restore-error', error); owned = undefined; publishState({phase: 'ended', error}); if (rootCurrent()) fallback();}
-    }}).then(runtime => {
-      if (clock) clearInterval(clock);
-      if (!rootCurrent()) {runtime?.dispose(); return;}
-      restored = true; owned = runtime; publishState({phase: runtime ? 'ready' : 'ended', runtime}); showRecovered(); if (rootCurrent() && !runtime) fallback();
-    }, error => {if (clock) clearInterval(clock); if (rootCurrent()) {homeActionDiagnostics.error('restore-error', error); restored = true; publishState({phase: 'ended', error}); showRecovered(); if (rootCurrent() && !isSecureRecordsLost(error)) fallback();}});
-    return () => {ticket.retire?.(); installation.dispose(); unsubscribe(); unfence(); unsettled(); if (clock) clearInterval(clock);};
+    if (rootCurrent()) recovery = createNativeStartupRecovery<RestoredNativeShellRuntime | undefined>({
+      startedAt: started, current: rootCurrent, online: deviceOnline(), foreground: AppState.currentState === 'active',
+      restore: signal => restoreNativeShellRuntime(createNativeShellBindings, {signal, installationOwner: installation, onSessionRenewed: () => {
+        if (rootCurrent() && !signal.aborted) {homeActionDiagnostics.lifetime?.('root-renewal', ticket, installation);restart();}
+      }, onAuthorityEnded: error => {
+        if (rootCurrent() && !signal.aborted) {homeActionDiagnostics.lifetime?.('root-authority-ended', ticket, installation);homeActionDiagnostics.error('restore-error', error);
+          restored = true; recovery?.finish(); owned = undefined; publishState({phase: 'ended', error}); if (rootCurrent()) fallback();}
+      }}),
+      discard: runtime => runtime?.dispose(),
+      retryable: error => !(error instanceof NativeIdentityFailure) && !(error instanceof NativeSignInEnded) && !isSecureRecordsLost(error)
+        && ['offline', 'unreachable', 'timeout'].includes(presentError(error, 'home').category),
+      onWait: value => {if (rootCurrent()) setWaiting(previous => rootCurrent() ? value : previous);},
+      onReady: runtime => {
+        restored = true; owned = runtime;
+        if (runtime) {const previous = ticket.source; ticket.source = undefined; previous?.dispose(); setDownloads(value => rootCurrent() ? undefined : value);}
+        publishState({phase: runtime ? 'ready' : 'ended', runtime}); showRecovered(); if (rootCurrent() && !runtime) fallback();
+      },
+      onError: (error, retrying) => {
+        homeActionDiagnostics.error('restore-error', error); restored = !retrying;
+        publishState({phase: retrying ? 'loading' : 'ended', error}); showRecovered();
+        if (rootCurrent() && !isSecureRecordsLost(error)) fallback();
+      },
+    });
+    ticket.canRecover = () => rootCurrent() && !owned && !pauses.size && !viewOwner.current && !ticket.input?.current();
+    // A retained recovery button cannot replace an already-open chooser, link or download.
+    ticket.retry = () => !ticket.canRecover?.() || recovery?.retryNow() === true;
+    ticket.pauseRecovery = reason => {if (rootCurrent()) {pauses.add(reason); recovery?.pause();}};
+    ticket.resumeRecovery = reason => {if (rootCurrent()) {pauses.delete(reason); if (!pauses.size) {
+      // Entry owns its publication until completion. If it instead goes Back
+      // after changing selection, never resume the former captured installation.
+      if (entrySelectionChanged) restart(); else recovery?.resume();
+    }}};
+    const path = onNetworkChange(value => recovery?.networkChanged(value));
+    const app = AppState.addEventListener('change', value => recovery?.foregroundChanged(value === 'active'));
+    return () => {ticket.retire?.(); installation.dispose(); unsubscribe(); unfence(); unsettled(); path(); app.remove();};
   }, [attempt]);
+  useLayoutEffect(() => {
+    const ticket = root.current;
+    if (incoming?.current()) ticket?.pauseRecovery?.('invitation');
+    else ticket?.resumeRecovery?.('invitation');
+  }, [attempt, incoming]);
   const renderedRoot = root.current;
   const renderedCurrent = () => !!renderedRoot?.current?.();
+  const focusRecoveryTitle = useCallback(() => {
+    if (!renderedRoot?.current?.() || !renderedRoot.canRecover?.()) return;
+    const target = recoveryTitle.current && findNodeHandle(recoveryTitle.current);
+    if (target != null) AccessibilityInfo.setAccessibilityFocus(target);
+  }, [renderedRoot]);
   const complete = () => {if (renderedCurrent()) renderedRoot?.restart?.();};
+  const retry = () => {if (renderedCurrent() && !renderedRoot?.retry?.()) complete();};
   const setupComplete = (serverId: string) => {if (renderedCurrent()) setFirstLibrary(previous => renderedCurrent() ? serverId : previous);};
-  const chooseAccounts = () => {if (renderedCurrent()) setShowAccounts(previous => renderedCurrent() ? true : previous);};
+  const chooseAccounts = () => {if (renderedCurrent() && renderedRoot?.canRecover?.()) {renderedRoot.pauseRecovery?.('accounts'); setShowAccounts(previous => renderedCurrent() ? true : previous);}};
+  const serverName = serverDisplay?.attempt === attempt ? serverDisplay.name : undefined;
+  const renderContent = () => {
   // A successful confirmed reset invalidates installation metadata. Only its
   // original closed recovery UI may remain to say restart/reopen; no old shell
   // object is made current by this branch.
   if (isSecureRecordsLost(state.error) && renderedRoot?.attempt === attempt && renderedRoot.recoveryCurrent?.())
     return <SecureRecordsRecovery key={attempt} opening={renderedRoot}/>;
-  if (renderedRoot && !renderedCurrent()) return <HomeSkeleton elapsedMs={elapsed} visible/>;
+  if (renderedRoot && !renderedCurrent()) return null;
   if (recovered && recovered.opening === renderedRoot && renderedCurrent()) return <StateLayout testID="native-secure-records-recovered"
     title={defaultI18n.t('web.hostedAccount.ended')} body={defaultI18n.t('web.hostedAccount.signInAgain')}
     primaryAction={{id: 'continue', label: defaultI18n.t('action.continue'), onPress: () => {
@@ -193,48 +243,59 @@ export function RestoredShell() {
     onBack={() => {if (!renderedCurrent() || !incoming.current()) return; incoming.dismiss(); renderedRoot?.finishInput?.();}}
     onComplete={() => {if (!renderedCurrent() || !incoming.current()) return; incoming.dismiss(); complete();}}/>;
   const remembered = downloads && root.current?.active && root.current.attempt === attempt && downloads.current() ? downloads : undefined;
-  const serverName = serverDisplay?.attempt === attempt ? serverDisplay.name : undefined;
   const opened = downloadView;
   if (opened && remembered === opened.source && viewOwner.current === opened) return <RememberedDownloadsScreen key={opened.serial} source={opened.source} onBack={() => {
     if (!renderedCurrent() || viewOwner.current !== opened || !opened.source.current()) return; viewOwner.current = undefined;
     setDownloadView(previous => renderedCurrent() && previous === opened ? undefined : previous);
+    renderedRoot?.resumeRecovery?.('downloads');
   }}/>;
   const withDownloads = (content: React.ReactNode, shortcut = true) => shortcut && remembered
     ? <View style={{flex: 1}}>{content}<RememberedDownloadsShortcut source={remembered}/></View> : content;
   if (state.runtime && state.phase === 'ready') return <NativeSettingsAppearance source={state.runtime}><>{firstLibrary && state.runtime.firstLibraryContext?.current() && state.runtime.firstLibraryContext.authority().serverId === firstLibrary && state.runtime.firstLibraryContext.account.account.role === 'owner' && state.runtime.firstLibraryContext.account.account.primaryProfileId === state.runtime.firstLibraryContext.authority().profileId ? <PhoneFirstLibrary context={state.runtime.firstLibraryContext} onDone={() => {if (!renderedCurrent()) return; const runtime = state.runtime;
     setFirstLibrary(previous => renderedCurrent() ? undefined : previous); if (renderedCurrent()) void runtime?.refresh();}}/> : <NativeShell runtime={state.runtime}/>}</></NativeSettingsAppearance>;
-  if (state.phase === 'loading') return <HomeSkeleton elapsedMs={elapsed} visible/>;
-  if (showAccounts || !state.error && retained) return withDownloads(<ServersRoute fallbackDownloads={remembered?.entry} onSetupComplete={setupComplete} onComplete={complete} onBack={state.error ? () => {if (renderedCurrent()) setShowAccounts(previous => renderedCurrent() ? false : previous);} : undefined}/>, false);
-  if (state.error instanceof NativeIdentityFailure) {
-    const failure = state.error;
-    return withDownloads(<ServerIdentityFailure failure={failure} onRetry={complete} onChoose={chooseAccounts}
+  if (state.phase === 'loading' && waiting.stage === 'boot') return null;
+  // A read may still be in flight at 15 s (or 1 s offline). The recovery page is
+  // then visible without cancelling or starting a second copy of that read.
+  const restoreError = state.error ?? (state.phase === 'loading' ? {code: 'network'} : undefined);
+  if (showAccounts || !restoreError && retained) return withDownloads(<ServersRoute fallbackDownloads={remembered?.entry} onSetupComplete={setupComplete} onComplete={complete} onBack={restoreError ? () => {if (renderedCurrent()) {
+    setShowAccounts(previous => renderedCurrent() ? false : previous); renderedRoot?.resumeRecovery?.('accounts');
+  }} : undefined}/>, false);
+  if (restoreError instanceof NativeIdentityFailure) {
+    const failure = restoreError;
+    return withDownloads(<ServerIdentityFailure failure={failure} onRetry={retry} onChoose={chooseAccounts}
       onForget={async () => {if (renderedCurrent()) await nativeAccounts.forgetServer(failure.server);}} onError={error => {if (renderedCurrent()) setState(previous => renderedCurrent() ? {phase: 'ended', error} : previous);}}/>);
   }
-  if (state.error instanceof NativeSignInEnded) return withDownloads(<AccountEntry downloads={remembered?.entry} key={state.error.hint.serverId + ':' + state.error.hint.familyId} endedSignIn={state.error.hint} onSetupComplete={setupComplete} onComplete={complete} onBack={chooseAccounts}/>);
-  if (state.error) {
-    const error = presentError(state.error, 'home', {deviceOnline: online});
+  if (restoreError instanceof NativeSignInEnded) return withDownloads(<AccountEntry downloads={remembered?.entry} key={restoreError.hint.serverId + ':' + restoreError.hint.familyId} endedSignIn={restoreError.hint} onSetupComplete={setupComplete} onComplete={complete} onBack={chooseAccounts}/>);
+  if (restoreError) {
+    const error = presentError(restoreError, 'home', {deviceOnline: online});
+    const recoveryWait = state.phase === 'loading' ? waiting : undefined;
     // states.html 4 and 7a: compact phones draw the connection and app-update composition.
     // Identity and sign-in failures were handled above and never reach this branch.
     if (theme.platform === 'phone' && (error.category === 'offline' || error.category === 'unreachable' || error.category === 'timeout'
       || error.category === 'unsupported-version')) {
-      return withDownloads(<CompactRecovery presented={error} serverName={serverName} downloads={remembered} onRetry={complete} onChoose={chooseAccounts}/>, false);
+      return withDownloads(<CompactRecovery presented={error} serverName={serverName} downloads={remembered} waiting={recoveryWait} titleRef={recoveryTitle} onRetry={retry} onChoose={chooseAccounts}/>, false);
     }
     // DESIGN "TV focus": a page's starting focus is its main action. The drawn state layout
     // (connect.html 10) starts on Try again, so the recovery declares it instead of relying
     // on the platform's first focusable after a failed restore.
     const restore = error.action === 'try-again' || error.action === 'refresh';
-    // connect.html 10: a quiet server draws the warning emblem and the same help line as the
-    // mounted recovery; other restore failures keep the neutral error emblem.
     const connection = error.category === 'offline' || error.category === 'unreachable' || error.category === 'timeout';
-    const quietServer = connection && theme.isTV;
-    return withDownloads(<StateView variant="centered" title={error.title} body={error.body} tone={quietServer ? 'warning' : 'error'}
-      icon={quietServer ? 'i-srvoff' : undefined}
-      iconMetrics={quietServer ? {size: 88, glyphSize: 40, marginBottom: 34} : undefined}
-      help={quietServer ? defaultI18n.t('next.states.native.tvConnectionHelp') : undefined}
-      primaryAction={restore ? {id: 'restore', label: error.actionLabel, onPress: complete, hasTVPreferredFocus: theme.isTV} : undefined}
+    if (connection) return withDownloads(<View style={{flex: 1, backgroundColor: theme.colors.ink}}><TVDesignCanvas><StateLayout testID="native-recovery-connection" titleRef={recoveryTitle} backdropShape="side" shell={<RecoveryBrand/>}
+      title={error.category === 'offline' ? theme.isTV ? 'This TV is offline' : defaultI18n.t('next.states.offlinePhone')
+        : serverName ? defaultI18n.t('next.states.cantReach', {server: serverName}) : defaultI18n.t('next.states.cantReachServer')}
+      icon={error.category === 'offline' ? 'i-wifioff' : 'i-srvoff'} tone="warning"
+      beforeActions={recoveryWait ? <RecoveryRetry waiting={recoveryWait}/> : undefined}
+      primaryAction={{id: 'restore', label: defaultI18n.t('next.states.tryNow'), icon: 'i-retry', onPress: retry, hasTVPreferredFocus: theme.isTV}}
+      secondaryAction={{id: 'accounts', label: defaultI18n.t('next.states.switchServer'), icon: 'i-server', onPress: chooseAccounts}}/></TVDesignCanvas></View>);
+    return withDownloads(<StateView variant="centered" title={error.title} body={error.body} tone="error"
+      primaryAction={restore ? {id: 'restore', label: error.actionLabel, onPress: retry, hasTVPreferredFocus: theme.isTV} : undefined}
       secondaryAction={{id: 'accounts', label: defaultI18n.t('portico.landing.chooseAnother'), onPress: chooseAccounts, hasTVPreferredFocus: theme.isTV && !restore}}/>);
   }
   return withDownloads(<AccountEntry downloads={remembered?.entry} onSetupComplete={setupComplete} onComplete={complete}/>);
+  };
+  const content = renderContent();
+  const boot = content === null && state.phase === 'loading' && waiting.stage === 'boot';
+  return <StartupBoot active={boot} waiting={waiting} serverName={serverName} onHidden={focusRecoveryTitle}>{content}</StartupBoot>;
 }
 
 type RecoveryPresented = ReturnType<typeof presentError>;
@@ -278,8 +339,8 @@ function RecoveryDownloads({source}: {source: RememberedDownloadsOpening}) {
 /** states.html 4a and 7a, compact phone only. The server name is the saved display; no version line
  * is drawn because the restore error carries no real minimum version, and no store button exists
  * without a real supported update target. */
-function CompactRecovery({presented, serverName, downloads, onRetry, onChoose}: {
-  presented: RecoveryPresented; serverName?: string; downloads?: RememberedDownloadsOpening; onRetry: () => void; onChoose: () => void;
+function CompactRecovery({presented, serverName, downloads, waiting, titleRef, onRetry, onChoose}: {
+  presented: RecoveryPresented; serverName?: string; downloads?: RememberedDownloadsOpening; waiting?: NativeStartupWait; titleRef: React.Ref<Text>; onRetry: () => void; onChoose: () => void;
 }) {
   const t = defaultI18n.t;
   // The opening can exist with nothing playable on this phone, so the action follows the
@@ -296,11 +357,34 @@ function CompactRecovery({presented, serverName, downloads, onRetry, onChoose}: 
       secondaryAction={{id: 'servers', label: t('next.states.switchServer'), onPress: onChoose}}/>;
   }
   const offline = presented.category === 'offline';
-  return <StateLayout testID="native-recovery-connection" icon={offline ? 'i-wifioff' : 'i-srvoff'} tone="warning" contentTop={offline ? undefined : 208}
+  return <StateLayout testID="native-recovery-connection" titleRef={titleRef} icon={offline ? 'i-wifioff' : 'i-srvoff'} tone="warning" contentTop={offline ? undefined : 208}
+    shell={<RecoveryBrand/>}
     title={offline ? t('next.states.offlinePhone') : serverName ? t('next.states.cantReach', {server: serverName}) : t('next.states.cantReachServer')}
-    body={offline ? undefined : t('next.states.cantReachPhoneBody')}
-    beforeActions={downloads ? <RecoveryDownloads source={downloads}/> : undefined}
+    beforeActions={<>{waiting && <RecoveryRetry waiting={waiting}/>}{downloads && <RecoveryDownloads source={downloads}/>}</>}
     primaryAction={{id: 'retry', label: t('next.states.tryNow'), icon: 'i-retry', onPress: onRetry}}
-    secondaryAction={{id: 'servers', label: t('next.states.switchServer'), onPress: onChoose}}
-    help={offline ? undefined : t('next.states.native.phoneConnectionHelp')}/>;
+    detailsAction={{id: 'servers', label: t('next.states.switchServer'), onPress: onChoose}} detailsPresentation="link"/>;
+}
+
+/** Only the countdown text ticks once per second; the root and ready shell do not. */
+function RecoveryRetry({waiting}: {waiting: NativeStartupWait}) {
+  const theme = useTheme(), [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    let active = true, timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = () => {
+      if (!active) return;
+      const at = Date.now(); setNow(at);
+      if (waiting.retryAt !== undefined && at < waiting.retryAt) timer = setTimeout(tick, Math.min(1_000, waiting.retryAt - at));
+    };
+    tick(); return () => {active = false; if (timer !== undefined) clearTimeout(timer);};
+  }, [waiting.retryAt]);
+  return <Text style={[theme.type.bodyStrong, {color: theme.colors.textSecondary, textAlign: theme.isTV ? 'left' : 'center', marginBottom: theme.isTV ? 40 : 22}]}>
+    {waiting.retryAt === undefined ? defaultI18n.t(waiting.offline && !waiting.pending ? 'error.offlineRetrying' : 'next.states.retrying')
+      : defaultI18n.t('next.states.retryIn', {seconds: startupRetrySeconds(waiting.retryAt, now)})}
+  </Text>;
+}
+
+function RecoveryBrand() {
+  const theme = useTheme(), width = theme.isTV ? 174 : 74;
+  return <Image accessible={false} source={require('../../assets/wordmark.png')} resizeMode="contain"
+    style={{position: 'absolute', left: theme.isTV ? 120 : 24, top: theme.isTV ? 72 : 64, width, height: width * 405 / 1774}}/>;
 }

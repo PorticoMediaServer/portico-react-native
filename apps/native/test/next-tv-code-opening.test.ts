@@ -177,7 +177,7 @@ async function accountEntry(f: ReturnType<typeof fixture>, prepare: () => Promis
     '../../platform/tv-sign-in': {createNativePorticoTVSignIn: () => f.newService('portico')},
     './directory-chooser': directoryChooser, './tv-code-opening': tvCodeOpening, './tv-approval-finalization': tvApproval, './tv-approval-credentials': tvApprovalCredentials,
     '../../../../../packages/client-core/src': {HttpHostedApi: class {async servers() {return {items: []};}}},
-    './PhoneFrontDoor': {PhoneFrontDoor: 'PhoneFrontDoor'},
+    './LegalAgreement': {LegalAgreement: 'LegalAgreement'}, './PhoneAccountForm': {PhoneAccountForm: 'Layout'}, './PasswordStrengthMeter': {PasswordStrengthMeter: 'PasswordStrengthMeter'}, './PhoneFrontDoor': {PhoneFrontDoor: 'PhoneFrontDoor'},
   };
   // Unvisited native/credential branches may import names, but an unexpected
   // invocation fails loudly; no omitted guard/service is silently a no-op.

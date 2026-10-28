@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {clearanceReceipt, compareClearance, readClearance, type ClearanceSnapshot} from '../src-next/kit/overlays/clearance-observations';
+import {clearanceReceipt, compareClearance, readClearance, type ClearanceSnapshot} from './fixtures/superseded/clearance-observations';
 
 /** Authored SOURCE vectors for FX-075's numeric clearance processor. Same coordinate
  * space, explicit scale and safe inset; no declared height is ever a measurement and

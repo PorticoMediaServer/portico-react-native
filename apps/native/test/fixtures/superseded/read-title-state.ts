@@ -1,6 +1,7 @@
+// Test-only historical model; no production consumer mounts this module.
 import type {ReadingClient, ReadingManifest, ReadingProgress, ReadingSession} from '../../../../../packages/client-core/src';
-import type {NativeShellRoute} from '../../shell/routes';
-import {nativeReadEligibility, openNativeRead, type NativeReadEligibility, type NativeReadNavigationContext} from './eligibility';
+import type {NativeShellRoute} from '../../../src-next/shell/routes';
+import {nativeReadEligibility, openNativeRead, type NativeReadEligibility, type NativeReadNavigationContext} from '../../../src-next/screens/read/eligibility';
 
 export type NativeReadTitleRoute = Extract<NativeShellRoute, {kind: 'title'}>;
 export type NativeReadTitleContext = NativeReadNavigationContext;

@@ -1,3 +1,4 @@
+// Test-only historical model; no production consumer mounts this module.
 /** FX-075 clearance observations: the numeric processor behind the toast, dock and
  * tab-bar report.
  *

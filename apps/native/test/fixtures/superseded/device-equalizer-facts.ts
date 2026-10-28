@@ -1,4 +1,5 @@
-import type {DeviceEqualizer, DeviceEqualizerSnapshot} from '../../platform/playback/equalizer';
+// Test-only historical model; no production consumer mounts this module.
+import type {DeviceEqualizer, DeviceEqualizerSnapshot} from '../../../src-next/platform/playback/equalizer';
 
 /** Settings states only what the one device store has actually established. */
 export type NativeSettingsEqualizerFacts =

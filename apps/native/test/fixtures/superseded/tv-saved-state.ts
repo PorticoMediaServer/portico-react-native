@@ -1,15 +1,16 @@
-import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
-import type {NativeShellRoute} from '../../shell/routes';
-import type {NativeDestinationActivation, NativeDestinationActivationPort} from '../../screens/destinations/focus';
-import {nativeDestinationLifetime} from '../../screens/destinations/lifetime';
-import {createNativeEntryActions} from '../../screens/destinations/entry-actions';
-import {nativeScreenServices} from '../../screens/native-screen-services';
-import {createNativeSavedState} from '../../screens/saved/state';
-import {NativeSavedViewDestination} from '../../screens/saved/view-model';
-import type {NativeSavedTVTab} from '../../screens/saved/SavedTVTabs';
+// Test-only historical model; no production consumer mounts this module.
+import type {NativeShellBootstrapContext} from '../../../src-next/shell/bootstrap';
+import type {NativeShellRoute} from '../../../src-next/shell/routes';
+import type {NativeDestinationActivation, NativeDestinationActivationPort} from '../../../src-next/screens/destinations/focus';
+import {nativeDestinationLifetime} from '../../../src-next/screens/destinations/lifetime';
+import {createNativeEntryActions} from '../../../src-next/screens/destinations/entry-actions';
+import {nativeScreenServices} from '../../../src-next/screens/native-screen-services';
+import {createNativeSavedState} from '../../../src-next/screens/saved/state';
+import {NativeSavedViewDestination} from '../../../src-next/screens/saved/view-model';
+import type {NativeSavedTVTab} from '../../../src-next/screens/saved/SavedTVTabs';
 import type {PersonalResource} from '../../../../../packages/client-core/src/personal-saved';
 import type {PlaylistCard} from '../../../../../packages/client-core/src/saved';
-import {openNativeSavedView} from '../../screens/saved/navigation';
+import {openNativeSavedView} from '../../../src-next/screens/saved/navigation';
 
 type RootRoute = Extract<NativeShellRoute, {kind: 'shell'}>;
 

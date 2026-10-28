@@ -249,8 +249,12 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const homeBottom = sideNavigation ? 92 : barHeight, pageBottom = sideNavigation ? 16 : barHeight;
   const railDestination = snapshot.railDestination ?? destination;
   const notifications = snapshot.account.actions.find(action => action.id === 'notifications');
+  // Only the covered destination leaves the accessibility tree. The watch
+  // host's visible title/episode panes remain siblings in their own outlet.
+  const baseHidden = snapshot.contentVisible === false || snapshot.mediaExpanded || theme.isTV && tvListeningPresent;
   const content = <>
-    <Animated.View style={[{flex: 1}, sideNavigation ? {paddingLeft: sideWidth} : null, pageStyle]}>
+    <Animated.View accessibilityElementsHidden={baseHidden} importantForAccessibility={baseHidden ? 'no-hide-descendants' : 'auto'}
+      style={[{flex: 1}, sideNavigation ? {paddingLeft: sideWidth} : null, pageStyle]}>
       {destination.kind === 'home' ? <HomeScreen runtime={runtime} authority={snapshot.authority} active={!snapshot.mediaExpanded && snapshot.homeVisible} heroObscured={snapshot.homeObscured} railExpanded={railExpanded} bottomInset={homeBottom} onScrolledChange={setHomeScrolled} holdRailDim={holdRailDim} releaseRailDim={releaseRailDim}/>
         : <View style={{flex: 1, paddingBottom: pageBottom}}>
           {runtime.renderDestination(destination, openLibrary)}

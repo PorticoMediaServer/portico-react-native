@@ -12,6 +12,8 @@ import * as identityClient from '../../../packages/client-core/src/identity-clie
 import * as profileAvatars from '../src-next/platform/profile-avatars';
 import * as lifetime from '../src-next/screens/settings-live/lifetime';
 import * as shellModel from '../src-next/shell/model';
+import * as accountFormValues from '../src-next/screens/accounts/account-form-values';
+import {profileArtColors} from '@portico/design';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -66,7 +68,7 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
     './tv-code-opening': tvCodeOpening,
     './tv-approval-credentials': tvApprovalCredentials, './tv-approval-finalization': tvApprovalFinalization,
     '../../../../../packages/client-core/src/join-link': joinLink, '../../../../../packages/client-core/src/short-invitation-code': invitationCode,
-    '../../platform/qr-scanner': qrScanner, './PhoneAccountSignIn': {PhoneAccountSignIn: 'PhoneAccountSignIn'},
+    '../../platform/qr-scanner': qrScanner, './LegalAgreement': {LegalAgreement: 'LegalAgreement'}, './PhoneAccountForm': {PhoneAccountForm: 'Layout'}, './PasswordStrengthMeter': {PasswordStrengthMeter: 'PasswordStrengthMeter'}, './PhoneAccountSignIn': {PhoneAccountSignIn: 'PhoneAccountSignIn'},
     ...shared(back), '../../../../../packages/client-core/src': {},
     '../../../../../packages/client-core/src/sign-in': {},
     '../../../../../packages/client-core/src/hosted-security': {MFARequiredError: class extends Error {}},
@@ -136,6 +138,7 @@ test('TV profile-switch hand-off preserves its current family, selection control
   let created = 0, disposed = 0, exited = 0;
   const current = {sessionFamilyId: 'current-family', viewer: {serverId: 'server', accountId: 'account', profileId: 'current'}};
   const {AccountRoute} = await screenModule(new URL('../src-next/screens/accounts/AccountRoutes.tsx', import.meta.url), {
+    '@portico/design': {profileArtColors}, './account-form-values': accountFormValues,
     './TVServerChooser': {TVServerChooser: 'TVServerChooser'}, './TVTrustedCertificates': {TVTrustedCertificates: 'TVTrustedCertificates'}, './PhoneServerChooser': {PhoneServerChooser: 'PhoneServerChooser'},
     '../../../../../packages/client-core/src/profile-management': profileManagement, '../../../../../packages/client-core/src/identity-client': identityClient,
     '../../platform/profile-avatars': profileAvatars, '../settings-live/lifetime': lifetime, '../../shell/model': shellModel,

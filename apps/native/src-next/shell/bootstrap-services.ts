@@ -46,6 +46,10 @@ export class NativeShellBootstrapServices {
   private snapshot?: Facts;
   private reading?: Promise<Facts>;
   private readingController?: AbortController;
+  private unreadReading?: Promise<number>;
+  private unreadController?: AbortController;
+  private guideReading?: Promise<boolean>;
+  private guideController?: AbortController;
   private preferenceRequestBatch?: AbortSignal;
   private retirement?: Error;
   private readonly api: Pick<HttpLocalApi, 'request'>;
@@ -56,8 +60,8 @@ export class NativeShellBootstrapServices {
     this.preferences = new PreferencesReader({request: <T>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => this.call<T>('preferences', path, method, body, signal, this.preferenceRequestBatch)},
       {serverId: options.viewer.serverId, viewerId: JSON.stringify([options.viewer.authority, options.viewer.accountId, options.viewer.profileId])});
     this.inbox = new InboxService({request: async <T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> => {
-      const batch = this.readingController;
-      const noteCancelled = () => {if (batch === this.readingController && !batch?.signal.aborted) this.inboxFailure = cancelled();};
+      const batch = this.unreadController;
+      const noteCancelled = () => {if (batch === this.unreadController && !batch?.signal.aborted) this.inboxFailure = cancelled();};
       signal?.addEventListener('abort', noteCancelled, {once: true});
       try {
         const raw = await this.call<T>('inbox', path, method, body, signal);
@@ -69,7 +73,7 @@ export class NativeShellBootstrapServices {
         }
         return raw;
       }
-      catch (error) {if (batch === this.readingController && !batch?.signal.aborted) this.inboxFailure = error; throw error;}
+      catch (error) {if (batch === this.unreadController && !batch?.signal.aborted) this.inboxFailure = error; throw error;}
       finally {signal?.removeEventListener('abort', noteCancelled);}
     }});
     this.home = new HomeService({request: <T>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => this.call<T>('home', path, method, body, signal)},
@@ -109,7 +113,7 @@ export class NativeShellBootstrapServices {
   private async call<T>(domain: Domain | undefined, path: string, method = 'GET', body?: unknown, signal?: AbortSignal, preferenceBatch?: AbortSignal): Promise<T> {
     this.assertCurrent();
     const controller = new AbortController(), abort = () => controller.abort();
-    const batch = domain === 'preferences' ? preferenceBatch : domain === 'inbox' || domain === 'guide' ? this.readingController?.signal : undefined;
+    const batch = domain === 'preferences' ? preferenceBatch : domain === 'inbox' ? this.unreadController?.signal : domain === 'guide' ? this.guideController?.signal : undefined;
     this.controllers.add(controller);
     signal?.addEventListener('abort', abort, {once: true});
     batch?.addEventListener('abort', abort, {once: true});
@@ -160,8 +164,8 @@ export class NativeShellBootstrapServices {
     return account;
   };
   private async readInbox(): Promise<number> {
-    const batch = this.readingController;
-    const currentRead = () => {this.assertCurrent(); if (batch !== this.readingController || batch?.signal.aborted) throw cancelled();};
+    const batch = this.unreadController;
+    const currentRead = () => {this.assertCurrent(); if (batch !== this.unreadController || batch?.signal.aborted) throw cancelled();};
     this.inboxFailure = undefined;
     // A profile inbox advertises only that audience. The actual owner's account-admin
     // inbox advertises both; let that server answer drive the core badge's audience set.
@@ -186,13 +190,57 @@ export class NativeShellBootstrapServices {
       throw error;
     }
   }
+  /** Badges and guide availability may arrive after the admitted Home document.
+   * Each resource retains its own cancellation and fence, including late denials. */
+  readUnread = (signal?: AbortSignal, afterCurrent = false): Promise<number> => {
+    if (signal?.aborted) return Promise.reject(cancelled());
+    if (this.unreadReading) {
+      const previous = this.unreadReading;
+      // The shared inbox has mutable load/unread state. Let a cancelled read
+      // settle before starting its replacement, but do not hand a fresh caller
+      // the old, already-aborted result after foregrounding. A new event hint
+      // also needs a read issued after it, not a full refresh's earlier answer.
+      if (afterCurrent || this.unreadController?.signal.aborted) return previous.then(() => this.readUnread(signal), () => this.readUnread(signal));
+      return previous;
+    }
+    const controller = new AbortController(), abort = () => controller.abort();
+    this.unreadController = controller;
+    signal?.addEventListener('abort', abort, {once: true});
+    const pending = this.readInbox().then(unread => {
+      this.assertCurrent(); if (controller.signal.aborted) throw cancelled(); return unread;
+    }).finally(() => {
+      controller.abort(); signal?.removeEventListener('abort', abort);
+      if (this.unreadReading === pending) {this.unreadReading = undefined; this.unreadController = undefined;}
+    });
+    this.unreadReading = pending; return pending;
+  };
+  readGuideAvailability = (signal?: AbortSignal, afterCurrent = false): Promise<boolean> => {
+    if (signal?.aborted) return Promise.reject(cancelled());
+    if (this.guideReading) {
+      const previous = this.guideReading;
+      if (afterCurrent || this.guideController?.signal.aborted) return previous.then(() => this.readGuideAvailability(signal), () => this.readGuideAvailability(signal));
+      return previous;
+    }
+    const controller = new AbortController(), abort = () => controller.abort();
+    this.guideController = controller;
+    signal?.addEventListener('abort', abort, {once: true});
+    const pending = this.readGuide().then(guide => {
+      this.assertCurrent(); if (controller.signal.aborted) throw cancelled(); return !!guide?.sources.length;
+    }).finally(() => {
+      controller.abort(); signal?.removeEventListener('abort', abort);
+      if (this.guideReading === pending) {this.guideReading = undefined; this.guideController = undefined;}
+    });
+    this.guideReading = pending; return pending;
+  };
   /** Preference operations belong to the authority, not a refresh batch. Closing
    * that batch must not cancel a concurrent Settings CAS on the same reader. */
-  readPreferences = async (deviceClass: DeviceClass): Promise<PreferenceSnapshot> => {
+  readPreferences = async (deviceClass: DeviceClass, signal?: AbortSignal): Promise<PreferenceSnapshot> => {
     this.assertCurrent();
+    if (signal?.aborted) throw cancelled();
     if (deviceClass !== this.options.deviceClass) throw invalid();
-    const next = await this.preferences.preferences(deviceClass);
+    const next = signal ? await this.readBatchPreferences(signal) : await this.preferences.preferences(deviceClass);
     this.assertCurrent();
+    if (signal?.aborted) throw cancelled();
     if (next.deviceClass !== deviceClass) throw invalid();
     return next;
   };
@@ -219,11 +267,11 @@ export class NativeShellBootstrapServices {
     if (signal?.aborted) abort();
     const pending = (async () => {
       this.assertCurrent();
-      const [preferences, unread, guide] = await Promise.all([this.readBatchPreferences(controller.signal), this.readInbox(), this.readGuide()]);
+      const [preferences, unread, hasLiveTV] = await Promise.all([this.readBatchPreferences(controller.signal), this.readUnread(controller.signal), this.readGuideAvailability(controller.signal)]);
       this.assertCurrent();
       if (controller.signal.aborted) throw cancelled();
       if (preferences.deviceClass !== this.options.deviceClass) throw invalid();
-      return this.snapshot = Object.freeze({preferences, unread, hasLiveTV: !!guide?.sources.length});
+      return this.snapshot = Object.freeze({preferences, unread, hasLiveTV});
     })().finally(() => {
       controller.abort(); signal?.removeEventListener('abort', abort);
       if (this.reading === pending) {this.reading = undefined; this.readingController = undefined;}
@@ -235,6 +283,7 @@ export class NativeShellBootstrapServices {
     if (this.disposed) return;
     this.disposed = true; this.options.signal.removeEventListener('abort', this.dispose);
     this.readingController?.abort();
+    this.unreadController?.abort(); this.guideController?.abort();
     for (const controller of this.controllers) controller.abort();
     this.controllers.clear(); this.preferences.dispose(); this.inbox.dispose(); this.home.dispose();
     this.snapshot = undefined; this.inboxFailure = undefined; this.fences.clear();

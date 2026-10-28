@@ -13,10 +13,10 @@ type Snapshot = Awaited<ReturnType<typeof nativeAccounts.snapshot>>;
 export type PhoneServerRow = Snapshot['servers'][number];
 
 /** Connect22's phone list. Session capture, switching and sign-out remain with ServersRoute. */
-export function PhoneServerChooser({snapshot, busy, error, onBack, onSelect, onSignOut, onRefresh, onAdd, footer}: {
+export function PhoneServerChooser({snapshot, busy, error, onBack, onSelect, onSignOut, onRefresh, onAdd, footer, certificates}: {
   snapshot?: Snapshot; busy: boolean; error?: React.ReactNode; onBack?: () => void;
   onSelect: (server: PhoneServerRow) => void; onSignOut: (server: PhoneServerRow) => void;
-  onRefresh: () => void; onAdd: () => void; footer?: React.ReactNode;
+  onRefresh: () => void; onAdd: () => void; footer?: React.ReactNode; certificates?: React.ReactNode;
 }) {
   const theme = useTheme(), insets = useSafeAreaInsets(), t = defaultI18n.t;
   const [menu, setMenu] = useState<PhoneServerRow>();
@@ -56,6 +56,7 @@ export function PhoneServerChooser({snapshot, busy, error, onBack, onSelect, onS
         <Button testID="phone-server-refresh" variant="glass" size="compact" icon="i-refresh" disabled={busy} onPress={onRefresh}>{t('accounts.servers.refresh')}</Button>
         <Button testID="phone-server-add" variant="glass" size="compact" disabled={busy} onPress={onAdd}>{t('accounts.signIn.local')}</Button>
       </View>
+      {certificates && <View style={{marginTop: 20}}>{certificates}</View>}
       {footer}
     </ScrollView>
     <Menu open={Boolean(menu)} onOpenChange={open => {if (!open) setMenu(undefined);}} presentation="sheet" title={menu?.name}

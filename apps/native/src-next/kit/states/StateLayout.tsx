@@ -16,6 +16,8 @@ export type StateRetry = Readonly<{
   detail?: React.ReactNode;
 }>;
 export type StateLayoutProps = StateContentProps & Readonly<{
+  /** A containing transition may focus the real heading after its cover leaves. */
+  titleRef?: React.Ref<Text>;
   backdropShape?: 'side' | 'round' | 'top' | 'none';
   backdropHeight?: number;
   shell?: React.ReactNode;
@@ -36,7 +38,7 @@ export type StateLayoutProps = StateContentProps & Readonly<{
 
 /** Full-page state anatomy; all recovery, retry timing and navigation are supplied. */
 export function StateLayout({title, body, icon, tone = 'neutral', primaryAction, secondaryAction, additionalActions, variant = 'page', frozenPicture, playerChrome,
-  backdropShape, backdropHeight, shell, alive, retry, beforeActions, detailsAction, detailsPresentation = 'row', details, help, kicker, children, visible = true, contentTop, contentStyle, style, testID}: StateLayoutProps) {
+  backdropShape, backdropHeight, shell, alive, retry, beforeActions, detailsAction, detailsPresentation = 'row', details, help, kicker, children, visible = true, contentTop, contentStyle, style, testID, titleRef}: StateLayoutProps) {
   const theme = useTheme();
   const policy = useMotion();
   const tv = theme.isTV;
@@ -77,7 +79,7 @@ export function StateLayout({title, body, icon, tone = 'neutral', primaryAction,
             {emblem}
           </>}
         </View>}
-        <Text accessibilityRole="header" textBreakStrategy="balanced" android_hyphenationFrequency="none" style={[{includeFontPadding: false}, nativeType({size: headingSize, lineHeight: tv ? headingSize : headingSize * 1.08, weight: 800, tracking: tv ? -.045 : player ? -.03 : -.035}, theme.textScale),
+        <Text ref={titleRef} accessibilityRole="header" textBreakStrategy="balanced" android_hyphenationFrequency="none" style={[{includeFontPadding: false}, nativeType({size: headingSize, lineHeight: tv ? headingSize : headingSize * 1.08, weight: 800, tracking: tv ? -.045 : player ? -.03 : -.035}, theme.textScale),
           {color: theme.colors.text, textAlign: stacked ? 'center' : 'left', marginBottom: tv ? 24 : player ? 8 : 10}]}>{title}</Text>
         {body != null && <Text style={[{includeFontPadding: false},nativeType({size: bodySize, lineHeight: bodySize * (tv ? 1.45 : 1.5), weight: 400, tracking: 0}, theme.textScale),
           {maxWidth: tv ? 900 : undefined, color: theme.colors.textSecondary, textAlign: stacked ? 'center' : 'left', marginBottom: tv ? 28 : player ? 14 : 16}]}>{body}</Text>}

@@ -155,7 +155,7 @@ async function entry(t: any, f: F) {
     '../../platform/accounts': {nativeAccounts: {accountCredentials: () => f.owner}}, '../../platform/account-work': accountWork,
     '../../platform/account-authority': {hostedUrl}, '../../platform/portico-sign-in': {NativePorticoSignIn: Auth},
     '../../platform/server-connections': await import('../src-next/platform/server-connections'), '../../platform/setup-outcome': outcome,
-    './tv-code-opening': tvOpening, './directory-chooser': chooser, './PhoneAccountSignIn': {PhoneAccountSignIn: 'SignIn'},
+    './tv-code-opening': tvOpening, './directory-chooser': chooser, './LegalAgreement': {LegalAgreement: 'LegalAgreement'}, './PhoneAccountForm': {PhoneAccountForm: 'Layout'}, './PasswordStrengthMeter': {PasswordStrengthMeter: 'PasswordStrengthMeter'}, './PhoneAccountSignIn': {PhoneAccountSignIn: 'SignIn'}, './PhoneFrontDoor': {PhoneFrontDoor: 'FrontDoor'},
     './PhoneNoServers': {PhoneNoServers: 'NoServers'}, '../../platform/hosted-sign-in-unavailable': {HostedSignInUnavailable: class extends Error {}},
   };
   const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), new Proxy(modules,
@@ -164,15 +164,16 @@ async function entry(t: any, f: F) {
   t.after(() => {if (previous) Object.defineProperty(globalThis, 'require', previous); else Reflect.deleteProperty(globalThis, 'require');});
   const host = createHookHost(() => {tree = AccountEntry({onComplete: () => {throw new Error('Unexpected navigation');}, onStageChange: (stage: string) => {stages.push(stage);}});});
   t.after(() => host.unmount()); await act(() => host.mount());
+  assert.equal(tree.type, 'FrontDoor'); await act(() => tree.props.onPortico());
   return {host, stages, tree: () => tree, settle: async () => {for (let i = 0; i < 8; i++) await act(() => {});}};
 }
-test('actual AccountEntry directory remote revocation returns to its existing sign-in instead of a cached-bearer Retry loop', async t => {
+test('actual AccountEntry directory remote revocation returns to the front door instead of a cached-bearer Retry loop', async t => {
   const f = await fixture(); let calls = 0;
   f.renewal(async () => {throw new core.ApiError(401, 'session_ended', 'Ended', false);});
   transport(t, async () => {calls++; return response(401);});
   const app = await entry(t, f); await app.settle();
   assert.equal(f.owner.getSnapshot().phase, 'signedOut'); assert.equal(f.renewals.length, 1); assert.equal(calls, 1);
-  assert.equal(app.tree().type, 'SignIn'); assert.equal(app.stages.at(-1), 'portico');
+  assert.equal(app.tree().type, 'FrontDoor'); assert.equal(app.stages.at(-1), 'welcome');
 });
 test('actual AccountEntry directory safely recovers once and retires its original view on a new family', async t => {
   const f = await fixture(), tokens: string[] = [];
@@ -181,6 +182,10 @@ test('actual AccountEntry directory safely recovers once and retires its origina
   assert.deepEqual(tokens, ['Bearer old-access', 'Bearer renewed-access']);
   await act(async () => {await f.install(grant('new-family', 'account', 'successor-access'));}); await app.settle();
   assert.equal(f.owner.getSnapshot().session?.familyId, 'new-family'); assert.equal(f.renewals.length, 1);
+  assert.equal(app.tree().type, 'FrontDoor');
+  assert.deepEqual(tokens, ['Bearer old-access', 'Bearer renewed-access'], 'replacement does not contact Services until explicitly selected');
+  await act(() => app.tree().props.onPortico()); await app.settle();
+  assert.equal(app.tree().type, 'NoServers');
   assert.ok(tokens.includes('Bearer successor-access')); assert.deepEqual(f.revocations, ['fixture-refresh-family']);
 });
 
@@ -200,7 +205,13 @@ for (const replacement of ['same-account', 'other-account', 'ABA', 'unmount', 's
     const revocations = [...f.revocations]; release.resolve(); await app.settle();
     assert.equal(f.renewals.length, 0); assert.deepEqual(f.revocations, revocations);
     assert.equal(f.owner.getSnapshot().session?.familyId, ['unmount', 'ABA'].includes(replacement) ? 'family' : 'new-family');
-    if (replacement !== 'unmount') assert.equal(app.tree().type, 'NoServers');
+    if (replacement !== 'unmount') {
+      assert.equal(app.tree().type, 'FrontDoor');
+      assert.equal(calls, 1, 'a retired directory read cannot automatically read for the replacement family');
+      await act(() => app.tree().props.onPortico()); await app.settle();
+      assert.equal(app.tree().type, 'NoServers');
+      assert.equal(calls, 2, 'only the explicit selection reads the replacement directory');
+    }
   });
 }
 for (const status of [403, 429, 'network'] as const) {

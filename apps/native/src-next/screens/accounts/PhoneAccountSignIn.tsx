@@ -6,6 +6,7 @@ import type {IdentityOptions} from '../../../../../packages/client-core/src/host
 import {ColourBackdrop} from '../../kit/artwork';
 import {Button, TextField} from '../../kit/controls';
 import {nativeType, useTheme} from '../../kit/theme';
+import {LegalAgreement} from './LegalAgreement';
 
 type Provider = IdentityOptions['providers'][number];
 
@@ -59,12 +60,10 @@ export function PhoneAccountSignIn({busy, error, providers, passwordEnabled, reg
             <View style={{flex: 1, height: 1, backgroundColor: theme.colors.line}}/>
           </View>
           <View style={{gap: 12}}>
-            <TextField testID="accounts-auth-username" accessibilityLabel={t('auth.usernameOrEmail')} label={label(t('auth.usernameOrEmail'))} value={username} onChangeText={onUsernameChange} editable={!busy}
-              textContentType="username" autoComplete="username" autoCapitalize="none" autoCorrect={false}
-              fieldStyle={{height: 48, borderRadius: 11, paddingHorizontal: 14}}/>
-            <TextField testID="accounts-auth-password" accessibilityLabel={t('auth.password')} label={label(t('auth.password'))} value={password} onChangeText={onPasswordChange} editable={!busy}
-              secureTextEntry textContentType="password" autoComplete="current-password" autoCapitalize="none" autoCorrect={false}
-              fieldStyle={{height: 48, borderRadius: 11, paddingHorizontal: 14}}/>
+            <TextField appearance="auth" testID="accounts-auth-username" accessibilityLabel={t('auth.usernameOrEmail')} label={label(t('auth.usernameOrEmail'))} value={username} onChangeText={onUsernameChange} editable={!busy}
+              textContentType="username" autoComplete="username" autoCapitalize="none" autoCorrect={false}/>
+            <TextField appearance="auth" testID="accounts-auth-password" accessibilityLabel={t('auth.password')} label={label(t('auth.password'))} value={password} onChangeText={onPasswordChange} editable={!busy}
+              secureTextEntry textContentType="password" autoComplete="current-password" autoCapitalize="none" autoCorrect={false}/>
           </View>
           <Button testID="accounts-auth-continue" variant={busy || !username || !password ? 'text' : 'primary'} disabled={busy || !username || !password}
             style={{width: '100%', alignSelf: 'stretch', height: 48, borderRadius: 11, marginTop: 12,
@@ -78,13 +77,8 @@ export function PhoneAccountSignIn({busy, error, providers, passwordEnabled, reg
         </>}
         <Button testID="accounts-auth-local" variant="text" size="compact" disabled={busy} style={{marginTop: 10, alignSelf: 'center'}} textStyle={{fontSize: 14 * theme.textScale, fontWeight: '700', color: theme.colors.textSecondary}}
           onPress={onLocal}>{t('auth.signInDirectly')}</Button>
-        <Text style={[nativeType({size: 12, lineHeight: 18, weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textTertiary, textAlign: 'center', marginTop: 'auto', paddingTop: 24}]}>
-          {t('auth.agreeToTerms')}{' '}
-          <Text accessibilityRole="link" suppressHighlighting onPress={() => {void Linking.openURL('https://getportico.tv/terms').catch(() => {});}}
-            style={{color: theme.colors.accentStrong}}>{t('auth.terms')}</Text>{t('list.and', {first: '', second: ''})}
-          <Text accessibilityRole="link" suppressHighlighting onPress={() => {void Linking.openURL('https://getportico.tv/privacy').catch(() => {});}}
-            style={{color: theme.colors.accentStrong}}>{t('auth.privacyPolicy')}</Text>.
-        </Text>
+        <LegalAgreement style={[nativeType({size: 12, lineHeight: 18, weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textTertiary, textAlign: 'center', marginTop: 'auto', paddingTop: 24}]}
+          linkStyle={{color: theme.colors.accentStrong}} onOpenLink={url => {void Linking.openURL(url).catch(() => {});}}/>
       </View>
     </ScrollView>
     </KeyboardAvoidingView>

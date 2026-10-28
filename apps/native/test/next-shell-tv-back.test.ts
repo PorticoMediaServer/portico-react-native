@@ -154,5 +154,9 @@ test('actual assembly sends Back to topmost Home menu before player, then TV pag
   assert.deepEqual(renderOrder, ['active', 'retained'], 'current module exists before its retained native views are requested');
   const flattened = (node: any): string[] => typeof node === 'string' ? [node] : Array.isArray(node) ? node.flatMap(flattened) : node?.props?.children ? flattened(node.props.children) : [];
   assert.deepEqual(routes.props.children.flatMap(flattened), ['retained', 'active', 'overlay'], 'retained views stay below the active route and module overlays above it');
+  bindings.openServers?.('consent-kind');
+  assert.deepEqual(navigation.getSnapshot().route, {kind: 'servers', initialPanel: 'consent-kind'}, 'Play on enters Link a TV directly');
+  bindings.openServers?.();
+  assert.deepEqual(navigation.getSnapshot().route, {kind: 'servers'}, 'ordinary Switch server still opens the chooser');
   cleanup(); bindings.dispose(); navigation.dispose(); home.dispose();
 });
