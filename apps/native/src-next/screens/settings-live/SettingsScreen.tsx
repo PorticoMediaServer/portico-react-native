@@ -22,7 +22,7 @@ import {nextIcons} from '../../../../../packages/design/src/next-icons';
 import {Button, Focusable, Select, Switch, TextField} from '../../kit/controls';
 import {FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {Icon, type IconName} from '../../kit/Icon';
-import {SettingsRow, SettingsSheet, SettingsSearchResults, LanguageList, ShortcutTiles, type LanguageOption} from '../../kit/shell';
+import {ChoiceMatrix, SettingsRow, SettingsSheet, SettingsSearchResults, LanguageList, ShortcutTiles, type LanguageOption} from '../../kit/shell';
 import {ProfileFace} from '../../kit/artwork';
 import {shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
@@ -68,6 +68,8 @@ import type {NativeDashboardController} from './dashboard-controller';
 import QRCode from 'react-native-qrcode-svg';
 import {nativeEqualizer} from '../../platform/playback/equalizer';
 import {publicTVHandoffAddress} from '../../tv/auth/TVHandoff';
+
+const SKIP_KEYS: readonly string[] = ['playback.introSkip', 'playback.creditsSkip', 'playback.recapSkip'];
 
 const noFocusSubscription = () => () => {};
 const noFocusSnapshot = () => 0;
@@ -547,6 +549,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
     ...(section.id === 'limits' && awayLimitLabel ? ['settings-away-limit', ...(!theme.isTV ? ['settings-away-limit-change'] : [])] : []),
     ...(theme.isTV && Platform.OS === 'android' && page.id === 'device' && advanced && section.id === 'about' ? passthroughFormats.map(format => `settings-passthrough-${format}`) : []),
     ...(theme.isTV && page.id === 'device' && section.id === 'device' ? [...(Platform.OS === 'android' ? [nativeFrameRateFocusId, nativePassthroughFocusId] : []), ...(showDynamicRange ? [nativeDynamicRangeFocusId] : []), nativeLossNoticesFocusId] : [])]);
+  const skipMatrix = !theme.isTV && theme.platform !== 'phone';
   const change = (row: Extract<Row, {kind: 'preference' | 'composite'}>, value: string | number | boolean | readonly string[]) => {
     if (!enabled(row)) return;
     if (row.kind === 'composite' && row.storage === 'device') {void devicePreferences.write(row.id, value as string | boolean).catch(runtime.reportError); return;}
@@ -578,6 +581,16 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
           if (row.label === 'next.settingsSpec.account.device.groups.1.rows.7.label') return <NativeApplePassthroughRow key={id} testID={id}/>;
         }
         if (row.kind === 'custom') return <React.Fragment key={id}>{ports.renderSettingsPanel(row.id, runtime)}</React.Fragment>;
+        // MOB-023: on tablet touch layouts Intro/Credits/Recap skipping is one choice matrix.
+        if (skipMatrix && row.kind === 'preference' && SKIP_KEYS.includes(row.key)) {
+          if (row.key !== SKIP_KEYS[0]) return null;
+          const skipRows = section.rows.filter(visible).filter((value): value is Extract<Row, {kind: 'preference'}> => value.kind === 'preference' && SKIP_KEYS.includes(value.key) && state.preferences.effective[value.key] !== undefined);
+          const choices = row.control.type === 'choice' ? row.control.choices : [];
+          if (!skipRows.length || !choices.length) return null;
+          return <ChoiceMatrix key={id} testID="settings-skipping" rows={skipRows.map(value => ({id: value.key, label: t(value.label), value: String(state.preferences.effective[value.key])}))}
+            options={choices.map(choice => ({value: String(choice.value), label: t(choice.label, choice.labelValues), disabled: state.busy}))}
+            onChange={(key, next) => {const target = skipRows.find(value => value.key === key); const choice = choices.find(value => String(value.value) === next); if (target && choice) change(target, choice.value);}}/>;
+        }
         if (row.kind === 'server-setting') throw new Error('native_account_page_server_row');
         if (row.kind === 'action') {
           const target = nativeSettingsActionTarget(row.id);
