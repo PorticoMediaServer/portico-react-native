@@ -15,7 +15,7 @@ export function shareLinkActions(serverId: string | undefined, destination: Serv
   if (!link) return [];
   const t = defaultI18n.t;
   return Object.freeze([
-    {id: 'share-link', label: t('services.start.shareLink'), icon: 'i-share', onSelect: () => {void Share.share({message: link, url: link}).catch(error => feedback.report?.(error));}},
+    {id: 'share-link', label: t('next.overlays.share'), icon: 'i-share', onSelect: () => {void Share.share({message: link, url: link}).catch(error => feedback.report?.(error));}},
     {id: 'copy-link', label: t('next.overlays.copyLink'), icon: 'i-copy', onSelect: () => {
       void copyText(link).then(() => feedback.notice?.(t('next.overlays.linkCopied')), () => feedback.notice?.(t('next.overlays.copyLinkFailed')));
     }},

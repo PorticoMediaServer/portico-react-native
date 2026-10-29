@@ -2,6 +2,7 @@ import {linkNativeAbortSignals} from './abort-signals';
 import {accountExpectation, nativeAccountWork} from './account-work';
 import {HttpLocalApi, transportJSON, assertFirstContactIdentity, type HostedServer, type HostedSession, type LocalSession} from '../../../../packages/client-core/src';
 import {ServerSignInProbe, assertSameApiLevel, parseServerSignIn, type ServerSignIn} from '../../../../packages/client-core/src/sign-in';
+import {boundedPick, type PickTrace} from './pick-deadline';
 import {directSignIn, directSignInContinuation, completeDirectSignInChallenge, selectDirectProfile, parseDirectSnapshot, type DirectSignIn, type DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
 import {connectHostedServer, connectPairedServer, connectPairedPorticoServer, inspectDirectServer} from '../../../../packages/client-core/src/server-connections';
 import {knownServerRoutes, type NewServerConnection, type AppServerSession} from '../../../../packages/client-core/src/app-sessions';
@@ -557,10 +558,14 @@ export class NativeServerSignIn {
   chooseProfile(profileId: string, pin?: string) {
     return this.run(async () => {
       if (!this.api || !this.snapshot || !this.account || !this.snapshot.profiles.some(profile => profile.id === profileId)) throw mismatch();
-      const result = await selectDirectProfile(this.api, {authority: 'local', accountId: this.snapshot.account.id, serverId: this.snapshot.serverId},
-        profileId, {pin, installationId: this.installation?.installationId}, this.controller.signal);
-      this.issued.set(result.session.sessionFamilyId, result.session);
-      try {await this.persist(result.session);} catch (error) {await this.retire(result.session); throw error;}
+      const api = this.api, snapshot = this.snapshot;
+      await boundedPick(async (signal, trace) => {
+        trace.mark('select');
+        const result = await selectDirectProfile(api, {authority: 'local', accountId: snapshot.account.id, serverId: snapshot.serverId},
+          profileId, {pin, installationId: this.installation?.installationId}, signal);
+        this.issued.set(result.session.sessionFamilyId, result.session);
+        try {await this.persist(result.session, trace);} catch (error) {await this.retire(result.session); throw error;}
+      }, this.controller.signal);
     });
   }
   /** Explicit Waiting-member entry. The chosen server is proven before any
@@ -757,17 +762,19 @@ export class NativeServerSignIn {
       temporary: () => {throw mismatch();}});
 
   }
-  private async persist(session: LocalSession) {
+  private async persist(session: LocalSession, trace?: PickTrace) {
     this.assertCurrent();
     if (!this.api || !this.admission || session.viewer.authority !== 'local' || session.viewer.role === 'account' || session.installationId !== this.installation?.installationId) throw mismatch();
     this.api.setAccessToken(session.accessToken);
     this.publishing = true;
     try {
-    const previous = await this.owner.remember(this.api, session, this.admission, this.hosted, this.current);
+    const previous = await this.owner.remember(this.api, session, this.admission, this.hosted, this.current, trace);
+    trace?.mark('published');
     this.issued.delete(session.sessionFamilyId); this.setupIssuers.delete(session.sessionFamilyId); this.complete = true;
     if (this.snapshot && this.server) {
       const pin = this.api.getRouteConnection()?.pin;
-      if (pin) await rememberNativeSignInHint({serverId: pin.serverId, accountId: session.viewer.accountId, familyId: session.sessionFamilyId,
+      // A convenience for the next sign-in: never awaited on the way to Home.
+      if (pin) void rememberNativeSignInHint({serverId: pin.serverId, accountId: session.viewer.accountId, familyId: session.sessionFamilyId,
         fingerprint: pin.fingerprint, origin: this.api.baseUrl, serverName: this.server.name, username: this.snapshot.account.username, signIn: this.server.signIn}).catch(() => {});
     }
     const temporary = this.account; this.account = undefined;
@@ -781,7 +788,11 @@ export class NativeServerSignIn {
       const timer = setTimeout(queued, REVOCATION_TIMEOUT_MS);
       void this.retire(temporary).then(() => {clearTimeout(timer); settled = true;}, () => {clearTimeout(timer); queued();});
     }
-    } finally {this.publishing = false;}
+    } finally {
+      this.publishing = false;
+      // A pick that outlived its deadline has already released its caller.
+      if (this.disposeRequested && !this.busy) this.cancel();
+    }
   }
   private async retire(session: LocalSession) {
     if (!this.issued.delete(session.sessionFamilyId) || !this.api) return;

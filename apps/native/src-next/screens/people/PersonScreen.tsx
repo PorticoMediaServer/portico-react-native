@@ -72,7 +72,7 @@ export function PersonScreen({focusScope, page, role, collection, runtime, actio
       <AmbientArt source={runtime.ambient(known.find(entry => entry.backdropUrl || entry.posterUrl)?.backdropUrl ?? known.find(entry => entry.posterUrl)?.posterUrl)} treatment="library" height={560}/>
     </View>
     {shareItems.length > 0 && <View style={{position: 'absolute', top: insets.top + 4, right: 8, zIndex: 1}}>
-      <Button ref={shareAnchor} testID={`${focusScope}.share`} variant="icon" icon="i-more" iconOnly size="compact" accessibilityLabel={t('services.start.shareLink')} onPress={() => setSharing(true)}/>
+      <Button ref={shareAnchor} testID={`${focusScope}.share`} variant="icon" icon="i-more" iconOnly size="compact" accessibilityLabel={t('next.overlays.share')} onPress={() => setSharing(true)}/>
       <Menu testID={`${focusScope}.share-menu`} open={sharing} onOpenChange={setSharing} anchorRef={shareAnchor} title={person.name} items={shareItems}/>
     </View>}
     <View style={{paddingTop: Math.max(98, insets.top + 44), paddingHorizontal: 20, alignItems: 'center'}}>

@@ -16,6 +16,7 @@ import {hostedUrl} from './account-authority';
 import {routePath as hostedPath} from '../../../../packages/contracts/src/hosted/routes';
 import {decodeMeGetResponse} from '../../../../packages/contracts/src/hosted/decoders';
 import {readNativeServerDisplays, rememberNativeServerDisplay} from './server-display';
+import type {PickTrace} from './pick-deadline';
 
 /** Headless native account/session owner. No Hosted credential is opened for local-only use.
  * Views receive server ids, verified names and localization keys, never bearer/refresh tokens. */
@@ -55,11 +56,12 @@ export class NativeAccounts {
     const state = await nativeAppSessions.read(); this.assertCurrent(generation);
     return {signIn, ...(hostedAccount ? {hostedAccount} : {}), expectedRevision: state.revision};
   }
-  async remember(api: HttpLocalApi, session: LocalSession, admission: NewServerConnection, hosted?: AppServerSession['connection']['hosted'], current: () => boolean = () => true) {
+  async remember(api: HttpLocalApi, session: LocalSession, admission: NewServerConnection, hosted?: AppServerSession['connection']['hosted'], current: () => boolean = () => true, trace?: PickTrace) {
     const generation = this.generation; this.assertCurrent(generation);
     if (!current()) throw Object.assign(new Error('native_sign_in_cancelled'), {name: 'AbortError'});
     const env = nativeServerEnvironment(session.viewer.serverId, admission);
     // Bounded: these reads go over the live route that just served the sign-in.
+    trace?.mark('identity');
     const bound = new AbortController(), timer = setTimeout(() => bound.abort(), POST_PICK_TIMEOUT_MS);
     let me: Awaited<ReturnType<HttpLocalApi['me']>>;
     try {me = await api.me(bound.signal);} finally {clearTimeout(timer);}
@@ -67,15 +69,18 @@ export class NativeAccounts {
     if (!current()) throw Object.assign(new Error('native_sign_in_cancelled'), {name: 'AbortError'});
     if ((['serverId', 'accountId', 'profileId', 'authority', 'role'] as const).some(key => me.viewer[key] !== session.viewer[key]))
       throw Object.assign(new Error('native_viewer_mismatch'), {code: 'identity_mismatch'});
+    trace?.mark('server-name');
     const displayBound = new AbortController(), displayTimer = setTimeout(() => displayBound.abort(), POST_PICK_TIMEOUT_MS);
     // The display name is a convenience: a slow answer never holds the way to Home.
     await rememberNativeServerDisplay(api, {serverId: session.viewer.serverId, signIn: admission.signIn, signal: displayBound.signal,
       isCurrent: () => !this.disposed && generation === this.generation && current()}).catch(error => {if (!displayBound.signal.aborted) throw error;}).finally(() => clearTimeout(displayTimer));
     this.assertCurrent(generation);
+    trace?.mark('read-sessions');
     const previous = (await nativeAppSessions.read()).servers.find(value => value.connection.pin.serverId === session.viewer.serverId);
     this.assertCurrent(generation);
     for (const listener of [...this.fences]) listener();
     try {
+      trace?.mark('save-session');
       await rememberNativeSession(api, session, env, hosted, () => !this.disposed && generation === this.generation && current()); this.assertCurrent(generation);
       return previous && previous.connection.session.sessionFamilyId !== session.sessionFamilyId ? previous : undefined;
     }

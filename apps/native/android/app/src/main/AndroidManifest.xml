@@ -44,12 +44,14 @@
 
       <!-- The window is drawn edge to edge (React Native's edgeToEdgeEnabled), so it is never resized
          for the keyboard; adjustResize stays because without it Android before 11 sends no keyboard
-         insets to an edge-to-edge window. Forms pad themselves by the keyboard (ui/theme.ts). -->
+         insets to an edge-to-edge window. Forms pad themselves by the keyboard (ui/theme.ts).
+         A system text-size change recreates the activity: React Native keeps measured text across
+         a fontScale configuration change, so labels would stay cut until relaunch. -->
     <activity
         android:name=".MainActivity"
         android:label="@string/app_name"
         android:theme="@style/Theme.Portico.Starting"
-        android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode|density|fontScale"
+        android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode|density"
         android:launchMode="singleTask"
         android:supportsPictureInPicture="true"
         android:resizeableActivity="true"
