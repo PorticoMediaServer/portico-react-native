@@ -352,13 +352,11 @@ export function ProfileRoute({context, route, onBack, embedded = false}: {contex
       {problem && !managedId ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{problem}</Text> : null}
       <BottomSheet open={!!managedId && !!active && manage} onOpenChange={open => {if (!open && !activeTicket.current && managementCurrent() && !retirement) {retireEditor(); setManagedId(undefined); closeDeletion();}}} title={active?.name} dismissOnBack={!actionBusy} dismissOnGesture={!actionBusy} dismissOnOutsidePress={!actionBusy}>{managementActions}</BottomSheet>
     </View> : theme.isTV && !profile ? <TVWhosWatching testID="accounts-profile-switch">
-      {/* F-PROFILE-7: only the faces take focus; Back is the remote key. Add profile (the owner's only TV entry to it) follows the row. */}
+      {/* F-PROFILE-7: only the faces take focus; Back is the remote key. A picker has no Add or Manage profiles (design 6212c813); owners do that in Settings on web or phone. */}
       <ProfilePicker focusScope={lease?.live.value && lease.route === route ? `tv.account.profiles.${JSON.stringify([lease.authority, lease.revision])}` : undefined} focusBusy={busy} title={t('profiles.title')} profiles={profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy, source: avatarSource(value.id)}))}
         selectedId={current?.viewer.profileId} preferredProfileId={lease ? profileFocus.get(lease) : undefined}
         onFocusChange={id => {if (id && lease) profileFocus.set(lease, id);}} onSelect={id => {const value = profiles.find(item => item.id === id)!;
           if (id === current?.viewer.profileId) onBack(); else if (value.pinRequired) {setProfile(value); setPin('');} else void choose(id);}}/>
-      {manage && profiles.length < 8 ? <View style={{marginTop: 40}}><Button size="compact" variant="glass" icon="i-plus" onPress={openAddition}>{t('profile.add')}</Button></View> : null}
-      {managementActions}
       {!!error && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginTop: 16}]}>{presentError(error, 'profiles').body}</Text>}
     </TVWhosWatching> : <StateLayout testID="accounts-profile-switch" title={profile ? t('profile.pinTitle', {name: profile.name}) : t('profiles.title')}
       beforeActions={<View style={{alignSelf: 'stretch', marginBottom: 20}}>{profile ? <><PhonePINEntry value={pin} onChange={setPin} onComplete={value => {void choose(profile.id, value);}} busy={busy} error={!!error}/>
