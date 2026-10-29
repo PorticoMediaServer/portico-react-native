@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {AppState, RefreshControl, Text, View, useWindowDimensions} from 'react-native';
-import Animated, {runOnJS, useAnimatedScrollHandler, useSharedValue} from 'react-native-reanimated';
+import {AppState, RefreshControl, Text, View, useWindowDimensions, type ViewProps} from 'react-native';
+import Animated, {cancelAnimation, runOnJS, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, withTiming, type LayoutAnimationFunction} from 'react-native-reanimated';
+import {useMotion} from '../../kit/useMotion';
 import {heroSpec} from '@portico/design';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {HomeChannel, HomeRow} from '../../../../../packages/client-core/src/home';
@@ -103,6 +104,25 @@ export function homeContentBottom(theme: Theme, bottomInset: number): number {
   return bottomInset + (theme.isTV ? 96 : theme.platform === 'tablet' ? 40 : theme.layoutMode === 'phone' && theme.platform === 'phone' ? 12 : 24);
 }
 
+/** motion.html 4.1: Down from the spotlight brings the first row up to the preview's line
+ * (slow 320, in-out). The hero block's height change lands in one layout pass; this carries
+ * only that exact change as a UI-thread translation, so content arriving above a row (any
+ * other delta) still lands in place and never glides the focused row. */
+function TVHomeRowShift({heroDelta, style, onLayout, children}: {heroDelta: number; style: ViewProps['style']; onLayout: ViewProps['onLayout']; children: React.ReactNode}) {
+  const motion = useMotion(), y = useSharedValue(0), transforms = motion.transforms;
+  const shift = useMemo(() => motion.timing('slow', 'inOut'), [motion]);
+  const layout = useMemo<LayoutAnimationFunction>(() => values => {
+    'worklet';
+    const moved = values.currentOriginY + y.value - values.targetOriginY;
+    cancelAnimation(y);
+    y.value = transforms && heroDelta > 0 && Math.abs(Math.abs(moved) - heroDelta) < 1 ? moved : 0;
+    y.value = withTiming(0, shift);
+    return {initialValues: {originX: values.targetOriginX, originY: values.targetOriginY, width: values.targetWidth, height: values.targetHeight}, animations: {}};
+  }, [heroDelta, shift, transforms, y]);
+  const position = useAnimatedStyle(() => ({transform: [{translateY: y.value}]}));
+  return <Animated.View collapsable={false} layout={layout} onLayout={onLayout} style={[style, position]}>{children}</Animated.View>;
+}
+
 /** Server-authored Home only. No whole-library reads, local ranking or metadata inference. */
 export function HomeScreen({runtime, authority, active = true, heroObscured = false, railExpanded = false, bottomInset = 0, onScrolledChange, holdRailDim, releaseRailDim}: {
   runtime: NativeShellRuntime; authority: ShellAuthority; active?: boolean; heroObscured?: boolean; railExpanded?: boolean; bottomInset?: number; onScrolledChange?: (scrolled: boolean) => void;
@@ -126,6 +146,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     ? posture.folds.find(value => value.orientation === 'vertical' && value.bounds.left > 0 && value.bounds.right > value.bounds.left && value.bounds.right <= windowWidth) : undefined;
   const tabletMedium = medium && !crease && mediumUprightTablet(windowWidth, windowHeight), mediumGutter = tabletMedium ? 28 : 24;
   const heroHeight = theme.isTV ? 820 : expandedTouch ? 440 : tabletMedium ? 560 : medium ? mediumHeroHeight(windowWidth, windowHeight) : theme.spec.hero.homeHeight[theme.platform];
+  const heroDelta = theme.isTV ? homeHeroBlock(theme, heroHeight, false) - homeHeroBlock(theme, heroHeight, true) : 0;
   const heroActive = active && !heroObscured && !runtime.getSnapshot().selectionActive;
   // states 4b: a page already read may stay on screen only for a positively known
   // transport failure. A refusal, permission, missing or invalid answer takes the
@@ -419,7 +440,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
       const range = (first: number, last: number) => {if (!current()) return; const keys = ranges.current.get(row.id)?.keys; ranges.current.set(row.id, {first, last, keys}); runtime.setHomeWindow(sourceRow, rowIndex, first, last, shown, physicalIds, retainedIds, keys); if (shown && (!theme.isTV || row.live) && pageAtVisibleEnd(row, last, theme.isTV || medium || desktop ? 10 : 3)) void runtime.home.more(row.id);};
       const visibleKeys = (keys: readonly string[]) => {if (!current()) return; const before = ranges.current.get(row.id) ?? {first: 0, last: -1};
         ranges.current.set(row.id, {...before, keys}); runtime.setHomeWindow(sourceRow, rowIndex, before.first, before.last, shown, physicalIds, retainedIds, keys);};
-      return <HomeWindow key={row.id} runtime={runtime} row={sourceRow} sectionOrder={rowIndex} visible={shown} physicalIds={physicalIds} retainedIds={retainedIds} range={ranges.current.get(row.id)}><View onLayout={event => {const box = event.nativeEvent.layout;
+      const rowLayout: ViewProps['onLayout'] = event => {const box = event.nativeEvent.layout;
         rowPositions.current.set(row.id, box);
         setMeasuredRows(before => {
           const measured = before.layout === rowLayoutKey ? before.boxes.get(row.id) : undefined;
@@ -429,7 +450,8 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
         });
         // Initial focus can precede the compact hero layout. Re-anchor against
         // this measured box rather than retaining the previous hero's offset.
-        if (canAnchor.current && focus?.rowId === row.id && focusTarget.current?.rowId === row.id && current()) vertical.anchor(box.y, box.height, viewportHeight, contentHeight.current, 588, 96);}} style={homeRowSpacing(theme)}>
+        if (canAnchor.current && focus?.rowId === row.id && focusTarget.current?.rowId === row.id && current()) vertical.anchor(box.y, box.height, viewportHeight, contentHeight.current, 588, 96);};
+      const rowBody = <>
         {row.live ? <HomeLiveRow row={row} runtime={runtime} visible={shown} itemWidth={theme.isTV ? 400 : desktop ? theme.spec.card.live.width.web : theme.spec.card.live.width.phone} onRange={range} onVisibleKeys={visibleKeys} onItemFocus={item => onRowFocus(row, JSON.stringify([item.channel.sourceId, item.channel.id]))} current={current} focus={theme.isTV ? regionMap.rows.get(row.id) : undefined} viewportWidth={viewportWidth} tabletMedium={tabletMedium} scrollMemory={scrollMemory}/>
           : row.collection ? <HomeRegion focus={theme.isTV ? {...regionMap.rows.get(row.id)!, orientation: 'horizontal', order: [ids.collection(row.collection)]} : undefined}><FocusItem focusId={ids.collection(row.collection)}><View style={{paddingHorizontal: theme.gutter}}><HomeCollectionCard row={row} runtime={runtime}
             width={viewportWidth - theme.gutter - (theme.isTV ? 96 : theme.gutter)} visible={shown} current={current} onFocus={() => onRowFocus(row, row.collection!.collection.id)}/></View></FocusItem></HomeRegion>
@@ -439,7 +461,9 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
             onItemFocus={item => onRowFocus(row, item.entry.id)} renderItem={(item, context) => <View style={theme.fontScale > 1 || theme.textScale > 1 ? {width, minHeight: height} : {width, height}}><LoadingPaint ready={!context.waiting} immediate={!context.waiting} skeleton={<View style={{backgroundColor: theme.colors.ink}}><SkeletonBlock width={width} height={height}/></View>}><HomeCard runtime={runtime} row={row} entry={item.entry} rank={item.rank} context={context}
               width={width} rowIndex={rowIndex} visible={shown} preferred={false} medium={medium}
               current={current}/></LoadingPaint></View>}/>}
-      </View></HomeWindow>;
+</>;
+      return <HomeWindow key={row.id} runtime={runtime} row={sourceRow} sectionOrder={rowIndex} visible={shown} physicalIds={physicalIds} retainedIds={retainedIds} range={ranges.current.get(row.id)}><>{theme.isTV ? <TVHomeRowShift heroDelta={heroDelta} style={homeRowSpacing(theme)} onLayout={rowLayout}>{rowBody}</TVHomeRowShift>
+        : <View onLayout={rowLayout} style={homeRowSpacing(theme)}>{rowBody}</View>}</></HomeWindow>;
     })}
     {pendingRows.map(row => <HomePendingRow key={`pending:${row.id}`} row={row} labels={labels} viewportWidth={viewportWidth}/>)}
     {mixesContent}

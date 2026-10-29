@@ -44,7 +44,7 @@ const shared = (back: Awaited<ReturnType<typeof backOwner>>) => ({
   '../../../platform/offline-downloads': {offlineDownloads: {getSnapshot: () => ({entries: []}), remove: async () => {}}, offlineOwnerKey: () => 'owner'},
   './sign-out-downloads': {removeCapturedDownloads: async () => 0},
   '../../tv/auth': {TVProfilePINForm: 'PIN', TVForgotPINHandoff: 'Forgot', TVFrontDoor: 'Front', TVCodePresenter: 'Code',
-    TVCredentialForm: 'Credentials', TVVerificationForm: 'Factor', TVRequiredSetupHandoff: 'Required'},
+    TVCredentialForm: 'Credentials', TVVerificationForm: 'Factor', TVRequiredSetupHandoff: 'Required', TVWhosWatching: 'WhosWatching'},
     '../../tv/auth/TVIdentityCodeForm': {TVIdentityCodeForm: 'IdentityCode'},
 });
 
@@ -108,7 +108,9 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
     assert.equal(tree.type, 'Credentials');
     await act(() => {tree.props.onUsernameChange('person'); tree.props.onPasswordChange('test password');});
     await act(() => tree.props.onSubmit());
-    const picker = nodes(tree.props.beforeActions).find(n => n.type === 'Picker');
+    assert.equal(tree.type, 'WhosWatching', 'the TV picker is the centred composition, with no Back or management buttons');
+    assert.equal(tree.props.secondaryAction, undefined);
+    const picker = nodes(tree.props.children).find(n => n.type === 'Picker');
     // The shared profile region owns the first-face entry (next-family-focus-ids runs
     // the real picker): the caller supplies the explicit TV opening identity and the
     // server's face order, and never invents a remembered preference before focus.
@@ -116,7 +118,7 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
     assert.equal(picker.props.profiles[0].id, profile.id, 'the fixed entry resolves to the server\'s first offered profile');
     assert.equal(picker.props.preferredProfileId, undefined, 'no remembered face exists before this operation focuses one');
     await act(async () => {picker.props.onFocusChange(profile.id); await host.rerender();});
-    const focused = nodes(tree.props.beforeActions).find(n => n.type === 'Picker');
+    const focused = nodes(tree.props.children).find(n => n.type === 'Picker');
     assert.equal(focused.props.preferredProfileId, profile.id, 'the original operation remembers the face it actually focused');
     await act(() => focused.props.onSelect(profile.id));
     assert.equal(tree.type, 'PIN');
@@ -183,9 +185,17 @@ test('TV profile-switch hand-off preserves its current family, selection control
   const host = createFabricHookHost(() => {const opened = AccountRoute({route, context}); tree = screen(opened.type(opened.props));});
   await act(() => host.mount());
   try {
-    await act(() => nodes(tree.props.beforeActions).find(n => n.type === 'Picker').props.onSelect(profile.id));
+    await act(() => nodes(tree.props.children).find(n => n.type === 'Picker').props.onSelect(profile.id));
     await act(() => tree.props.onSubmit('1234'));
     assert.deepEqual(attempts, [[profile.id, '1234']]); assert.equal(tree.props.code, '');
+    // F-PROFILE-28: a wrong PIN leaves the four boxes filled (error colour) for 400 ms, then empties them.
+    await act(() => tree.props.onCodeChange('4321'));
+    await act(() => tree.props.onSubmit('4321'));
+    assert.equal(tree.props.code, '4321', 'the filled boxes are held while the error shows');
+    assert.equal(tree.props.error !== undefined, true);
+    await act(async () => {await new Promise(resolve => setTimeout(resolve, 450)); await host.rerender();});
+    assert.equal(tree.props.code, '', 'the boxes empty after the hold');
+    attempts.pop();
     await act(() => tree.props.onCodeChange('99'));
     await act(() => tree.props.onForgotPIN());
     assert.equal(tree.type, 'Forgot'); assert.equal(tree.props.url, 'https://verified.example/settings/profile');

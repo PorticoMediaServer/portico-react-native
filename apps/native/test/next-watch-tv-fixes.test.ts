@@ -35,8 +35,8 @@ async function timelineFixture(vega = false) {
   controls.source(fence, {expanded: true, autoHide: false, hiddenByPanel: false, paused: true, scrubbing: false, focusHeld: false});
   const {NativeWatchTimeline} = await screenModule(new URL('../src-next/screens/watch/WatchTimeline.tsx', import.meta.url), {
     react: h.react, 'react-native': nativeAtoms, 'react-native-gesture-handler': {Gesture: {Pan: gesture}, GestureDetector: 'Gesture'}, 'react-native-reanimated': animation(h),
-    '../../../../../packages/player-core/src': playerCore, '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: String}, '../../../../../packages/i18n/src': i18n,
-    '../../kit/controls': controlsAtoms, '../../kit/theme': themed, './TrickplayStrip': {NativeTrickplayStrip: 'Trickplay'},
+    '../../../../../packages/player-core/src': playerCore, '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: String, durationText: (seconds: number) => `${Math.round(seconds / 60)} min`}, '../../../../../packages/i18n/src': i18n,
+    '../../kit/controls': controlsAtoms, '../../kit/theme': themed, './TrickplayStrip': {NativeTrickplayStrip: 'Trickplay'}, '../../kit/useMotion': {useMotion: () => ({timing: () => ({})})},
     '../../platform/tv-keys': {useTVKeyEvent: (handler: typeof key) => {key = handler;}}, '../../platform/tv-seek-repeat': {createTVSeekRepeat: (step: any) => createTVSeekRepeat(step, clock)},
   });
   const draw = () => {props.source = source; h.render(() => NativeWatchTimeline(props)); return h.flush();};
@@ -119,13 +119,19 @@ test('Episodes enters the playing row, and its season sheet returns to the actua
   const {NativeWatchEpisodes} = await screenModule(new URL('../src-next/screens/watch/EpisodePanel.tsx', import.meta.url), {
     react: h.react, 'react-native': nativeAtoms, '../../../../../packages/i18n/src': i18n, '../../kit/controls': controlsAtoms, '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/theme': themed,
     '../../kit/focus': {FocusRegion: 'FocusRegion'}, '../../kit/overlays/TVPanelMotion': {useTVPanelInteractive: () => true}, './SeasonsSheet': {NativeSeasonsSheet: 'Seasons'},
+    '../../kit/cards': {EpisodeTile: 'EpisodeTile'}, 'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'Gradient', Rect: 'Rect', Stop: 'Stop'},
     '../../../../../packages/client-core/src/presentation/kit-model': {episodeLabel: () => ''}, '../../../../../packages/client-core/src/presentation/kit-model/text': {durationText: String},
   });
   const lease = {}, state = {workspace: {phase: 'ready', data: {selected: {seasonId: 'season'}}}, seasons: [{id: 'season', number: 1}], episodes: [{id: 'first', title: 'First'}, {id: 'playing', title: 'Playing'}], place: {hideWatched: false}};
   const controller = {getSnapshot: () => state, subscribe: () => () => {}, open: async () => {}, pageLease: () => lease};
   try {
     const tree = h.render(() => NativeWatchEpisodes({controller, currentId: 'playing', playing: true, text: {}, artwork() {}, onPlay() {}, onClose() {}}));
-    assert.equal(tree.props.entry, 'episodes-playing'); assert.deepEqual(h.focused, ['episodes-playing']);
+    // tv-player 1: a band of title-page tiles over the picture, entered on the playing episode.
+    assert.equal(tree.props.entry, 'episodes-playing');
+    const tiles = descendants(tree).filter((node: any) => node.type === 'EpisodeTile');
+    assert.deepEqual(tiles.map((node: any) => node.props.focusId), ['episodes-first', 'episodes-playing']);
+    assert.equal(tiles[1].props.width, 384); assert.equal(tiles[1].props.status, i18n.defaultI18n.t('player.miniPlaying'));
+    assert.ok(tiles[1].props.menuAnchorRef && !tiles[0].props.menuAnchorRef);
     const opener = find(tree, 'watch-episodes-seasons'); opener.props.onPress();
     const open = h.flush(), sheet = descendants(open).find((node: any) => node.type === 'Seasons');
     assert.equal(sheet.props.returnFocusRef, opener.props.ref); assert.equal(sheet.props.open, true); assert.equal(open.props.enabled, false);
@@ -194,7 +200,7 @@ test('post-play rows stay horizontal, preserve card widths, connect both directi
 test('TV failure keeps Retry as entry, exposes its real secondary actions and restores Details focus', async () => {
   const h = watchHooks(), calls: string[] = [];
   const {NativePlaybackFailed} = await screenModule(new URL('../src-next/screens/watch/PlaybackFailed.tsx', import.meta.url), {
-    react: h.react, 'react-native': nativeAtoms, '../../../../../packages/i18n/src': i18n, '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: String},
+    react: h.react, 'react-native': nativeAtoms, '../../../../../packages/i18n/src': i18n, '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: String, durationText: (seconds: number) => `${Math.round(seconds / 60)} min`},
     '../../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => undefined}, '../../kit/controls': controlsAtoms, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/theme': themed,
     '../../kit/focus': {FocusRegion: 'FocusRegion'}, '../../kit/overlays': {SidePanel: 'SidePanel'},
   });
@@ -214,7 +220,7 @@ test('Episodes is contained by the held watch panel and an absent remembered opt
     const h = watchHooks(), registry = createFocusRegistry();
     const {NativeWatchPanels} = await screenModule(new URL('../src-next/screens/watch/WatchPanels.tsx', import.meta.url), {
       react: h.react, 'react-native': nativeAtoms, '../../../../../packages/i18n/src': i18n, '../../../../../packages/player-core/src': playerCore,
-      '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: String}, '../../../../../packages/client-core/src/playback-v1/v1-queue-player': {queueVideoKind: () => undefined},
+      '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: String, durationText: (seconds: number) => `${Math.round(seconds / 60)} min`}, '../../../../../packages/client-core/src/playback-v1/v1-queue-player': {queueVideoKind: () => undefined},
       '../../../../../packages/client-core/src/subtitles': {subtitleReason: () => ''}, '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/controls': controlsAtoms,
       '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => registry}, '../../kit/overlays': {Dialog: 'Dialog'}, '../../kit/overlays/TVPanelMotion': {useTVPanelInteractive: () => true},
       '../../kit/overlays/OverlayHost': {useOverlayLifecycle() {}}, '../../kit/overlays/surface': {PanelBackground: 'PanelBackground'}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/theme': themed,
@@ -247,7 +253,7 @@ async function chromeFixture(live = false) {
     react: h.react, 'react-native': nativeAtoms, 'react-native-svg': svg, 'react-native-gesture-handler': {Gesture: {Pan: gesture}, GestureDetector: 'Gesture'}, 'react-native-reanimated': animation(h),
     '../../../../../packages/player-core/src': playerCore, '../../../../../packages/client-core/src/up-next': {upNextCountdown: () => undefined, upNextOffer: () => undefined},
     '../../../../../packages/client-core/src/playback/linear-protocol': {channelSeconds: (microseconds: string) => Number(microseconds) / 1000000},
-    '../../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => identity}, '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: String},
+    '../../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => identity}, '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: String, durationText: (seconds: number) => `${Math.round(seconds / 60)} min`},
     '../../../../../packages/i18n/src': i18n, '../../kit/controls': controlsAtoms, '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => registry},
     '../../kit/Icon': {Icon: 'Icon'}, '../settings-live/GroupPill': {NativeTVGroupPill: 'GroupPill'}, '../../kit/theme': themed,
     '../../kit/useMotion': {useMotion: () => ({duration: () => 0, timing: () => ({duration: 0})}), useReducedMotion: () => true}, './controls': {NativeWatchControls},
@@ -316,7 +322,7 @@ async function failureModuleFixture(owner = true) {
     './track-identity': {}, './ChannelRoute': {}, './live-guide': {NativeTVLiveGuide: class {dispose() {}}}, './live-actions': {NativeTVLiveActions: class {dispose() {}}}, './LiveActionPanels': {},
     './PlaybackFailed': {NativePlaybackFailed: 'Failure'}, './HandheldPlaybackFailed': {}, './PostPlayScreen': {}, '../../platform/device-platform': {}, './panel-names': {}, '../../platform/server-preferences': {},
     '../../../../../packages/client-core/src/presentation/browse-toolbar': {}, './system-media': {bindNativeVideoSystemMedia: () => () => {}}, './post-play-navigation': {nativePostPlayNavigation},
-    '../../../../../packages/client-core/src/playback-messages': {playbackUserMessage: () => 'Public playback message'}, '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: String},
+    '../../../../../packages/client-core/src/playback-messages': {playbackUserMessage: () => 'Public playback message'}, '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: String, durationText: (seconds: number) => `${Math.round(seconds / 60)} min`},
     '../../kit/states/DetailsPanel': {DetailsPanel: 'DetailsPanel'}, '../../platform/playback/subtitle-style-choices': {nativeSubtitleStyleKeys, nativeSubtitleStyleValue},
   });
   const module = createNativeWatchModule(context, {title: {owner, reportError: assert.fail}, openVersions() {}, beginVersions() {}, startVersion: async () => {}});

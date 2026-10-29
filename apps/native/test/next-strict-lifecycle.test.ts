@@ -375,6 +375,7 @@ test('Home scroll registration follows the move function and runtime rather than
     '../../../../../packages/client-core/src/presentation/errors': errorPresentation, '../../shell/model': shellModel,
   });
   const {HomeScreen} = await screenModule(new URL('../src-next/screens/home/HomeScreen.tsx', import.meta.url), {
+    '../../kit/useMotion': {useMotion: () => ({transforms: true, reduce: false, timing: () => ({})})}, 
     react: state.react, 'react-native': state.native, 'react-native-reanimated': state.animated,
     '@portico/design': {heroSpec}, '../../../../../packages/client-core/src/presentation/errors': errorPresentation,
     // Physical posture and page Back are host bridges outside this registration fixture;

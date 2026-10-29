@@ -40,7 +40,7 @@ import {PhoneServerChooser} from './PhoneServerChooser';
 import {TVTrustedCertificates} from './TVTrustedCertificates';
 import {TVServerChooser} from './TVServerChooser';
 import {removeCapturedServerDownloads} from './sign-out-downloads';
-import {TVProfilePINForm, TVForgotPINHandoff} from '../../tv/auth';
+import {TVProfilePINForm, TVForgotPINHandoff, TVWhosWatching} from '../../tv/auth';
 
 const t = defaultI18n.t;
 type Panel = 'servers' | 'add' | 'sign-out-server' | 'sign-out-account' | 'consent-kind' | 'consent-code' | 'consent-review' | 'consent-done';
@@ -162,8 +162,15 @@ export function ProfileRoute({context, route, onBack, embedded = false}: {contex
     if (session) selection.current = nativeProfileSelection(session.viewer.serverId, session.sessionFamilyId);
     return () => {alive.current = false; selection.current?.dispose();};
   }, [context]);
+  // TV (F-PROFILE-28): a wrong PIN keeps the filled boxes in the error colour for 400 ms, then empties them.
+  const wrongPinTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const cancelWrongPin = () => {if (wrongPinTimer.current) {clearTimeout(wrongPinTimer.current); wrongPinTimer.current = undefined;}};
+  useEffect(() => cancelWrongPin, []);
   const choose = async (id: string, code?: string) => {if (busy || !context.current()) return; setBusy(true); setError(undefined);
-    try {await selection.current!.select(id, code);} catch (failure) {if (alive.current) {setPin(''); setError(failure);}} finally {if (alive.current) setBusy(false);}
+    try {await selection.current!.select(id, code);} catch (failure) {if (alive.current) {
+      if (theme.isTV && code !== undefined) {cancelWrongPin(); wrongPinTimer.current = setTimeout(() => {wrongPinTimer.current = undefined; if (alive.current) setPin('');}, 400);} else setPin('');
+      setError(failure);
+    }} finally {if (alive.current) setBusy(false);}
   };
   const current = context.session();
   const active = embedded ? profiles.find(value => value.id === managedId) : current ? profiles.find(value => value.id === current.viewer.profileId) : undefined;
@@ -243,7 +250,7 @@ export function ProfileRoute({context, route, onBack, embedded = false}: {contex
     } catch (failure) {if (alive.current) setError(failure);}
     finally {starting.current = false;}
   };
-  const back = () => {activeTicket.current?.abort(); setPinDraft(''); setPinAgain(''); if (recovery) {recovery.controller.dispose(); setRecovery(undefined); setPin('');} else if (forgotPIN) {setForgotPIN(false); setPin(''); setError(undefined);} else if (profile) {setProfile(undefined); setPin('');} else onBack();};
+  const back = () => {cancelWrongPin(); activeTicket.current?.abort(); setPinDraft(''); setPinAgain(''); if (recovery) {recovery.controller.dispose(); setRecovery(undefined); setPin('');} else if (forgotPIN) {setForgotPIN(false); setPin(''); setError(undefined);} else if (profile) {setProfile(undefined); setPin('');} else onBack();};
   const avatarSource = (profileId: string) => {
     if (!lease || !lease.current() || avatarsLease.current !== lease) return undefined;
     const avatar = avatars.find(value => value.profileId === profileId);
@@ -294,7 +301,7 @@ export function ProfileRoute({context, route, onBack, embedded = false}: {contex
     profile={{id: profile.id, name: profile.name, initial: [...profile.name][0] ?? '', color: profile.art, primary: profile.primary, pinRequired: true}}
     code={pin} onCodeChange={setPin} busy={busy} error={error ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{presentError(error, 'profiles').body}</Text> : undefined}
     onSubmit={value => {void choose(profile.id, value);}} onBack={back}
-    onForgotPIN={() => {if (!busy) {setPin(''); setError(undefined); setForgotPIN(true);}}}/>;
+    onForgotPIN={() => {if (!busy) {cancelWrongPin(); setPin(''); setError(undefined); setForgotPIN(true);}}}/>;
   const moveProfile = (target: ManagedProfile, direction: -1 | 1) => {
     if (!profileActionsCurrent()) return;
     const index = profiles.indexOf(target), next = index + direction;
@@ -344,7 +351,16 @@ export function ProfileRoute({context, route, onBack, embedded = false}: {contex
       </View>
       {problem && !managedId ? <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{problem}</Text> : null}
       <BottomSheet open={!!managedId && !!active && manage} onOpenChange={open => {if (!open && !activeTicket.current && managementCurrent() && !retirement) {retireEditor(); setManagedId(undefined); closeDeletion();}}} title={active?.name} dismissOnBack={!actionBusy} dismissOnGesture={!actionBusy} dismissOnOutsidePress={!actionBusy}>{managementActions}</BottomSheet>
-    </View> : <StateLayout testID="accounts-profile-switch" title={profile ? t('profile.pinTitle', {name: profile.name}) : t('profiles.title')}
+    </View> : theme.isTV && !profile ? <TVWhosWatching testID="accounts-profile-switch">
+      {/* F-PROFILE-7: only the faces take focus; Back is the remote key. Add profile (the owner's only TV entry to it) follows the row. */}
+      <ProfilePicker focusScope={lease?.live.value && lease.route === route ? `tv.account.profiles.${JSON.stringify([lease.authority, lease.revision])}` : undefined} focusBusy={busy} title={t('profiles.title')} profiles={profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy, source: avatarSource(value.id)}))}
+        selectedId={current?.viewer.profileId} preferredProfileId={lease ? profileFocus.get(lease) : undefined}
+        onFocusChange={id => {if (id && lease) profileFocus.set(lease, id);}} onSelect={id => {const value = profiles.find(item => item.id === id)!;
+          if (id === current?.viewer.profileId) onBack(); else if (value.pinRequired) {setProfile(value); setPin('');} else void choose(id);}}/>
+      {manage && profiles.length < 8 ? <View style={{marginTop: 40}}><Button size="compact" variant="glass" icon="i-plus" onPress={openAddition}>{t('profile.add')}</Button></View> : null}
+      {managementActions}
+      {!!error && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginTop: 16}]}>{presentError(error, 'profiles').body}</Text>}
+    </TVWhosWatching> : <StateLayout testID="accounts-profile-switch" title={profile ? t('profile.pinTitle', {name: profile.name}) : t('profiles.title')}
       beforeActions={<View style={{alignSelf: 'stretch', marginBottom: 20}}>{profile ? <><PhonePINEntry value={pin} onChange={setPin} onComplete={value => {void choose(profile.id, value);}} busy={busy} error={!!error}/>
         <View style={{alignItems: 'center', marginTop: 8}}><Button variant="text" disabled={busy} onPress={() => {void startRecovery();}}>{t('pin.forgot')}</Button></View></> : <>
         <ProfilePicker focusScope={theme.isTV && lease?.live.value && lease.route === route ? `tv.account.profiles.${JSON.stringify([lease.authority, lease.revision])}` : undefined} focusBusy={busy} profiles={profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy, source: avatarSource(value.id)}))}

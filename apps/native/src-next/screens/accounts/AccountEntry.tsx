@@ -29,7 +29,7 @@ import {createTVApprovalCredentialOpening, type TVApprovalCredentialOpening} fro
 import {createTVApprovalFinalization, type TVApprovalFinalization} from './tv-approval-finalization';
 import {createTVCodeOpening, type TVCodeCapture, type TVCodeKind, type TVCodeOpening} from './tv-code-opening';
 import {hostedUrl} from '../../platform/account-authority';
-import {TVCredentialForm, TVCodePresenter, TVVerificationForm, TVRequiredSetupHandoff, TVFrontDoor, TVProfilePINForm, TVForgotPINHandoff} from '../../tv/auth';
+import {TVCredentialForm, TVCodePresenter, TVVerificationForm, TVRequiredSetupHandoff, TVFrontDoor, TVProfilePINForm, TVForgotPINHandoff, TVWhosWatching} from '../../tv/auth';
 import {TVIdentityCodeForm} from '../../tv/auth/TVIdentityCodeForm';
 import type {NativeProfileRecovery} from '../../platform/profile-recovery';
 import {passwordStrength} from '../../../../../packages/client-core/src/password-strength';
@@ -91,6 +91,8 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const [providerLoading, setProviderLoading] = useState<NativePorticoSignIn>();
   const theme = useTheme(), [stage, setStage] = useState<NativeAccountEntryStage>(endedSignIn ? 'ended-sign-in' : initialStage), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   const [address, setAddress] = useState(endedSignIn?.origin ?? initialAddress), [username, setUsername] = useState(endedSignIn?.signIn === 'local' ? endedSignIn.username : ''), [password, setPassword] = useState(''), [code, setCode] = useState('');
+  const wrongCodeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => {if (wrongCodeTimer.current) {clearTimeout(wrongCodeTimer.current); wrongCodeTimer.current = undefined;}}, [stage]);
   // Root 43: only the server's confirmed public-handle collision may mark this
   // field, and only for the form opening that asked. The opening retires with its
   // stage, so a retained Submit or a late refusal cannot mark a successor form.
@@ -349,7 +351,14 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       }
       if (endedTarget.current) {setPassword(''); setCode('');}
       if (failure instanceof MFARequiredError) {factorKind.current = 'portico'; setCode(''); setRecovery(false); setStage('factor');}
-      else {if (stage === 'profile-pin' || (Platform.isTV && stage === 'factor' && !recovery)) setCode(''); setError(failure);}
+      else {
+        // TV: the filled boxes stay in the error colour for 400 ms (F-PROFILE-28) before they empty; focus stays.
+        if (stage === 'profile-pin' && Platform.isTV || (Platform.isTV && stage === 'factor' && !recovery)) {
+          if (wrongCodeTimer.current) clearTimeout(wrongCodeTimer.current);
+          wrongCodeTimer.current = setTimeout(() => {wrongCodeTimer.current = undefined; if (lifetime.current && stageRef.current === stage) setCode('');}, 400);
+        } else if (stage === 'profile-pin') setCode('');
+        setError(failure);
+      }
     }} finally {if (invitationEpoch.current === startedInvitationEpoch) {acting.current = false; if (lifetime.current) setBusy(adoptingTV.current || tvOpening.current?.pending() === true);}}
   }, [busy, recovery, retireSetupReview, stage]);
   const reset = useCallback(() => {retireTVOpening(true); retireAccountWorkspace(); retireInvitationEntry(); retireInvitationSwitch(); invitationIntent.current = undefined; retireInvitation(); ownerResetIntent.current = undefined; endedTarget.current = undefined; retireOwnerRecoveryContact(); retireOwnerReset(); retireSetupReview(); setDirectoryList('idle'); memberFactorOperation.current = undefined; stopMemberMove(); retireRecovery(); stopRetry(); targetRef.current = undefined; stageRef.current = initialStage; ++directoryAttempt.current; acting.current = false; preparedAuthSource.current = undefined; operation.current?.dispose(); operation.current = undefined; account.current?.dispose(); account.current = undefined;
@@ -1705,6 +1714,13 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   }
   if (stage === 'profiles') {
     const originalOperation = operation.current!;
+    // TV (F-PROFILE-7): one centred row of faces and nothing else; Back is the remote key.
+    if (theme.isTV) return <TVWhosWatching testID="accounts-entry">
+      <ProfilePicker focusScope={`tv.auth.profiles.${server!.id}`} focusBusy={busy} title={t('accounts.profiles.onServer', {server: server!.name})} profiles={profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy}))} preferredProfileId={profileFocus.get(originalOperation)}
+        onFocusChange={id => {if (id && operation.current === originalOperation) profileFocus.set(originalOperation, id);}}
+        onSelect={id => {const value = profiles.find(item => item.id === id)!; if (value.pinRequired) {setProfile(value); setCode(''); setStage('profile-pin');} else void run(() => choose(id));}}/>
+      {status}
+    </TVWhosWatching>;
     return layout(t('accounts.profiles.onServer', {server: server!.name}), t('accounts.session.' + server!.signIn as 'accounts.session.portico' | 'accounts.session.local'),
     <ProfilePicker focusScope={`tv.auth.profiles.${server!.id}`} focusBusy={busy} profiles={profiles.map(value => ({id: value.id, name: value.name, initial: [...value.name][0] ?? '', color: value.art, primary: value.primary, pinRequired: value.pinRequired, disabled: busy}))} preferredProfileId={theme.isTV ? profileFocus.get(originalOperation) : undefined}
       onFocusChange={id => {if (id && operation.current === originalOperation) profileFocus.set(originalOperation, id);}} showTitle={false}

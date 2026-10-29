@@ -4,7 +4,7 @@ import {defaultI18n} from '../../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
 import {cardText} from '../../../../../../packages/client-core/src/presentation/kit-model';
 import {artistReleaseGroups} from '../../../../../../packages/client-core/src/presentation/library-tabs';
-import {AmbientArt, Artwork, ArtistCircle} from '../../../kit/artwork';
+import {AmbientArt, Artwork, ArtistCircle, StandardBackdrop} from '../../../kit/artwork';
 import {Button, Chip, Focusable} from '../../../kit/controls';
 import {SkeletonBlock} from '../../../kit/states';
 import {SquareCard} from '../../../kit/cards';
@@ -49,7 +49,8 @@ function usePlayback(runtime: NativeShellRuntime) {
 function Backdrop({runtime, path}: {runtime: NativeShellRuntime; path: string | undefined}) {
   const source = runtime.ambient(path);
   return <View pointerEvents="none" style={{position: 'absolute', inset: 0, backgroundColor: '#071018', overflow: 'hidden'}}>
-    {source ? <AmbientArt source={source} treatment="music" style={{position: 'absolute', inset: 0}}/> : null}
+    {/* No art: the one standard backdrop, never flat ink (Justin, 29 Oct). */}
+    {source ? <AmbientArt source={source} treatment="music" style={{position: 'absolute', inset: 0}}/> : <StandardBackdrop/>}
   </View>;
 }
 

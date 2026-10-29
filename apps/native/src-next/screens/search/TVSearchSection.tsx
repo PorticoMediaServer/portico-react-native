@@ -18,11 +18,13 @@ import type {NativeSearchActions, NativeSearchSelectionPort} from './types';
 
 type Cell = Readonly<{kind: 'entry'; entry: SearchEntry}> | Readonly<{kind: 'tail'; id: string}>;
 export function TVSearchSection({group, destination, runtime, actions, selection, enabled, regionId, keyboardRegion, previousRegion, previousFallback, nextRegion,
-  screenStart, scrollY, viewportHeight, contentRoot, width, layoutRevision, paging, singleRow = false}: {
+  screenStart, scrollY, viewportHeight, contentRoot, width, layoutRevision, paging, singleRow = false, focusRoom = 0}: {
   group: SearchGroupResult; destination: NativeSearchDestination; runtime: NativeShellRuntime; actions: NativeSearchActions; selection?: NativeSearchSelectionPort;
   enabled: boolean; regionId: string; keyboardRegion: string; previousRegion?: string; previousFallback?: string; nextRegion?: string; screenStart?: FocusAddress;
   scrollY: number; viewportHeight: number; contentRoot: RefObject<View | null>; width: number; layoutRevision: number;
   singleRow?: boolean; paging?: NonNullable<NativeSearchSnapshot['paging']>[SearchGroupResult['id']];
+  /** Room the parent results scroll leaves left of the drawn edge for a focused card's scale and ring. */
+  focusRoom?: number;
 }) {
   const theme = useTheme(), registry = useFocusRegistry();
   const songs = group.id === 'songs', cardWidth = songs ? Math.max(1, width) : group.id === 'live-tv' ? 400 : 196;
@@ -46,8 +48,8 @@ export function TVSearchSection({group, destination, runtime, actions, selection
     {group.totalCountExact && <Text style={[browseType(theme, 20, 600), {color: theme.colors.textTertiary}]}>{group.totalCount}</Text>}</View>;
   if (singleRow && !songs && group.items.length) {
     const waitingId = tailId ?? paging?.fulfilled?.waitingId;
-    return <View style={{marginTop: 46}}>{heading}<Row<Cell> title="" showHeading={false} style={{marginTop: 30}}
-      items={items.filter(cell => cell.kind === 'entry')} getKey={getKey} getFocusId={getKey} itemWidth={cardWidth} itemHeight={height} gap={28} gutter={0} rightGutter={0} initialViewportWidth={width}
+    return <View style={{marginTop: 46}}>{heading}<Row<Cell> title="" showHeading={false} style={{marginTop: 30, marginLeft: -focusRoom}}
+      items={items.filter(cell => cell.kind === 'entry')} getKey={getKey} getFocusId={getKey} itemWidth={cardWidth} itemHeight={height} gap={28} gutter={focusRoom} rightGutter={0} initialViewportWidth={width + focusRoom}
       selection={{active: false, isSelected: () => false, onToggle: () => {}, onEnter: () => {}}}
       focus={{id: regionId, enabled, entry: nativeSearchEntryKey(group.id, group.items[0]!), edges, neighbors: {next: nextRegion, previous: previousFallback}, screenStart}}
       paging={waitingId ? {hasMore: !!tailId, waitingId, waitingItem: {kind: 'tail', id: waitingId}, loading: !!paging?.loading, failed: !!paging?.error,

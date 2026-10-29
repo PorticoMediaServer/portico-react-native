@@ -69,6 +69,7 @@ async function fixture() {
   });
   const source = process.env.PORTICO_HOME_ENTRY_SOURCE ? pathToFileURL(process.env.PORTICO_HOME_ENTRY_SOURCE) : new URL('../src-next/screens/home/HomeScreen.tsx', import.meta.url);
   const {HomeScreen} = await screenModule(source, {
+    '../../kit/useMotion': {useMotion: () => ({transforms: true, reduce: false, timing: () => ({})})}, 
     react, 'react-native': native, 'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (fn: unknown) => fn, useAnimatedScrollHandler: (fn: unknown) => fn, useSharedValue: (value: unknown) => react.useRef({value}).current},
     '@portico/design': {heroSpec},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src/presentation/home-spotlight': homePresentation,

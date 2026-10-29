@@ -1,6 +1,6 @@
-import React, {useEffect, useId, type ReactNode} from 'react';
+import React, {Children, useEffect, useId, type ReactNode} from 'react';
 import {Text, View, type StyleProp, type ViewStyle} from 'react-native';
-import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
+import Animated, {useAnimatedStyle, useSharedValue, withDelay, withTiming} from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {AmbientArt, type AmbientArtSource, type ArtworkSource} from '../../kit/artwork';
 import {nativeType, useTheme} from '../../kit/theme';
@@ -38,7 +38,20 @@ export function TVTitleCompactHeader({title, browsing, children}: {title: string
   </Animated.View>;
 }
 
+/** motion.html 4.4: entering a title page, its lockup, details, buttons and tabs rise 24 px and
+ * fade in 60 ms apart (standard 180, out; at most three steps). A backdrop both pages share
+ * doesn't move, so only the copy arrives. Reduced motion: the same fade, no rise or stagger. */
+function TVTitleArrival({index, children}: {index: number; children: ReactNode}) {
+  const motion = useMotion(), arrived = useSharedValue(0);
+  useEffect(() => {
+    arrived.value = withDelay(motion.transforms ? Math.min(index, 3) * 60 : 0, withTiming(1, motion.timing('standard', 'out')));
+  }, [arrived, index, motion]);
+  const style = useAnimatedStyle(() => ({opacity: arrived.value, transform: motion.transforms ? [{translateY: (1 - arrived.value) * 24}] : []}));
+  return <Animated.View pointerEvents="box-none" style={style}>{children}</Animated.View>;
+}
+
 export function TVTitleHeroCopy({browsing, style, children}: {browsing: boolean; style: StyleProp<ViewStyle>; children: ReactNode}) {
   const fade = useBrowseOpacity(browsing, true);
-  return <Animated.View style={[style, fade]}>{children}</Animated.View>;
+  return <Animated.View style={[style, fade]}>{Children.toArray(children).filter(Boolean).map((child, index) =>
+    <TVTitleArrival key={React.isValidElement(child) && child.key != null ? child.key : index} index={index}>{child}</TVTitleArrival>)}</Animated.View>;
 }

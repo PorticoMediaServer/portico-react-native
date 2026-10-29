@@ -7,7 +7,7 @@ import Svg, {Defs, LinearGradient, Path, Rect, Stop, Text as SvgText} from 'reac
 import {followedByScene, sameFence, UNDO_SECONDS, type PlaybackFence, type SegmentMarker} from '../../../../../packages/player-core/src';
 import {channelSeconds} from '../../../../../packages/client-core/src/playback/linear-protocol';
 import {channelTint, playbackIdentity, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
-import {clockText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
+import {clockText, durationText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {NativePlaybackAdapter, NativePlaybackRuntimeSnapshot} from '../../platform/playback/types';
 import {useTVKeyEvent} from '../../platform/tv-keys';
@@ -167,6 +167,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const actionsRestoreProof = useMemo(() => props.liveActions?.restoreProof(liveActions) ?? (() => false), [props.liveActions, liveActions]);
   const miniReturn = useRef<{fence: PlaybackFence; current: () => boolean; target: 'guide' | 'more'} | undefined>(undefined);
   const [landing, setLanding] = useState<number>(), [returnAt, setReturnAt] = useState(0), [now, setNow] = useState(() => Date.now());
+  const promptRevealToToggle = useRef(false);
   const fence = source.fence;
   const current = useCallback(() => !!fence && !source.retired && sameFence(playback.getSnapshot().fence, fence) && sameFence(state.fence, fence), [fence, source.retired, playback, state.fence]);
   const visible = current() && state.visible;
@@ -289,8 +290,12 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   }, [seekFocused, source.playback.positionSeconds]); // The return point is where the viewer was when the bar took focus.
   useEffect(() => {
     if (!theme.isTV || !visible) return;
-    const timer = setInterval(() => setNow(Date.now()), 20_000);
-    return () => clearInterval(timer);
+    // The clock and "Ends" time are right the moment the controls rise, then tick on the minute.
+    setNow(Date.now());
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {setNow(Date.now()); timer = setTimeout(tick, 60_000 - Date.now() % 60_000);};
+    timer = setTimeout(tick, 60_000 - Date.now() % 60_000);
+    return () => clearTimeout(timer);
   }, [theme.isTV, visible]);
   useEffect(() => {
     // motion.html 2.6/4.5: controls enter standard, timer exit slow; no geometry animation here.
@@ -317,6 +322,8 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       else toggle.current?.requestTVFocus?.();
       return;
     }
+    // F-PLAYER-60: a direction key on a prompt with the controls hidden raises them on Play/Pause.
+    if (visible && promptRevealToToggle.current) {promptRevealToToggle.current = false; toggle.current?.requestTVFocus?.(); return;}
     const active = registry.capture();
     if (visible && active && ['watch-controls', 'watch-transport', 'watch-seek-region', 'watch-group', 'watch-live-actions', 'watch-live-edge', 'watch-skip'].includes(active.regionId)) return;
     if (!visible && promptLive.current.entry) {registry.focus({regionId: 'watch-skip', childId: promptLive.current.entry}); return;}
@@ -325,8 +332,10 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   }, [visible, fence, theme.isTV, current, state.panel, state.panelReturning, state.returnTarget, liveOverlayOpen, miniPaintPresent, registry]); // The native focus engine owns movement inside the region.
   useTVKeyEvent(event => {
     if (!theme.isTV || !fence || !current() || source.dock.local?.expanded !== true || state.panel || state.panelReturning || liveOverlayOpen || miniPaintPresent || event.phase === 'long-end') return;
-    if (registry.capture()?.regionId === 'watch-skip' && event.key === 'select') return;
+    const onPrompt = registry.capture()?.regionId === 'watch-skip';
+    if (onPrompt && event.key === 'select') return;
     if (['up', 'down', 'left', 'right', 'select'].includes(event.key)) {
+      if (onPrompt && !visible) promptRevealToToggle.current = true;
       if (!controls.key(fence)) controls.reveal(fence);
     }
   });
@@ -744,7 +753,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
           </View>}
           {landing === undefined && <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, height: 30, marginTop: 10}}>
             <Text style={[nativeType({size: 24, weight: 600, tracking: 0, lineHeight: 30}, theme.textScale), {color: theme.colors.text, fontVariant: ['tabular-nums']}]}>{clockText(source.playback.positionSeconds)}</Text>
-            {linear && behindLive > 30 && <Text style={[nativeType({size: 22, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {marginLeft: 12, color: theme.colors.textSecondary}]}>{t('player.live.behindLive', {duration: clockText(Math.round(behindLive / 60) * 60)})}</Text>}
+            {linear && behindLive > 30 && <Text style={[nativeType({size: 22, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {marginLeft: 12, color: theme.colors.textSecondary}]}>{t('player.live.behindLive', {duration: durationText(Math.max(60, Math.round(behindLive / 60) * 60), t)})}</Text>}
             <View style={{flex: 1}}/>
             {linear && behindLive > 5 && props.goLive
               ? <FocusRegion id="watch-live-edge" entry="watch-go-live" edges={{up: 'watch-seek-region', down: 'watch-transport'}} enabled={controlsEnabled}><Focusable focusId="watch-go-live" testID="watch-go-live" accessibilityRole="button" focusable={controlsEnabled} disabled={!controlsEnabled}
@@ -788,7 +797,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
           </View>}
           <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
             <Text style={[theme.type.bodyStrong, {fontSize: 12.5, color: theme.colors.text, fontVariant: ['tabular-nums']}]}>{clockText(source.playback.positionSeconds)}</Text>
-            {linear && behindLive > 30 && <Text style={[theme.type.bodyStrong, {fontSize: 12, marginLeft: 8, color: theme.colors.textSecondary}]}>{t('player.live.behindLive', {duration: clockText(Math.round(behindLive / 60) * 60)})}</Text>}
+            {linear && behindLive > 30 && <Text style={[theme.type.bodyStrong, {fontSize: 12, marginLeft: 8, color: theme.colors.textSecondary}]}>{t('player.live.behindLive', {duration: durationText(Math.max(60, Math.round(behindLive / 60) * 60), t)})}</Text>}
             {compact && <Text style={[theme.type.bodyStrong, {fontSize: 12, color: theme.colors.textSecondary}]}>{`/ ${clockText(source.playback.duration)}`}</Text>}
             <View style={{flex: 1}}/>
             {!compact && (linear && behindLive > 5 && props.goLive

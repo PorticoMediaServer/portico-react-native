@@ -42,7 +42,8 @@ const episodeAtoms = {react, 'react-native': {ScrollView: 'ScrollView', Text: 'T
 const seasons = await screenModule(new URL('../src-next/screens/watch/SeasonsSheet.tsx', import.meta.url), episodeAtoms);
 const episodes = await screenModule(new URL('../src-next/screens/watch/EpisodePanel.tsx', import.meta.url), {...episodeAtoms,
   '../../../../../packages/client-core/src/presentation/kit-model': {episodeLabel},
-  '../../../../../packages/client-core/src/presentation/kit-model/text': {durationText}, './SeasonsSheet': seasons});
+  '../../../../../packages/client-core/src/presentation/kit-model/text': {durationText}, './SeasonsSheet': seasons,
+  '../../kit/cards': {EpisodeTile: 'EpisodeTile'}, 'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'Gradient', Rect: 'Rect', Stop: 'Stop'}});
 const {createNativeWatchScreens} = await screenModule(new URL('../src-next/screens/watch/factory.tsx', import.meta.url), {
   react, '../../../../../packages/client-core/src/playback-v1/options': {PlaybackOptionsClient},
   '../../../../../packages/client-core/src/playback-v1/local-http': {localV1Http},

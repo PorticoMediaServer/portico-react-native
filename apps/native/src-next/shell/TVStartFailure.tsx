@@ -84,14 +84,14 @@ export function TVStartFailure({failure, wait, runtime}: {failure?: NativePlayba
           : runtime.reportPlaybackProblem ? {id: 'report', label: t('next.states.reportProblem'), onPress: () => {if (current()) {setReport(true);setError(undefined);}}} : undefined}
         beforeActions={!report && failure?.scope === 'account' && rows.length ? <ScrollView style={{maxHeight: 300, width: '100%', marginBottom: 28}}>
           {rows.map(row => <View key={row.sessionId} style={{flexDirection: 'row', alignItems: 'center', gap: 24, paddingVertical: 12}}>
-            <View style={{flex: 1}}><Text style={{fontSize: 26 * theme.textScale, color: theme.colors.text}}>{row.device.name}</Text>
-              <Text style={{fontSize: 22 * theme.textScale, color: theme.colors.textSecondary}}>{row.item?.title ?? t('remote.hiddenTitle')}</Text></View>
+            <View style={{flex: 1}}><Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{row.device.name}</Text>
+              <Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{row.item?.title ?? t('remote.hiddenTitle')}</Text></View>
             <Button variant="glass" size="small" focusId={row.sessionId} testID={`native-start-stop-${row.sessionId}`} disabled={!!busy}
               loading={busy === row.sessionId} accessibilityLabel={t('remote.stopOn', {device: row.device.name})} onPress={() => stop(row)}>{t('action.stop')}</Button>
           </View>)}
         </ScrollView> : undefined}>
-        {sent && <Text style={{fontSize: 24 * theme.textScale, color: theme.colors.textSecondary}}>{t('about.report.sent', {server: runtime.getSnapshot().serverName ?? ''})}</Text>}
-        {error !== undefined && <Text accessibilityLiveRegion="polite" style={{fontSize: 24 * theme.textScale, color: theme.colors.record}}>{playbackUserMessage(error)}</Text>}
+        {sent && <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('about.report.sent', {server: runtime.getSnapshot().serverName ?? ''})}</Text>}
+        {error !== undefined && <Text accessibilityLiveRegion="polite" style={[theme.type.body, {color: theme.colors.record}]}>{playbackUserMessage(error)}</Text>}
       </StateLayout>
     </FocusRegion>
   </Modal>;

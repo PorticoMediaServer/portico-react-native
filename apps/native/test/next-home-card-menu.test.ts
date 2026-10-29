@@ -53,6 +53,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Continue car
     react, 'react-native': native, '../../../../../packages/client-core/src/presentation/errors': {presentError}, '../../shell/model': shellModel,
   });
   const {HomeScreen} = await screenModule(new URL('../src-next/screens/home/HomeScreen.tsx', import.meta.url), {
+    '../../kit/useMotion': {useMotion: () => ({transforms: true, reduce: false, timing: () => ({})})}, 
     react, 'react-native': native,
     'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (fn: unknown) => fn, useAnimatedScrollHandler: (fn: unknown) => fn, useSharedValue: (value: unknown) => react.useRef({value}).current}, '@portico/design': {heroSpec},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src/presentation/home-spotlight': homePresentation,

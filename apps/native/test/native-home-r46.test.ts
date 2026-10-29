@@ -172,6 +172,7 @@ test('the drawn phone facts badge is 9 px padding, .28 border and a 700 year; TV
 
 async function homeModule(theme: typeof phoneTheme | (() => typeof phoneTheme), rows: readonly any[], react: any = {...React, default: React}, registry = createFocusRegistry(), bindings: Record<string, any> = {}) {
   return screenModule(new URL('../src-next/screens/home/HomeScreen.tsx', import.meta.url), {
+    '../../kit/useMotion': {useMotion: () => ({transforms: true, reduce: false, timing: () => ({})})}, 
     react: {...react, useLayoutEffect: react.useLayoutEffect ?? react.useEffect}, '@portico/design': {heroSpec},
     'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, RefreshControl: 'RefreshControl', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
     'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (fn: unknown) => fn, useAnimatedScrollHandler: (fn: unknown) => fn, useSharedValue: (value: unknown) => react.useRef({value}).current},

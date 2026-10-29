@@ -36,7 +36,7 @@ const chromeModules = {
   './UpNextCard': {NativeUpNextCard: 'UpNextCard'}, './StillWatchingCard': {NativeStillWatchingCard: 'StillWatchingCard'}, '../../kit/artwork': {Artwork: 'Artwork'},
   'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'Gradient', Path: 'Path', Rect: 'Rect', Stop: 'Stop', Text: 'SvgText'},
   '../../../../../packages/player-core/src': playerCore, '../../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity, channelTint},
-  '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: String}, '../../../../../packages/i18n/src': {defaultI18n},
+  '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: String, durationText: (seconds: number) => `${Math.round(seconds / 60)} min`}, '../../../../../packages/i18n/src': {defaultI18n},
   '../../kit/controls': {Button: 'Button', Focusable: 'Focusable'}, '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => focusRegistry}, '../../kit/Icon': {Icon: 'Icon'},
   '../../kit/theme': {nativeType: () => ({}), useTheme: () => ({isTV, colors: {}, type: {body: {}, bodyStrong: {}, caption: {}}})},
   '../../kit/useMotion': {useMotion: () => motion, useReducedMotion: () => true}, './controls': {NativeWatchControls}, './WatchTimeline': {NativeWatchTimeline: 'Timeline'},

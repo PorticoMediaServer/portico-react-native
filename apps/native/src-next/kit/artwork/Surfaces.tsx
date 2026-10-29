@@ -22,8 +22,12 @@ function GlowLayer({glows, background}: {glows: readonly Glow[]; background?: st
 }
 
 /** Colours only: safe before authentication and on restriction/owner state surfaces. */
-export function ColourBackdrop({shape = 'side', fill = false, width, height, style, testID}: ColourBackdropProps) {
-  const {colors} = useTheme();
+export function ColourBackdrop({shape: requestedShape = 'side', fill: requestedFill = false, width: requestedWidth, height: requestedHeight, style, testID}: ColourBackdropProps) {
+  const {colors, isTV} = useTheme();
+  // Justin, 29 Oct: on TV the standard backdrop is identical wherever it appears: the DESIGN
+  // "Boot and loading" TV gradient (`side`) over the whole window, with no per-screen variant.
+  const shape = isTV ? 'side' : requestedShape, fill = isTV || requestedFill;
+  const width = isTV ? undefined : requestedWidth, height = isTV ? undefined : requestedHeight;
   const backdropStyle = [StyleSheet.absoluteFillObject, {backgroundColor: colors.ink}, width !== undefined ? {width} : undefined,
     height !== undefined ? {height, bottom: undefined} : shape === 'top' && !fill ? {height: 560, bottom: undefined} : undefined, style];
   const observation = useNativeObservation<View>({kind: 'view', semanticId: 'colour-backdrop',
@@ -45,6 +49,13 @@ export function ColourBackdrop({shape = 'side', fill = false, width, height, sty
   return <View ref={observation.ref} pointerEvents="none" accessible={false} testID={testID} style={backdropStyle}>
     <GlowLayer glows={glows}/>
   </View>;
+}
+
+/** The platform's standard backdrop for every screen without artwork: TV and tablet/web the
+ * full-window `side` glows, phone the `top` band. One component, so it is identical everywhere. */
+export function StandardBackdrop({testID = 'standard-backdrop'}: {testID?: string}) {
+  const {isTV, platform} = useTheme();
+  return isTV || platform !== 'phone' ? <ColourBackdrop shape="side" fill testID={testID}/> : <ColourBackdrop shape="top" testID={testID}/>;
 }
 
 export function PaletteWash({palette, generated = false}: {palette: ArtworkPalette; generated?: boolean}) {

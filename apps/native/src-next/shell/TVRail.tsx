@@ -63,6 +63,7 @@ export function TVRail({libraries, hasLiveTV, destination, profile, unread = fal
   React.useEffect(() => {if (!motion.transforms) expanded.value = open ? 1 : 0;}, [expanded, motion.transforms, open]);
   const panel = useAnimatedStyle(() => ({transform: [{translateX: (expanded.value - 1) * (spec.openWidth - spec.width)}]}));
   const counter = useAnimatedStyle(() => ({transform: [{translateX: (1 - expanded.value) * (spec.openWidth - spec.width)}]}));
+  const openShade = useAnimatedStyle(() => ({opacity: expanded.value}));
   const labels = useAnimatedStyle(() => ({opacity: labelOpacity.value, transform: motion.transforms ? [{translateX: -8 * (1 - labelOpacity.value)}] : []}));
   const entries: RailEntry[] = [
     {key: 'search', icon: 'i-search', label: defaultI18n.t('web.shell.search'), destination: {kind: 'search'}},
@@ -81,8 +82,13 @@ export function TVRail({libraries, hasLiveTV, destination, profile, unread = fal
     </Focusable>;
   };
   return <View pointerEvents="box-none" style={{position: 'absolute', left: 0, top: 0, bottom: 0, width: open ? spec.openWidth : spec.width, zIndex: theme.layers.navigation}}>
+    {/* motion.html 4.2: the panel's darkness follows the same shared value as its slide, so the
+        closed and open gradients cross-fade instead of stepping when the state flips. */}
     <Animated.View pointerEvents="none" style={[{position: 'absolute', inset: 0, width: spec.openWidth}, panel]}>
-      <Svg width="100%" height="100%"><Defs><LinearGradient id="native-rail" x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={open ? .99 : .78}/><Stop offset={open ? .66 : .45} stopColor={theme.colors.ink} stopOpacity={open ? .96 : .42}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={0}/></LinearGradient></Defs><Rect width="100%" height="100%" fill="url(#native-rail)"/></Svg>
+      <Svg width="100%" height="100%" style={{position: 'absolute', inset: 0}}><Defs><LinearGradient id="native-rail" x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.78}/><Stop offset={.45} stopColor={theme.colors.ink} stopOpacity={.42}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={0}/></LinearGradient></Defs><Rect width="100%" height="100%" fill="url(#native-rail)"/></Svg>
+      <Animated.View style={[{position: 'absolute', inset: 0}, openShade]}>
+        <Svg width="100%" height="100%"><Defs><LinearGradient id="native-rail-open" x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.99}/><Stop offset={.66} stopColor={theme.colors.ink} stopOpacity={.96}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={0}/></LinearGradient></Defs><Rect width="100%" height="100%" fill="url(#native-rail-open)"/></Svg>
+      </Animated.View>
     </Animated.View>
     <FocusRegion id={ids.rail} entry={ids.destination(destination)} entryPolicy="entry" orientation="vertical"
       order={[...entries.map(entry => entry.key), 'settings', ids.profile]} edges={{right: returnRegion}} onFocusChange={focusChanged}

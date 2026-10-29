@@ -7,6 +7,7 @@ import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {profileArtColors} from '@portico/design';
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
 import {Button, Focusable, type FocusableProps} from '../controls/index';
+import {colorAlpha} from '../controls/control-model';
 import {Icon} from '../Icon';
 import {fontFamilies, useTheme} from '../theme';
 import {useMotion} from '../useMotion';
@@ -57,7 +58,9 @@ export function ProfileFace({initial, color = 'blue', tint, source, size = 90, l
       {!add && source ? <Artwork source={source} sized/> : null}
     </View>
     <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFillObject, {inset: -offset, borderRadius: size / 2 + offset, borderWidth: isTV ? 5 : 3, borderColor: colors.focus,
-      shadowColor: colors.focus, shadowOpacity: 0.22, shadowRadius: isTV ? 35 : 20, shadowOffset: {width: 0, height: isTV ? 30 : 0}}, ringStyle]}/>
+      // TV: boxShadow, not iOS-only shadow*, so Android TV and Vega draw the same glow.
+      ...(isTV ? {boxShadow: [{offsetX: 0, offsetY: 30, blurRadius: 70, color: colorAlpha(colors.focus, 0.22)}]}
+        : {shadowColor: colors.focus, shadowOpacity: 0.22, shadowRadius: 20, shadowOffset: {width: 0, height: 0}})}, ringStyle]}/>
     {locked && !add ? <View pointerEvents="none" style={{position: 'absolute', right: size * 0.04, bottom: size * 0.04, width: badge, height: badge, alignItems: 'center', justifyContent: 'center', borderRadius: badge / 2, backgroundColor: colors.raisedBright, borderWidth: size < 100 ? 3 : 4, borderColor: colors.ink}}><Icon name="i-lock" size={badge * 0.55} color={colors.text}/></View> : null}
   </Animated.View>;
 }

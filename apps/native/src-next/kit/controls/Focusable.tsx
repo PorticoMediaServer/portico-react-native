@@ -114,10 +114,17 @@ export const Focusable = forwardRef<View, FocusableProps>(function Focusable({
       {focusTreatment === 'default' ? <Animated.View pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants"
         style={[styles.ring, {inset: -offset, borderRadius: focusRadius + offset,
           borderWidth: focusSpec.ringWidth[platform], borderColor: colors.focus,
-          ...(isTV ? {shadowColor: colorAlpha(colors.accentStrong, focusSpec.glow.alpha), shadowOffset: {width: focusSpec.glow.x, height: focusSpec.glow.y}, shadowOpacity: 1, shadowRadius: focusSpec.glow.blur / 2} : {})}, ring]} /> : null}
+          ...(isTV ? {boxShadow: tvFocusGlow(colors.accentStrong)} : {})}, ring]} /> : null}
       {typeof children === 'function' ? children({...state, pressed: disabled || !paint.interactive ? false : state.pressed, focused, hovered}) : children}
     </>}
   </AnimatedPressable>;
 });
 
 const styles = StyleSheet.create({ring: {position: 'absolute'}});
+
+/** The TV focus glow from the token. `boxShadow` draws on tvOS, Android TV and Vega alike;
+ * the iOS-only `shadow*` props left every Android-based TV without it. It sits on the ring
+ * layer, so the ring's opacity fades ring and glow together. */
+export function tvFocusGlow(accentStrong: string): ViewStyle['boxShadow'] {
+  return [{offsetX: focusSpec.glow.x, offsetY: focusSpec.glow.y, blurRadius: focusSpec.glow.blur, spreadDistance: focusSpec.glow.spread, color: colorAlpha(accentStrong, focusSpec.glow.alpha)}];
+}

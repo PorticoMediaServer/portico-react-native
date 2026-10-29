@@ -91,7 +91,9 @@ test('the drawn field, keyboard column and results column are tv.html#f5 geometr
   const voice = elements(tree).find(node => node.type === 'FocusRegion' && node.props.id === `${ids.searchKeyboard}.voice`)!;
   assert.deepEqual(style(voice.props.style), {position: 'absolute', left: 200, top: 792, width: 500, flexDirection: 'row', alignItems: 'flex-start', gap: 18});
   const results = elements(tree).find(node => node.type === 'FocusRegion' && node.props.id === ids.searchResults)!;
-  assert.deepEqual(style(results.props.style), {position: 'absolute', left: 780, right: 0, top: 64, bottom: 0});
+  // The region reaches 40 px left of and above .sres and pads its content by the same, so the
+  // drawn cards stay at x 780 / y 64 while a focused card's scale and ring are not clipped.
+  assert.deepEqual(style(results.props.style), {position: 'absolute', left: 740, right: 0, top: 24, bottom: 0});
   assert.equal(results.props.entryRegion, ids.searchSection('movies'));
   assert.equal(results.props.edges.left, ids.searchKeyboardRow(0));
   const sections = elements(tree).filter(node => node.type === 'TVSearchSection');
@@ -106,7 +108,7 @@ test('the drawn top result keeps f5 meta at 24px with 26px gaps, season count as
   const host = hooks(), {TVSearchTopResult, TVSearchTag} = await screen({...host.react, useId: () => 'gradient'});
   modelProgress = .22; top = undefined;
   const card = host.render(() => TVSearchTopResult({entry: show, group: 'shows', runtime, actions: {}, disabled: false}));
-  assert.deepEqual(style(card.props.style), {marginTop: 44});
+  assert.deepEqual(style(card.props.style), {marginTop: 44, transformOrigin: 'left center'});
   assert.deepEqual(style(card.props.pressableStyle), {flexDirection: 'row', gap: 36, alignItems: 'center'});
   const renderRow = (Array.isArray(card.props.children) ? card.props.children[0] : card.props.children) as (state: any) => any;
   const row = host.render(() => renderRow({focused: false, hovered: false, pressed: false, holding: false}));

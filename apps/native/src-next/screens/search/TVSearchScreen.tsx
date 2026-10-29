@@ -6,7 +6,7 @@ import type {SearchEntry, SearchGroup} from '../../../../../packages/client-core
 import {cardText} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {orderedSearchGroups, SEARCH_CHIPS, topSearchResult, topResultKindLabel} from '../../../../../packages/client-core/src/presentation/search-model';
 import {defaultI18n} from '../../../../../packages/i18n/src';
-import {Artwork} from '../../kit/artwork';
+import {Artwork, StandardBackdrop} from '../../kit/artwork';
 import {Chip, Focusable} from '../../kit/controls';
 import {ArtFrame, CardFrame, Parts, Progress} from '../../kit/cards/primitives';
 import {FocusRegion, useFocusRegistry} from '../../kit/focus';
@@ -34,12 +34,17 @@ const media = (entry: SearchEntry): entry is ContentEntry => entry.kind !== 'per
 const tvTopResultFocusId = (group: SearchGroup, entry: SearchEntry): string => `top:${nativeSearchEntryKey(group, entry)}`;
 /** Drawn measurements from tv.html#f5 (.sres left/right/.top-r/.meta/.trk) and states.html#f18 (.genres right inset). */
 const resultsLeft = 780;
+/** A ScrollView clips its children. The results region starts this far left of and above the
+ * drawn edge and pads its content by the same amount, so the drawn cards stay at x 780 / y 64
+ * while a focused card's 1.08 scale and 8 px ring (and a chip's 1.05) stay visible. */
+const tvSearchFocusRoom = 40;
 const tvSearchR46 = {
-  results: {position: 'absolute', left: resultsLeft, right: 0, top: 64, bottom: 0},
+  results: {position: 'absolute', left: resultsLeft - tvSearchFocusRoom, right: 0, top: 64 - tvSearchFocusRoom, bottom: 0},
   section: {marginTop: 46},
   heading: {flexDirection: 'row', alignItems: 'baseline', gap: 14},
   track: {flexDirection: 'row', gap: 28, marginTop: 30},
-  topResult: {marginTop: 44},
+  /** The composite (art plus words) grows from its left edge so the art never shifts into the clip. */
+  topResult: {marginTop: 44, transformOrigin: 'left center'},
   topRow: {flexDirection: 'row', gap: 36, alignItems: 'center'},
   meta: {flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 26, rowGap: 10, marginBottom: 14},
   metaProgress: {width: 160},
@@ -112,6 +117,7 @@ export function TVSearchScreen({focusScope, destination, runtime, activation, ex
   const resultsWidth = Math.max(0, dimensions.width - resultsLeft - theme.layout.gutter.tvRight);
   return <View testID="native-tv-search-screen" pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
     importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
+    <StandardBackdrop/>
     <View testID="tv-search-query" accessibilityLabel={t('web.shell.search')} style={{position: 'absolute', left: theme.gutter, top: 64, width: 500, height: 80, borderRadius: 16,
       backgroundColor: alpha(theme.colors.text, .08), paddingHorizontal: 24, flexDirection: 'row', alignItems: 'center', gap: 16}}>
       <Icon name="i-search" size={32} color={theme.colors.textTertiary}/>
@@ -132,7 +138,7 @@ export function TVSearchScreen({focusScope, destination, runtime, activation, ex
     </FocusRegion>}
     <FocusRegion id={ids.searchResults} entryRegion={typed && !empty && !problem && top ? ids.searchTop : sections[0] ? ids.searchSection(sections[0].id) : genreTiles.length ? ids.searchLanding : state.recent.length ? ids.searchRecent : chipsDrawn ? ids.searchChips : undefined}
       enabled={active.visible} edges={{left: keyboardRow ?? ids.searchKeyboardRow(0)}} style={tvSearchR46.results}>
-      <ScrollView ref={scroll} onContentSizeChange={(_width, height) => setContentHeight(height)} onLayout={event => setViewport(current => ({...current, height: event.nativeEvent.layout.height}))} contentContainerStyle={{paddingBottom: 72}} scrollEventThrottle={100} onScroll={event => {
+      <ScrollView ref={scroll} onContentSizeChange={(_width, height) => setContentHeight(height)} onLayout={event => setViewport(current => ({...current, height: event.nativeEvent.layout.height}))} contentContainerStyle={{paddingLeft: tvSearchFocusRoom, paddingTop: tvSearchFocusRoom, paddingBottom: 72}} scrollEventThrottle={100} onScroll={event => {
         setViewport({y: event.nativeEvent.contentOffset.y, height: event.nativeEvent.layoutMeasurement.height});
         if (state.group === 'all' || state.search.phase !== 'ready') return;
         const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
@@ -168,7 +174,7 @@ export function TVSearchScreen({focusScope, destination, runtime, activation, ex
           previousFallback={sections[index - 1] ? ids.searchSection(sections[index - 1]!.id) : top ? ids.searchTop : undefined}
           nextRegion={sections[index + 1] ? ids.searchSection(sections[index + 1]!.id) : undefined}
           screenStart={keyboardKey ? {regionId: keyboard, childId: keyboardKey} : undefined} scrollY={viewport.y} viewportHeight={viewport.height}
-          contentRoot={contentRoot} width={resultsWidth} layoutRevision={contentHeight} paging={state.group === 'all' ? state.paging?.[group.id] : {loading: state.search.phase === 'loading', error: state.search.error}}/>)}
+          contentRoot={contentRoot} width={resultsWidth} focusRoom={tvSearchFocusRoom} layoutRevision={contentHeight} paging={state.group === 'all' ? state.paging?.[group.id] : {loading: state.search.phase === 'loading', error: state.search.error}}/>)}
       </View></ScrollView>
     </FocusRegion>
     {selection?.render(path => {const source = runtime.artwork(path); return source ? <Artwork source={source} width={48} height={48}/> : undefined;})}

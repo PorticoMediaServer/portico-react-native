@@ -46,7 +46,7 @@ export function TVOfflineServers(props: Props) {
       onSettings={props.onSettings ? action(props.onSettings) : undefined} onJoin={props.onJoin ? action(props.onJoin) : undefined} onFind={props.onFind ? action(props.onFind) : undefined} onRefresh={action(props.onRefresh)} onBack={action(props.onBack)}/>;
   }
   return <FocusProvider><TVOfflineList rows={props.rows} busy={props.busy} activeId={props.activeId} retryIn={props.retryIn} retryProgress={props.retryProgress}
-    onRetry={props.onRetry} onRefresh={props.onRefresh} onBack={props.onBack} current={current}/></FocusProvider>;
+    onRetry={props.onRetry} onRefresh={props.onRefresh} current={current}/></FocusProvider>;
 }
 
 /** connect37 at ten feet: every server with the cached last-seen fact the directory
@@ -54,17 +54,17 @@ export function TVOfflineServers(props: Props) {
  * action as the drawn entry. A retry — that row's own, the automatic one, or
  * Refresh — disables and detaches every control, so the list asks for that entry
  * again when the pending run ends. */
-function TVOfflineList({rows, busy, activeId, retryIn, retryProgress, current, onRetry, onRefresh, onBack}: {
+function TVOfflineList({rows, busy, activeId, retryIn, retryProgress, current, onRetry, onRefresh}: {
   rows: readonly DirectoryRow[]; busy: boolean; activeId?: string; retryIn?: number; retryProgress?: number; current: () => boolean;
-  onRetry: (id: string) => void; onRefresh: () => void; onBack: () => void;
+  onRetry: (id: string) => void; onRefresh: () => void;
 }) {
   const t = defaultI18n.t, theme = useTheme(), first = rows[0], now = Date.now();
   const entryRevision = useTVBusyEntryRevision(busy);
   useDestinationEntryFocus({visible: !busy, intent: 'enter', revision: entryRevision},
     first ? {regionId: 'accounts.offline.rows', childId: `retry:${first.id}`} : undefined);
   return <View testID="tv-offline-servers" style={{flex: 1, backgroundColor: theme.colors.ink}}>
-    <ColourBackdrop shape="top"/>
-    <ScrollView contentContainerStyle={{padding: 64, gap: 24}}>
+    <ColourBackdrop shape="side" fill/>
+    <ScrollView contentContainerStyle={{paddingHorizontal: theme.layout.gutter.tvAuth, paddingTop: 80, paddingBottom: 80, gap: 24}}>
       <Text style={[theme.type.captionStrong, {color: theme.colors.textSecondary}]}>{t('accounts.session.portico')}</Text>
       <Text accessibilityRole="header" style={[nativeType({size: 44, lineHeight: 52, weight: 700, tracking: -.03}, theme.textScale), {color: theme.colors.text}]}>{t('accounts.tvOffline.title')}</Text>
       <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('accounts.tvOffline.body')}</Text>
@@ -94,7 +94,6 @@ function TVOfflineList({rows, busy, activeId, retryIn, retryProgress, current, o
       <Text style={[nativeType({size: 22, lineHeight: 33, weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textTertiary, marginTop: 6, maxWidth: 1100}]}>{t('accounts.tvOffline.help')}</Text>
       <View style={{flexDirection: 'row', gap: 24}}>
         <Button variant="text" disabled={busy} onPress={() => {if (current()) onRefresh();}}>{t('accounts.servers.refresh')}</Button>
-        <Button variant="text" disabled={busy} onPress={() => {if (current()) onBack();}}>{t('action.back')}</Button>
       </View>
     </ScrollView>
   </View>;

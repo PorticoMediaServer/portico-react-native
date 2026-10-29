@@ -32,6 +32,7 @@ test('initial TV focus reanchors when the compact hero measurement arrives and i
     const runtime = {home: {subscribe() {}, getSnapshot: () => ({document, phase: 'ready'})}, playback: {},
       getSnapshot: () => ({authority: currentAuthority, libraries: [], selectionActive: false}), selection: () => ({}), text: {t: (key: string) => key, locale: 'en-US'}};
     const {HomeScreen} = await screenModule(new URL('../src-next/screens/home/HomeScreen.tsx', import.meta.url), {
+    '../../kit/useMotion': {useMotion: () => ({transforms: true, reduce: false, timing: () => ({})})}, 
       react: {...h.react, useLayoutEffect: h.react.useEffect}, '@portico/design': {heroSpec},
       'react-native': {AppState: {currentState: 'active'}, RefreshControl: 'RefreshControl', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 1920, height: 1080})},
       'react-native-reanimated': {default: {ScrollView: 'ScrollView'}, runOnJS: (fn: unknown) => fn, useAnimatedScrollHandler: (fn: unknown) => fn, useSharedValue: (value: unknown) => h.react.useRef({value}).current},
@@ -53,7 +54,8 @@ test('initial TV focus reanchors when the compact hero measurement arrives and i
       './HomeHeroFacts': {}, './model': {authorizedHome: (value: unknown) => value, platformRows: () => [row], homeRowHasContent: () => true, initialHomeFocus: () => ({rowId: row.id, entryId: entry.id}), homeCardText: () => ({title: entry.title}), homePlayTarget: () => entry},
     });
     const render = (props = {}) => h.render(() => HomeScreen({runtime, authority, ...props}));
-    const rowBox = (tree: any) => descendants(tree).find(node => node.type === 'View' && node.props.onLayout);
+    // TV rows are wrapped by the row-shift frame (motion.html 4.1), which forwards the same row layout.
+    const rowBox = (tree: any) => descendants(tree).find(node => (node.type === 'View' || node.type?.name === 'TVHomeRowShift') && node.props.onLayout);
     let tree = render();
     const hero = descendants(tree).find(node => node.type === 'Hero');
     const candidate = {entry, target: {...entry, playback: {itemId: entry.id}}};

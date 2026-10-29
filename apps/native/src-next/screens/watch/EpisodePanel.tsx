@@ -6,6 +6,8 @@ import {durationText} from '../../../../../packages/client-core/src/presentation
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {Artwork, type ArtworkSource} from '../../kit/artwork';
 import {Button, Focusable, Switch} from '../../kit/controls';
+import {EpisodeTile} from '../../kit/cards';
+import Svg, {Defs, LinearGradient, Rect, Stop} from 'react-native-svg';
 import {FocusRegion} from '../../kit/focus';
 import {useTVPanelInteractive} from '../../kit/overlays/TVPanelMotion';
 import {useTheme} from '../../kit/theme';
@@ -86,13 +88,51 @@ export function NativeWatchEpisodes({controller, currentId, playing, text, artwo
           {isNext && <Text style={{fontFamily: 'Manrope-Bold', fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary}}>{t('player.queue')}</Text>}
         </View>
         <Text numberOfLines={1} style={{marginTop: 2, fontFamily: 'Manrope-SemiBold', fontSize: 12.5, fontWeight: '600', color: theme.colors.textTertiary}}>
-          {[episodeLabel(numbering(entry), 'player', text), entry.duration ? durationText(entry.duration, text.t) : undefined].filter(Boolean).join(' · ')}</Text>
+          {[episodeLabel(numbering(entry), 'player', text)?.text, entry.duration ? durationText(entry.duration, text.t) : undefined].filter(Boolean).join(' · ')}</Text>
         {progress !== undefined && <View style={{height: 3, borderRadius: 2, marginTop: 5, backgroundColor: 'rgba(237,245,250,.18)'}}>
           <View style={{height: 3, borderRadius: 2, width: `${progress * 100}%`, backgroundColor: theme.colors.accentStrong}}/></View>}
       </View>
       {isPlaying && playing && <View style={{width: 4, height: 24, borderRadius: 2, backgroundColor: theme.colors.accentStrong}}/>}
     </Focusable>;
   };
+  if (theme.isTV && !pane) {
+    // tv-player 1 / F-PLAYER-27: this season's episodes as a band over the bottom of the picture,
+    // with the title page's tiles; the playing one is marked and focus starts on it.
+    const tile = (entry: ContentEntry) => {
+      const isPlaying = entry.id === currentId, isNext = !isPlaying && nextUp?.id === entry.id;
+      const episode = episodeLabel(numbering(entry), 'player', text), label = episode ? [episode] : [];
+      return <EpisodeTile key={entry.id} menuAnchorRef={entry.id === initialId ? first : undefined} focusId={`episodes-${entry.id}`} testID={`episodes-${entry.id}`}
+        layout="tile" width={384} title={entry.displayTitle ?? entry.title} label={label} length={entry.duration ? durationText(entry.duration, text.t) : undefined}
+        status={isPlaying ? t('player.miniPlaying') : isNext ? t('player.queue') : undefined} watched={entry.watched}
+        progress={!isPlaying && entry.progressSeconds && entry.duration ? Math.max(0, Math.min(1, entry.progressSeconds / entry.duration)) : undefined}
+        artwork={artwork(entry.stillUrl ?? data?.show?.backdropUrl)} backdropFallback={!entry.stillUrl} primaryAction="play" onPlay={() => {if (!isPlaying) onPlay(entry);}}/>;
+    };
+    return <FocusRegion id="watch-episodes" orientation="free" entry={initialId ? `episodes-${initialId}` : 'watch-episodes-seasons'} enabled={interactive && !seasonsSheet} style={{flex: 1, justifyContent: 'flex-end'}}>
+      <Svg pointerEvents="none" width="100%" height={560} style={{position: 'absolute', left: 0, right: 0, bottom: 0}}><Defs><LinearGradient id="watch-episodes-band" x1="0" y1="0" x2="0" y2="1">
+        <Stop offset="0" stopColor={theme.colors.ink} stopOpacity={0}/><Stop offset=".38" stopColor={theme.colors.ink} stopOpacity={.78}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={.94}/></LinearGradient></Defs>
+        <Rect width="100%" height="100%" fill="url(#watch-episodes-band)"/></Svg>
+      <View testID="watch-episodes-panel" style={{paddingBottom: 56}}>
+        <View style={{flexDirection: 'row', alignItems: 'center', gap: 24, paddingHorizontal: 96, marginBottom: 8}}>
+          <Text accessibilityRole="header" numberOfLines={1} style={[theme.type.heading, {color: theme.colors.text, flexShrink: 1}]}>{t('title.episodes')}</Text>
+          <Button ref={seasonOpener} testID="watch-episodes-seasons" focusId="watch-episodes-seasons" variant="glass" trailingIcon="i-chdown" onPress={openSeasons}>{seasonLabel}</Button>
+        </View>
+        {/* Room above and below for the focused tile's 1.08 scale and ring inside the clipping scroll. */}
+        <ScrollView ref={scroll} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: 96, paddingVertical: 28, gap: 28}} scrollEventThrottle={32}
+          onScroll={event => {
+            const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
+            if (contentSize.width - contentOffset.x - layoutMeasurement.width < layoutMeasurement.width) void controller.moreEpisodes().catch(() => {});
+          }}>
+          {loading && !episodes.length && <Text style={[theme.type.body, {color: theme.colors.textTertiary}]}>{t('next.states.loading')}</Text>}
+          {episodes.map(tile)}
+        </ScrollView>
+      </View>
+      <NativeSeasonsSheet open={!!seasonsSheet} returnFocusRef={seasonOpener} onOpenChange={value => {if (value) openSeasons(); else closeSeasons();}} seasons={seasons}
+        total={data?.seasonTotalCount ?? seasons.length} selectedId={selected}
+        onSelect={id => {const sheet = seasonsSheet; closeSeasons(); if (sheet) void controller.season(id, sheet).catch(() => {});}}
+        onMore={() => {void controller.moreSeasons().catch(() => {});}}
+        hideWatched={snapshot.place.hideWatched} onHideWatched={value => {if (seasonsSheet) void controller.hideWatched(value, seasonsSheet).catch(() => {});}}/>
+    </FocusRegion>;
+  }
   const body = <View testID="watch-episodes-panel" style={{flex: 1, backgroundColor: pane ? 'transparent' : theme.colors.raised, borderRadius: pane || theme.isTV ? 0 : 20, overflow: 'hidden'}}>
     {!pane && <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8}}>
       <Text accessibilityRole="header" numberOfLines={1} style={{fontFamily: 'Manrope-ExtraBold', fontSize: 18, fontWeight: '800', letterSpacing: -.02, color: theme.colors.text, flexShrink: 1}}>{t('title.episodes')}</Text>

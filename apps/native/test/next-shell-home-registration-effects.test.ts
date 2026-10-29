@@ -66,6 +66,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     react, 'react-native': native, '../../../../../packages/client-core/src/presentation/errors': errorPresentation, '../../shell/model': shellModel,
   });
   const {HomeScreen} = await screenModule(source('screens/home/HomeScreen.tsx'), {
+    '../../kit/useMotion': {useMotion: () => ({transforms: true, reduce: false, timing: () => ({})})}, 
     '../../../../../packages/client-core/src/presentation/errors': errorPresentation,
     '../../platform/platformPosture': {usePlatformPosture: () => ({status: 'unavailable', folds: []})},
     // Physical page Back and recovery paint are outside this registration fixture;
@@ -140,7 +141,8 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
     const initial = React.useRef({body, track, index});
     React.useLayoutEffect(() => {
       const {body: attachedBody, track: attachedTrack, index: attachedIndex} = initial.current;
-      const view = nodes(attachedBody).find(node => node.type === 'View' && node.props.onLayout)!;
+      // TV rows sit in the row-shift frame (motion.html 4.1), which forwards the same row layout.
+      const view = nodes(attachedBody).find(node => (node.type === 'View' || node.type?.name === 'TVHomeRowShift') && node.props.onLayout)!;
       view.props.onLayout({nativeEvent: {layout: {y: attachedIndex ? 1600 : tv ? 820 : 588, height: 350}}});
       const nativeTrack = nodes(attachedTrack).find(node => node.type === 'AnimatedScrollView');
       const ref = nativeTrack?.props.ref;

@@ -114,8 +114,9 @@ export function NativeCollectionScreen(props: NativeCollectionScreenProps) {
     {tv ? <ScrollView>{hero}<View style={{paddingLeft: 200, paddingRight: 96, paddingTop: 34, paddingBottom: 80}}>
       {toolbar}
       {status}
+      {/* The row runs from the screen edge so focused cards slide under the rail instead of a clip at x 200. */}
       {!failed && !empty && <WindowedRow testID="collection-row" collection={collection} getKey={nativeCollectionEntryKey} itemWidth={214} itemHeight={321} captionHeight={72}
-        gap={28} gutter={0} rightGutter={24} renderPlaceholder={placeholder}
+        gap={28} gutter={200} rightGutter={96} style={{marginLeft: -200, marginRight: -96}} renderPlaceholder={placeholder}
         renderItem={(entry, context) => <CollectionCard entry={entry} width={214} runtime={runtime} onOpen={props.onOpen} actions={actions}
           selection={selection?.item(entry)} onFocus={context.onFocus} onBlur={context.onBlur}/>}/>}
     </View></ScrollView>

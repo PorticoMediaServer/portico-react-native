@@ -38,7 +38,11 @@ function Row<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, i
   const columnGap = gap ?? (theme.isTV ? 28 : 12), leading = gutter ?? theme.gutter, trailing = rightGutter ?? leading;
   const stride = itemWidth + columnGap;
   const [width, setWidth] = useState(0), [scroll, setScroll] = useState(0), [focused, setFocused] = useState<number>();
-  const anchor = useFocusAnchor(true, focused !== undefined);
+  // tv-focus "Rows and grids": on TV the focused card holds the left slot and the row slides under it, as Row does.
+  const anchor = useFocusAnchor(true, focused !== undefined, theme.isTV ? 'start' : 'visible');
+  // A horizontal ScrollView clips its content. On TV reserve the focused card's 1.08 scale and
+  // outer ring above and below the track without moving the drawn card edge (as Row does).
+  const ringRoom = theme.isTV ? Math.ceil(itemHeight * (theme.spec.focus.scale.card.tv - 1) / 2 + (theme.spec.focus.offsetOuter.tv + theme.spec.focus.ringWidth.tv) * theme.spec.focus.scale.card.tv) : 0;
   const snapshot = useSyncExternalStore(collection.subscribe, collection.getSnapshot, collection.getSnapshot);
   // Before the first page answers, the cells that fit stand in as placeholders.
   const total = snapshot.total ?? Math.max(1, Math.ceil(width / stride));
@@ -60,7 +64,9 @@ function Row<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, i
   // As in WindowedGrid: the last focused card keeps its page until another takes focus.
   useEffect(() => {if (focused !== undefined) collection.pin(focused);}, [collection, focused]);
   useEffect(() => () => collection.pin(undefined), [collection]);
-  const extent = leading + Math.max(0, total * stride - columnGap) + trailing;
+  const naturalExtent = leading + Math.max(0, total * stride - columnGap) + trailing;
+  // As Row: on TV every card, a short row's last one included, can reach the left slot (blank track, never a stop).
+  const extent = theme.isTV && total > 0 && width > 0 ? Math.max(naturalExtent, width + (total - 1) * stride) : naturalExtent;
   const reported = useSharedValue(-1), offset = anchor.offset;
   const onScroll = useAnimatedScrollHandler(event => {
     offset.value = event.contentOffset.x;
@@ -70,10 +76,10 @@ function Row<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, i
   const indices: number[] = [];
   for (let index = first; index <= last; index++) indices.push(index);
   if (focused !== undefined && focused < total && !indices.includes(focused)) indices.push(focused);
-  return <Animated.ScrollView ref={anchor.scrollRef} horizontal testID={testID} style={[style, anchor.scrollStyle]} showsHorizontalScrollIndicator={false}
+  return <Animated.ScrollView ref={anchor.scrollRef} horizontal testID={testID} style={[style, ringRoom ? {marginVertical: -ringRoom} : undefined, anchor.scrollStyle]} showsHorizontalScrollIndicator={false}
     onLayout={event => setWidth(event.nativeEvent.layout.width)} onScroll={onScroll} scrollEventThrottle={16}
     onScrollBeginDrag={anchor.stop} onTouchStart={anchor.stop} scrollAnimationEnabled={false} removeClippedSubviews={false}>
-    <View style={{width: extent, height: itemHeight}}>
+    <View style={{width: extent, height: itemHeight + 2 * ringRoom}}>
       {indices.map(index => {
         const slot = collection.slotAt(index), id = slot.kind === 'item' ? getKey(slot.item) : slot.key;
         const focus = () => {
@@ -82,7 +88,7 @@ function Row<T>({collection, getKey, renderItem, renderPlaceholder, itemWidth, i
           if (slot.kind === 'item') onItemFocus?.(slot.item, index);
         };
         return <View key={id} testID={testID ? `${testID}-cell-${id}` : undefined}
-          style={{position: 'absolute', top: 0, left: leading + index * stride, width: itemWidth, height: itemHeight}}>
+          style={{position: 'absolute', top: ringRoom, left: leading + index * stride, width: itemWidth, height: itemHeight}}>
           {slot.kind === 'item' ? renderItem(slot.item, {index, id, selection: itemSelection(selection, id), onFocus: focus,
             onBlur: () => setFocused(current => current === index ? undefined : current)}) : renderPlaceholder(index)}
         </View>;

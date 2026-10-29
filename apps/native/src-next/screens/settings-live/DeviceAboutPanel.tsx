@@ -33,8 +33,8 @@ export function DeviceAboutPanel({context, lifetime, t, runtime, openRoute}: Nat
       <Text style={[shellType(theme.isTV ? 20 : 13, 400, theme.isTV ? 29 : 19), {color: theme.colors.textTertiary}]}>{t('about.legal')}</Text>
       <Text style={[shellType(theme.isTV ? 20 : 13, 400, theme.isTV ? 29 : 19), {color: theme.colors.textTertiary}]}>{t('about.datasetCredit')}</Text>
     </View>
-    <SettingsRow first label={t('about.appVersion')} value={context.appVersion}/>
-    <SettingsRow label={t('about.server')} value={context.serverName}/>
+    <SettingsRow first testID="settings-app-version" label={t('about.appVersion')} value={context.appVersion}/>
+    <SettingsRow testID="settings-server-name" label={t('about.server')} value={context.serverName}/>
     {serverVersion !== undefined && <SettingsRow testID="settings-server-version" label={t('about.serverVersion')} value={serverVersion}/>}
     {versionError !== undefined && <StateView {...runtime.error(versionError, () => setRetry(value => value + 1))}/>}
     <SettingsRow testID="settings-open-licenses" label={t('licenses.title')} value={t('next.settingsSpec.account.device.groups.5.rows.3.control.label')} onPress={() => {lifetime.assert(); openRoute({kind: 'licenses'});}}/>

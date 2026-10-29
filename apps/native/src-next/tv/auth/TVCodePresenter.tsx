@@ -25,7 +25,10 @@ export function TVCodePresenter(props: TVCodePresenterProps) {
 }
 function CodePresenter(props: TVCodePresenterProps) {
   const theme = useTheme(), id = `tv.auth.${props.mode}.code`, t = defaultI18n.t, material = glassRecipe();
-  const address = props.verificationUri ? new URL(props.verificationUri) : undefined;
+  const address = (() => {
+    if (!props.verificationUri) return undefined;
+    try {const url = new URL(props.verificationUri); return `${url.host}${url.pathname}`;} catch {return props.verificationUri;}
+  })();
   const entryRevision = useTVBusyEntryRevision(props.busy);
   const [, updateDeadline] = useState(0);
   useEffect(() => {
@@ -50,8 +53,8 @@ function CodePresenter(props: TVCodePresenterProps) {
       {props.verificationUriComplete && <View style={{width: 300, height: 300, padding: 20, marginBottom: 34, borderRadius: 20, backgroundColor: theme.colors.white}}>
         <QRCode value={props.verificationUriComplete} size={260}/>
       </View>}
-      <Text selectable style={[type(30, 700), {color: theme.colors.textSecondary}]}>{address ? `${address.host}${address.pathname}` : undefined}</Text>
-      {(props.userCode || !props.onNewCode) && <Text selectable style={[type(90, 800, 1.05), {color: theme.colors.text, letterSpacing: 3.6, fontVariant: ['tabular-nums'], marginTop: 10, marginBottom: 16}]}>{props.userCode ?? t('activation.preparingCode')}</Text>}
+      <Text selectable style={[type(30, 700), {color: theme.colors.textSecondary}]}>{address}</Text>
+      {(props.userCode || !props.onNewCode) && <Text selectable style={[type(90, 800, 1.05), {color: theme.colors.text, letterSpacing: 3.6, fontVariant: ['tabular-nums'], marginTop: 10, marginBottom: 16}]}>{props.userCode ? props.userCode.split('-').flatMap((part, index) => index ? [<Text key={index} style={{color: theme.colors.textTertiary}}>-</Text>, part] : [part]) : t('activation.preparingCode')}</Text>}
       {!props.onNewCode && <Text style={[type(21), {color: theme.colors.textTertiary, textAlign: 'center'}]}>{t('activation.codeRefreshes')}</Text>}
     </View>
   </View>;

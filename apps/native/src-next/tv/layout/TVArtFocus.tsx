@@ -2,7 +2,8 @@ import React, {useEffect} from 'react';
 import {View} from 'react-native';
 import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import {focusSpec} from '@portico/design';
-import {colorAlpha, focusScale} from '../../kit/controls/control-model';
+import {focusScale} from '../../kit/controls/control-model';
+import {tvFocusGlow} from '../../kit/controls/Focusable';
 import {useTheme} from '../../kit/theme';
 import {useMotion} from '../../kit/useMotion';
 
@@ -26,8 +27,7 @@ export function TVArtFocus({focused, width, faceSize, face, children}: {
       {face}
       <Animated.View pointerEvents="none" accessible={false} style={[{position: 'absolute', inset: -gap, borderRadius: faceSize / 2 + gap, borderWidth: gap, borderColor: colors.ink}, ring]}/>
       <Animated.View pointerEvents="none" accessible={false} style={[{position: 'absolute', inset: -outer, borderRadius: faceSize / 2 + outer,
-        borderWidth: focusSpec.ringWidth.tv, borderColor: colors.focus, shadowColor: colorAlpha(colors.accentStrong, focusSpec.glow.alpha),
-        shadowOffset: {width: focusSpec.glow.x, height: focusSpec.glow.y}, shadowOpacity: 1, shadowRadius: focusSpec.glow.blur / 2}, ring]}/>
+        borderWidth: focusSpec.ringWidth.tv, borderColor: colors.focus, boxShadow: tvFocusGlow(colors.accentStrong)}, ring]}/>
     </View>
     {children}
   </Animated.View>;
