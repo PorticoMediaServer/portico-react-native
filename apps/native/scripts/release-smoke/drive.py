@@ -158,6 +158,9 @@ def main():
         output, code, error = device.adb("install", "-r", "-d", args.apk)
         assert code == 0 and "Success" in output, f"adb install failed: {output or error}"
         device.adb("shell", "pm", "clear", PACKAGE)
+        # The password field is masked; also stop Android flashing the last typed character, so no
+        # screenshot or dump taken while signing in can carry any of it.
+        device.adb("shell", "settings", "put", "system", "show_password", "0")
         device.adb("logcat", "-c")
         return "installed and cleared"
 
