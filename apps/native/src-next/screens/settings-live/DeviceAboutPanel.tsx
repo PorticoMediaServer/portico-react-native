@@ -12,14 +12,16 @@ import {DeviceReportRow} from './DeviceReportRow';
 /** Installation facts already supplied by bootstrap; no guessed version or device name. */
 export function DeviceAboutPanel({context, lifetime, t, runtime, openRoute}: NativeSettingsPanelDeps & {runtime: NativeShellRuntime}) {
   const theme = useTheme();
-  const [serverVersion, setServerVersion] = useState<string>(), [versionError, setVersionError] = useState<unknown>(), [retry, setRetry] = useState(0);
+  const [serverVersion, setServerVersion] = useState<string>(), [serverApi, setServerApi] = useState<string>(), [versionError, setVersionError] = useState<unknown>(), [retry, setRetry] = useState(0);
   useEffect(() => {
     const caller = new AbortController();
-    setServerVersion(undefined); setVersionError(undefined);
+    setServerVersion(undefined); setServerApi(undefined); setVersionError(undefined);
     void lifetime.request(signal => context.api.request<RouteResponse<'get_system'>>(routePath('get_system'), 'GET', undefined, signal), caller.signal).then(system => {
       if (caller.signal.aborted || !lifetime.current()) return;
       if (system.id !== lifetime.authority.serverId || typeof system.version !== 'string' || !system.version.trim()) throw new Error('native_settings_server_version_invalid');
       setServerVersion(system.version);
+      // O-159: the server's API version (major.minor), so a report names both sides.
+      if (typeof system.apiVersion === 'string' && /^\d{1,6}\.\d{1,6}$/.test(system.apiVersion)) setServerApi(system.apiVersion);
     }).catch(error => {if (!caller.signal.aborted && lifetime.current()) setVersionError(error);});
     return () => caller.abort();
   }, [context, lifetime, retry]);
@@ -36,6 +38,7 @@ export function DeviceAboutPanel({context, lifetime, t, runtime, openRoute}: Nat
     <SettingsRow first testID="settings-app-version" label={t('about.appVersion')} value={context.appVersion}/>
     <SettingsRow testID="settings-server-name" label={t('about.server')} value={context.serverName}/>
     {serverVersion !== undefined && <SettingsRow testID="settings-server-version" label={t('about.serverVersion')} value={serverVersion}/>}
+    {serverApi !== undefined && <SettingsRow testID="settings-server-api" label={t('web.about.serverApi')} value={serverApi}/>}
     {versionError !== undefined && <StateView {...runtime.error(versionError, () => setRetry(value => value + 1))}/>}
     <SettingsRow testID="settings-open-licenses" label={t('licenses.title')} value={t('next.settingsSpec.account.device.groups.5.rows.3.control.label')} onPress={() => {lifetime.assert(); openRoute({kind: 'licenses'});}}/>
     {!Platform.isTV && <SettingsRow testID="settings-device-help" label={t('next.settingsSpec.account.device.groups.5.rows.4.label')} value={helpAddress} onPress={help}/>}

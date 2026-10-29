@@ -8,7 +8,7 @@ test('current native local sign-in probes before credentials, verifies the pin a
   let requirement: 'password' | 'two-step' | 'both' | undefined, logoutFails = false;
   const app = await standardHomeApp({setup: true, setupResponse: async (request: any, f: any) => {
     if (request.path === '/v1/system') return {status: 200, body: {id: f.pin.serverId, name: 'Synthetic local server', signIn: kind,
-      version: '1', move: null, setupRequired: false, hostedConfigured: false, hostedAttached: false, apiLevel: 1}};
+      version: '1', move: null, setupRequired: false, hostedConfigured: false, hostedAttached: false, apiLevel: 1, apiVersion: '1.0', apiMajors: [1], capabilities: []}};
     const snapshot = {authority: 'local', serverId: f.pin.serverId, canManage: true,
       capabilities: {manageAccount: true, managePeople: false, manageServer: false, manageSignIn: false},
       account: {id: 'account', username: 'synthetic_user', primaryProfileId: 'profile', role: 'member', revision: 1, disabled: false, allowedLibraries: []},

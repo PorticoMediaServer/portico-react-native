@@ -6,7 +6,7 @@ test('normal product entry signs in locally through actual React/native bridges 
   let kind = 'portico';
   const app = await standardHomeApp({mountUI: false, nativeResponse: async (request: any, f: any) => {
     if (request.path === '/v1/system') return {status: 200, body: {id: f.pin.serverId, name: 'Synthetic living room', version: '1', move: null, signIn: kind,
-      setupRequired: false, hostedConfigured: kind === 'portico', hostedAttached: kind === 'portico', apiLevel: 1}};
+      setupRequired: false, hostedConfigured: kind === 'portico', hostedAttached: kind === 'portico', apiLevel: 1, apiVersion: '1.0', apiMajors: [1], capabilities: []}};
     if (request.path === '/v1/direct/sign-in') {
       assert.equal(kind, 'local'); assert.equal(request.body.username, 'synthetic_user');
       assert.equal(request.body.password, 'synthetic_password');

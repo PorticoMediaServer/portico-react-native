@@ -15,7 +15,7 @@ function fixture() {
   const route = {pin: {serverId: 'server', fingerprint}, getSnapshot: () => ({phase: 'ready'})};
   const api = {getRouteConnection: () => route, request: async (path: string) => {
     requests.push(path);
-    return {id: serverId, name, version: '1', move: null, signIn: 'local', setupRequired: false, hostedConfigured: false, hostedAttached: false, apiLevel: 1};
+    return {id: serverId, name, version: '1', move: null, signIn: 'local', setupRequired: false, hostedConfigured: false, hostedAttached: false, apiLevel: 1, apiVersion: '1.0', apiMajors: [1], capabilities: []};
   }} as unknown as HttpLocalApi;
   const remember = () => rememberNativeServerDisplay(api, {serverId: 'server', signIn: 'local', isCurrent: () => current});
   return {records, requests, remember, name(value: string) {name = value;}, server(value: string) {serverId = value;},
