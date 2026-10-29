@@ -30,7 +30,7 @@ async function pickWith(outcome: 'hang' | 'reject' | 'ok') {
     './accounts': {nativeAccounts: {onCancel: () => () => {}, admission: async () => ({}), remember: async () => {}}},
     './server-connections': {nativeNetworkFetch: {}, nativeServerEnvironment: () => ({})},
     './session-revocation': {revokeInBackground: (rec: unknown, live: unknown) => {queued.push({record: rec, live}); return Promise.resolve();}},
-    '../shell/account-binding': {createNativeShellAccountBinding: () => ({assertCurrent: async () => {}, assertAccount: () => {}}), profileSessionRole: () => 'member'},
+    '../shell/account-binding': {createNativeShellAccountBinding: () => ({assertCurrent: async () => {}, assertAccount: () => {}, assertSameAccount: () => {}}), profileSessionRole: () => 'member'},
     './pick-failure': {logPickFailure() {}, provenIdentityMismatch: () => false},
   }) as typeof import('../src-next/platform/profile-selection.ts');
   const selection = module.nativeProfileSelection('srv', 'old');

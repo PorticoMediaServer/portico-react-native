@@ -19,6 +19,10 @@ export type NativeShellAccountBinding = Readonly<{
   current: () => boolean;
   assertCurrent: () => Promise<void>;
   assertAccount: (snapshot: DirectSnapshot) => void;
+  /** Identity only: the same server, account and Portico linkage, not disabled. For a snapshot
+   * read under another profile's session of this account (a profile switch), whose account role
+   * the server reports as that session's role (E-tv-41). The caller checks the new session's role. */
+  assertSameAccount: (snapshot: DirectSnapshot) => void;
 }>;
 
 /** Portico sign-in issues a local server session. Bind its real account snapshot to
@@ -49,6 +53,11 @@ export function createNativeShellAccountBinding(selected: AppServerSession, sess
     && value.connection.selectionId === selectionId && samePin(value.connection.pin) && sameSession(value.connection.session)
     && (hosted ? value.connection.hosted?.origin === hosted.origin && value.connection.hosted.accountId === hosted.accountId : !value.connection.hosted);
   const current = () => options.current() && samePin(options.pin()) && sameSession(options.session());
+  const sameAccount = (snapshot: DirectSnapshot) => {
+    if (!current()) throw cancelled();
+    if (snapshot.authority !== 'local' || snapshot.serverId !== viewer.serverId || snapshot.account.id !== viewer.accountId
+      || snapshot.account.disabled || hosted && snapshot.account.hostedAccountId !== hosted.accountId) throw changed();
+  };
   return Object.freeze({...(hosted ? {hostedAccountId: hosted.accountId} : {}), current,
     assertCurrent: async () => {
       if (!current()) throw cancelled();
@@ -57,10 +66,9 @@ export function createNativeShellAccountBinding(selected: AppServerSession, sess
       if (!sameSelection(latest)) throw changed();
     },
     assertAccount: (snapshot: DirectSnapshot) => {
-      if (!current()) throw cancelled();
-      if (snapshot.authority !== 'local' || snapshot.serverId !== viewer.serverId
-        || snapshot.account.id !== viewer.accountId || snapshot.account.disabled || profileSessionRole(snapshot.account, viewer.profileId) !== viewer.role
-        || hosted && snapshot.account.hostedAccountId !== hosted.accountId) throw changed();
+      sameAccount(snapshot);
+      if (profileSessionRole(snapshot.account, viewer.profileId) !== viewer.role) throw changed();
     },
+    assertSameAccount: (snapshot: DirectSnapshot) => {sameAccount(snapshot);},
   });
 }

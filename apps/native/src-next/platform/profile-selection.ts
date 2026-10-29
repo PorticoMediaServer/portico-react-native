@@ -45,7 +45,9 @@ export function nativeProfileSelection(serverId: string, familyId: string) {
         // account under that fresh grant before allowing it into protected storage.
         const account = parseDirectSnapshot(await api.request(routePath('get_direct_account'), 'GET', undefined, abort.signal),
           {authority: 'local', serverId, accountId: record.session.viewer.accountId}, true);
-        check(); accountBinding.assertAccount(account);
+        // E-tv-41: identity only. The snapshot was read under the new profile's session, so its account
+        // role is that session's role; the issued session's role is checked against it just below.
+        check(); accountBinding.assertSameAccount(account);
         if (profileSessionRole(account.account, issued.viewer.profileId) !== issued.viewer.role || !account.profiles.some(value => value.id === issued!.viewer.profileId))
           throw Object.assign(new Error('native_profile_selection_changed'), {code: 'identity_mismatch'});
         await accountBinding.assertCurrent(); check();

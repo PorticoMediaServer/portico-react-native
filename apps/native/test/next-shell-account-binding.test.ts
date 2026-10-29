@@ -78,3 +78,19 @@ test('same-epoch token rotation is allowed, a token-generation rollback is refus
   f.state.selected = {...f.selected, connection: {...f.selected.connection, session: {...f.session, tokenGeneration: '2'}}};
   await assert.rejects(f.binding.assertCurrent(), {code: 'identity_mismatch'});
 });
+
+// E-tv-41: switching from the owner's main profile to Guest verifies the account snapshot read
+// under the new Guest session. The server reports that snapshot's account role as the session's
+// role (member), so comparing it to the owner binding's role refused a valid switch. The cross-
+// profile check is identity only; the issued session's own role is checked against the snapshot.
+test('E-tv-41: a snapshot read under another profile of the same account passes the identity check', async () => {
+  const f = fixture();
+  const owner = {...f.session, viewer: {...f.session.viewer, role: 'owner' as const}};
+  const binding = createNativeShellAccountBinding(f.selected, owner, {current: () => true,
+    session: () => owner, pin: () => f.state.pin, readSelected: async () => f.selected});
+  const underGuest = {...f.snapshot, account: {...f.snapshot.account, role: 'member' as const}};
+  assert.doesNotThrow(() => binding.assertSameAccount(underGuest));
+  for (const change of [{id: 'other-account'}, {disabled: true}, {hostedAccountId: 'other-portico'}])
+    assert.throws(() => binding.assertSameAccount({...underGuest, account: {...underGuest.account, ...change}}), {code: 'identity_mismatch'});
+  assert.throws(() => binding.assertSameAccount({...underGuest, serverId: 'other-server'}), {code: 'identity_mismatch'});
+});
