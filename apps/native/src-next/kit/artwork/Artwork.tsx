@@ -8,14 +8,12 @@ import {useReducedMotion} from '../useMotion';
 import {artworkDescriptor} from '../../../../../packages/client-core/src/artwork/index';
 import {artworkArrivalDuration, artworkAttemptSource, artworkFrame} from './model';
 import type {ArtworkProps, ArtworkSource} from './types';
+import {Picture} from './Picture';
 
 type ScheduledProps = ArtworkProps & {source: ArtworkSource; boxWidth: number; boxHeight: number};
 /** A surface's authored picture fade (Home cards: 240 ms). An explicit prop wins;
  * reduced motion and cached art keep their own timing. */
 export const ArtworkArrivalContext = createContext<number | undefined>(undefined);
-// RN 0.83's ImageProps.js and Android native Image both support this decode
-// option; its bundled Image.d.ts omits it. This aliases the same Image host.
-const DecodedImage = Image as React.ComponentType<React.ComponentProps<typeof Image> & {resizeMultiplier?: number}>;
 
 function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resizeMode, position, zoom = 1, saturation = 1, brightness = 1, blurRadius, filter, priority = false, arrivalDurationMs, sized = false, imageStyle, imageOverlay, onReady, onLoad, onError, onStatusChange}: ScheduledProps) {
   const placement = useArtworkPlacement();
@@ -99,7 +97,7 @@ function ScheduledImage({source, boxWidth, boxHeight, alt, fit = 'cover', resize
     if (arrival.current) arrival.current.ready(reveal); else reveal();
   };
   return slot.active ? <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFillObject, {opacity, filter: filter ?? (saturation !== 1 || brightness !== 1 ? [{saturate: saturation}, {brightness}] : undefined)}]}>
-    <DecodedImage key={requestAttempt} source={artworkAttemptSource(source, uri, requestAttempt, sized ? undefined : {width: frame.width, height: frame.height, scale})}
+    <Picture key={requestAttempt} source={artworkAttemptSource(source, uri, requestAttempt, sized ? undefined : {width: frame.width, height: frame.height, scale})}
       accessible={Boolean(alt)} accessibilityLabel={alt} fadeDuration={0} blurRadius={blurRadius}
       // Decode at display size. iOS and tvOS decode to the declared painted
       // size × scale (the source's width, height and scale). Android decodes
