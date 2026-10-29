@@ -32,7 +32,7 @@ export function createNativeListeningSongDetail(context: NativeShellBootstrapCon
     const viewer = context.session()?.viewer;
     return viewer ? {serverId: viewer.serverId, viewerId: JSON.stringify([viewer.authority, viewer.accountId, viewer.profileId])} : undefined;
   };
-  const authorityKey = () => {const authority = context.authority(); return JSON.stringify([authority.serverId, authority.accountId, authority.profileId, authority.epoch, authority.viewerFence]);};
+  const authorityKey = () => {const authority = context.authority(); return JSON.stringify([authority.serverId, authority.accountId, authority.profileId, authority.epoch, authority.privacyFence ?? authority.viewerFence]);};
   // Only the accepted window for exactly this queue and revision may state a row's availability.
   // A mismatch, duplicate row or missing fact stays unknown, so a visible drawn slot is never
   // taken as admission; the entry is never cast or assumed available.

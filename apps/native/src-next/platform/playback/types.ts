@@ -35,7 +35,8 @@ import type {PlayerChapter, PlayerChaptersData, PlayerChaptersSnapshot} from '..
 import type {NativeStartArtworkOffer, NativeStartPresentation, NativeFirstVideoFrame} from './start-presentation';
 import type {PolicyView} from '../../../../../packages/player-core/src/playback-policy';
 
-export type PlaybackAuthority = Readonly<{serverId: string; accountId: string; profileId: string; epoch: string; viewerFence: string}>;
+/** H-11: keyed on `privacyFence ?? viewerFence` (like the shell's `authorityKey`), never the library list. */
+export type PlaybackAuthority = Readonly<{serverId: string; accountId: string; profileId: string; epoch: string; viewerFence: string; privacyFence?: string}>;
 export type NativePlaybackStart = Readonly<{entry: ContentEntry; target: NonNullable<ContentEntry['playback']>; origin?: Readonly<{kind: 'home-row'; rowId: string}>;
   /** Ordinary Play/Resume asks the server for its current position. */
   startIntent?: 'resume' | 'start-over' | 'explicit';

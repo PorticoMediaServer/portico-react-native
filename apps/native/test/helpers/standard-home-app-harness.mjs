@@ -331,12 +331,13 @@ const loader = registerHooks({
  * resolve from source unchanged; no runtime prop or business facade is supplied.
  * Native secure records contain synthetic test credentials, never device state.
  */
-/** @param {{setup?: boolean, mountUI?: boolean, accountRole?: 'owner' | 'member', deleteCapability?: boolean, nativeResponse?: (request: any, fixture: any) => Promise<any>, setupResponse?: (request: any, fixture: any) => Promise<any>}} options */
+/** @param {{setup?: boolean, mountUI?: boolean, accountRole?: 'owner' | 'member', deleteCapability?: boolean, privacyFence?: string, nativeResponse?: (request: any, fixture: any) => Promise<any>, setupResponse?: (request: any, fixture: any) => Promise<any>}} options */
 export async function standardHomeApp({
   setup = false,
   mountUI = true,
   accountRole = 'member',
   deleteCapability = false,
+  privacyFence,
   nativeResponse,
   setupResponse,
 } = {}) {
@@ -425,7 +426,9 @@ export async function standardHomeApp({
       : JSON.stringify(selectedViewerRecord(origin, session, true)),
     lease = 0,
     homeVersion = 1,
-    homeFence = 'home-fence';
+    homeFence = 'home-fence',
+    /** @type {string | undefined} H-11: absent like an older server unless a test sets it. */
+    homePrivacy = privacyFence;
   const backend = new FakePlaybackServer({
     viewer,
     deviceId: installationId,
@@ -494,6 +497,7 @@ export async function standardHomeApp({
   const homeDoc = () => ({
     serverId: pin.serverId,
     viewerFence: homeFence,
+    ...(homePrivacy !== undefined ? {privacyFence: homePrivacy} : {}),
     rows: [homeRow()],
     spotlight: [],
     layout: {revision: 1, rowOrder: ['continue'], hiddenRowIds: []},
@@ -1000,6 +1004,13 @@ export async function standardHomeApp({
       if (!button)
         throw Error('Real Home registered phone menu did not offer Play');
       button.props.onPress({nativeEvent: {}, stopPropagation() {}});
+      await settle();
+    },
+    /** H-11: the next Home read answers these fences (a library change, or a privacy change). */
+    async changeHome(fences) {
+      homeFence = fences.viewerFence ?? homeFence;
+      if ('privacyFence' in fences) homePrivacy = fences.privacyFence;
+      for (const listener of [...state.appState]) listener('active');
       await settle();
     },
     async retireHome() {

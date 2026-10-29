@@ -7,6 +7,7 @@ import {bindNativeTogether} from '../screens/settings-live/together-playback';
 import {audiobookPreferences} from '../../../../packages/client-core/src/audiobook-preferences';
 import {routePath, type RouteResponse} from '../../../../packages/contracts/src/routes';
 import {HomeService} from '../../../../packages/client-core/src/home-service';
+import {homeShellFence} from '../../../../packages/client-core/src/home';
 import type {DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
 import {IdentityClient} from '../../../../packages/client-core/src/identity-client';
 import {currentPreferenceSnapshot, type PreferenceSnapshot} from '../../../../packages/client-core/src/preferences';
@@ -239,10 +240,20 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     installationSettings = await records.change('preferences:v1', raw => ({record: raw, value: raw}));
     assertCurrent();
     let unread = 0;
+    let viewerFence = document.viewerFence;
     const authority: ShellAuthority = Object.freeze({serverId: session.viewer.serverId, accountId: session.viewer.accountId, profileId: session.viewer.profileId,
       // H-11: the whole shell is keyed on this authority. Only a new family, profile, PIN, privacy
-      // fence or sign-out may change it; a token renewal sliding the inactivity horizon must not.
-      epoch: JSON.stringify([session.sessionFamilyId, profile.revision, profile.pinRevision]), viewerFence: document.viewerFence});
+      // fence or sign-out may change it; a token renewal sliding the inactivity horizon must not,
+      // and neither may a library added or removed. That only moves `viewerFence`, read live by
+      // Home-data checks, while this object (and everything keyed on it) stays the same.
+      epoch: JSON.stringify([session.sessionFamilyId, profile.revision, profile.pinRevision]), get viewerFence() {return viewerFence;},
+      ...(document.privacyFence !== undefined ? {privacyFence: document.privacyFence} : {})});
+    let publishedFence = viewerFence;
+    // Subscribed before any Home reader, so every later subscriber already sees the new fence.
+    cleanups.push(documentService.subscribe(() => {
+      const next = documentService.getSnapshot().document;
+      if (alive && next && next.serverId === authority.serverId && homeShellFence(next) === (authority.privacyFence ?? viewerFence)) viewerFence = next.viewerFence;
+    }));
     const scopeIdentity = authorityKey(authority);
     let invalidReported = false;
     const current = () => {
@@ -487,7 +498,10 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     };
     cleanups.push(bound.subscribe(publish), local.subscribeRoute(routeChanged), documentService.subscribe(() => {
       const next = documentService.getSnapshot().document;
-      if (ready && current() && next && (next.serverId !== authority.serverId || next.viewerFence !== authority.viewerFence)) end();
+      if (!ready || !current() || !next) return;
+      if (next.serverId !== authority.serverId || homeShellFence(next) !== (authority.privacyFence ?? authority.viewerFence)) {end(); return;}
+      // A library added or removed: same shell and player, Home-data checks follow the new fence.
+      if (publishedFence !== viewerFence) {publishedFence = viewerFence; publish();}
     }));
     let expanded = playback.getSnapshot().dock.local?.expanded === true;
     cleanups.push(playback.subscribe(() => {const next = playback!.getSnapshot().dock.local?.expanded === true; if (next !== expanded) {expanded = next; publish();}}));
