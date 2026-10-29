@@ -323,7 +323,7 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   useDestinationEntryFocus(active, emptyShown && theme.isTV ? {regionId: emptyRegion, childId: 'browse-home'} : undefined);
   const pivots: Readonly<Record<string, string>> = {movie: 'movies', show: 'shows', episode: 'episodes', artist: 'artists', album: 'albums', song: 'songs', book: 'books', author: 'authors', series: 'series', ebook: 'books', comic: 'titles'};
   const choices = libraries.filter(library => !theme.isTV || !hiddenReadingLibraryOnTV(library.kind)).map(library => {
-    const summary = summaries.libraries.find(value => value.id === library.id)?.summary;
+    const summary = library.id === state.library.id && importingReading(state) !== undefined ? undefined : summaries.libraries.find(value => value.id === library.id)?.summary;
     return {id: library.id, name: library.name, count: summary && <View style={{flexDirection: 'row', gap: 12}}>{summary.counts.filter(part => pivots[part.kind]).map(part => <Text key={part.kind}
       style={[browseType(theme, theme.isTV ? 22 : 14), {color: theme.colors.textTertiary}]}>{defaultI18n.t(part.atLeast ? 'lib.countAtLeast' : 'lib.count', {count: part.count, pivot: pivots[part.kind]})}</Text>)}</View>};
   });
@@ -559,10 +559,13 @@ export function LibraryGrid({destination, runtime, activation, actions, labels, 
   const base = source.tab.fixedFilter ?? [], filtered = JSON.stringify(source.predicates) !== JSON.stringify(base);
   const applied = libraryAppliedFilters(toolbar.applied.filter(node => !base.some(fixed => JSON.stringify(fixed) === JSON.stringify(node))), source.capabilities!, labels);
   const appliedRegion = `${ids.libraryToolbar(source.library.id)}.applied`;
-  const alphabet = !!state.positionIndex && state.total !== undefined && source.sort?.field === 'title' && source.sort.direction === 'asc' && !source.predicates.length;
+  // An importing Reading page has no letter anchors (P2-59): no rail at all, never an empty one.
+  const alphabet = jumpLetters.length > 0 && state.total !== undefined && source.sort?.field === 'title' && source.sort.direction === 'asc' && !source.predicates.length;
   const tabletGeometry = tablet ? libraryTabletGridGeometry(paneWidth, {expanded, rail: alphabet}) : undefined;
   const total = source.unfilteredTotal;
-  const count = state.total === undefined ? undefined : filtered && total
+  // While importing, the page counts nothing (states.html frame 15): no exact and no lower-bound count.
+  const countsNothing = importingReading(source) !== undefined;
+  const count = state.total === undefined || countsNothing ? undefined : filtered && total
     ? defaultI18n.t('title.shownOfTotal', {shown: `${defaultI18n.number(state.total)}${state.totalIsLowerBound ? defaultI18n.t('next.browse.native.countPlus') : ''}`,
       total: defaultI18n.t(total.totalIsLowerBound ? 'lib.countAtLeast' : 'lib.count', {count: total.total, pivot: source.tab.pivot ?? 'other'})})
     : defaultI18n.t(state.totalIsLowerBound ? 'lib.countAtLeast' : 'lib.count', {count: state.total, pivot: source.tab.pivot ?? 'other'});
@@ -615,7 +618,7 @@ export function LibraryGrid({destination, runtime, activation, actions, labels, 
       {/* tv4 .active-f .count sits 18 after Clear all; phone and tablet keep the right edge. */}
       {count && theme.platform !== 'phone' && (theme.isTV || dockedFilters) && <Text style={[browseType(theme, theme.isTV ? 22 : 13, 600), {color: theme.colors.textTertiary, marginLeft: theme.isTV ? 18 : 'auto'}]}>{count}</Text>}
     </FocusRegion> : count && theme.platform !== 'phone' && (theme.isTV || dockedFilters) && <Text style={[browseType(theme, theme.isTV ? 22 : 13, 600), {color: theme.colors.textTertiary, marginHorizontal: theme.isTV ? theme.gutter : rowGutter, marginTop: theme.isTV ? 24 : 10, marginBottom: theme.isTV ? 40 : 10}]}>{count}</Text>}
-    {count && theme.platform === 'phone' && <LibraryResultCount phone controls={<ViewToggle value={view.mode} onValueChange={changeView}/>}>{count}</LibraryResultCount>}
+    {(count || countsNothing) && theme.platform === 'phone' && <LibraryResultCount phone controls={<ViewToggle value={view.mode} onValueChange={changeView}/>}>{count}</LibraryResultCount>}
     {state.status === 'error' && <StateView {...runtime.error(state.error, destination.retry)}/>}
     <LibraryGridRegion id={gridRegion} enabled={active.visible} entry={firstAddress?.childId ?? firstKey} grid={theme.isTV ? {columns: measuredColumns, count: state.total} : undefined}
       edges={theme.isTV ? {left: ids.rail, up: applied.length ? appliedRegion : ids.libraryToolbar(source.library.id)} : undefined}

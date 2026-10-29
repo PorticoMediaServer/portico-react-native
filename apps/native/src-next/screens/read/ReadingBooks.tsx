@@ -89,7 +89,9 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
   const base = (state.tab.fixedFilter ?? []) as readonly BrowseNode[];
   const filtered = JSON.stringify(state.predicates) !== JSON.stringify(base);
   const total = page?.total, unfiltered = state.unfilteredTotal;
-  const resultCount = total === undefined ? '' : filtered && unfiltered
+  // While importing, the page counts nothing (states.html frame 15): no exact and no lower-bound count.
+  const importing = state.importing === true || state.capabilities?.importing === true;
+  const resultCount = total === undefined || importing ? '' : filtered && unfiltered
     ? defaultI18n.t('title.shownOfTotal', {shown: `${defaultI18n.number(total)}${page?.totalIsLowerBound ? defaultI18n.t('next.browse.native.countPlus') : ''}`,
         total: defaultI18n.t(unfiltered.totalIsLowerBound ? 'lib.countAtLeast' : 'lib.count', {count: unfiltered.total, pivot: pivot ?? 'other'})})
     : defaultI18n.t(page?.totalIsLowerBound ? 'lib.countAtLeast' : 'lib.count', {count: total, pivot: pivot ?? 'other'});
@@ -155,7 +157,8 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
   const pane = filters && docked ? filterWidth : 0;
   // tablet-read#1b draws the A-Z rail beside the Books grid, beside the docked
   // Filters too; it is shown while the server publishes letters for this sort.
-  const alphabet = !!page?.positionIndex && page.total !== undefined && sort?.field === 'title' && sort.direction === 'asc';
+  // An importing page has no letter anchors (P2-59): no rail at all, never an empty one.
+  const alphabet = !!page?.positionIndex && Object.keys(page.positionIndex).length > 0 && page.total !== undefined && sort?.field === 'title' && sort.direction === 'asc';
   // The drawn grid: seven across with 20/30 gaps; the docked pane's own four-across
   // drawing uses 14/22 and slightly narrower cards. Columns follow the real room and
   // never force a card wider than it, so a small landscape pane cannot overflow.
@@ -201,7 +204,7 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
       : collection ? <View style={{flex: 1, flexDirection: 'row'}}>
         {total === 0 ? (filtered
           ? <View style={{flex: 1}}><FilteredEmpty testID="reading-books-filtered-empty" onClearFilters={() => applyQuery(base)}/></View>
-          : state.importing || state.capabilities?.importing
+          : importing
             ? <StateView testID="reading-books-importing" variant="inline" title={defaultI18n.t('next.states.firstScan')} body={defaultI18n.t('next.states.firstScanBody', {library: library.name})} style={{flex: 1}}/>
             : <StateView testID="reading-books-empty" variant="inline" title={defaultI18n.t('library.emptyLibrary')} body={defaultI18n.t('library.emptyLibraryBody')} style={{flex: 1}}/>)
           : <View style={{flex: 1}}>

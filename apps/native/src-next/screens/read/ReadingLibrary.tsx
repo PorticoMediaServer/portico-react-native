@@ -207,7 +207,8 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
     </ReadingLoading>
   </View>;
   const pivots: Readonly<Record<string, string>> = {book: 'books', ebook: 'books', comic: 'titles', magazine: 'titles', newspaper: 'titles'};
-  const counts = (summary?.opening === opening ? summary?.value?.counts ?? [] : []).filter(part => pivots[part.kind]).map(part =>
+  // An importing library counts nothing, its header included.
+  const counts = (summary?.opening === opening && !capability?.data?.importing ? summary?.value?.counts ?? [] : []).filter(part => pivots[part.kind]).map(part =>
     defaultI18n.t(part.atLeast ? 'lib.countAtLeast' : 'lib.count', {count: part.count, pivot: pivots[part.kind]!}));
   return <View testID={`native-reading-library-${libraryId}`} style={{flex: 1}} onLayout={event => {
     // The authored cover grid fills the pane it is laid out in, not the window:
