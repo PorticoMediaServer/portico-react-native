@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {ScrollView, Text, View} from 'react-native';
-import type {RemoteAccess, RemoteConfiguration} from '../../../../../../packages/client-core/src/remote-access';
+import {remoteWarningLines, type RemoteAccess, type RemoteConfiguration} from '../../../../../../packages/client-core/src/remote-access';
 import type {ConnectivityStatus} from '../../../../../../packages/client-core/src/server-administration';
 import {secureConnectionView} from '../../../../../../packages/client-core/src/server-admin/secure-connection';
 import {ownCertificateLine, remoteStatusLine} from '../../../../../../packages/client-core/src/server-admin/status-words';
@@ -84,6 +84,7 @@ function RemoteAccessPage({group, ports, runtime, compactHeader}: {group: Storag
         <View style={{flex: 1}}>
           <Text style={[shellType(15, 700), {color: theme.colors.text}]}>{remoteLine.text || t('settings.server.remote.notSetUp')}</Text>
           {secureBody ? <Text style={[shellType(12.5, 400, 17), {color: theme.colors.textSecondary, marginTop: 4}]}>{secureBody}</Text> : null}
+          {remoteState.status ? remoteWarningLines(remoteState.status, t).map((line, index) => <Text key={index} testID="remote-access-warning" style={[shellType(12.5, 400, 17), {color: theme.colors.amber, marginTop: 4}]}>{line}</Text>) : null}
         </View>
       </View>
 
@@ -119,6 +120,11 @@ function RemoteAccessPage({group, ports, runtime, compactHeader}: {group: Storag
         <View style={{borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
           <SettingsRow testID="remote-access-policy" label={t('web.connectivity.whoMaySignIn')}
             control={<Select testID="remote-access-policy-select" value={connectivity.remoteSignInPolicy} options={signInOptions} onValueChange={value => forms.connectivity.set(current => ({...current, remoteSignInPolicy: value as ConnectivityDraft['remoteSignInPolicy']}))}/>}/>
+          <SettingsRow testID="remote-access-secure-connections" label={t('next.settingsSpec.server.remote.groups.0.rows.1.label')} description={t('next.settingsSpec.server.remote.groups.0.rows.1.help')}
+            control={<Select testID="remote-access-secure-connections-select" value={connectivity.secureConnections} options={[
+              {value: 'preferred', label: t('next.settingsSpec.server.remote.groups.0.rows.1.control.options.0.label')},
+              {value: 'required', label: t('next.settingsSpec.server.remote.groups.0.rows.1.control.options.1.label')},
+            ]} onValueChange={value => {if (value === 'preferred' || value === 'required') forms.connectivity.set(current => ({...current, secureConnections: value}));}}/>}/>
         </View>
         <Text style={[shellType(13, 700), {color: theme.colors.textTertiary, marginTop: 22, marginBottom: 8}]}>{t('settings.server.homeNetwork')}</Text>
         <View style={{borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>

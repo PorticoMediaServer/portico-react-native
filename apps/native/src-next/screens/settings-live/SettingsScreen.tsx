@@ -534,9 +534,9 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
       ? [...page.sections.slice(0, connectionAt), playerSection, ...page.sections.slice(connectionAt)]
       : [...page.sections, playerSection]
     : page.sections;
-  // Frame 12 gives Apple no Connection group; the advanced section is Android TV's only.
-  const sections = pageSections.filter(section => !section.advanced || advanced)
-    .filter(section => !(Platform.OS === 'ios' && section.id === 'deviceConnection'));
+  // Frame 12: Apple TV's Advanced holds Capabilities, Connection, Storage and Support, so the
+  // Connection group (with Insecure connections, P2-69) is on every native platform.
+  const sections = pageSections.filter(section => !section.advanced || advanced);
   const equalizer = useSyncExternalStore(nativeEqualizer.subscribe, nativeEqualizer.getSnapshot);
   const showEqualizer = page.id === 'music' && equalizer.supported;
   useEffect(() => {

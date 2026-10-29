@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {sameCastRemote} from '../../../packages/client-core/src/cast/remote-identity.ts';
+import {castOrigin} from '../../../packages/client-core/src/connection-policy.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 /** Exercise the native wrapper and real occurrence comparison. The shared Cast
@@ -33,6 +34,7 @@ async function fixture() {
     react: {default: {}}, 'react-native': {Platform: {isTV: false}, NativeEventEmitter: class {addListener() {return {remove() {}};}},
       NativeModules: {PorticoCast: {applicationId: 'APP', available: async () => true, choose() {},
         current: async () => ({deviceId: 'TV', deviceName: 'Living room', attachmentId})}}},
+    '../../../../../packages/client-core/src/connection-policy': {castOrigin},
     '../../../../../packages/client-core/src/cast': {CastController: Controller, sameCastRemote, parseCastEvent: () => undefined},
     '../../../../../packages/player-core/src': {sameFence: (a: unknown, b: unknown) => a === b},
     './cast-transport': {castTransport: {}, validCastAttachment: (id: unknown) => id === attachmentId},

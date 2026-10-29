@@ -76,6 +76,7 @@ test('Remote access edits the certificate switch, keeps own address on main, and
   const api = {request: async (path: string) => {assert.equal(path, 'post_networking_certificate_retry');retries++;return new Promise(resolve => {finish = resolve;});}};
   const module = await screenModule(new URL('../src-next/screens/settings-live/server/RemoteAccessPage.tsx', import.meta.url), {
     ...chrome, react: host.react, '../../../../../../packages/client-core/src/server-admin/secure-connection': {secureConnectionView}, '../../../../../../packages/client-core/src/server-admin/status-words': {remoteStatusLine: () => ({tone: 'neutral', text: 'Route status'}), ownCertificateLine: () => undefined},
+    '../../../../../../packages/client-core/src/remote-access': {remoteWarningLines: () => []},
     '../../../../../../packages/client-core/src/certificates': {certificateProblemMessage, retryCertificate}, '../../../../../../packages/contracts/src/routes': {routePath: (id: string) => id}, '../use-settings-request-scope': {useSettingsRequestScope: () => ({api, lifetime: {current: fixture.group.context.current}})},
     '../../../../../../packages/client-core/src/presentation/settings-spec': specification, '../../../../../../packages/client-core/src/presentation/settings-bindings': bindings, './storage/forms': fixture.hooks,
   });

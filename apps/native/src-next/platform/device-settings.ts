@@ -2,15 +2,17 @@ import {passthroughFormats, readPassthroughFormats, type PassthroughFormat} from
 import type {CompositeId} from '../../../../packages/client-core/src/presentation/settings-structure';
 import {engineSettings, parseEngineSetting} from './playback/engine-choice';
 import type {NativeQueueStore} from './queue-storage';
+import {insecureChoicesFor, parseInsecureConnections} from '../../../../packages/client-core/src/connection-policy';
+import {acceptConnectionPreference, nativeConnectionPolicy} from './connection-preference';
 
-export type NativePlaybackDeviceSetting = 'playerEngine' | 'forceStereo' | 'disablePassthrough' | 'disableHdr' | 'tvHdr' | 'tvSurround' | 'music.sampleRateMatching' | 'lossNotices' | 'receiveFromDevices' | 'matchFrameRate' | 'matchDynamicRange';
+export type NativePlaybackDeviceSetting = 'playerEngine' | 'forceStereo' | 'disablePassthrough' | 'disableHdr' | 'tvHdr' | 'tvSurround' | 'music.sampleRateMatching' | 'lossNotices' | 'receiveFromDevices' | 'matchFrameRate' | 'matchDynamicRange' | 'allowInsecure';
 type Owner = Readonly<{current: () => boolean; subscribePreferences: (listener: () => void) => () => void}>;
 type Ports = Readonly<{storage: Pick<NativeQueueStore, 'change'>; readRecord: () => unknown; acceptRecord: (raw: unknown) => void}>;
 const sources = new WeakMap<Owner, NativeDeviceSettings>();
 const object = (raw: unknown): raw is Record<string, unknown> => !!raw && typeof raw === 'object' && !Array.isArray(raw);
 const ended = () => Object.assign(new Error('native_device_settings_retired'), {name: 'AbortError'});
 export function nativeDeviceSettingSupported(id: string): id is NativePlaybackDeviceSetting {
-  return id === 'playerEngine' || id === 'forceStereo' || id === 'disablePassthrough' || id === 'disableHdr' || id === 'tvHdr' || id === 'tvSurround' || id === 'music.sampleRateMatching' || id === 'lossNotices' || id === 'receiveFromDevices' || id === 'matchFrameRate' || id === 'matchDynamicRange';
+  return id === 'playerEngine' || id === 'forceStereo' || id === 'disablePassthrough' || id === 'disableHdr' || id === 'tvHdr' || id === 'tvSurround' || id === 'music.sampleRateMatching' || id === 'lossNotices' || id === 'receiveFromDevices' || id === 'matchFrameRate' || id === 'matchDynamicRange' || id === 'allowInsecure';
 }
 
 /** The installation fields consumed by the actual playback runtime. The
@@ -21,10 +23,11 @@ export class NativeDeviceSettings {
   constructor(owner: Owner, ports: Ports) {this.owner = owner; this.ports = ports;}
   private assert() {if (!this.owner.current()) throw ended();}
   supports = nativeDeviceSettingSupported;
-  read = (id: CompositeId | 'lossNotices' | 'matchFrameRate' | 'matchDynamicRange'): string | boolean | undefined => {
+  read = (id: CompositeId | 'lossNotices' | 'matchFrameRate' | 'matchDynamicRange' | 'allowInsecure'): string | boolean | undefined => {
     this.assert(); if (!nativeDeviceSettingSupported(id)) return;
     const raw = this.ports.readRecord(), record = object(raw) ? raw : {};
     if (id === 'matchFrameRate' || id === 'matchDynamicRange') return record[id] === 'off' ? 'off' : 'auto';
+    if (id === 'allowInsecure') return parseInsecureConnections(record[id]);
     if (id === 'playerEngine') return parseEngineSetting(record.playerEngine);
     if (id === 'music.sampleRateMatching') return record[id] === 'strict' || record[id] === 'off' ? record[id] as string : record[id] === 'smart' ? 'smart' : undefined;
     // The TV output choices are tri-state: an absent key means the viewer has
@@ -54,11 +57,12 @@ export class NativeDeviceSettings {
   subscribe = (listener: () => void): (() => void) => {
     this.assert(); return this.owner.subscribePreferences(() => {if (this.owner.current()) listener();});
   };
-  write = async (id: CompositeId | 'lossNotices' | 'matchFrameRate' | 'matchDynamicRange', value: string | boolean): Promise<void> => {
+  write = async (id: CompositeId | 'lossNotices' | 'matchFrameRate' | 'matchDynamicRange' | 'allowInsecure', value: string | boolean): Promise<void> => {
     this.assert();
     if (!nativeDeviceSettingSupported(id)) throw Object.assign(new Error('native_device_setting_unsupported'), {code: 'unsupported'});
     if (id === 'playerEngine' ? !engineSettings.some(setting => setting === value)
       : id === 'matchFrameRate' || id === 'matchDynamicRange' ? value !== 'auto' && value !== 'off'
+      : id === 'allowInsecure' ? !insecureChoicesFor(nativeConnectionPolicy().platform).some(choice => choice === value)
       : id === 'music.sampleRateMatching' ? typeof value !== 'string' || !['smart', 'strict', 'off'].includes(value)
       : typeof value !== 'boolean') throw new Error('native_device_setting_value_invalid');
     await this.ports.storage.change('preferences:v1', raw => {
@@ -68,6 +72,7 @@ export class NativeDeviceSettings {
     });
     const observed = await this.ports.storage.change('preferences:v1', raw => {this.assert(); return {record: raw, value: raw};});
     this.assert(); this.ports.acceptRecord(observed);
+    if (id === 'allowInsecure') acceptConnectionPreference(object(observed) ? observed.allowInsecure : undefined);
   };
 }
 

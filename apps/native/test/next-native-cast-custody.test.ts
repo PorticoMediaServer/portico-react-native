@@ -4,6 +4,7 @@ import {castProofKey} from '../../../packages/client-core/src/cast/controller-pr
 import {CastController, sameCastRemote, parseCastEvent, type CastCommand} from '../../../packages/client-core/src/cast/index.ts';
 import {sameFence} from '../../../packages/player-core/src/index.ts';
 import {castOffered} from '../src-next/platform/play-on/cast-offered.ts';
+import {castOrigin} from '../../../packages/client-core/src/connection-policy.ts';
 import {screenModule} from './helpers/screen-harness.mjs';
 
 const deferred = <T,>() => {
@@ -79,6 +80,7 @@ async function fixture(options:{returning?:boolean;legacy?:boolean;validation?:P
   }};
   const {NativeCastCaller} = await screenModule(new URL('../src-next/platform/play-on/cast.ts', import.meta.url), {
     react: {default: {}}, 'react-native': {NativeEventEmitter: Emitter, NativeModules: {PorticoCast: bridge}, Platform: {isTV: false}},
+    '../../../../../packages/client-core/src/connection-policy': {castOrigin},
     '../../../../../packages/client-core/src/cast': {CastController,sameCastRemote,parseCastEvent},
     '../../../../../packages/player-core/src': {sameFence}, './cast-transport': {castTransport: transport,validCastAttachment:(value:unknown)=>value===attachmentId},
     './cast-controller-storage': {castControllerStorage: {get: (key:string) => records.get(key), set: (key: string, value: string) => {records.set(key, value);}}, castControllerStorageReady: options.storage ?? Promise.resolve()},

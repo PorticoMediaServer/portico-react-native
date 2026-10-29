@@ -1,3 +1,5 @@
+import {castOrigin} from '../../../../../packages/client-core/src/connection-policy';
+import type {RouteConnection} from '../../../../../packages/client-core/src/route-connection';
 import {NativeEventEmitter, NativeModules, Platform} from 'react-native';
 import {CastController, sameCastRemote, parseCastEvent, type CastChoices, type CastSnapshot, type CastTransport} from '../../../../../packages/client-core/src/cast';
 import type {CastDockIdentity} from '../../kit/dock';
@@ -16,7 +18,7 @@ type Source = Readonly<{id: string; adapter: NativePlaybackAdapter; snapshot: Na
 type Report = Readonly<{itemId: string; versionId?: string; positionSeconds: number; durationSeconds: number; paused: boolean}>;
 export type NativeCastState = Readonly<{cast: CastSnapshot; source?: Source; resumed?:Readonly<{id:string}>;control?:CastDockIdentity;displayKind?:'music'|'audiobook'|'video';receiver?: Report; title?: string; posterUrl?: string; stopped?:boolean}>;
 export type NativeCastOptions = Readonly<{
-  api: Readonly<{baseUrl?: string; createUserMutationKey?():Promise<string>; request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>}>;
+  api: Readonly<{baseUrl?: string; getRouteConnection?(): RouteConnection | undefined; createUserMutationKey?():Promise<string>; request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T>}>;
   session: () => LocalSession | undefined; playback: () => NativePlaybackAdapter | undefined;
   current: () => boolean; deviceName: () => string; reportError: (error: unknown) => void;
 }>;
@@ -38,6 +40,7 @@ export class NativeCastCaller {
   private readonly session: LocalSession | undefined;
   private readonly authority: PlaybackAuthority | undefined;
   private readonly origin: string;
+  private readonly logical: string;
   private offBridge?: () => void;
   private bridgeGeneration=0;
   private attachmentId?:string;
@@ -62,8 +65,13 @@ export class NativeCastCaller {
 
   constructor(private readonly options: NativeCastOptions) {
     const session=options.session();this.session=session?Object.freeze({...session,viewer:Object.freeze({...session.viewer}),...(session.serverIdentity?{serverIdentity:Object.freeze({...session.serverIdentity})}:{})}):undefined; this.authority = options.playback()?.getSnapshot().authority;
-    let origin = '';
-    try {const url = new URL(options.api.baseUrl ?? ''); if (url.protocol === 'https:' && !url.username && !url.password) origin = url.origin;} catch { /* unavailable */ }
+    let logical = '';
+    try {const url = new URL(options.api.baseUrl ?? ''); if (!url.username && !url.password) logical = url.origin;} catch { /* unavailable */ }
+    this.logical = logical;
+    // The receiver is an HTTPS page on the sender's network: the sender's own route when it is
+    // secure, otherwise the best secure route the server lists, home first (P2-69).
+    const routes = options.api.getRouteConnection?.(), memory = routes?.getMemory();
+    const origin = logical ? castOrigin(routes?.getSnapshot().origin, [...(memory?.current?.document.candidates ?? []), {baseUrl: logical, class: 'manual'}], memory?.policy) ?? '' : '';
     this.origin = origin;
     if (Platform.isTV || !origin || !this.session || !this.authority || !NativeModules.PorticoCast) return;
     this.bridge = NativeModules.PorticoCast as Bridge;
@@ -118,7 +126,7 @@ export class NativeCastCaller {
   private viewerCurrent(): boolean {
     if (this.abort.signal.aborted || !this.options.current() || !sameSession(this.options.session(), this.session) || this.options.session()?.deviceId!==this.session?.deviceId || this.options.session()?.serverIdentity?.publicKey!==this.session?.serverIdentity?.publicKey ||
       !authorityMatches(this.options.playback()?.getSnapshot().authority, this.authority)) return false;
-    try {return new URL(this.options.api.baseUrl ?? '').origin === this.origin;} catch {return false;}
+    try {return new URL(this.options.api.baseUrl ?? '').origin === this.logical;} catch {return false;}
   }
   private async request<T>(path: string, method?: string, body?: unknown, signal?: AbortSignal): Promise<T> {
     if (!this.viewerCurrent() || signal?.aborted) throw cancelled();

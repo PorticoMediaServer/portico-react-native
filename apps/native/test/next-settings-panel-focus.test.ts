@@ -10,6 +10,7 @@ const {renderNativeSettingsPanel} = await screenModule(new URL('../src-next/scre
   '../accounts/AccountRoutes': {ProfileRoute: 'ProfileRoute'},
   './NativeAccountSecurityPanels': {NativeAccountSecurityPanel: 'NativeAccountSecurityPanel'},
   './DeviceAboutPanel': {DeviceAboutPanel: 'DeviceAboutPanel'},
+  './NativeConnectionRows': {NativeConnectionStatusRow: 'NativeConnectionStatusRow', NativeConnectionAddressRow: 'NativeConnectionAddressRow', NativeTestConnectionRow: 'NativeTestConnectionRow', NativeInsecureConnectionsRow: 'NativeInsecureConnectionsRow'},
   './owner-libraries/IntroCreditsReview': {IntroCreditsReview: 'IntroCreditsReview'},
   '../../../../../packages/client-core/src/installation': {installationIdentity: () => undefined},
   '../../../../../packages/client-core/src/presentation/kit-model/text': {},

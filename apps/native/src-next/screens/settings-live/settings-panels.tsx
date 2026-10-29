@@ -1,6 +1,7 @@
 import {ProfileRoute} from '../accounts/AccountRoutes';
 import {NativeAccessTokensPanel, NativeAccountSecurityPanel} from './NativeAccountSecurityPanels';
 import {DeviceAboutPanel} from './DeviceAboutPanel';
+import {NativeConnectionAddressRow, NativeConnectionStatusRow, NativeInsecureConnectionsRow, NativeTestConnectionRow} from './NativeConnectionRows';
 import {IntroCreditsReview} from './owner-libraries/IntroCreditsReview';
 import React, {useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore} from 'react';
 import {NativeModules, Text, View} from 'react-native';
@@ -12,7 +13,6 @@ import {playbackControlsService, type RemotePlaybackControls} from '../../../../
 import {seekTarget, transportOffers, type TransportCommand} from '../../../../../packages/client-core/src/server-admin/now-playing';
 import type {SettingsCustomId} from '../../../../../packages/client-core/src/presentation/settings-structure';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
-import {nativeServerHost} from '../../shell/model';
 import type {NativeShellRoute} from '../../shell/routes';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {Menu, type MenuEntry} from '../../kit/overlays';
@@ -189,11 +189,10 @@ export function renderNativeSettingsPanel(id: SettingsCustomId, deps: NativeSett
       const identity = installationIdentity();
       return identity?.name ? <SettingsRow first testID="settings-device-name" label={deps.t('settings.row.deviceName')} value={identity.name}/> : null;
     }
-    case 'deviceServerAddress': {
-      deps.lifetime.assert();
-      const host = nativeServerHost(deps.context.api.baseUrl);
-      return host ? <SettingsRow first testID="settings-server-address" label={deps.t('next.settingsSpec.account.device.advanced.groups.4.rows.1.label')} value={host}/> : null;
-    }
+    case 'deviceConnectionStatus': deps.lifetime.assert(); return <NativeConnectionStatusRow {...deps}/>;
+    case 'deviceServerAddress': deps.lifetime.assert(); return <NativeConnectionAddressRow {...deps}/>;
+    case 'deviceTestConnection': deps.lifetime.assert(); return <NativeTestConnectionRow {...deps} runtime={_runtime}/>;
+    case 'deviceInsecureConnections': deps.lifetime.assert(); return <NativeInsecureConnectionsRow {...deps} runtime={_runtime}/>;
     case 'server.segments': return <IntroCreditsReview {...deps} runtime={_runtime}/>;
     case 'identity': return <IdentityPanel {...deps}/>;
     case 'profiles': return <ProfilesPanel {...deps}/>;

@@ -14,6 +14,7 @@ import {
   routeBase64,
   routeBytes,
   routeOrigin,
+  routeJSON,
   type RouteCrypto,
 } from '../../../../packages/client-core/src/route-identity.ts';
 import {
@@ -32,6 +33,7 @@ import {nativeAppSessions} from './app-session-storage';
 import {knownServerRoutes, type NewServerConnection} from '../../../../packages/client-core/src/app-sessions';
 import { routePath } from '../../../../packages/contracts/src/routes.ts';
 import { checkApplePlainHttp } from './apple-plain-http';
+import { loadConnectionPreference, nativeConnectionPolicy } from './connection-preference';
 import { isAccountAuthority } from './account-authority';
 import {homeActionDiagnostics} from './home-action-diagnostics';
 import { certificateOrigin, parseSavedCertificates, savedCertificateOrigin, settleCertificate, pendingCertificate, type CertificateContext, type CertificatePlatform, type SavedCertificate } from './certificate-trust';
@@ -297,9 +299,18 @@ export async function browseNearby(
     signal.removeEventListener('abort', cancel);
   }
 }
+// Loaded before the first saved connection is read, so a race never runs looser than the setting.
+void loadConnectionPreference();
+/** `/v1/networking/connection` without credentials, for connection details and an insecure route's
+ * home check (route-connection.ts `readConnection`). */
+async function readNativeConnection(origin: string, signal: AbortSignal): Promise<unknown> {
+  return routeJSON(await nativeNetworkFetch(routeOrigin(origin) + routePath('get_connection'), {method: 'GET', signal, credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer', headers: {Accept: 'application/json'}}), signal, 8192);
+}
 const nativeEnvironment = {
   fetcher: nativeNetworkFetch,
   crypto: nativeRouteCrypto,
+  policy: nativeConnectionPolicy,
+  readConnection: readNativeConnection,
   onProbeFailure: homeActionDiagnostics.probeFailure,
   discover: async (signal: AbortSignal) =>
     (await browseNearby('servers', signal)) as readonly DiscoveryRoute[],
@@ -310,6 +321,7 @@ function observedRouteStorage(storage: ConnectionEnvironment['storage']): Connec
   return {
     read: async () => {
       try {
+        await loadConnectionPreference();
         const record = await storage.read();
         homeActionDiagnostics.routeMemory({routeSource: !record ? 'none' : record.hosted ? 'account' : 'local',
           signedCurrent: !!record?.routes.current, signedPrevious: !!record?.routes.previous,

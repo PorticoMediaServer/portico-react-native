@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {sourceModule} from './helpers/offline-source-module.mjs';
 import {sameFence} from '../../../packages/player-core/src/identity.ts';
 import {castOffered} from '../src-next/platform/play-on/cast-offered.ts';
+import {castOrigin} from '../../../packages/client-core/src/connection-policy.ts';
 
 const deferred = () => {let resolve;const promise = new Promise(done => {resolve = done;});return {promise, resolve};};
 const settle = () => new Promise(setImmediate);
@@ -41,6 +42,7 @@ async function fixture(storage = Promise.resolve()) {
     beginRemote: async () => {}, updateRemote: async () => {}, dismissRemote: async () => {}};
   const {NativeCastCaller} = await sourceModule(new URL('../src-next/platform/play-on/cast.ts', import.meta.url), {
     'react-native': {NativeEventEmitter: Emitter, NativeModules: {PorticoCast: bridge}, Platform: {isTV: false}},
+    '../../../../../packages/client-core/src/connection-policy': {castOrigin},
     '../../../../../packages/client-core/src/cast': {CastController: Controller, sameCastRemote: (a, b) => a === b, parseCastEvent: value => value},
     '../../../../../packages/player-core/src': {sameFence},
     './cast-transport': {castTransport: {}, validCastAttachment: value => value === attachmentId},
