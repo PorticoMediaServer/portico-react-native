@@ -1,6 +1,7 @@
 import {groupPort, subscribeGroupPort} from '../settings-live/group-port';
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {Dimensions, StatusBar, View, useWindowDimensions} from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Animated, {cancelAnimation, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import {sameFence, type PlaybackFence} from '../../../../../packages/player-core/src';
 import {resolvePlayerPresentation, playerControlsRevealDeadline, playerPostureCrossFadeMs, type PlayerPresentation, type PlayerPresentationInput, type PlayerRect} from '../../platform/layout/player-presentation';
@@ -89,7 +90,7 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
   const groupVisible = useSyncExternalStore(subscribeGroupPort, groupPlayerVisible, noticesOn);
   const state = useSyncExternalStore(controls.subscribe, controls.getSnapshot);
   const liveGuide = useSyncExternalStore(bindings.liveGuide?.subscribe ?? noLiveGuideSubscription, bindings.liveGuide?.getSnapshot ?? emptyLiveGuide);
-  const window = useWindowDimensions(), posture = usePlatformPosture();
+  const window = useWindowDimensions(), posture = usePlatformPosture(), safeTop = useSafeAreaInsets().top;
   const local = source.dock.local, fence = source.fence;
   const {scrubbing, focusHeld, presentation} = bindings;
   const screenReader = useScreenReader(), registry = useOptionalFocusRegistry();
@@ -238,7 +239,7 @@ export function NativeWatchHost({authority, current, playback, outlet, runtime, 
         tabletop={!isTV && layout.mode === 'tabletop' && layout.episodes && layout.controls ? (layout.controls.width < window.width ? 'column' : 'stacked') : undefined}
         bar={!isTV && layout.mode === 'full-window' && window.width >= 1024}
         tvPanelRight={television?.backdropRight} failureAction={failureAction}
-        edgeInsets={layout.mode === 'book' && layout.controls ? {right: layout.surface.width - layout.controls.width} : undefined}/>
+        edgeInsets={layout.mode === 'book' && layout.controls ? {right: layout.surface.width - layout.controls.width} : layout.mode === 'watch' && !isTV && safeTop > 0 ? {top: safeTop} : undefined}/>
     </View>}
     {isTV ? <TVWatchPanel context={context} render={bindings.panel}/> : panelOpen && <View testID="watch-panel-pane" pointerEvents="box-none" style={context.renderer.panel ? positioned(context.renderer.panel) : {position: 'absolute', inset: 0}}>
       {guideOpen && bindings.liveGuide ? <NativeHandheldMiniGuide key={JSON.stringify(fence)} context={context} guide={bindings.liveGuide} snapshot={liveGuide}/> : bindings.panel(context)}

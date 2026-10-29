@@ -6,6 +6,7 @@ import {Icon} from '../Icon';
 import {nativeType, useTheme} from '../theme';
 import {useMotion} from '../useMotion';
 import {BlurView, glassRecipe} from '../../platform/native-blur';
+import {useKeyboardHeight} from '../../platform/keyboard';
 import {CountdownRing} from './CountdownRing';
 import type {StateAction, StateContentProps} from './types';
 import {StateActionButton} from './StateActionButton';
@@ -34,14 +35,17 @@ export type StateLayoutProps = StateContentProps & Readonly<{
   /** Exact known content position, independent of the surrounding shell. */
   contentTop?: number;
   contentStyle?: StyleProp<ViewStyle>;
+  /** A page that takes typing (the PIN page) centres in the space the keyboard leaves, so its last button stays tappable. */
+  avoidKeyboard?: boolean;
 }> & (Readonly<{variant?: 'page'; frozenPicture?: never; playerChrome?: never}> | Readonly<{variant: 'player'; frozenPicture: React.ReactNode; playerChrome?: React.ReactNode}>);
 
 /** Full-page state anatomy; all recovery, retry timing and navigation are supplied. */
 export function StateLayout({title, body, icon, tone = 'neutral', primaryAction, secondaryAction, additionalActions, variant = 'page', frozenPicture, playerChrome,
-  backdropShape, backdropHeight, shell, alive, retry, beforeActions, detailsAction, detailsPresentation = 'row', details, help, kicker, children, visible = true, contentTop, contentStyle, style, testID, titleRef}: StateLayoutProps) {
+  backdropShape, backdropHeight, shell, alive, retry, beforeActions, detailsAction, detailsPresentation = 'row', details, help, kicker, children, visible = true, contentTop, contentStyle, avoidKeyboard = false, style, testID, titleRef}: StateLayoutProps) {
   const theme = useTheme();
   const policy = useMotion();
   const tv = theme.isTV;
+  const keyboardHeight = useKeyboardHeight(avoidKeyboard && !tv);
   const player = variant === 'player';
   const opacity = useSharedValue(visible ? 1 : 0);
   useEffect(() => {opacity.value = withTiming(visible ? 1 : 0, policy.timing(visible ? 'standard' : 'quick'));}, [visible, opacity, policy]);
@@ -66,7 +70,7 @@ export function StateLayout({title, body, icon, tone = 'neutral', primaryAction,
     </View>
     {shell}
     <Animated.View pointerEvents={visible ? 'box-none' : 'none'} accessibilityElementsHidden={!visible} importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}
-      style={[{position: 'absolute', inset: 0, justifyContent: contentTop === undefined ? 'center' : 'flex-start', paddingTop: contentTop}, animated]}>
+      style={[{position: 'absolute', inset: 0, justifyContent: contentTop === undefined ? 'center' : 'flex-start', paddingTop: contentTop, paddingBottom: keyboardHeight}, animated]}>
       <View style={[{marginLeft: left, marginRight: stacked ? 24 : tv ? 96 : undefined, width: stacked ? undefined : tv ? 1000 : 380, alignItems: stacked ? 'center' : 'flex-start'}, contentStyle]}>
         {kicker != null && <View style={{marginBottom: tv ? 24 : 18}}>{kicker}</View>}
         {icon && <View style={{width: iconSize, height: iconSize, borderRadius: theme.baseRadii.pill, overflow: 'hidden', alignItems: 'center', justifyContent: 'center',

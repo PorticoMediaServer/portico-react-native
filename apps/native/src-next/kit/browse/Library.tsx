@@ -67,7 +67,7 @@ export function LibrarySwitcher({libraries, value, onValueChange, open: supplied
       </View>
     </Focusable>
     <Popover testID={testID ? `${testID}-surface` : undefined} open={open} onOpenChange={setOpen} anchorRef={anchorRef} returnFocusRef={returnFocusRef ?? anchorRef} title={t('next.browse.native.switchLibrary')} accessibilityLabel={t('next.browse.native.switchLibrary')} placement="bottom-center" width={theme.isTV ? 520 : 252} offset={4} modal backdropOpacity={.62}>
-      {libraries.filter(library => !theme.isTV || library.tv !== false).map(library => <MenuRow focusId={library.id} testID={testID ? `${testID}-library-${encodeURIComponent(library.id)}` : undefined} key={library.id} label={library.name} trailing={library.count} selected={library.id === value} accessibilityRole="radio" accessibilityState={{checked: library.id === value}} variant={theme.isTV ? 'tv' : 'compact'} onPress={() => {onValueChange(library.id); setOpen(false);}}/>)}
+      {libraries.filter(library => !theme.isTV || library.tv !== false).map(library => <MenuRow focusId={library.id} testID={testID ? `${testID}-library-${encodeURIComponent(library.id)}` : undefined} key={library.id} label={library.name} trailing={theme.isTV ? library.count : undefined} description={theme.isTV ? undefined : library.count} selected={library.id === value} accessibilityRole="radio" accessibilityState={{checked: library.id === value}} variant={theme.isTV ? 'tv' : 'compact'} onPress={() => {onValueChange(library.id); setOpen(false);}}/>)}
     </Popover>
   </>;
 }

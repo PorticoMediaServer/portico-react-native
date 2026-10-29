@@ -130,7 +130,8 @@ export function ProfilePicker({profiles, onSelect, onAdd, onManage, selectedId, 
   const offered = profiles.filter(profile => !profile.unavailableReason && (!profile.disabled || focusBusy));
   const entry = [preferredProfileId, selectedId].find(id => id && offered.some(profile => profile.id === id)) ?? offered[0]?.id;
   const faceSize = layout === 'tv' ? 216 : phone ? 90 : 160;
-  const tiles = <View style={{flexDirection: 'row', flexWrap: phone ? 'wrap' : 'nowrap', justifyContent: phone ? 'flex-start' : 'center', columnGap: phone ? 0 : layout === 'tv' ? 60 : 32, rowGap: phone ? 26 : 0}}>
+  // Tiles keep their own height: stretched in the iPad row they grew to the window's height and pushed the heading off the top (P2-74 E-mobile-15).
+  const tiles = <View style={{flexDirection: 'row', alignItems: layout === 'row' ? 'flex-start' : 'stretch', flexWrap: phone ? 'wrap' : 'nowrap', justifyContent: phone ? 'flex-start' : 'center', columnGap: phone ? 0 : layout === 'tv' ? 60 : 32, rowGap: phone ? 26 : 0}}>
     {profiles.map(profile => {
       const forwarded = profileProps?.(profile);
       const retainDisabledFocus = nativeScope ? !profile.unavailableReason && (focusBusy || forwarded?.focusableWhenDisabled === true) : forwarded?.focusableWhenDisabled === true;
@@ -154,7 +155,7 @@ export function ProfilePicker({profiles, onSelect, onAdd, onManage, selectedId, 
     {description ? <Text style={{...theme.type.body, color: theme.colors.textSecondary, marginBottom: 30}}>{description}</Text> : null}
     {phone ? tiles : <ScrollView horizontal showsHorizontalScrollIndicator={false}
       // TV: the focused face's glow (blur 70, 30 down) needs about 100 of room; the scroller clips at its padding, so it is widened by the same amount and the faces stay put.
-      style={layout === 'tv' ? {margin: -82} : undefined} contentContainerStyle={{padding: layout === 'tv' ? 100 : 18}}>{tiles}</ScrollView>}
+      style={layout === 'tv' ? {margin: -82} : {flexGrow: 0}} contentContainerStyle={{padding: layout === 'tv' ? 100 : 18}}>{tiles}</ScrollView>}
     {onManage ? <Button testID={controlID(testID, 'manage')} variant="glass" size="hero" icon="i-edit" onPress={onManage} style={{alignSelf: phone ? 'flex-start' : 'center', marginTop: 56}}>{defaultI18n.t('next.artwork.native.manageProfiles')}</Button> : null}
   </View>;
   return nativeScope ? <ProfileEntryRegion scope={nativeScope} entry={entry} order={offered.map(profile => profile.id)}>{body}</ProfileEntryRegion> : body;

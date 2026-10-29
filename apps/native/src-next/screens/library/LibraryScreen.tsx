@@ -338,7 +338,7 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   const pivots: Readonly<Record<string, string>> = {movie: 'movies', show: 'shows', episode: 'episodes', artist: 'artists', album: 'albums', song: 'songs', book: 'books', author: 'authors', series: 'series', ebook: 'books', comic: 'titles'};
   const choices = libraries.filter(library => !theme.isTV || !hiddenReadingLibraryOnTV(library.kind)).map(library => {
     const summary = summaries.libraries.find(value => value.id === library.id)?.summary;
-    return {id: library.id, name: library.name, count: summary && <View style={{flexDirection: 'row', gap: 12}}>{summary.counts.filter(part => pivots[part.kind]).map(part => <Text key={part.kind}
+    return {id: library.id, name: library.name, count: summary && <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 12}}>{summary.counts.filter(part => pivots[part.kind]).map(part => <Text key={part.kind}
       style={[browseType(theme, theme.isTV ? 22 : 14), {color: theme.colors.textTertiary}]}>{defaultI18n.t(part.atLeast ? 'lib.countAtLeast' : 'lib.count', {count: part.count, pivot: pivots[part.kind]})}</Text>)}</View>};
   });
   const tabs = <LibraryTabs items={libraryTabs(state.library.kind)} selected={state.tab.id} enabled={active.visible} phone={theme.platform === 'phone'} gutter={theme.isTV || theme.platform === 'phone' ? undefined : dimensions.width >= 1024 ? 32 : 28}

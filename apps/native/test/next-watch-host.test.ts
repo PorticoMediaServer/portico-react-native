@@ -12,13 +12,14 @@ import {resolvePlayerPresentation, playerControlsRevealDeadline} from '../src-ne
 import {nativeWatchTVPresentation} from '../src-next/screens/watch/tv-presentation.ts';
 const authority = {serverId: 's', accountId: 'a', profileId: 'p', epoch: 'e', viewerFence: 'v'};
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 's', accountId: 'a', profileId: 'p', controllerId: 'c', controllerEpoch: 'e', commandLaneId: 'l', authority: 'local'}, run: 1}, sessionId: 'session', itemId: 'item', sourceId: 'source', entryId: 'entry', generation: 1});
-let window = {width: 890, height: 626};
+let window = {width: 890, height: 626}, safeTop = 0;
 let posture: any = {status: 'unavailable', window: null, folds: []};
 const {NativeWatchHost} = await screenModule(new URL('../src-next/screens/watch/WatchHost.tsx', import.meta.url), {
     '../../kit/dock/PlayerMorphBridge': {useInitialPlayerPaint: () => undefined},
   '../settings-live/group-port': {groupPort: () => undefined, subscribeGroupPort: () => () => {}},
   '../../kit/focus': {useOptionalFocusRegistry: () => undefined},
   '../../kit/useScreenReader': {useScreenReader: () => false},
+  'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: safeTop, bottom: 0, left: 0, right: 0})},
   react: {...React, default: React}, 'react-native': {StatusBar: {pushStackEntry: () => ({}), popStackEntry() {}}, View: 'View', useWindowDimensions: () => window, Dimensions: {get: () => window}},
   '../../../../../packages/player-core/src': {sameFence}, '../../shell/model': {sameAuthority},
   '../../platform/layout/player-presentation': {resolvePlayerPresentation, playerControlsRevealDeadline, playerPostureCrossFadeMs: 250},
@@ -85,6 +86,18 @@ test('root uses the actual canonical outlet and full measured pane across book g
     assert.equal(child(d.tree(), 'watch-controls-pane').props.children.props.edgeInsets.right, 16);
     assert.equal(d.reveals.length, 1); assert.deepEqual(d.calls.slice(-2), ['presentation', 'reveal']);
   } finally {await measurementHost.unmount(); await d.dispose();}
+});
+test('the upright player pushes its top controls below the status bar (P2-74 E-mobile-14)', async () => {
+  const d = await fixture();
+  try {
+    await act(() => {});
+    window = {width: 390, height: 844}; safeTop = 59;
+    await act(() => d.host.rerender());
+    assert.deepEqual(child(d.tree(), 'watch-controls-pane').props.children.props.edgeInsets, {top: 59});
+    safeTop = 0;
+    await act(() => d.host.rerender());
+    assert.equal(child(d.tree(), 'watch-controls-pane').props.children.props.edgeInsets, undefined);
+  } finally {safeTop = 0; await d.dispose();}
 });
 test('TV uses one logical canvas while its actual native pane remains whole and unscaled beneath Options and Info', async () => {
   const d = await fixture(true);

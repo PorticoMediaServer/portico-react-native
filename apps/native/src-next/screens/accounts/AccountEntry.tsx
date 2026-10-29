@@ -898,7 +898,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const EntryLayout = ['profiles', 'profile-pin', 'servers', 'account-sign-out', 'tv'].includes(stage) ? StateLayout : FormLayout;
   const formStep = theme.platform === 'phone' && stage.startsWith('setup-')
     ? <Text style={[theme.type.captionStrong, {fontSize: 13.5 * theme.textScale, color: theme.colors.textSecondary}]}>{t('accounts.setup.title')}</Text> : undefined;
-  const layout = (title: string, body?: string, before?: React.ReactNode, primary?: ReturnType<typeof action>, more?: React.ReactNode) => <EntryLayout testID="accounts-entry" title={title} body={body} kicker={formStep} beforeActions={<>{before}{status}</>} primaryAction={primary} secondaryAction={backAction}>{more}</EntryLayout>;
+  const layout = (title: string, body?: string, before?: React.ReactNode, primary?: ReturnType<typeof action>, more?: React.ReactNode) => <EntryLayout testID="accounts-entry" title={title} body={body} kicker={formStep} beforeActions={<>{before}{status}</>} primaryAction={primary} secondaryAction={backAction} avoidKeyboard={stage === 'profile-pin'}>{more}</EntryLayout>;
   const openLegalLink = (url: string) => {void run(async () => {await Linking.openURL(url);});};
   const legalFooter = <LegalAgreement style={[theme.type.caption, {fontSize: 12 * theme.textScale, color: theme.colors.textTertiary, textAlign: 'center', marginTop: 'auto', paddingTop: 24}]}
     linkStyle={{color: theme.colors.accentStrong}} onOpenLink={openLegalLink}/>;

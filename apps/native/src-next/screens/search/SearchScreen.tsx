@@ -12,6 +12,7 @@ import {Chip, Focusable, TextField} from '../../kit/controls';
 import {SelectionCircle} from '../../kit/selection';
 import {GridSkeleton, LoadingPaint, SkeletonBlock, StateView} from '../../kit/states';
 import {Icon} from '../../kit/Icon';
+import {Banner} from '../../kit/overlays';
 import {browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
@@ -109,7 +110,9 @@ export function SearchScreen({focusScope, destination, runtime, explore, actions
   const genreTiles = landing.phase === 'ready' ? nativeSearchGenreTiles(empty ? landing.backdropGenres ?? [] : landing.genres, empty ? 'phone-empty' : 'phone') : [];
   const genres = !genreTiles.length && landing.phase !== 'error' ? null : <>
     {!!genreTiles.length && <SectionHeading title={t(empty ? landing.emptyHeading : landing.initialHeading)}/>}
-    {landing.phase === 'error' && <StateView {...runtime.error(landing.error, () => run(explore.load()), 'search')}/>}
+    {/* The genre shelf is optional: its failure is a quiet note, never the page's "Search couldn't finish" (P2-74 E-mobile-28). */}
+    {landing.phase === 'error' && <View style={{paddingHorizontal: 16, paddingTop: 8}}><Banner placement="inline" variant="notice" tone="warning" icon="i-alert" message={t('next.search.genresUnavailable')}
+      action={{label: t('next.states.tryAgain'), onPress: () => run(explore.load())}}/></View>}
     <View style={{paddingHorizontal: 16, paddingTop: 4, flexDirection: 'row', flexWrap: 'wrap', gap: 10}}>
       {genreTiles.map(genre => <SearchGenre key={genre.id} genre={genre} empty={empty} runtime={runtime} width={(surface - 42) / 2} onPress={() => explore.openGenre(genre)}/>)}
     </View>

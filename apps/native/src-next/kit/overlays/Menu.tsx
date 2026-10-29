@@ -44,7 +44,7 @@ export const MenuRow = forwardRef<View, MenuRowProps & {tvFlyout?: boolean; touc
       {!icon && selected !== undefined && <View style={{width: tv ? 28 : 18}}>{selected && <Icon name="i-check" size={tv ? 28 : 18} color={theme.colors.accentStrong}/>}</View>}
       {icon && <View style={grouped && !tv ? {width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: alpha(tone === 'owner' ? theme.colors.accent : theme.colors.text, tone === 'owner' ? 0.16 : 0.08)} : undefined}><Icon name={icon} size={flyout ? 30 : tv ? 28 : touchMenu === 'sheet' ? 24 : 18} color={iconColor}/></View>}
       <View style={{flex: 1, minWidth: 0}}><Text numberOfLines={1} style={[nativeType({size: tv ? 26 : touchMenu === 'sheet' ? 16 : grouped ? 15.5 : 15, weight: tv && !flyout ? 700 : 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: ink}]}>{label}</Text>
-        {description != null && <Text style={[theme.type.caption, {color: theme.colors.textTertiary, marginTop: 2}]}>{description}</Text>}
+        {description != null && (typeof description === 'string' || typeof description === 'number' ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary, marginTop: 2}]}>{description}</Text> : <View style={{marginTop: 2}}>{description}</View>)}
       </View>
       {typeof trailing === 'string' || typeof trailing === 'number' ? <Text style={[theme.type.captionStrong, {color: theme.colors.textTertiary}]}>{trailing}</Text> : trailing ?? (icon && selected ? <Icon name="i-check" size={tv ? 28 : 18} color={theme.colors.accentStrong}/> : undefined)}
     </Focusable>;

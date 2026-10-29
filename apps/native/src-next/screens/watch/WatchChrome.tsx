@@ -58,7 +58,7 @@ export type NativeWatchChromeProps = Readonly<{
   /** tablet-play1: an expanded window draws the desktop player's two bars. */
   bar?: boolean;
   /** Book-mode edge chrome avoids the padded crease; centre transport does not move. */
-  edgeInsets?: Readonly<{left?: number; right?: number}>;
+  edgeInsets?: Readonly<{left?: number; right?: number; /** The upright player's picture starts at the screen's top edge, under the status bar. */ top?: number}>;
   skipBackSeconds: number;
   skipForwardSeconds: number;
   onMinimize: (fence: PlaybackFence) => void;
@@ -689,7 +689,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
         <LinearGradient id="watch-bottom" x1="0" y1="1" x2="0" y2="0"><Stop offset="0" stopColor="#03080c" stopOpacity={.92}/><Stop offset="0.5" stopColor="#03080c" stopOpacity={0}/></LinearGradient>
       </Defs><Rect width="100%" height="100%" fill="url(#watch-top)"/><Rect width="100%" height="100%" fill="url(#watch-bottom)"/></Svg>}
       <FocusRegion id="watch-controls" orientation={theme.isTV ? "free" : "horizontal"} entry={theme.isTV ? undefined : barEntry} entryRegion={theme.isTV ? "watch-transport" : undefined} style={{position: 'absolute', inset: 0}}>
-        <View style={{position: 'absolute', top: compact ? 4 : theme.isTV ? 80 : 12, left: (side ?? (compact ? 6 : theme.isTV ? 96 : 54)) + (props.edgeInsets?.left ?? 0), right: (side ?? (compact ? 6 : theme.isTV ? 96 : 54)) + (props.edgeInsets?.right ?? 0), flexDirection: 'row', alignItems: theme.isTV ? 'flex-start' : 'center'}}>
+        <View style={{position: 'absolute', top: (compact ? 4 : theme.isTV ? 80 : 12) + (props.edgeInsets?.top ?? 0), left: (side ?? (compact ? 6 : theme.isTV ? 96 : 54)) + (props.edgeInsets?.left ?? 0), right: (side ?? (compact ? 6 : theme.isTV ? 96 : 54)) + (props.edgeInsets?.right ?? 0), flexDirection: 'row', alignItems: theme.isTV ? 'flex-start' : 'center'}}>
           {!theme.isTV && icon('minimize', 'i-down', t('player.minimize'), () => props.onMinimize(fence))}
           {theme.isTV && linear && <>{channelMark}<View style={{flexShrink: 1, minWidth: 0}}>
             <Text numberOfLines={1} style={[nativeType({size: 44, weight: 800, tracking: -.03, lineHeight: 52}, theme.textScale), {color: theme.colors.text}]}>{linear.programme?.title ?? linear.name}</Text>
