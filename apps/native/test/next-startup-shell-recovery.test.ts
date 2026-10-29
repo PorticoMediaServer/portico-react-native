@@ -17,7 +17,7 @@ async function shell(read: (call: RestoreCall, index: number) => Promise<unknown
   const calls: RestoreCall[] = [], errors: unknown[] = [], focus: number[] = [];
   let online: boolean | undefined = true, viewer = initialViewer, fallbacks = 0;
   let incoming: {id: string; current: () => boolean; dismiss: () => void} | undefined;
-  const {RestoredShell} = await screenModule(new URL('../src-next/shell/RestoredShell.tsx', import.meta.url), {'../screens/share/NativeShareLinks': {NativeShareLinks: () => null}, '../platform/share-links': {nativeShareLinks: {acquire: () => () => {}, subscribe: () => () => {}, getSnapshot: () => undefined, take: () => false}}, 
+  const {RestoredShell} = await screenModule(new URL('../src-next/shell/RestoredShell.tsx', import.meta.url), {'./restore-trace': {restoreTrace: () => ({waiting: 'start', elapsedMs: 0, marks: []})}, '../screens/share/NativeShareLinks': {NativeShareLinks: () => null}, '../platform/share-links': {nativeShareLinks: {acquire: () => () => {}, subscribe: () => () => {}, getSnapshot: () => undefined, take: () => false}}, 
     react: {...React, default: React},
     'react-native': {Platform: {OS: 'ios'}, View: 'View', Text: 'Text', Image: 'Image', findNodeHandle: (node: {tag: number}) => node.tag,
       AccessibilityInfo: {setAccessibilityFocus: (tag: number) => {focus.push(tag);}},

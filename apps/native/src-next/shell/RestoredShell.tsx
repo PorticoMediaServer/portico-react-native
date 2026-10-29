@@ -9,6 +9,7 @@ import {presentError} from '../../../../packages/client-core/src/presentation/er
 import {deviceOnline, onNetworkChange} from '../platform/server-connections';
 import {createNativeShellBindings} from './assembly';
 import {restoreNativeShellRuntime, type RestoredNativeShellRuntime} from './bootstrap';
+import {restoreTrace} from './restore-trace';
 import {NativeShell} from './NativeShell';
 import {nativeAccounts} from '../platform/accounts';
 import {readNativeSelectedViewer, subscribeNativeAppSessions} from '../platform/app-session-storage';
@@ -37,7 +38,7 @@ import {createNativeStartupRecovery, startupRetrySeconds, startupWait, type Nati
 
 type RestoreState = Readonly<{phase: 'loading' | 'ready' | 'ended'; runtime?: RestoredNativeShellRuntime; error?: unknown}>;
 type RecoveryPause = 'accounts' | 'downloads' | 'invitation';
-type RootOpening = {attempt: number; active: boolean; source?: RememberedDownloadsOpening; input?: NativeInvitationLink; finishInput?: () => void; current?: () => boolean; recoveryCurrent?: () => boolean; retire?: () => void; restart?: () => void; retry?: () => boolean; canRecover?: () => boolean; pauseRecovery?: (reason: RecoveryPause) => void; resumeRecovery?: (reason: RecoveryPause) => void};
+type RootOpening = {attempt: number; active: boolean; describe?: () => Record<string, unknown>; source?: RememberedDownloadsOpening; input?: NativeInvitationLink; finishInput?: () => void; current?: () => boolean; recoveryCurrent?: () => boolean; retire?: () => void; restart?: () => void; retry?: () => boolean; canRecover?: () => boolean; pauseRecovery?: (reason: RecoveryPause) => void; resumeRecovery?: (reason: RecoveryPause) => void};
 
 /** The copy and the captured recovery read the same native path fact. */
 const subscribePathChange = (listener: () => void) => onNetworkChange(() => listener());
@@ -95,6 +96,7 @@ export function RestoredShell() {
       ticket.retire?.();
     };
     ticket.restart = restart;
+    ticket.describe = () => ({owns: ownsRoot(), installation: installation.current(), runtime: !!owned, restored, pauses: [...pauses]});
     const publishState = (next: RestoreState) => {if (rootCurrent()) setState(previous => rootCurrent() ? next : previous);};
     const showRecovered = () => {const notice = secureRecordsRecoveredNotice(); if (notice && rootCurrent()) setRecovered(previous => rootCurrent() ? {opening: ticket, notice} : previous);};
     viewOwner.current = undefined;
@@ -185,6 +187,8 @@ export function RestoredShell() {
           restored = true; recovery?.finish(); owned = undefined; publishState({phase: 'ended', error}); if (rootCurrent()) fallback();}
       }}),
       discard: runtime => runtime?.dispose(),
+      // Step names and offsets only (restore-trace.ts): which await a slow restore was still on.
+      onAttemptTimeout: () => {console.warn(`portico_restore_timeout ${JSON.stringify(restoreTrace())}`);},
       retryable: error => !(error instanceof NativeIdentityFailure) && !(error instanceof NativeSignInEnded) && !isSecureRecordsLost(error)
         && ['offline', 'unreachable', 'timeout'].includes(presentError(error, 'home').category),
       onWait: value => {if (rootCurrent()) setWaiting(previous => rootCurrent() ? value : previous);},
@@ -224,7 +228,15 @@ export function RestoredShell() {
     const target = recoveryTitle.current && findNodeHandle(recoveryTitle.current);
     if (target != null) AccessibilityInfo.setAccessibilityFocus(target);
   }, [renderedRoot]);
-  const complete = () => {if (renderedCurrent()) renderedRoot?.restart?.();};
+  // A finished sign-in or pick always opens Home from the live root (E-mobile-01): a completion
+  // is never dropped because the root that drew the entry has since been replaced or retired.
+  const complete = () => {
+    const live = root.current;
+    console.warn(`portico_home_handoff ${JSON.stringify({rendered: live === renderedRoot, ...live?.describe?.(), restore: restoreTrace()})}`);
+    if (live?.current?.()) {live.restart?.(); return;}
+    if (live && !live.recoveryCurrent?.()) return;
+    live?.retire?.(); setAttempt(value => value + 1);
+  };
   const retry = () => {if (renderedCurrent() && !renderedRoot?.retry?.()) complete();};
   const setupComplete = (serverId: string) => {if (renderedCurrent()) setFirstLibrary(previous => renderedCurrent() ? serverId : previous);};
   const chooseAccounts = () => {if (renderedCurrent() && renderedRoot?.canRecover?.()) {renderedRoot.pauseRecovery?.('accounts'); setShowAccounts(previous => renderedCurrent() ? true : previous);}};

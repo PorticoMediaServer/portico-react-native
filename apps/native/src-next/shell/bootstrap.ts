@@ -19,6 +19,7 @@ import {localV1Http} from '../../../../packages/client-core/src/playback-v1/loca
 import {runEventFeed} from '../../../../packages/client-core/src/event-feed';
 import {ambientArtworkSource} from '../../../../packages/client-core/src/artwork';
 import type {HttpLocalApi, LocalSession, Library} from '../../../../packages/client-core/src';
+import {beginRestoreTrace, markRestore} from './restore-trace';
 import {restoreNativeConnection, readNativeSelectedViewer, trackNativeConnection} from '../platform/session';
 import {beginNativeInstallation} from '../platform/installation';
 import {NativeStopResultConsumer} from '../platform/native-stop-consumer';
@@ -106,6 +107,8 @@ const sameViewer = (a: LocalSession, b: LocalSession): boolean => a.sessionFamil
 
 /** Uses the existing encrypted native sign-in, signed routes and current membership verification.
  * It registers the persisted installation before restoring credentials; it creates no sign-in UI. */
+/** Queued sign-outs start this long after a restore, never during the reads that open Home. */
+export const REVOCATION_DRAIN_DELAY_MS = 10_000;
 export async function restoreNativeShellRuntime(makeBindings: NativeShellBindingsFactory, options: {signal?: AbortSignal; installationOwner?: ReturnType<typeof beginNativeInstallation>; onAuthorityEnded: (error?: NativeIdentityFailure | NativeSignInEnded) => void; onSessionRenewed?: () => void}): Promise<RestoredNativeShellRuntime | undefined> {
   // A root may retain its original installation through a failed online restore
   // for a separately receipt-admitted offline opening. Never create a competing
@@ -161,27 +164,36 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
   const currentAccount = () => {assertCurrent(); if (!account) throw cancelled(); return account;};
   try {
     assertCurrent();
+    beginRestoreTrace(); markRestore('installation');
     const {saved, connection, env, identity: installed} = await installation.prepare(); assertCurrent();
     if (!saved.viewer) {dispose(); return undefined;}
     const original = saved.viewer; originalExpiresAt = original.session.expiresAt;
     nativeShellDirectViewer(original.session.viewer);
     // E-mobile-01: routes to the retired `c-…` direct names can never answer; forget them once.
+    markRestore('sessions');
     const beforePurge = await nativeAppSessions.read(); assertCurrent();
     if (purgeStaleRoutes(beforePurge) !== beforePurge) {await nativeAppSessionStorage.change(record => purgeStaleRoutes(record)).catch(() => {}); assertCurrent();}
+    markRestore('selected');
     const selected = await nativeAppSessions.selected(); assertCurrent();
     if (!selected || !sameViewer(original.session, selected.connection.session) || selected.connection.logicalOrigin !== original.serverUrl) throw cancelled();
+    markRestore('server-name');
     const [display] = await readNativeServerDisplays([selected]); assertCurrent();
     identityServer = Object.freeze({serverId: selected.connection.pin.serverId, familyId: selected.connection.session.sessionFamilyId,
       fingerprint: selected.connection.pin.fingerprint, signIn: selected.signIn, name: display.name});
+    markRestore('sign-in-hint');
     signInHint = await readNativeSignInHint(original.session, original.serverUrl, selected.connection.pin.fingerprint, selected.signIn).catch(() => undefined); assertCurrent();
     // A server-local session renews locally even while Portico Services is unreachable.
     const hostedCredentials = connection?.hosted?.origin === hostedUrl ? () => nativeAccounts.accountCredentials() : undefined;
+    markRestore('connection');
     const restored = await restoreNativeConnection(connection?.hosted?.origin ?? original.serverUrl, hostedCredentials, original.session, env, signal.signal);
     api = restored?.api; assertCurrent();
     // Sessions this device replaced are ended over the route that is live now (bounded, background).
     const liveRoute = api?.getRouteConnection();
-    if (liveRoute) void drainRevocations(liveRoute.pin.serverId, liveRoute).catch(() => {});
+    // Queued sign-outs wait until Home has had its turn: they share the session-refresh lock and
+    // this route with the reads that open Home (E-mobile-01).
+    if (liveRoute) {const drain = setTimeout(() => {if (!signal.signal.aborted) void drainRevocations(liveRoute.pin.serverId, liveRoute).catch(() => {});}, REVOCATION_DRAIN_DELAY_MS); signal.signal.addEventListener('abort', () => clearTimeout(drain), {once: true});}
     if (!restored || !sameViewer(original.session, restored.session)) throw Object.assign(new Error('native_viewer_changed'), {code: 'identity_mismatch'});
+    markRestore('viewer');
     const reread = await readNativeSelectedViewer(); assertCurrent();
     if (!reread || reread.serverUrl !== original.serverUrl || !sameViewer(reread.session, restored.session)) throw cancelled();
     api = restored.api;
@@ -189,6 +201,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const mutationStore = new NativeUserMutationStore();
     let reportMutationError = (error: unknown) => console.warn('[user-mutations]', error);
     const mutationScope=api.getUserMutationScope();if(!mutationScope)throw cancelled();
+    markRestore('mutations');
     await retainNativeUserMutationSelection(mutationStore,mutationScope,error=>reportMutationError(error)); assertCurrent();
     const mutations = api.configureUserMutations(mutationStore);
     const mutationApi = api;
@@ -214,6 +227,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     home = readers.home;
     const documentService = home;
     const identities = new IdentityClient(readers);
+    markRestore('first-reads');
     const [librariesResult, initialAccount, initialAvatars, initialPreferences, server] = await Promise.all([
       readers.request(routePath('get_libraries'), 'GET', undefined, signal.signal).then(parseLibraryList).then(value => value.items, error => tolerateLibraryDirectory(error, signal.signal)),
       readers.readAccount(),
@@ -230,12 +244,14 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     account = initialAccount;
     signInHint = Object.freeze({serverId: selected.connection.pin.serverId, accountId: session.viewer.accountId, familyId: session.sessionFamilyId,
       fingerprint: selected.connection.pin.fingerprint, origin: original.serverUrl, serverName: server.name, username: initialAccount.account.username, signIn: selected.signIn});
+    markRestore('save-hint');
     await rememberNativeSignInHint(signInHint).catch(() => {}); assertCurrent();
     avatars = initialAvatars;
     const profile = account.profiles.find(value => value.id === session!.viewer.profileId);
     if (!profile) throw Object.assign(new Error('profile_unavailable'), {code: 'access_refused'});
     preferences = initialPreferences;
     const records = new NativeQueueStore();
+    markRestore('settings');
     installationSettings = await records.change('preferences:v1', raw => ({record: raw, value: raw}));
     assertCurrent();
     let unread = 0;
@@ -321,8 +337,10 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     bindNativeDeviceSettings(context, {storage: records, readRecord: () => installationSettings, acceptRecord: raw => {
       assertCurrent(); installationSettings = raw; for (const listener of [...preferenceListeners]) listener();
     }});
+    markRestore('bindings');
     bindings = await makeBindings(context); assertCurrent();
     homeActionDiagnostics.libraryMenu('bindings', bindings);
+    markRestore('publish');
     const selectedBeforePublish = await readNativeSelectedViewer(); assertCurrent();
     if (!selectedBeforePublish || !sameViewer(selectedBeforePublish.session, session) || selectedBeforePublish.serverUrl !== original.serverUrl) throw cancelled();
     await accountBinding.assertCurrent(); assertCurrent();

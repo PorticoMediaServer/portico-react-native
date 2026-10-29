@@ -6,6 +6,7 @@ import type {DeviceClass, PreferencePatch, PreferenceScope, PreferenceSnapshot} 
 import {fetchGuideSourceSummaries} from '../../../../packages/client-core/src/guide/directory';
 import {parseDirectSnapshot, type DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
 import {routePath} from '../../../../packages/contracts/src/routes';
+import {createSharedReads} from './shared-read';
 import type {HttpLocalApi, LocalSession} from '../../../../packages/client-core/src';
 import type {NativeShellAccountBinding} from './account-binding';
 
@@ -78,7 +79,13 @@ export class NativeShellBootstrapServices {
       catch (error) {if (batch === this.unreadController && !batch?.signal.aborted) this.inboxFailure = error; throw error;}
       finally {signal?.removeEventListener('abort', noteCancelled);}
     }});
-    this.home = new HomeService({request: <T>(path: string, method?: string, body?: unknown, signal?: AbortSignal) => this.call<T>('home', path, method, body, signal)},
+    // Home's document is read once at a time (E-mobile-01 cold launch): a load and the quiet
+    // re-reads that arrive while it runs share one request.
+    const homeReads = createSharedReads();
+    this.home = new HomeService({request: <T>(path: string, method?: string, body?: unknown, signal?: AbortSignal) =>
+      (method ?? 'GET') === 'GET' && body === undefined && path.split('?')[0] === routePath('get_home')
+        ? homeReads<T>(path, signal, shared => this.call<T>('home', path, method, body, shared))
+        : this.call<T>('home', path, method, body, signal)},
       options.deviceClass === 'television' ? {initialLimit: 20} : {});
     // Core disposal aborts owned reads but retains its last snapshot. A retained runtime
     // must never expose that body after this authority has been retired.

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createNativeStartupRecovery, startupRetrySeconds, type NativeStartupWait} from '../src-next/shell/startup-recovery.ts';
+import {createNativeStartupRecovery, RESTORE_ATTEMPT_TIMEOUT_MS, startupRetrySeconds, type NativeStartupWait} from '../src-next/shell/startup-recovery.ts';
 
 const flush = async () => {for (let pass = 0; pass < 4; pass++) await Promise.resolve();};
 function clock() {
@@ -30,14 +30,14 @@ function deferred<T>() {
   return {promise, resolve, reject};
 }
 const networkFailure = Object.assign(new Error('offline test server'), {code: 'network'});
-function fixture(options: {online?: boolean; foreground?: boolean; restore?: (signal: AbortSignal) => Promise<string>} = {}) {
+function fixture(options: {online?: boolean; foreground?: boolean; restore?: (signal: AbortSignal) => Promise<string>; attemptTimeoutMs?: number; retryable?: (error: unknown) => boolean; onAttemptTimeout?: () => void} = {}) {
   const time = clock(), signals: AbortSignal[] = [], tries: number[] = [], ready: string[] = [], discarded: string[] = [];
   const failures: {error: unknown; retrying: boolean}[] = [], changes: {at: number; wait: NativeStartupWait}[] = [];
   let live = true;
   const controller = createNativeStartupRecovery({startedAt: 0, current: () => live, online: options.online, foreground: options.foreground ?? true,
-    now: time.now, schedule: time.schedule,
+    now: time.now, schedule: time.schedule, attemptTimeoutMs: options.attemptTimeoutMs ?? 1e9, onAttemptTimeout: options.onAttemptTimeout,
     restore: signal => {signals.push(signal); tries.push(time.now()); return options.restore?.(signal) ?? Promise.reject(networkFailure);},
-    discard: result => {discarded.push(result);}, retryable: error => error === networkFailure,
+    discard: result => {discarded.push(result);}, retryable: options.retryable ?? (error => error === networkFailure),
     onReady: result => {ready.push(result);}, onError: (error, retrying) => {failures.push({error, retrying});},
     onWait: wait => {changes.push({at: time.now(), wait});}});
   return {controller, time, signals, tries, ready, discarded, failures, changes, retire: () => {live = false;}, wait: () => changes.at(-1)!.wait};
@@ -163,7 +163,8 @@ test('a caller-supplied start time is already partway up the ladder when JavaScr
   const controller = createNativeStartupRecovery({startedAt: 0, current: () => true, foreground: true,
     now: time.now, schedule: time.schedule, restore: () => read.promise, discard() {}, retryable: () => false,
     onReady() {}, onError(error) {throw error;}, onWait: value => {changes.push(value);}});
-  assert.equal(changes[0]!.message, 'still-connecting'); assert.equal(changes[0]!.spinner, true); assert.equal(time.size(), 1);
+  assert.equal(changes[0]!.message, 'still-connecting'); assert.equal(changes[0]!.spinner, true);
+  assert.equal(time.size(), 2, 'the 15 s milestone and the attempt deadline');
   await time.advance(6_000); assert.equal(changes.at(-1)!.stage, 'recovery'); controller.dispose();
   read.resolve('retired'); await flush();
 });
@@ -173,4 +174,27 @@ test('countdown derives from the actual retry deadline, rounds up, and never bec
   assert.equal(startupRetrySeconds(15_000, 14_999), 1);
   assert.equal(startupRetrySeconds(15_000, 15_000), 0);
   assert.equal(startupRetrySeconds(15_000, 20_000), 0);
+});
+
+test('E-mobile-01: a restore attempt that never answers ends as a visible, retryable timeout and frees its slot', async () => {
+  const stuck = deferred<string>(), answers = [stuck.promise, Promise.resolve('runtime')];
+  let timeouts = 0;
+  const f = fixture({restore: () => answers.shift()!, attemptTimeoutMs: RESTORE_ATTEMPT_TIMEOUT_MS, onAttemptTimeout: () => {timeouts++;},
+    retryable: error => (error as {code?: string}).code === 'timeout' || error === networkFailure});
+  assert.equal(RESTORE_ATTEMPT_TIMEOUT_MS, 30_000);
+  await f.time.advance(29_999); assert.equal(f.failures.length, 0);
+  await f.time.advance(1);
+  assert.equal(timeouts, 1);
+  assert.equal(f.failures.length, 1); assert.equal((f.failures[0]!.error as {code?: string}).code, 'timeout'); assert.equal(f.failures[0]!.retrying, true);
+  assert.equal(f.signals[0]!.aborted, true);
+  // The stuck native read still owns nothing: the scheduled retry runs and opens Home.
+  await f.time.advance(2_000); assert.equal(f.tries.length, 2); assert.deepEqual(f.ready, ['runtime']);
+  stuck.resolve('late'); await flush(); assert.deepEqual(f.discarded, ['late']);
+  f.controller.dispose();
+});
+
+test('a restore that answers within its bound keeps no deadline timer', async () => {
+  const f = fixture({restore: () => Promise.resolve('runtime'), attemptTimeoutMs: RESTORE_ATTEMPT_TIMEOUT_MS});
+  await flush(); assert.deepEqual(f.ready, ['runtime']); assert.equal(f.time.size(), 0);
+  f.controller.dispose();
 });

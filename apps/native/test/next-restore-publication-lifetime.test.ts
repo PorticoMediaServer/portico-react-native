@@ -18,6 +18,7 @@ function modules(state: {
   failure?: unknown; onFallback?: () => void;
 }) {
   return {
+    './restore-trace': {restoreTrace: () => ({waiting: 'start', elapsedMs: 0, marks: []})},
     react: {...React, default: React},
     '../platform/share-links': {nativeShareLinks: {acquire: () => () => {}, subscribe: () => () => {}, getSnapshot: () => undefined, take: () => false}},
     '../screens/share/NativeShareLinks': {NativeShareLinks: () => null},

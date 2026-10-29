@@ -9,6 +9,10 @@ export type NativeStartupWait = Readonly<{
   retryAt?: number;
 }>;
 
+/** No restore attempt waits longer than this before the person sees why. */
+export const RESTORE_ATTEMPT_TIMEOUT_MS = 30_000;
+export const restoreAttemptTimeout = () => Object.assign(new Error('native_restore_timeout'), {code: 'timeout', retryable: true});
+
 export const startupRetryDelays = [2_000, 4_000, 8_000, 15_000, 30_000, 60_000] as const;
 
 export function startupWait(elapsedMs: number, online?: boolean, pending = false, retryAt?: number): NativeStartupWait {
@@ -31,6 +35,10 @@ type Options<T> = Readonly<{
   restore: (signal: AbortSignal) => Promise<T>;
   discard: (result: T) => void;
   retryable: (error: unknown) => boolean;
+  /** One restore attempt's bound (E-mobile-01): past it the attempt ends as a retryable timeout,
+   * shown like any other, and its slot is released even if a native read never answers. */
+  attemptTimeoutMs?: number;
+  onAttemptTimeout?: () => void;
   onReady: (result: T) => void;
   onError: (error: unknown, retrying: boolean) => void;
   onWait: (wait: NativeStartupWait) => void;
@@ -94,8 +102,20 @@ export function createNativeStartupRecovery<T>(options: Options<T>) {
     publish();
     void (async () => {
       let result: T;
-      try {result = await options.restore(captured.signal);} catch (error) {
+      let timedOut = false, cancelDeadline: Cancel | undefined;
+      const work = options.restore(captured.signal);
+      const deadline = new Promise<never>((_, reject) => {
+        cancelDeadline = schedule(options.attemptTimeoutMs ?? RESTORE_ATTEMPT_TIMEOUT_MS, () => {timedOut = true; reject(restoreAttemptTimeout());});
+      });
+      try {result = await Promise.race([work, deadline]);} catch (error) {
+        cancelDeadline?.();
         if (flight === captured) flight = undefined;
+        if (timedOut) {
+          // The stuck attempt is retired after it is reported; a late answer is discarded.
+          options.onAttemptTimeout?.();
+          void work.then(value => options.discard(value), () => {});
+          queueMicrotask(() => captured.abort());
+        }
         if (!attemptCurrent()) {resumeAfterRetirement(); return;}
         pending = false;
         const retrying = options.retryable(error);
@@ -105,6 +125,7 @@ export function createNativeStartupRecovery<T>(options: Options<T>) {
         else {settled = true; clearTimers();}
         return;
       }
+      cancelDeadline?.();
       if (flight === captured) flight = undefined;
       if (!attemptCurrent()) {options.discard(result); resumeAfterRetirement(); return;}
       pending = false; settled = true; clearTimers();

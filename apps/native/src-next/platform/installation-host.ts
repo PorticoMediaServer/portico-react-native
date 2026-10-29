@@ -18,13 +18,13 @@ export function createNativeInstallationHost(host: Readonly<{platform: () => str
     let invalidWarned = false;
     const current = () => {
       const now = installationIdentity(), valid = !disposed && !signal?.aborted && owned === generation && now === claim;
-      // DEV-only first-cause evidence: a newer restore generation and a rewritten
-      // identity are different bugs. This reports which one retired the claim and
-      // never changes the guard or the identity setter.
-      if (!valid && typeof __DEV__ !== 'undefined' && __DEV__ && !invalidWarned) {
+      // First-cause evidence, release builds too (E-mobile-01): a newer restore generation and a
+      // rewritten identity are different bugs. This reports which one retired the claim, once,
+      // and never changes the guard or the identity setter.
+      if (!valid && !invalidWarned && !disposed && !signal?.aborted) {
         invalidWarned = true;
         console.warn('portico_installation_invalid', JSON.stringify({disposed, aborted: !!signal?.aborted, owned, latest: generation,
-          sameReference: now === claim, sameId: now?.installationId === claim?.installationId, hasClaim: !!claim, hasNow: !!now}), new Error().stack);
+          sameReference: now === claim, sameId: now?.installationId === claim?.installationId, hasClaim: !!claim, hasNow: !!now}));
       }
       return valid;
     };
