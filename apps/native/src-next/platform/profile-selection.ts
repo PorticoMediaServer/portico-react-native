@@ -7,6 +7,7 @@ import {nativeAppSessions} from './app-session-storage';
 import {nativeAccounts} from './accounts';
 import {nativeNetworkFetch, nativeServerEnvironment} from './server-connections';
 import {createNativeShellAccountBinding, profileSessionRole} from '../shell/account-binding';
+import {revokeInBackground} from './session-revocation';
 import {logPickFailure, provenIdentityMismatch} from './pick-failure';
 
 /** One captured server/account/family. The candidate owns independent routes, so retiring
@@ -21,7 +22,7 @@ export function nativeProfileSelection(serverId: string, familyId: string) {
   return {
     async select(profileId: string, pin?: string) {
       check(); if (busy) throw Object.assign(new Error('native_profile_selection_busy'), {code: 'cancelled'}); busy = true;
-      let api: HttpLocalApi | undefined, issued: import('../../../../packages/client-core/src').LocalSession | undefined, published = false, refused = false, step = 'read';
+      let revoking: Promise<void> | undefined, api: HttpLocalApi | undefined, issued: import('../../../../packages/client-core/src').LocalSession | undefined, published = false, refused = false, step = 'read';
       try {
         const captured = await nativeAppSessions.selected(); check();
         if (!captured || captured.connection.pin.serverId !== serverId || captured.connection.session.sessionFamilyId !== familyId)
@@ -51,11 +52,10 @@ export function nativeProfileSelection(serverId: string, familyId: string) {
         publishing = true; step = 'publish';
         await nativeAccounts.remember(api, issued, admission, record.hosted, current); published = true;
         // The previous family belongs to this server only. A switch to another server never
-        // takes this path and never ends that server's family.
-        if (restored.session.sessionFamilyId !== issued.sessionFamilyId) {
-          const previous = new HttpLocalApi(api.baseUrl, restored.session.accessToken, nativeNetworkFetch);
-          previous.useRoutes(api.getRouteConnection()!); await previous.logout();
-        }
+        // takes this path and never ends that server's family. Ending it is mandatory but never
+        // blocks or fails the pick: queued durably first, then one bounded try over the live route.
+        if (restored.session.sessionFamilyId !== issued.sessionFamilyId)
+          revoking = revokeInBackground({...record, session: restored.session}, api.getRouteConnection());
       } catch (error) {
         // E-mobile-01/25: only a proven different identity ends the picked session on the server.
         if (issued && !published) {refused = provenIdentityMismatch(error); logPickFailure('switch', step, error);}
@@ -65,7 +65,10 @@ export function nativeProfileSelection(serverId: string, familyId: string) {
           const candidate = new HttpLocalApi(api.baseUrl, issued.accessToken, nativeNetworkFetch);
           candidate.useRoutes(api.getRouteConnection()!); await candidate.logout().catch(() => {});
         }
-        api?.getRouteConnection()?.dispose(); busy = false; publishing = false;
+        // The revocation try uses this route, so it is disposed once that bounded try settles.
+        const route = api?.getRouteConnection();
+        if (revoking) void revoking.then(() => route?.dispose()); else route?.dispose();
+        busy = false; publishing = false;
         if (disposeRequested) {abort.abort(); off();}
       }
     },
