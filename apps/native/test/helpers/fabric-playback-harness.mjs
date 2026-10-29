@@ -1,4 +1,4 @@
-import {canReturnToPage} from '../../src-next/shell/page-focus-return.ts';
+import {canReturnToPage, holdsPageFocus} from '../../src-next/shell/page-focus-return.ts';
 import * as homeStart from '../../src-next/screens/home/home-start.ts';
 import {DockVideoExitImages} from '../../src-next/kit/dock/video-exit-paint.ts';
 import {captureListeningOpening, expandedListeningOccupant, localListeningOccupant} from '../../src-next/shell/listening-presentation.ts';
@@ -158,7 +158,7 @@ export async function fabricPlayback(runtime, tv = true, watch, withShell = fals
       renderWatch: () => React.createElement(WatchProbe)});
     const registry = createFocusRegistry(), Empty = () => null;
     ({NativeShell} = await screenModule(new URL('../../src-next/shell/NativeShell.tsx', import.meta.url), {...stackSlotFixture, 
-    './page-focus-return': {canReturnToPage},
+    './page-focus-return': {canReturnToPage, holdsPageFocus},
     '../screens/home/home-start': homeStart,
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
