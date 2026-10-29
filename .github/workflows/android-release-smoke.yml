@@ -23,7 +23,7 @@ jobs:
         working-directory: portico-react-native
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {repository: PorticoMediaServer/portico-server, path: portico-server, ref: '${{ steps.server.outputs.revision }}'}
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: {node-version-file: portico-react-native/.node-version, cache: npm, cache-dependency-path: portico-react-native/apps/native/package-lock.json}
       - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
         with: {distribution: temurin, java-version: '17', cache: gradle, cache-dependency-path: 'portico-react-native/apps/native/android/**/*.gradle*'}
