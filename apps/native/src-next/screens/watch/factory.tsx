@@ -1,4 +1,5 @@
 import React, {useSyncExternalStore} from 'react';
+import {shareLinkActions} from '../share/share-actions';
 import type {View} from 'react-native';
 import type {HttpLocalApi} from '../../../../../packages/client-core/src';
 import {DetailService, type DetailProjection, type DetailScope, type PersonalIntent} from '../../../../../packages/client-core/src/detail';
@@ -100,6 +101,8 @@ export type NativeWatchFactoryPorts = Readonly<{
   beginVersions?: (capture: NativeWatchCapture) => NativeVersionsOpening | undefined;
   openDiscTitles?: (capture: NativeWatchCapture, dispatch: () => void, create: (opening: () => boolean) => NativeDiscTitlesController) => void;
   openMenu: (capture: NativeWatchCapture, actions: NativeWatchMenuActions, anchorRef?: React.RefObject<View | null>) => void;
+  /** One quiet confirmation (O-162: "Link copied"). */
+  notice?: (message: string) => void;
   title: Pick<NativeTitleScreenProps, 'aboutLabel' | 'renderError' | 'reportError' | 'navigate' | 'person' | 'owner' | 'openCollection' | 'serverName' | 'search'> & Readonly<{
     myList?: (entry: ContentEntry) => NativeTitleScreenProps['myList'];
     download?: NativeTitleScreenProps['download'];
@@ -366,7 +369,12 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
         {opening, owner: () => ports.title.owner === true, version: () => opening() ? discVersion.id : undefined}));
     } : undefined;
     ports.openMenu(captured, {fileInfo: accepted => fileInfo(captured, accepted), ...(discTitles ? {discTitles} : {}), ...(select ? {select: () => {if (current(captured)) select();}} : {}), ...(hasVersions ? {differentVersion: () => versions(captured)} : {}), ...(menuEntry ? {entry: menuEntry} : {}),
-      ...(extraActions?.length ? {extraActions: extraActions.map(action => ({...action, onSelect: () => {if (current(captured) && !action.disabled) action.onSelect();}}))} : {})}, anchorRef);
+      ...(() => {
+        // O-162: Share and Copy link for this item on this server, from client-core's one builder (touch only).
+        const shared = ports.isTV ? [] : shareLinkActions(ports.current().serverId, 'item', {itemId: entry.id}, {notice: ports.notice, report: ports.title.reportError});
+        const all = [...(extraActions ?? []), ...shared];
+        return all.length ? {extraActions: all.map(action => ({...action, onSelect: () => {if (current(captured) && !('disabled' in action && action.disabled)) action.onSelect();}}))} : {};
+      })()}, anchorRef);
   };
   const title: NativeRouteRenderer = {
     render: (route, runtime) => {

@@ -56,7 +56,7 @@ async function fixture() {
         if (accepted) source = {...source, subtitleStyle: styleChoices.read(source.fence, defaults)};
         return accepted;
       }}};
-  const {createNativeWatchScreens} = await screenModule(new URL('../src-next/screens/watch/factory.tsx', import.meta.url), {
+  const {createNativeWatchScreens} = await screenModule(new URL('../src-next/screens/watch/factory.tsx', import.meta.url), {'../share/share-actions': {shareLinkActions: () => []}, 
     react, '../../../../../packages/client-core/src/detail': {DetailService: class {
       async select() {} getSnapshot() {return {data: {item: source.entry, actions: [{id: 'play', enabled: true, playback: source.entry.playback}]}};}
       subscribe() {return () => {};} dispose() {}

@@ -50,6 +50,12 @@ export class NativeScreenServices {
     if (!nativeEntryRouteSupported(entry)) {this.reportError(Object.assign(new Error('unavailable'), {code: 'unavailable'}), 'detail'); return;}
     this.owner.navigation.open(nativeEntryRoute(entry), this.lifetime.authority);
   };
+  /** One quiet confirmation, such as "Link copied". It replaces any toast on screen. */
+  notice = (message: string): void => {
+    if (!this.lifetime.current()) return;
+    this.toast = Object.freeze({id: `native-screen-notice-${++this.sequence}`, message});
+    this.publish();
+  };
   reportError = (error: unknown, context: ErrorContext = 'generic'): void => {
     if (!this.lifetime.current()) return;
     const presented = presentError(error, context, {operation: 'action', deviceOnline: deviceOnline()});

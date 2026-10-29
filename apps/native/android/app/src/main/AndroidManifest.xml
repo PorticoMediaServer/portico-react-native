@@ -84,6 +84,15 @@
             <data android:path="/together/join" />
             <data android:path="/app/account-return" />
         </intent-filter>
+        <!-- O-162 shared links: web.getportico.tv/s/<serverId>/… only (not getportico.tv). -->
+        <intent-filter android:autoVerify="true">
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+            <data android:host="web.getportico.tv" />
+            <data android:pathPrefix="/s/" />
+        </intent-filter>
       </activity>
         <!-- The media session for music and audiobooks: the lock screen, the notification, headsets, cars. -->
         <service

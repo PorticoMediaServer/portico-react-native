@@ -12,7 +12,7 @@ const theme = (phone = true) => ({isTV: false, platform: phone ? 'phone' : 'tabl
   spec: {shelf: {phonePaddingTop: 6, phonePaddingBottom: 8, gap: {phone: 12, tablet: 12}, marginTop: {phone: 28, tablet: 28}}}});
 function fixture(phone = true) {
   const host = hooks(), react: any = {...host.react, useLayoutEffect() {}, useId: () => 'saved-resource'}; react.default = react;
-  const modules: Record<string, any> = {react, 'react-native': {Text: 'Text', View: 'View', ScrollView: 'ScrollView', VirtualizedList: 'VirtualizedList',
+  const modules: Record<string, any> = {'../share/share-actions': {shareLinkActions: () => []}, react, 'react-native': {Text: 'Text', View: 'View', ScrollView: 'ScrollView', VirtualizedList: 'VirtualizedList',
     BackHandler: {addEventListener: () => ({remove() {}})}, useWindowDimensions: () => ({width: phone ? 390 : 1000, height: 800})},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 24, bottom: 12})},
     '../../../../../packages/i18n/src': {defaultI18n: i18n}, '../../../../../packages/client-core/src/presentation/errors': {presentError: () => ({body: 'error'})},

@@ -7,7 +7,8 @@ import {defaultI18n} from '../../../../../packages/i18n/src';
 import {AmbientArt, Artwork, PersonCircle, StandardBackdrop} from '../../kit/artwork';
 import type {NativeSelection} from '../selection/native-selection';
 import {PosterCard, type PosterCardProps} from '../../kit/cards';
-import {Chip, Focusable} from '../../kit/controls';
+import {Button, Chip, Focusable} from '../../kit/controls';
+import {shareLinkActions} from '../share/share-actions';
 import {Menu, type MenuEntry} from '../../kit/overlays';
 import {TVShelf} from '../../tv/layout/TVShelf';
 import {Icon} from '../../kit/Icon';
@@ -36,7 +37,7 @@ export function PersonScreen({focusScope, page, role, collection, runtime, actio
   const columns = theme.platform === 'phone' ? 3 : Math.max(3, Math.floor((dimensions.width - 40) / 150));
   const width = (dimensions.width - 32 - (columns - 1) * 10) / columns;
   const [range, setRange] = useState({first: 0, last: columns * 4 - 1});
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(false), [sharing, setSharing] = useState(false), shareAnchor = useRef<View>(null);
   const firstPage = collection.pageOf(range.first), lastPage = collection.pageOf(range.last);
   const subscribePages = useCallback((listener: () => void) => {
     const stops = [collection.subscribe(listener)];
@@ -63,10 +64,17 @@ export function PersonScreen({focusScope, page, role, collection, runtime, actio
   const dates = born && died ? t('web.person.lived', {born, died}) : born ? t('web.person.born', {date: born}) : undefined;
   const initials = person.name.split(/\s+/u).filter(Boolean).slice(0, 2).map(word => [...word][0]).join('');
   const known = page.person.knownFor;
+  // O-162: Share and Copy link for this person (the page had no ⋯ while no person action existed).
+  const shareItems: MenuEntry[] = shareLinkActions(runtime.getSnapshot().authority.serverId, 'person', {personId: person.id},
+    {notice: runtime.notice, report: runtime.reportError}).map(action => ({id: action.id, label: action.label, icon: action.icon, onSelect: action.onSelect}));
   const header = <>
     <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 0, right: 0, height: 560, overflow: 'hidden'}}>
       <AmbientArt source={runtime.ambient(known.find(entry => entry.backdropUrl || entry.posterUrl)?.backdropUrl ?? known.find(entry => entry.posterUrl)?.posterUrl)} treatment="library" height={560}/>
     </View>
+    {shareItems.length > 0 && <View style={{position: 'absolute', top: insets.top + 4, right: 8, zIndex: 1}}>
+      <Button ref={shareAnchor} testID={`${focusScope}.share`} variant="icon" icon="i-more" iconOnly size="compact" accessibilityLabel={t('services.start.shareLink')} onPress={() => setSharing(true)}/>
+      <Menu testID={`${focusScope}.share-menu`} open={sharing} onOpenChange={setSharing} anchorRef={shareAnchor} title={person.name} items={shareItems}/>
+    </View>}
     <View style={{paddingTop: Math.max(98, insets.top + 44), paddingHorizontal: 20, alignItems: 'center'}}>
       <PersonCircle size={96} initials={initials} source={runtime.artwork(person.portraitUrl)} covers={known.flatMap(entry => {const art = runtime.artwork(entry.posterUrl); return art ? [art] : [];})}/>
       <Text accessibilityRole="header" style={[browseType(theme, 30, 800, -.035), {color: theme.colors.text, marginTop: 12, marginBottom: 4}]}>{person.name}</Text>

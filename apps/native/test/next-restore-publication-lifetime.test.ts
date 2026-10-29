@@ -19,6 +19,8 @@ function modules(state: {
 }) {
   return {
     react: {...React, default: React},
+    '../platform/share-links': {nativeShareLinks: {acquire: () => () => {}, subscribe: () => () => {}, getSnapshot: () => undefined, take: () => false}},
+    '../screens/share/NativeShareLinks': {NativeShareLinks: () => null},
     'react-native': {Platform: {OS: 'ios'}, View: 'View', Text: 'Text', AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}},
     '../platform/invitation-links': {nativeInvitationLinks: {getSnapshot: () => undefined, subscribe: () => () => {}, acquire: () => () => {}}},
     '../platform/installation': {beginNativeInstallation: (signal?: AbortSignal) => {

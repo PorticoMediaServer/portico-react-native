@@ -20,6 +20,8 @@ import {NativeIdentityFailure} from '../platform/identity-failure';
 import {PhoneFirstLibrary} from '../screens/accounts/PhoneFirstLibrary';
 import {ServerIdentityFailure} from '../screens/accounts/ServerIdentityFailure';
 import {nativeInvitationLinks, type NativeInvitationLink} from '../platform/invitation-links';
+import {nativeShareLinks} from '../platform/share-links';
+import {NativeShareLinks} from '../screens/share/NativeShareLinks';
 import {beginNativeInstallation} from '../platform/installation';
 import {createRememberedDownloadsOpening, type RememberedDownloadsOpening} from './remembered-downloads-opening';
 import {RememberedDownloadsScreen, RememberedDownloadsShortcut} from '../screens/downloads/RememberedDownloadsScreen';
@@ -46,6 +48,7 @@ export function RestoredShell() {
   const online = useSyncExternalStore(subscribePathChange, deviceOnline, deviceOnline);
   const incoming = useSyncExternalStore(nativeInvitationLinks.subscribe, nativeInvitationLinks.getSnapshot, nativeInvitationLinks.getSnapshot);
   useLayoutEffect(() => nativeInvitationLinks.acquire(), []);
+  useLayoutEffect(() => nativeShareLinks.acquire(), []);
   const [attempt, setAttempt] = useState(0), [state, setState] = useState<RestoreState>({phase: 'loading'});
   const [waiting, setWaiting] = useState(() => startupWait(0, online));
   const [firstLibrary, setFirstLibrary] = useState<string>();
@@ -253,7 +256,7 @@ export function RestoredShell() {
   const withDownloads = (content: React.ReactNode, shortcut = true) => shortcut && remembered
     ? <View style={{flex: 1}}>{content}<RememberedDownloadsShortcut source={remembered}/></View> : content;
   if (state.runtime && state.phase === 'ready') return <NativeSettingsAppearance source={state.runtime}><>{firstLibrary && state.runtime.firstLibraryContext?.current() && state.runtime.firstLibraryContext.authority().serverId === firstLibrary && state.runtime.firstLibraryContext.account.account.role === 'owner' && state.runtime.firstLibraryContext.account.account.primaryProfileId === state.runtime.firstLibraryContext.authority().profileId ? <PhoneFirstLibrary context={state.runtime.firstLibraryContext} onDone={() => {if (!renderedCurrent()) return; const runtime = state.runtime;
-    setFirstLibrary(previous => renderedCurrent() ? undefined : previous); if (renderedCurrent()) void runtime?.refresh();}}/> : <NativeShell runtime={state.runtime}/>}</></NativeSettingsAppearance>;
+    setFirstLibrary(previous => renderedCurrent() ? undefined : previous); if (renderedCurrent()) void runtime?.refresh();}}/> : <><NativeShell runtime={state.runtime}/>{!theme.isTV && <NativeShareLinks runtime={state.runtime} online={online !== false} onRestart={complete}/>}</>}</></NativeSettingsAppearance>;
   if (state.phase === 'loading' && waiting.stage === 'boot') return null;
   // A read may still be in flight at 15 s (or 1 s offline). The recovery page is
   // then visible without cancelling or starting a second copy of that read.

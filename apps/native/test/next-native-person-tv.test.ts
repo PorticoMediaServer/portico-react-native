@@ -8,7 +8,7 @@ import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 
 const {react} = {react: {...React, default: React}};
 const themed = {useTheme: () => ({isTV: true, colors: {ink: '#000', text: '#fff', textSecondary: '#ccc', textTertiary: '#999', raised: '#111', line: '#222', accent: '#3af', accentStrong: '#4bf'}, type: {}})};
-const {TVPerson} = await screenModule(new URL('../src-next/screens/people/PersonScreen.tsx', import.meta.url), {
+const {TVPerson} = await screenModule(new URL('../src-next/screens/people/PersonScreen.tsx', import.meta.url), {'../share/share-actions': {shareLinkActions: () => []}, 
   react,
   'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', VirtualizedList: 'VirtualizedList', useWindowDimensions: () => ({width: 1920, height: 1080})},
   'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0})},

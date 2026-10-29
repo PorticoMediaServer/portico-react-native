@@ -6,7 +6,7 @@ import {Button, Focusable} from '../controls';
 import {BlurView, glassRecipe} from '../../platform/native-blur';
 import {MenuRow, Popover} from '../overlays';
 import type {FocusRef} from '../overlays';
-import {Icon} from '../Icon';
+import {Icon, type IconName} from '../Icon';
 import {useTheme} from '../theme';
 import {alpha, browseType} from './presentation';
 import type {LibraryChoice, LibraryHeaderProps} from './types';
@@ -75,6 +75,8 @@ export function LibrarySwitcher({libraries, value, onValueChange, open: supplied
 type LibraryMenuCommon = {
   read?: boolean; canSaveView?: boolean; onSaveView: () => void; /** Present only where the host has a real count-aware bulk command. */ onMarkAll?: () => void; onEditPins: () => void;
   viewSummary?: ReactNode; count?: ReactNode; open?: boolean; onOpenChange?: (open: boolean) => void; testID?: string;
+  /** O-162: Share and Copy link for this library (touch). */
+  shareActions?: readonly Readonly<{id: string; label: string; icon: IconName; onSelect: () => void}>[];
 };
 export type LibraryMenuProps = LibraryMenuCommon & (
   | {owner: true; ownerTag: ReactNode; onLibrarySettings: () => void; onScan: () => void}
@@ -93,6 +95,7 @@ export function LibraryMenu(props: LibraryMenuProps) {
       <MenuRow focusId="save-view" testID={props.testID ? `${props.testID}-save-view` : undefined} label={t('next.browse.native.saveThisView')} icon="i-filter" trailing={props.viewSummary} variant="compact" disabled={props.canSaveView === false} onPress={action(props.onSaveView)}/>
       {props.onMarkAll && <MenuRow focusId="mark-all" testID={props.testID ? `${props.testID}-mark-all` : undefined} label={t(props.read ? 'next.browse.native.markAllRead' : 'next.browse.native.markAllWatched')} icon="i-check" trailing={props.count} variant="compact" onPress={action(props.onMarkAll)}/>}
       <MenuRow focusId="edit-pins" testID={props.testID ? `${props.testID}-edit-pins` : undefined} label={t('next.browse.native.editPins')} icon="i-updown" variant="compact" onPress={action(props.onEditPins)}/>
+      {props.shareActions?.map(share => <MenuRow key={share.id} focusId={share.id} testID={props.testID ? `${props.testID}-${share.id}` : undefined} label={share.label} icon={share.icon} variant="compact" onPress={action(share.onSelect)}/>)}
       {props.owner && !theme.isTV && <>
         <View style={{height: 34, marginTop: 6, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: alpha(theme.colors.accentStrong, .22), backgroundColor: alpha(theme.colors.accent, .16)}}>
           <Text style={[browseType(theme, 12, 700), {color: theme.colors.accentStrong}]}>{t('next.browse.native.server')}</Text>

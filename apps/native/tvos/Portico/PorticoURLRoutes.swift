@@ -135,6 +135,27 @@ public enum PorticoURLRoutes {
     fragmentPairs(fragment).first(where: { $0.0 == name })?.1
   }
 
+  /// O-162 shared links (client-core `server-links.ts`, frozen): `portico://shared/{serverId}/{segment}…`
+  /// with an optional short query. 1–6 encoded segments (the server alone is its Home); an encoded
+  /// slash, `?`, `#` or control character, a dot segment, or a fragment never passes.
+  static let sharedForbidden = "%(2[fF]|3[fF]|23|[01][0-9a-fA-F]|7[fF])"
+  static func sharedSegments(_ path: String) -> [String]? {
+    guard path.hasPrefix("/") else { return nil }
+    let segments = path.dropFirst().split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+    guard (1...6).contains(segments.count), segments.allSatisfy({ segment in
+      segment != "." && segment != ".." && segment.range(of: "^[A-Za-z0-9._~%-]{1,512}$", options: .regularExpression) != nil
+        && segment.range(of: sharedForbidden, options: .regularExpression) == nil
+    }) else { return nil }
+    return segments
+  }
+  static func sharedQuery(_ query: String?) -> Bool {
+    guard let query else { return true }
+    return query.range(of: "^[A-Za-z0-9._~%&=+-]{1,1024}$", options: .regularExpression) != nil && query.range(of: sharedForbidden, options: .regularExpression) == nil
+  }
+  static func isShared(_ parts: URLComponents) -> Bool {
+    parts.host == "shared" && parts.fragment == nil && sharedQuery(parts.percentEncodedQuery) && sharedSegments(parts.percentEncodedPath) != nil
+  }
+
   /// Hosts whose https links open the app (the `applinks:` associated domains).
   static let universalHosts: Set<String> = ["web.getportico.tv", "getportico.tv"]
 
@@ -149,6 +170,15 @@ public enum PorticoURLRoutes {
             let parts = URLComponents(url: web, resolvingAgainstBaseURL: false), parts.user == nil, parts.password == nil, parts.port == nil
       else { return nil }
       let path = parts.path.hasSuffix("/") && parts.path.count > 1 ? String(parts.path.dropLast()) : parts.path
+      // O-162: only web.getportico.tv shares; the fragment is dropped, a short query is kept for the parser.
+      // The encoded path: an encoded slash or anything outside the identifier set stays refused.
+      let encoded = parts.percentEncodedPath.hasSuffix("/") && parts.percentEncodedPath.count > 1 ? String(parts.percentEncodedPath.dropLast()) : parts.percentEncodedPath
+      if encoded == "/s" || encoded.hasPrefix("/s/") {
+        let query = parts.percentEncodedQuery.flatMap { $0.isEmpty ? nil : $0 }
+        guard host == "web.getportico.tv", let segments = sharedSegments(String(encoded.dropFirst(2))), sharedQuery(query),
+              let shared = URL(string: "portico://shared/" + segments.joined(separator: "/") + (query.map { "?" + $0 } ?? "")), allows(shared) else { return nil }
+        return shared
+      }
       switch path {
       case "/account":
         // `event` and anything else in the query is for the web page only.
@@ -212,6 +242,6 @@ public enum PorticoURLRoutes {
 #endif
     // Only an invitation carries a fragment (its token or code); every other route refuses one.
     if parts.fragment != nil { return isInvite(parts) || isJoin(parts) }
-    return isAccountReturn(parts) || isContentRoute(parts) || isDownloads(parts) || isAccount(parts) || isDevice(parts) || isTogetherJoin(parts)
+    return isAccountReturn(parts) || isContentRoute(parts) || isDownloads(parts) || isAccount(parts) || isDevice(parts) || isTogetherJoin(parts) || isShared(parts)
   }
 }

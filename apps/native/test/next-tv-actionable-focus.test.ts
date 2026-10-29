@@ -344,7 +344,7 @@ test('TV Saved caller passes original grid sort/filter roots through actual Menu
 
 for (const kind of ['person', 'collection'] as const) test(`${kind} actual entity menu retains its original scoped root and command`, async () => {
   const b = await bindings(), o = await overlayBindings(b), presentation = await import('../src-next/kit/browse/presentation');
-  const modules = {react: b.react, 'react-native': b.native, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0})},
+  const modules = {'../share/share-actions': {shareLinkActions: () => []}, react: b.react, 'react-native': b.native, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0})},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', PersonCircle: 'Person', AmbientArt: 'Ambient', Artwork: 'Artwork'},
     '../../kit/cards': {PosterCard: 'Poster'}, '../../kit/cards/primitives': {CardFrame: 'CardFrame'},
     '../../kit/selection': {SelectionCircle: 'SelectionCircle'}, '../saved/presentation': {savedDuration: (value: number) => String(value)}, '../../kit/controls': {Button: o.Button, Chip: 'Chip', Focusable: b.Focusable},

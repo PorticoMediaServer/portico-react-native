@@ -494,7 +494,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       })} : {...common, owner: false as const};
     },
     error: (error, retry, context = 'generic') => feedback.error(error, retry, context),
-    reportError, onDestination: destination => open({kind: 'shell', destination}),
+    reportError, notice: feedback.notice, onDestination: destination => open({kind: 'shell', destination}),
     scrollToTop,
     stacks,
     registerScrollToTop: (destination, handler) => {const key = JSON.stringify(destination); scroll.set(key, handler);

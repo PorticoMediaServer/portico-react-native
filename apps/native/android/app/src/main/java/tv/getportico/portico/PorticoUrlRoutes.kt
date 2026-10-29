@@ -79,6 +79,21 @@ internal object PorticoUrlRoutes {
     return !identifier.contains("/") && safeIdentifier(identifier, 128)
   }
 
+  /** O-162 shared links (client-core `server-links.ts`, frozen): `portico://shared/{serverId}/{segment}…`
+   * with an optional short query. 1–6 encoded segments (the server alone is its Home); an encoded
+   * slash, `?`, `#` or control character, a dot segment, or a fragment never passes. Only
+   * `web.getportico.tv/s/…` app links produce it; the JavaScript parser decides what it means. */
+  private val SHARED_SEGMENT = Regex("^[A-Za-z0-9._~%-]{1,512}$")
+  private val SHARED_FORBIDDEN = Regex("%(2[fF]|3[fF]|23|[01][0-9a-fA-F]|7[fF])")
+  private val SHARED_QUERY = Regex("^[A-Za-z0-9._~%&=+-]{1,1024}$")
+  private fun sharedSegments(path: String?): List<String>? {
+    if (path == null || !path.startsWith("/")) return null
+    val segments = path.substring(1).split("/")
+    return segments.takeIf { it.size in 1..6 && it.all { segment -> SHARED_SEGMENT.matches(segment) && !SHARED_FORBIDDEN.containsMatchIn(segment) && segment != "." && segment != ".." } }
+  }
+  private fun sharedQuery(query: String?) = query == null || (SHARED_QUERY.matches(query) && !SHARED_FORBIDDEN.containsMatchIn(query))
+  private fun isShared(uri: Uri) = uri.host == "shared" && uri.encodedFragment == null && sharedQuery(uri.encodedQuery) && sharedSegments(uri.encodedPath) != null
+
   /** `portico://downloads`: where a "download finished" notification leads. */
   private fun isDownloads(uri: Uri) = uri.host == "downloads" && bare(uri) && uri.encodedQuery == null
 
@@ -130,7 +145,7 @@ internal object PorticoUrlRoutes {
     if (isPublicMeasurement(uri.toString())) return true
     // Only an invitation carries a fragment (its token or code); every other route refuses one.
     if (uri.encodedFragment != null) return isInvite(uri) || isJoin(uri)
-    return isAccountReturn(uri) || isContentRoute(uri) || isDownloads(uri) || isAccount(uri) || isDevice(uri) || isTogetherJoin(uri)
+    return isAccountReturn(uri) || isContentRoute(uri) || isDownloads(uri) || isAccount(uri) || isDevice(uri) || isTogetherJoin(uri) || isShared(uri)
   }
 
   private fun percentEncoded(value: String): String {
@@ -147,6 +162,16 @@ internal object PorticoUrlRoutes {
     if (web.scheme != "https" || web.host?.lowercase() !in UNIVERSAL_HOSTS || web.userInfo != null || web.port != -1) return null
     val raw = web.path ?: ""
     val path = if (raw.endsWith("/") && raw.length > 1) raw.dropLast(1) else raw
+    // O-162: only web.getportico.tv shares; the fragment is dropped, a short query is kept for the parser.
+    // The encoded path: an encoded slash or anything outside the identifier set stays refused.
+    val encoded = (web.encodedPath ?: "").let { if (it.endsWith("/") && it.length > 1) it.dropLast(1) else it }
+    if (encoded == "/s" || encoded.startsWith("/s/")) {
+      if (web.host?.lowercase() != "web.getportico.tv") return null
+      val segments = sharedSegments(encoded.removePrefix("/s")) ?: return null
+      val query = web.encodedQuery?.takeIf { it.isNotEmpty() }
+      if (!sharedQuery(query)) return null
+      return Uri.parse("portico://shared/" + segments.joinToString("/") + (query?.let { "?$it" } ?: "")).takeIf { allows(it) }
+    }
     val candidate: String? = when (path) {
       // `event` and anything else in the query is for the web page only.
       "/account" -> queryItems(web)?.firstOrNull { it.first == "tab" }?.second.let { tab -> if (tab != null && tab in ACCOUNT_TABS) "portico://account?tab=$tab" else "portico://account" }

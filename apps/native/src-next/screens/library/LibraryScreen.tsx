@@ -18,6 +18,7 @@ import {AmbientArt, Artwork, StandardBackdrop} from '../../kit/artwork';
 import {Button, Focusable} from '../../kit/controls';
 import {FocusItem, FocusRegion, useFocusRegistry, type FocusRegionProps} from '../../kit/focus';
 import {Banner} from '../../kit/overlays';
+import {shareLinkActions} from '../share/share-actions';
 import {LibraryHeader, LibraryMenu, LibrarySwitcher, QuickToggle, ViewToggle, type BrowseLabels} from '../../kit/browse';
 import {browseType, alpha} from '../../kit/browse/presentation';
 import {Icon} from '../../kit/Icon';
@@ -368,7 +369,8 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   const menu = <Menu {...menuProps}
     canSaveView={canSaveView} onSaveView={() => {
       if (state.sort && nativeLibraryCanSave(state, {predicates: state.predicates, sort: state.sort})) actions.saveView(destination, {predicates: state.predicates, sort: state.sort});
-    }} onMarkAll={actions.markAll && state.collection ? markAll : undefined}/>;
+    }} onMarkAll={actions.markAll && state.collection ? markAll : undefined}
+    shareActions={theme.isTV ? undefined : shareLinkActions(runtime.getSnapshot().authority.serverId, 'library', {libraryId: state.library.id}, {notice: runtime.notice, report: runtime.reportError})}/>;
   homeActionDiagnostics.libraryMenu('element', runtime);
   const select = selection && <Button testID="library-select-header" variant="text" size="compact" icon="i-check" style={{height: 44}} onPress={selection.start}>{defaultI18n.t('next.selection.select')}</Button>;
   const screenGutter = tabletLayout ? expanded ? 32 : 28 : theme.gutter;

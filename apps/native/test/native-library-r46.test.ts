@@ -63,7 +63,7 @@ async function libraryScreen(width: number, isTV = false) {
     '../read/platform': {hiddenReadingLibraryOnTV, isReadingLibraryKind},
   };
   const jumpSheet = await screenModule(new URL('../src-next/screens/library/LibraryJumpSheet.tsx', import.meta.url), modules);
-  const module = await screenModule(new URL('../src-next/screens/library/LibraryScreen.tsx', import.meta.url), {
+  const module = await screenModule(new URL('../src-next/screens/library/LibraryScreen.tsx', import.meta.url), {'../share/share-actions': {shareLinkActions: () => []}, 
     ...modules, './LibraryJumpSheet': jumpSheet, './jump': libraryJump,
     '../../kit/cards/TVSparseCardFrame': {TVSparseCardFrame: 'TVSparseCardFrame', TVCardPaintFrame: 'TVCardPaintFrame', TVPendingCardPaint: 'TVPendingCardPaint'},
     '../../platform/home-action-diagnostics': {homeActionDiagnostics},

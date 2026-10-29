@@ -30,7 +30,7 @@ test(`compact ${category} recovery admits only original usable downloads: ${cond
     dispose() {live = false; for (const listener of [...listeners]) listener();}};
   const theme = {platform: 'phone', isTV: false, colors: {ink: '#000', raised: '#111', text: '#fff', textTertiary: '#888'}, type: {bodyStrong: {}, caption: {}}};
   const native = {Platform: {OS: 'ios'}, View: 'RCTView', Text: 'RCTText', AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}};
-  const {RestoredShell} = await screenModule(new URL('../src-next/shell/RestoredShell.tsx', import.meta.url), {
+  const {RestoredShell} = await screenModule(new URL('../src-next/shell/RestoredShell.tsx', import.meta.url), {'../screens/share/NativeShareLinks': {NativeShareLinks: () => null}, '../platform/share-links': {nativeShareLinks: {acquire: () => () => {}, subscribe: () => () => {}, getSnapshot: () => undefined, take: () => false}}, 
     react: {...React, default: React}, 'react-native': native,
     '../kit/states': {HomeSkeleton: 'HomeSkeleton', StateView: 'StateView', StateLayout: ({beforeActions}: any) => React.createElement('StateLayout', null, beforeActions)},
     '../kit/artwork': {StandardBackdrop: 'StandardBackdrop', CoverFan: 'CoverFan'}, '../kit/controls': {Focusable: 'Focusable'}, '../kit/Icon': {Icon: 'Icon'}, '../kit/theme': {useTheme: () => theme},
