@@ -21,7 +21,7 @@ async function fixture() {
   const motion = {reduce: false, timing: () => ({}), spring: () => ({})};
   const common = {react: host.react, 'react-native': native, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 44, bottom: 34, left: 0, right: 0})},
     '../../../../../packages/i18n/src/index': {defaultI18n: {t: (id: string) => id}}, '../theme': {useTheme: () => theme}, '../controls/Button': {Button: 'Button'}};
-  const {BottomSheet} = await screenModule(new URL('../src-next/kit/overlays/BottomSheet.tsx', import.meta.url), {
+  const {BottomSheet} = await screenModule(new URL('../src-next/kit/overlays/BottomSheet.tsx', import.meta.url), {'../../platform/keyboard': {FormScrollView: 'ScrollView', KeyboardProvider: ({children}: {children: unknown}) => children, useKeyboardHeight: () => 0, touchKeyboard: () => true}, 
     ...common, './OverlayPaintContext': {OverlayPaintDescendants: 'OverlayPaintDescendants', useOverlayPaintMode: () => ({visible: true, interactive: true, root: true})},
     'react-native-gesture-handler': {GestureDetector: 'GestureDetector', Gesture: {Pan: () => {gesture = {}; for (const name of ['enabled', 'onBegin', 'onUpdate', 'onEnd', 'onFinalize']) gesture[name] = (value: any) => {gesture[`${name}Value`] = value; return gesture;}; return gesture;}}},
     'react-native-reanimated': {default: {View: 'AnimatedView'}, cancelAnimation() {}, runOnJS: (fn: any) => fn, useAnimatedStyle: (fn: any) => fn(), useSharedValue: (value: any) => host.react.useRef({value}).current, withSpring: (value: any) => value, withTiming: (value: any) => value},

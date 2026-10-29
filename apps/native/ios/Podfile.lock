@@ -1972,6 +1972,63 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
+  - react-native-keyboard-controller (1.22.9):
+    - boost
+    - DoubleConversion
+    - fast_float
+    - fmt
+    - glog
+    - hermes-engine
+    - RCT-Folly
+    - RCT-Folly/Fabric
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - react-native-keyboard-controller/common (= 1.22.9)
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - SocketRocket
+    - Yoga
+  - react-native-keyboard-controller/common (1.22.9):
+    - boost
+    - DoubleConversion
+    - fast_float
+    - fmt
+    - glog
+    - hermes-engine
+    - RCT-Folly
+    - RCT-Folly/Fabric
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - SocketRocket
+    - Yoga
   - react-native-safe-area-context (5.9.1):
     - boost
     - DoubleConversion
@@ -3079,6 +3136,7 @@ DEPENDENCIES:
   - React-microtasksnativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
   - React-mutationobservernativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/mutationobserver`)
   - "react-native-blur (from `../node_modules/@react-native-community/blur`)"
+  - react-native-keyboard-controller (from `../node_modules/react-native-keyboard-controller`)
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
   - react-native-webview (from `../node_modules/react-native-webview`)
   - React-NativeModulesApple (from `../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios`)
@@ -3220,6 +3278,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/mutationobserver"
   react-native-blur:
     :path: "../node_modules/@react-native-community/blur"
+  react-native-keyboard-controller:
+    :path: "../node_modules/react-native-keyboard-controller"
   react-native-safe-area-context:
     :path: "../node_modules/react-native-safe-area-context"
   react-native-webview:
@@ -3352,6 +3412,7 @@ SPEC CHECKSUMS:
   React-microtasksnativemodule: ad68651a9ab2205f2be726cba55be56c0ab95a98
   React-mutationobservernativemodule: a1a4231f96db780ab890e6a8c1dd899ddcd0d6b7
   react-native-blur: 6af83e7e3c4c1446a188d9b2c493600fc4beb173
+  react-native-keyboard-controller: f7346a17e109ea4a56e5699a4a1b0b31d387210b
   react-native-safe-area-context: 6cf08f4151132f9cf2adb948dc6c4ac387f8d30f
   react-native-webview: 1452b1902d8925429669e0b59569fe021d506aec
   React-NativeModulesApple: e28be53160623e22284294621791940c74390685

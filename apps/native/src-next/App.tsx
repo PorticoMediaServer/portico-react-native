@@ -2,6 +2,7 @@ import React, {useMemo, useRef, type ComponentType} from 'react';
 import {Platform, StatusBar, View} from 'react-native';
 import {GestureHandlerRootView} from 'react-native-gesture-handler';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
+import {KeyboardProvider} from './platform/keyboard';
 import {ThemeProvider, useTheme} from './kit/theme';
 import {NativeShell, type NativeShellRuntime} from './shell';
 import {RestoredShell} from './shell/RestoredShell';
@@ -55,5 +56,5 @@ function NativeRoot({phoneShell, tvShell, runtime}: NativeAppProps) {
 /** The product restores its actual native session; test/dev hosts may inject an owned runtime. */
 export default function App(props: NativeAppProps) {
   // Whatever React draws first (Boot, a shell or the failure page) replaces the native boot layer.
-  return <GestureHandlerRootView style={{flex: 1}} onLayout={reportFirstFrame}><SafeAreaProvider><ThemeProvider reduceMotion={props.reduceMotion} textScale={props.textScale}><AppErrorBoundary><NativeRoot {...props} /></AppErrorBoundary></ThemeProvider></SafeAreaProvider></GestureHandlerRootView>;
+  return <GestureHandlerRootView style={{flex: 1}} onLayout={reportFirstFrame}><SafeAreaProvider><KeyboardProvider><ThemeProvider reduceMotion={props.reduceMotion} textScale={props.textScale}><AppErrorBoundary><NativeRoot {...props} /></AppErrorBoundary></ThemeProvider></KeyboardProvider></SafeAreaProvider></GestureHandlerRootView>;
 }

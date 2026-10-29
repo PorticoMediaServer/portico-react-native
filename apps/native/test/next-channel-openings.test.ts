@@ -96,7 +96,7 @@ async function editorFixture() {
   const editor = {...source(() => state), close: () => {closes++; state = {...state, phase: 'closed'};}, change: (update: any) => {state = {...state, config: update(state.config), preview: undefined};}, preview: async () => {}};
   const presetState = {loaded: true, items: []}, group = {editor, fields: {select: async () => {}}, presets: source(() => presetState), current: () => active, libraries: [{id: 'library', name: 'Library'}]};
   const motion = {reduce: false, duration: () => 0};
-  const {NativeChannelEditor} = await screenModule(new URL('../src-next/screens/settings-live/server/channels/ChannelEditor.tsx', import.meta.url), {
+  const {NativeChannelEditor} = await screenModule(new URL('../src-next/screens/settings-live/server/channels/ChannelEditor.tsx', import.meta.url), {'../../../../platform/keyboard': {FormScrollView: 'ScrollView', KeyboardProvider: ({children}: {children: unknown}) => children, useKeyboardHeight: () => 0, touchKeyboard: () => true}, 
     ...common, react: host.react, 'react-native': {Animated: {View: 'AnimatedView', Value: class {constructor(_value: number) {}}, timing: () => ({start() {}, stop() {}})}, Easing: {}, Modal: 'Modal', ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0, left: 0, right: 0})},
     '../../../../../../../packages/client-core/src/server-admin/channel-conditions': {applyChannelConditions: (value: any) => value}, '../../../../../../../packages/client-core/src/library-channels': {librarySampleLabel: (value: any) => value.showTitle || value.title},

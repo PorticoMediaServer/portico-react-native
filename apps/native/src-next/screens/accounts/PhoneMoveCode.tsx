@@ -1,5 +1,6 @@
 import React, {useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {ScrollView, Text, View} from 'react-native';
+import {Text, View} from 'react-native';
+import {FormScrollView} from '../../platform/keyboard';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {passwordStrength} from '../../../../../packages/client-core/src/password-strength';
@@ -100,7 +101,7 @@ export function PhoneMoveCode<Result>({controller, onBack, isCurrent}: {
   </View>;
   return <View testID={local ? 'accounts-move-local-sign-in' : 'accounts-move-code'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ColourBackdrop shape="top"/>
-    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{flexGrow: 1, paddingHorizontal: 22,
+    <FormScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{flexGrow: 1, paddingHorizontal: 22,
       paddingTop: Math.max(104, insets.top + 54), paddingBottom: Math.max(30, insets.bottom + 16)}}>
       <Text accessibilityRole="header" style={[nativeType({size: 34, lineHeight: 35.36, weight: 800, tracking: -.04}, theme.textScale),
         {color: theme.colors.text, marginBottom: 8}]}>{t(local ? 'accounts.move.chooseSignIn' : 'accounts.move.enterCode')}</Text>
@@ -119,7 +120,7 @@ export function PhoneMoveCode<Result>({controller, onBack, isCurrent}: {
         onPress={submit} style={{height: 48, borderRadius: 11, alignSelf: 'stretch', marginTop: 20}} textStyle={{fontSize: 16 * theme.textScale}}>{t('accounts.signIn.continue')}</Button>
       {!local && qrScannerAvailable() && <Button variant="text" disabled={state.busy || scanning} loading={scanning || undefined} style={{marginTop: 10}} onPress={() => {void scan();}}>{t('accounts.move.scanQR')}</Button>}
       {scanError != null && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginTop: 10}]}>{presentError(scanError, 'sign-in').body}</Text>}
-    </ScrollView>
+    </FormScrollView>
     <View style={{position: 'absolute', top: Math.max(50, insets.top), left: 12, height: 48, justifyContent: 'center'}}>
       <Button variant="text" icon="i-left" iconSize={22} disabled={state.busy} onPress={back}>{t('accounts.signIn.back')}</Button>
     </View>

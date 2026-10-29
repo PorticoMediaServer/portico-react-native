@@ -14,6 +14,7 @@ import {FolderSourcePicker, type LibraryFolderChoice} from './FolderSourcePicker
 import type {NativeSettingsLivePorts} from '../ports';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import {ownerLibraryIntervals} from './presentation';
+import {FormScrollView} from '../../../platform/keyboard';
 
 export type FolderInput = Readonly<{path: string; name: string; classification: 'local' | 'network'; followSymlinks: boolean; intervalSeconds: number}>;
 
@@ -30,7 +31,7 @@ export function AddFolderPage({api, serverName, source, expectedRevision, onSave
   const [choice, setChoice] = useState<LibraryFolderChoice>({folders: source ? [{path: source.path, name: source.name || source.path}] : []});
   const valid = path.trim().length > 0 && expectedRevision !== undefined;
   return <View style={{flex: 1}}>
-    <ScrollView contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 24}} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
+    <FormScrollView contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 24}} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
       <SectionTitle>{t('next.ownerLibraries.addFolder.path')}</SectionTitle>
       <LibraryGroup><LibraryRow first icon="i-folder" label={path || t('server.chooseFolder')} help={path ? undefined : t('next.ownerLibraries.addFolder.help')} onPress={() => setExploring(true)}/></LibraryGroup>
 
@@ -52,7 +53,7 @@ export function AddFolderPage({api, serverName, source, expectedRevision, onSave
         trailing={<Select testID="owner-libraries-folder-interval" accessibilityLabel={t('next.ownerLibraries.addFolder.rescan')} value={String(interval)} options={ownerLibraryIntervals.map(value => ({value: String(value.seconds), label: t(value.label, value.values)}))} onValueChange={value => setInterval(Number(value))} style={{backgroundColor: 'transparent', paddingHorizontal: 0}}/>}/></LibraryGroup>
 
       {error !== undefined && <Text accessibilityRole="alert" style={[shellType(13, 600, 18), {color: theme.colors.record, marginTop: 16}]}>{error instanceof Error ? error.message : t('next.ownerLibraries.saveFailed')}</Text>}
-    </ScrollView>
+    </FormScrollView>
     <View style={{flexDirection: 'row', gap: 10, paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderTopColor: theme.colors.lineSoft, backgroundColor: theme.colors.ink}}>
       <Button variant="glass" size="small" disabled={busy} onPress={onCancel}>{t('action.cancel')}</Button>
       <Button size="small" loading={busy} disabled={!valid || busy} onPress={() => onSave({name: name.trim(), path: path.trim(), classification, followSymlinks: follow, intervalSeconds: interval, ...(choice.source ? {expectedRemoteSource: {sourceId: choice.source.id, generation: choice.source.generation}} : {}), expectedRevision: expectedRevision ?? 0, acceptReplacement: false})} style={{flex: 1}}>{t('next.ownerLibraries.save')}</Button>

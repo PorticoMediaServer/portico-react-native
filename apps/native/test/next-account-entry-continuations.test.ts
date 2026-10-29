@@ -66,7 +66,7 @@ async function fixture(context:import('node:test').TestContext,wrongAccount=fals
   const rn={AppState:{currentState:'active',addEventListener:()=>({remove(){}})},BackHandler:{addEventListener:(_:string,fn:()=>boolean)=>{back.add(fn);return {remove:()=>back.delete(fn)};}},
     Platform:{isTV:false,OS:'ios'},NativeModules:{PorticoAccountAuth:bridge},Image:'Image',View:'View',Text:'Text',ScrollView:'ScrollView',
     Keyboard:{isVisible:()=>false,addListener:()=>({remove(){}})},KeyboardAvoidingView:'KeyboardAvoidingView',Linking:{openURL:async()=>{}}};
-  const phone=await screenModule(new URL('../src-next/screens/accounts/PhoneAccountSignIn.tsx',import.meta.url),{
+  const phone=await screenModule(new URL('../src-next/screens/accounts/PhoneAccountSignIn.tsx',import.meta.url),{'../../platform/keyboard':{FormScrollView:'ScrollView'},
     './LegalAgreement': {LegalAgreement: 'LegalAgreement'}, react:{...React,default:React},'react-native':rn,'react-native-safe-area-context':{useSafeAreaInsets:()=>({top:0,bottom:0,left:0,right:0})},
     '../../../../../packages/i18n/src':{defaultI18n},'../../kit/artwork':{ColourBackdrop:'Backdrop'},'../../kit/controls':{Button:'Button',TextField:'Field'},'../../kit/theme':{nativeType,useTheme:()=>theme},
   });

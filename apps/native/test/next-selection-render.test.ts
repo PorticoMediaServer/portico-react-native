@@ -15,7 +15,7 @@ import type {BulkEditorProps, DeleteMediaDialogProps, SelectionBarProps} from '.
 // hosts, animation/gesture drivers and the theme context are replaced. This
 // element/hook harness cannot establish native layout or physical D-pad focus.
 const keyboardListeners = new Map<string, (event?: any) => void>();
-Object.assign(globalThis, {__porticoSelectionKeyboard: keyboardListeners});
+Object.assign(globalThis, {__porticoSelectionKeyboard: keyboardListeners, __porticoKeyboardControllerListeners: keyboardListeners});
 const state = {viewport: {width: 1920, height: 1080, scale: 1, fontScale: 1}, theme: createTheme({isTV: true, width: 1920}), fontFamilies, nativeType, menuKeyEnabled: false};
 const stateKey = '__porticoSelectionRenderTest';
 Object.assign(globalThis, {[stateKey]: state});
@@ -492,7 +492,7 @@ test('phone text-entry sheet moves body and footer together for keyboard events 
     t.mock.timers.tick(500);
     assert.deepEqual(calls, ['input']);
     assert.equal(flatten(boundary().props.style).marginBottom, 0);
-    keyboardListeners.get('keyboardDidShow')!({endCoordinates: {screenY: 544, height: 300}}); await sheet.host.rerender();
+    keyboardListeners.get('keyboardWillShow')!({height: 300, duration: 0}); await sheet.host.rerender();
     assert.equal(flatten(boundary().props.style).marginBottom, 300);
     assert.ok(elements(boundary()).some(element => element.props.testID === 'actual-footer'));
     assert.ok(elements(boundary()).some(element => element.props.testID === 'actual-input'));
@@ -504,7 +504,7 @@ test('phone text-entry sheet moves body and footer together for keyboard events 
     assert.equal(flatten(boundary().props.style).marginBottom, 0, 'Android resize must not subtract the keyboard twice');
     assert.ok(flatten(getSheet().props.style).height <= 544);
     measured.props.onLayout({nativeEvent: {layout: {height: 844}}}); await sheet.host.rerender();
-    keyboardListeners.get('keyboardDidHide')!(); await sheet.host.rerender();
+    keyboardListeners.get('keyboardWillHide')!({height: 0, duration: 0}); await sheet.host.rerender();
     assert.equal(flatten(boundary().props.style).marginBottom, 0);
     assert.equal(flatten(getSheet().props.style).height, 800);
     await sheet.host.unmount();
@@ -743,12 +743,12 @@ test('Selection keyboard layout reveals the actual native input above the measur
     let scroll=elements(sheet.tree).find(n=>n.type==='ScrollView')!; scroll.props.ref.current={getNativeScrollRef:()=>({measureInWindow(callback:any){callback(0,140,390,404);}}),scrollTo:(value:unknown)=>calls.push(value)};
     scroll.props.onLayout({}); assert.deepEqual(calls,[]);
     const footer=elements(sheet.tree).find(n=>flatten(n.props.style).paddingTop===10 && n.props.onLayout)!; footer.props.onLayout({nativeEvent:{layout:{height:100}}});
-    keyboardListeners.get('keyboardDidShow')!({endCoordinates:{screenY:544,height:300}}); await sheet.host.rerender();
+    keyboardListeners.get('keyboardWillShow')!({height: 300, duration: 0}); await sheet.host.rerender();
     scroll=elements(sheet.tree).find(n=>n.type==='ScrollView')!; scroll.props.onLayout({}); assert.deepEqual(calls,[{y:314,animated:true}], 'native input bottom742 must clear measured footer at444 plus16 breathing room');
     scroll.props.onScroll({nativeEvent:{contentOffset:{y:314}}}); inputTop=386; scroll.props.onLayout({}); assert.equal(calls.length,1,'already visible focus must not jump or lose its scroll position');
     inputTop=460; scroll.props.onLayout({}); assert.deepEqual(calls.at(-1),{y:388,animated:true},'a later resize adds only the newly obscured distance to actual native offset');
     assert.ok(elements(sheet.tree).some(n=>flatten(n.props.style).paddingBottom===12));
-    keyboardListeners.get('keyboardDidHide')!(); await sheet.host.rerender(); assert.ok(elements(sheet.tree).some(n=>flatten(n.props.style).paddingBottom===30));
+    keyboardListeners.get('keyboardWillHide')!({height: 0, duration: 0}); await sheet.host.rerender(); assert.ok(elements(sheet.tree).some(n=>flatten(n.props.style).paddingBottom===30));
   } finally {await sheet.host.unmount(); state.theme=previous;state.viewport=viewport;Object.assign(globalThis,{__porticoSelectionFocusedInput:undefined});}
 });
 
@@ -793,7 +793,7 @@ test('phone deletion receipt fitted height keeps the measured notice above its f
     assert.equal(scroll().props.focusable, undefined, 'native scrolling/focus must not be disabled to hide backing');
     await measure(87);
     assert.equal(clearance(844, 87), 16, 'complete notice must clear the measured fixed footer by16px');
-    keyboardListeners.get('keyboardDidShow')!({endCoordinates: {screenY: 589, height: 255}}); await sheet.host.rerender(); await measure(58);
+    keyboardListeners.get('keyboardWillShow')!({height: 255, duration: 0}); await sheet.host.rerender(); await measure(58);
     assert.equal(clearance(589, 58), 16, 'fitted content and footer retain the same clearance above actual IME coordinates');
     assert.equal(elements(sheet.tree).find(n => n.props.testID === `${props.testID}-keyboard-boundary`)!.props.accessibilityViewIsModal, true);
     assert.deepEqual(calls, [], 'geometry measurement must not invoke any dialog operation');
@@ -828,7 +828,7 @@ test('phone picker fits its continuous body to the authored action inset above t
     assert.equal(flattenStyle(elements(picker.tree).find(node => node.props.children === input)!.props.style).paddingTop, 4);
     assert.equal((surface.tree as Element).props.contentFooterGap, 0);
     await measure(94, 844);
-    keyboardListeners.get('keyboardDidShow')!({endCoordinates: {screenY: 544, height: 300}}); await sheet.host.rerender();
+    keyboardListeners.get('keyboardWillShow')!({height: 300, duration: 0}); await sheet.host.rerender();
     await measure(72, 544);
     assert.equal(flattenStyle(footer().props.style).paddingBottom, 12);
   } finally {await sheet.host.unmount(); await surface.host.unmount(); await picker.host.unmount(); await wrapper.host.unmount(); state.theme = previousTheme; state.viewport = previousViewport;}

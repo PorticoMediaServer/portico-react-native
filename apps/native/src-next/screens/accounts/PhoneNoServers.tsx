@@ -1,5 +1,6 @@
 import React, {useLayoutEffect, useRef, useState} from 'react';
-import {ScrollView, Text, View} from 'react-native';
+import {Text, View} from 'react-native';
+import {FormScrollView} from '../../platform/keyboard';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {parseJoinLink} from '../../../../../packages/client-core/src/join-link';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -52,7 +53,7 @@ export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignO
   };
   return <View testID="phone-no-servers" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ColourBackdrop shape="top"/>
-    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingHorizontal: 24, paddingTop: insets.top + 24, paddingBottom: Math.max(24, insets.bottom + 16), gap: 20}}>
+    <FormScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingHorizontal: 24, paddingTop: insets.top + 24, paddingBottom: Math.max(24, insets.bottom + 16), gap: 20}}>
       {onBack && <Button variant="text" disabled={busy} onPress={onBack} style={{alignSelf: 'flex-start'}}>{t('action.back')}</Button>}
       <View style={{gap: 12}}>
         <Text accessibilityRole="header" style={[nativeType({size: 30, lineHeight: 34, weight: 700, tracking: 0}, theme.textScale), {color: theme.colors.text}]}>{notice?.title ?? t('web.hostedAccount.noServers')}</Text>
@@ -80,6 +81,6 @@ export function PhoneNoServers({busy, error, onFind, onRefresh, onShare, onSignO
         <Button variant="glass" disabled={busy} onPress={onShare}>{t('services.start.shareLink')}</Button>
       </View>
       <Button variant="text" disabled={busy} onPress={onSignOut}>{t('accounts.signOut.portico')}</Button>
-    </ScrollView>
+    </FormScrollView>
   </View>;
 }
