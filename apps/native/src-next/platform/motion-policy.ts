@@ -17,14 +17,12 @@ export type EffectsPolicy = Readonly<{
   drift: boolean;
   /** Fades for content that arrives or is inserted (cards, rows). Navigation feedback stays. */
   enterFades: boolean;
-  /** The standard backdrop's glows: all three, or the two main ones. */
-  backdrop: 'full' | 'simple';
 }>;
 
 const effectsByTier: Readonly<Record<MotionTier, EffectsPolicy>> = {
-  full: {blur: true, glow: true, shadows: true, drift: true, enterFades: true, backdrop: 'full'},
-  reduced: {blur: true, glow: true, shadows: true, drift: false, enterFades: true, backdrop: 'full'},
-  lite: {blur: false, glow: false, shadows: false, drift: false, enterFades: false, backdrop: 'simple'},
+  full: {blur: true, glow: true, shadows: true, drift: true, enterFades: true},
+  reduced: {blur: true, glow: true, shadows: true, drift: false, enterFades: true},
+  lite: {blur: false, glow: false, shadows: false, drift: false, enterFades: false},
 };
 
 /** Effects for the combined state: reduced removes motion, lite removes cost; both apply together. */

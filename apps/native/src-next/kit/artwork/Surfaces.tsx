@@ -3,7 +3,7 @@ import {Animated, StyleSheet, View} from 'react-native';
 import Reanimated from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, RadialGradient, Rect, Stop} from 'react-native-svg';
 import {useTheme} from '../theme';
-import {useEffectsPolicy, useReducedMotion} from '../useMotion';
+import {useReducedMotion} from '../useMotion';
 import {useNativeObservation} from '../dev-observation';
 import {ArtworkAlphaMask} from '../../platform/ArtworkAlphaMask';
 import {Artwork} from './Artwork';
@@ -24,9 +24,10 @@ function GlowLayer({glows, background}: {glows: readonly Glow[]; background?: st
 /** DESIGN.md "Boot and loading", the standard backdrop (binding): ink under the blue and green
  * ambient glows. Phone width draws the glows as a 560 pt band at the top; tablet, desktop and
  * TV draw them over the whole window. Every screen without artwork stands on exactly this, and
- * artwork screens layer their art over it. Lite (performance) keeps the two main glows. */
+ * artwork screens layer their art over it. Every effects tier, lite included, draws all three
+ * glows (Justin, 29 Oct): one static radial costs nothing worth saving. */
 export const StandardBackdrop = React.memo(function StandardBackdrop({style, testID = 'standard-backdrop'}: Pick<ColourBackdropProps, 'style' | 'testID'>) {
-  const {colors, width, layout} = useTheme(), effects = useEffectsPolicy();
+  const {colors, width, layout} = useTheme();
   const band = width < layout.breakpoint.phone;
   const backdropStyle = [StyleSheet.absoluteFillObject, {backgroundColor: colors.ink}, style];
   const observation = useNativeObservation<View>({kind: 'view', semanticId: 'colour-backdrop',
@@ -41,9 +42,8 @@ export const StandardBackdrop = React.memo(function StandardBackdrop({style, tes
     {x: 0.64, y: 1.04, rx: 0.42, ry: 0.58, colour: green, stops: [[0, 0.6], [0.5, 0.18], [0.76, 0]]},
     {x: 0.04, y: 0, rx: 0.38, ry: 0.5, colour: colors.ambient, stops: [[0, 0.75], [0.72, 0]]},
   ];
-  const drawn = effects.backdrop === 'simple' ? glows.slice(0, 2) : glows;
   return <View ref={observation.ref} pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants" testID={testID} style={backdropStyle}>
-    <View style={band ? {position: 'absolute', top: 0, left: 0, right: 0, height: 560} : StyleSheet.absoluteFillObject}><GlowLayer glows={drawn}/></View>
+    <View style={band ? {position: 'absolute', top: 0, left: 0, right: 0, height: 560} : StyleSheet.absoluteFillObject}><GlowLayer glows={glows}/></View>
   </View>;
 });
 

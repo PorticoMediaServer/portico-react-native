@@ -1,6 +1,7 @@
 import React from 'react';
 import {StyleSheet, Text, View} from 'react-native';
 import {useTheme} from '../kit/theme';
+import {StandardBackdrop} from '../kit/artwork';
 
 /**
  * The one line a TV shows while a playback start is still being prepared. The host gives it the
@@ -8,7 +9,7 @@ import {useTheme} from '../kit/theme';
  * about when preparation begins, whether it is still current or when it ends, and adds no control,
  * spinner or countdown of its own.
  *
- * It sits on the player's own themed backdrop, in the existing body type at `textSecondary`,
+ * It sits on the standard backdrop (never flat ink, Justin 29 Oct), in the existing body type at `textSecondary`,
  * centred, and wraps to the picture it is given rather than to a fixed canvas width. Pointer
  * passive, and announced as a polite status: `role` carries `status`, where the
  * `AccessibilityRole` union has no such member.
@@ -19,6 +20,7 @@ export function TVPlaybackPreparation({message}: {message: string}): React.React
   return (
     <View pointerEvents="none" accessible role="status" accessibilityLiveRegion="polite"
       style={[StyleSheet.absoluteFill, styles.backdrop, {backgroundColor: theme.colors.ink}]}>
+      <StandardBackdrop />
       <Text style={[theme.type.body, styles.line, {color: theme.colors.textSecondary}]}>{message}</Text>
     </View>
   );

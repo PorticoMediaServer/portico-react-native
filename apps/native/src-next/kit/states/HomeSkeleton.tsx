@@ -1,8 +1,7 @@
 import React from 'react';
 import {Text, View, useWindowDimensions, type StyleProp, type ViewStyle} from 'react-native';
-import Svg, {Defs, RadialGradient, Rect, Stop} from 'react-native-svg';
 import {defaultI18n} from '../../../../../packages/i18n/src/index';
-import {AmbientArt, type AmbientArtProps} from '../artwork/index';
+import {AmbientArt, StandardBackdrop, type AmbientArtProps} from '../artwork/index';
 import {useTheme} from '../theme';
 import {Lockup} from '../layout/index';
 import {GridSkeleton} from './GridSkeleton';
@@ -40,10 +39,8 @@ export function HomeSkeleton({elapsedMs, pressed, shell, slowNotice, rowTitle, r
   const rowTop = tv ? 588 : 586;
   return <View testID={testID} accessibilityState={{busy: true}} accessibilityLabel={defaultI18n.t('status.loading')}
     style={[{flex: 1, overflow: 'hidden', backgroundColor: theme.colors.ink}, style]}>
-    {!pressed?.art && <Svg pointerEvents="none" accessible={false} width="100%" height={560} viewBox="0 0 1000 1000" preserveAspectRatio="none" style={{position: 'absolute', left: 0, top: 0}}>
-      <Defs><RadialGradient id="home-loading-glow" gradientUnits="userSpaceOnUse" cx={500} cy={300} rx={800} ry={600}><Stop offset={0} stopColor={theme.colors.raisedBright} stopOpacity={.6} /><Stop offset={.72} stopColor={theme.colors.raisedBright} stopOpacity={0} /></RadialGradient></Defs>
-      <Rect width={1000} height={1000} fill="url(#home-loading-glow)" />
-    </Svg>}
+    {/* The standard backdrop (Justin, 29 Oct): never a screen-specific loading glow. Pressed art layers over it. */}
+    <StandardBackdrop />
     {pressed?.art && <View pointerEvents="none" style={{position: 'absolute', left: 0, top: 0, width, height: tv ? 900 : 560}}><AmbientArt {...pressed.art} visible={visible && pressed.art.visible !== false} arrivalDurationMs={skeletonTiming.pictureFadeMs} treatment={tv ? 'hero' : 'phone'} /></View>}
     {shell}
     {tv && pressed ? <View style={{position: 'absolute', left: gutter, top: 150, width: 960}}>
