@@ -43,7 +43,7 @@ export type NativeWatchEntryMenu = Readonly<{
 }>;
 
 export type NativeWatchModuleBindings = Pick<NativeWatchFactoryPorts,
-  'requestId' | 'title' | 'manageFile' | 'openFileInfo' | 'openMenu' | 'openVersions' | 'beginVersions' | 'startVersion'> & Readonly<{
+  'requestId' | 'title' | 'manageFile' | 'openFileInfo' | 'reopenFileInfo' | 'openMenu' | 'openVersions' | 'beginVersions' | 'startVersion'> & Readonly<{
   /** Canonical localized names/copy and real error UI; no selection enters here. */
   names?: NativeWatchPanelNames;
   /** One playlist picker per authority-local module, rendered by its overlay outlet. */

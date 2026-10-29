@@ -23,8 +23,9 @@ import type {NativeWatchOutletPort} from '../../shell/watch-outlet';
 import {NativeTitleController, type NativeTitlePageHost} from './title-controller';
 import {NativeTitleStarts} from './title-starts';
 import {NativeTitleScreen, type NativeTitleScreenProps} from './TitleScreen';
-import {NativeFileInfoContent} from './FileInfoContent';
-import {readNativeFileInfo, type NativeFileInfo} from './file-info';
+import {FileInfoSession, fileInfoUsesGroups} from '../../../../../packages/client-core/src/file-info-session';
+import {NativeFileInfoPanel} from './FileInfoPanel';
+import type {NativeFileInfoOwner} from './file-info';
 import {readNativePlaybackInfo} from './playback-info';
 import {nativeDiscTitleChoices, nativeVersionChoices, nativeVersionNames} from './version-options';
 import {NativeVersionChooserController} from './version-destination';
@@ -62,7 +63,7 @@ export type NativeWatchMenuEntry = Readonly<{
   dispose: () => void;
 }>;
 export type NativeWatchMenuExtra = Pick<MenuAction, 'id' | 'label' | 'icon' | 'description' | 'disabled' | 'destructive' | 'tone' | 'onSelect'>;
-export type NativeWatchMenuActions = Readonly<{fileInfo: () => Promise<void>; differentVersion?: () => Promise<void>; select?: () => void; entry?: NativeWatchMenuEntry; extraActions?: readonly NativeWatchMenuExtra[];
+export type NativeWatchMenuActions = Readonly<{fileInfo: (detail?: DetailProjection) => Promise<void>; differentVersion?: () => Promise<void>; select?: () => void; entry?: NativeWatchMenuEntry; extraActions?: readonly NativeWatchMenuExtra[];
   /** Owner only, and only for a physical disc version the server measured. */
   discTitles?: () => void}>;
 export type NativeVersionDestination = NativeVersionChooserController;
@@ -90,7 +91,9 @@ export type NativeWatchFactoryPorts = Readonly<{
   /** Bound to Android's real fenced runtime command after it lands on MAIN. */
   startVersion?: (input: NativePlaybackStart, selection: NativeVersionStartSelection) => Promise<void>;
   manageFile: (capture: NativeWatchCapture, action: ManageAction['id'], fileId?: string) => void;
-  openFileInfo: (capture: NativeWatchCapture, content: React.ReactNode, owner: Readonly<{info: NativeFileInfo; changed: () => Promise<void>}>) => void;
+  openFileInfo: (capture: NativeWatchCapture, content: React.ReactNode, owner: NativeFileInfoOwner) => void;
+  /** The opening went stale (the title changed): refresh the title and open File info again. */
+  reopenFileInfo?: (capture: NativeWatchCapture) => void;
   /** The bound presenter follows the phone sheet / TV panel flow in ruling 21. */
   openVersions?: (capture: NativeWatchCapture, destination: NativeVersionDestination, opening: NativeVersionsOpening) => void;
   /** Created where Versions is dispatched, before any inventory is read. */
@@ -188,22 +191,35 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     controllers.set(key, owner); controllerSubscriptions.set(key, owner.subscribe(starts.invalidate));
     return owner;
   };
-  const fileInfo = async (captured: NativeWatchCapture): Promise<void> => {
-    if (!captured.entry.libraryId) return;
-    const info = await request(captured, async signal => {
-      const offered = await options.options(captured.entry.id, {}, signal);
-      return readNativeFileInfo(ports.api, ports.scope, {libraryId: captured.entry.libraryId!, itemId: captured.entry.id}, offered, {t: defaultI18n.t}, ports.isTV, signal);
-    });
-    if (!info || !current(captured)) return;
-    ports.openFileInfo(captured, <NativeFileInfoContent model={info.model} locations={info.locations} disc={info.disc} identity={{series: captured.entry.show?.name,
+  /** File info opens from the accepted Detail the menu showed: its opening, never a newer one.
+   * The first window of versions is read before the panel shows, as the whole read was before. */
+  const fileInfo = async (captured: NativeWatchCapture, detail?: DetailProjection): Promise<void> => {
+    if (!captured.entry.libraryId || !current(captured)) return;
+    // The title page's live Detail is the newest accepted one; a later accepted Detail is a new opening.
+    const live = [...controllers.values()].find(controller => titleKey(controller.entry) === titleKey(captured.entry))?.getSnapshot().detail?.data ?? undefined;
+    if (live?.item.id === captured.entry.id && live.fileInfoOpening) detail = live;
+    const token = detail?.item.id === captured.entry.id ? detail.fileInfoOpening : undefined;
+    // A Detail that is not ready yet carries no opening; reading it again will.
+    if (!detail || !token) throw Object.assign(new Error('file_info_unavailable'), {code: 'metadata_unavailable', retryable: true});
+    const session = new FileInfoSession({api: ports.api, opening: {token, scope: ports.scope, target: {libraryId: detail.scope.libraryId, itemId: detail.scope.itemId}, revision: detail.revision},
+      isCurrent: () => current(captured)});
+    try {
+      // Playable items read versions; any other kind reads its flat files.
+      const read = await request(captured, async () => {await (fileInfoUsesGroups(captured.entry.kind) ? session.groups() : session.files()); return true;});
+      const groups = fileInfoUsesGroups(captured.entry.kind) ? session.getSnapshot().groups : session.getSnapshot().files!;
+      if (!read || !current(captured)) {session.retire(); return;}
+      if (groups.status === 'failed') throw groups.error;
+    } catch (error) {session.retire(); throw error;}
+    const changed = async () => {if (current(captured)) await Promise.all([...controllers.values()].filter(controller => titleKey(controller.entry) === titleKey(captured.entry)).map(async controller => {
+      const state = controller.getSnapshot();
+      if (state.detail?.data) await controller.detail.refresh();
+      if (state.workspace?.data) await controller.workspace.retry();
+    }));};
+    ports.openFileInfo(captured, <NativeFileInfoPanel session={session} kind={captured.entry.kind} text={{t: defaultI18n.t}} isTV={ports.isTV} identity={{series: captured.entry.show?.name,
       code: captured.entry.kind === 'episode' && captured.entry.seasonNumber !== undefined && captured.entry.episodeNumber !== undefined
         ? defaultI18n.t('next.kit.episodeCode', {season: captured.entry.seasonNumber, episode: captured.entry.episodeNumber}) : undefined}}
-      onManage={(action, id) => {if (current(captured)) ports.manageFile(captured, action, id);}}/>, {info,
-      changed: async () => {if (current(captured)) await Promise.all([...controllers.values()].filter(controller => titleKey(controller.entry) === titleKey(captured.entry)).map(async controller => {
-        const state = controller.getSnapshot();
-        if (state.detail?.data) await controller.detail.refresh();
-        if (state.workspace?.data) await controller.workspace.retry();
-      }));}});
+      onManage={(action, occurrence) => {if (current(captured)) ports.manageFile(captured, action, occurrence);}}
+      onStale={() => {if (current(captured)) ports.reopenFileInfo?.(captured);}}/>, {session, kind: captured.entry.kind, changed});
   };
   // TV Versions lists a disc's own other titles from the viewer's inventory of that
   // physical version. Never a synthetic version, never the main title twice, and each
@@ -349,7 +365,7 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
         {itemId: entry.id, versionId: discVersion.id},
         {opening, owner: () => ports.title.owner === true, version: () => opening() ? discVersion.id : undefined}));
     } : undefined;
-    ports.openMenu(captured, {fileInfo: () => fileInfo(captured), ...(discTitles ? {discTitles} : {}), ...(select ? {select: () => {if (current(captured)) select();}} : {}), ...(hasVersions ? {differentVersion: () => versions(captured)} : {}), ...(menuEntry ? {entry: menuEntry} : {}),
+    ports.openMenu(captured, {fileInfo: accepted => fileInfo(captured, accepted), ...(discTitles ? {discTitles} : {}), ...(select ? {select: () => {if (current(captured)) select();}} : {}), ...(hasVersions ? {differentVersion: () => versions(captured)} : {}), ...(menuEntry ? {entry: menuEntry} : {}),
       ...(extraActions?.length ? {extraActions: extraActions.map(action => ({...action, onSelect: () => {if (current(captured) && !action.disabled) action.onSelect();}}))} : {})}, anchorRef);
   };
   const title: NativeRouteRenderer = {

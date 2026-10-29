@@ -20,7 +20,21 @@ export type NativeFileInfoContentProps = Readonly<{
   /** Each asset's own probed disc title; absent when the server measured none. */
   disc?: readonly NativeFileInfoDisc[];
   onManage: (action: ManageAction['id'], fileId?: string) => void;
+  /** Every version of the title, when they arrive window by window. */
+  versionCount?: number;
+  /** The next window of versions, of one version's tracks, or of its files. */
+  more?: NativeFileInfoMore;
+  /** Earlier versions were let go to keep the list bounded; this reads from the first again. */
+  earlier?: NativeFileInfoMore;
+  trackMore?: (versionId: string) => NativeFileInfoMore | undefined;
+  filesMore?: (versionId: string) => NativeFileInfoMore | undefined;
 }>;
+export type NativeFileInfoMore = Readonly<{busy: boolean; failed: boolean; onPress: () => void}>;
+/** The mock-ups' quiet continuation: a small glass "Show more" under its list. */
+function More({more, label, focusId}: {more?: NativeFileInfoMore; label: string; focusId: string}) {
+  if (!more) return null;
+  return <View style={{alignItems: 'flex-start', marginTop: 8}}><Button focusId={focusId} testID={focusId} variant="glass" size="small" disabled={more.busy} onPress={more.onPress}>{more.failed ? defaultI18n.t('next.states.tryAgain') : label}</Button></View>;
+}
 const words = (parts: readonly FactPart[]) => parts.map(part => part.text).join('');
 function Parts({parts, comma = false}: {parts: readonly FactPart[]; comma?: boolean}) {
   const theme = useTheme();
@@ -47,7 +61,7 @@ function OwnerSurface({children}: {children: React.ReactNode}) {
 const tvType = (theme: Theme, size: number, weight: 400 | 500 | 600 | 700 | 800) => nativeType({size, weight, tracking: 0, lineHeight: 'normal'}, theme.textScale);
 
 /** Informational version cards; no radio, Play button, grants or synthesized file count. */
-export function NativeFileInfoContent({model, locations, identity, disc: discFacts, onManage}: NativeFileInfoContentProps) {
+export function NativeFileInfoContent({model, locations, identity, disc: discFacts, onManage, versionCount, more, earlier, trackMore, filesMore}: NativeFileInfoContentProps) {
   const theme = useTheme(), t = defaultI18n.t;
   const label = {color: theme.colors.textTertiary, fontFamily: theme.type.body.fontFamily, fontSize: 12.5};
   const value = {color: theme.colors.text, fontFamily: theme.type.bodyStrong.fontFamily, fontSize: 12.5};
@@ -58,7 +72,8 @@ export function NativeFileInfoContent({model, locations, identity, disc: discFac
   const discTable = model.files.some(file => discById.has(file.id));
   // tv-detail.html frame 8 and playback-info.html frame 19: the drawn column widths, Audio takes the rest.
   const cell = (width: number | undefined, paddingVertical: number) => ({...(width === undefined ? {flex: 1} : {width}), paddingVertical, paddingRight: 12, borderBottomWidth: 1.5, borderColor: theme.colors.line});
-  const rest = [identity?.code, model.files.length > 1 ? t('next.overlays.versionCount', {count: model.files.length}) : undefined].filter((fact): fact is string => !!fact);
+  const versions = versionCount ?? model.files.length;
+  const rest = [identity?.code, versions > 1 ? t('next.overlays.versionCount', {count: versions}) : undefined].filter((fact): fact is string => !!fact);
   const context = !!identity?.series || !!rest.length;
   return <ScrollView testID="watch-file-info-content" contentContainerStyle={{gap: theme.isTV ? 0 : 10, paddingBottom: 24}}>
     {theme.isTV ? <>
@@ -94,19 +109,20 @@ export function NativeFileInfoContent({model, locations, identity, disc: discFac
               <View style={cell(150, 14)}><Text style={[tvType(theme, 22, 400), {color: theme.colors.text}]}>{adjacent(file.rows.find(row => row.id === 'resolution')?.parts ?? [])}</Text></View>
               <View style={cell(124, 14)}><Text style={[tvType(theme, 22, 400), {color: theme.colors.text}]}>{adjacent(file.display.video.filter(part => part.id === 'codec' || part.id === 'codec-profile'))}</Text></View>
             </>}
-            <View style={cell(undefined, 14)}>{file.display.audio.map(audio => <Text key={audio.id} style={[tvType(theme, 22, 400), {color: theme.colors.text}]}>{trackText(audio.parts, comma)}</Text>)}</View>
+            <View style={cell(undefined, 14)}>{file.display.audio.map(audio => <Text key={audio.id} style={[tvType(theme, 22, 400), {color: theme.colors.text}]}>{trackText(audio.parts, comma)}</Text>)}<More more={trackMore?.(file.id)} label={t('next.overlays.fileInfoMoreTracks')} focusId={`watch-file-more-tracks-${file.id}`}/></View>
             {discTable ? null : <View style={cell(86, 14)}><Text style={[tvType(theme, 22, 400), {color: theme.colors.text}]}>{adjacent(file.rows.find(row => row.id === 'size')?.parts ?? [])}</Text></View>}
             <View style={cell(80, 14)}><Text style={[tvType(theme, 22, 400), {color: theme.colors.text}]}>{adjacent(file.rows.find(row => row.id === 'length')?.parts ?? [])}</Text></View>
           </View>;
         })}
       </View>
-    </> : model.files.map(file => <View key={file.id} style={{backgroundColor: '#172e3c', borderRadius: 14, padding: 14}}>
+      <More more={earlier} label={t('next.overlays.fileInfoFirstVersion')} focusId="watch-file-first-version"/><More more={more} label={t('next.overlays.fileInfoMoreVersions')} focusId="watch-file-more-versions"/>
+    </> : <>{model.files.map(file => <View key={file.id} style={{backgroundColor: '#172e3c', borderRadius: 14, padding: 14}}>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12}}>
         <View style={{paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: '#244555'}}><Text style={[label, {fontSize: 11, color: theme.colors.accentStrong}]}>{file.display.heading.text}</Text></View>
         <Text style={[value, {fontSize: 15, flex: 1}]}>{file.display.summary.map(part => part.text).join(' ')}</Text>
       </View>
       {(['resolution', 'video', 'audio', 'subtitles', 'size', 'length'] as const).map(id => {
-        const row = file.rows.find(value => value.id === id);
+        const row = file.rows.find(candidate => candidate.id === id);
         const parts = id === 'video' ? file.display.video : id === 'subtitles' ? file.display.subtitles : row?.parts;
         if (id === 'audio' && !file.display.audio.length || id !== 'audio' && !parts?.length) return null;
         return <View key={id} style={{flexDirection: 'row', gap: 10, marginBottom: 5}}>
@@ -114,7 +130,8 @@ export function NativeFileInfoContent({model, locations, identity, disc: discFac
           <View style={{flex: 1}}>{id === 'audio' ? file.display.audio.map(audio => <Parts key={audio.id} parts={audio.parts} comma/>) : <Parts parts={parts ?? []} comma={id === 'video' || id === 'subtitles'}/>}</View>
         </View>;
       })}
-    </View>)}
+      <More more={trackMore?.(file.id)} label={t('next.overlays.fileInfoMoreTracks')} focusId={`watch-file-more-tracks-${file.id}`}/>
+    </View>)}<More more={earlier} label={t('next.overlays.fileInfoFirstVersion')} focusId="watch-file-first-version"/><More more={more} label={t('next.overlays.fileInfoMoreVersions')} focusId="watch-file-more-versions"/></>}
     <Text style={[label, {fontSize: theme.isTV ? 20 : 12.5, lineHeight: theme.isTV ? 28 : 19, marginTop: theme.isTV ? 14 : 2}]}>{t('next.overlays.native.fileInfoNote')}</Text>
     {model.owner && theme.isTV ? <OwnerSurface>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 14, paddingBottom: 14}}>
@@ -122,13 +139,14 @@ export function NativeFileInfoContent({model, locations, identity, disc: discFac
         <Text style={[tvType(theme, 22, 700), {color: theme.colors.text, flex: 1}]}>{model.owner.heading}</Text>
         <View style={{paddingHorizontal: 12, paddingVertical: 4, borderRadius: 8, backgroundColor: '#07101899'}}><Text style={[tvType(theme, 18, 700), {color: theme.colors.textSecondary}]}>{t('next.overlays.native.ownerOnly')}</Text></View>
       </View>
-      {(locations ?? model.owner.locations.map(location => ({...location, versionId: location.id}))).map(location => <View key={location.id} style={{borderTopWidth: 1.5, borderColor: '#28404fb3', paddingVertical: 12}}>
+      {(locations ?? model.owner.locations).map(location => <View key={location.id} style={{borderTopWidth: 1.5, borderColor: '#28404fb3', paddingVertical: 12}}>
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 18}}>
           <Text style={[tvType(theme, 20, 600), {color: theme.colors.textTertiary, width: 150}]}>{model.files.find(file => file.id === location.versionId)?.display.heading.text}</Text>
           {!!location.path && <Text selectable style={[tvType(theme, 19, 400), {color: theme.colors.textSecondary, flex: 1, lineHeight: 26, fontFamily: Platform.select({ios: 'Menlo', default: 'monospace'})}]}>{location.path}</Text>}
         </View>
         {!!location.actions.length && <View style={{flexDirection: 'row', gap: 12, marginTop: 14}}>{location.actions.map(action => <Button key={action.id} focusId={`watch-file-${location.id}-${action.id}`} testID={`watch-file-${location.id}-${action.id}`} variant="glass" size="small" icon="i-trash" onPress={() => onManage(action.id, location.id)}>{action.label}</Button>)}</View>}
       </View>)}
+      {model.files.map(file => <More key={file.id} more={filesMore?.(file.id)} label={t('next.overlays.fileInfoMoreFiles')} focusId={`watch-file-more-files-${file.id}`}/>)}
       {!!model.owner.actions.filter(action => action.id !== 'merge-title').length && <View style={{flexDirection: 'row', gap: 12, paddingTop: 14, paddingBottom: 8}}>
         {model.owner.actions.filter(action => action.id !== 'merge-title').map(action => <Button key={action.id} focusId={`watch-file-owner-${action.id}`} testID={`watch-file-owner-${action.id}`} variant="glass" size="small" icon={action.id === 'split-versions' ? 'i-split' : 'i-merge'} onPress={() => onManage(action.id)}>{action.label}</Button>)}
       </View>}
@@ -140,11 +158,12 @@ export function NativeFileInfoContent({model, locations, identity, disc: discFac
         <Text style={[label, {fontSize: 11}]}>{t('next.overlays.native.ownerOnly')}</Text>
       </View>
       <View style={{padding: 14, gap: 12}}>
-        {(locations ?? model.owner.locations.map(location => ({...location, versionId: location.id}))).map(location => <View key={location.id} style={{gap: 8, borderBottomWidth: 1, borderColor: theme.colors.line, paddingBottom: 14}}>
+        {(locations ?? model.owner.locations).map(location => <View key={location.id} style={{gap: 8, borderBottomWidth: 1, borderColor: theme.colors.line, paddingBottom: 14}}>
           <Text style={label}>{model.files.find(file => file.id === location.versionId)?.display.heading.text}</Text>
           {location.path && <Text selectable style={[label, {lineHeight: 19}]}>{location.path}</Text>}
           {location.actions.map(action => <Button key={action.id} focusId={`watch-file-${location.id}-${action.id}`} testID={`watch-file-${location.id}-${action.id}`} variant="glass" size="small" icon="i-trash" onPress={() => onManage(action.id, location.id)} textStyle={{color: theme.colors.record}}>{action.label}</Button>)}
         </View>)}
+        {model.files.map(file => <More key={file.id} more={filesMore?.(file.id)} label={t('next.overlays.fileInfoMoreFiles')} focusId={`watch-file-more-files-${file.id}`}/>)}
         {model.owner.actions.map(action => <Button key={action.id} focusId={`watch-file-owner-${action.id}`} testID={`watch-file-owner-${action.id}`} variant="glass" size="small" onPress={() => onManage(action.id)}>{action.label}</Button>)}
         <Text style={[label, {lineHeight: 19}]}>{t('next.overlays.deleteVersionNote')}</Text>
       </View>

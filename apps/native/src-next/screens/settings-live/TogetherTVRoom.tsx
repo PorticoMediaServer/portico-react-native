@@ -100,8 +100,10 @@ export function NativeTogetherTVRoom({state, group, controller, media, ports, ru
   const headingExtra = Math.max(0, titleHeight - 68.2);
   const bodyTop = 196 + headingExtra + (notice ? 120 : 0) + (refused ? 84 : 0);
   const position = Number(groupTargetPositionUs(group.timeline, Date.parse(group.timeline.anchorAt), clock) / 1000000n);
-  const elapsed = item && item.duration > 0 ? t('web.together.positionOf', {position: defaultI18n.clock(position), duration: defaultI18n.clock(item.duration)}) : undefined;
-  const fraction = item && item.duration > 0 ? Math.max(0, Math.min(1, position / item.duration)) : undefined;
+  // An unknown length (P2-29: unrepresentable) shows no total and no bar, never a zero.
+  const duration = item?.duration !== undefined && item.duration > 0 ? item.duration : undefined;
+  const elapsed = duration !== undefined ? t('web.together.positionOf', {position: defaultI18n.clock(position), duration: defaultI18n.clock(duration)}) : undefined;
+  const fraction = duration !== undefined ? Math.max(0, Math.min(1, position / duration)) : undefined;
   const art = runtime.artwork(item?.backdropUrl), viewer = runtime.getSnapshot().profile;
   const currentMember = members.find(value => value.id === memberMenu), currentQueue = entries.find(value => value.entryId === queueMenu);
   const menuRead = currentQueue?.itemId ? reads.items[currentQueue.itemId] : undefined;

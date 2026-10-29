@@ -8,6 +8,8 @@ import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import {deletionAllowed} from '../../../packages/client-core/src/administration.ts';
 import {mergeExplanation} from '../../../packages/client-core/src/title-identity.ts';
 import {durationText} from '../../../packages/client-core/src/presentation/kit-model/text.ts';
+import {nativeFileInfoFile, nativeSplitCandidates} from '../src-next/screens/watch/file-info.ts';
+import {fakeSession, groupRow, groupsPage, memberRow, membersPage, ownerSurface} from './helpers/file-info-windows.ts';
 import {shellLayout} from '../src-next/shell/model.ts';
 import * as registry from '../src-next/kit/focus/registry.ts';
 import * as hostRefs from '../src-next/kit/focus/useHostRef.ts';
@@ -25,7 +27,7 @@ const {NativeWatchOverlays} = await screenModule(new URL('../src-next/screens/wa
   react, 'react-native': {Modal: 'Modal', Platform: {isTV: true}, ScrollView: 'ScrollView', StyleSheet: {absoluteFill: {}}, Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 1920, height: 1080})},
   '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src/administration': {deletionAllowed}, '../../../../../packages/client-core/src/title-identity': {mergeExplanation},
   '../../../../../packages/client-core/src/presentation/kit-model/text': {durationText},
-  '../../shell/model': {shellLayout}, '../../kit/controls': controls, '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/states': {StateView: 'StateView'},
+  './file-info': {nativeFileInfoFile, nativeSplitCandidates}, '../../shell/model': {shellLayout}, '../../kit/controls': controls, '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/states': {StateView: 'StateView'},
   '../../kit/overlays': {BottomSheet: 'BottomSheet', Dialog: 'Dialog', Menu: 'Menu'}, '../../kit/overlays/Menu': {TouchMenuHeader: 'TouchMenuHeader'},
   '../../kit/overlays/TVPanelMotion': {TVPanelTransition: 'TVPanelTransition', TVPanelSlide: 'TVPanelSlide', TVPanelScrim: 'TVPanelScrim', useTVPanelPresence: (value: unknown) => ({value, open: value !== undefined, exited() {}}), useTVPanelInteractive: () => true},
   './DiscTitlesSheet': {NativeDiscTitlesSheet: 'DiscTitlesSheet'},
@@ -43,11 +45,15 @@ function targets(value: any): any[] {
   if (typeof node.type === 'function') return targets(node.type(node.props));
   return [...(node.type === 'Button' || node.type === 'TextField' ? [node] : []), ...targets(node.props.children), ...targets(node.props.footer), ...targets(node.props.headerContent)];
 }
+// The owner's File info session, as the factory opens it: one version of one file, read from the server's windows.
+const {session} = fakeSession(path => path.includes('/groups/members') ? membersPage('qm', 'g1', [memberRow('asset', 'asset', {path: '/actual/asset.mkv'})])
+  : groupsPage('qg', ownerSurface, [groupRow(1, {headOccurrence: 'asset'})]));
+await session.groups(); await session.members('g1');
 const entry = {id: 'actual-title', kind: 'movie', title: 'Actual title', libraryId: 'actual-library'}, other = {...entry, id: 'other-title'};
 const model = {files: [], owner: {heading: 'Manage files', locations: [{id: 'asset', actions: [{id: 'delete-version', label: 'Delete'}]}], actions: [{id: 'split-title', label: 'Split'}, {id: 'merge-title', label: 'Merge'}]}};
 for (const phase of ['file-info', 'delete', 'split-pick', 'split', 'merge-search', 'merge-confirm']) test(`real ${phase} controls mount the strict TV focus hook using stable member/action identities`, async () => {
   const value = {phase: phase.startsWith('merge') ? 'merge' : phase, capture: {entry}, busy: false, candidates: [other], confirmation: '', keep: entry.id,
-    ...(phase === 'merge-confirm' ? {other} : {}), owner: {info: {model, files: [], groups: [{members: [{id: 'asset', available: true}]}]}},
+    ...(phase === 'merge-confirm' ? {other} : {}), fileId: 'asset', owner: {session, kind: 'movie', changed: async () => {}},
     content: NativeFileInfoContent({model, onManage() {}})};
   const presenters = {subscribe: () => () => {}, getSnapshot: () => value, current: () => true, overlayCurrent: () => true, close() {}, backToInfo() {}, search: async () => {}};
   let buttons: any[] = [];
@@ -55,6 +61,7 @@ for (const phase of ['file-info', 'delete', 'split-pick', 'split', 'merge-search
   await host.mount();
   try {
     assert.ok(buttons.length >= 2);
+    if (phase === 'split-pick') assert.ok(buttons.some(node => node.props.focusId === 'watch-split-file-g1'), 'a one-file version is offered by its group id');
     const ids = buttons.map(node => node.props.focusId ?? node.props.testID);
     assert.equal(new Set(ids).size, ids.length); assert.ok(ids.every(id => typeof id === 'string' && id.startsWith('watch-')));
     const region = registry.createFocusRegistry(); region.configure({id: 'watch-file-manage', orientation: 'vertical'});
