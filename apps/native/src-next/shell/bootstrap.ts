@@ -240,7 +240,9 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     assertCurrent();
     let unread = 0;
     const authority: ShellAuthority = Object.freeze({serverId: session.viewer.serverId, accountId: session.viewer.accountId, profileId: session.viewer.profileId,
-      epoch: JSON.stringify([session.sessionFamilyId, session.authorizationHorizon, profile.revision, profile.pinRevision]), viewerFence: document.viewerFence});
+      // H-11: the whole shell is keyed on this authority. Only a new family, profile, PIN, privacy
+      // fence or sign-out may change it; a token renewal sliding the inactivity horizon must not.
+      epoch: JSON.stringify([session.sessionFamilyId, profile.revision, profile.pinRevision]), viewerFence: document.viewerFence});
     const scopeIdentity = authorityKey(authority);
     let invalidReported = false;
     const current = () => {
@@ -359,10 +361,10 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
             || selectedViewer.session.deviceId !== renewed.deviceId
             || selectedViewer.session.tokenGeneration !== renewed.tokenGeneration
             || selectedViewer.session.authorizationHorizon !== renewed.authorizationHorizon) {end(); return;}
-          // The restore owner first removes the rendered old shell; its effect
-          // cleanup then aborts/disposes this runtime. Disposing before that
-          // render would make a still-mounted external-store reader throw.
-          if (options.onSessionRenewed) options.onSessionRenewed(); else end();
+          // H-11: the same family, viewer, installation and device, with a newer token generation
+          // and a later horizon, persisted as the committed selection: the session renews in place.
+          // Nothing is torn down (no shell remount, no player release): Justin's no-tear-down rule.
+          publish();
         }, () => end());
         return;
       }

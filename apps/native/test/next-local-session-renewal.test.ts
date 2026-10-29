@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {standardHomeApp} from './helpers/standard-home-app-harness.mjs';
 
-test('a genuine Local refresh advances its inactivity horizon through fresh guarded Home admission', async t => {
+test('H-11: a genuine Local refresh advances its inactivity horizon in place, tearing nothing down', async t => {
   t.mock.timers.enable({apis: ['Date'], now: Date.now()});
   let refreshes = 0;
   const app = await standardHomeApp({nativeResponse: async (request: any, fixture: any) => {
@@ -14,21 +14,21 @@ test('a genuine Local refresh advances its inactivity horizon through fresh guar
       expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), authorizationHorizon: new Date(Date.now() + 90 * 86_400_000).toISOString()}};
   }});
   try {
-    const oldPress = app.card().props.onPress;
+    const home = app.hosts().find(host => host.props.testID === 'native-home')?.host;
     const surface = app.hosts().find(host => host.name === 'PorticoPlayer')?.host;
+    assert.ok(home);
     assert.ok(surface);
     t.mock.timers.tick(59 * 60_000);
     await app.refresh();
     assert.equal(refreshes, 1, 'one real refresh request is shared by the foreground readers');
-    assert.ok(app.hosts().some(host => host.props.testID === 'native-home'), 'a renewed Local family returns to Home, rather than the server picker');
-    assert.notEqual(app.hosts().find(host => host.name === 'PorticoPlayer')?.host, surface, 'the old admission releases its host before a newly verified runtime is published');
-    assert.notEqual(app.card().props.onPress, oldPress, 'the foreground Home read replaces the old document callback');
+    assert.ok(app.hosts().some(host => host.props.testID === 'native-home'), 'the renewed Local family stays on Home');
+    assert.equal(app.hosts().find(host => host.name === 'PorticoPlayer')?.host, surface, 'the player host is kept: a token renewal is not a tear-down');
+    assert.equal(app.hosts().find(host => host.props.testID === 'native-home')?.host, home, 'the Home screen stays mounted: nothing remounted');
     const count = app.requests.length;
-    oldPress({nativeEvent: {}, stopPropagation() {}});
-    await app.settle();
-    assert.equal(app.requests.length, count, 'a retained callback from the replaced Home document remains fenced');
-    await app.more();
-    assert.ok(app.hosts().some(host => host.name === 'Pressable' && host.props.accessibilityLabel === 'Play'), 'new real Home membership is actionable after rebootstrap');
+    await app.refresh();
+    const later = app.requests.slice(count).filter((request: any) => request.path.startsWith('/v1/'));
+    assert.ok(later.length > 0 && later.every((request: any) => Object.entries(request.headers).some(([name, value]) => name.toLowerCase() === 'authorization' && String(value).includes('synthetic_refreshed_access'))),
+      'later reads use the renewed session');
     assert.equal(app.errors.length, 0);
   } finally {
     try {
