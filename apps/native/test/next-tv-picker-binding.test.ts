@@ -211,3 +211,56 @@ test('TV profile-switch hand-off preserves its current family, selection control
   } finally {await host.unmount();}
   assert.equal(disposed, 1);
 });
+
+
+test('R-16: a PIN submit on a stale context says so instead of returning silently', async () => {
+  const back = backOwner(), attempts: unknown[][] = [];
+  let live = true, created = 0, disposed = 0, exited = 0;
+  const current = {sessionFamilyId: 'current-family', viewer: {serverId: 'server', accountId: 'account', profileId: 'current'}};
+  const {AccountRoute} = await screenModule(new URL('../src-next/screens/accounts/AccountRoutes.tsx', import.meta.url), {'../../../../../packages/contracts/src/routes': await import('../../../packages/contracts/src/routes.ts'), 
+    '@portico/design': {profileArtColors}, './account-form-values': accountFormValues,
+    './TVServerChooser': {TVServerChooser: 'TVServerChooser'}, './TVTrustedCertificates': {TVTrustedCertificates: 'TVTrustedCertificates'}, './PhoneServerChooser': {PhoneServerChooser: 'PhoneServerChooser'},
+    '../../../../../packages/client-core/src/profile-management': profileManagement, '../../../../../packages/client-core/src/identity-client': identityClient,
+    '../../platform/profile-avatars': profileAvatars, '../settings-live/ProfileEditorFields': {ProfileColorPicker: 'ProfileColorPicker', ProfileRestrictionsFields: 'ProfileRestrictionsFields'},
+    '../settings-live/lifetime': lifetime, '../../shell/model': shellModel,
+    ...shared(back), '../../platform/account-work': accountWork, '../../platform/accounts': {nativeAccounts: {}}, '../../platform/app-session-storage': {},
+    '../../platform/profile-selection': {nativeProfileSelection: (server: string, family: string) => {
+      assert.equal(server, 'server'); assert.equal(family, current.sessionFamilyId); created++;
+      return {select: async (...args: unknown[]) => {attempts.push(args); throw new Error('refused');}, dispose: () => {disposed++;}};
+    }}, '../../shell/route-registry': {nativeShellRoutes: {registerRoute() {}}}, './downloads-entry': {createAccountDownloadsEntry: () => {throw new Error('downloads_unavailable_in_fixture');}}, './AccountEntry': {AccountEntry: 'Entry'}, './PhonePINEntry': {PhonePINEntry: 'PhonePIN'},
+    '../../../../../packages/client-core/src': {HttpHostedApi: 'HttpHostedApi'},
+    '../../platform/profile-recovery': {NativeProfileRecovery: 'Recovery', temporaryRecoveryApi: () => ({})},
+    '../../platform/account-authority': {hostedUrl: 'https://hosted.test'},
+    '../../platform/server-connections': {nativeNetworkFetch: async () => ({})},
+    './PhoneAccountMoveNotice': {PhoneAccountMoveNotice: 'MoveNotice'}, './PhoneMovePassword': {PhoneMovePassword: 'MovePassword'}, './PhoneMoveCode': {PhoneMoveCode: 'MoveCode'}, './PhoneProfileRecovery': {PhoneProfileRecovery: 'PhoneProfileRecovery'},
+  });
+  const authority = {serverId: 'server', accountId: 'account', profileId: 'current', epoch: '1', viewerFence: 'f'.repeat(64)};
+  const route = {kind: 'profiles'};
+  const snapshot = {authority, route, destination: {kind: 'settings'}, revision: 1};
+  const navigationListeners = new Set<() => void>();
+  const context = {session: () => current, current: () => live, serverName: 'Verified server',
+    api: {baseUrl: 'https://verified.example', request: async () => {throw new Error('no_reads_in_fixture');},
+      requestRaw: async () => {throw new Error('no_reads_in_fixture');}, mediaUrl: () => undefined,
+      subscribeRoute: () => () => {}, getRouteSnapshot: () => null, getRouteConnection: () => undefined},
+    account: {authority: 'local', serverId: 'server', canManage: true,
+      capabilities: {manageAccount: true, managePeople: true, manageServer: true, manageSignIn: true},
+      account: {id: 'account', username: 'owner', primaryProfileId: 'profile', role: 'owner', revision: 1, disabled: false, allowedLibraries: []},
+      profiles: [profile], session: {sessionFamilyId: current.sessionFamilyId}},
+    authority: () => authority, subscribeAuthority: () => () => {},
+    navigation: {getSnapshot: () => snapshot, isCurrent: () => true, getIntent: () => 'enter', open: () => true,
+      subscribe: (listener: () => void) => {navigationListeners.add(listener); return () => {navigationListeners.delete(listener);};},
+      back: () => {exited++;}}};
+  let tree: any;
+  // ProfileRoute's fragment renders its destination first and sheets/dialogs after it.
+  const screen = (node: any): any => Array.isArray(node) ? screen(node[0])
+    : node?.type === React.Fragment ? screen(node.props.children) : node;
+  const host = createFabricHookHost(() => {const opened = AccountRoute({route, context}); tree = screen(opened.type(opened.props));});
+  await act(() => host.mount());
+  try {
+    await act(() => nodes(tree.props.children).find(n => n.type === 'Picker').props.onSelect(profile.id));
+    live = false;
+    await act(() => tree.props.onSubmit('1234'));
+    assert.deepEqual(attempts, [], 'a stale context never selects');
+    assert.notEqual(tree.props.error, undefined, 'the user is told, not left with a silent no-op');
+  } finally {await host.unmount();}
+});

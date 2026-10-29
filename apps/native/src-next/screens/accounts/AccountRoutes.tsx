@@ -167,8 +167,12 @@ export function ProfileRoute({context, route, onBack, embedded = false}: {contex
   const wrongPinTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const cancelWrongPin = () => {if (wrongPinTimer.current) {clearTimeout(wrongPinTimer.current); wrongPinTimer.current = undefined;}};
   useEffect(() => cancelWrongPin, []);
-  const choose = async (id: string, code?: string) => {if (busy || !context.current()) return; setBusy(true); setError(undefined);
-    try {await selection.current!.select(id, code);} catch (failure) {if (alive.current) {
+  // R-16: a stale context or a missing controller says "this changed" (with Refresh), never nothing.
+  const staleProfiles = () => Object.assign(new Error('native_profiles_changed'), {code: 'stale'});
+  const choose = async (id: string, code?: string) => {if (busy) return;
+    if (!context.current() || !selection.current) {setError(staleProfiles()); return;}
+    setBusy(true); setError(undefined);
+    try {await selection.current.select(id, code);} catch (failure) {if (alive.current) {
       if (theme.isTV && code !== undefined) {cancelWrongPin(); wrongPinTimer.current = setTimeout(() => {wrongPinTimer.current = undefined; if (alive.current) setPin('');}, 400);} else setPin('');
       setError(failure);
     }} finally {if (alive.current) setBusy(false);}
@@ -194,13 +198,16 @@ export function ProfileRoute({context, route, onBack, embedded = false}: {contex
   const deletionCurrent = (held: ProfileDeleteOpening | undefined = deletion): held is ProfileDeleteOpening => !!held && deletionRef.current === held && manage && !!lease?.current() && managementRef.current === held.management;
   const profileActionsCurrent = () => manage && !!lease?.current() && managementCurrent() && !activeTicket.current;
   const openEditor = (kind: ProfileEditorOpening['kind']) => {
-    if (!active || !lease || !profileActionsCurrent()) return;
+    if (activeTicket.current) return;
+    if (!active || !lease || !profileActionsCurrent()) {setProblem(presentError(staleProfiles(), 'profiles').body); return;}
     const next = {kind, profile: active, lease, management};
     retireEditor(); editorRef.current = next; setEditor(next);
     editDraftRef.current = {name: active.name, pin: '', again: ''}; setNameDraft(active.name); setArtDraft(active.art); setProblem(''); setNotice('');
   };
   const openAddition = () => {
-    if (!manage || !lease?.current() || activeTicket.current || profiles.length >= 8) return;
+    // The Add controls are not rendered at the 8-profile limit, so that case never reaches here.
+    if (activeTicket.current || profiles.length >= 8) return;
+    if (!manage || !lease?.current()) {setProblem(presentError(staleProfiles(), 'profiles').body); return;}
     const next = {lease}; retireAddition(); additionRef.current = next; setAddition(next); setAddArt('blue'); setProblem(''); setNotice('');
   };
   const closeAddition = () => {if (additionCurrent()) {activeTicket.current?.abort(); retireAddition();}};
