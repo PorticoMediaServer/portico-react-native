@@ -14,6 +14,7 @@ import {ConnectionTestCard} from './ConnectionTestCard';
 import {connectionTestField} from './reading-presentation';
 import {LibraryGroup, LibraryRow} from '../../settings-live/owner-libraries/controls';
 import {StandardBackdrop} from '../../../kit/artwork';
+import {FormScrollView} from '../../../platform/keyboard';
 
 type Translate = typeof defaultI18n.t;
 type Common = {controller: NativeRemoteSourcesController; t: Translate; onCancel: () => void; isCurrent: () => boolean};
@@ -51,7 +52,7 @@ export function Page({title, t, busy, onCancel, children, footer, wizardStep, sc
     </View>
     {step !== undefined && <View style={{paddingHorizontal: 20, gap: 8}}>
       <View style={{flexDirection: 'row', gap: 4}}>{[1, 2, 3, 4, 5].map(value => <View key={value} style={{flex: 1, height: 3, borderRadius: 2, backgroundColor: value <= step ? theme.colors.accentStrong : theme.colors.lineSoft}}/>)}</View><Text style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('next.remoteSources.stepOf', {step})}</Text></View>}
-    {scrollable ? <ScrollView keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive" style={{flex: 1}} contentContainerStyle={{padding: 20, gap: 16}}>{children}</ScrollView> : <View style={{flex: 1, minHeight: 0, padding: 20}}>{children}</View>}
+    {scrollable ? <FormScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" style={{flex: 1}} contentContainerStyle={{padding: 20, gap: 16}}>{children}</FormScrollView> : <View style={{flex: 1, minHeight: 0, padding: 20}}>{children}</View>}
     <View style={{padding: 20, borderTopWidth: 1, borderTopColor: theme.colors.line, gap: 12}}>
       {wizard && step !== undefined && step > 1 && step < 5 && <Button variant="glass" disabled={busy} onPress={wizard.back}>{t('next.remoteSources.back')}</Button>}{footer}
     </View>

@@ -28,6 +28,7 @@ for (const dev of [true, false]) test(`actual App root disables collapsing only 
     'react-native': {Platform: {isTV: false}, StatusBar: 'StatusBar', View: 'View'},
     'react-native-gesture-handler': {GestureHandlerRootView: 'GestureHandlerRootView'},
     'react-native-safe-area-context': {SafeAreaProvider: 'SafeAreaProvider'},
+    './platform/keyboard': {KeyboardProvider: 'KeyboardProvider'},
     './kit/theme': {ThemeProvider: 'ThemeProvider', useTheme: () => ({colors: {ink: '#010203'}})},
     './shell/AppErrorBoundary': {AppErrorBoundary: 'AppErrorBoundary'}, './platform/boot-host': {reportFirstFrame},
     './shell': {NativeShell: leaf}, './shell/RestoredShell': {RestoredShell: leaf}, './shell/settings-mount': {},

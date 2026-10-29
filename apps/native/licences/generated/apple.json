@@ -255,6 +255,18 @@
    ]
   },
   {
+   "id": "npm:react-freeze@1.0.4",
+   "name": "react-freeze",
+   "version": "1.0.4",
+   "licence": "MIT",
+   "group": "packages",
+   "url": "software-mansion/react-freeze",
+   "text": 6,
+   "copyright": [
+    "Copyright (c) 2021 Software Mansion"
+   ]
+  },
+  {
    "id": "npm:react-is@19.3.0",
    "name": "react-is",
    "version": "19.3.0",
@@ -291,6 +303,18 @@
    ]
   },
   {
+   "id": "npm:react-native-keyboard-controller@1.22.9",
+   "name": "react-native-keyboard-controller",
+   "version": "1.22.9",
+   "licence": "MIT",
+   "group": "packages",
+   "url": "https://kirillzyusko.github.io/react-native-keyboard-controller/",
+   "text": 2,
+   "copyright": [
+    "Copyright (c) 2021 Kiryl Ziusko"
+   ]
+  },
+  {
    "id": "npm:react-native-qrcode-svg@6.3.22",
    "name": "react-native-qrcode-svg",
    "version": "6.3.22",
@@ -324,6 +348,18 @@
    "text": 2,
    "copyright": [
     "Copyright (c) 2019 Th3rd Wave"
+   ]
+  },
+  {
+   "id": "npm:react-native-screens@4.23.0",
+   "name": "react-native-screens",
+   "version": "4.23.0",
+   "licence": "MIT",
+   "group": "packages",
+   "url": "https://github.com/software-mansion/react-native-screens#readme",
+   "text": 6,
+   "copyright": [
+    "Copyright (c) 2018 Software Mansion <swmansion.com>"
    ]
   },
   {
@@ -420,6 +456,18 @@
    "text": 2,
    "copyright": [
     "Copyright (c) 2014-2019 Georg Tavonius"
+   ]
+  },
+  {
+   "id": "npm:warn-once@0.1.1",
+   "name": "warn-once",
+   "version": "0.1.1",
+   "licence": "MIT",
+   "group": "packages",
+   "url": "https://github.com/satya164/warn-once",
+   "text": 2,
+   "copyright": [
+    "Copyright (c) 2022 Satyajit Sahoo"
    ]
   },
   {
@@ -596,18 +644,6 @@
    ]
   },
   {
-   "id": "native-npm:react-native-screens@4.23.0",
-   "name": "react-native-screens",
-   "version": "4.23.0",
-   "licence": "MIT",
-   "group": "apple",
-   "url": "https://github.com/software-mansion/react-native-screens",
-   "text": 6,
-   "copyright": [
-    "Copyright (c) 2018 Software Mansion <swmansion.com>"
-   ]
-  },
-  {
    "id": "pod:SocketRocket@0.7.1",
    "name": "SocketRocket",
    "version": "0.7.1",
@@ -672,11 +708,11 @@
  ],
  "inputs": {
   "apps/native/assets/OFL-Manrope.txt": "58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b",
-  "apps/native/ios/Podfile.lock": "d8e111a52935ca1eb6abce4fadf00bcdfd4e7a177e42e7ec6098cbd0cb475ac4",
+  "apps/native/ios/Podfile.lock": "ad84dfaf578e6fbad684d1df0845d98f61601be2c28d84d71de8cc777af0deec",
   "apps/native/licences/assets.json": "c342339c3d04dcc847df15902fe6e4fc3c8c9c69dab0380191dc9df67cf9a006",
-  "apps/native/licences/js-ios.txt": "d557acb8501d8a77ef35c77a4ac753b62c1c0c195dee9a57734acb5e1bb70565",
-  "apps/native/licences/native-npm.json": "32589e75c42e8f92eff1f4b3f23081078d12372572b89824e6ac5d5a95233259",
-  "apps/native/package-lock.json": "4218e42573cbb6188d6f88257c427013f1e6f19ddd0d266d963c01dd2fb4485a",
+  "apps/native/licences/js-ios.txt": "5a1242313e25ec3eccb817f5f27fd8e4be6f6649135e6c23d26e3c83e5e4489b",
+  "apps/native/licences/native-npm.json": "1ff9df1da7e45d202989911471fdee98917cfd573be5c1f7ac84ab3cc95d826a",
+  "apps/native/package-lock.json": "e0d58fe9affc7a639c839bce2af2315b2c51adac9db0682c0c06f4f95ce3c949",
   "apps/native/tvos/Podfile.lock": "ee61f31ec69ce6616fedc3a8d93edf3660181e7d13183592bc95e74bc1e3cba8",
   "LICENSE": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
   "packages/design/LICENSE-LUCIDE": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",

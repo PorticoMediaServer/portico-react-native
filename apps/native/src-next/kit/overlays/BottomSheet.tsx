@@ -1,6 +1,6 @@
 import {OverlayPaintDescendants, useOverlayPaintMode} from './OverlayPaintContext';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Keyboard, Modal, Platform, ScrollView, StyleSheet, TextInput, View, useWindowDimensions, type KeyboardEvent} from 'react-native';
+import {Modal, ScrollView, StyleSheet, TextInput, View, useWindowDimensions} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import Animated, {cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming} from 'react-native-reanimated';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -8,6 +8,7 @@ import {defaultI18n} from '../../../../../packages/i18n/src/index';
 import {Button} from '../controls/Button';
 import {useTheme} from '../theme';
 import {useMotion} from '../useMotion';
+import {useKeyboardHeight} from '../../platform/keyboard';
 import {TVDesignCanvas} from './TVDesignCanvas';
 import {useOverlayLifecycle} from './OverlayHost';
 import {releaseSheet, resistSheet, sheetHeights} from './geometry';
@@ -23,18 +24,12 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
   const viewport = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [windowHeight, setWindowHeight] = useState(viewport.height);
-  const [keyboardTop, setKeyboardTop] = useState<number>();
   const avoidKeyboard = keyboardAvoiding && !side && !page;
-  useEffect(() => {
-    if (!avoidKeyboard || !open) {setKeyboardTop(undefined); return;}
-    // iOS moves the sheet with the keyboard's own curve as it starts; Android only reports Did.
-    const ios = Platform.OS === 'ios';
-    const follow = (event: KeyboardEvent) => {if (ios && event.duration && typeof Keyboard.scheduleLayoutAnimation === 'function') Keyboard.scheduleLayoutAnimation(event);};
-    const show = Keyboard.addListener(ios ? 'keyboardWillShow' : 'keyboardDidShow', event => {follow(event); setKeyboardTop(event.endCoordinates.screenY);});
-    const hide = Keyboard.addListener(ios ? 'keyboardWillHide' : 'keyboardDidHide', event => {follow(event); setKeyboardTop(undefined);});
-    return () => {show.remove(); hide.remove();};
-  }, [avoidKeyboard, open]);
-  const keyboardInset = avoidKeyboard && keyboardTop !== undefined ? Math.max(0, windowHeight - keyboardTop) : 0;
+  // The sheet rises as the keyboard starts, on its own duration (iOS and Android alike).
+  const keyboardHeight = useKeyboardHeight(avoidKeyboard && open);
+  // A window that already shrank for the keyboard (an Android resize) isn't covered twice.
+  const keyboardInset = Math.max(0, keyboardHeight - Math.max(0, viewport.height - windowHeight));
+  const keyboardTop = keyboardHeight > 0 ? windowHeight - keyboardInset : undefined;
   const availableHeight = Math.min(viewport.height, windowHeight - keyboardInset);
   const [bodyHeight, setBodyHeight] = useState(0);
   const [headerHeight, setHeaderHeight] = useState(64);

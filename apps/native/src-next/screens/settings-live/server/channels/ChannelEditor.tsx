@@ -15,6 +15,7 @@ import type {NativeChannelsGroup} from './model';
 import {NativeChannelConditions} from './ChannelConditions';
 import {NativeChannelPins} from './ChannelPins';
 import {NativeChannelHours} from './ChannelHours';
+import {FormScrollView} from '../../../../platform/keyboard';
 const MODES=['sequential','shuffle-bag','weighted-random','sequential-then-shuffle'] as const;
 const MODE_WORDS=['builder.order.inOrder','builder.order.shuffle','builder.order.random','builder.order.thenShuffle'] as const;
 const ORDERS=['title','recent','oldest','year','episode','release','rating'] as const;
@@ -66,7 +67,7 @@ export function NativeChannelEditor({group,runtime,isCurrent}:{group:NativeChann
   // presence holds the Modal open until that fade finishes. Default motion keeps the native slide.
   return <Modal visible={isCurrent()&&(motion.reduce?present:state.phase!=='closed')} animationType={motion.reduce?'none':'slide'} transparent={motion.reduce} presentationStyle={motion.reduce?'overFullScreen':'fullScreen'} onRequestClose={close}><Animated.View style={{flex:1,opacity:motion.reduce?fade:1}}><View style={{flex:1,paddingTop:insets.top,paddingBottom:insets.bottom}}><StandardBackdrop/>
     <View style={{height:56,paddingHorizontal:14,flexDirection:'row',alignItems:'center',gap:10}}><Button variant="text" size="compact" disabled={state.busy} onPress={close}>{t('builder.cancel')}</Button><Text numberOfLines={1} style={[shellType(17,700),{flex:1,textAlign:'center',color:theme.colors.text}]}>{t(state.templateName?'builder.reviewTemplate':'builder.editTitle',{name:state.templateName??''})}</Text><Button size="compact" disabled={state.busy||!config||!conditionsValid||hoursEditing} loading={state.busy} onPress={save}>{t(state.pending?'action.tryAgain':'builder.save')}</Button></View>
-    <ScrollView contentContainerStyle={{padding:20,gap:14,paddingBottom:40}} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
+    <FormScrollView contentContainerStyle={{padding:20,gap:14,paddingBottom:40}} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
       {state.phase==='loading'&&<Text style={{color:theme.colors.textSecondary}}>{t('next.settings.loading')}</Text>}{state.error&&<Text accessibilityRole="alert" style={{color:theme.colors.record}}>{t(state.pending?'error.unconfirmedChange':'error.unavailable')}</Text>}
       {config&&rule&&<><TextField label={t('builder.name')} value={config.name} maxLength={120} editable={!locked} error={tried&&!config.name.trim()?t('builder.error.name'):undefined} onChangeText={name=>change(old=>({...old,name}))}/><TextField label={t('builder.description')} value={config.description} maxLength={2048} editable={!locked} onChangeText={description=>change(old=>({...old,description}))}/>
       <Text style={[shellType(17,800),{color:theme.colors.text}]}>{t('builder.libraries')}</Text>{!group.libraries.length&&<Text style={{color:theme.colors.textSecondary}}>{t('builder.noVideoLibraries')}</Text>}{group.libraries.map(library=><Switch key={library.id} checked={rule.query.libraryIds.includes(library.id)} disabled={locked} onCheckedChange={checked=>query({libraryIds:checked?[...rule.query.libraryIds.filter(id=>id!==library.id),library.id]:rule.query.libraryIds.filter(id=>id!==library.id)})}>{library.name}</Switch>)}{tried&&!rule.query.libraryIds.length&&<Text style={{color:theme.colors.record}}>{t('builder.error.libraries')}</Text>}
@@ -84,7 +85,7 @@ export function NativeChannelEditor({group,runtime,isCurrent}:{group:NativeChann
       <NativeChannelHours config={config} presets={presets} locked={locked} isCurrent={unlocked} onChange={change} t={t} onEditing={value=>{if(isCurrent()){validation.hours=!value;setHoursEditing(value);}}}/>
       <Text style={{color:theme.colors.textSecondary}}>{t('builder.audience')}</Text>
       </>}
-    </ScrollView>
+    </FormScrollView>
     {config && <View testID="channel-preview-bar" style={{paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderColor: theme.colors.lineSoft, backgroundColor: theme.colors.raised, flexDirection: 'row', alignItems: 'center', gap: 12}}>
       <View style={{flex: 1, gap: 3}}><Text style={[shellType(14, 700), {color: theme.colors.text}]}>{state.previewLoading ? t('next.settings.loading') : previewRule ? previewMatches(previewRule.eligible, !!state.preview?.complete && previewRule.complete, t) : t('builder.preview')}</Text>
         {state.preview && <Text style={[shellType(12.5), {color: theme.colors.textSecondary}]}>{previewDuration(state.preview)}</Text>}

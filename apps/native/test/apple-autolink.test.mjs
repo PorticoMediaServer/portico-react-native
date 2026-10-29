@@ -61,17 +61,20 @@ test('real Fabric component generation omits unlinked tvOS WebView in Xcode and 
     assert.match(provider, /RNSVG/); // Other real native components remain installed.
     if (platform.startsWith('appletv')) assert.doesNotMatch(provider, /RNCWebView/);
     else assert.match(provider, /@"RNCWebView": NSClassFromString\(@"RNCWebView"\)/);
+    // The touch keyboard controller's views are iPhone/iPad only too.
+    if (platform.startsWith('appletv')) assert.doesNotMatch(provider, /KeyboardControllerView/);
+    else assert.match(provider, /@"KeyboardControllerView": NSClassFromString/);
   }
 });
 
-test('tvOS writes autolinking into its own project and disables only declared WebView Apple codegen', () => {
+test('tvOS writes autolinking into its own project and disables only the declared touch-only Apple codegen', () => {
   const installed = {...manifest, dependencies: {...manifest.dependencies, 'react-native-webview': '16.0.0'}};
   const tv = config('tvos', installed);
   assert.deepEqual(tv, {
     project: {ios: {sourceDir: 'tvos'}},
-    dependencies: {'react-native-webview': {platforms: {ios: null}}},
+    dependencies: {'react-native-webview': {platforms: {ios: null}}, 'react-native-keyboard-controller': {platforms: {ios: null}}},
   });
-  assert.deepEqual(codegen.findDisabledLibrariesByPlatform(tv, 'ios'), ['react-native-webview']);
+  assert.deepEqual(codegen.findDisabledLibrariesByPlatform(tv, 'ios'), ['react-native-webview', 'react-native-keyboard-controller']);
   assert.deepEqual(codegen.findDisabledLibrariesByPlatform(tv, 'android'), []);
 });
 
@@ -144,7 +147,10 @@ test('actual installed CLI selects the tvOS project without changing Android or 
   assert.deepEqual(tv.project.android, ordinary.project.android);
   const ordinaryDependencies = {...ordinary.dependencies};
   const tvDependencies = {...tv.dependencies};
-  delete ordinaryDependencies['react-native-webview'];
-  delete tvDependencies['react-native-webview'];
+  for (const touchOnly of ['react-native-webview', 'react-native-keyboard-controller']) {
+    assert.equal(tvDependencies[touchOnly].platforms.ios, null);
+    assert.deepEqual(tvDependencies[touchOnly].platforms.android, ordinaryDependencies[touchOnly].platforms.android);
+    delete ordinaryDependencies[touchOnly]; delete tvDependencies[touchOnly];
+  }
   assert.deepEqual(tvDependencies, ordinaryDependencies);
 });

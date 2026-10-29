@@ -25,7 +25,7 @@ async function fixture(initialRoute: any = {kind: 'shell', destination: {kind: '
   const page = (id: string) => ({id, title: id, icon: 'settings', sections: []});
   const structure = {headings: [{id: 'account', pages: ['profile', 'playback', 'region'].map(page)}, {id: 'server', pages: ['dashboard', 'history', 'metadata', 'people', 'remote-sources'].map(page)}]};
   const theme: any = {isTV: false, width: initialWidth, platform: initialWidth < 600 ? 'phone' : 'tablet', colors: new Proxy({}, {get: (_t, key) => String(key)})};
-  const {NativeSettingsScreen} = await screenModule(new URL('../src-next/screens/settings-live/SettingsScreen.tsx', import.meta.url), { './tv-settings-focus': tvSettingsFocus,
+  const {NativeSettingsScreen} = await screenModule(new URL('../src-next/screens/settings-live/SettingsScreen.tsx', import.meta.url), {'../../platform/keyboard': {FormScrollView: 'ScrollView', KeyboardProvider: ({children}: {children: unknown}) => children, useKeyboardHeight: () => 0, touchKeyboard: () => true},  './tv-settings-focus': tvSettingsFocus,
     react: host.react,
     'react-native': {AppState: {}, Dimensions: {get: () => ({width: theme.width, height: 844})}, NativeModules: {}, Platform: {OS: 'ios'}, ScrollView: 'ScrollView', StatusBar: {}, Text: 'Text', View: 'View'},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, left: 0, right: 0, bottom: 0})}, 'react-native-qrcode-svg': {default: 'QRCode'},

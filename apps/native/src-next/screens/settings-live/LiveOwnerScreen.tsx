@@ -22,6 +22,7 @@ import {NativeRecordingOwner} from './LiveOwnerRecording';
 import {NativeLibraryChannelsPanel} from './server/LibraryChannelsPanel';
 import {NativeAdvancedSection} from './server/AdvancedSection';
 import {StandardBackdrop} from '../../kit/artwork';
+import {FormScrollView} from '../../platform/keyboard';
 
 
 /** Settings › Server › Live TV & Channels: the owner's real sources and recordings.
@@ -83,7 +84,7 @@ export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, o
     {id: 'remove', icon: 'i-trash' as const, label: t('web.liveTv.removeSource'), destructive: true, onSelect: () => openRemove(menu)},
   ] : [];
   return <View style={{flex: 1}}><StandardBackdrop/>
-    <ScrollView contentContainerStyle={{paddingBottom: 100}} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
+    <FormScrollView contentContainerStyle={{paddingBottom: 100}} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
       <View style={{paddingHorizontal: 20, paddingTop: 8, gap: 10}}>
         <Button testID="live-owner-back" variant="text" size="small" icon="i-left" onPress={onClose}>{t('next.shell.settings')}</Button>
         <Text accessibilityRole="header" style={[shellType(32, 800, 36.8, -.035), {color: theme.colors.text}]}>{t('settings.server.live')}</Text>
@@ -133,7 +134,7 @@ export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, o
         </View>
         : tab === 'channels' ? <NativeLibraryChannelsPanel ports={ports} runtime={runtime} initialChannelId={initialChannelId}/>
         : <NativeRecordingOwner controller={controller} recordings={recordings} runtime={runtime} sources={sources}/>}
-    </ScrollView>
+    </FormScrollView>
     <Menu open={menu !== undefined} onOpenChange={value => {if (!value) setMenu(undefined);}} title={menu?.name} anchorRef={menuOpener} presentation="sheet" items={menuItems} testID="live-owner-menu"/>
     <Menu open={addMenu} onOpenChange={setAddMenu} title={t('web.liveTv.addSource')} anchorRef={addButton} presentation="sheet" testID="live-owner-add-menu" items={[
       {id: 'remote', icon: 'i-live', label: t('web.liveTv.remoteSource'), description: t('web.liveTv.remoteSourceMeta'), onSelect: () => {setTuner(undefined); setAdding(true);}},

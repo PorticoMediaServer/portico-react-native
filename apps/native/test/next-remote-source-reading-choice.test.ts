@@ -33,7 +33,7 @@ async function fixture() {
     recoverStartChoice: async (original: any) => {assert.equal(original, intent); recoveries.push(original); return pendingResult;},
   };
   const core = '../../../../../../packages/client-core/src/';
-  const module = await screenModule(new URL('../src-next/screens/settings/remote-sources/RemoteSourceForms.tsx', import.meta.url), {'../../../kit/artwork': {StandardBackdrop: 'StandardBackdrop'}, 
+  const module = await screenModule(new URL('../src-next/screens/settings/remote-sources/RemoteSourceForms.tsx', import.meta.url), {'../../../platform/keyboard': {FormScrollView: 'ScrollView', KeyboardProvider: ({children}: {children: unknown}) => children, useKeyboardHeight: () => 0, touchKeyboard: () => true}, '../../../kit/artwork': {StandardBackdrop: 'StandardBackdrop'}, 
     react: {...React, default: React}, 'react-native': {View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
     '../../../../../../packages/i18n/src': {defaultI18n: {t}}, [core + 'remote-source-choice']: choices,
     '../../../kit/controls/Button': {Button: 'Button'}, '../../../kit/controls/TextField': {TextField: 'TextField'}, '../../../kit/controls/Switch': {Switch: 'Switch'},

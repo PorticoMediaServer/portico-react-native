@@ -1,5 +1,6 @@
-import React, {useEffect, useState} from 'react';
-import {Keyboard, KeyboardAvoidingView, Platform, ScrollView, Text, View} from 'react-native';
+import React, {useEffect} from 'react';
+import {Text, View} from 'react-native';
+import {FormScrollView} from '../../platform/keyboard';
 import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {ColourBackdrop} from '../../kit/artwork';
@@ -14,13 +15,6 @@ import {StateActionButton} from '../../kit/states/StateActionButton';
 export function PhoneAccountForm({title, body, beforeActions, primaryAction, secondaryAction, additionalActions,
   detailsAction, details, help, kicker, children, visible = true, style, testID}: StateLayoutProps) {
   const theme = useTheme(), insets = useSafeAreaInsets(), motion = useMotion();
-  const [avoidKeyboard, setAvoidKeyboard] = useState(Platform.OS !== 'android' || Keyboard.isVisible());
-  useEffect(() => {
-    if (Platform.OS !== 'android') return;
-    const show = Keyboard.addListener('keyboardDidShow', () => setAvoidKeyboard(true));
-    const hide = Keyboard.addListener('keyboardDidHide', () => setAvoidKeyboard(false));
-    return () => {show.remove(); hide.remove();};
-  }, []);
   const opacity = useSharedValue(visible ? 1 : 0);
   useEffect(() => {opacity.value = withTiming(visible ? 1 : 0, motion.timing(visible ? 'standard' : 'quick'));}, [visible, opacity, motion]);
   const animated = useAnimatedStyle(() => ({opacity: opacity.value}));
@@ -33,8 +27,7 @@ export function PhoneAccountForm({title, body, beforeActions, primaryAction, sec
     <ColourBackdrop shape="top"/>
     <Animated.View pointerEvents={visible ? 'auto' : 'none'} accessibilityElementsHidden={!visible}
       importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'} style={[{flex: 1}, animated]}>
-      <KeyboardAvoidingView style={{flex: 1}} behavior="padding" enabled={avoidKeyboard}>
-        <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
+        <FormScrollView bottomOffset={80} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
           contentContainerStyle={{flexGrow: 1, paddingHorizontal: 22, paddingTop: Math.max(50, insets.top), paddingBottom: Math.max(42, insets.bottom + 16)}}>
           <View style={{width: '100%', maxWidth: 520, alignSelf: 'center', flexGrow: 1}}>
             {back ? <StateActionButton testID={testID} action={visible ? {...back, icon: 'i-left'} : {...back, icon: 'i-left', disabled: true}}
@@ -59,8 +52,7 @@ export function PhoneAccountForm({title, body, beforeActions, primaryAction, sec
             {help != null && <Text style={[theme.type.caption, {color: theme.colors.textTertiary, marginTop: 14}]}>{help}</Text>}
             {children}
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </FormScrollView>
     </Animated.View>
   </View>;
 }

@@ -36,6 +36,18 @@
     "url": "https://github.com/software-mansion/react-native-gesture-handler"
   },
   {
+    "name": "react-native-keyboard-controller",
+    "version": "1.22.9",
+    "platforms": [
+      "android",
+      "apple"
+    ],
+    "licence": "MIT",
+    "licenceFile": "LICENSE",
+    "licenceSHA256": "b0fd50df5e9be71bf15fecbcfb68df5beee5e70cd391b0ffd8abcdbceff115a4",
+    "url": "https://github.com/kirillzyusko/react-native-keyboard-controller"
+  },
+  {
     "name": "react-native-reanimated",
     "version": "4.6.0",
     "platforms": [

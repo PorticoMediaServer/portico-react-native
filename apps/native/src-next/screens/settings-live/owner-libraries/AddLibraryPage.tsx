@@ -19,6 +19,7 @@ import type {NativeSettingsLivePorts} from '../ports';
 import type {NativeShellRuntime} from '../../../shell/runtime';
 import {LibraryKindTiles} from './LibraryKindTiles';
 import {ownerLibraryKind} from './presentation';
+import {FormScrollView} from '../../../platform/keyboard';
 
 export type AddLibraryInput = Readonly<{name: string; kind: ManagedLibrary['kind']; folders: readonly string[]; expectedRemoteSource?: ExpectedRemoteSource; metadataAgent?: 'online' | 'local'; metadataLanguage?: string}>;
 
@@ -44,7 +45,7 @@ export function AddLibraryPage({api, serverName, onCreate, onCancel, busy, error
   const chooseKind = (next: ManagedLibrary['kind']) => {setKind(next); if (!touched) setName(t(ownerLibraryKind(next).label));};
   const valid = name.trim().length > 0 && folders.length > 0;
   return <View style={{flex: 1}}>
-    <ScrollView contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 24}} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
+    <FormScrollView contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 24}} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
       <Text style={[shellType(13.5, 400, 19), {color: theme.colors.textSecondary}]}>{t('web.libraries.addLede')}</Text>
 
       <SectionTitle>{t('web.libraries.type')}</SectionTitle>
@@ -75,7 +76,7 @@ export function AddLibraryPage({api, serverName, onCreate, onCancel, busy, error
       </>}
 
       {error !== undefined && <Text accessibilityRole="alert" style={[shellType(13, 600, 18), {color: theme.colors.record, marginTop: 16}]}>{error instanceof Error ? error.message : t('next.ownerLibraries.saveFailed')}</Text>}
-    </ScrollView>
+    </FormScrollView>
     <View style={{flexDirection: 'row', gap: 10, paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderTopColor: theme.colors.lineSoft, backgroundColor: theme.colors.ink}}>
       <Button variant="glass" size="small" disabled={busy} onPress={onCancel}>{t(firstRun ? 'web.setup.skip' : 'action.cancel')}</Button>
       <Button size="small" loading={busy} disabled={!valid || busy} onPress={() => onCreate({name: name.trim(), kind, folders: folders.map(folder => folder.path), ...(choice.source ? {expectedRemoteSource: {sourceId: choice.source.id, generation: choice.source.generation}} : {}), ...(!firstRun && agent ? {metadataAgent: agent as 'online' | 'local'} : {}), ...(!firstRun && language ? {metadataLanguage: language} : {})})} style={{flex: 1}}>{t(firstRun ? 'web.setup.addLibraryScan' : 'web.empty.addLibrary')}</Button>

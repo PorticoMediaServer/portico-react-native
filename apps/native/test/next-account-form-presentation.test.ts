@@ -17,9 +17,9 @@ const theme = {platform: 'phone', isTV: false, textScale: 1, type: {body: {fontS
 const nativeType = (value: any, scale: number) => ({fontSize: value.size * scale, lineHeight: value.lineHeight * scale});
 const react = {...React, default: React};
 
-test('compact auth form keeps Back above its left-aligned heading, with reachable keyboard-avoiding actions', async context => {
+test('compact auth form keeps Back above its left-aligned heading, with actions reachable above the keyboard', async context => {
   const listeners = new Map<string, () => void>(); let back = 0, tree: any;
-  const {PhoneAccountForm} = await screenModule(new URL('../src-next/screens/accounts/PhoneAccountForm.tsx', import.meta.url), {
+  const {PhoneAccountForm} = await screenModule(new URL('../src-next/screens/accounts/PhoneAccountForm.tsx', import.meta.url), {'../../platform/keyboard': {FormScrollView: 'FormScrollView'},
     react, 'react-native': {View: 'View', Text: 'Text', ScrollView: 'ScrollView', KeyboardAvoidingView: 'KeyboardAvoidingView', Platform: {OS: 'android'},
       Keyboard: {isVisible: () => false, addListener: (name: string, handler: () => void) => {listeners.set(name, handler); return {remove: () => listeners.delete(name)};}}},
     'react-native-reanimated': {default: {View: 'AnimatedView'}, useSharedValue: (value: unknown) => React.useRef({value}).current, useAnimatedStyle: (work: () => unknown) => work(), withTiming: (value: unknown) => value},
@@ -36,14 +36,13 @@ test('compact auth form keeps Back above its left-aligned heading, with reachabl
   assert.ok(all.indexOf(actions[0]) < all.findIndex(node => node.props.accessibilityRole === 'header'));
   assert.equal(flatten(all.find(node => node.props.accessibilityRole === 'header').props.style).fontSize, 34);
   assert.equal(flatten(all.find(node => node.props.accessibilityRole === 'header').props.style).textAlign, 'left');
-  assert.equal(all.find(node => node.type === 'ScrollView').props.contentContainerStyle.paddingHorizontal, 22);
+  const scroll = all.find(node => node.type === 'FormScrollView');
+  assert.equal(scroll.props.contentContainerStyle.paddingHorizontal, 22);
   assert.equal(actions[1].props.style.minHeight, 48); assert.equal(actions[1].props.style.height, undefined);
-  assert.equal(all.find(node => node.type === 'KeyboardAvoidingView').props.enabled, false);
-  await act(() => listeners.get('keyboardDidShow')!()); all = nodes(tree);
-  assert.equal(all.find(node => node.type === 'KeyboardAvoidingView').props.enabled, true);
+  // The keyboard controller keeps the focused field and the next action in view on both platforms.
+  assert.equal(scroll.props.bottomOffset, 80); assert.equal(scroll.props.keyboardShouldPersistTaps, 'handled');
+  assert.equal(all.some(node => node.type === 'KeyboardAvoidingView'), false);
   assert.equal(all.filter(node => node.props.testID === 'draft').length, 1);
-  await act(() => listeners.get('keyboardDidHide')!());
-  assert.equal(nodes(tree).find(node => node.type === 'KeyboardAvoidingView').props.enabled, false);
   actions[0].props.action.onPress(); assert.equal(back, 1);
   await host.unmount(); assert.equal(listeners.size, 0);
 });

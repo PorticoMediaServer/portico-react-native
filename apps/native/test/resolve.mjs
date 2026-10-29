@@ -12,6 +12,7 @@ import {readFileSync} from 'node:fs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const stub = pathToFileURL(path.join(here, 'react-native-stub.mjs')).href;
+const keyboardStub = pathToFileURL(path.join(here, 'keyboard-controller-stub.mjs')).href;
 
 // Hook probes explicitly opt into the exact production React instance used by
 // fabric-host. Resolve before loading the test graph so statically imported app
@@ -40,6 +41,7 @@ export async function resolve(specifier, context, next) {
   }
   if (specifier === '@portico/design') return next(new URL('../../../packages/design/src/index.ts', import.meta.url).href, context);
   if (specifier === 'react-native') return {url: stub, shortCircuit: true, format: 'module'};
+  if (specifier === 'react-native-keyboard-controller') return {url: keyboardStub, shortCircuit: true, format: 'module'};
   try {
     return await next(specifier, context);
   } catch (error) {

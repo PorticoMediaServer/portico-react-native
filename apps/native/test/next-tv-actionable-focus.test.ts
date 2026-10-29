@@ -211,7 +211,7 @@ async function overlayBindings(b: Awaited<ReturnType<typeof bindings>>) {
     './OverlayHost': host, './OverlayPaintContext': b.paint, './TVDesignCanvas': {TVDesignCanvas: 'DesignCanvas'}};
   const surface = await screenModule(new URL('../src-next/kit/overlays/surface.tsx', import.meta.url), {...common, '../../platform/layout/tv-canvas': canvas, './BottomSheet': {BottomSheet: 'UnusedTouchSheet'}});
   const pan: any = new Proxy({}, {get: () => () => pan});
-  const sheet = await screenModule(new URL('../src-next/kit/overlays/BottomSheet.tsx', import.meta.url), {...common, './surface': surface, './geometry': geometry,
+  const sheet = await screenModule(new URL('../src-next/kit/overlays/BottomSheet.tsx', import.meta.url), {'../../platform/keyboard': {FormScrollView: 'ScrollView', KeyboardProvider: ({children}: {children: unknown}) => children, useKeyboardHeight: () => 0, touchKeyboard: () => true}, ...common, './surface': surface, './geometry': geometry,
     'react-native-gesture-handler': {Gesture: {Pan: () => pan}, GestureDetector: 'Gesture'}});
   const menu = await screenModule(new URL('../src-next/kit/overlays/Menu.tsx', import.meta.url), {...common, './surface': surface, './BottomSheet': sheet, './geometry': geometry,
     '../../platform/native-blur': {glassRecipe: () => ({nativeBlur: false}), BlurView: 'Blur'}, './anchored-menu-geometry': anchored, '../browse/touch-menu-geometry': touch});

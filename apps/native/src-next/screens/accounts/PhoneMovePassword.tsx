@@ -1,5 +1,6 @@
 import React, {useEffect, useRef, useState, useSyncExternalStore} from 'react';
-import {ScrollView, Text, View, type TextInput} from 'react-native';
+import {Text, View, type TextInput} from 'react-native';
+import {FormScrollView} from '../../platform/keyboard';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
@@ -26,7 +27,7 @@ export function PhoneMovePassword<Result>({controller, serverName, onBack}: {
   const back = () => {if (!state.busy) {setPassword(''); setShowPassword(false); controller.cancel(); onBack();}};
   return <View testID="accounts-move-password" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ColourBackdrop shape="top"/>
-    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{flexGrow: 1, paddingHorizontal: 22,
+    <FormScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{flexGrow: 1, paddingHorizontal: 22,
       paddingTop: Math.max(104, insets.top + 54), paddingBottom: Math.max(30, insets.bottom + 16)}}>
       <Text accessibilityRole="header" style={[nativeType({size: 34, lineHeight: 35.36, weight: 800, tracking: -.04}, theme.textScale),
         {color: theme.colors.text, marginBottom: 8}]}>{t('accounts.move.oldSignIn')}</Text>
@@ -55,7 +56,7 @@ export function PhoneMovePassword<Result>({controller, serverName, onBack}: {
       <Button disabled={state.busy || !username || !password} loading={state.busy || undefined} onPress={submit}
         style={{height: 48, borderRadius: 11, alignSelf: 'stretch', marginTop: 8}} textStyle={{fontSize: 16 * theme.textScale}}>{t('accounts.signIn.continue')}</Button>
       <Text style={[theme.type.caption, {color: theme.colors.textTertiary, marginTop: 14}]}>{t('accounts.move.oldPasswordHelp')}</Text>
-    </ScrollView>
+    </FormScrollView>
     <View style={{position: 'absolute', top: Math.max(50, insets.top), left: 12, height: 48, justifyContent: 'center'}}>
       <Button variant="text" icon="i-left" iconSize={22} disabled={state.busy} onPress={back}>{t('accounts.signIn.back')}</Button>
     </View>
