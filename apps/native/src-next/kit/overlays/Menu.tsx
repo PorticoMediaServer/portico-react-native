@@ -50,8 +50,10 @@ export const MenuRow = forwardRef<View, MenuRowProps & {tvFlyout?: boolean; touc
     </Focusable>;
 });
 
-export function Popover({open, onOpenChange, anchorRef, title, headerContext, description, children, footer, initialFocusRef, returnFocusRef, restoreFocus = true, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, width = 282, modal = false, holdFocus = modal, showTitle = false, backdropOpacity = 0, placement = 'bottom-end', offset = 6, alignOffset = 0, dismissOnOutsidePress = true, touchContext = false}: PopoverProps & {touchContext?: boolean}) {
+export function Popover({open, onOpenChange, anchorRef, title, headerContext, description, children, footer, initialFocusRef, returnFocusRef, restoreFocus = true, accessibilityLabel, testID, style, contentStyle, titleType, titleTextStyle, descriptionTextStyle, width = 282, modal = false, holdFocus: suppliedHoldFocus, showTitle = false, backdropOpacity = 0, placement = 'bottom-end', offset = 6, alignOffset = 0, dismissOnOutsidePress = true, touchContext = false}: PopoverProps & {touchContext?: boolean}) {
   const theme = useTheme(), paint = useOverlayPaintMode();
+  // TV: an open popover holds the remote's focus (as the kit Menu does), so Down can't walk into the page behind it.
+  const holdFocus = suppliedHoldFocus ?? (modal || theme.isTV);
   const viewport = useWindowDimensions();
   const hostFrame = useOverlayFrame();
   const insets = useSafeAreaInsets();

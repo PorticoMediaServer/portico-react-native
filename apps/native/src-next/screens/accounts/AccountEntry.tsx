@@ -1681,9 +1681,11 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
       onSignOut={() => {if (current() && !busyRef.current) {stageRef.current = 'account-sign-out'; setStage('account-sign-out');}}}/>;
   }
   if (stage === 'servers') return layout(t('portico.landing.pickTitle'), servers.length ? t('accounts.session.portico') : t('web.hostedAccount.noServersBody'),
-    <View style={{alignSelf: 'stretch', gap: 12, marginBottom: 18}}>{directoryRows(server && server.signIn === 'portico' ? servers.filter(value => value.id === server.id) : servers).map(row => {
+    <View style={{alignSelf: 'stretch', gap: 12, marginBottom: 18}}>{directoryRows(server && server.signIn === 'portico' ? servers.filter(value => value.id === server.id) : servers).map((row, index) => {
       const value = servers.find(item => item.id === row.id)!;
-      return <Focusable key={row.id} focusTreatment="none" disabled={busy} accessibilityLabel={`${row.name}${row.owner ? `, ${t('accounts.settings.owner')}` : ''}${row.subtitle ? `, ${t(row.subtitle.key, row.subtitle.values)}` : ''}`}
+      // TV: the list has no primary action, so the first server takes the remote's focus on arrival
+      // and again when a failed connection hands control back (P2-74 X-01, E-tv-01).
+      return <Focusable key={row.id} focusTreatment="none" disabled={busy} hasTVPreferredFocus={Platform.isTV && index === 0 && !busy} accessibilityLabel={`${row.name}${row.owner ? `, ${t('accounts.settings.owner')}` : ''}${row.subtitle ? `, ${t(row.subtitle.key, row.subtitle.values)}` : ''}`}
         onPress={() => connectDirectory(value)}
         style={({focused}) => ({flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, borderWidth: 1.5,
           borderColor: focused ? theme.colors.accentStrong : theme.colors.line, backgroundColor: focused ? `${theme.colors.text}14` : `${theme.colors.text}0A`,

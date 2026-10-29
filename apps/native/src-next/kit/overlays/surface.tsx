@@ -1,5 +1,5 @@
 import {OverlayPaintDescendants, useOverlayPaintMode} from './OverlayPaintContext';
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useId, useRef, useState} from 'react';
 import {Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions, type StyleProp, type ViewStyle} from 'react-native';
 import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, RadialGradient, Rect, Stop} from 'react-native-svg';
@@ -64,7 +64,14 @@ function DialogBackground({radius}: {radius: number}) {
 }
 export function FocusBoundary({modal, children, style, testID}: {modal: boolean; children: React.ReactNode; style?: StyleProp<ViewStyle>; testID?: string}) {
   const {isTV} = useTheme();
-  return isTV ? <FocusRegion id={testID ?? ''} hold={modal} style={style}>{children}</FocusRegion> : <View style={style}>{children}</View>;
+  if (!isTV) return <View style={style}>{children}</View>;
+  // An overlay opened without a testID still needs a stable TV region identity; without one the
+  // region threw and took the screen down (the library switcher, P2-74 E-tv-04).
+  return testID ? <FocusRegion id={testID} hold={modal} style={style}>{children}</FocusRegion> : <AnonymousFocusBoundary modal={modal} style={style}>{children}</AnonymousFocusBoundary>;
+}
+function AnonymousFocusBoundary({modal, children, style}: {modal: boolean; children: React.ReactNode; style?: StyleProp<ViewStyle>}) {
+  const id = useId();
+  return <FocusRegion id={`overlay:${id}`} hold={modal} style={style}>{children}</FocusRegion>;
 }
 export function SurfaceHeader({title, description, action, side = false, inset = true, dialog = false, titleType: suppliedType, titleTextStyle, descriptionTextStyle, style}: Pick<SurfaceProps, 'title' | 'description' | 'titleType' | 'titleTextStyle' | 'descriptionTextStyle'> & {action?: React.ReactNode; side?: boolean; inset?: boolean; dialog?: boolean; style?: StyleProp<ViewStyle>}) {
   const theme = useTheme();

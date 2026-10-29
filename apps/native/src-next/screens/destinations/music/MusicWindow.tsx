@@ -23,7 +23,7 @@ export function MusicScrollView({children, onNearEnd, ...props}: Omit<ScrollView
   });
   const value = useMemo(() => ({content, scroll, ...viewport, layout, origin, move}), [viewport, layout, origin, move]);
   return <Viewport.Provider value={value}><Animated.ScrollView {...props} ref={scroll} onScroll={onScroll} scrollEventThrottle={16}
-    onLayout={event => {setViewport(value => ({...value, height: event.nativeEvent.layout.height})); props.onLayout?.(event);}}>
+    onLayout={event => {const {height} = event.nativeEvent.layout; setViewport(value => ({...value, height})); props.onLayout?.(event);}}>
     <View ref={content} collapsable={false} onLayout={event => {setOrigin(event.nativeEvent.layout.y); setLayout(value => value + 1);}}>{children}</View>
   </Animated.ScrollView></Viewport.Provider>;
 }
@@ -112,7 +112,7 @@ export function MusicShelf<T extends {id: string}>({items, width, gap, inset = 0
   });
   const after = Math.max(0, (items.length - previousIndex) * stride - (previousIndex < items.length ? gap : 0));
   return <Animated.ScrollView ref={scroll} horizontal showsHorizontalScrollIndicator={false} onScroll={onScroll} scrollEventThrottle={16}
-    onLayout={event => setViewport(value => ({...value, width: event.nativeEvent.layout.width}))} contentContainerStyle={{paddingHorizontal: inset}}>
+    onLayout={event => {const {width} = event.nativeEvent.layout; setViewport(value => ({...value, width}));}} contentContainerStyle={{paddingHorizontal: inset}}>
     {cells}{after > 0 ? <View style={{width: after}}/> : null}
   </Animated.ScrollView>;
 }

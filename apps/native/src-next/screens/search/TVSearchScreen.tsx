@@ -138,7 +138,7 @@ export function TVSearchScreen({focusScope, destination, runtime, activation, ex
     </FocusRegion>}
     <FocusRegion id={ids.searchResults} entryRegion={typed && !empty && !problem && top ? ids.searchTop : sections[0] ? ids.searchSection(sections[0].id) : genreTiles.length ? ids.searchLanding : state.recent.length ? ids.searchRecent : chipsDrawn ? ids.searchChips : undefined}
       enabled={active.visible} edges={{left: keyboardRow ?? ids.searchKeyboardRow(0)}} style={tvSearchR46.results}>
-      <ScrollView ref={scroll} onContentSizeChange={(_width, height) => setContentHeight(height)} onLayout={event => setViewport(current => ({...current, height: event.nativeEvent.layout.height}))} contentContainerStyle={{paddingLeft: tvSearchFocusRoom, paddingTop: tvSearchFocusRoom, paddingBottom: 72}} scrollEventThrottle={100} onScroll={event => {
+      <ScrollView ref={scroll} onContentSizeChange={(_width, height) => setContentHeight(height)} onLayout={event => {const {height} = event.nativeEvent.layout; setViewport(current => ({...current, height}));}} contentContainerStyle={{paddingLeft: tvSearchFocusRoom, paddingTop: tvSearchFocusRoom, paddingBottom: 72}} scrollEventThrottle={100} onScroll={event => {
         setViewport({y: event.nativeEvent.contentOffset.y, height: event.nativeEvent.layoutMeasurement.height});
         if (state.group === 'all' || state.search.phase !== 'ready') return;
         const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
