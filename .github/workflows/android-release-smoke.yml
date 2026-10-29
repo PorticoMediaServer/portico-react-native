@@ -25,7 +25,7 @@ jobs:
         with: {repository: PorticoMediaServer/portico-server, path: portico-server, ref: '${{ steps.server.outputs.revision }}'}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: {node-version-file: portico-react-native/.node-version, cache: npm, cache-dependency-path: portico-react-native/apps/native/package-lock.json}
-      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with: {distribution: temurin, java-version: '17', cache: gradle, cache-dependency-path: 'portico-react-native/apps/native/android/**/*.gradle*'}
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with: {go-version-file: portico-server/server/go.mod, cache-dependency-path: portico-server/server/go.sum}
