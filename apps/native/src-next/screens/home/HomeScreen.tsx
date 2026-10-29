@@ -306,6 +306,11 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     const timer = setTimeout(() => {if (current()) void runtime.home.revalidate().catch(runtime.reportError);}, Math.max(0, expiry - Date.now()));
     return () => clearTimeout(timer);
   }, [active, current, document, foreground, runtime]);
+  // Coming back to Home (or to the app) reads again any shelf dropped after its retries; there's no
+  // row-level error state in the mock-ups, so a failed shelf leaves rather than lingering as a skeleton.
+  useEffect(() => {
+    if (active && foreground && current()) void runtime.home.recoverDroppedRows().catch(runtime.reportError);
+  }, [active, foreground, current, runtime]);
   const updateViewport = useCallback((y: number) => {
     if (startModel.actionless) return;
     setHeroVisible(y < heroHeight);
