@@ -38,7 +38,7 @@ import {homePlayTarget} from '../screens/home/model';
 import {planHomeWindows} from './home-windows';
 import {isReadingLibraryKind} from '../screens/read/platform';
 import {openNativeReadingBookEntry} from '../screens/read/reading-books-open';
-import {nativeHomeEntryLifetime} from '../screens/home/entry-lifetime';
+import {nativeDispatchedPlayLifetime, nativeHomeEntryLifetime, reportDispatchedPlayFailure} from '../screens/home/entry-lifetime';
 import type {NativeShellBindings, NativeShellBootstrapContext} from './bootstrap';
 import type {NativeShellRuntime, NativeTouchStacksPort} from './runtime';
 import {createNativeMusicMixes, type NativeMusicMixesCaller} from '../screens/destinations/music/mixes';
@@ -375,17 +375,14 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
         const document = context.home.getSnapshot().document!;
         const offered = homeSpotlightModels(document).some(value => value.entry === entry && same(value.primary?.entry.playback, target)) || document.rows.some(row => row.entries.includes(entry) && same(homePlayTarget(row, entry)?.playback, target));
         if (!offered) {homeActionDiagnostics.action('home-assembly', 'primary-play', 'unoffered'); reportError(failure('unoffered_home_playback')); return;}
-        const navigation = context.navigation.getSnapshot();
         const selected = (() => {try {return find(entry);} catch (error) {reportError(error); return undefined;}})();
         if (!selected) return;
         const signal = new AbortController(); operations.add(signal);
-        const operation = nativeHomeEntryLifetime(() => {
-          if (!currentHome() || context.navigation.getSnapshot() !== navigation || context.home.getSnapshot().document !== document) return false;
-          try {const member = find(entry); return member.id === selected.id && member.key === selected.key && member.owner === selected.owner;} catch {return false;}
-        }, [context.navigation.subscribe, context.home.subscribe, controller.subscribe], signal.signal);
+        // E-tv-36: checked current just above; once dispatched the start belongs to the player.
+        const operation = nativeDispatchedPlayLifetime(() => alive && context.current(), context.subscribeAuthority, signal.signal);
         homeActionDiagnostics.action('home-assembly', 'primary-play', 'dispatch');
         void context.playback.start({entry, target, ...(entry.kind === 'chapter' && same(entry.playback, target) && target.startSeconds !== undefined ? {startIntent: 'explicit' as const} : {}), lifetime: operation.lifetime})
-          .catch(error => {if (operation.lifetime.isCurrent()) reportError(error);})
+          .catch(error => reportDispatchedPlayFailure(error, () => alive && context.current(), reportError))
           .finally(() => {operation.dispose(); operations.delete(signal);});
   };
   return {get account() {

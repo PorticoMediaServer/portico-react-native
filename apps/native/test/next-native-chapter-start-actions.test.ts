@@ -3,7 +3,7 @@ import {NativePendingChanges} from '../src-next/shell/pending-changes.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {hooks, screenModule, stackSlotFixture} from './helpers/screen-harness.mjs';
-import {nativeHomeEntryLifetime} from '../src-next/screens/home/entry-lifetime.ts';
+import {nativeDispatchedPlayLifetime, nativeHomeEntryLifetime, reportDispatchedPlayFailure} from '../src-next/screens/home/entry-lifetime.ts';
 import {nativeStartSeconds} from '../src-next/platform/playback/start-intent.ts';
 
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
@@ -103,7 +103,7 @@ test('Home distinguishes a direct chapter play from a container Resume with a ch
     './route-registry': {nativeShellRoutes: {subscribe, bind: () => ({dispose() {}})}}, './model': model,
     './music-discover-navigation': {createNativeMusicDiscoverNavigation: inactiveOverlay}, '../screens/home/model': homeModel,
     './home-windows': {}, '../screens/read/platform': {}, '../screens/read/reading-books-open': {},
-    '../screens/home/entry-lifetime': {nativeHomeEntryLifetime}, '../screens/destinations/music/mixes': {createNativeMusicMixes: inactiveOverlay},
+    '../screens/home/entry-lifetime': {nativeDispatchedPlayLifetime, nativeHomeEntryLifetime, reportDispatchedPlayFailure}, '../screens/destinations/music/mixes': {createNativeMusicMixes: inactiveOverlay},
     '../screens/settings-live/NativeTVReceiver': {}, '../screens/home/HomeEmpty': {},
     './listening-playlist': {createNativeListeningPlaylist: inactiveOverlay}, './listening-queue-policy': {createNativeListeningQueuePolicy: inactiveOverlay},
     './listening-song-detail': {createNativeListeningSongDetail: inactiveOverlay},
