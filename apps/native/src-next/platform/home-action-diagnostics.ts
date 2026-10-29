@@ -126,7 +126,7 @@ const origins = new Set([
   'boundary-cancelled',
 ]);
 const shellLifetimeEvents = [
-  'root-begin', 'root-restart', 'root-retire', 'root-selection-changed', 'root-selection-read-failed',
+  'root-begin', 'root-restart', 'root-retire', 'root-runtime-retired', 'root-selection-changed', 'root-selection-read-failed',
   'root-account-fence', 'root-account-settled', 'root-renewal', 'root-authority-ended',
   'bootstrap-begin', 'bootstrap-dispose', 'bootstrap-owner-abort', 'bootstrap-authority-ended', 'bootstrap-role-changed',
   'bootstrap-accessor-retired', 'bootstrap-current-invalid', 'bootstrap-session-ended',

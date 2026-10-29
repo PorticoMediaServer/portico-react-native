@@ -128,6 +128,9 @@ export function createNativeStartupRecovery<T>(options: Options<T>) {
       cancelDeadline?.();
       if (flight === captured) flight = undefined;
       if (!attemptCurrent()) {options.discard(result); resumeAfterRetirement(); return;}
+      // The runtime now belongs to its owner: finishing or disposing recovery never aborts the
+      // signal it was restored under (E-tv-21), the owner retires it explicitly.
+      if (attempt === captured) attempt = undefined;
       pending = false; settled = true; clearTimers();
       options.onReady(result);
     })();

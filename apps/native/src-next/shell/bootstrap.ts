@@ -140,6 +140,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     watch?.dispose(); playback?.dispose(); bindings?.dispose(); navigation?.dispose();
     for (const cleanup of cleanups.splice(0)) cleanup();
     api?.getRouteConnection()?.dispose(); api?.setAccessToken(''); session = undefined;
+    lastSnapshot = snapshot ?? lastSnapshot; lastPreferences = preferences ?? lastPreferences;
     snapshot = undefined; preferences = undefined; account = undefined; avatars = []; libraries = []; librariesUnavailable = false; installationSettings = undefined;
     for (const listener of [...authorityListeners]) listener();
     authorityListeners.clear(); preferenceListeners.clear(); listeners.clear();
@@ -161,8 +162,21 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
   const abort = () => {if (alive) homeActionDiagnostics.lifetime?.('bootstrap-owner-abort', signal.signal, installation);dispose();};
   options.signal?.addEventListener('abort', abort, {once: true});
   cleanups.push(() => options.signal?.removeEventListener('abort', abort));
+  // E-tv-21: render reads a retired runtime may still make before RestoredShell unmounts its tree.
+  // They get the last frozen values and the disposal runs outside render; async paths still reject.
+  let lastSnapshot: NativeShellSnapshot | undefined, lastPreferences: PreferenceSnapshot | undefined;
+  const live = () => alive && installation.current() && !options.signal?.aborted && !signal.signal.aborted;
+  const retireOutsideRender = () => {if (alive) queueMicrotask(() => {if (alive && !live()) {homeActionDiagnostics.lifetime?.('bootstrap-accessor-retired', signal.signal, installation); dispose();}});};
+  const renderRead = <T,>(current: () => T | undefined, last: () => T | undefined): T => {
+    if (live()) {const value = current(); if (value !== undefined) return value;}
+    else retireOutsideRender();
+    const value = last();
+    if (value === undefined) throw cancelled();
+    return value;
+  };
   const assertCurrent = () => {if (!alive || !installation.current() || options.signal?.aborted || signal.signal.aborted) {if (!accessorRetirementReported) {accessorRetirementReported = true;homeActionDiagnostics.lifetime?.('bootstrap-accessor-retired', signal.signal, installation);} dispose(); throw cancelled();}};
   const currentPreferences = () => {assertCurrent(); if (!preferences) throw cancelled(); return preferences;};
+  const renderPreferences = () => renderRead(() => preferences ?? undefined, () => lastPreferences ?? preferences);
   const currentAccount = () => {assertCurrent(); if (!account) throw cancelled(); return account;};
   try {
     assertCurrent();
@@ -549,8 +563,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const skipBackMs = currentPreferences().effective['playback.skipBackMs'];
     if (typeof skipBackMs !== 'number' || !Number.isFinite(skipBackMs) || skipBackMs < 0) throw Object.assign(new Error('invalid_playback_preference'), {code: 'invalid_response'});
     const playbackSkipSeconds = (direction: 'back' | 'forward') => {
-      assertCurrent();
-      const preferences = currentPreferences();
+      const preferences = renderPreferences();
       if (playback?.getSnapshot().dock.local?.kind === 'audiobook') {
         const selected = audiobookPreferences(preferences);
         return (direction === 'back' ? selected.skipBackMs : selected.skipForwardMs) / 1000;
@@ -565,8 +578,8 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       reportPlaybackProblem: async consent => {
         const lifetime = new NativeScreenLifetime(context);
         try {await sendNativeDeviceReport({context, lifetime}, consent);} finally {lifetime.dispose();}
-      }, get appearanceMotion() {return nativeAppearanceMotion(currentPreferences());}, get appearanceTextSize() {return nativeAppearanceTextSize(currentPreferences());}, get appearanceCardSizePercent() {return nativeAppearanceCardSizePercent(currentPreferences());}, get appearanceShowBackdrops() {return nativeAppearanceShowBackdrops(currentPreferences());}, get skipBackSeconds() {return playbackSkipSeconds('back');}, get skipForwardSeconds() {return playbackSkipSeconds('forward');}, home: documentService, memory: new LastLibraryMemory(records), text,
-      subscribe: listener => {assertCurrent(); listeners.add(listener); return () => {listeners.delete(listener);};}, getSnapshot: () => {assertCurrent(); if (!snapshot) throw cancelled(); return snapshot;},
+      }, get appearanceMotion() {return nativeAppearanceMotion(renderPreferences());}, get appearanceTextSize() {return nativeAppearanceTextSize(renderPreferences());}, get appearanceCardSizePercent() {return nativeAppearanceCardSizePercent(renderPreferences());}, get appearanceShowBackdrops() {return nativeAppearanceShowBackdrops(renderPreferences());}, get skipBackSeconds() {return playbackSkipSeconds('back');}, get skipForwardSeconds() {return playbackSkipSeconds('forward');}, home: documentService, memory: new LastLibraryMemory(records), text,
+      subscribe: listener => {if (!live()) {retireOutsideRender(); return () => {};} listeners.add(listener); return () => {listeners.delete(listener);};}, getSnapshot: () => renderRead(() => snapshot, () => lastSnapshot ?? snapshot),
       // The real pushed route and revision, for a guarded control that must retire when the page
       // it opened on is left. The navigation snapshot is stable between publishes.
       navigation: Object.freeze({subscribe: context.navigation.subscribe, getSnapshot: context.navigation.getSnapshot}),
@@ -586,7 +599,9 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       dispose, refresh};
     // Spreading the bindings evaluates their account getter. Keep that private menu
     // behind the live authority too, instead of retaining the copied menu on retirement.
-    Object.defineProperty(runtime, 'account', {get: () => {assertCurrent(); return bound.account;}});
+    // A retired runtime keeps showing the menu it last drew until its tree unmounts (E-tv-21).
+    let lastAccountMenu: typeof bound.account | undefined;
+    Object.defineProperty(runtime, 'account', {get: () => renderRead(() => (lastAccountMenu = bound.account), () => lastAccountMenu)});
     bound.attach(runtime);
     homeActionDiagnostics.libraryMenu('attached', runtime);
     const retireTopShelfLocale = bindNativeTopShelfLocale(context, runtime.text, error => nativeScreenServices(context).reportError(error));

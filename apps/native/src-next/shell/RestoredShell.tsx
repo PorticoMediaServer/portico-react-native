@@ -196,6 +196,16 @@ export function RestoredShell() {
       onReady: runtime => {
         if (runtime) logBootMilestone('restored', {restore: restoreTrace()});
         restored = true; owned = runtime;
+        // E-tv-21: a runtime that retires is unmounted in the same batch, whoever retired it.
+        // A sign-out, renewal or fence has already moved on; anything else restores again.
+        // The check waits one microtask: a handler retiring it on purpose (sign-out, renewal,
+        // fence) runs in the same call and clears `owned` first. Render reads of the retired
+        // runtime meanwhile return its last values, never a throw.
+        runtime?.retirementSignal?.addEventListener('abort', () => queueMicrotask(() => {
+          if (!rootCurrent() || owned !== runtime) return;
+          homeActionDiagnostics.lifetime?.('root-runtime-retired', ticket, installation);
+          owned = undefined; publishState({phase: 'loading'}); restart();
+        }), {once: true});
         if (runtime) {const previous = ticket.source; ticket.source = undefined; previous?.dispose(); setDownloads(value => rootCurrent() ? undefined : value);}
         publishState({phase: runtime ? 'ready' : 'ended', runtime}); showRecovered(); if (rootCurrent() && !runtime) fallback();
       },
