@@ -123,6 +123,8 @@ function AlbumCard({album, controller, runtime, actions, openEntry, width = 200,
 }
 
 /** tv-more6: the album page at ten feet. Header facts and track order are the server's; the queue is the album's own. */
+/** tv-more6's album title line height (120 pt, 0.98). */
+const albumTitleLine = 117.6;
 export function TVAlbumScreen({controller, entry, runtime, actions, openEntry, onPlaylist, selection}: {selection?: NativeSelection; controller: NativeTVMusicController; entry: ContentEntry; runtime: NativeShellRuntime; actions: Actions; openEntry: (entry: ContentEntry) => void; onPlaylist?: () => void}) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot), playback = usePlayback(runtime), theme = useTheme();
   const playingId = playback?.playback.itemId;
@@ -137,7 +139,11 @@ export function TVAlbumScreen({controller, entry, runtime, actions, openEntry, o
   const [disc, setDisc] = useState<number>();
   const chosen = disc !== undefined && discs.includes(disc) ? disc : discs[0];
   const songs = discs.length > 1 ? snapshot.songs.filter(song => (song.discNumber ?? discs[0]) === chosen) : snapshot.songs;
-  const moreTop=Math.max(896,520+songs.length*84+(discs.length>1?76:0)+100);
+  // tv-more6 draws a one-line title. A title that wraps pushes the facts, the actions and the list
+  // down by the second line, so no line box ever lies over the row below it.
+  const [titleLines, setTitleLines] = useState(1);
+  const drop = (titleLines - 1) * albumTitleLine;
+  const moreTop=Math.max(896,520+drop+songs.length*84+(discs.length>1?76:0)+100);
   return <View testID="native-tv-album" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <Backdrop runtime={runtime} path={entry.posterUrl ?? entry.backdropUrl}/>
     <MusicScrollView onNearEnd={()=>{void controller.nextSongs(snapshot.songPage);}} contentContainerStyle={{paddingBottom: 64}} showsVerticalScrollIndicator={false}>
@@ -146,19 +152,20 @@ export function TVAlbumScreen({controller, entry, runtime, actions, openEntry, o
           {art ? <Artwork source={art} width={480} height={480} priority/> : null}
         </View></View>
         <Text style={[browseType(theme, 22, 700), {position: 'absolute', left: 760, top: 150, color: theme.colors.textSecondary, zIndex: 2}]}>{t('search.kind.album')}</Text>
-        <Text numberOfLines={2} style={[browseType(theme, 120, 800, -.045, 117.6), {position: 'absolute', left: 760, top: 186, width: 1000, color: theme.colors.text, zIndex: 2}]}>{entry.displayTitle ?? entry.title}</Text>
-        <View style={{position: 'absolute', left: 760, top: 336, maxWidth: 1000, flexDirection: 'row', alignItems: 'center', gap: 26, zIndex: 2}}>
+        <Text numberOfLines={2} onTextLayout={event => setTitleLines(Math.min(2, Math.max(1, event.nativeEvent.lines.length)))} style={[browseType(theme, 120, 800, -.045, albumTitleLine), {position: 'absolute', left: 760, top: 186, width: 1000, color: theme.colors.text, zIndex: 2}]}>{entry.displayTitle ?? entry.title}</Text>
+        <View style={{position: 'absolute', left: 760, top: 336 + drop, maxWidth: 1000, flexDirection: 'row', alignItems: 'center', gap: 26, zIndex: 2}}>
           {entry.artist && <View style={{marginRight: -8}}><ArtistCircle covers={art ? [art] : []} initials={[...entry.artist.name.trim()][0] ?? ''} alt={entry.artist.name} size={44} visible/></View>}
           {facts.map((fact, index) => <Text key={`${fact}-${index}`} numberOfLines={1} style={[browseType(theme, 24, index === 0 ? 700 : 400), {flexShrink: index === 0 ? 1 : 0, color: index === 0 ? theme.colors.text : theme.colors.textSecondary}]}>{fact}</Text>)}
           <MusicFormatBadges badges={snapshot.albumDetails?.badges} size="tv"/>
         </View>
-        <ActionBar controller={controller} entry={entry} runtime={runtime} actions={actions} focusId={`music-play-${entry.id}`} onPlaylist={onPlaylist} style={{position: 'absolute', left: 760, top: 410}}/>
-        {snapshot.phase === 'error' && <MusicErrorView testID={`music-album-${entry.id}-error`} error={snapshot.error} onRetry={() => {void controller.load();}} style={{position: 'absolute', left: 760, top: 520, width: 1000, zIndex: 3}}/>}
-        <View style={{position: 'absolute', left: 742, top: 520, width: 1082, zIndex: 2}}>
+        <ActionBar controller={controller} entry={entry} runtime={runtime} actions={actions} focusId={`music-play-${entry.id}`} onPlaylist={onPlaylist} style={{position: 'absolute', left: 760, top: 410 + drop}}/>
+        {snapshot.phase === 'error' && <MusicErrorView testID={`music-album-${entry.id}-error`} error={snapshot.error} onRetry={() => {void controller.load();}} style={{position: 'absolute', left: 760, top: 520 + drop, width: 1000, zIndex: 3}}/>}
+        <View style={{position: 'absolute', left: 742, top: 520 + drop, width: 1082, zIndex: 2}}>
           {discs.length > 1 && <View style={{flexDirection: 'row', gap: 14, marginBottom: 14}}>{discs.map(value => <Chip key={value} focusId={`music-disc-${value}`} selected={chosen === value}
             accessibilityRole="radio" accessibilityState={{checked: chosen === value}} onPress={() => setDisc(value)}>{t('title.disc', {number: defaultI18n.number(value, {useGrouping: false})})}</Chip>)}</View>}
           <TrackList windowed selection={selection} songs={songs} runtime={runtime} controller={controller} actions={actions} playingId={playingId} variant="album" offset={snapshot.songPage.offset} onFocusRow={entry=>controller.focusSong(entry,snapshot.songPage)} onBlurRow={entry=>controller.blurSong(entry,snapshot.songPage)} onTail={()=>{void controller.nextSongs(snapshot.songPage);}}/>
-          <MusicSectionControls id="album-songs" section={snapshot.songPage} next={()=>{void controller.nextSongs(snapshot.songPage);}} previous={()=>{void controller.previousSongs(snapshot.songPage);}} retry={()=>{void controller.retrySongs(snapshot.songPage);}} refresh={()=>{void controller.refreshSongs(snapshot.songPage);}}/>
+          {/* One failure state: the page error above already offers Try again for the whole album. */}
+          {snapshot.phase !== 'error' && <MusicSectionControls id="album-songs" section={snapshot.songPage} next={()=>{void controller.nextSongs(snapshot.songPage);}} previous={()=>{void controller.previousSongs(snapshot.songPage);}} retry={()=>{void controller.retrySongs(snapshot.songPage);}} refresh={()=>{void controller.refreshSongs(snapshot.songPage);}}/>}
         </View>
         <SectionHeading title={t('music.moreLikeThis')} detail={t(snapshot.similarBySound?'music.moreLikeThisBySound':'music.moreLikeThisHint')} left={200} top={moreTop}/>
         {snapshot.similarError?<MusicErrorView testID={`music-similar-${entry.id}-error`} error={snapshot.similarError} onRetry={()=>{void controller.load();}} style={{position:'absolute',left:200,top:moreTop+58,width:1000,zIndex:3}}/>:null}

@@ -282,3 +282,16 @@ test('a removed compound descendant falls back to a surviving entry, never a dis
   registry.configure({id: 'section', entryRegion: 'section'});
   assert.equal(registry.focusRegion('section'), false, 'a malformed cycle cannot recurse');
 });
+test('a rows region whose declared ids match no host enters at its first mounted row, not the one id that matches', () => {
+  const registry = createFocusRegistry(), requests: string[] = [];
+  const add = (childId: string) => registry.attach({regionId: 'rows', childId}, {requestTVFocus: () => requests.push(childId)});
+  // Settings names rows 'profiles' and 'signOut' but the panel hosts itself as 'settings-panel-profiles'.
+  registry.configure({id: 'rows', entryPolicy: 'entry', orientation: 'vertical', order: ['profiles', 'signOut'], entry: 'profiles'});
+  add('settings-panel-profiles'); add('signOut');
+  registry.focusRegion('rows');
+  assert.deepEqual(requests, ['signOut'], 'declaring unhosted ids is the bug');
+  requests.length = 0;
+  registry.configure({id: 'rows', entryPolicy: 'entry', orientation: 'vertical'});
+  registry.focusRegion('rows');
+  assert.deepEqual(requests, ['settings-panel-profiles']);
+});

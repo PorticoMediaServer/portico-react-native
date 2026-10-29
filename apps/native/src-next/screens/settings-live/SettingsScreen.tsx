@@ -550,6 +550,10 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
     ...(section.id === 'limits' && awayLimitLabel ? ['settings-away-limit', ...(!theme.isTV ? ['settings-away-limit-change'] : [])] : []),
     ...(theme.isTV && Platform.OS === 'android' && page.id === 'device' && advanced && section.id === 'about' ? passthroughFormats.map(format => `settings-passthrough-${format}`) : []),
     ...(theme.isTV && page.id === 'device' && section.id === 'device' ? [...(Platform.OS === 'android' ? [nativeFrameRateFocusId, nativePassthroughFocusId] : []), ...(showDynamicRange ? [nativeDynamicRangeFocusId] : []), nativeLossNoticesFocusId] : [])]);
+  // A custom panel hosts its own rows under ids that are not these (settings-panel-profiles for
+  // 'profiles'), so naming rowIds[0] as the entry finds no host and the entry falls through to the
+  // only id that does match: the last row. With panels the region enters at its first mounted row.
+  const hostedRows = !sections.some(section => section.rows.some(row => row.kind === 'custom' && visible(row)));
   const skipMatrix = !theme.isTV && theme.platform !== 'phone';
   const change = (row: Extract<Row, {kind: 'preference' | 'composite'}>, value: string | number | boolean | readonly string[]) => {
     if (!enabled(row)) return;
@@ -565,7 +569,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
   if (pageSections.some(section => section.advanced)) rowIds.push('settings-advanced');
   const device = Platform.isTV ? Platform.OS === 'ios' ? 'device.noun.appleTV' : String((Platform.constants as {Manufacturer?: string}).Manufacturer ?? '').toLowerCase() === 'amazon' ? 'device.noun.fireTV' : 'device.noun.androidTV'
     : Platform.OS === 'ios' ? (Platform as {isPad?: boolean}).isPad ? 'device.noun.iPad' : 'device.noun.iPhone' : Math.min(Dimensions.get('screen').width, Dimensions.get('screen').height) >= 600 ? 'device.noun.tablet' : 'device.noun.phone';
-  return <><FocusRegion id={region} entry={rowIds[0]} entryPolicy="entry" order={rowIds} orientation="vertical" edges={{left: column, ...verticalEdges}}>
+  return <><FocusRegion id={region} entry={hostedRows ? rowIds[0] : undefined} entryPolicy="entry" order={hostedRows ? rowIds : undefined} orientation="vertical" edges={{left: column, ...verticalEdges}}>
     {actionError !== undefined && <StateView {...runtime.error(actionError, () => setActionError(undefined), 'settings')}/>}
     {showSafeMode && <NativeSafeModeRow source={devicePreferences} runtime={runtime} current={controller.lifetime.current}/>}
     {sections.map(section => <React.Fragment key={section.id}><View style={{marginBottom: theme.isTV ? 30 : 24}}>

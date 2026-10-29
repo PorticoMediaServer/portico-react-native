@@ -94,3 +94,19 @@ test('TV Down from the hero buttons skips the strip for the first content row an
 
   } finally {await host.unmount();}
 });
+
+test('a TV title with nothing to play still opens on a control: More takes the preferred focus', async () => {
+  const entry = {id: 'brass-lantern', kind: 'movie', title: 'Brass Lantern'};
+  const snapshot = {retired: false, entry, place: {tab: 'related', anchor: {itemId: null, offset: 0}}, episodes: [], seasons: [],
+    detail: {phase: 'ready', data: {item: entry, actions: [], personal: {progressSeconds: 0}, metadata: {genres: [], ratings: [], credits: []}}}};
+  const controller = {open: async () => {}, pageLease: () => undefined, getSnapshot: () => snapshot, subscribe: () => () => {}, memory: {getSnapshot: () => snapshot.place}, episode: {subscribe: () => () => {}, getSnapshot: (() => {const snapshot = {phase: 'idle'}; return () => snapshot;})(), open() {}, close() {}, play: async () => {}}};
+  let tree: any;
+  const host = createFabricHookHost(() => {tree = NativeTitleScreen({controller, text: {t: defaultI18n.t}, artwork: () => undefined, ambient: () => undefined,
+    back: assert.fail, navigate: assert.fail, more: assert.fail, reportError: assert.fail, renderError: assert.fail, aboutLabel: 'About'});});
+  await host.mount();
+  try {
+    const nodes = descendants(tree);
+    assert.equal(nodes.some(node => node.props.focusId === 'watch-title-play'), false);
+    assert.equal(nodes.find(node => node.props.focusId === 'watch-title-more').props.hasTVPreferredFocus, true);
+  } finally {await host.unmount();}
+});

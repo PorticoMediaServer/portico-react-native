@@ -240,3 +240,18 @@ test('Left from a result returns to the last keyboard row, and that key returns 
   assert.equal(results().props.entryRegion, ids.searchSection('movies'));
   assert.equal(results().props.entryPolicy, undefined);
 });
+
+test('result chips keep their natural width so no label is ellipsised or blanked', async () => {
+  const host = hooks(), {TVSearchScreen} = await screen({...host.react, useId: () => 'gradient'});
+  state = {text: 'the l', group: 'all', groups, search: {phase: 'ready', data: {capabilities: {groups: [{id: 'movies', available: true}]}}}, recent: []};
+  landing = {phase: 'ready', genres, initialHeading: 'next.search.browseByGenre', emptyHeading: 'next.search.browseInstead'}; top = undefined; modelProgress = undefined;
+  const tree = host.render(() => TVSearchScreen(screenProps()));
+  const chips = elements(tree).filter(node => node.type === 'Chip');
+  assert.ok(chips.length >= 2);
+  for (const chip of chips) {
+    assert.equal(style(chip.props.style).flexShrink, 0);
+    assert.equal(style(chip.props.textStyle).flexShrink, 0);
+  }
+  const row = elements(tree).find(node => node.type === 'FocusRegion' && node.props.id === ids.searchChips)!;
+  assert.equal(style(row.props.style).flexWrap, 'wrap');
+});

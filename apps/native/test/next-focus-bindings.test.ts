@@ -245,3 +245,22 @@ test('opted-in cell bindings resolve semantic first-column and short-row destina
     assert.equal(registry.getSnapshot(), before, 'equal inline descriptors do not detach or republish the native host');
   } finally {await driver.unmount();}
 });
+
+test('a guide that was disabled and is enabled again sends its destination anew', async () => {
+  const {mod, contexts} = await focusModule(), registry = registryModule.createFocusRegistry();
+  contexts[0]!.current = registry;
+  registry.attach({regionId: 'row', childId: 'a'}, {nativeTag: 101, requestTVFocus() {}} as Host);
+  let enabled = true, outer: any, native: any;
+  const root = createFabricHookHost(() => {outer = mod.FocusRegion.render({id: 'row', order: ['a'], enabled, children: null}, null);}); await root.mount();
+  const host = createFabricHookHost(() => {native = outer.type.render(outer.props, null);}); await host.mount();
+  const sent: number[][] = [];
+  try {
+    native.props.ref({nativeTag: 201, requestTVFocus() {}, setDestinations: (handles: number[]) => sent.push(handles)}); await host.flush();
+    assert.deepEqual(sent, [[101]]);
+    // The native guide drops its destinations when it is disabled; enabling it must send them again.
+    enabled = false; await root.rerender(); await host.rerender();
+    enabled = true; await root.rerender(); await host.rerender();
+    assert.equal(sent.at(-1)?.[0], 101);
+    assert.ok(sent.length >= 3, 'a send after each enabled change');
+  } finally {native.props.ref(null); await host.unmount(); await root.unmount();}
+});

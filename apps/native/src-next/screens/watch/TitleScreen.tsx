@@ -390,6 +390,9 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   </>;
   // phone-detail and tablet draw these icon buttons as rounded squares (10 and 12), not circles.
   const squareRadius = theme.platform === 'tablet' ? 12 : 10;
+  // A show with no loadable episodes (or absolute-numbered ones) has no Play. The page must still
+  // open on a control, so the first remaining action takes the TV's preferred focus.
+  const tvNoPlay = theme.isTV && !props.watch && !playback;
   const actions = <TitleRegion {...regions.actions} style={{flexDirection: 'row', gap: theme.isTV ? 18 : 10, justifyContent: centered ? 'center' : undefined, marginTop: props.watch ? (tabletWatch ? 0 : 16) : theme.isTV || phoneTitle ? 0 : 22, flexShrink: tabletWatch ? 0 : undefined}}>
     {props.watch ? <Button testID="watch-body-toggle" focusId="watch-body-toggle" style={tabletWatch ? undefined : {flex: 1}} disabled={!watching?.fence || watching.retired || !watching.capabilities.play && !watching.capabilities.pause}
       icon={watching?.playback.intent === 'playing' ? 'i-pause' : 'i-play'} onPress={toggle}>{t(watching?.playback.intent === 'playing' ? 'action.pause' : 'action.play')}</Button>
@@ -398,12 +401,12 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
             progress={progress / duration} remaining={remainingTitle ? text.t('next.kit.remaining', {time: remainingTitle}) : undefined}>{primaryCode ? t('title.resumeEpisode', {code: primaryCode.text}) : t('entry.resume')}</ResumeButton>
         : <Button ref={titlePlay} testID="watch-title-play" focusId="watch-title-play" hasTVPreferredFocus={theme.isTV} icon="i-play" style={phoneTitle ? {flex: 1} : centered ? {minWidth: 300} : undefined} onPress={play} onLongPressAction={playMenu} >{primaryCode ? t(resuming ? 'title.resumeEpisode' : 'title.playEpisode', {code: primaryCode.text}) : t(resuming ? 'entry.resume' : 'entry.play')}</Button>)}
     {!props.watch && theme.isTV && resuming && startOver && <Button focusId="watch-title-start-over" variant="glass" icon="i-replay" onPress={() => {void controller.play(snapshot.entry, true).catch(props.reportError);}}>{t('action.startOver')}</Button>}
-    {myList && <Button focusId="watch-title-my-list" style={!theme.isTV && !wide ? {borderRadius: squareRadius} : undefined} variant="glass" icon={myList.selected ? 'i-check' : 'i-plus'} iconOnly={!theme.isTV && !wide} accessibilityLabel={t(myList.selected ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist')} onPress={() => {void myList.change(!myList.selected).catch(props.reportError);}}>{t('next.controls.myList')}</Button>}
+    {myList && <Button focusId="watch-title-my-list" hasTVPreferredFocus={tvNoPlay} style={!theme.isTV && !wide ? {borderRadius: squareRadius} : undefined} variant="glass" icon={myList.selected ? 'i-check' : 'i-plus'} iconOnly={!theme.isTV && !wide} accessibilityLabel={t(myList.selected ? 'entry.removeFromWatchlist' : 'entry.addToWatchlist')} onPress={() => {void myList.change(!myList.selected).catch(props.reportError);}}>{t('next.controls.myList')}</Button>}
     {!props.watch && (theme.isTV || wide || centered) && detail?.actions.some(action => action.id === 'watched' && action.enabled) && <Button focusId="watch-title-watched" variant="glass" icon="i-check" iconOnly={!theme.isTV && !wide}
       accessibilityLabel={t(detail.personal.watched ? 'entry.markUnwatched' : 'entry.markWatched')} accessibilityState={{selected: detail.personal.watched}}
       onPress={() => {void controller.personal({action: 'watched', value: !detail.personal.watched}).catch(props.reportError);}}>{t('next.detail.watched')}</Button>}
     {props.download && !theme.isTV && <Button style={!wide ? {borderRadius: squareRadius} : undefined} variant="glass" icon="i-dl" iconOnly={!wide} accessibilityLabel={t('next.cards.download')} onPress={() => props.download!(snapshot.entry)}>{t('next.cards.download')}</Button>}
-    <Button ref={titleMore} focusId="watch-title-more" style={!theme.isTV ? {borderRadius: squareRadius} : undefined} variant="glass" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title})} accessibilityState={{expanded: menuIsOpen(snapshot.entry)}} onPress={() => props.more(snapshot.entry, titleMore)}/>
+    <Button ref={titleMore} focusId="watch-title-more" hasTVPreferredFocus={tvNoPlay && !myList} style={!theme.isTV ? {borderRadius: squareRadius} : undefined} variant="glass" icon="i-more" iconOnly accessibilityLabel={t('card.more', {title})} accessibilityState={{expanded: menuIsOpen(snapshot.entry)}} onPress={() => props.more(snapshot.entry, titleMore)}/>
   </TitleRegion>;
   const titleProgress = !props.watch && !theme.isTV && resuming && duration && progress !== undefined && <View style={{marginTop: 16, gap: 8}}>
     <View style={{height: 4, backgroundColor: '#edf5fa26'}}><View style={{height: 4, width: `${Math.min(1, progress / duration) * 100}%`, backgroundColor: theme.colors.accentStrong}}/></View>

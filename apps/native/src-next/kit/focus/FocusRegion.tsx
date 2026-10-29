@@ -41,6 +41,7 @@ const Region = forwardRef<View, FocusRegionProps>(function Region({id, entry, en
   const subscribe = useCallback((listener: () => void) => registry.subscribeRegion(id, listener), [id, registry]);
   const getSnapshot = useCallback(() => registry.regionSnapshot(id), [id, registry]);
   const revision = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const sentEnabled = useRef(enabled);
   const sentDestination = useRef<Readonly<{host: Guide; handle: number | null}> | undefined>(undefined);
   const config = {id, entry, entryRegion, parent: configuredParent ?? parent, entryPolicy, order, neighbors, screenStart, edges, grid, timeGrid, stops, orientation, hold, enabled};
   useLayoutEffect(() => {registry.configure(config);});
@@ -58,10 +59,13 @@ const Region = forwardRef<View, FocusRegionProps>(function Region({id, entry, en
     const target = registry.entryTarget(id);
     // Imperative destination API accepts real host handles (installed RN TV types).
     const handle = nativeHandle(target), host = native.current;
+    // TVFocusGuideView clears its destinations when `focusable` goes false and never restores
+    // them, so a region that was disabled (a retained, hidden page) must send them again.
+    if (sentEnabled.current !== enabled) {sentEnabled.current = enabled; sentDestination.current = undefined;}
     if (!host || sentDestination.current?.host === host && sentDestination.current.handle === handle) return;
     sentDestination.current = {host, handle};
     host.setDestinations(handle == null ? [] : [handle]);
-  }, [id, isTV, native, registry, revision]);
+  }, [enabled, id, isTV, native, registry, revision]);
   const body = <RegionContext.Provider value={id}>{children}</RegionContext.Provider>;
   return isTV ? <TVFocusGuideView {...view} testID={testID ?? `portico.region.${encodeURIComponent(id)}`} ref={setRef} autoFocus
     focusable={enabled} trapFocusUp={hold || stops?.up || orientation === 'vertical' && !edges?.up}

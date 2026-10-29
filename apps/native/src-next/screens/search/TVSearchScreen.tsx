@@ -40,6 +40,10 @@ const resultsLeft = 780;
 const tvSearchFocusRoom = 40;
 const tvSearchR46 = {
   results: {position: 'absolute', left: resultsLeft - tvSearchFocusRoom, right: 0, top: 64 - tvSearchFocusRoom, bottom: 0},
+  /** Chips keep their natural width: a squeezed row ellipsised every label and blanked the first. */
+  chips: {flexDirection: 'row', flexWrap: 'wrap', gap: 12},
+  chip: {flexShrink: 0},
+  chipLabel: {flexShrink: 0},
   section: {marginTop: 46},
   heading: {flexDirection: 'row', alignItems: 'baseline', gap: 14},
   track: {flexDirection: 'row', gap: 28, marginTop: 30},
@@ -146,11 +150,11 @@ export function TVSearchScreen({focusScope, destination, runtime, activation, ex
         if (group?.nextCursor && contentOffset.y + layoutMeasurement.height >= contentSize.height - 600) run(destination.next(group.id));
       }}><View ref={contentRoot} collapsable={false}>
         {chipsDrawn && <FocusRegion id={ids.searchChips} enabled={active.visible} orientation="horizontal" entry={`chip:${state.group}`} stops={{up: true}}
-          edges={{left: keyboard, ...(top ? {down: ids.searchTop} : sections[0] ? {down: ids.searchSection(sections[0].id)} : {})}} style={{flexDirection: 'row', gap: 12}}>{chips.map(chip => {
+          edges={{left: keyboard, ...(top ? {down: ids.searchTop} : sections[0] ? {down: ids.searchSection(sections[0].id)} : {})}} style={tvSearchR46.chips}>{chips.map(chip => {
           const group = groups.find(value => value.id === chip.id);
           const count = chip.id === 'all' ? groups.every(value => value.totalCountExact) ? groups.reduce((sum, value) => sum + value.totalCount, 0) : undefined : group?.totalCountExact ? group.totalCount : undefined;
           return <Chip key={chip.id} focusId={`chip:${chip.id}`} testID={`tv-search-chip-${chip.id}`} selected={state.group === chip.id} count={count} retry={group?.status === 'error'}
-            disabled={!active.visible} onPress={() => destination.selectGroup(chip.id)}>{t(chip.label)}</Chip>;
+            disabled={!active.visible} style={tvSearchR46.chip} textStyle={tvSearchR46.chipLabel} onPress={() => destination.selectGroup(chip.id)}>{t(chip.label)}</Chip>;
         })}</FocusRegion>}
         {state.search.error && <StateView testID="tv-search-read-error" {...runtime.error(state.search.error, () => run(destination.retry()))}/>}
         {problem && <StateView variant="search" title={problem}/>}

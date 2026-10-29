@@ -115,6 +115,8 @@ export function TVEpisodeBrowser(props: TVEpisodeBrowserProps) {
       </View>}
     </FocusRegion>
     <View style={{flex: 1, minWidth: 0}}>
+      {/* A show with nothing loadable draws a plain state, never an empty void. */}
+      {focus.kind === 'empty' && rowReady && <Text testID="tv-episodes-empty" accessibilityRole="header" style={[browseType(theme, 32, 700), {color: theme.colors.textSecondary}]}>{t('title.noEpisodes')}</Text>}
       <TVShelf items={rowReady ? episodes : []} focus={{...regions.row, enabled: rowReady}} getFocusId={tvItemKey} getKey={tvItemKey} itemWidth={384} itemHeight={320}
         onVisibleRange={(_first, last) => {if (rowLive.current && last >= episodes.length - 10) props.onMoreEpisodes();}}
         renderItem={(entry, slot) => {
