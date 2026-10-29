@@ -230,7 +230,7 @@ for (const status of [403, 429, 'network'] as const) {
  * or invitation/member/owner/TV admission. No server-local selection operation is supplied. */
 async function serverCommand(f: F, kind: string, produce?: (hosted: any) => Promise<any>) {
   const installation = {installationId: 'fixture-installation'}, pin = {serverId: 'server', publicKey: 'public', fingerprint: 'fingerprint'};
-  const descriptor = {id: 'server', name: 'Server', version: '1', signIn: 'portico', move: 'to_portico', setupRequired: false, hostedConfigured: true, hostedAttached: true};
+  const descriptor = {id: 'server', name: 'Server', version: '1', signIn: 'portico', move: 'to_portico', setupRequired: false, hostedConfigured: true, hostedAttached: true, apiLevel: 1};
   const routes = {pin, dispose() {}}, api = {baseUrl: 'https://server.example', getRouteConnection: () => routes,
     request: async (path: string) => {assert.equal(path, localRoutes.routePath('get_system')); return descriptor;}};
   const selection = {revision: 1, selectedServerId: 'server', servers: [{connection: {pin, session: {sessionFamilyId: 'retained-server-local'}}}]}, before = structuredClone(selection);

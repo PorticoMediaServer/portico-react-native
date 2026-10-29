@@ -1,7 +1,7 @@
 import {linkNativeAbortSignals} from './abort-signals';
 import {accountExpectation, nativeAccountWork} from './account-work';
 import {HttpLocalApi, transportJSON, assertFirstContactIdentity, type HostedServer, type HostedSession, type LocalSession} from '../../../../packages/client-core/src';
-import {ServerSignInProbe, parseServerSignIn, type ServerSignIn} from '../../../../packages/client-core/src/sign-in';
+import {ServerSignInProbe, assertSameApiLevel, parseServerSignIn, type ServerSignIn} from '../../../../packages/client-core/src/sign-in';
 import {directSignIn, directSignInContinuation, completeDirectSignInChallenge, selectDirectProfile, parseDirectSnapshot, type DirectSignIn, type DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
 import {connectHostedServer, connectPairedServer, connectPairedPorticoServer, inspectDirectServer} from '../../../../packages/client-core/src/server-connections';
 import {knownServerRoutes, type NewServerConnection, type AppServerSession} from '../../../../packages/client-core/src/app-sessions';
@@ -583,6 +583,8 @@ export class NativeServerSignIn {
       if (!route || !pin || pin.serverId !== descriptor.id) throw mismatch();
       const server = parseServerSignIn(await api.request(routePath('get_system'), 'GET', undefined, this.controller.signal)); this.assertCurrent();
       if (server.id !== descriptor.id || server.signIn !== descriptor.signIn || server.move !== descriptor.move) throw mismatch();
+      // Before release an app opens only a server of its own API level (P2-66 G-2).
+      assertSameApiLevel(server);
       this.server = server;
       const now = await nativeAppSessions.read(); this.assertCurrent();
       if (now.revision !== before.revision) throw cancelled();

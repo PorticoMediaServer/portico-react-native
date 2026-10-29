@@ -4,7 +4,7 @@ import {AppState, BackHandler, Linking, NativeModules, Platform, Share, Image, T
 import {useTVMenuCapture} from '../../platform/tv-menu';
 import QRCode from 'react-native-qrcode-svg';
 import {HttpHostedApi, type HostedServer} from '../../../../../packages/client-core/src';
-import {ServerSignInProbe, type ServerSignIn} from '../../../../../packages/client-core/src/sign-in';
+import {ServerSignInProbe, moveOfferDays, type ServerSignIn} from '../../../../../packages/client-core/src/sign-in';
 import {routeOrigin} from '../../../../../packages/client-core/src/route-identity';
 import type {NativeInvitationEntry} from '../../platform/portico-invitation';
 import type {PublicInvitation} from '../../../../../packages/client-core/src/direct-account';
@@ -1094,9 +1094,13 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   if (stage === 'uses-portico') {
     const source = operation.current;
     const current = () => !!source && operation.current === source && lifetime.current && stageRef.current === 'uses-portico';
-    return layout(t('accounts.signIn.usesPortico', {server: server!.name}), t('accounts.signIn.porticoNotice'), undefined, action('portico', t('accounts.signIn.continuePortico'), portico),
+    // During a move to Portico Accounts the notice says so before the old sign-in is offered (P2-66).
+    // The days left come from the server's own move window (P2-66, Justin's copy).
+    const moveDays = server?.move === 'to_portico' ? moveOfferDays(server.moveEndsAt) : undefined;
+    const notice = server?.move === 'to_portico' ? t('accounts.move.toPortico', {server: server.name}) + ' ' + t('accounts.signIn.porticoNotice') : t('accounts.signIn.porticoNotice');
+    return layout(t('accounts.signIn.usesPortico', {server: server!.name}), notice, undefined, action('portico', t('accounts.signIn.continuePortico'), portico),
       !Platform.isTV && <View style={{gap: 12}}>
-        {server?.move === 'to_portico' && <Button variant="text" disabled={busy} onPress={() => {void run(beginMemberMove);}}>{t('accounts.move.oldPasswordAction')}</Button>}
+        {moveDays !== undefined && <Button variant="text" disabled={busy} onPress={() => {void run(beginMemberMove);}}>{t('accounts.move.oldPasswordAction', {days: moveDays})}</Button>}
         <Button variant="text" disabled={busy} onPress={() => {
           if (!current() || !source) return;
           retireOwnerReset();
