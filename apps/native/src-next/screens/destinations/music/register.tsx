@@ -44,6 +44,7 @@ export function createNativeTVMusicRenderer(context: NativeShellBootstrapContext
       const actions = createNativeEntryActions(context, {current:pageCurrent,
         contains: entry => controller.contains(entry), subscribe: controller.subscribe});
       const tvSelection = Platform.isTV ? createNativeMusicSelection(context, controller, key, pageCurrent) : undefined;
+      let activationSnapshot: Readonly<{visible: boolean; intent: 'enter'; revision: typeof revision}> | undefined;
       const touchSelection = Platform.isTV ? undefined : createNativeSelection(context, catalogueSelectionSource({subscribe: controller.subscribe, getSnapshot: (): NativeCatalogueSelectionSnapshot => {
         const snapshot = controller.getSnapshot(), projection = controller.selectionProjection(), viewer = context.session()?.viewer, authority = viewer?.authority;
         const admitted = pageCurrent() && snapshot.phase === 'ready' && projection && viewer && (authority === 'local' || authority === 'hosted');
@@ -57,7 +58,12 @@ export function createNativeTVMusicRenderer(context: NativeShellBootstrapContext
           {id: 'all-songs', start: snapshot.allSongs.offset, entries: snapshot.allSongs.songs.filter(controller.contains)},
           {id: 'similar', entries: snapshot.similar.filter(entry => controller.similarCurrent(snapshot, entry))},
         ]};
-      }}, {subscribe: context.navigation.subscribe, getSnapshot: () => ({visible: pageCurrent(), intent: 'enter', revision})}), {area: 'saved', aggregates: true});
+      }}, {subscribe: context.navigation.subscribe, getSnapshot: () => {
+        // One snapshot object until it changes, as useSyncExternalStore requires (see saved/model.ts).
+        const visible = pageCurrent();
+        if (!activationSnapshot || activationSnapshot.visible !== visible || activationSnapshot.revision !== revision) activationSnapshot = Object.freeze({visible, intent: 'enter' as const, revision});
+        return activationSnapshot;
+      }}), {area: 'saved', aggregates: true});
       page = Object.freeze({current:pageCurrent,key,route,entry: route.entry, controller, actions, tvSelection, touchSelection, picker: createMusicPlaylistPicker(context), abort: new AbortController()});
       pages.set(key, page);
       while (pages.size > 3) {

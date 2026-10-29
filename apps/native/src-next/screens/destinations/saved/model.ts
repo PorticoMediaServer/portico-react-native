@@ -153,11 +153,17 @@ export function createNativeTVSavedDestination(context: NativeShellBootstrapCont
   const lifetime = nativeDestinationLifetime(context), common = nativeScreenServices(context);
   const controller = new NativeTVSavedController({api: context.api, scope: lifetime.scope, current: () => !disposed && lifetime.current(), requestId: common.requestId});
   const navigation = context.navigation;
+  // useSyncExternalStore needs the same snapshot until something changes: a fresh object on every read
+  // re-rendered TV Saved without end ("Maximum update depth exceeded", P2-74 E-tv-11).
+  let snapshot: NativeDestinationActivation | undefined;
   const activation: NativeDestinationActivationPort = {
     subscribe: navigation.subscribe,
     getSnapshot: (): NativeDestinationActivation => {
       const route = navigation.getSnapshot(), live = !disposed && lifetime.current() && route.route.kind === 'shell' && route.route.destination.kind === 'saved';
-      return Object.freeze({visible: live, intent: navigation.getIntent(), revision: route.revision});
+      const intent = navigation.getIntent();
+      if (!snapshot || snapshot.visible !== live || snapshot.intent !== intent || snapshot.revision !== route.revision)
+        snapshot = Object.freeze({visible: live, intent, revision: route.revision});
+      return snapshot;
     },
   };
   return Object.freeze({controller, activation, dispose: () => {if (disposed) return; disposed = true; controller.dispose();}});
