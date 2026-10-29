@@ -28,7 +28,8 @@ export function tvFocusIds(authority: ShellAuthority) {
  * tv-focus F-HOME-3 "top of the page; nothing moves", instead of falling to the rail. */
 export function tvHomeRegionMap(authority: ShellAuthority, rowIds: readonly string[], options: Readonly<{spotlightFocusable?: boolean}> = {}) {
   const ids = tvFocusIds(authority), regions = rowIds.map(ids.row);
-  const region = (id: string, previous?: string, next?: string) => ({id, neighbors: {previous, next}, screenStart: ids.start,
+  const region = (id: string, previous?: string, next?: string): {id: string; neighbors: {previous?: string; next?: string}; screenStart: typeof ids.start;
+    edges: {left: string; up?: string; down?: string}; stops?: Readonly<{up?: boolean}>} => ({id, neighbors: {previous, next}, screenStart: ids.start,
     edges: {left: ids.rail, up: previous, down: next}});
   return {
     spotlight: {...region(ids.spotlight, undefined, regions[0] ?? ids.customize), entry: 'play'},
