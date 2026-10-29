@@ -37,6 +37,8 @@ require('./screens/settings-live/TogetherRoute');
 require('./screens/saved/register');
 const TVRoot: ComponentType | undefined = Platform.isTV ? require('./tv/register').TVRoot : undefined;
 
+// Spike-only picture bench (P2-70 LIB-1): replaces the shell when built with PICTURE_BENCH = true.
+const PictureBench: ComponentType | undefined = require('./dev/picture-bench/enabled').PICTURE_BENCH ? require('./dev/picture-bench/PictureBench').PictureBench : undefined;
 const KitHost: ComponentType<{shell?: ComponentType}> | undefined = __DEV__ ? require('./dev/Kit').KitHost : undefined;
 const measurement: typeof import('./dev/public-measurement') | undefined = __DEV__ ? require('./dev/public-measurement') : undefined;
 const measurementInstall: typeof import('./dev/measurement-install') | undefined = __DEV__ ? require('./dev/measurement-install') : undefined;
@@ -48,7 +50,7 @@ function NativeRoot({phoneShell, tvShell, runtime}: NativeAppProps) {
   const install = useMemo(() => (isCurrent: () => boolean) => measurementInstall!.installNativePublicMeasurement(() => root.current, isCurrent), []);
   const RuntimeShell = useMemo(() => runtime ? function BoundNativeShell() {return <NativeShell runtime={runtime}/>;} : undefined, [runtime]);
   const Shell = RuntimeShell ?? (Platform.isTV ? tvShell ?? TVRoot : phoneShell) ?? RestoredShell;
-  const renderNormal = () => KitHost ? <KitHost shell={Shell} /> : Shell ? <Shell /> : null;
+  const renderNormal = () => PictureBench ? <PictureBench /> : KitHost ? <KitHost shell={Shell} /> : Shell ? <Shell /> : null;
   const Gate = measurement?.NativePublicMeasurementGate;
   return <View ref={Gate ? root : undefined} collapsable={Gate ? false : undefined} testID="native-root" style={{flex: 1, backgroundColor: colors.ink}}><StatusBar barStyle="light-content" />{Gate ? <Gate renderNormal={renderNormal} install={install}/> : renderNormal()}</View>;
 }
