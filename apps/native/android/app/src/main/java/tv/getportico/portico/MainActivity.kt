@@ -11,6 +11,7 @@ import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
 import com.facebook.react.defaults.DefaultReactActivityDelegate
+import expo.modules.ReactActivityDelegateWrapper
 import tv.getportico.portico.native.PorticoAccountAuth
 import tv.getportico.portico.native.PorticoOverlayKeys
 import tv.getportico.portico.native.PorticoPictureInPicture
@@ -21,7 +22,9 @@ class MainActivity : ReactActivity() {
   override fun getMainComponentName(): String = "Portico"
 
   override fun createReactActivityDelegate(): ReactActivityDelegate =
-      DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
+      ReactActivityDelegateWrapper(
+          this,
+          DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled))
 
   override fun attachBaseContext(newBase: Context) {
     super.attachBaseContext(TelevisionDisplay.context(newBase))
