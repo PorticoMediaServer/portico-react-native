@@ -1,5 +1,5 @@
 import React, {createContext, useCallback, useContext, useId, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {BackHandler, StyleSheet, View, type GestureResponderEvent} from 'react-native';
+import {BackHandler, Platform, StyleSheet, View, type GestureResponderEvent} from 'react-native';
 import {registerOverlayKeys} from '../../platform/overlay-keys';
 import {captureTVMenuKey} from '../../platform/tv-menu';
 import {OverlayPaintProvider, useOverlayPaintMode, useOverlayPaintReturnCurrent} from './OverlayPaintContext';
@@ -104,7 +104,13 @@ export function useOverlayLifecycle(open: boolean, modal: boolean, dismiss: (rea
     const remove = stack.register(registration, reason => dismissRef.current(reason));
     const releaseKeys = retainOverlayKeys();
     const releaseMenu = captureTVMenuKey();
-    const timer = setTimeout(() => {if (stack.isTop(registration)) focusTarget(initial.current?.current);}, delay.current);
+    // TV: an overlay opened without an initial target (a library Sort or Card size popover) enters its own region;
+    // otherwise the remote's focus stayed on the opener and Down walked into the page behind (P2-74 E-tv-15).
+    const timer = setTimeout(() => {
+      if (!stack.isTop(registration)) return;
+      const target = initial.current?.current;
+      if (target) focusTarget(target); else if (regionId && (Platform as typeof Platform | undefined)?.isTV) registry?.focusRegion(regionId);
+    }, delay.current);
     const back = BackHandler.addEventListener('hardwareBackPress', () => {
       if (!stack.isTop(registration)) return false;
       dismissRef.current('back');
