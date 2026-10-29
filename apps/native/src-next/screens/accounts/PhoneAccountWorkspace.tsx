@@ -110,7 +110,10 @@ export function PhoneAccountWorkspace({createSource, username, onDone, onFind, o
         {state.servers?.map(row => <View key={row.id} style={{padding: 16, gap: 8, borderRadius: 12, backgroundColor: theme.colors.raised, opacity: row.presence?.online === false ? .62 : 1}}>
           {label(row.name)}
           {row.ownedByMe === true && label(t('web.hostedAccount.serverOwner'))}
-          {row.presence && label(row.presence.online ? t('web.hostedAccount.serverOnline') : row.presence.lastSeenAt ? t('web.hostedAccount.serverLastSeen', {when: defaultI18n.date(row.presence.lastSeenAt)}) : t('web.servers.offline'))}
+          {/* O-163: a server still getting its secure connection says so in one plain line, never an address. */}
+          {(row as {secureConnection?: unknown}).secureConnection === 'pending'
+            ? label(t(row.presence?.online === false ? 'web.hostedAccount.secureConnectionOffline' : 'web.hostedAccount.secureConnectionPending'))
+            : row.presence && label(row.presence.online ? t('web.hostedAccount.serverOnline') : row.presence.lastSeenAt ? t('web.hostedAccount.serverLastSeen', {when: defaultI18n.date(row.presence.lastSeenAt)}) : t('web.servers.offline'))}
           {row.ownedByMe === true ? label(t('web.hostedAccount.leaveOwner')) : row.ownedByMe === false && ['admin', 'member'].includes(row.role ?? '')
             ? <Button testID={`account-server-leave-${row.id}`} variant="glass" disabled={!!state.pending} onPress={() => {if (current()) setConfirm({kind: 'server', row});}}>{t('web.hostedAccount.leaveServer')}</Button> : null}
         </View>)}
