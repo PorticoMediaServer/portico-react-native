@@ -1,5 +1,5 @@
 import UIKit
-import Expo
+internal import Expo
 import React
 import React_RCTAppDelegate
 import ReactAppDependencyProvider
@@ -69,7 +69,7 @@ class AppDelegate: ExpoAppDelegate {
   /// be called once the downloads session has delivered its events. The handler is held first and
   /// only then is the downloads owner (PorticoDownloads.m) started, which recreates the session
   /// under the same identifier, files what arrived and then calls `PorticoBackgroundEvents.finish`.
-  func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
+  override func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
                    completionHandler: @escaping () -> Void) {
     PorticoBackgroundEvents.wake(identifier, completionHandler)
   }
