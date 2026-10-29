@@ -43,6 +43,10 @@ jobs:
         with:
           path: portico-react-native/third_party/media-engine/out/android
           key: media-engine-android-x86_64-${{ hashFiles('portico-react-native/third_party/media-engine/**', '!portico-react-native/third_party/media-engine/out/**') }}
+      - name: The Rust toolchain the media engine pins (only when it must be built)
+        if: ${{ steps.engine-cache.outputs.cache-hit != 'true' }}
+        run: rustup toolchain install "$(python3 -c 'import json; print(json.load(open("third_party/media-engine/sources.lock.json"))["tools"]["rust"]["version"])')" --profile minimal
+        working-directory: portico-react-native
       - name: Media engine from pinned source (x86_64 only; cached)
         if: ${{ steps.engine-cache.outputs.cache-hit != 'true' }}
         run: MEDIA_ENGINE_JOBS=4 third_party/media-engine/build-android.sh --abis x86_64
