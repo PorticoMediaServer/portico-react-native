@@ -113,7 +113,9 @@ export function NowPlayingCard({occupant, onAction, expanded = false, onExpanded
   const bounds = seekBounds(occupant);
   return <Animated.View style={[s.tvFlyout, {backgroundColor: sourceSurfaces.expanded, borderWidth: 1, borderColor: alpha(theme.colors.text, .1), shadowColor: theme.colors.shadow, shadowOpacity: .9, shadowOffset: {width: 0, height: 40}, shadowRadius: 45}, animated, style]} testID={testID}>
     <AmbientArt source={p.ambient} palette={p.palette} treatment="cover" width={700} height={470} visible={visible} priority style={s.fill}/>
-    <FocusRegion id={testID ?? ''} entry={controlID(testID, 'transport')} entryPolicy="entry" hold enabled={visible} accessibilityViewIsModal>
+    {/* The TV dock is given a testID only while a playback fence exists; an empty region id throws on TV
+        ("requires a stable caller identity") and took Home down. One card is mounted at a time, so a fixed id is unique. */}
+    <FocusRegion id={testID || 'tv.now-playing-card'} entry={controlID(testID, 'transport')} entryPolicy="entry" hold enabled={visible} accessibilityViewIsModal>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 26}}>
         <Artwork source={p.artwork} width={168} height={168} visible={visible} priority style={{borderRadius: 16, overflow: 'hidden'}}/>
         <View style={{flex: 1, minWidth: 0}}>
