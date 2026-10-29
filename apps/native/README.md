@@ -211,4 +211,4 @@ adb reverse tcp:19424 tcp:19424                       # Metro, for a debug build
 - **Release signing**: the release build type is signed with the debug keystore
   until a release key exists. Cast needs `-PporticoCastApplicationId=<id>`;
   Hosted sign-in needs `-PporticoHostedUrl=<origin>`.
-- Icons and the launch logo are generated: `scripts/make-icons.sh android`.
+- Icons come from the Portico brand set: `scripts/install-brand-icons.sh "<Brand Assets>"`. The launch assets come from `scripts/make-boot-assets.py`.
