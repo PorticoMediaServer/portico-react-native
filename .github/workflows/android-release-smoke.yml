@@ -1,0 +1,110 @@
+name: Android release boot smoke
+# O-158: the release (Hermes, minified) Android app, on an emulator, signed in to a real Portico
+# server built from the locked revision, must reach Home, then reach it again on a signed-in cold
+# start. Any JS fatal or native crash fails it. This is the check that would have caught the
+# 28 Oct crypto.getRandomValues P0. One API level, x86_64 only, with everything slow cached.
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  release-boot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      SMOKE_WORK: ${{ github.workspace }}/smoke-work
+      SMOKE_OUT: ${{ github.workspace }}/smoke-out
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {path: portico-react-native}
+      - id: server
+        run: echo "revision=$(node scripts/shared-packages.mjs --revision)" >> "$GITHUB_OUTPUT"
+        working-directory: portico-react-native
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {repository: PorticoMediaServer/portico-server, path: portico-server, ref: '${{ steps.server.outputs.revision }}'}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: {node-version-file: portico-react-native/.node-version, cache: npm, cache-dependency-path: portico-react-native/apps/native/package-lock.json}
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with: {distribution: temurin, java-version: '17', cache: gradle, cache-dependency-path: 'portico-react-native/apps/native/android/**/*.gradle*'}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: {go-version-file: portico-server/server/go.mod, cache-dependency-path: portico-server/server/go.sum}
+
+      - name: The server, from the locked revision
+        run: go build -trimpath -o "$RUNNER_TEMP/portico-server" ./cmd/server
+        working-directory: portico-server/server
+
+      - name: The NDK the app and the media engine are built with
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.1.12297006" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.1.12297006" >> "$GITHUB_ENV"
+      - id: engine-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: portico-react-native/third_party/media-engine/out/android
+          key: media-engine-android-x86_64-${{ hashFiles('portico-react-native/third_party/media-engine/**', '!portico-react-native/third_party/media-engine/out/**') }}
+      - name: Media engine from pinned source (x86_64 only; cached)
+        if: ${{ steps.engine-cache.outputs.cache-hit != 'true' }}
+        run: MEDIA_ENGINE_JOBS=4 third_party/media-engine/build-android.sh --abis x86_64
+        working-directory: portico-react-native
+
+      - run: npm ci --no-audit --no-fund --legacy-peer-deps
+        working-directory: portico-react-native/apps/native
+      - name: Release APK (Hermes, minified), x86_64
+        run: ./gradlew --no-daemon -PreactNativeArchitectures=x86_64 :app:assembleGoogleRelease
+        working-directory: portico-react-native/apps/native/android
+      - id: apk
+        run: echo "path=$(find portico-react-native/apps/native/android/app/build/outputs/apk/google/release -name '*.apk' | head -n1)" >> "$GITHUB_OUTPUT"
+
+      - name: Let the emulator use KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - id: avd-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-34-google_apis-x86_64-v1
+      - name: A clean emulator snapshot to boot from (first run only)
+        if: ${{ steps.avd-cache.outputs.cache-hit != 'true' }}
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: false
+          script: echo "AVD snapshot generated"
+
+      - name: Sign in on the emulator and reach Home twice
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            node portico-react-native/apps/native/scripts/release-smoke/server-fixture.mjs --server-binary "$RUNNER_TEMP/portico-server" --work "$SMOKE_WORK"
+            python3 portico-react-native/apps/native/scripts/release-smoke/drive.py --serial emulator-5554 --apk "${{ steps.apk.outputs.path }}" --fixture "$SMOKE_WORK/fixture.json" --out "$SMOKE_OUT"
+
+      - name: Stop the server
+        if: ${{ always() }}
+        run: node portico-react-native/apps/native/scripts/release-smoke/server-fixture.mjs --stop "$SMOKE_WORK" || true
+      - name: Keep the evidence (no credentials)
+        if: ${{ always() }}
+        run: |
+          mkdir -p "$SMOKE_OUT"
+          cp "$SMOKE_WORK/server.log" "$SMOKE_OUT/server.log" 2>/dev/null || true
+          rm -f "$SMOKE_WORK/fixture.json"
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: android-release-smoke
+          path: ${{ env.SMOKE_OUT }}
+          if-no-files-found: ignore
+          retention-days: 7

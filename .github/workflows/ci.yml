@@ -133,6 +133,11 @@ jobs:
     if: ${{ !inputs.apple_reading_commit }}
     uses: ./.github/workflows/android-tests.yml
 
+  # O-158: the release app boots, signs in to a real server and reaches Home, twice.
+  android-release-smoke:
+    if: ${{ !inputs.apple_reading_commit }}
+    uses: ./.github/workflows/android-release-smoke.yml
+
   # The Vega app's own checks. Its package build needs Amazon's Vega SDK, which these runners do
   # not have; type checks, tests and strings need only its npm packages.
   vega:
