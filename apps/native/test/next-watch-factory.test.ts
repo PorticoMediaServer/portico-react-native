@@ -13,7 +13,8 @@ import {sameAuthority} from '../src-next/shell/model.ts';
 import {NativeTitleController} from '../src-next/screens/watch/title-controller.ts';
 import {NativeTitleStarts} from '../src-next/screens/watch/title-starts.ts';
 import {NativeWatchControls} from '../src-next/screens/watch/controls.ts';
-import {readNativeFileInfo} from '../src-next/screens/watch/file-info.ts';
+import {FileInfoSession} from '../../../packages/client-core/src/file-info-session.ts';
+import {groupRow, groupsPage, ownerSurface} from './helpers/file-info-windows.ts';
 import {readNativePlaybackInfo} from '../src-next/screens/watch/playback-info.ts';
 import type {NativePlaybackAdapter} from '../src-next/platform/playback/types.ts';
 import {infoWords} from './helpers/playback-info.ts';
@@ -52,22 +53,27 @@ const {createNativeWatchScreens} = await screenModule(new URL('../src-next/scree
   '../../platform/layout/full-window': {nativeFullWindowOrientation: undefined},
   './disc-titles-controller': {NativeDiscTitlesController}, './disc-titles': {prepareDiscTitle, readDiscTitles},
   '../../../../../packages/player-core/src': {sameFence}, '../../../../../packages/i18n/src': {defaultI18n},
-  '../../shell/model': {sameAuthority}, './controls': {NativeWatchControls}, './file-info': {readNativeFileInfo}, './playback-info': {readNativePlaybackInfo},
+  '../../shell/model': {sameAuthority}, './controls': {NativeWatchControls}, '../../../../../packages/client-core/src/file-info-session': {FileInfoSession}, './FileInfoPanel': {NativeFileInfoPanel: 'FileInfoPanel'}, './playback-info': {readNativePlaybackInfo},
   './track-identity': {nativeWatchTracks}, './EpisodePanel': episodes,
   './title-controller': {NativeTitleController}, './title-starts': {NativeTitleStarts}, './TitleScreen': {NativeTitleScreen: 'Title'},
-  './version-destination': {NativeVersionChooserController}, './FileInfoContent': {NativeFileInfoContent: 'FileInfo'}, './version-options': {nativeVersionChoices, nativeVersionNames},
+  './version-destination': {NativeVersionChooserController}, './version-options': {nativeVersionChoices, nativeVersionNames},
   './WatchHost': {NativeWatchHost: 'WatchHost'}, './WatchChrome': {NativeWatchChrome: 'Chrome'}, './picture-slot': {NativeWatchPicture: 'Picture'},
 });
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
 const entry = {id: 'episode', kind: 'episode', title: 'Actual episode', libraryId: 'library', playback: {itemId: 'episode', startSeconds: 17}};
 const fence = playbackFence({kind: 'queue', playback: {scope: {serverId: 'server', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane', authority: 'local'}, run: 1}, sessionId: 'session', itemId: 'episode', sourceId: 'v1', entryId: 'entry', generation: 1});
 const offered = {itemId: 'episode', resume: {positionMs: 17000, partIndex: 0}, versions: [{id: 'v1', video: [{id: 'p1', codec: 'hevc', width: 3840, height: 2160}]}, {id: 'v2', video: [{id: 'p2', codec: 'h264', width: 1920, height: 1080, interlaced: false}]}]};
+/** The accepted Detail the menu showed: its `fileInfoOpening` is the only way into File info. */
+const withOpening = {item: {id: 'episode', kind: 'episode', title: 'Actual episode'}, scope: {serverId: 'server', libraryId: 'library', itemId: 'episode', viewerFence: 'viewer'},
+  revision: {catalog: 1, viewer: 1}, fileInfoOpening: 'o1'} as any;
+const itemFence = {serverId: 'server', libraryId: 'library', itemId: 'episode', viewerFence: 'viewer'};
+const episodeGroups = (queryId = 'q1', window: Record<string, unknown> = {}) => ({...groupsPage(queryId, ownerSurface, [groupRow(1)], window), scope: itemFence, detail: {scope: itemFence, revision: withOpening.revision}});
 function deferred<T>() {let resolve!: (value: T) => void; const promise = new Promise<T>(done => {resolve = done;}); return {promise, resolve};}
 function fixture(hasDestination = true, readSession?: NativePlaybackAdapter['readSession']) {
   const playbackListeners = new Set<() => void>(), routeListeners = new Set<() => void>(), authorityListeners = new Set<() => void>();
   let bound = authority, revision = 3, route: any = {kind: 'title', entry: {id: 'show', libraryId: 'library', kind: 'show'}}, holdStart: Promise<void> | undefined, source = {authority, retired: false, fence: undefined as PlaybackFence | undefined, dock: {local: {expanded: true, fence: undefined as PlaybackFence | undefined}}, playback: {intent: 'playing', phase: 'ready'}, session: undefined as {itemId: string; versionId: string; role?: 'local' | 'group_member'} | undefined};
   let respond = async (_url: URL) => offered as unknown;
-  const requests: {path: string; signal?: AbortSignal | null}[] = [], menus: any[] = [], versions: any[] = [], starts: any[] = [], errors: unknown[] = [], navigations: unknown[] = [], enqueues: unknown[][] = [], playlistOpens: unknown[][] = [];
+  const requests: {path: string; signal?: AbortSignal | null}[] = [], menus: any[] = [], versions: any[] = [], starts: any[] = [], errors: unknown[] = [], navigations: unknown[] = [], enqueues: unknown[][] = [], playlistOpens: unknown[][] = [], fileInfos: unknown[][] = [];
   const api = new HttpLocalApi('https://portico.test', '', async (input, init) => {
     const url = new URL(String(input)); requests.push({path: url.pathname, signal: init?.signal});
     return new Response(JSON.stringify(await respond(url)), {status: 200});
@@ -84,7 +90,7 @@ function fixture(hasDestination = true, readSession?: NativePlaybackAdapter['rea
   const factory = createNativeWatchScreens({api, scope: {serverId: 'server', viewerId: 'viewer'}, authority, current: () => bound,
     subscribeCurrent: subscribe(authorityListeners), navigation, playback,
     playlistPicker: {open: (...args: unknown[]) => {playlistOpens.push(args);}, openAlbum: () => {}, render: () => null, dispose: () => {}}, watch: {register() {throw new Error('not mounted');}}, requestId: async () => 'request', isTV: false,
-    startVersion: async (...args: unknown[]) => {starts.push(args);}, manageFile() {}, openFileInfo() {},
+    startVersion: async (...args: unknown[]) => {starts.push(args);}, manageFile() {}, openFileInfo: (...args: unknown[]) => {fileInfos.push(args);},
     ...(hasDestination ? {
       // Record the exact opening the factory dispatched, then let the real
       // presenter present that destination under its own current() guard.
@@ -100,7 +106,7 @@ function fixture(hasDestination = true, readSession?: NativePlaybackAdapter['rea
   // The fixture's existing dispose is the one cleanup every test already calls,
   // so it retires the presenter and its services before the subscription counts.
   const screens = {...factory, dispose: () => {factory.dispose(); presenters.dispose(); common.dispose();}};
-  return {screens, requests, menus, versions, starts, errors, navigations, enqueues, playlistOpens,
+  return {screens, requests, fileInfos, menus, versions, starts, errors, navigations, enqueues, playlistOpens,
     session: (role?: 'local' | 'group_member') => {source = {...source, session: role ? {itemId: entry.id, versionId: 'v1', role} : undefined}; for (const listener of playbackListeners) listener();},
     holdStart: (held: Promise<void>) => {holdStart = held;},
     title: () => {route = {kind: 'title', entry}; revision++; for (const listener of routeListeners) listener(); return screens.title.render(route, {} as any) as any;},
@@ -212,11 +218,62 @@ test('one/duplicate/removed versions never grant a chooser; options failure keep
     await d.screens.menu(entry, () => current);
     assert.equal(typeof d.menus[0][1].fileInfo, 'function');
     assert.equal(d.menus[0][1].differentVersion, undefined);
-    current = false; await d.menus[0][1].fileInfo();
-    assert.equal(d.requests.length, 1);
+    current = false; await d.menus[0][1].fileInfo(withOpening);
+    assert.equal(d.requests.length, 1, 'a stale capture reads nothing');
   } finally {d.screens.dispose();}
 });
 
+
+test('File info opens from the accepted Detail\'s opening: first window read, session handed to the overlay', async () => {
+  const d = fixture(); d.respond(async () => episodeGroups());
+  try {
+    await d.screens.menu(entry, () => true);
+    const before = d.requests.length;
+    await d.menus[0][1].fileInfo(withOpening);
+    assert.deepEqual(d.requests.slice(before).map(request => request.path), ['/v1/items/episode/file-info/groups', '/v1/file-info-queries/q1']);
+    assert.equal(d.fileInfos.length, 1);
+    const [captured, panel, owner] = d.fileInfos[0] as [any, any, any];
+    assert.equal(captured.entry, entry);
+    assert.equal(panel.type, 'FileInfoPanel'); assert.equal(panel.props.session, owner.session);
+    assert.ok(owner.session instanceof FileInfoSession); assert.equal(owner.kind, 'episode'); assert.equal(typeof owner.changed, 'function');
+    assert.equal(owner.session.opening.token, 'o1');
+    assert.deepEqual(owner.session.opening.revision, withOpening.revision);
+    assert.equal(owner.session.getSnapshot().groups.rows.rows[0].id, 'g1');
+    owner.session.retire();
+  } finally {d.screens.dispose();}
+});
+
+test('File info without an accepted opening rejects as unavailable and reads nothing', async () => {
+  for (const detail of [undefined, {...withOpening, fileInfoOpening: undefined}, {...withOpening, item: {...withOpening.item, id: 'another'}}]) {
+    const d = fixture();
+    try {
+      await d.screens.menu(entry, () => true);
+      const before = d.requests.length;
+      await assert.rejects(d.menus[0][1].fileInfo(detail), (error: any) => error.code === 'metadata_unavailable' && error.retryable === true);
+      assert.equal(d.requests.length, before); assert.equal(d.fileInfos.length, 0);
+    } finally {d.screens.dispose();}
+  }
+});
+
+test('a failed first window is thrown, not opened, and an aborted one opens nothing', async () => {
+  const d = fixture();
+  try {
+    await d.screens.menu(entry, () => true);
+    d.respond(async () => new Response(JSON.stringify({code: 'server_error'}), {status: 500}) as unknown);
+    await assert.rejects(d.menus[0][1].fileInfo(withOpening));
+    assert.equal(d.fileInfos.length, 0);
+  } finally {d.screens.dispose();}
+  const held = deferred<unknown>(), e = fixture();
+  try {
+    await e.screens.menu(entry, () => true);
+    e.respond(async () => held.promise);
+    const reading = e.menus[0][1].fileInfo(withOpening);
+    await new Promise(resolve => setImmediate(resolve));
+    e.authority(); held.resolve(episodeGroups());
+    await reading;
+    assert.equal(e.fileInfos.length, 0);
+  } finally {e.screens.dispose();}
+});
 
 test('menu forwards the measured card ref and retains the real owner lifetime', async () => {
   const d = fixture(), anchor = {current: {nativeTag: 37}}; let memberCurrent = true;
@@ -224,8 +281,9 @@ test('menu forwards the measured card ref and retains the real owner lifetime', 
     await d.screens.menu(entry, () => memberCurrent, anchor);
     assert.equal(d.menus[0][2], anchor);
     assert.equal(d.menus[0][0].entry, entry);
-    memberCurrent = false; await d.menus[0][1].fileInfo();
-    assert.equal(d.requests.length, 1);
+    memberCurrent = false; await d.menus[0][1].fileInfo(withOpening);
+    assert.equal(d.requests.length, 1, 'a stale capture reads nothing');
+    assert.equal(d.fileInfos.length, 0);
   } finally {d.screens.dispose();}
 });
 

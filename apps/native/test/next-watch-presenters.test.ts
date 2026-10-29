@@ -6,24 +6,33 @@ import {NativeWatchPresenters} from '../src-next/screens/watch/presenters.ts';
 import {NativeScreenServices} from '../src-next/screens/screen-services.ts';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import {parseOptions} from '../../../packages/client-core/src/playback-v1/types.ts';
-import {readNativeFileInfo} from '../src-next/screens/watch/file-info.ts';
+import {FileInfoSession} from '../../../packages/client-core/src/file-info-session.ts';
+import {groupRow, groupsPage, memberRow, membersPage, opening, ownerSurface} from './helpers/file-info-windows.ts';
 import {NativeShellNavigation} from '../src-next/shell/routes.ts';
 import type {NativeShellBootstrapContext} from '../src-next/shell/bootstrap.ts';
 
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
 const entry = {id: 'movie', kind: 'movie' as const, title: 'Real title', displayTitle: 'Real title: Edition', libraryId: 'library'};
-const file = {id: 'asset', path: '/actual/asset.mkv', available: true, container: 'mkv', size: 1024, duration: 60, audio: [], subtitles: []};
-const page = {scope: {serverId: 'server', libraryId: 'library', itemId: 'movie', viewerFence: 'viewer'}, revision: {catalog: 2, viewer: 3}, kind: 'movie', files: [file], manage: {delete: true, split: true, merge: true}};
 const offered = parseOptions({itemId: 'movie', versions: [{id: 'asset', parts: [{id: 'asset', index: 0, durationMs: 60000}], durationMs: 60000, sizeBytes: 1024, video: [], audio: [], subtitles: []}]});
+const occurrence = 'occ-asset';
+/** One version, one file, the owner's view of an opening; `held` keeps the groups lease open (a next window exists). */
+const fileInfoServer = (path: string, state: {held: boolean; manage: typeof ownerSurface['manage']; serial: number}) => {
+  if (path.includes('/groups/members')) return membersPage('q-members', 'g1', [memberRow(occurrence, 'asset', {path: '/actual/asset.mkv'})]);
+  return groupsPage(`q-groups-${++state.serial}`, {...ownerSurface, groupCount: state.held ? 2 : 1, manage: state.manage}, [groupRow(1, {headOccurrence: occurrence})], state.held ? {nextCursor: 'n1'} : {});
+};
 const deferred = <T,>() => {let resolve!: (value: T) => void; const promise = new Promise<T>(done => {resolve = done;}); return {promise, resolve};};
-async function fixture() {
-  let active = true, changed = 0, respond = async (_path: string, _method: string) => page as unknown;
+const drain = () => new Promise(resolve => setImmediate(resolve));
+async function fixture(over: {manage?: typeof ownerSurface['manage']; held?: boolean} = {}) {
+  let active = true, changed = 0;
+  const state = {held: over.held ?? false, manage: over.manage ?? ownerSurface.manage, serial: 0};
+  let respond = async (path: string, method: string): Promise<unknown> => method === 'DELETE' ? null : fileInfoServer(path, state);
   const calls: {path: string; method: string; body: unknown; signal?: AbortSignal | null}[] = [];
   const listeners = new Set<() => void>();
   const api = new HttpLocalApi('https://portico.test', '', async (input, init) => {
     const url = new URL(String(input)), method = init?.method ?? 'GET';
     calls.push({path: url.pathname + url.search, method, body: init?.body && JSON.parse(String(init.body)), signal: init?.signal});
-    return new Response(JSON.stringify(await respond(url.pathname, method)), {status: 200});
+    const body = await respond(url.pathname, method);
+    return body instanceof Response ? body : new Response(JSON.stringify(body), {status: 200});
   });
   const navigation = new NativeShellNavigation(authority, () => authority);
   navigation.open({kind: 'title', entry}, authority);
@@ -32,11 +41,19 @@ async function fixture() {
   const context = {...owner, session: () => ({viewer: {...authority, authority: 'local'}}), playback: {getSnapshot: () => ({fence: undefined}), subscribe: () => () => {}}} as unknown as NativeShellBootstrapContext;
   const presenters = new NativeWatchPresenters(context, common);
   const capture = {entry, authority, routeRevision: navigation.getSnapshot().revision, expectedFence: undefined, current: () => active};
-  const info = await readNativeFileInfo(api, {serverId: 'server', viewerId: 'viewer'}, {libraryId: 'library', itemId: 'movie'}, offered, {t: defaultI18n.t}, false, new AbortController().signal);
-  const fileInfo = async () => {presenters.openFileInfo(capture, 'real content', {info, changed: async () => {changed++;}});};
+  // The factory's own work: one session over the accepted opening, its first window and the owner's files read.
+  const open = async () => {
+    const session = new FileInfoSession({api, opening, isCurrent: () => active});
+    await session.groups();
+    if (session.getSnapshot().surface?.manage) await session.members('g1');
+    return session;
+  };
+  const session = await open();
+  const fileInfo = async () => {presenters.openFileInfo(capture, 'real content', {session, kind: 'movie', changed: async () => {changed++;}});};
   presenters.openMenu(capture, {fileInfo});
   await presenters.fileInfo(presenters.getSnapshot()!);
-  return {presenters, common, capture, info, calls, changed: () => changed,
+  return {presenters, common, capture, session, open, calls, changed: () => changed, state,
+    leases: (lane = '') => calls.filter(call => call.method === 'DELETE' && call.path.startsWith('/v1/file-info-queries/' + lane)).map(call => call.path),
     respond: (next: typeof respond) => {respond = next;}, retire: () => {active = false; for (const listener of listeners) listener();}, navigation,
     dispose: () => {presenters.dispose(); common.dispose();}};
 }
@@ -45,13 +62,30 @@ test('committed menu close preserves its real File info destination; dismissal a
   const d = await fixture();
   try {
     assert.equal(d.presenters.getSnapshot()?.phase, 'file-info');
-    assert.equal(d.presenters.getSnapshot()?.owner?.info.files[0]?.id, 'asset');
+    const owner = d.presenters.getSnapshot()?.owner;
+    assert.equal(owner?.session, d.session); assert.equal(owner?.kind, 'movie');
+    assert.equal(owner?.session.getSnapshot().groups.rows?.rows[0]?.id, 'g1');
     d.presenters.close();
-    d.presenters.openFileInfo(d.capture, 'late', {info: d.info, changed: async () => {}});
+    d.state.held = true;
+    const late = await d.open(); d.state.held = false;
+    d.presenters.openFileInfo(d.capture, 'late', {session: late, kind: 'movie', changed: async () => {}});
     assert.equal(d.presenters.getSnapshot(), undefined);
+    await drain(); assert.ok(d.leases().includes('/v1/file-info-queries/q-groups-2'), 'a session the presenter does not accept is retired, not leaked');
     d.presenters.openMenu(d.capture, {fileInfo: async () => {}});
     d.navigation.back(authority);
     assert.equal(d.presenters.getSnapshot(), undefined);
+  } finally {d.dispose();}
+});
+
+test('closing File info retires its session and gives back the lease it still holds', async () => {
+  const d = await fixture({held: true});
+  try {
+    assert.deepEqual(d.leases('q-groups'), [], 'a version list with more to read keeps its window');
+    d.presenters.close();
+    await drain();
+    assert.deepEqual(d.leases('q-groups'), ['/v1/file-info-queries/q-groups-1']);
+    await d.session.groups('next');
+    assert.equal(d.calls.some(call => call.path.includes('cursor=')), false, 'a retired session reads nothing more');
   } finally {d.dispose();}
 });
 
@@ -76,41 +110,54 @@ test('composed entry actions require their exact current menu and retain disable
   } finally {d.dispose();}
 });
 
-test('wrong physical member and withdrawn manage authority cannot dispatch owner commands', async () => {
+test('a wrong occurrence, or withdrawn manage authority in the resident surface, cannot dispatch owner commands', async () => {
   const d = await fixture();
   try {
     d.presenters.manageFile(d.capture, 'delete-version', 'wrong');
     assert.equal(d.presenters.getSnapshot()?.phase, 'file-info');
-    d.respond(async () => ({...page, manage: {delete: false, split: false, merge: false}}));
-    d.presenters.manageFile(d.capture, 'delete-version', 'asset');
-    await new Promise(resolve => setImmediate(resolve));
-    assert.ok(d.presenters.getSnapshot()?.error);
-    assert.equal(d.calls.filter(call => call.method === 'DELETE').length, 0);
-    assert.equal(d.calls.some(call => call.path.includes('/delete/preview')), false);
+    d.presenters.manageFile(d.capture, 'delete-version');
+    assert.equal(d.presenters.getSnapshot()?.phase, 'file-info', 'a delete names the occurrence it was chosen for');
+    d.presenters.chooseSplit(occurrence);
+    assert.equal(d.presenters.getSnapshot()?.phase, 'file-info', 'split is chosen from the split list only');
+    await drain();
+    assert.equal(d.calls.some(call => call.method !== 'GET' && !call.path.startsWith('/v1/file-info-queries/')), false);
+  } finally {d.dispose();}
+  const withheld = await fixture({manage: {delete: false, split: false, merge: false}});
+  try {
+    for (const action of ['delete-version', 'split-versions', 'merge-title'] as const) withheld.presenters.manageFile(withheld.capture, action, occurrence);
+    await drain();
+    assert.equal(withheld.presenters.getSnapshot()?.phase, 'file-info');
+    assert.equal(withheld.calls.some(call => call.path.includes('/delete/preview')), false);
+  } finally {withheld.dispose();}
+});
+
+test('owner commands do not read File info again: the proof is the opening, and the server refuses a stale one', async () => {
+  const d = await fixture();
+  try {
+    const reads = d.calls.length;
+    d.respond(async path => path.endsWith('/delete/preview') ? new Response(JSON.stringify({code: 'stale_file_info', message: 'stale'}), {status: 409}) : fileInfoServer(path, d.state));
+    d.presenters.manageFile(d.capture, 'delete-version', occurrence);
+    await drain();
+    assert.deepEqual(d.calls.slice(reads).map(call => [call.method, call.path, call.body]),
+      [['POST', '/v1/admin/items/movie/files/asset/delete/preview', {fileInfo: {opening: 'o1', occurrence}}]]);
+    assert.equal(d.presenters.getSnapshot()?.phase, 'delete');
+    assert.ok(d.presenters.getSnapshot()?.error, 'the 409 is shown, nothing was deleted');
+    assert.equal(d.presenters.getSnapshot()?.preview, undefined);
+    assert.equal(d.calls.some(call => call.method === 'DELETE' && call.path.includes('/v1/admin/')), false);
   } finally {d.dispose();}
 });
 
-test('closing during fresh owner read aborts the actual request and refuses a late delete preview', async () => {
+test('closing during the delete preview aborts the actual request and refuses its late answer', async () => {
   const d = await fixture(), held = deferred<unknown>();
   try {
     d.respond(async () => held.promise);
-    d.presenters.manageFile(d.capture, 'delete-version', 'asset');
+    d.presenters.manageFile(d.capture, 'delete-version', occurrence);
     const request = d.calls.at(-1)!;
+    assert.ok(request.path.endsWith('/delete/preview'));
     d.presenters.close(); assert.equal(request.signal?.aborted, true);
-    held.resolve(page); await new Promise(resolve => setImmediate(resolve));
+    held.resolve(preview); await drain();
     assert.equal(d.presenters.getSnapshot(), undefined);
-    assert.equal(d.calls.some(call => call.path.includes('/delete/preview')), false);
-  } finally {d.dispose();}
-});
-
-test('a changed File info revision cannot become a matching owner action just because its card is still current', async () => {
-  const d = await fixture();
-  try {
-    d.respond(async () => ({...page, revision: {catalog: 4, viewer: 3}}));
-    d.presenters.manageFile(d.capture, 'delete-version', 'asset');
-    await new Promise(resolve => setImmediate(resolve));
-    assert.ok(d.presenters.getSnapshot()?.error);
-    assert.equal(d.calls.some(call => call.path.includes('/delete/preview')), false);
+    assert.equal(d.calls.some(call => call.method === 'DELETE' && call.path.includes('/v1/admin/')), false);
   } finally {d.dispose();}
 });
 
@@ -123,24 +170,51 @@ test('real version preview owns confirmation and exact physical DELETE receipt, 
   const d = await fixture(); let attempt = 0;
   try {
     d.respond(async (path, method) => path.endsWith('/delete/preview') ? preview : method === 'DELETE' && ++attempt === 1
-      ? {...deleted, removed: 0, failed: 1, receipts: [{...deleted.receipts[0], removed: false, filesDeleted: 0, filesKept: 1, code: 'file_not_removed'}]} : method === 'DELETE' ? deleted : page);
-    d.presenters.manageFile(d.capture, 'delete-version', 'asset');
-    await new Promise(resolve => setImmediate(resolve));
+      ? {...deleted, removed: 0, failed: 1, receipts: [{...deleted.receipts[0], removed: false, filesDeleted: 0, filesKept: 1, code: 'file_not_removed'}]} : method === 'DELETE' ? deleted : fileInfoServer(path, d.state));
+    d.presenters.manageFile(d.capture, 'delete-version', occurrence);
+    await drain();
     assert.equal(d.presenters.getSnapshot()?.preview?.assetId, 'asset');
+    const previews = d.calls.filter(call => call.path.endsWith('/delete/preview'));
+    assert.deepEqual(previews.map(call => [call.method, call.path, call.body]), [['POST', '/v1/admin/items/movie/files/asset/delete/preview', {fileInfo: {opening: 'o1', occurrence}}]]);
     d.presenters.confirmation('wrong title'); await d.presenters.deleteVersion();
-    assert.equal(d.calls.filter(call => call.method === 'DELETE').length, 0);
+    assert.equal(d.calls.filter(call => call.method === 'DELETE' && call.path.includes('/v1/admin/')).length, 0);
     d.presenters.confirmation(preview.confirmation); await d.presenters.deleteVersion();
     assert.equal(d.changed(), 0); assert.ok(d.presenters.getSnapshot()?.error);
     await d.presenters.deleteVersion();
-    const removes = d.calls.filter(call => call.method === 'DELETE');
+    const removes = d.calls.filter(call => call.method === 'DELETE' && call.path.includes('/v1/admin/'));
+    assert.equal(d.calls.some(call => call.method === 'GET' && call.path.includes('/file-info/') && d.calls.indexOf(call) > d.calls.indexOf(previews[0]!)), false, 'no File info read between the preview and the delete');
     assert.equal(removes.length, 2);
-    assert.deepEqual(removes[0]?.body, {confirmation: preview.confirmation, operationId: '11111111-1111-4111-8111-111111111111', previewKey: preview.previewKey});
+    assert.deepEqual(removes[0]?.body, {confirmation: preview.confirmation, operationId: '11111111-1111-4111-8111-111111111111', previewKey: preview.previewKey, fileInfo: {opening: 'o1', occurrence}});
     assert.deepEqual(removes[1]?.body, removes[0]?.body);
     assert.equal(removes[1]?.path, '/v1/admin/items/movie/files/asset');
     assert.equal(d.changed(), 1); assert.equal(d.presenters.getSnapshot(), undefined);
   } finally {d.dispose();}
 });
 
+test('split names the exact occurrence of a one-file version and reads nothing before it', async () => {
+  const d = await fixture();
+  try {
+    d.presenters.manageFile(d.capture, 'split-versions');
+    assert.equal(d.presenters.getSnapshot()?.phase, 'split-pick');
+    d.presenters.chooseSplit('not-a-candidate'); assert.equal(d.presenters.getSnapshot()?.phase, 'split-pick');
+    d.presenters.chooseSplit(occurrence); assert.equal(d.presenters.getSnapshot()?.phase, 'split');
+    d.respond(async path => path.endsWith('/file-info/separate') ? {itemId: 'new-title'} : fileInfoServer(path, d.state));
+    const reads = d.calls.length;
+    await d.presenters.split();
+    assert.deepEqual(d.calls.slice(reads).map(call => [call.method, call.path, call.body]),
+      [['POST', '/v1/admin/items/movie/file-info/separate', {fileInfo: {opening: 'o1', occurrence}}]]);
+    assert.equal(d.changed(), 1); assert.equal(d.presenters.getSnapshot(), undefined);
+  } finally {d.dispose();}
+});
+
+test('merge asks nothing of File info and still refreshes the title', async () => {
+  const d = await fixture();
+  try {
+    d.presenters.manageFile(d.capture, 'merge-title');
+    assert.equal(d.presenters.getSnapshot()?.phase, 'merge');
+    assert.equal(d.calls.some(call => call.method === 'POST'), false);
+  } finally {d.dispose();}
+});
 
 test('the real menu-to-chooser presenter keeps its sheet until start settles and aborts explicit close', async () => {
   for (const close of [false, true]) {

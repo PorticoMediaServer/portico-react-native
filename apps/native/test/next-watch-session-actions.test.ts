@@ -64,7 +64,7 @@ async function fixture() {
     '../../../../../packages/client-core/src/playback-v1/options': {PlaybackOptionsClient: class {async options(id: string) {reads.push(id); return source.options;}}},
     '../../../../../packages/client-core/src/continue-watching': {}, '../../../../../packages/client-core/src/playback-v1/local-http': {localV1Http: (api: any) => api},
     '../../../../../packages/player-core/src': {sameFence}, '../../../../../packages/i18n/src': {defaultI18n}, '../../platform/layout/full-window': {}, '../../shell/model': {sameAuthority},
-    './title-controller': {}, './title-starts': {NativeTitleStarts}, './TitleScreen': {}, './FileInfoContent': {}, './file-info': {}, './playback-info': {}, './track-identity': {},
+    './title-controller': {}, './title-starts': {NativeTitleStarts}, './TitleScreen': {}, './FileInfoContent': {}, './FileInfoPanel': {}, './file-info': {}, '../../../../../packages/client-core/src/file-info-session': {}, './playback-info': {}, './track-identity': {},
     './version-options': versionsModel, './version-destination': {NativeVersionChooserController}, './disc-titles-controller': {}, './disc-titles': {},
     './controls': {NativeWatchControls: class {route() {} source() {} dispose() {} back() {return false;}}},
     './WatchChrome': {}, './picture-slot': {}, './WatchHost': {NativeWatchHost: 'WatchHost'}, './EpisodePanel': {},

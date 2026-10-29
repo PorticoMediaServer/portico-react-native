@@ -1,20 +1,20 @@
 import type {ReactNode, RefObject} from 'react';
 import {Platform, type View} from 'react-native';
 import {sameFence} from '../../../../../packages/player-core/src';
-import {readFileInfo, type DetailApi, type DetailProjection, type PersonalIntent} from '../../../../../packages/client-core/src/detail';
+import {type DetailApi, type DetailProjection, type PersonalIntent} from '../../../../../packages/client-core/src/detail';
 import {deletionAllowed, versionDeletionService, type VersionDeletePreview} from '../../../../../packages/client-core/src/administration';
 import {SearchService} from '../../../../../packages/client-core/src/search';
-import {canMergeTitles, findLibraryFile, mergeTitles, separateLibraryFile, SPLITTABLE_KINDS} from '../../../../../packages/client-core/src/title-identity';
+import {canMergeTitles, mergeTitles, separateFileInfoOccurrence, SPLITTABLE_KINDS} from '../../../../../packages/client-core/src/title-identity';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import {sameAuthority} from '../../shell/model';
 import type {NativeScreenServices} from '../screen-services';
 import type {NativeWatchCapture, NativeWatchMenuActions, NativeWatchMenuEntry, NativeVersionDestination, NativeVersionsOpening} from './factory';
-import {nativeFileInfoMergeGroups, type NativeFileInfo} from './file-info';
+import {nativeFileInfoFile, nativeFileInfoMergeGroups, nativeSplitCandidates, type NativeFileInfoOwner} from './file-info';
 import type {NativeDiscTitlesController} from './disc-titles-controller';
 import {nativeTogetherSession} from '../settings-live/together-session';
 
-type FileOwner = Readonly<{info: NativeFileInfo; changed: () => Promise<void>}>;
+type FileOwner = NativeFileInfoOwner;
 export type NativeWatchOverlay = Readonly<{
   capture: NativeWatchCapture;
   phase: 'menu' | 'file-pending' | 'file-info' | 'split-pick' | 'split' | 'delete' | 'merge' | 'versions-pending' | 'versions' | 'disc-titles';
@@ -83,6 +83,8 @@ export class NativeWatchPresenters {
   };
   close = () => {
     this.openingEpoch++;
+    // File info's windows and leases go with the overlay that showed them.
+    this.value?.owner?.session.retire();
     this.value?.disc?.dispose();
     this.value?.destination?.dispose();
     this.releaseMenuEntry();
@@ -250,11 +252,11 @@ export class NativeWatchPresenters {
   fileInfo = async (value: NativeWatchOverlay) => {
     if (!value.actions || !this.patch(value, {phase: 'file-pending', busy: true})) return;
     this.releaseMenuEntry();
-    try {await value.actions.fileInfo();}
+    try {await value.actions.fileInfo(value.detail);}
     catch (error) {if (this.value?.capture === value.capture && this.current(value.capture)) {this.close(); this.common.reportError(error, 'detail');}}
   };
   openFileInfo = (capture: NativeWatchCapture, content: ReactNode, owner: FileOwner) => {
-    if (!this.current(capture) || this.value?.capture !== capture || this.value.phase !== 'file-pending') return;
+    if (!this.current(capture) || this.value?.capture !== capture || this.value.phase !== 'file-pending') {owner.session.retire(); return;}
     this.replace({...this.value, phase: 'file-info', content, owner, busy: false});
   };
   private async run(value: NativeWatchOverlay, action: (api: DetailApi, signal: AbortSignal, check: () => void) => Promise<void>) {
@@ -272,24 +274,23 @@ export class NativeWatchPresenters {
     catch (error) {if (current()) this.patch(pending, {busy: false, error});}
     finally {this.requests.delete(request);}
   }
-  private async validateOwner(value: NativeWatchOverlay, api: Pick<NativeShellBootstrapContext['api'], 'request'>, signal: AbortSignal, action: 'delete' | 'split' | 'merge') {
-    const info = value.owner?.info, entry = value.capture.entry;
-    if (!info || !entry.libraryId || !info.manage?.[action] || info.scope.itemId !== entry.id || info.scope.libraryId !== entry.libraryId) throw cancelled();
-    const viewer = this.context.session()?.viewer;
-    if (!viewer) throw cancelled();
-    const fresh = await readFileInfo(api, {serverId: viewer.serverId, viewerId: JSON.stringify([viewer.authority, viewer.accountId, viewer.profileId])}, {libraryId: entry.libraryId, itemId: entry.id}, {limit: 1}, signal);
-    if (!fresh.manage?.[action]) throw Object.assign(new Error('file_management_forbidden'), {code: 'forbidden'});
-    if (fresh.scope.viewerFence !== info.scope.viewerFence || fresh.revision.catalog !== info.revision.catalog || fresh.revision.viewer !== info.revision.viewer) throw Object.assign(new Error('file_info_changed'), {code: 'revision_conflict'});
+  /** A File info command names the exact occurrence of the opening it was chosen from. The
+   * server rechecks owner, custody and selection live and refuses a stale opening (409) first. */
+  private proof(value: NativeWatchOverlay, occurrence: string) {
+    const owner = value.owner;
+    if (!owner || !this.current(value.capture)) throw cancelled();
+    return Object.freeze({opening: owner.session.opening.token, occurrence});
   }
   manageFile = (capture: NativeWatchCapture, action: 'delete-version' | 'split-versions' | 'merge-title', fileId?: string) => {
-    const value = this.value, info = value?.owner?.info;
-    if (!value || value.capture !== capture || value.phase !== 'file-info' || !info || !this.current(capture)) return;
-    if (action === 'delete-version' && info.manage?.delete && fileId && info.locations?.some(file => file.id === fileId && file.actions.some(offered => offered.id === action))) {
+    const value = this.value, owner = value?.owner;
+    if (!value || value.capture !== capture || value.phase !== 'file-info' || !owner || !this.current(capture)) return;
+    const snapshot = owner.session.getSnapshot(), manage = snapshot.surface?.manage;
+    if (action === 'delete-version' && manage?.delete && fileId && nativeFileInfoFile(snapshot, fileId)) {
       const next = this.patch(value, {phase: 'delete', fileId, confirmation: '', error: undefined, preview: undefined, operationId: undefined});
       if (next) void this.previewDelete(next);
-    } else if (action === 'split-versions' && info.model.owner?.actions.some(offered => offered.id === action) && SPLITTABLE_KINDS.includes(info.kind)) {
+    } else if (action === 'split-versions' && manage?.split && snapshot.surface?.canSplit && SPLITTABLE_KINDS.includes(owner.kind)) {
       this.patch(value, {phase: 'split-pick', fileId: undefined, error: undefined});
-    } else if (action === 'merge-title' && info.manage?.merge && nativeFileInfoMergeGroups[capture.entry.kind]) {
+    } else if (action === 'merge-title' && manage?.merge && nativeFileInfoMergeGroups[capture.entry.kind]) {
       this.patch(value, {phase: 'merge', other: undefined, keep: capture.entry.id, candidates: [], error: undefined});
     }
   };
@@ -297,26 +298,26 @@ export class NativeWatchPresenters {
     this.searchService?.dispose(); this.searchService = undefined;
     this.patch(value, {phase: 'file-info', error: undefined});
   }};
-  chooseSplit = (fileId: string) => {
-    const value = this.value, files = value?.owner?.info.files;
-    if (value?.phase === 'split-pick' && files && files.length > 1 && files.some(file => file.id === fileId && file.available) && value.owner?.info.groups.some(group => group.members.length === 1 && group.members[0]?.id === fileId)) this.patch(value, {phase: 'split', fileId, error: undefined});
+  /** `occurrence` is one of the versions that is one file on its own (nativeSplitCandidates). */
+  chooseSplit = (occurrence: string) => {
+    const value = this.value, owner = value?.owner;
+    if (value?.phase === 'split-pick' && owner && nativeSplitCandidates(owner.session.getSnapshot()).some(candidate => candidate.occurrence === occurrence)) this.patch(value, {phase: 'split', fileId: occurrence, error: undefined});
   };
   split = async () => {
     const value = this.value, entry = value?.capture.entry;
     if (value?.phase !== 'split' || !value.fileId || !entry?.libraryId || value.busy) return;
     await this.run(value, async (api, signal, check) => {
-      await this.validateOwner(value, api, signal, 'split');
-      const record = await findLibraryFile(api, entry.libraryId!, value.fileId!, {signal});
-      if (!record) throw Object.assign(new Error('file_not_listed'), {code: 'file_not_listed'});
-      await separateLibraryFile(api, entry.libraryId!, record);
+      await separateFileInfoOccurrence(api, entry.id, this.proof(value, value.fileId!));
       await value.owner!.changed(); check(); this.close();
     });
   };
   previewDelete = async (value = this.value) => {
     if (!value || value.phase !== 'delete' || !value.fileId || value.busy) return;
     await this.run(value, async (api, signal) => {
-      await this.validateOwner(value, api, signal, 'delete');
-      const preview = await versionDeletionService(api.request).preview(value.capture.entry.id, value.fileId!);
+      const listed = value.owner && nativeFileInfoFile(value.owner.session.getSnapshot(), value.fileId!);
+      if (!listed) throw Object.assign(new Error('file_not_listed'), {code: 'file_not_listed'});
+      const preview = await versionDeletionService(api.request).preview(listed.file.itemId, listed.file.id, this.proof(value, listed.file.occurrence));
+      if (preview.assetId !== listed.file.id || preview.targets.length !== 1 || preview.targets[0]?.itemId !== listed.file.itemId) throw Object.assign(new Error('file_changed'), {code: 'file_changed'});
       const operationId = value.operationId ?? await this.common.requestId();
       const pending = this.value;
       if (pending?.capture === value.capture && this.current(value.capture)) this.patch(pending, {preview, operationId, busy: false});
@@ -327,8 +328,7 @@ export class NativeWatchPresenters {
     const value = this.value;
     if (value?.phase !== 'delete' || !value.preview || !value.operationId || value.busy || !deletionAllowed(value.preview) || value.confirmation.trim() !== value.preview.confirmation) return;
     await this.run(value, async (api, signal, check) => {
-      await this.validateOwner(value, api, signal, 'delete');
-      const result = await versionDeletionService(api.request).remove(value.preview!, value.confirmation.trim(), value.operationId!);
+      const result = await versionDeletionService(api.request).remove(value.preview!, value.confirmation.trim(), value.operationId!, this.proof(value, value.fileId!));
       const kept = result.receipts.find(receipt => !receipt.removed);
       if (kept) throw Object.assign(new Error('file_not_removed'), {code: kept.code === 'file_changed' ? 'file_changed' : 'file_not_removed'});
       await value.owner!.changed(); check(); this.close();
@@ -358,7 +358,6 @@ export class NativeWatchPresenters {
     if (value?.phase !== 'merge' || !other || value.busy || !canMergeTitles(value.capture.entry, other)) return;
     const from = value.keep === other.id ? value.capture.entry : other, into = value.keep === other.id ? other : value.capture.entry;
     await this.run(value, async (api, signal, check) => {
-      await this.validateOwner(value, api, signal, 'merge');
       await mergeTitles(api, from.id, into.id);
       await value.owner!.changed(); check(); this.close();
       if (into === other) this.common.navigate(other);

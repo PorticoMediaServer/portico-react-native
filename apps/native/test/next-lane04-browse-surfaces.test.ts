@@ -132,7 +132,7 @@ test('the shared touch entry menu composes offered Play, My List, playlist and r
     '../../../../../packages/client-core/src/presentation/kit-model/text': {}, '../../shell/model': {}, '../../kit/controls': {Button: 'Button', TextField: 'TextField'},
     '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', Artwork: 'Artwork'}, '../../kit/states': {StateView: 'StateView'}, '../../kit/overlays': {BottomSheet: 'BottomSheet', Dialog: 'Dialog', Menu: 'Menu'},
     '../../kit/overlays/Menu': {TouchMenuHeader: 'TouchMenuHeader'}, '../../kit/overlays/surface': {}, '../../kit/overlays/TVPanelMotion': {useTVPanelPresence: () => ({})},
-    '../../kit/overlays/OverlayHost': {}, '../../kit/theme': {nativeType: type, useTheme: () => theme}, './VersionChooser': {}, './DiscTitlesSheet': {}, './FileInfoContent': {},
+    '../../kit/overlays/OverlayHost': {}, '../../kit/theme': {nativeType: type, useTheme: () => theme}, './VersionChooser': {}, './DiscTitlesSheet': {}, './FileInfoContent': {}, './file-info': {},
     '../../kit/overlays/SurfacePaintHost': {overlayPaintKey: () => 'opening', overlayPaintPermit: () => ({}), RetainedOverlay: 'RetainedOverlay'},
   });
   const render = () => nodes(h.render(() => NativeWatchOverlays({presenters, runtime: {artwork: () => undefined}, common: {}}))).find(node => node.type === 'Menu');
@@ -216,7 +216,7 @@ test('shared menu Play requires the exact live opening and an enabled detail gra
     react: {default: {}}, 'react-native': {Platform: {isTV: false}}, '../../../../../packages/player-core/src': {},
     '../../../../../packages/client-core/src/detail': {}, '../../../../../packages/client-core/src/administration': {},
     '../../../../../packages/client-core/src/search': {}, '../../../../../packages/client-core/src/title-identity': {},
-    '../../shell/model': {sameAuthority: (a: unknown, b: unknown) => a === b}, './file-info': {}, '../settings-live/together-session': {},
+    '../../shell/model': {sameAuthority: (a: unknown, b: unknown) => a === b}, './file-info': {}, './FileInfoPanel': {}, '../../../../../packages/client-core/src/file-info-session': {}, '../settings-live/together-session': {},
   });
   const authority = {}, capture = {authority, routeRevision: 1, current: () => true, entry: {id: 'actual'}};
   const subscribe = () => () => {}, calls: string[] = [];

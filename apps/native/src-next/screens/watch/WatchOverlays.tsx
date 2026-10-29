@@ -3,6 +3,7 @@ import {Modal, Platform, ScrollView, StyleSheet, Text, View, useWindowDimensions
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import {deletionAllowed} from '../../../../../packages/client-core/src/administration';
 import {mergeExplanation} from '../../../../../packages/client-core/src/title-identity';
+import {nativeFileInfoFile, nativeSplitCandidates} from './file-info';
 import {durationText} from '../../../../../packages/client-core/src/presentation/kit-model/text';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {shellLayout} from '../../shell/model';
@@ -64,7 +65,8 @@ function FileInfoSurface({value, presenters}: {value: NativeWatchOverlay; presen
 function ManageSurface({value, presenters, common}: {value: NativeWatchOverlay; presenters: NativeWatchPresenters; common: NativeScreenServices}) {
   const theme = useTheme(), t = defaultI18n.t, [words, setWords] = useState('');
   useEffect(() => {if (value.phase !== 'merge' || value.other) return; const timer = setTimeout(() => {void presenters.search(words);}, 300); return () => clearTimeout(timer);}, [presenters, value.phase, value.other, words]);
-  const file = value.owner?.info.files.find(row => row.id === value.fileId), entry = value.capture.entry;
+  const snapshot = value.owner?.session.getSnapshot(), entry = value.capture.entry;
+  const file = snapshot && value.fileId ? nativeFileInfoFile(snapshot, value.fileId)?.file : undefined;
   const heading = value.phase === 'delete' ? t('title.deleteVersion.title') : value.phase === 'split' || value.phase === 'split-pick' ? t('title.split.title') : t(value.other ? 'web.merge.title' : 'title.merge.action');
   const from = value.other && (value.keep === value.other.id ? entry : value.other);
   const retry = () => {if (value.phase === 'delete') void presenters.previewDelete(); else if (value.phase === 'merge') void presenters.search(words); else void presenters.split();};
@@ -77,7 +79,7 @@ function ManageSurface({value, presenters, common}: {value: NativeWatchOverlay; 
       {value.preview && (deletionAllowed(value.preview) ? <TextField testID="watch-delete-version-confirmation" label={t(value.preview.confirmationKind === 'count' ? 'deleteMedia.typeCount' : 'deleteMedia.typeTitle', {count: value.preview.confirmation})}
         description={value.preview.confirmationKind === 'title' ? value.preview.confirmation : undefined} value={value.confirmation} onChangeText={presenters.confirmation} editable={!value.busy} autoCapitalize="none" autoCorrect={false}/>
         : <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('deleteMedia.disabled')}</Text>)}
-    </> : value.phase === 'split-pick' ? value.owner?.info.groups.flatMap(group => group.members.length === 1 ? group.members : []).filter(row => row.available).map(row => <Button key={row.id} focusId={`watch-split-file-${row.id}`} testID={`watch-split-file-${row.id}`} variant="glass" onPress={() => presenters.chooseSplit(row.id)}>{row.path ?? value.owner?.info.model.files.find(group => group.id === row.id)?.display.heading.text}</Button>)
+    </> : value.phase === 'split-pick' ? (snapshot ? nativeSplitCandidates(snapshot) : []).filter(candidate => candidate.file?.available !== false).map(candidate => <Button key={candidate.occurrence} focusId={`watch-split-file-${candidate.group.id}`} testID={`watch-split-file-${candidate.group.id}`} variant="glass" onPress={() => presenters.chooseSplit(candidate.occurrence)}>{candidate.file?.path ?? t('next.kit.version', {number: candidate.group.ordinal})}</Button>)
       : value.phase === 'split' ? <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{named(entry)}{'\n'}{file?.path}{'\n\n'}{t('title.split.body')}</Text>
         : !value.other ? <><TextField testID="watch-merge-search" label={t('title.merge.find')} value={words} onChangeText={setWords} maxLength={200} autoCorrect={false}/>
           {value.candidates.map(other => <Button key={other.id} focusId={`watch-merge-candidate-${other.id}`} testID={`watch-merge-candidate-${other.id}`} variant="glass" onPress={() => presenters.chooseMerge(other)}>{named(other)}</Button>)}
