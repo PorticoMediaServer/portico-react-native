@@ -19,15 +19,16 @@ export type NativeFileInfoView = Readonly<{model: FileInfoModel; locations?: rea
 /** The versions directory as the panel shows it: groups, each with whatever windows of its head's
  * offered tracks and (owner) files are resident. Nothing is inferred from a count. */
 export function nativeFileInfoView(snapshot: FileInfoSnapshot, kind: string, text: TextEnvironment, isTV: boolean): NativeFileInfoView | undefined {
-  const groups = snapshot.groups.rows?.rows, surface = snapshot.surface;
-  if (!groups || !surface) return undefined;
+  const groups = snapshot.groups.rows?.rows, files = snapshot.files?.rows?.rows, surface = snapshot.surface;
+  if (!(groups || files) || !surface) return undefined;
   // Native lists each version head's offered tracks; Split only for a kind that can be split.
   const model = fileInfoPanelModel(snapshot, {tracks: 'offered', context: isTV ? 'desktop' : 'phone', manageSurface: isTV ? 'desktop' : 'phone',
     split: SPLITTABLE_KINDS.includes(kind), merge: !!nativeFileInfoMergeGroups[kind]}, text)!;
   const locations: readonly NativeFileInfoLocation[] | undefined = model.owner?.locations.map(location => Object.freeze({id: location.id, versionId: location.versionId, path: location.path, actions: location.actions}));
   // A version's own probed disc title, where the server measured one; a multipart version has none.
-  const disc = groups.flatMap(group => group.disc ? [Object.freeze({id: group.id, titleNumber: group.disc.titleNumber, chapterCount: group.disc.chapterCount})] : []);
-  return Object.freeze({model, ...(locations ? {locations} : {}), disc: Object.freeze(disc), versionCount: surface.groupCount});
+  const listed: readonly Readonly<{id: string; disc?: FileInfoGroupRow['disc']}>[] = files ? files.map(file => ({id: file.occurrence, disc: file.disc})) : groups!;
+  const disc = listed.flatMap(entry => entry.disc ? [Object.freeze({id: entry.id, titleNumber: entry.disc.titleNumber, chapterCount: entry.disc.chapterCount})] : []);
+  return Object.freeze({model, ...(locations ? {locations} : {}), disc: Object.freeze(disc), versionCount: files ? surface.fileCount : surface.groupCount});
 }
 
 /** Read what a resident version shows: its head's offered tracks, and for an owner its files. */
@@ -39,8 +40,18 @@ export function nativeFileInfoShowVersion(session: FileInfoSession, group: FileI
   if (snapshot.surface?.manage && !snapshot.members.has(group.id)) void session.members(group.id);
 }
 
+/** Read what a flat file shows: its own raw tracks (a flat-file surface has no offered heads). */
+export function nativeFileInfoShowFile(session: FileInfoSession, file: FileInfoFileRow): void {
+  const snapshot = session.getSnapshot();
+  for (const lane of ['audio', 'subtitles'] as const) {
+    if ((lane === 'audio' ? file.audioCount : file.subtitleCount) > 0 && !snapshot.tracks.has(fileInfoTrackKey(file.occurrence, lane))) void session.tracks(file.occurrence, lane);
+  }
+}
+
 /** The owner file an action was chosen for, as it was listed. */
-export function nativeFileInfoFile(snapshot: FileInfoSnapshot, occurrence: string): Readonly<{group: FileInfoGroupRow; file: FileInfoFileRow}> | undefined {
+export function nativeFileInfoFile(snapshot: FileInfoSnapshot, occurrence: string): Readonly<{group?: FileInfoGroupRow; file: FileInfoFileRow}> | undefined {
+  const flat = snapshot.files?.rows?.rows.find(row => row.occurrence === occurrence);
+  if (flat) return Object.freeze({file: flat});
   for (const group of snapshot.groups.rows?.rows ?? []) {
     const file = snapshot.members.get(group.id)?.rows?.rows.find(row => row.occurrence === occurrence);
     if (file) return Object.freeze({group, file});
@@ -50,9 +61,12 @@ export function nativeFileInfoFile(snapshot: FileInfoSnapshot, occurrence: strin
 
 /** Versions that are one file on their own, the only ones Split can make a title of. Their file is
  * the listed one; a version whose files were not read yet is named by its head. */
-export function nativeSplitCandidates(snapshot: FileInfoSnapshot): readonly Readonly<{group: FileInfoGroupRow; occurrence: string; file?: FileInfoFileRow}>[] {
+export function nativeSplitCandidates(snapshot: FileInfoSnapshot): readonly Readonly<{id: string; ordinal: number; occurrence: string; file?: FileInfoFileRow}>[] {
+  // Every flat file stands on its own; numbered by its place in the list.
+  const flat = snapshot.files?.rows?.rows;
+  if (flat) return Object.freeze(flat.map((file, index) => Object.freeze({id: file.occurrence, ordinal: index + 1, occurrence: file.occurrence, file})));
   return Object.freeze((snapshot.groups.rows?.rows ?? []).filter(group => group.memberCount === 1).map(group => {
     const file = snapshot.members.get(group.id)?.rows?.rows[0];
-    return Object.freeze({group, occurrence: file?.occurrence ?? group.headOccurrence, ...(file ? {file} : {})});
+    return Object.freeze({id: group.id, ordinal: group.ordinal, occurrence: file?.occurrence ?? group.headOccurrence, ...(file ? {file} : {})});
   }));
 }

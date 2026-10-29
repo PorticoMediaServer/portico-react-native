@@ -13,7 +13,7 @@ import {sameAuthority} from '../src-next/shell/model.ts';
 import {NativeTitleController} from '../src-next/screens/watch/title-controller.ts';
 import {NativeTitleStarts} from '../src-next/screens/watch/title-starts.ts';
 import {NativeWatchControls} from '../src-next/screens/watch/controls.ts';
-import {FileInfoSession} from '../../../packages/client-core/src/file-info-session.ts';
+import {FileInfoSession, fileInfoUsesGroups} from '../../../packages/client-core/src/file-info-session.ts';
 import {groupRow, groupsPage, ownerSurface} from './helpers/file-info-windows.ts';
 import {readNativePlaybackInfo} from '../src-next/screens/watch/playback-info.ts';
 import type {NativePlaybackAdapter} from '../src-next/platform/playback/types.ts';
@@ -53,7 +53,7 @@ const {createNativeWatchScreens} = await screenModule(new URL('../src-next/scree
   '../../platform/layout/full-window': {nativeFullWindowOrientation: undefined},
   './disc-titles-controller': {NativeDiscTitlesController}, './disc-titles': {prepareDiscTitle, readDiscTitles},
   '../../../../../packages/player-core/src': {sameFence}, '../../../../../packages/i18n/src': {defaultI18n},
-  '../../shell/model': {sameAuthority}, './controls': {NativeWatchControls}, '../../../../../packages/client-core/src/file-info-session': {FileInfoSession}, './FileInfoPanel': {NativeFileInfoPanel: 'FileInfoPanel'}, './playback-info': {readNativePlaybackInfo},
+  '../../shell/model': {sameAuthority}, './controls': {NativeWatchControls}, '../../../../../packages/client-core/src/file-info-session': {FileInfoSession, fileInfoUsesGroups}, './FileInfoPanel': {NativeFileInfoPanel: 'FileInfoPanel'}, './playback-info': {readNativePlaybackInfo},
   './track-identity': {nativeWatchTracks}, './EpisodePanel': episodes,
   './title-controller': {NativeTitleController}, './title-starts': {NativeTitleStarts}, './TitleScreen': {NativeTitleScreen: 'Title'},
   './version-destination': {NativeVersionChooserController}, './version-options': {nativeVersionChoices, nativeVersionNames},

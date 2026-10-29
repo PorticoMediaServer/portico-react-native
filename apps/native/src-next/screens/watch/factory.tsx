@@ -23,7 +23,7 @@ import type {NativeWatchOutletPort} from '../../shell/watch-outlet';
 import {NativeTitleController, type NativeTitlePageHost} from './title-controller';
 import {NativeTitleStarts} from './title-starts';
 import {NativeTitleScreen, type NativeTitleScreenProps} from './TitleScreen';
-import {FileInfoSession} from '../../../../../packages/client-core/src/file-info-session';
+import {FileInfoSession, fileInfoUsesGroups} from '../../../../../packages/client-core/src/file-info-session';
 import {NativeFileInfoPanel} from './FileInfoPanel';
 import type {NativeFileInfoOwner} from './file-info';
 import {readNativePlaybackInfo} from './playback-info';
@@ -204,8 +204,9 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     const session = new FileInfoSession({api: ports.api, opening: {token, scope: ports.scope, target: {libraryId: detail.scope.libraryId, itemId: detail.scope.itemId}, revision: detail.revision},
       isCurrent: () => current(captured)});
     try {
-      const read = await request(captured, async () => {await session.groups(); return true;});
-      const groups = session.getSnapshot().groups;
+      // Playable items read versions; any other kind reads its flat files.
+      const read = await request(captured, async () => {await (fileInfoUsesGroups(captured.entry.kind) ? session.groups() : session.files()); return true;});
+      const groups = fileInfoUsesGroups(captured.entry.kind) ? session.getSnapshot().groups : session.getSnapshot().files!;
       if (!read || !current(captured)) {session.retire(); return;}
       if (groups.status === 'failed') throw groups.error;
     } catch (error) {session.retire(); throw error;}

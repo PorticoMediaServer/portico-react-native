@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
-import {nativeFileInfoFile, nativeFileInfoShowVersion, nativeFileInfoView, nativeSplitCandidates} from '../src-next/screens/watch/file-info.ts';
-import {fakeSession, groupRow, groupsPage, headTracksPage, memberRow, membersPage, ownerSurface, viewerSurface} from './helpers/file-info-windows.ts';
+import {nativeFileInfoFile, nativeFileInfoShowFile, nativeFileInfoShowVersion, nativeFileInfoView, nativeSplitCandidates} from '../src-next/screens/watch/file-info.ts';
+import {envelope, fakeSession, groupRow, groupsPage, headTracksPage, memberRow, membersPage, ownerSurface, viewerSurface} from './helpers/file-info-windows.ts';
 
 const text = {t: defaultI18n.t};
 const settle = () => new Promise(resolve => setImmediate(resolve));
@@ -67,7 +67,7 @@ test('the owner sees every file of every version, by exact occurrence, with its 
     assert.deepEqual(locations?.map(location => location.actions.map(action => action.id)), [['delete-version'], ['delete-version'], ['delete-version']]);
     assert.equal(model.owner?.locations.length, 3);
     const listed = nativeFileInfoFile(d.session.getSnapshot(), 'occ-g1-part2');
-    assert.equal(listed?.group.id, 'g1'); assert.equal(listed?.file.id, 'a2');
+    assert.equal(listed?.group?.id, 'g1'); assert.equal(listed?.file.id, 'a2');
     assert.equal(nativeFileInfoFile(d.session.getSnapshot(), 'unlisted'), undefined);
   } finally {d.session.retire();}
 });
@@ -140,12 +140,12 @@ test('only a version that is one file on its own can be split, named by its list
   const d = await open(ownerSurface);
   try {
     const candidates = nativeSplitCandidates(d.session.getSnapshot());
-    assert.deepEqual(candidates.map(candidate => [candidate.group.id, candidate.occurrence, candidate.file?.path]), [['g2', 'occ-g2', '/private/b1.mkv']]);
+    assert.deepEqual(candidates.map(candidate => [candidate.id, candidate.occurrence, candidate.file?.path]), [['g2', 'occ-g2', '/private/b1.mkv']]);
   } finally {d.session.retire();}
   const unread = fakeSession(server(ownerSurface));
   await unread.session.groups();
   try {
-    assert.deepEqual(nativeSplitCandidates(unread.session.getSnapshot()).map(candidate => [candidate.group.id, candidate.occurrence, candidate.file]), [['g2', 'occ-g2', undefined]],
+    assert.deepEqual(nativeSplitCandidates(unread.session.getSnapshot()).map(candidate => [candidate.id, candidate.occurrence, candidate.file]), [['g2', 'occ-g2', undefined]],
       'files not read yet: the head names the version');
   } finally {unread.session.retire();}
 });
@@ -158,4 +158,23 @@ test('a disc version carries its measured title', async () => {
     const view = nativeFileInfoView(data.session.getSnapshot(), 'movie', text, true)!;
     assert.deepEqual(view.disc.map(title => [title.id, title.titleNumber, title.chapterCount]), [['g1', 3, 21]]);
   } finally {data.session.retire();}
+});
+
+test('an album reads its flat files: each listed with its own raw tracks, every file splittable, owner paths per file', async () => {
+  const files = [memberRow('occ-t1', 't1', {path: '/music/1.flac', audioCount: 1}), memberRow('occ-t2', 't2', {path: '/music/2.flac', audioCount: 0})];
+  const {session, calls} = fakeSession(path => path.includes('/file-info/tracks')
+    ? envelope('file-info-tracks', 'q2', {lane: 'audio', occurrence: 'occ-t1', total: 1, tracks: [{ordinal: 1, codec: 'flac', channels: 2}]})
+    : envelope('file-info-files', 'q1', {itemKind: 'album', surface: ownerSurface, files}, {returned: 2}));
+  await session.files();
+  nativeFileInfoShowFile(session, session.getSnapshot().files!.rows!.rows[0]!);
+  nativeFileInfoShowFile(session, session.getSnapshot().files!.rows!.rows[1]!);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(calls.filter(call => call.includes('/tracks')), ['GET /v1/items/movie/file-info/tracks?opening=o1&occurrence=occ-t1&lane=audio&limit=40'], 'only a file with audio reads its raw tracks');
+  const view = nativeFileInfoView(session.getSnapshot(), 'album', {t: defaultI18n.t}, false)!;
+  assert.deepEqual(view.model.files.map(file => file.id), ['occ-t1', 'occ-t2']);
+  assert.equal(view.versionCount, 3, 'a flat surface counts its files');
+  assert.deepEqual(view.locations?.map(location => [location.id, location.path]), [['occ-t1', '/music/1.flac'], ['occ-t2', '/music/2.flac']]);
+  assert.deepEqual(nativeSplitCandidates(session.getSnapshot()).map(candidate => [candidate.id, candidate.ordinal]), [['occ-t1', 1], ['occ-t2', 2]]);
+  assert.equal(nativeFileInfoFile(session.getSnapshot(), 'occ-t2')?.file.path, '/music/2.flac');
+  session.retire();
 });
