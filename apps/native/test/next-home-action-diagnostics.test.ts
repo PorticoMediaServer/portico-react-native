@@ -289,3 +289,17 @@ test('an accepted first lifetime receipt reserves shared capacity against interv
   assert.equal(f.read().filter(record => record.operation === 'bootstrap-current-invalid').length, 1);
   f.logger.error('app-render', {});assert.equal(f.lines.length, HOME_DIAGNOSTIC_LIMIT);
 });
+test('a swallowed cancellation leaves a line naming the top component, even after the session budget is spent', () => {
+  const f = records();
+  for (let i = 0; i < HOME_DIAGNOSTIC_LIMIT; i++) f.logger.error('restore-error', {});
+  const error = Object.assign(new Error('private-message'), {name: 'AbortError', stack: 'AbortError: private-message\n    at load (index.android.bundle:1:4242)'});
+  f.logger.cancellationRemount(error, '\n    at TVSearchScreen (index.android.bundle:1:777)\n    at NativeShell (index.android.bundle:1:99)');
+  const line = f.read().at(-1);
+  assert.deepEqual({origin: line.origin, operation: line.operation, class: line.class, component: line.component, componentFrames: line.componentFrames, frames: line.frames},
+    {origin: 'boundary-cancelled', operation: 'quiet-remount', class: 'AbortError', component: 'TVSearchScreen', componentFrames: [[1, 777]], frames: [[1, 4242]]});
+  f.logger.cancellationRemount(error, '\n    at <anonymous> (index.android.bundle:1:5)');
+  assert.equal(f.read().at(-1).component, undefined, 'only an identifier is kept as a name');
+  assert.equal(f.lines.join('').includes('private'), false);
+  for (let i = 0; i < HOME_DIAGNOSTIC_ORIGIN_LIMIT; i++) f.logger.cancellationRemount(error, '');
+  assert.equal(f.read().filter(record => record.origin === 'boundary-cancelled').length, HOME_DIAGNOSTIC_ORIGIN_LIMIT, 'its own cap still holds');
+});

@@ -123,6 +123,7 @@ const origins = new Set([
   'app-render',
   'library-menu',
   'shell-lifetime',
+  'boundary-cancelled',
 ]);
 const shellLifetimeEvents = [
   'root-begin', 'root-restart', 'root-retire', 'root-selection-changed', 'root-selection-read-failed',
@@ -160,6 +161,7 @@ type SafeRecord = {
   code?: string;
   class?: string;
   frames?: readonly (readonly [number, number])[];
+  component?: string;
   componentFrames?: readonly (readonly [number, number])[];
   runtimeRef?: number;
   ownerRef?: number;
@@ -240,7 +242,8 @@ export function createHomeActionDiagnostics(
       const count = counts.get(origin) ?? 0;
       if (
         !origins.has(origin) ||
-        sequence + pendingLifetime >= HOME_DIAGNOSTIC_LIMIT ||
+        // A swallowed cancellation is always reported, however busy the session was; its own cap still holds.
+        (origin !== 'boundary-cancelled' && sequence + pendingLifetime >= HOME_DIAGNOSTIC_LIMIT) ||
         count + (origin === 'shell-lifetime' ? pendingLifetime : 0) >= HOME_DIAGNOSTIC_ORIGIN_LIMIT
       )
         return;
@@ -325,6 +328,19 @@ export function createHomeActionDiagnostics(
         const componentFrames = origin === 'app-render' ? safeFrames(componentStack, false) : [];
         write(origin, {operation: 'report-error', ...safeError(error),
           ...(componentFrames.length ? {componentFrames} : {})});
+      } catch {
+        /* passive */
+      }
+    },
+    /** The app boundary swallowed an expected cancellation and remounted the tree (P2-74). It is never
+     * silent: the error class, the top component's name (code identifiers only) and its coordinates. */
+    cancellationRemount(error: unknown, componentStack?: unknown): void {
+      try {
+        const top = typeof componentStack === 'string' ? componentStack.trim().split('\n', 1)[0] : '';
+        const name = /^(?:in|at)\s+([A-Za-z_$][\w$.]{0,63})(?:\s|$)/.exec(top.trim())?.[1];
+        const {class: kind, frames} = safeError(error);
+        write('boundary-cancelled', {operation: 'quiet-remount', class: kind, frames,
+          ...(name ? {component: name} : {}), componentFrames: safeFrames(componentStack, false).slice(0, 1)});
       } catch {
         /* passive */
       }

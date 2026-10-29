@@ -39,6 +39,8 @@ export class AppErrorBoundary extends React.Component<{children: React.ReactNode
     // Policy (P2-74 E-tv-21): an expected cancellation that reaches here remounts the tree quietly
     // instead of showing the crash page; a repeating one within the window still shows it.
     if (isExpectedCancellation(error)) {
+      // A quiet remount is still a full tear-down: always leave a local line naming where it came from.
+      homeActionDiagnostics.cancellationRemount?.(error, info.componentStack);
       const now = Date.now();
       this.quietRemounts = this.quietRemounts.filter(at => now - at < QUIET_WINDOW_MS);
       if (this.quietRemounts.length < QUIET_REMOUNTS) {this.quietRemounts.push(now); this.retry(); return;}
