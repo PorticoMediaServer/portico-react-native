@@ -34,7 +34,7 @@ jobs:
         working-directory: portico-react-native
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {repository: PorticoMediaServer/portico-server, path: portico-server, ref: '${{ steps.server.outputs.revision }}'}
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with: {node-version-file: portico-react-native/.node-version, cache: npm, cache-dependency-path: portico-react-native/apps/native/package-lock.json}
       - name: Record the actual job toolchain
         run: |
@@ -97,7 +97,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {path: portico-react-native, fetch-depth: 0}
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with: {node-version-file: portico-react-native/.node-version, cache: npm, cache-dependency-path: portico-react-native/apps/native/package-lock.json}
       - name: Record the actual job toolchain
         run: |
@@ -146,7 +146,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: {node-version-file: .node-version, cache: npm, cache-dependency-path: apps/vega/package-lock.json}
       - id: vega-deps
         run: npm ci --no-audit --no-fund --legacy-peer-deps
