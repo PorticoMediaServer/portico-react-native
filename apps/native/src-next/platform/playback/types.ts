@@ -155,7 +155,7 @@ export type NativePlaybackRuntimeSnapshot = Readonly<{
   firstVideoFrame?: NativeFirstVideoFrame;
   /** O-159: a Play drawn at once from the pressed card (Stop only) until its real dock exists. */
   starting?: NativePlaybackStarting;
-  /** O-159: an accepted Play that still drew nothing after NATIVE_START_DRAWN_MS. */
+  /** O-159: a Play whose real dock or player was not drawn within NATIVE_START_DEADLINE_MS of Play. */
   startTimedOut?: NativePlaybackStartTimedOut;
 }>;
 /** What a start is drawn as before its real dock: the pressed card's title and art (a local file

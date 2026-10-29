@@ -5,7 +5,7 @@ import {Dialog} from '../kit/overlays';
 import type {NativePlaybackStartTimedOut} from '../platform/playback/types';
 import type {NativeShellRuntime} from './runtime';
 
-/** O-159: an accepted Play that drew nothing within NATIVE_START_DRAWN_MS. The runtime has
+/** O-159: a Play whose real dock or player was not drawn within NATIVE_START_DEADLINE_MS. The runtime has
  * already stopped it and written the local diagnostic; this says so plainly and offers it again. */
 export function StartTimedOut({timedOut, runtime}: {timedOut: NativePlaybackStartTimedOut; runtime: NativeShellRuntime}) {
   const t = runtime.text.t, retry = useRef<View>(null);

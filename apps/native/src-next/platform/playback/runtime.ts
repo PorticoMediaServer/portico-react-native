@@ -95,8 +95,11 @@ type SourceDetail = {
 /** Actual session, queue and native-engine wiring. Construct one per selected authority.
  * The production factory in native.tsx supplies the existing native modules and one view. */
 const entryDisplay = (entry: ContentEntry): NativeStartDisplay => Object.freeze({title: entry.title, ...(entry.posterUrl ?? entry.backdropUrl ? {posterUrl: entry.posterUrl ?? entry.backdropUrl} : {})});
-/** O-159: an accepted Play is drawn (the starting dock, then its real dock) within this time. */
+/** O-159: something (the starting dock or the real dock) is drawn within this time of Play. */
 export const NATIVE_START_DRAWN_MS = 5000;
+/** O-159: the start deadline, as web's START_DEADLINE_MS. From Play, the real dock or player is
+ * drawn within this time, accepted or not; otherwise "Couldn't start playback". */
+export const NATIVE_START_DEADLINE_MS = 20_000;
 
 export class NativePlaybackRuntime {
   readonly playback: PlaybackService;
@@ -128,8 +131,8 @@ export class NativePlaybackRuntime {
   private startPrincipal?: string;
   private readonly startLife = new AbortController();
   private startFailure?: NativePlaybackStartFailure;
-  // O-159: the drawn start (the pressed card's facts, Stop only) and its 5 s watch.
-  private startingState?: {key: string; display?: NativeStartDisplay; accepted: boolean; timer: unknown; stop: () => void; retry: () => Promise<void>; view?: NativePlaybackStarting; fence?: PlaybackFence};
+  // O-159: the drawn start (the pressed card's facts, Stop only), its 5 s drawn check and its 20 s deadline.
+  private startingState?: {key: string; display?: NativeStartDisplay; accepted: boolean; timer: unknown; drawnTimer: unknown; deadlineFrom: 'play' | 'accepted'; stop: () => void; retry: () => Promise<void>; view?: NativePlaybackStarting; fence?: PlaybackFence};
   private startTimedOut?: NativePlaybackStartTimedOut;
   private startingKeys = 0;
   private capacityWait?: NativePlaybackCapacityWait;
@@ -542,7 +545,7 @@ export class NativePlaybackRuntime {
   private playChannel(channel: HomeChannel, context: SelectionContext, signal: AbortSignal, current: (context: SelectionContext) => boolean): Promise<void> {
     const name = channel.channel.name, logo = (channel.channel as {logoPath?: string}).logoPath;
     return this.watchedStart(name ? {title: name, ...(logo ? {posterUrl: logo} : {})} : undefined,
-      () => this.playChannel(channel, context, this.startLife.signal, current), () => this.playChannelNow(channel, context, signal, current));
+      () => this.playChannel(channel, context, this.startLife.signal, current), () => this.playChannelNow(channel, context, signal, current), 'accepted');
   }
   private async playChannelNow(channel: HomeChannel, context: SelectionContext, signal: AbortSignal, current: (context: SelectionContext) => boolean): Promise<void> {
     this.assertSelection(context, signal, current);
@@ -574,7 +577,7 @@ export class NativePlaybackRuntime {
   startChannel = (input: NativePlaybackChannelStart): Promise<void> => {
     const row = input.guide && legacyChannel(input.guide.row);
     return this.watchedStart(row?.name ? {title: row.name, ...(row.logoPath ? {posterUrl: row.logoPath} : {})} : undefined,
-      () => this.startChannel({...input, lifetime: this.retryLifetime(), onAccepted: undefined, expectedFence: undefined}), () => this.startChannelNow(input));
+      () => this.startChannel({...input, lifetime: this.retryLifetime(), onAccepted: undefined, expectedFence: undefined}), () => this.startChannelNow(input), 'accepted');
   };
   private startChannelNow = async (input: NativePlaybackChannelStart): Promise<void> => {
     const accepted = input.onAccepted;
@@ -2178,12 +2181,13 @@ export class NativePlaybackRuntime {
   private retryLifetime(): Readonly<{signal: AbortSignal; isCurrent: () => boolean}> {
     return {signal: this.startLife.signal, isCurrent: () => !this.retired && this.currentAuthority()};
   }
-  /** O-159 for every other start path: drawn at once (when its display is known), watched for
-   * NATIVE_START_DRAWN_MS once accepted, and cancelled for real by Stop. A start that ends without
-   * a session or fence was not accepted and is never reported as a silent no-op. */
-  private async watchedStart<T>(display: NativeStartDisplay | undefined, retry: () => Promise<void>, run: () => Promise<T>): Promise<T> {
+  /** O-159 for every other start path: drawn at once (when its display is known), bounded by
+   * NATIVE_START_DEADLINE_MS from Play, and cancelled for real by Stop. A Live tune keeps its
+   * channel's own 60 s bound before acceptance, so its deadline counts from acceptance. A start
+   * that ends without a session or fence was not accepted and is never reported as a silent no-op. */
+  private async watchedStart<T>(display: NativeStartDisplay | undefined, retry: () => Promise<void>, run: () => Promise<T>, deadlineFrom: 'play' | 'accepted' = 'play'): Promise<T> {
     let stopped = false;
-    const starting = this.beginStarting(display, retry);
+    const starting = this.beginStarting(display, retry, deadlineFrom);
     starting.stopWith(() => {stopped = true; this.beginOperation();});
     try {
       const result = await run();
@@ -2199,19 +2203,25 @@ export class NativePlaybackRuntime {
       throw error;
     }
   }
-  /** O-159 watchdog. A start is drawn from its first frame from the pressed card's entry (the
-   * starting dock, Stop only), and replaced in place once its own dock exists. An ACCEPTED start
-   * still not drawn at NATIVE_START_DRAWN_MS is stopped, recorded locally and offered again; slow
-   * buffering never trips it, because a drawn dock ends the watch. */
-  private beginStarting(display: NativeStartDisplay | undefined, retry: () => Promise<void>) {
+  /** O-159, two clocks as on web. (a) By NATIVE_START_DRAWN_MS something is drawn: the starting
+   * dock drawn at Play from the pressed card satisfies it at once. (b) By NATIVE_START_DEADLINE_MS
+   * from Play the real dock or player replaces it in place, accepted or not; otherwise the start
+   * is stopped, recorded locally and offered again. Slow buffering never trips it, because a drawn
+   * real dock ends the watch, and a Stop-only dock never stays forever. */
+  private beginStarting(display: NativeStartDisplay | undefined, retry: () => Promise<void>, deadlineFrom: 'play' | 'accepted' = 'play') {
     this.endStarting(); this.startTimedOut = undefined;
-    const state: NonNullable<NativePlaybackRuntime['startingState']> = {key: String(++this.startingKeys), display, accepted: false, timer: undefined, stop: () => {}, retry};
-    state.timer = this.o.timers?.setTimer ? this.o.timers.setTimer(() => this.expireStarting(state), NATIVE_START_DRAWN_MS) : setTimeout(() => this.expireStarting(state), NATIVE_START_DRAWN_MS);
+    const state: NonNullable<NativePlaybackRuntime['startingState']> = {key: String(++this.startingKeys), display, accepted: false, timer: undefined, drawnTimer: undefined, deadlineFrom, stop: () => {}, retry};
+    state.drawnTimer = this.setStartTimer(() => this.checkStartDrawn(state), NATIVE_START_DRAWN_MS);
+    if (deadlineFrom === 'play') state.timer = this.setStartTimer(() => this.expireStarting(state), NATIVE_START_DEADLINE_MS);
     this.startingState = state; if (this.snapshot) this.publish();
     const mine = () => this.startingState === state;
     return {
       stopWith: (stop: () => void) => {if (mine()) state.stop = stop;},
-      accepted: (fence: PlaybackFence | undefined) => {if (mine()) {state.accepted = true; state.fence = fence; if (this.snapshot) this.publish();}},
+      accepted: (fence: PlaybackFence | undefined) => {if (mine()) {
+        state.accepted = true; state.fence = fence;
+        if (state.timer === undefined) state.timer = this.setStartTimer(() => this.expireStarting(state), NATIVE_START_DEADLINE_MS);
+        if (this.snapshot) this.publish();
+      }},
       end: () => {if (mine()) {this.endStarting(); if (this.snapshot) this.publish();}},
     };
   }
@@ -2219,11 +2229,26 @@ export class NativePlaybackRuntime {
     const state = this.startingState;
     if (!state) return;
     this.startingState = undefined;
-    if (this.o.timers?.clearTimer) this.o.timers.clearTimer(state.timer); else clearTimeout(state.timer as ReturnType<typeof setTimeout>);
+    this.clearStartTimer(state.timer); this.clearStartTimer(state.drawnTimer);
+  }
+  private setStartTimer(run: () => void, ms: number): unknown {
+    return this.o.timers?.setTimer ? this.o.timers.setTimer(run, ms) : setTimeout(run, ms);
+  }
+  private clearStartTimer(timer: unknown): void {
+    if (timer === undefined) return;
+    if (this.o.timers?.clearTimer) this.o.timers.clearTimer(timer); else clearTimeout(timer as ReturnType<typeof setTimeout>);
+  }
+  /** Clock (a): nothing to draw yet (a start with no known title) only says so in the journal;
+   * the deadline still bounds it. */
+  private checkStartDrawn(state: NonNullable<NativePlaybackRuntime['startingState']>): void {
+    if (this.startingState !== state || this.retired) return;
+    state.drawnTimer = undefined;
+    if (state.display || this.dock.getSnapshot().local) return;
+    try {console.warn(`portico_playback_not_drawn ${JSON.stringify({code: 'playback_not_drawn_dock', kind: this.entry?.kind ?? this.subject?.kind ?? 'unknown'})}`);} catch { /* passive */ }
   }
   private expireStarting(state: NonNullable<NativePlaybackRuntime['startingState']>): void {
-    if (this.startingState !== state || !state.accepted || this.retired) return;
-    const code = !this.currentSession() ? 'playback_not_drawn_session' : !this.options ? 'playback_not_drawn_offers' : 'playback_not_drawn_presentation';
+    if (this.startingState !== state || this.retired) return;
+    const code = !state.accepted ? 'playback_start_timeout' : !this.currentSession() ? 'playback_not_drawn_session' : !this.options ? 'playback_not_drawn_offers' : 'playback_not_drawn_presentation';
     this.endStarting(); state.stop();
     // The local diagnostic (ErrorJournal) names the read that never became current.
     try {console.warn(`portico_playback_not_drawn ${JSON.stringify({code, kind: this.entry?.kind ?? this.subject?.kind ?? 'unknown'})}`);} catch { /* passive */ }

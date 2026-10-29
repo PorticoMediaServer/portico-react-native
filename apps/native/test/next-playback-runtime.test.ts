@@ -19,7 +19,7 @@ import {HttpLocalApi, type LocalSession} from '../../../packages/client-core/src
 import {FakePlaybackServer, type FakeRequest, type FakeResponse} from '../../../packages/client-core/src/playback-v1/testing/fake-server.ts';
 import {encodedRoutePath, routePath} from '../../../packages/contracts/src/routes.ts';
 import {queueItemInput} from '../../../packages/client-core/src/queue-controller.ts';
-import {NATIVE_START_DRAWN_MS, NativePlaybackRuntime} from '../src-next/platform/playback/runtime.ts';
+import {NATIVE_START_DEADLINE_MS, NATIVE_START_DRAWN_MS, NativePlaybackRuntime} from '../src-next/platform/playback/runtime.ts';
 import type {NativePlaybackSettings, PlaybackAuthority} from '../src-next/platform/playback/types.ts';
 import {nativeEngineFeatures, type EngineFeatures} from '../src-next/platform/playback/engine-choice.ts';
 import type {NativePlaybackTransport} from '../src-next/platform/playback/NativePlaybackCoordinator.ts';
@@ -112,8 +112,8 @@ function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFil
   const authorityListeners = new Set<() => void>();
   const eventListeners = new Map<string, Set<(event: any) => void>>();
   const resyncListeners = new Set<() => void>();
-  const timers = new Map<number, {ms: number; run: () => void}>();
-  let timerSerial = 0;
+  const timers = new Map<number, {ms: number; due: number; run: () => void}>();
+  let timerSerial = 0, clock = 0;
   let before: ((request: FakeRequest) => Promise<void>) | undefined;
   let respond: ((request: FakeRequest) => FakeResponse | undefined | Promise<FakeResponse | undefined>) | undefined;
   const channelSeeks = new Map<string, {id: string; positionMs: number; acknowledged: boolean}>();
@@ -183,7 +183,7 @@ function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFil
     requestId: () => `request-${++serial}-000000000000`, transport: engine, engines: {initial: engineKind, choose: () => engineKind, transport: () => engine},
     engineFeatures: () => features, capabilitiesReady: async () => {}, disposeCapabilities: () => { disposedCapabilities++; }, subtitleFilePicker, offlineDevice, ...(pictureControls ? {pictureInPictureControls: true as const} : {}),
     timers: {
-      setTimer: (fn, ms) => { const id = ++timerSerial; timers.set(id, {ms, run: () => { timers.delete(id); fn(); }}); return id; },
+      setTimer: (fn, ms) => { const id = ++timerSerial; timers.set(id, {ms, due: clock + ms, run: () => { timers.delete(id); fn(); }}); return id; },
       clearTimer: id => { if (typeof id === 'number') timers.delete(id); },
     },
   });
@@ -195,6 +195,16 @@ function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFil
     resume: (value: number | null) => { resumePositionMs = value; },
     markers: (value: readonly Marker[]) => { markers = value; },
     pendingTimers: (ms: number) => [...timers.values()].filter(timer => timer.ms === ms),
+    /** Real-clock style: moves time forward, running each timer as it falls due, in order. */
+    advance: async (ms: number) => {
+      const until = clock + ms;
+      for (;;) {
+        const next = [...timers.values()].filter(timer => timer.due <= until).sort((a, b) => a.due - b.due)[0];
+        if (!next) break;
+        clock = next.due; next.run(); await settle();
+      }
+      clock = until;
+    },
     channelWindow: (startSeconds: number, endSeconds: number) => { channelWindow = {startMs: startSeconds * 1000, endMs: endSeconds * 1000}; },
     intercept: (fn: typeof before) => { before = fn; },
     respond: (fn: typeof respond) => { respond = fn; },
@@ -3019,7 +3029,7 @@ test('RN-05: the same source rereads its subtitles on return to the foreground, 
 });
 
 // O-159: an accepted Play is drawn at once from the pressed card and its real dock replaces it;
-// an accepted start still not drawable at 5 s is stopped, recorded and offered again.
+// a start whose real dock is not drawn 20 s after Play is stopped, recorded and offered again.
 test('O-159 slow then real: the starting dock draws from the pressed card at once, and the real dock replaces it with no timeout', async () => {
   const d = fixture();
   let release!: () => void;
@@ -3041,7 +3051,7 @@ test('O-159 slow then real: the starting dock draws from the pressed card at onc
   } finally { d.runtime.dispose(); }
 });
 
-test('O-159 never drawable: an accepted start with no drawable dock is stopped at 5 s, written to the journal, and offered again', async t => {
+test('O-159 never drawable: an accepted start with no drawable dock is stopped at the 20 s deadline, written to the journal, and offered again', async t => {
   const d = fixture(), lines: string[] = [];
   t.mock.method(console, 'warn', (line: unknown) => {lines.push(String(line));});
   // The accepted start's own dock never becomes drawable (the read that should draw it never does).
@@ -3052,7 +3062,7 @@ test('O-159 never drawable: an accepted start with no drawable dock is stopped a
   try {
     await d.start('movie-1', 0);
     assert.ok(d.runtime.getSnapshot().starting, 'still the starting dock: never claims to be playing');
-    const watch = d.pendingTimers(NATIVE_START_DRAWN_MS);
+    const watch = d.pendingTimers(NATIVE_START_DEADLINE_MS);
     assert.equal(watch.length, 1);
     watch[0]!.run();
     for (let i = 0; i < 6; i++) await Promise.resolve();
@@ -3128,6 +3138,7 @@ for (const path of startPaths) {
       assert.ok(after.dock.local, 'its real dock exists');
       assert.equal(after.starting, undefined); assert.equal(after.startTimedOut, undefined);
       assert.equal(d.pendingTimers(NATIVE_START_DRAWN_MS).length, 0);
+      assert.equal(d.pendingTimers(NATIVE_START_DEADLINE_MS).length, 0, 'drawn ends the deadline too');
     } finally { d.runtime.dispose(); }
   });
   test(`O-159 ${path.name}: Stop on the starting dock really cancels and reports nothing`, async () => {
@@ -3147,7 +3158,7 @@ for (const path of startPaths) {
       assert.equal(d.pendingTimers(NATIVE_START_DRAWN_MS).length, 0);
     } finally { d.runtime.dispose(); }
   });
-  test(`O-159 ${path.name}: an accepted start with nothing drawable is stopped at 5 s and offered again`, async t => {
+  test(`O-159 ${path.name}: an accepted start with nothing drawable is stopped at the deadline and offered again`, async t => {
     const local = admittedDownload(), d = fixture(!!path.grouped, undefined, nativeEngineFeatures, false, local.device);
     t.mock.method(console, 'warn', () => {});
     const dock = (d.runtime as unknown as {dock: {getSnapshot: () => import('../../../packages/player-core/src').DockState}}).dock;
@@ -3156,14 +3167,78 @@ for (const path of startPaths) {
       await path.prepare?.(d);
       dock.getSnapshot = () => ({...real(), local: null});
       await path.run(d, local); await settle();
-      const watch = d.pendingTimers(NATIVE_START_DRAWN_MS);
-      assert.equal(watch.length, 1, 'accepted and watched');
+      const watch = d.pendingTimers(NATIVE_START_DEADLINE_MS);
+      assert.equal(watch.length, 1, 'accepted and bounded');
       watch[0]!.run(); await flushStart();
       assert.ok(d.runtime.getSnapshot().startTimedOut, '"Couldn\'t start playback" with Try again');
       assert.equal(d.runtime.getSnapshot().starting, undefined);
     } finally { dock.getSnapshot = real; d.runtime.dispose(); }
   });
 }
+
+// O-159's two clocks on a real-clock-style timeline: the deadline counts from Play.
+test('O-159 deadline: a slow but successful start (real dock at 12 s) shows the starting dock, then the real dock, and no error', async () => {
+  const d = fixture();
+  let release!: () => void;
+  const held = new Promise<void>(resolve => {release = resolve;});
+  d.intercept(async request => {if (request.path.includes('/playback-options')) await held;});
+  try {
+    const started = d.start('movie-1', 0);
+    await d.advance(12_000);
+    assert.equal(d.runtime.getSnapshot().starting?.display.title, 'movie-1', 'still the starting dock at 12 s');
+    assert.equal(d.runtime.getSnapshot().startTimedOut, undefined, 'the 5 s check is satisfied by the starting dock');
+    release(); await started;
+    assert.ok(d.runtime.getSnapshot().dock.local); assert.equal(d.runtime.getSnapshot().starting, undefined);
+    await d.advance(20_000);
+    assert.equal(d.runtime.getSnapshot().startTimedOut, undefined, 'no error after it was drawn');
+  } finally { d.runtime.dispose(); }
+});
+
+test('O-159 deadline: accepted at 15 s with no real dock is "Couldn\'t start playback" at 20 s from Play', async t => {
+  const d = fixture(), lines: string[] = [];
+  t.mock.method(console, 'warn', (line: unknown) => {lines.push(String(line));});
+  const dock = (d.runtime as unknown as {dock: {getSnapshot: () => import('../../../packages/player-core/src').DockState}}).dock;
+  const real = dock.getSnapshot.bind(dock);
+  dock.getSnapshot = () => ({...real(), local: null});
+  let release!: () => void;
+  const held = new Promise<void>(resolve => {release = resolve;});
+  d.intercept(async request => {if (request.path.includes('/playback-options')) await held;});
+  try {
+    const started = d.start('movie-1', 0);
+    await d.advance(15_000);
+    release(); await started;
+    assert.ok(d.runtime.getSnapshot().starting, 'accepted at 15 s, still the starting dock');
+    await d.advance(4_999);
+    assert.equal(d.runtime.getSnapshot().startTimedOut, undefined, 'not before 20 s');
+    await d.advance(1);
+    assert.ok(d.runtime.getSnapshot().startTimedOut, 'named failure with Try again at 20 s');
+    assert.equal(d.runtime.getSnapshot().starting, undefined, 'never a Stop-only dock forever');
+    assert.ok(lines.some(line => line.startsWith('portico_playback_not_drawn ') && JSON.parse(line.slice('portico_playback_not_drawn '.length)).code.startsWith('playback_not_drawn_')));
+  } finally { dock.getSnapshot = real; d.runtime.dispose(); }
+});
+
+test('O-159 deadline: a start never accepted is stopped and reported at 20 s from Play', async t => {
+  const d = fixture(), lines: string[] = [];
+  t.mock.method(console, 'warn', (line: unknown) => {lines.push(String(line));});
+  // The server never answers within the deadline; the held request is let go afterwards only so the
+  // cancelled start can settle.
+  let release!: () => void;
+  const held = new Promise<void>(resolve => {release = resolve;});
+  d.intercept(async request => {if (request.path.includes('/playback-options')) await held;});
+  try {
+    const started = d.start('movie-1', 0);
+    const outcome = started.then(() => 'resolved', (error: Error) => error.name);
+    await d.advance(19_999);
+    assert.ok(d.runtime.getSnapshot().starting); assert.equal(d.runtime.getSnapshot().startTimedOut, undefined);
+    await d.advance(1);
+    assert.ok(d.runtime.getSnapshot().startTimedOut, '"Couldn\'t start playback" with Try again');
+    assert.equal(d.runtime.getSnapshot().starting, undefined);
+    assert.ok(lines.some(line => line.startsWith('portico_playback_not_drawn ') && JSON.parse(line.slice('portico_playback_not_drawn '.length)).code === 'playback_start_timeout'));
+    release();
+    assert.equal(await outcome, 'AbortError', 'the held start itself was cancelled');
+    assert.equal(d.requests.some(request => request.method === 'POST' && /\/playback\/sessions|start_playback_session/.test(request.path)), false, 'no session was created');
+  } finally { d.runtime.dispose(); }
+});
 
 test('O-159: group, shuffle and catalogue (album, artist, playlist, radio) starts go through the same watch', () => {
   const runtime = readFileSync(new URL('../src-next/platform/playback/runtime.ts', import.meta.url), 'utf8');
@@ -3187,8 +3262,9 @@ test('O-159 Live: a tune is drawn at acceptance, so a stream slow for 8 s never 
       assert.equal(state.playback.phase, 'starting', `${which}: the stream has not come up`);
       assert.ok(state.dock.local, `${which}: the Live dock is drawn at tune acceptance`);
       assert.equal(state.starting, undefined); assert.equal(d.pendingTimers(NATIVE_START_DRAWN_MS).length, 0, `${which}: drawn ends the watch`);
+      assert.equal(d.pendingTimers(NATIVE_START_DEADLINE_MS).length, 0, `${which}: and its deadline`);
       // Eight seconds of a slow stream: whatever is pending runs, and no start error appears.
-      for (const timer of d.pendingTimers(NATIVE_START_DRAWN_MS)) timer.run();
+      for (const timer of [...d.pendingTimers(NATIVE_START_DRAWN_MS), ...d.pendingTimers(NATIVE_START_DEADLINE_MS)]) timer.run();
       await settle();
       state = d.runtime.getSnapshot();
       assert.equal(state.startTimedOut, undefined, `${which}: no "Couldn't start playback"`);
@@ -3212,7 +3288,7 @@ test('O-159 download: Try again after a watchdog stop acquires the local file ag
     await d.runtime.startOffline(local.entry, {signal: new AbortController().signal, isCurrent: () => true}); await settle();
     const first = d.runtime.getSnapshot().fence;
     assert.equal(first?.kind, 'local'); assert.equal(loads, 1);
-    d.pendingTimers(NATIVE_START_DRAWN_MS)[0]!.run(); await settle();
+    d.pendingTimers(NATIVE_START_DEADLINE_MS)[0]!.run(); await settle();
     const timedOut = d.runtime.getSnapshot().startTimedOut;
     assert.ok(timedOut, 'stopped: the first acquired file is released with it');
     dock.getSnapshot = real;
