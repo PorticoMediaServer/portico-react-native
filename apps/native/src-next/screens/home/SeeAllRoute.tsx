@@ -18,7 +18,7 @@ import {shellLayout} from '../../shell/model';
 import {useTheme} from '../../kit/theme';
 import {hiddenReadingLibraryOnTV} from '../read/platform';
 import {openNativeReadingBookEntry} from '../read/reading-books-open';
-import {nativeHomeEntryLifetime} from './entry-lifetime';
+import {nativeDispatchedPlayLifetime, nativeHomeEntryLifetime, reportDispatchedPlayFailure} from './entry-lifetime';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {createNativeEntryActions, type NativeEntryActions} from '../destinations/entry-actions';
 
@@ -126,8 +126,11 @@ export function createNativeHomeRows(context: NativeShellBootstrapContext, repor
         const fail = () => {if (operation.lifetime.isCurrent()) reportError(Object.assign(new Error('unavailable'), {code: 'unavailable'}));};
         if (entry.kind === 'song' || entry.kind === 'audiobook_file') {
           if (!entry.playback) {fail(); operation.dispose(); return;}
-          void context.playback.start({entry, target: entry.playback, lifetime: operation.lifetime})
-            .catch(error => {if (operation.lifetime.isCurrent()) reportError(error);}).finally(operation.dispose);
+          operation.dispose();
+          // E-tv-36 rule: checked current just above; a dispatched Play ends only with the authority.
+          const dispatched = nativeDispatchedPlayLifetime(() => context.current(), context.subscribeAuthority, new AbortController().signal);
+          void context.playback.start({entry, target: entry.playback, lifetime: dispatched.lifetime})
+            .catch(error => reportDispatchedPlayFailure(error, () => context.current(), reportError)).finally(dispatched.dispose);
           return;
         }
         if (entry.kind === 'ebook' || entry.kind === 'comic') {

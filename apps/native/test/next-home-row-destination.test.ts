@@ -6,7 +6,7 @@ import {NativeShellNavigation, titleRoute, nativeEntryRoute, nativeEntryRouteSup
 import {NativeHomeRowController} from '../src-next/screens/home/row-controller';
 import {NativeShellRouteRegistry} from '../src-next/shell/route-registry';
 import {hiddenReadingLibraryOnTV} from '../src-next/screens/read/platform';
-import {nativeHomeEntryLifetime} from '../src-next/screens/home/entry-lifetime';
+import {nativeDispatchedPlayLifetime, nativeHomeEntryLifetime, reportDispatchedPlayFailure} from '../src-next/screens/home/entry-lifetime';
 
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'home-fence'};
 
@@ -21,7 +21,7 @@ const rowModule = (isTV = false) => screenModule(new URL('../src-next/screens/ho
     // Menu lifetime is exercised by next-destination-entry-actions; this fixture owns row retention.
     '../destinations/entry-actions': {createNativeEntryActions: () => ({dispose() {}})},
     '../read/reading-books-open': {openNativeReadingBookEntry: async () => false},
-    './entry-lifetime': {nativeHomeEntryLifetime},
+    './entry-lifetime': {nativeHomeEntryLifetime, nativeDispatchedPlayLifetime, reportDispatchedPlayFailure},
   });
 
 test('real row outlet retains its exact controller through a title and cancels only pending navigation work', async () => {
