@@ -93,6 +93,7 @@ for (const tv of [false, true]) test(`actual ${tv ? 'TV' : 'phone'} Home/Row eff
   // as are the already-stubbed route renderers. Any attempted action is a failure.
   const inactiveOverlay = () => ({open() {throw new Error('unexpected listening action in Home fixture');}, render: () => null, dispose() {}});
   const {createNativeShellBindings} = await screenModule(source('shell/assembly.tsx'), {
+    '../screens/library/selection-actions': {}, '../screens/downloads/request': {}, '../platform/offline-downloads': {}, './selection-display': {},
     './listening-playlist': {createNativeListeningPlaylist: inactiveOverlay},
     './listening-queue-policy': {createNativeListeningQueuePolicy: inactiveOverlay},
     './listening-song-detail': {createNativeListeningSongDetail: inactiveOverlay},

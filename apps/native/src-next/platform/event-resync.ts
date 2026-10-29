@@ -1,4 +1,4 @@
-/** Optional until the containing batch's official shared-package mirror is installed. */
+/** Native surfaces borrow the existing feed's observational ports. */
 type RecoveryContext = Readonly<{signal: AbortSignal; isCurrent(): boolean}>;
 type Recovery = Readonly<{dispose(): void}>;
 type RecoveryEvents = Readonly<{
@@ -23,7 +23,7 @@ export function recoverEventState(events: RecoveryEvents, read: (context: Recove
     if (running || controller.signal.aborted) return;
     running = true;
     try {while (pending && !controller.signal.aborted) {pending = false; await read({signal: controller.signal, isCurrent: () => !controller.signal.aborted});}}
-    catch { /* Compatibility consumers retain their existing read-error presentation. */ }
+    catch {pending = true; /* The service presents its error; the next authorized wake still owes this read. */ }
     finally {running = false;}
   };
   const off = events.onResync(() => {pending = true; void drain();});

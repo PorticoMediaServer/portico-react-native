@@ -122,6 +122,7 @@ internal class PorticoMpvController(private val context: Context) {
   private var snapshot = PorticoMpvSnapshot()
   private var lastPosition = Double.NaN
   private var tracks: List<Map<String, Any?>> = emptyList()
+  private val localAudioIdentity = tv.getportico.portico.policy.PorticoIsoAudioIdentity.Cache()
   private var chapters: List<Map<String, Any?>> = emptyList()
   private var videoParams: Map<String, Any?> = emptyMap()
 
@@ -132,6 +133,7 @@ internal class PorticoMpvController(private val context: Context) {
   private var audioHandledRevision = -1L
   private var audioTrackHandled = -1L
   private var audioTrackPending: Triple<Long, Int, Long>? = null
+  private var audioTrackReadbackRevision = -1L
 
   private val subtitleOverlay = PorticoSubtitleSelection()
   private val fontFetcher = PorticoMpvFontFetcher(context)
@@ -593,6 +595,7 @@ internal class PorticoMpvController(private val context: Context) {
     startSeek = null
     seekInFlight = null
     audioTrackPending = null
+    audioTrackReadbackRevision = -1
     tracks = emptyList()
     localAudioIdentity.clear()
     chapters = emptyList()
@@ -773,6 +776,21 @@ internal class PorticoMpvController(private val context: Context) {
         }
       }
       is PorticoMpvEvent.SubtitleText -> fontForText(event.text)
+      is PorticoMpvEvent.AudioTrackReadback -> {
+        val pending = audioTrackPending
+        if (pending != null && pending.first == event.revision) {
+          if (event.code < 0) {
+            audioTrackPending = null
+            val fact = baseFact("audioTrackFailed", currentPosition(), "This audio track is unavailable in the current player.")
+            fact["audioTrackRevision"] = pending.first.toDouble()
+            fact["streamIndex"] = pending.third.toDouble()
+            publish(fact)
+          } else {
+            audioTrackReadbackRevision = event.revision
+            confirmAudioTrack()
+          }
+        }
+      }
       is PorticoMpvEvent.Changed -> when (event.name) {
         "paused-for-cache" -> {
           if (next.pausedForCache && !before.pausedForCache && hasPlayed && !next.eofReached) emit("stalled", null)
@@ -1127,14 +1145,13 @@ internal class PorticoMpvController(private val context: Context) {
 
   private fun selectedVideo(): Map<String, Any?>? = PorticoMpvSupport.tracks(tracks, "video").firstOrNull { it["selected"] == true }
 
-  private val localAudioIdentity = tv.getportico.portico.policy.PorticoIsoAudioIdentity.Cache()
-
   /** What the file turned out to hold: its length, chapters, picture and tracks. */
   private fun publishMediaInfo() {
     if (onFact == null || !ready()) return
     val video = selectedVideo()
     val proof = localAudioIdentity.get(if (localSource()) source else null)
-    val sourceIds = PorticoMpvSupport.tracks(tracks, "audio").filter { it["external"] != true }.groupingBy { it["src-id"] }.eachCount()
+    val localAudio = tracks.asSequence().filter { it["type"] == "audio" && it["external"] != true }.take(65).toList()
+    val sourceIds = if (localAudio.size <= 64) localAudio.groupingBy { it["src-id"] }.eachCount() else emptyMap()
     val picture = HashMap<String, Any?>()
     picture["dynamicRange"] = sourceRange()
     picture["hardwareDecoding"] = snapshot.hwdec != "no" && snapshot.hwdec.isNotEmpty()
@@ -1280,6 +1297,8 @@ internal class PorticoMpvController(private val context: Context) {
     if (revision == audioTrackHandled) return
     val index = PorticoMpvSupport.integer(wanted["streamIndex"], 0.0) ?: return
     audioTrackHandled = revision
+    audioTrackPending = null
+    audioTrackReadbackRevision = -1
     val found = PorticoMpvSupport.tracks(tracks, "audio").filter { PorticoMpvSupport.streamIndex(it)?.toLong() == index }
     val track = if (found.size == 1) PorticoMpvSupport.trackId(found[0]) else null
     if (track == null) {
@@ -1290,13 +1309,12 @@ internal class PorticoMpvController(private val context: Context) {
       return
     }
     audioTrackPending = Triple(revision, track, index)
-    core?.set("aid", track.toString())
-    if (currentAudioTrack() == track) confirmAudioTrack()
+    core?.selectAudioTrack(track, revision, loadEpoch)
   }
 
   private fun confirmAudioTrack() {
     val pending = audioTrackPending ?: return
-    if (currentAudioTrack() != pending.second) return
+    if (audioTrackReadbackRevision != pending.first || currentAudioTrack() != pending.second) return
     audioTrackPending = null
     val fact = baseFact("audioTrackApplied", currentPosition(), null)
     fact["audioTrackRevision"] = pending.first.toDouble()

@@ -1,6 +1,6 @@
 import {selectionActionTargetInput, type SelectionAction, type SelectionActionInput} from '../../../../../packages/client-core/src/selection-actions';
 import {SelectionActionController, type SelectionActionSource} from '../../../../../packages/client-core/src/selection-actions-controller';
-import type {BrowseSelectionContext, QuerySelectionTarget, SelectionOperation} from '../../../../../packages/client-core/src/selection-model';
+import type {BrowseSelectionContext, QuerySelectionTarget, SelectionOperation, SelectionSnapshot, SelectionContext} from '../../../../../packages/client-core/src/selection-model';
 import type {HomeSelectionController} from '../../../../../packages/client-core/src/home-selection/index';
 import type {DownloadQualityChoice} from '../../../../../packages/client-core/src/downloads';
 import {musicQualityLadder} from '../../../../../packages/client-core/src/playback-v1/quality';
@@ -53,9 +53,9 @@ export function createNativeLibrarySelectionAction(context: NativeShellBootstrap
   return createNativeSelectionAction(context, model, {
     isCurrent: attempted => {
       const now = library.getSnapshot();
-      return activation.getSnapshot().visible && now.library.id === opening.library.id && now.tab === opening.tab
-        && now.queryRevision === opening.queryRevision && (attempted || now.phase === 'ready'
-          && now.collection === opening.collection && now.revision === opening.revision);
+      return activation.getSnapshot().visible && now.library.id === opening.library.id
+        && now.queryRevision === opening.queryRevision && (attempted ? now.tab.id === opening.tab.id
+          : now.tab === opening.tab && now.phase === 'ready' && now.collection === opening.collection && now.revision === opening.revision);
     },
     subscribe: listener => {const off = [library.subscribe(listener), activation.subscribe(listener)]; return () => {off.forEach(stop => stop());};},
     signal,
@@ -63,14 +63,15 @@ export function createNativeLibrarySelectionAction(context: NativeShellBootstrap
 }
 
 /** Home interception consumes the same controller/renderer, retaining the real
- * Home document and viewer fence. The explicit Home action remains unchanged. */
+ * Home document before confirmation, then observes the submitted command under
+ * its original route/principal/fence across its own catalogue publications. */
 export function createNativeHomeSelectionAction(context: NativeShellBootstrapContext, home: HomeSelectionController,
   signal?: AbortSignal, downloads?: NativeSelectionActionDownloadQueue) {
   const document = context.home.getSnapshot().document;
   if (!document || document.viewerFence !== context.authority().viewerFence) throw unavailable();
   return createNativeSelectionAction(context, home.selection, {
-    isCurrent: () => context.home.getSnapshot().document === document && context.authority().viewerFence === document.viewerFence,
-    subscribe: listener => context.home.subscribe(listener), signal, requiresOperation: true,
+    isCurrent: attempted => context.authority().viewerFence === document.viewerFence && (attempted || context.home.getSnapshot().document === document),
+    subscribe: listener => context.home.subscribe(listener), signal,
   }, downloads);
 }
 
@@ -148,7 +149,7 @@ function createNativeSelectionAction<C>(context: NativeShellBootstrapContext, mo
       return () => {listeners.delete(listener); stop();};
     },
     downloadQualities,
-    openDelete: async (deleteFiles = false) => {
+    openDelete: async (deleteFiles = true) => {
       const request = input({action: 'delete', options: {deleteFiles}});
       await controller.open(request, source);
     },
@@ -169,3 +170,11 @@ function createNativeSelectionAction<C>(context: NativeShellBootstrapContext, mo
 
 export type NativeLibrarySelectionAction = ReturnType<typeof createNativeLibrarySelectionAction>;
 export type NativeSelectionActionPresentation = ReturnType<typeof createNativeSelectionAction>;
+
+export type NativeHomeQueryActions = Readonly<{
+  subscribe: (listener: () => void) => () => void;
+  getSnapshot: () => NativeSelectionActionPresentation | undefined;
+  offer: (kind: 'delete' | 'download', view: SelectionSnapshot<SelectionContext>) => boolean;
+  open: (kind: 'delete' | 'download', view: SelectionSnapshot<SelectionContext>) => void;
+  close: (expected?: NativeSelectionActionPresentation) => void;
+}>;

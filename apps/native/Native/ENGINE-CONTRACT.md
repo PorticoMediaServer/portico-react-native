@@ -227,6 +227,10 @@ stream's index in the file. The engine answers `audioTrackApplied` or `audioTrac
 same `audioTrackRevision`. JavaScript sends the field only to an engine that has the feature, and
 only for the playback it was chosen in.
 
+Android mpv applies the property under the expected core load epoch, then samples `aid` on
+that core thread for the exact command revision. An already-selected target is acknowledged
+from this fresh readback, rather than a cached pre-command snapshot.
+
 `localAudioTrack` (native, downloaded files only) is `{revision, catalogRevision, trackId}`.
 `trackId` is an opaque token from the current `mediaInfo.audioTracks[].id`; `catalogRevision`
 must equal that inventory's `audioTrackCatalogRevision`. The engine answers

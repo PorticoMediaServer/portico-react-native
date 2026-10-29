@@ -40,6 +40,8 @@ internal sealed class PorticoMpvEvent {
   object PlaybackRestart : PorticoMpvEvent()
   class EndFile(val reason: Int, val code: Int, val message: String, val log: List<String>) : PorticoMpvEvent()
   class TracksChanged(val tracks: List<Map<String, Any?>>) : PorticoMpvEvent()
+  /** A fresh property snapshot after this exact file-track command ran on the core thread. */
+  class AudioTrackReadback(val revision: Long, val code: Int) : PorticoMpvEvent()
   class VideoParams(val params: Map<String, Any?>) : PorticoMpvEvent()
   /** The subtitle line on screen now, as plain text ("" between lines). */
   class SubtitleText(val text: String) : PorticoMpvEvent()
@@ -159,6 +161,14 @@ internal class PorticoMpvCore private constructor() : PorticoMpvNative.Listener 
 
   fun set(name: String, value: String) {
     queue.post { setNow(name, value) }
+  }
+
+  fun selectAudioTrack(track: Int, revision: Long, expectedEpoch: Int) {
+    queue.post {
+      if (!started || epoch != expectedEpoch) return@post
+      val code = setNow("aid", track.toString())
+      deliver(PorticoMpvEvent.AudioTrackReadback(revision, code))
+    }
   }
 
   /** Sets each property in order; a later one applies only once the earlier ones have. */

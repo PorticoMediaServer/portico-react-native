@@ -378,7 +378,7 @@ export class NativePlaybackRuntime {
       // authority). Keep this runtime's detail read in the same dispatcher.
       const recovery = this.o.events.onResyncRead(async context => {
         if (this.active() && !context.signal.aborted) await this.detail?.service.refresh();
-      }, {priority: 0});
+      }, {priority: 1});
       this.offs.push(() => recovery.dispose());
     } else this.offs.push(this.o.events.onResync(() => { if (this.active()) { void this.queue.refresh().catch(() => {}); void this.refreshAuthority(); } }));
     this.routeChanged();

@@ -139,6 +139,10 @@ export class NativeOfflineTracks {
         this.pendingAudio = this.commandFor(matched[0]!);
         this.awaitingAudioReadback = true;
       }
+      if (this.retainedAudio && !this.restoringAudio) {
+        const proven = audio.filter(track => sameSource(track.sourceTrackIdentity, this.retainedAudio));
+        if (proven.length !== 1 || proven[0]!.id !== this.pendingAudio?.id) this.retainedAudio = undefined;
+      }
       this.publish({audio: this.audio, audioTrackId: !this.awaitingAudioReadback && selected.length === 1 ? selected[0] : undefined});
       return 'changed';
     }

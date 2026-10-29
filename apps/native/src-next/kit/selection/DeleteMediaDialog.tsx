@@ -11,13 +11,16 @@ import {selectionControlID as controlID} from './focus-ids';
 import {deleteSelectionGate} from './presentation';
 import {selectionFooterProps, SelectionSurface, SelectionText} from './surface';
 import type {DeleteMediaDialogProps} from './types';
+import {NativeQueryDeleteMediaDialog, type NativeQueryActionSurfaceProps} from '../../screens/library/SelectionActionSurface';
 
-export function DeleteMediaDialog(props: DeleteMediaDialogProps) {
+type QueryDeleteProps = {queryAction: NativeQueryActionSurfaceProps['action']; ownerHeader?: React.ReactNode; onClose: () => void};
+export function DeleteMediaDialog(props: DeleteMediaDialogProps | QueryDeleteProps) {
   const theme = useTheme();
   const {isTV, colors} = theme;
   const phone = theme.platform === 'phone';
   const footerButton = selectionFooterProps(theme);
   const cancelRef = useRef<View>(null);
+  if ('queryAction' in props) return <NativeQueryDeleteMediaDialog action={props.queryAction} ownerHeader={props.ownerHeader} onClose={props.onClose}/>;
   if (!props.owner) return null;
   const gate = deleteSelectionGate(props);
   const preview = props.preview;

@@ -214,3 +214,11 @@ test('an empty settled replacement inventory fails a retained choice after prepa
   local.accept({type: 'ready'});
   assert.equal(local.accept(empty), 'failed'); assert.equal(local.localAudioCommand(), null);
 });
+
+test('loss of current producer proof retires cross-engine retention without inventing another identity', () => {
+  const local = tracks(); local.configure('native', 'one', ['text']); local.accept(nativeInventory()); local.choose({audioTrackId: 'native-second'});
+  local.accept({...nativeInventory(), audioTracks: nativeInventory().audioTracks.map(track => ({...track, sourceTrackIdentity: undefined}))});
+  assert.equal(local.localAudioCommand()!.trackId, 'native-second', 'the current engine command still names its real token');
+  local.configure('mpv', 'two', ['ass']); local.accept(mpvInventory());
+  assert.equal(local.audioCommand(), null, 'a retired proof cannot be revived by another engine');
+});

@@ -6,6 +6,9 @@ import {SelectionActionController} from '../../../packages/client-core/src/selec
 import {musicQualityLadder} from '../../../packages/client-core/src/playback-v1/quality.ts';
 import {musicQualityPresentation} from '../../../packages/client-core/src/playback-v1/quality-presentation.ts';
 import {authorityKey} from '../src-next/shell/model.ts';
+import * as downloadRequests from '../src-next/screens/downloads/request.ts';
+import * as nativeUnavailable from '../src-next/screens/library/selection-unavailable-actions.ts';
+import * as wholeUnavailable from '../src-next/screens/library/whole-query-unavailable.ts';
 import {hooks, screenModule} from './helpers/screen-harness.mjs';
 
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -63,7 +66,7 @@ async function fixture() {
   const sourcePort = {...sources, getSnapshot: () => source}, activationPort = {...activation, getSnapshot: () => ({visible})};
   const modelPort = {...model, captureOperation: () => operation, isOperationCurrent: (value: unknown) => operationCurrent && value === operation};
   const create = (signal?: AbortSignal) => module.createNativeLibrarySelectionAction(context, sourcePort, activationPort, modelPort, signal, queue);
-  return {module, context, held, create, calls, events, ids: () => ids, responders: (next: typeof responder) => {responder = next;},
+  return {module, context, held, create, calls, events, sourcePort, activationPort, modelPort, ids: () => ids, responders: (next: typeof responder) => {responder = next;},
     createHome: () => module.createNativeHomeSelectionAction(context, {selection: modelPort}, undefined, queue),
     changeHome: () => {document = {...document}; home.emit();},
     changeSource: (patch: any) => {source = {...source, ...patch}; sources.emit();},
@@ -146,7 +149,7 @@ test('native real controller prepares exact options and replays an ambiguous con
     assert.deepEqual(f.calls[0].body, actions.selectionActionTargetInput(f.held as never, {action: 'delete', options: {deleteFiles: true}}));
     action.controller.setConfirmation('257'); await action.controller.confirm(); assert.equal(action.controller.getSnapshot().phase, 'uncertain');
     // Same query's new page may be the confirmed deletion's own publication.
-    f.changeSource({revision: 'own-command-page', collection: {}}); assert.ok(action.current());
+    f.changeSource({revision: 'own-command-page', collection: {}, tab: {id: 'movies'}}); assert.ok(action.current());
     await action.controller.retry(); assert.equal(action.controller.getSnapshot().phase, 'result'); assert.equal(f.ids(), 1);
     const sent = f.calls.filter(call => call.method === 'POST' && !call.path.endsWith('/preparations'));
     assert.equal(sent.length, 2); assert.deepEqual(sent[0].body, sent[1].body); assert.equal(sent[0].body.operationId, 'stable-operation');
@@ -164,6 +167,56 @@ test('native changing deleteFiles starts a new real preview and clears typed con
     const sent = f.calls.filter(call => call.method === 'POST'); assert.deepEqual(sent.map(call => call.body.options), [{deleteFiles: false}, {deleteFiles: true}]);
     assert.equal(f.calls.filter(call => call.method === 'DELETE').length, 1, 'old demand is released');
   } finally {action.dispose();}
+});
+
+test('native Home keeps its confirmed command across own document/model publication before the POST response', async () => {
+  const f = await fixture(), action = f.createHome();
+  f.responders(async (path, method) => {
+    if (method === 'POST' && path.endsWith('/preparations')) return preview();
+    if (method === 'POST') {f.changeHome(); f.staleOperation(); assert.ok(action.current()); return job();}
+    return undefined;
+  });
+  try {
+    await action.openDelete(); action.controller.setConfirmation('257'); await action.controller.confirm();
+    assert.equal(action.controller.getSnapshot().phase, 'result'); assert.ok(action.current());
+    assert.deepEqual(f.calls[0].body.options, {deleteFiles: true}, 'same default as existing explicit Delete');
+    f.changeRoute(); assert.equal(action.current(), false);
+  } finally {action.dispose();}
+});
+
+test('actual native Library toolbar dispatches its whole query into the real DownloadSheet request without enumerating rows', async () => {
+  const f = await fixture(), host = hooks();
+  const view: any = {active: true, summary: f.held.summary, selectedKeys: [], target: f.held, version: 1};
+  const model: any = {...f.modelPort, getSnapshot: () => view, clear() {}};
+  const producer: any = {model, whole: () => undefined, dispose() {}};
+  const module = await screenModule(new URL('../src-next/screens/library/selection.tsx', import.meta.url), {
+    react: host.react, 'react-native': {View: 'View', Text: 'Text'}, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({bottom: 0})},
+    '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},
+    '../../../../../packages/client-core/src/presentation/errors': {}, '../../../../../packages/client-core/src/catalogue-query-selection': {},
+    '../../../../../packages/client-core/src/selection-model': {selectionFourthAction: () => 'my-list'}, '../../../../../packages/client-core/src/media-selection': {},
+    '../../shell/selection-display': {selectedItemsLabel: () => '257 selected'},
+    '../../kit/selection': {SelectionBar: 'SelectionBar', SelectionPhoneActionBar: 'PhoneBar'},
+    '../../kit/theme': {useTheme: () => ({isTV: false, layers: {navigation: 1}})}, '../../kit/overlays': {}, '../../kit/controls': {},
+    '../destinations/lifetime': {nativeDestinationLifetime: () => ({current: () => true})},
+    '../native-screen-services': {nativeScreenServices: () => ({reportError: (error: unknown) => {throw error;}})},
+    '../destinations/DestinationPicker': {}, '../search/loaded-destinations': {}, '../destinations/bulk-media': {},
+    './model': {nativeLibraryEntryKey: () => ''}, './play-selection': {createNativeLibraryPlaySelection: () => producer},
+    './selection-unavailable-actions': nativeUnavailable, './whole-query-unavailable': wholeUnavailable,
+    './selection-actions': f.module, '../downloads/request': downloadRequests, '../../platform/offline-downloads': {offlineDownloads: {}},
+  });
+  const port = module.createNativeLibrarySelection(f.context, f.sourcePort, f.activationPort);
+  const nodes = (value: any): any[] => Array.isArray(value) ? value.flatMap(nodes) : value?.props ? [value, ...nodes(value.props.children)] : [];
+  try {
+    port.start(); const element = port.render();
+    const bar = nodes(host.render(() => element.type(element.props))).find(node => node.type === 'SelectionBar');
+    assert.equal(bar.props.actions.find((offer: any) => offer.id === 'download').disabled, false);
+    bar.props.onAction('download');
+    const request = downloadRequests.getNativeDownloadSnapshot()!;
+    assert.equal(request.queryAction?.target, f.held); assert.equal(request.queryAction?.source.expectedTotal, 257);
+    assert.equal(f.calls.length, 0, 'raising the genuine quality chooser does not enumerate Browse or Detail');
+    bar.props.onAction('download'); assert.equal(downloadRequests.getNativeDownloadSnapshot(), request);
+    downloadRequests.closeNativeDownload(request); assert.equal(request.queryAction?.current(), false);
+  } finally {port.dispose(); downloadRequests.closeNativeDownload();}
 });
 
 test('native download persists the exact operation/device follow before confirm transport and leaves transfer completion distinct', async () => {
@@ -247,12 +300,11 @@ test('native terminal cancellation is explicit, partial Delete shows actual file
 });
 
 test('native exact inventory waits for terminal admission, honors real queue backpressure and reads one bounded filtered page', async () => {
-  let status: any = job('download', 'capturing'), reads = 0, admissions = 0;
-  status.admitted = 20;
+  let closed = false, reads = 0, admissions = 0;
   const calls: string[] = [];
   const module = await screenModule(new URL('../src-next/screens/library/selection-action-downloads.ts', import.meta.url), {
     react: {default: React}, '../../../../../packages/client-core/src/selection-actions': {...actions,
-      getSelectionAction: async () => {reads++; return actions.parseSelectionActionJob(status);}},
+      getSelectionAction: async () => {reads++; throw new Error('short-lived status must not gate transfer inventory');}},
   });
   const preparation = (i: number) => ({id: `prep-${i}`, itemId: `item-${i}`, libraryId: 'library', profileId: 'profile', quality: 'original', origin: 'manual', state: 'ready',
     artifact: {kind: 'source', sha256: 'a'.repeat(64), bytes: 1024, estimated: false}, title: {kind: 'movie', title: `Film ${i}`, onServer: true},
@@ -261,16 +313,16 @@ test('native exact inventory waits for terminal admission, honors real queue bac
     calls.push(path); const query = new URL(path, 'https://fixture.invalid').searchParams;
     assert.equal(query.get('operationId'), 'stable-operation'); assert.equal(query.get('deviceId'), 'device');
     assert.equal(query.get('limit'), '20'); assert.equal(query.get('cursor'), null);
-    return {items: Array.from({length: 20}, (_, i) => preparation(i)), nextCursor: 'next-exact-page'};
+    return {items: Array.from({length: 20}, (_, i) => preparation(i)), nextCursor: 'next-exact-page', closed};
   }};
   const intent = Object.freeze({operationId: 'stable-operation', deviceId: 'device', cursor: ''}), signal = new AbortController().signal;
   const admitted: any[] = [];
   const options = {api, intent, signal, isCurrent: () => true, room: 0, admit: async (page: any) => {admissions++; admitted.push(page);}};
   assert.equal(await module.stepNativeSelectionActionDownloads(options), 'blocked'); assert.equal(reads, 0);
-  assert.equal(await module.stepNativeSelectionActionDownloads({...options, room: 200}), 'waiting'); assert.equal(calls.length, 0);
-  status = job('download');
+  assert.equal(await module.stepNativeSelectionActionDownloads({...options, room: 200}), 'waiting'); assert.equal(calls.length, 1);
+  closed = true;
   assert.equal(await module.stepNativeSelectionActionDownloads({...options, room: 200}), 'more');
-  assert.equal(calls.length, 1); assert.equal(admissions, 1); assert.equal(admitted[0].items.length, 20);
+  assert.equal(calls.length, 2); assert.equal(admissions, 1); assert.equal(reads, 0); assert.equal(admitted[0].items.length, 20);
   assert.equal(admitted[0].nextCursor, 'next-exact-page'); assert.equal(admitted[0].complete, false); assert.equal(intent.cursor, '');
   await assert.rejects(module.stepNativeSelectionActionDownloads({...options, room: 200, admit: async () => {throw new Error('native write failed');}}), /native write failed/);
   assert.equal(intent.cursor, '', 'failed native persistence cannot advance the durable cursor');
@@ -284,11 +336,11 @@ test('native exact inventory refuses changed scope and repeated cursor, and enro
   const intent = {operationId: 'stable-operation', deviceId: 'device', cursor: 'last'}, abort = new AbortController();
   let live = true, admissions = 0;
   const options = {intent, signal: abort.signal, isCurrent: () => live, room: 20, admit: async () => {admissions++;},
-    api: {request: async () => ({items: [], nextCursor: 'last'})}};
+    api: {request: async () => ({items: [], nextCursor: 'last', closed: true})}};
   await assert.rejects(module.stepNativeSelectionActionDownloads(options), {code: 'invalid_response'});
   assert.equal(admissions, 0);
-  assert.equal(await module.stepNativeSelectionActionDownloads({...options, api: {request: async () => ({items: [], nextCursor: ''})}}), 'complete');
+  assert.equal(await module.stepNativeSelectionActionDownloads({...options, api: {request: async () => ({items: [], nextCursor: '', closed: true})}}), 'complete');
   assert.equal(admissions, 1);
-  await assert.rejects(module.stepNativeSelectionActionDownloads({...options, api: {request: async () => {live = false; return {items: [], nextCursor: ''};}}}), {name: 'AbortError'});
+  await assert.rejects(module.stepNativeSelectionActionDownloads({...options, api: {request: async () => {live = false; return {items: [], nextCursor: '', closed: true};}}}), {name: 'AbortError'});
   assert.equal(admissions, 1, 'late inventory never enrolls into a successor profile');
 });
