@@ -41,11 +41,19 @@ export function createFocusRegistry() {
   type Region = {config: FocusRegionConfig; host?: FocusHost; hostOwner?: object; owner?: object; children: Map<string, Child>; entities: Map<string, string>; remembered?: string; descendant?: FocusAddress; cellMemory?: Readonly<{column?: number; time?: number}>; navigate?: ReturnType<typeof createCellNavigator>; cellOrder?: readonly string[]; resetCellFocus?: string; returns: Map<object, FocusSnapshot | undefined>};
   const regions = new Map<string, Region>(), listeners = new Set<() => void>();
   const scopedListeners = new Map<string, Set<() => void>>(), scopedRevisions = new Map<string, number>();
+  // Focus targets read only structure (config, order, attached hosts) and, in grid and time-grid
+  // regions, the cell memory a focus move updates. A plain focus move must not re-render every
+  // target of the region and its ancestors (P2-71-PERF): targets get their own revision.
+  const targetListeners = new Map<string, Set<() => void>>(), targetRevisions = new Map<string, number>();
+  // In a grid the cell memory a move updates changes edges, but only the focused cell's edges are
+  // ever read (the native engine reads them from the focused view): it alone is told.
+  const childListeners = new Map<string, Set<() => void>>(), childRevisions = new Map<string, number>();
+  const childKey = (regionId: string, childId: string) => `${regionId}\u0000${childId}`;
   const hostListeners = new Map<string, Set<() => void>>(), hostRevisions = new Map<string, number>();
   const entryDependents = new Map<string, Set<string>>();
   const retained = new Map<object, FocusSnapshot[]>(), memory = new Map<string, string>();
   let active: FocusSnapshot | undefined, lastFocus: FocusAddress | undefined, revision = 0, epoch = 0, recoveredEpoch = -1;
-  const emit = (ids: readonly (string | undefined)[], hostId?: string) => {
+  const emit = (ids: readonly (string | undefined)[], hostId?: string, kind: 'structure' | 'focus' = 'structure', focused?: FocusAddress) => {
     revision++;
     const affected = new Set<string>();
     const visit = (id: string | undefined) => {
@@ -59,6 +67,15 @@ export function createFocusRegistry() {
     for (const id of affected) {
       if (regions.has(id) || scopedListeners.has(id)) scopedRevisions.set(id, revision);
       for (const listener of scopedListeners.get(id) ?? []) notify.add(listener);
+      const config = regions.get(id)?.config;
+      if (kind === 'structure') {
+        if (regions.has(id) || targetListeners.has(id)) targetRevisions.set(id, revision);
+        for (const listener of targetListeners.get(id) ?? []) notify.add(listener);
+      } else if (focused?.regionId === id && (config?.grid || config?.timeGrid)) {
+        const key = childKey(id, focused.childId);
+        childRevisions.set(key, revision);
+        for (const listener of childListeners.get(key) ?? []) notify.add(listener);
+      }
     }
     if (hostId !== undefined) {
       hostRevisions.set(hostId, revision);
@@ -74,6 +91,21 @@ export function createFocusRegistry() {
       callbacks!.delete(listener);
       if (!callbacks!.size) {scopedListeners.delete(id); if (!regions.has(id)) scopedRevisions.delete(id);}
     };
+  };
+  const subscribeTargetRegion = (id: string, listener: () => void) => {
+    let callbacks = targetListeners.get(id);
+    if (!callbacks) {callbacks = new Set(); targetListeners.set(id, callbacks);}
+    callbacks.add(listener);
+    return () => {
+      callbacks!.delete(listener);
+      if (!callbacks!.size) {targetListeners.delete(id); if (!regions.has(id)) targetRevisions.delete(id);}
+    };
+  };
+  const subscribeChild = (key: string, listener: () => void) => {
+    let callbacks = childListeners.get(key);
+    if (!callbacks) {callbacks = new Set(); childListeners.set(key, callbacks);}
+    callbacks.add(listener);
+    return () => {callbacks!.delete(listener); if (!callbacks!.size) {childListeners.delete(key); childRevisions.delete(key);}};
   };
   const subscribeHost = (id: string, listener: () => void) => {
     let callbacks = hostListeners.get(id);
@@ -102,6 +134,7 @@ export function createFocusRegistry() {
     removeEntryDependency(id, r.config.entryRegion);
     emit([id, r.config.parent]);
     if (!scopedListeners.has(id)) scopedRevisions.delete(id);
+    if (!targetListeners.has(id)) targetRevisions.delete(id);
     if (!hostListeners.has(id)) hostRevisions.delete(id);
   };
   const region = (id: string): Region => {
@@ -228,7 +261,7 @@ export function createFocusRegistry() {
   };
   const schedulePrune = (id: string) => queueMicrotask(() => {
     const r = regions.get(id);
-    if (r && !r.owner && !r.host && !r.children.size && active?.regionId === id && !isRetained(id)) {active = undefined; emit([id]);}
+    if (r && !r.owner && !r.host && !r.children.size && active?.regionId === id && !isRetained(id)) {active = undefined; emit([id], undefined, 'focus');}
     prune(id);
   });
   return {
@@ -236,12 +269,14 @@ export function createFocusRegistry() {
     getSnapshot: () => revision,
     subscribeRegion,
     regionSnapshot: (id: string) => scopedRevisions.get(id) ?? 0,
-    subscribeTarget(id: string | undefined, edges: readonly string[], listener: () => void) {
+    subscribeTarget(id: string | undefined, edges: readonly string[], listener: () => void, childId?: string) {
       const releases = [...new Set(edges)].map(edge => subscribeHost(edge, listener));
-      if (id !== undefined) releases.push(subscribeRegion(id, listener));
+      if (id !== undefined) releases.push(subscribeTargetRegion(id, listener));
+      if (id !== undefined && childId !== undefined) releases.push(subscribeChild(childKey(id, childId), listener));
       return () => {for (const release of releases) release();};
     },
-    targetSnapshot: (id: string | undefined, edges: readonly string[]) => edges.reduce((latest, edge) => Math.max(latest, hostRevisions.get(edge) ?? 0), id === undefined ? 0 : scopedRevisions.get(id) ?? 0),
+    targetSnapshot: (id: string | undefined, edges: readonly string[], childId?: string) => edges.reduce((latest, edge) => Math.max(latest, hostRevisions.get(edge) ?? 0),
+      id === undefined ? 0 : Math.max(targetRevisions.get(id) ?? 0, childId === undefined ? 0 : childRevisions.get(childKey(id, childId)) ?? 0)),
     capture: (): FocusSnapshot | undefined => active && {...currentSnapshot(active), order: [...currentSnapshot(active).order]},
     focus, focusRegion, entryTarget, entryAddress, restore,
     /** capture() also retains historical return proof; this requires a still-attached enabled leaf. */
@@ -270,8 +305,8 @@ export function createFocusRegistry() {
       const chain: FocusSnapshot[] = [], visited = new Set<string>();
       let saved: FocusSnapshot | undefined = 'order' in address ? address : snapshot(address);
       while (saved && !visited.has(saved.regionId)) {visited.add(saved.regionId); chain.push(saved); saved = saved.returnTo;}
-      const owner = {}; retained.set(owner, chain); emit(chain.map(saved => saved.regionId));
-      return () => {if (!retained.delete(owner)) return; emit(chain.map(saved => saved.regionId)); for (const saved of chain) schedulePrune(saved.regionId);};
+      const owner = {}; retained.set(owner, chain); emit(chain.map(saved => saved.regionId), undefined, 'focus');
+      return () => {if (!retained.delete(owner)) return; emit(chain.map(saved => saved.regionId), undefined, 'focus'); for (const saved of chain) schedulePrune(saved.regionId);};
     },
     registerReturn(id: string, opener: FocusSnapshot | undefined) {
       const r = region(id), owner = {}; r.returns.set(owner, opener);
@@ -337,14 +372,14 @@ export function createFocusRegistry() {
       for (let parent = r.config.parent; parent && !visited.has(parent); parent = region(parent).config.parent) {
         visited.add(parent); region(parent).descendant = {...address};
       }
-      active = snapshot(address); emit([previous, address.regionId]); if (previous) schedulePrune(previous);
+      active = snapshot(address); emit([previous, address.regionId], undefined, 'focus', address); if (previous) schedulePrune(previous);
     },
     didBlur(address: FocusAddress) {
       const captured = epoch;
       queueMicrotask(() => {if (captured === epoch && same(active, address)) {
         // A detached focused host must recover before blur releases its ownership.
         if (!regions.get(address.regionId)?.children.has(address.childId)) {if (active) recover(active); return;}
-        active = undefined; epoch++; emit([address.regionId]); schedulePrune(address.regionId);
+        active = undefined; epoch++; emit([address.regionId], undefined, 'focus'); schedulePrune(address.regionId);
       }});
     },
     size: () => ({regions: regions.size, remembered: memory.size}),

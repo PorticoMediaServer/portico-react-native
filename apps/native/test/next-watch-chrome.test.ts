@@ -13,6 +13,7 @@ import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 import * as registryModule from '../src-next/kit/focus/registry.ts';
 import * as hostRefModule from '../src-next/kit/focus/useHostRef.ts';
 import {NativeWatchControls} from '../src-next/screens/watch/controls.ts';
+import * as landingStoreModule from '../src-next/screens/watch/landing-store.ts';
 
 const gesture = () => {const value: Record<string, unknown> = {}; for (const key of ['enabled', 'runOnJS', 'activeOffsetY', 'failOffsetX', 'onEnd']) value[key] = () => value; return value;};
 const focusRegistry = registryModule.createFocusRegistry();
@@ -39,7 +40,7 @@ const chromeModules = {
   '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: String, durationText: (seconds: number) => `${Math.round(seconds / 60)} min`}, '../../../../../packages/i18n/src': {defaultI18n},
   '../../kit/controls': {Button: 'Button', Focusable: 'Focusable'}, '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => focusRegistry}, '../../kit/Icon': {Icon: 'Icon'},
   '../../kit/theme': {nativeType: () => ({}), useTheme: () => ({isTV, colors: {}, type: {body: {}, bodyStrong: {}, caption: {}}})},
-  '../../kit/useMotion': {useMotion: () => motion, useReducedMotion: () => true}, './controls': {NativeWatchControls}, './WatchTimeline': {NativeWatchTimeline: 'Timeline'},
+  '../../kit/useMotion': {useMotion: () => motion, useReducedMotion: () => true}, './controls': {NativeWatchControls}, './landing-store': landingStoreModule, './WatchTimeline': {NativeWatchTimeline: 'Timeline'},
   '../../kit/useScreenReader': {useScreenReader: () => false},
 };
 const {NativeWatchChrome} = await screenModule(new URL('../src-next/screens/watch/WatchChrome.tsx', import.meta.url), chromeModules);

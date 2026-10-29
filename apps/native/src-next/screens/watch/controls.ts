@@ -219,14 +219,16 @@ export class NativeWatchControls {
     if (!this.current(fence) || !this.context.expanded) return false;
     this.cancel(); this.deadline = 0;
     if (this.isTV) {
-      if (this.state.panel && this.state.panel !== panel) this.panelParents.push({panel: this.state.panel, offset: this.state.panelOffset, target: opener && {...opener}});
+      if (this.state.panel && this.state.panel !== panel) this.panelParents.push({panel: this.state.panel, offset: this.offsets.get(this.state.panel) ?? this.state.panelOffset, target: opener && {...opener}});
       else if (!this.state.panel) {this.panelParents = []; this.panelOpener = opener && {...opener};}
     }
     this.publish({panel, panelFocus: undefined, panelReturning: false, panelExitRevision: undefined, returnTarget: undefined, panelOffset: this.offsets.get(panel) ?? 0, visible: !this.context.hiddenByPanel, focus: 'panel'}); return true;
   }
+  /** Recorded, not published: a scroll is the panel's own, and publishing every scroll event
+   * re-rendered the whole player chrome (P2-71-PERF). Reopening the panel publishes it. */
   rememberPanel(fence: PlaybackFence, offset: number): void {
     if (!this.current(fence) || !this.state.panel || !Number.isFinite(offset) || offset < 0) return;
-    this.offsets.set(this.state.panel, offset); this.publish({panelOffset: offset});
+    this.offsets.set(this.state.panel, offset);
   }
   closePanel(fence: PlaybackFence): boolean {
     if (!this.current(fence) || !this.state.panel) return false;

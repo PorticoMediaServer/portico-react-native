@@ -20,6 +20,7 @@ import {useMotion, useReducedMotion} from '../../kit/useMotion';
 import {useScreenReader} from '../../kit/useScreenReader';
 import {NativeWatchControls, type NativeWatchPanel} from './controls';
 import {NativeWatchTimeline} from './WatchTimeline';
+import {createLandingStore, type LandingStore} from './landing-store';
 import {useSkipPromptMotion} from './useSkipPromptMotion';
 import {useInitialPlayerPaint, usePublishedPlayerMorph} from '../../kit/dock/PlayerMorphBridge';
 import {NativeUpNextCard} from './UpNextCard';
@@ -166,7 +167,11 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const liveActions = useSyncExternalStore(props.liveActions?.subscribe ?? noLiveActionsSubscription, props.liveActions?.getSnapshot ?? emptyLiveActions);
   const actionsRestoreProof = useMemo(() => props.liveActions?.restoreProof(liveActions) ?? (() => false), [props.liveActions, liveActions]);
   const miniReturn = useRef<{fence: PlaybackFence; current: () => boolean; target: 'guide' | 'more'} | undefined>(undefined);
-  const [landing, setLanding] = useState<number>(), [returnAt, setReturnAt] = useState(0), [now, setNow] = useState(() => Date.now());
+  // A held scrub moves its landing time many times a second. The chrome keeps only whether a
+  // scrub is under way; the time lives in a store read by the one hint that prints it (P2-71-PERF).
+  const landingStore = useMemo(createLandingStore, []), [scrubbing, setScrubbing] = useState(false);
+  const setLanding = useCallback((seconds: number | undefined) => {landingStore.set(seconds); setScrubbing(seconds !== undefined);}, [landingStore]);
+  const [returnAt, setReturnAt] = useState(0), [now, setNow] = useState(() => Date.now());
   const promptRevealToToggle = useRef(false);
   const fence = source.fence;
   const current = useCallback(() => !!fence && !source.retired && sameFence(playback.getSnapshot().fence, fence) && sameFence(state.fence, fence), [fence, source.retired, playback, state.fence]);
@@ -287,7 +292,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     if (seekFocused && !wasSeekFocused.current) setReturnAt(source.playback.positionSeconds);
     if (!seekFocused) setLanding(undefined);
     wasSeekFocused.current = seekFocused;
-  }, [seekFocused, source.playback.positionSeconds]); // The return point is where the viewer was when the bar took focus.
+  }, [seekFocused, setLanding, source.playback.positionSeconds]); // The return point is where the viewer was when the bar took focus.
   useEffect(() => {
     if (!theme.isTV || !visible) return;
     // The clock and "Ends" time are right the moment the controls rise, then tick on the minute.
@@ -374,7 +379,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       ? t('player.live.scheduled', {title: liveActions.recording.programme.title}) : `${recordingLabel(liveActions.recording.state)}: ${liveActions.recording.programme.title}` : undefined;
   const liveEdge = linear ? channelSeconds(linear.media.liveEdgeUs) : undefined;
   const behindLive = liveEdge === undefined ? 0 : Math.max(0, liveEdge - source.playback.positionSeconds);
-  const liveEdgeAction = theme.isTV && !!linear && behindLive > 5 && !!props.goLive && landing === undefined;
+  const liveEdgeAction = theme.isTV && !!linear && behindLive > 5 && !!props.goLive && !scrubbing;
   const audioTracks = source.fence?.kind === 'local' ? source.localTracks?.audio.length ?? 0
     : source.options?.versions.find(version => version.id === source.session?.versionId)?.audio.length ?? source.options?.versions[0]?.audio.length ?? 0;
   const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 3).map(word => word[0]!.toUpperCase()).join('');
@@ -463,7 +468,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
   const keycap = (label: string, icons?: IconName[]) => <View style={{minWidth: 44, height: 36, paddingHorizontal: 10, borderRadius: 9, borderWidth: 1.5, borderColor: 'rgba(237,245,250,.3)', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2}}>
     {icons ? icons.map(name => <Icon key={name} name={name} size={20} color={theme.colors.textSecondary}/>) : <Text style={[nativeType({size: 17, weight: 800, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textSecondary}]}>{label}</Text>}
   </View>;
-  const hint = (index: number, cap: React.ReactNode, text: string) => <View key={text} style={{flexDirection: 'row', alignItems: 'center', gap: 12, marginLeft: index ? 26 : 0}}>{cap}
+  const hint = (index: number, cap: React.ReactNode, text: React.ReactNode, key = String(text)) => <View key={key} style={{flexDirection: 'row', alignItems: 'center', gap: 12, marginLeft: index ? 26 : 0}}>{cap}
     <Text style={[nativeType({size: 20, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.textTertiary}]}>{text}</Text></View>;
   // states 11: while the failure owns the screen the bar's entry is its first real
   // bottom control, and Up reaches the failure block only when it drew one.
@@ -742,7 +747,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
           <FocusRegion id="watch-seek-region" entry="watch-seek" stops={{left: true, right: true, up: !groupPillPresent && !(linear && liveOffer && props.liveActions)}} edges={{up: groupPillPresent ? 'watch-group' : linear && liveOffer && props.liveActions ? 'watch-live-actions' : undefined, down: liveEdgeAction ? 'watch-live-edge' : 'watch-transport'}}>
             <NativeWatchTimeline source={source} controls={controls} playback={playback} compact={compact} enabled={controlsEnabled} tv focused={seekFocused} onPreview={setLanding} liveEdge={liveEdge} reportError={props.reportError} skipBackSeconds={props.skipBackSeconds} skipForwardSeconds={props.skipForwardSeconds}/>
           </FocusRegion>
-          {landing !== undefined && <View style={{height: 30, marginTop: 10}}>
+          {scrubbing && <View style={{height: 30, marginTop: 10}}>
             {[...new Map<string, SegmentMarker>(segments.filter(segment => segment.kind === 'intro' || segment.kind === 'recap' || segment.kind === 'credits')
               .map(segment => [segment.kind, segment] as const)).values()].map(segment => {
               const at = source.playback.duration > 0 ? Math.min(1, segment.startSeconds / source.playback.duration) : 0;
@@ -751,7 +756,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
                 at >= .9 ? {right: 0} : {left: `${at * 100}%`}]}>{label}</Text>;
             })}
           </View>}
-          {landing === undefined && <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, height: 30, marginTop: 10}}>
+          {!scrubbing && <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, height: 30, marginTop: 10}}>
             <Text style={[nativeType({size: 24, weight: 600, tracking: 0, lineHeight: 30}, theme.textScale), {color: theme.colors.text, fontVariant: ['tabular-nums']}]}>{clockText(source.playback.positionSeconds)}</Text>
             {linear && behindLive > 30 && <Text style={[nativeType({size: 22, weight: 600, tracking: 0, lineHeight: 'normal'}, theme.textScale), {marginLeft: 12, color: theme.colors.textSecondary}]}>{t('player.live.behindLive', {duration: durationText(Math.max(60, Math.round(behindLive / 60) * 60), t)})}</Text>}
             <View style={{flex: 1}}/>
@@ -765,15 +770,15 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
               : <Text style={[nativeType({size: 24, weight: 600, tracking: 0, lineHeight: 30}, theme.textScale), {color: theme.colors.textSecondary, fontVariant: ['tabular-nums']}]}>{clockText(Math.max(0, source.playback.duration - source.playback.positionSeconds))}</Text>}
           </View>}
           <View style={{height: 88, marginTop: 20}}>
-            {seekFocused && landing !== undefined && <View pointerEvents="none" style={{position: 'absolute', inset: 0, flexDirection: 'row', alignItems: 'center'}}>
+            {seekFocused && scrubbing && <View pointerEvents="none" style={{position: 'absolute', inset: 0, flexDirection: 'row', alignItems: 'center'}}>
               {hint(0, keycap('', ['i-left', 'i-right']), t('player.hint.move'))}
               {hint(1, keycap(t('player.hint.hold')), t('player.hint.faster'))}
-              {hint(2, keycap(t('title.ok')), t('player.hint.playFrom', {time: clockText(landing ?? returnAt)}))}
+              {hint(2, keycap(t('title.ok')), <LandingTime store={landingStore} fallback={returnAt}/>, 'play-from')}
               {hint(3, keycap(t('action.back')), t('player.hint.returnTo', {time: clockText(returnAt)}))}
             </View>}
             <FocusRegion id="watch-transport" orientation="horizontal" entry={barEntry} stops={{down: true}} edges={{up: barUp ? 'watch-failed' : liveEdgeAction ? 'watch-live-edge' : 'watch-seek-region', right: promptEntry ? 'watch-skip' : undefined}}
-              accessibilityElementsHidden={seekFocused && landing !== undefined} importantForAccessibility={seekFocused && landing !== undefined ? 'no-hide-descendants' : 'auto'}
-              style={{height: 88, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', opacity: seekFocused && landing !== undefined ? 0 : 1}}>
+              accessibilityElementsHidden={seekFocused && scrubbing} importantForAccessibility={seekFocused && scrubbing ? 'no-hide-descendants' : 'auto'}
+              style={{height: 88, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', opacity: seekFocused && scrubbing ? 0 : 1}}>
               <View style={{flex: 1}}>{linear
                 ? (props.onGuide ? <Focusable ref={guideButton} focusId="watch-guide" testID="watch-guide" accessibilityRole="button" focusable={controlsEnabled} disabled={!controlsEnabled} onPress={() => {if (controlsCurrent() && props.onGuide) props.onGuide();}}
                     style={{height: 64, paddingHorizontal: 26, borderRadius: 32, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: 'rgba(237,245,250,.14)'}}>
@@ -853,4 +858,10 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       onClose={() => {if (current()) props.liveGuide?.close(liveGuide);}} onFullGuide={() => {if (current()) props.liveGuide?.fullGuide(liveGuide);}}
       error={liveGuide.error ? <Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{playbackUserMessage(liveGuide.error)}</Text> : undefined}/>}
   </Animated.View></GestureDetector>;
+}
+
+/** The only node a held scrub re-renders in the chrome: "Play from 12:34". */
+function LandingTime({store, fallback}: {store: LandingStore; fallback: number}) {
+  const landing = useSyncExternalStore(store.subscribe, store.get, store.get);
+  return <>{defaultI18n.t('player.hint.playFrom', {time: clockText(landing ?? fallback)})}</>;
 }

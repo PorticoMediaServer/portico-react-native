@@ -132,3 +132,39 @@ test('native handle resolution caches attached hosts but retries unresolved host
   assert.equal(handle(second), 202);
   assert.equal(calls, 3);
 });
+
+test('P2-71-PERF: a focus move re-renders no target of a plain row, only the regions that own focus', () => {
+  const registry = createFocusRegistry(), renders = new Map<string, number>(), regionRenders: string[] = [];
+  registry.configure({id: 'page'});
+  registry.configure({id: 'row', parent: 'page', orientation: 'horizontal'});
+  const ids = Array.from({length: 50}, (_, index) => `card-${index}`);
+  for (const childId of ids) {
+    registry.attach({regionId: 'row', childId}, {requestTVFocus() {}});
+    registry.subscribeTarget('row', [], () => renders.set(childId, (renders.get(childId) ?? 0) + 1), childId);
+  }
+  for (const id of ['page', 'row']) registry.subscribeRegion(id, () => regionRenders.push(id));
+  renders.clear(); // Mounting the row is structure; count only what focus moves cause.
+  const before = registry.targetSnapshot('row', [], 'card-1');
+  for (const childId of ids.slice(0, 10)) registry.didFocus({regionId: 'row', childId});
+  assert.equal([...renders.values()].reduce((sum, count) => sum + count, 0), 0, 'ten moves along the row re-render no card');
+  assert.equal(registry.targetSnapshot('row', [], 'card-1'), before);
+  assert.ok(regionRenders.includes('row') && regionRenders.includes('page'), 'the owning regions still learn of the move');
+  registry.attach({regionId: 'row', childId: 'late'}, {requestTVFocus() {}});
+  assert.equal(renders.size, 50, 'a structural change still reaches every target');
+});
+
+test('P2-71-PERF: in a grid only the newly focused cell re-renders for its remembered column', () => {
+  const registry = createFocusRegistry(), renders = new Map<string, number>();
+  registry.configure({id: 'grid', grid: {columns: 6, count: 60}});
+  const ids = Array.from({length: 60}, (_, index) => `t-${index}`);
+  ids.forEach((childId, index) => {
+    registry.attach({regionId: 'grid', childId}, {requestTVFocus() {}}, undefined, {index});
+    registry.subscribeTarget('grid', [], () => renders.set(childId, (renders.get(childId) ?? 0) + 1), childId);
+  });
+  renders.clear(); // Mounting the grid is structure; count only what focus moves cause.
+  registry.didFocus({regionId: 'grid', childId: 't-3'});
+  registry.didFocus({regionId: 'grid', childId: 't-9'});
+  assert.deepEqual([...renders.entries()].sort(), [['t-3', 1], ['t-9', 1]], 'two moves, two renders: the focused cells only');
+  assert.equal(registry.destinations({regionId: 'grid', childId: 't-9'}).down && 'childId' in registry.destinations({regionId: 'grid', childId: 't-9'}).down!
+    ? (registry.destinations({regionId: 'grid', childId: 't-9'}).down as {childId: string}).childId : undefined, 't-15', 'the focused cell still reads fresh column memory');
+});

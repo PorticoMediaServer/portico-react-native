@@ -10,6 +10,7 @@ import {NativeWatchControls} from '../src-next/screens/watch/controls.ts';
 import {createFocusRegistry} from '../src-next/kit/focus/registry.ts';
 import {sameAuthority} from '../src-next/shell/model.ts';
 import {nativePostPlayNavigation} from '../src-next/screens/watch/post-play-navigation.ts';
+import * as landingStoreModule from '../src-next/screens/watch/landing-store.ts';
 
 const fence = playerCore.playbackFence({kind: 'queue', playback: {scope: {serverId: 'server', accountId: 'account', profileId: 'profile', controllerId: 'controller', controllerEpoch: 'epoch', commandLaneId: 'lane', authority: 'local'}, run: 1}, sessionId: 'session', itemId: 'item', sourceId: 'version', entryId: 'entry', generation: 1});
 const t = (key: string) => key;
@@ -36,7 +37,7 @@ async function timelineFixture(vega = false) {
   const {NativeWatchTimeline} = await screenModule(new URL('../src-next/screens/watch/WatchTimeline.tsx', import.meta.url), {
     react: h.react, 'react-native': nativeAtoms, 'react-native-gesture-handler': {Gesture: {Pan: gesture}, GestureDetector: 'Gesture'}, 'react-native-reanimated': animation(h),
     '../../../../../packages/player-core/src': playerCore, '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: String, durationText: (seconds: number) => `${Math.round(seconds / 60)} min`}, '../../../../../packages/i18n/src': i18n,
-    '../../kit/controls': controlsAtoms, '../../kit/theme': themed, './TrickplayStrip': {NativeTrickplayStrip: 'Trickplay'}, '../../kit/useMotion': {useMotion: () => ({timing: () => ({})})},
+    '../../kit/controls': controlsAtoms, '../../kit/theme': themed, './TrickplayStrip': {NativeTrickplayStrip: 'Trickplay'}, './landing-store': landingStoreModule, '../../kit/useMotion': {useMotion: () => ({timing: () => ({})})},
     '../../platform/tv-keys': {useTVKeyEvent: (handler: typeof key) => {key = handler;}}, '../../platform/tv-seek-repeat': {createTVSeekRepeat: (step: any) => createTVSeekRepeat(step, clock)},
   });
   const draw = () => {props.source = source; h.render(() => NativeWatchTimeline(props)); return h.flush();};
@@ -249,7 +250,7 @@ async function chromeFixture(live = false) {
   const liveState = {fence: localFence, offer: {channel: {kind: 'live', number: '1', recordAvailable: true}, programme: {}}};
   const liveActions = {subscribe: () => () => {}, getSnapshot: () => liveState, restoreProof: () => () => true};
   const identity = {title: 'Title', subtitle: [{id: 'episode', role: 'context', text: 'S1 E2'}, {id: 'episode-title', role: 'identity', text: 'Episode name'}]};
-  const {NativeWatchChrome} = await screenModule(new URL('../src-next/screens/watch/WatchChrome.tsx', import.meta.url), {'../../kit/useScreenReader': {useScreenReader: () => false}, 
+  const {NativeWatchChrome} = await screenModule(new URL('../src-next/screens/watch/WatchChrome.tsx', import.meta.url), {'../../kit/useScreenReader': {useScreenReader: () => false}, './landing-store': landingStoreModule, 
     react: h.react, 'react-native': nativeAtoms, 'react-native-svg': svg, 'react-native-gesture-handler': {Gesture: {Pan: gesture}, GestureDetector: 'Gesture'}, 'react-native-reanimated': animation(h),
     '../../../../../packages/player-core/src': playerCore, '../../../../../packages/client-core/src/up-next': {upNextCountdown: () => undefined, upNextOffer: () => undefined},
     '../../../../../packages/client-core/src/playback/linear-protocol': {channelSeconds: (microseconds: string) => Number(microseconds) / 1000000},
