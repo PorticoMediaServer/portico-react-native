@@ -317,13 +317,13 @@ export class NativeServerSignIn {
         this.setupIssuers.set(result.session.sessionFamilyId, original); this.issued.set(result.session.sessionFamilyId, result.session); handed = true;
         this.assertCurrent(); this.ownerResetGrant = result;
       } catch (error) {
-        if (handed) await this.retire(result.session);
+        if (handed) {try {await this.retire(result.session);} catch { /* the original error wins */ }}
         else {
           // Cleanup belongs to this original issuer only. A concurrent retained
           // family is never revoked, even when this opening was cancelled.
           const current = await nativeAppSessions.read();
           if (!current.servers.some(value => value.connection.session.sessionFamilyId === result.session.sessionFamilyId)) {
-            const cleanup = new HttpLocalApi(original.origin, result.session.accessToken, nativeNetworkFetch); cleanup.useRoutes(original.routes); await cleanup.logout();
+            const cleanup = new HttpLocalApi(original.origin, result.session.accessToken, nativeNetworkFetch); cleanup.useRoutes(original.routes); await cleanup.logout().catch(() => { /* the original error wins */ });
           }
         }
         throw error;
@@ -571,7 +571,7 @@ export class NativeServerSignIn {
         try {await this.persist(result.session, trace);} catch (error) {
           // E-mobile-01: only a proven different identity ends the picked session; anything else leaves it unpublished.
           logPickFailure('sign-in', 'persist', error);
-          if (provenIdentityMismatch(error)) await this.retire(result.session);
+          if (provenIdentityMismatch(error)) {try {await this.retire(result.session);} catch { /* the original error wins */ }}
           else this.issued.delete(result.session.sessionFamilyId);
           throw error;
         }
