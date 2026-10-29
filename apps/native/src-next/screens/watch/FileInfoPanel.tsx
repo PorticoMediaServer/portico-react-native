@@ -7,19 +7,22 @@ import {nativeFileInfoShowVersion, nativeFileInfoView} from './file-info';
 export type NativeFileInfoPanelProps = Readonly<{
   session: FileInfoSession; kind: string; text: TextEnvironment; isTV: boolean; identity?: NativeFileInfoIdentity;
   onManage: (action: ManageAction['id'], occurrence?: string) => void;
+  /** A lane whose opening went stale cannot be retried as it is; its owner reopens File info. */
+  onStale?: () => void;
 }>;
 
 /** File info for one opening: versions arrive window by window, and each resident version's
  * offered head tracks (and an owner's files) are read as it becomes resident. Nothing drains a
  * cursor; every further window is one explicit "Show more". */
-export function NativeFileInfoPanel({session, kind, text, isTV, identity, onManage}: NativeFileInfoPanelProps) {
+export function NativeFileInfoPanel({session, kind, text, isTV, identity, onManage, onStale}: NativeFileInfoPanelProps) {
   const snapshot = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
   const groups = snapshot.groups.rows?.rows;
   useEffect(() => { for (const group of groups ?? []) nativeFileInfoShowVersion(session, group); }, [session, groups, snapshot.surface]);
   const view = nativeFileInfoView(snapshot, kind, text, isTV);
   if (!view) return null;
   const more = <Row,>(lane: FileInfoLane<Row> | undefined, next: () => void): NativeFileInfoMore | undefined =>
-    lane && (lane.rows?.more || lane.status === 'failed') ? {busy: lane.status === 'loading' || lane.status === 'preparing', failed: lane.status === 'failed', onPress: next} : undefined;
+    lane && (lane.rows?.more || lane.status === 'failed') ? {busy: lane.status === 'loading' || lane.status === 'preparing', failed: lane.status === 'failed',
+      onPress: lane.status === 'failed' && (lane.error as {code?: string} | undefined)?.code === 'stale_continuation' && onStale ? onStale : next} : undefined;
   const byId = new Map(groups?.map(group => [group.id, group]));
   return <NativeFileInfoContent model={view.model} locations={view.locations} disc={view.disc} identity={identity} versionCount={view.versionCount} onManage={onManage}
     more={more(snapshot.groups, () => { void session.groups(snapshot.groups.rows?.more ? 'next' : 'restart'); })}

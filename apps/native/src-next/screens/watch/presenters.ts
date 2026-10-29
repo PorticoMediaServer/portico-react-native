@@ -259,6 +259,16 @@ export class NativeWatchPresenters {
     if (!this.current(capture) || this.value?.capture !== capture || this.value.phase !== 'file-pending') {owner.session.retire(); return;}
     this.replace({...this.value, phase: 'file-info', content, owner, busy: false});
   };
+  /** A stale opening cannot be continued: retire it, refresh the title, and read File info again
+   * from the newest accepted Detail. */
+  reopenFileInfo = async (capture: NativeWatchCapture) => {
+    const value = this.value, owner = value?.owner;
+    if (!value || value.capture !== capture || value.phase !== 'file-info' || !owner || !value.actions || !this.current(capture)) return;
+    owner.session.retire();
+    const pending = this.patch(value, {phase: 'file-pending', busy: true, owner: undefined, content: undefined}); if (!pending) return;
+    try {await owner.changed(); if (this.value === pending) await pending.actions!.fileInfo(pending.detail);}
+    catch (error) {if (this.value?.capture === capture && this.current(capture)) {this.close(); this.common.reportError(error, 'detail');}}
+  };
   private async run(value: NativeWatchOverlay, action: (api: DetailApi, signal: AbortSignal, check: () => void) => Promise<void>) {
     const pending = this.patch(value, {busy: true, error: undefined}); if (!pending) return;
     const request = new AbortController(); this.requests.add(request);

@@ -92,6 +92,8 @@ export type NativeWatchFactoryPorts = Readonly<{
   startVersion?: (input: NativePlaybackStart, selection: NativeVersionStartSelection) => Promise<void>;
   manageFile: (capture: NativeWatchCapture, action: ManageAction['id'], fileId?: string) => void;
   openFileInfo: (capture: NativeWatchCapture, content: React.ReactNode, owner: NativeFileInfoOwner) => void;
+  /** The opening went stale (the title changed): refresh the title and open File info again. */
+  reopenFileInfo?: (capture: NativeWatchCapture) => void;
   /** The bound presenter follows the phone sheet / TV panel flow in ruling 21. */
   openVersions?: (capture: NativeWatchCapture, destination: NativeVersionDestination, opening: NativeVersionsOpening) => void;
   /** Created where Versions is dispatched, before any inventory is read. */
@@ -193,6 +195,9 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
    * The first window of versions is read before the panel shows, as the whole read was before. */
   const fileInfo = async (captured: NativeWatchCapture, detail?: DetailProjection): Promise<void> => {
     if (!captured.entry.libraryId || !current(captured)) return;
+    // The title page's live Detail is the newest accepted one; a later accepted Detail is a new opening.
+    const live = [...controllers.values()].find(controller => titleKey(controller.entry) === titleKey(captured.entry))?.getSnapshot().detail?.data ?? undefined;
+    if (live?.item.id === captured.entry.id && live.fileInfoOpening) detail = live;
     const token = detail?.item.id === captured.entry.id ? detail.fileInfoOpening : undefined;
     // A Detail that is not ready yet carries no opening; reading it again will.
     if (!detail || !token) throw Object.assign(new Error('file_info_unavailable'), {code: 'metadata_unavailable', retryable: true});
@@ -212,7 +217,8 @@ export function createNativeWatchScreens(ports: NativeWatchFactoryPorts) {
     ports.openFileInfo(captured, <NativeFileInfoPanel session={session} kind={captured.entry.kind} text={{t: defaultI18n.t}} isTV={ports.isTV} identity={{series: captured.entry.show?.name,
       code: captured.entry.kind === 'episode' && captured.entry.seasonNumber !== undefined && captured.entry.episodeNumber !== undefined
         ? defaultI18n.t('next.kit.episodeCode', {season: captured.entry.seasonNumber, episode: captured.entry.episodeNumber}) : undefined}}
-      onManage={(action, occurrence) => {if (current(captured)) ports.manageFile(captured, action, occurrence);}}/>, {session, kind: captured.entry.kind, changed});
+      onManage={(action, occurrence) => {if (current(captured)) ports.manageFile(captured, action, occurrence);}}
+      onStale={() => {if (current(captured)) ports.reopenFileInfo?.(captured);}}/>, {session, kind: captured.entry.kind, changed});
   };
   // TV Versions lists a disc's own other titles from the viewer's inventory of that
   // physical version. Never a synthetic version, never the main title twice, and each
