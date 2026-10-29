@@ -1,7 +1,7 @@
 name: CI
 on:
   schedule:
-    - cron: '23 * * * *'
+    - cron: '23 7 * * *'  # nightly, ~04:23 Atlantic; branch CI covers every change
   workflow_dispatch:
     inputs:
       apple_reading_commit:
