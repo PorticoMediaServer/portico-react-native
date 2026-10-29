@@ -600,7 +600,7 @@ export async function standardHomeApp({
       const receipt = mutationReceipts.get(decodeURIComponent(path.slice('/v1/user-mutations/'.length)));
       return receipt ? {status: 200, body: receipt} : {status: 404, body: {error: {code: 'receipt_unknown'}}};
     }
-    if (path === routePath('get_system')) return {status: 200, body: {id: pin.serverId, name: 'Synthetic living room', version: '1', move: null, signIn: 'local', setupRequired: false, hostedConfigured: false, hostedAttached: false}};
+    if (path === routePath('get_system')) return {status: 200, body: {id: pin.serverId, name: 'Synthetic living room', version: '1', move: null, signIn: 'local', setupRequired: false, hostedConfigured: false, hostedAttached: false, apiLevel: 1}};
     if (path === routePath('get_me')) return {status: 200, body: {viewer: {...viewer, role: accountRole}}};
     if (path === routePath('get_home')) return {status: 200, body: homeDoc()};
     if (path === routePath('get_preferences'))
