@@ -121,6 +121,26 @@ class Device:
     def alive(self):
         return bool(self.shell("pidof", PACKAGE))
 
+    def idle(self, timeout=30):
+        """Wait until Android has really finished with the package: no process and the package in
+        its stopped state, unchanged for a moment. `pm clear` and `am force-stop` return before
+        the platform is done; launching earlier lets their asynchronous kill land on the launch."""
+        deadline, steady = time.time() + timeout, 0
+        while time.time() < deadline:
+            state = self.shell("dumpsys", "package", PACKAGE)
+            # Older images may not print the field; then process absence alone decides.
+            stopped = "stopped=true" in state or "stopped=" not in state
+            steady = steady + 1 if stopped and not self.alive() else 0
+            if steady >= 3:
+                return
+            time.sleep(0.5)
+        raise AssertionError(f"the package did not settle within {timeout} s")
+
+    def quiesce(self):
+        """Force-stop, then wait until the package is idle."""
+        self.adb("shell", "am", "force-stop", PACKAGE)
+        self.idle()
+
 
 def fatal_lines(device):
     log, _, _ = device.adb("logcat", "-d", "-b", "main,system,crash", timeout=120)
@@ -157,7 +177,12 @@ def main():
     def install():
         output, code, error = device.adb("install", "-r", "-d", args.apk)
         assert code == 0 and "Success" in output, f"adb install failed: {output or error}"
-        device.adb("shell", "pm", "clear", PACKAGE)
+        # Stop first, then clear, then wait for the platform to finish: clear's own kill is
+        # asynchronous and once landed 120 ms into the next launch.
+        device.quiesce()
+        output, code, error = device.adb("shell", "pm", "clear", PACKAGE)
+        assert code == 0 and "Success" in output, f"pm clear failed: {output or error}"
+        device.idle()
         # The password field is masked; also stop Android flashing the last typed character, so no
         # screenshot or dump taken while signing in can carry any of it.
         device.adb("shell", "settings", "put", "system", "show_password", "0")
@@ -165,8 +190,20 @@ def main():
         return "installed and cleared"
 
     def launch(name):
+        device.idle()
         device.adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
         time.sleep(5)
+        if not device.alive() and not fatal_lines(device):
+            # A known platform race (a stop still landing on the launch) kills the process with no
+            # fatal. Retry once; a fatal is never retried, and the whole logcat is still scanned.
+            print(f"release-smoke: {name}: the app process vanished during launch with no fatal in logcat; "
+                  "treating it as the platform stop race and retrying the launch once", file=sys.stderr)
+            device.quiesce()
+            device.adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
+            time.sleep(5)
+            assert device.alive(), "the app process is gone right after launch (also on the one retry)"
+            device.screenshot(name)
+            return "launched on the one retry after a process loss with no fatal"
         assert device.alive(), "the app process is gone right after launch"
         device.screenshot(name)
         return "launched"
@@ -214,8 +251,7 @@ def main():
         return check
 
     def restart():
-        device.adb("shell", "am", "force-stop", PACKAGE)
-        time.sleep(2)
+        device.quiesce()
         return launch("signed-in-start")
 
     failed = None
