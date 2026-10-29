@@ -765,3 +765,24 @@ test('Q6 custom compact heading replaces only the touch sheet heading, including
     await menu.update(props); assert.equal((menu.tree as Element).props.headerContent, undefined);
   } finally {await menu.host.unmount();}
 });
+
+test('E-mobile-31 an outside press releases the modal Popover window at once and leaves no scrim after the exit', async t => {
+  state.theme = createTheme({isTV: false, width: 390});
+  t.mock.timers.enable({apis: ['setTimeout']});
+  const anchorRef = {current: {measureInWindow(run: any) {run(100, 50, 190, 44);}}};
+  let open = true; const reasons: string[] = [];
+  const props = () => ({testID: 'switcher', title: 'Switch', open, onOpenChange(next: boolean, reason: string) {open = next; reasons.push(reason);}, anchorRef, placement: 'bottom-center', width: 252, offset: 4, modal: true, backdropOpacity: .62, children: null});
+  const surface = await mount(Popover, props());
+  try {
+    await surface.host.flush();
+    assert.equal(find(surface.tree, 'Modal' as any).props.visible, true);
+    nodes(surface.tree).find(node => node.type === 'Pressable')!.props.onPress();
+    assert.deepEqual(reasons, ['outside']);
+    await surface.update(props());
+    // The native window must not wait on the 120 ms JS exit timer to stop dimming and blocking touches.
+    assert.equal(find(surface.tree, 'Modal' as any).props.visible, false);
+    t.mock.timers.tick(200); await surface.host.flush();
+    assert.equal(nodes(surface.tree).some(node => node.type === 'Modal'), false);
+    assert.equal(surface.tree, null);
+  } finally {await surface.host.unmount();}
+});
