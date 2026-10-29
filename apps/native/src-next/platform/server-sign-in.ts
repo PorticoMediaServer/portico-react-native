@@ -200,7 +200,7 @@ export class NativeServerSignIn {
           return undefined;
         });
         return result;
-      } catch (error) {await this.retire(issued); throw error;}
+      } catch (error) {try {await this.retire(issued);} catch { /* the original error wins */ } throw error;}
     });
   }
   prepareHostedSetup(name: string) {
@@ -266,7 +266,7 @@ export class NativeServerSignIn {
           return undefined;
         });
         return accepted;
-      } catch (error) {await this.retire(result.session); throw error;}
+      } catch (error) {try {await this.retire(result.session);} catch { /* the original error wins */ } throw error;}
       } catch (error) {await completed.release(); throw error;}
       } finally {
         lifetime?.signal.removeEventListener('abort', retire);
@@ -484,7 +484,7 @@ export class NativeServerSignIn {
         const snapshot = parseDirectSnapshot(await this.api.request(routePath('get_direct_account'), 'GET', undefined, this.controller.signal),
           {authority: 'local', serverId: this.server.id, accountId: session.viewer.accountId});
         return await this.consume({kind: 'signed-in', snapshot, session, accountScoped: session.viewer.role === 'account', passwordChangeRequired: false});
-      } catch (error) {await this.retire(session); throw error;}
+      } catch (error) {try {await this.retire(session);} catch { /* the original error wins */ } throw error;}
     });
   }
   createLocalInvitation() {
@@ -557,7 +557,7 @@ export class NativeServerSignIn {
       }
       if (result.accountScoped) {this.account = session; return {kind: 'profiles' as const, profiles: result.snapshot.profiles};}
       await this.persist(session); return {kind: 'complete' as const};
-    } catch (error) {await this.retire(session); throw error;}
+    } catch (error) {try {await this.retire(session);} catch { /* the original error wins */ } throw error;}
   }
   chooseProfile(profileId: string, pin?: string) {
     return this.run(async () => {
