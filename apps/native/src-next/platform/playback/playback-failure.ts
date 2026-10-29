@@ -16,3 +16,11 @@ export function classifyPlaybackFailure(fact: FailureFact): {network: boolean; e
     fact.hasPlayed === false && fact.uncertain !== true ? 'source_not_supported' : null;
   return {network: false, engine};
 }
+
+/** E-mobile-27: a media failure at the natural end (within a second of a known duration) is the
+ * end of the item, not a stop. A short clip's last read can fail on the server after the final
+ * frame; the viewer saw it all, so it is Finished with Replay, never "Playback stopped". */
+export function atNaturalEnd(position: unknown, duration: unknown): boolean {
+  return typeof position === 'number' && typeof duration === 'number' && Number.isFinite(position) && Number.isFinite(duration)
+    && duration > 0 && position >= duration - 1;
+}

@@ -84,3 +84,15 @@ test('both runtimes mark a failure that is not about the media, so start-up does
   assert.match(classification, /@"uncertain":@\(uncertain\)/);
   assert.match(source('src-next/platform/playback/playback-failure.ts'), /fact\.uncertain !== true/);
 });
+
+// E-mobile-27: the last read of a short clip failed after its final frame and the viewer saw
+// "Playback stopped / Try again". A failure within a second of the known duration is its end.
+test('E-mobile-27: a failure at the natural end is the end, anything earlier is still a failure', async () => {
+  const {atNaturalEnd} = await import('../src-next/platform/playback/playback-failure.ts');
+  assert.equal(atNaturalEnd(29.4, 30), true);
+  assert.equal(atNaturalEnd(30, 30), true);
+  assert.equal(atNaturalEnd(28.5, 30), false);
+  assert.equal(atNaturalEnd(10, 0), false, 'an unknown duration is never an end');
+  assert.equal(atNaturalEnd(Number.NaN, 30), false);
+  assert.equal(atNaturalEnd(undefined, 30), false);
+});

@@ -49,7 +49,7 @@ import {NativeVideoPlaybackPolicy, nativeVideoPolicyMarkers, nativeVideoPolicyPo
 import {boundSubtitleControls, type NativePlaybackSubtitleControls} from './subtitle-controls';
 import {uploadPickedSubtitle} from './subtitle-file-upload';
 import {deviceDrawnTrack, engineSubtitleRender, externalSubtitlePreparation, fontsUrlOf, linesUrlOf, parseSubtitleFonts, type SubtitleFonts} from './engine-media';
-import {classifyPlaybackFailure} from './playback-failure';
+import {atNaturalEnd, classifyPlaybackFailure} from './playback-failure';
 import {mediaRecovered, NativePlaybackRecovery} from './playback-recovery';
 import {directAudioStreamIndex, NativeAudioTrackSelection} from './audio-track-selection';
 import {NativeOfflineTracks} from './offline-tracks';
@@ -1561,6 +1561,9 @@ export class NativePlaybackRuntime {
     else if (fact.type === 'seekApplied') this.playback.seekApplied(before.intentId, fact.seekRevision, fact.position, fact.paused ? 'paused' : 'playing');
     else if (fact.type === 'seekFailed') this.playback.seekFailed(before.intentId, fact.seekRevision, serviceText('queuePlayer.startFailed'));
     else if (fact.type === 'progress' || fact.type === 'ended') this.playback.fact(before.intentId, fact.position, fact.type === 'ended' ? 'ended' : fact.paused ? 'paused' : 'playing');
+    else if (fact.type === 'error' && before.session && atNaturalEnd(Math.max(typeof fact.position === 'number' ? fact.position : 0, before.positionSeconds), before.duration)) {
+      this.recovery.clear(); this.playback.fact(before.intentId, before.duration, 'ended');
+    }
     else if (fact.type === 'error') {
       const failure = classifyPlaybackFailure(fact);
       if (failure.network && this.o.api.getRouteConnection()) {
