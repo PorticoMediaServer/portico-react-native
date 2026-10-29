@@ -535,7 +535,8 @@ function HomeWindow({runtime, row, sectionOrder, visible, physicalIds, retainedI
     if (!isTV) return;
     runtime.setHomeWindow(row, sectionOrder, range?.first ?? 0, range?.last ?? (row.collection ? 0 : -1), visible, physicalIds, retainedIds, range?.keys);
   }, [isTV, runtime, row, sectionOrder, visible, physicalIds, retainedIds, range]);
-  useEffect(() => () => {const current = latest.current; runtime.setHomeWindow(current.row, current.sectionOrder, 0, -1, false);}, [runtime, rowId]);
+  // An unmount never throws (P2-74 E-tv-30); the runtime reports a registration failure itself.
+  useEffect(() => () => {const current = latest.current; try {runtime.setHomeWindow(current.row, current.sectionOrder, 0, -1, false);} catch { /* reported by the runtime */ }}, [runtime, rowId]);
   return children;
 }
 

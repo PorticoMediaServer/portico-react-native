@@ -159,6 +159,15 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
   };
   const sameRegistration = (before: Registration | undefined, next: Registration) => !!before && before.row === next.row && before.order === next.order
     && before.context === next.context && before.coordinate === next.coordinate && before.first === next.first && before.last === next.last;
+  // Cleanup never throws (P2-74 E-tv-30): a throw from an unmount or deregistration reaches the app boundary.
+  const release = (cleanup?: () => void) => {try {cleanup?.();} catch (error) {reportError(error, 'home-registration');}};
+  // An expired Live row's window is dropped, never thrown: the next Home read brings a current one.
+  const dropWindow = (window: Window) => {
+    const cleanup = window.cleanup, prefix = `home-row-item:${JSON.stringify([window.row.id]).slice(0, -1)},`;
+    window.cleanup = undefined; window.registration = undefined; window.keys.clear(); window.memberWindows.clear();
+    for (const [id, member] of members) if (id.startsWith(prefix)) {release(member.cleanup); members.delete(id);}
+    release(cleanup);
+  };
   const register = (window: Window, ids?: readonly string[]) => {
     const row = window.row, stamp = registrationContext(), coordinate = coordinates.get(row) ?? -1;
     const count = row.live?.channels.length ?? row.entries.length;
@@ -179,6 +188,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
         const previous = members.get(memberWindow);
         const result = previous && sameRegistration(previous, memberRegistration) ? {ok: true as const, unregister: previous.cleanup} : controller.registerWindow({id: memberWindow, row, sectionOrder: window.order, start: row.start + index,
           ...(channel ? {channels: [channel]} : {entries: [entry]})});
+        if (!result.ok && result.reason === 'stale-home-live-window') {dropWindow(window); return;}
         if (!result.ok) throw failure(result.reason);
         members.set(memberWindow, {...memberRegistration, cleanup: result.unregister});
         const identity = channel ? homeChannelSelection(channel, platform) : homeEntrySelection(entry, platform);
@@ -189,6 +199,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     const entries = row.entries.slice(first, last + 1), channels = row.live?.channels.slice(first, last + 1);
     const result = controller.registerWindow({id: windowId(row.id), row, sectionOrder: window.order, start: row.start + first,
       ...(channels ? {channels} : row.collection ? {} : {entries})});
+    if (!result.ok && result.reason === 'stale-home-live-window') {dropWindow(window); return;}
     if (!result.ok) throw failure(result.reason);
     const previousCleanup = window.cleanup; window.cleanup = result.unregister; window.registration = registration; previousCleanup?.();
     for (const entry of entries) {const identity = homeEntrySelection(entry, platform); if (identity) window.keys.set(entry.id, controller.key(identity));}
@@ -268,9 +279,11 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     if (!currentHome()) return;
     for (const [id, window] of windows) {
       const row = document.rows.find(value => value.id === id);
-      if (!row) {window.cleanup?.(); windows.delete(id);} else window.row = row;
+      if (!row) {release(window.cleanup); windows.delete(id);} else window.row = row;
     }
-    registerSpotlights(document.spotlight); reconcileWindows(); publish();
+    // A Home re-read never throws into the Home service (E-tv-30): a window that can't register is reported.
+    try {registerSpotlights(document.spotlight); reconcileWindows();} catch (error) {reportError(error, 'home-registration');}
+    publish();
   };
   const scopeForServices = {serverId: scope.serverId, viewerId: JSON.stringify([scope.authority, scope.accountId, scope.profileId])};
   const management = context.account.account.role === 'owner' ? new LibraryManagementService({api: context.api, scope: scopeForServices}) : undefined;
@@ -449,7 +462,12 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
       }}),
     setHomeWindow: (row, order, first, last, visible, physicalIds, retainedIds, visibleIds) => {
       const before = windows.get(row.id);
-      if ((!visible && !retainedIds?.length) || !currentHome()) {if (!before) return; before.cleanup?.(); windows.delete(row.id); reconcileWindows(); return;}
+      if ((!visible && !retainedIds?.length) || !currentHome()) {
+        if (!before) return;
+        windows.delete(row.id); release(before.cleanup);
+        try {reconcileWindows();} catch (error) {reportError(error, 'home-registration');}
+        return;
+      }
       const latest = context.home.getSnapshot().document?.rows.find(value => value.id === row.id);
       if (!latest) return;
       if (before?.row === latest && before.order === order && before.first === first && before.last === last && before.visible === visible && same(before.physicalIds, physicalIds) && same(before.retainedIds, retainedIds) && same(before.visibleIds, visibleIds)) return;
