@@ -201,7 +201,9 @@ export function NativeReadingBooks({context, runtime, library, tab, owner, label
       : collection ? <View style={{flex: 1, flexDirection: 'row'}}>
         {total === 0 ? (filtered
           ? <View style={{flex: 1}}><FilteredEmpty testID="reading-books-filtered-empty" onClearFilters={() => applyQuery(base)}/></View>
-          : <StateView testID="reading-books-empty" variant="inline" title={defaultI18n.t('library.emptyLibrary')} body={defaultI18n.t('library.emptyLibraryBody')} style={{flex: 1}}/>)
+          : state.importing || state.capabilities?.importing
+            ? <StateView testID="reading-books-importing" variant="inline" title={defaultI18n.t('next.states.firstScan')} body={defaultI18n.t('next.states.firstScanBody', {library: library.name})} style={{flex: 1}}/>
+            : <StateView testID="reading-books-empty" variant="inline" title={defaultI18n.t('library.emptyLibrary')} body={defaultI18n.t('library.emptyLibraryBody')} style={{flex: 1}}/>)
           : <View style={{flex: 1}}>
             <WindowedGrid ref={grid} testID={list ? 'reading-books-list' : 'reading-books-grid'} collection={collection} getKey={nativeLibraryEntryKey}
               itemWidth={list ? rowWidth : cardWidth} itemHeight={list ? 70 : cardHeight} captionHeight={list ? 70 : 48}

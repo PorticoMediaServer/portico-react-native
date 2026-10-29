@@ -30,6 +30,8 @@ export type NativeLibrarySnapshot = Readonly<{
   wholeSelection?: BrowseWholeSelection;
   wholeSelectionUnavailable?: BrowseWholeSelectionUnavailable;
   unfilteredTotal?: BrowseRememberedTotal;
+  /** The latest page said its Reading image is still being built (P2-59): an empty page is not an exact zero. */
+  importing?: true;
   sort?: BrowseSortSelection;
   defaultSort?: BrowseSortSelection;
   collection?: WindowedCollection<ContentEntry>;
@@ -128,7 +130,7 @@ export class NativeLibraryDestination {
     this.retireFilters(); this.controller?.abort(); this.discover.cancel(); this.state.collection?.dispose();
     this.session?.retire(); this.session = undefined;
     const controller = new AbortController(), revision = ++this.operation; this.controller = controller;
-    this.publish({tab, phase: 'loading', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, defaultSort: undefined, revision: undefined, wholeSelection: undefined, wholeSelectionUnavailable: undefined, unfilteredTotal: undefined, error: undefined,
+    this.publish({tab, phase: 'loading', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, defaultSort: undefined, revision: undefined, wholeSelection: undefined, wholeSelectionUnavailable: undefined, unfilteredTotal: undefined, importing: undefined, error: undefined,
       memory: {firstVisibleIndex: 0, offset: 0}});
     try {
       if (!this.initialApplied && this.options.initial && this.options.initial.definition.pivot !== tab.pivot) throw new Error('native_library_view_pivot_unavailable');
@@ -201,6 +203,7 @@ export class NativeLibraryDestination {
       onPage: page => {
         const total = this.totals.observe(totalsKey, page, base);
         if (this.state.unfilteredTotal !== total) this.publish({unfilteredTotal: total});
+        if (page.importing !== this.state.importing) this.publish({importing: page.importing});
       },
       onStale: error => this.publish({phase: 'error', error, wholeSelection: undefined, wholeSelectionUnavailable: undefined})});
     this.session = session;
@@ -213,7 +216,7 @@ export class NativeLibraryDestination {
     this.retireFilters(keep);
     const next = Object.freeze([...predicates]);
     this.session?.retire(); this.session = undefined;
-    this.publish({predicates: next, queryRevision: this.state.queryRevision + 1, revision: undefined, wholeSelection: undefined, wholeSelectionUnavailable: undefined, sort, memory: {firstVisibleIndex: 0, offset: 0}});
+    this.publish({predicates: next, queryRevision: this.state.queryRevision + 1, revision: undefined, importing: undefined, wholeSelection: undefined, wholeSelectionUnavailable: undefined, sort, memory: {firstVisibleIndex: 0, offset: 0}});
     collection.invalidate(this.open(capabilities, tab, next, sort).fetchPage);
   };
   setQuick = (id: string, enabled: boolean): void => {

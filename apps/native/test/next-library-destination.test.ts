@@ -334,3 +334,25 @@ test('Discover uses the actual section continuation and retires it with the curr
     assert.equal(destination.getSnapshot().collection?.itemAt(0)?.id, 'actual-0', 'the new Browse page still loads independently');
   } finally {destination.dispose();}
 });
+
+test('P2-61: the latest page importing flag is published, kept with rows, and reset by a new query', async () => {
+  let importing = true, total = 0;
+  const api: LibraryContentApi = {request: async <T>(path: string, _method?: string, body?: unknown) =>
+    (path.includes('capabilities') ? capabilities : {...page(body as BrowseRequestBody, total), ...(importing ? {importing: true} : {})}) as T};
+  const destination = new NativeLibraryDestination({api, scope, library, current: () => true});
+  try {
+    await destination.load();
+    destination.getSnapshot().collection!.ensureRange(0, 0);
+    await tick(); await tick();
+    assert.equal(destination.getSnapshot().importing, true, 'empty + importing');
+    importing = false;
+    destination.setQuery([{field: 'favorite', operator: 'equals', value: true}]);
+    assert.equal(destination.getSnapshot().importing, undefined, 'a new query forgets the old flag');
+    await tick(); await tick();
+    assert.equal(destination.getSnapshot().importing, undefined, 'not importing + empty');
+    importing = true; total = 3;
+    destination.setQuery([]);
+    await tick(); await tick();
+    assert.equal(destination.getSnapshot().importing, true, 'rows + importing still publishes the flag; screens only use it when empty');
+  } finally {destination.dispose();}
+});

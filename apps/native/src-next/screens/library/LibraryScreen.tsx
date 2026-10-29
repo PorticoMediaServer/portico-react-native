@@ -408,12 +408,12 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
               entryRequest={entryRequest} onEntered={onEntered} entryCovered={emptyShown}/>
             {emptyShown && <View testID="library-empty-page" style={{position: 'absolute', inset: 0}}><StandardBackdrop/>
               <LibraryEmpty runtime={runtime} regionId={emptyRegion} upRegionId={ids.libraryTabs(state.library.id)} firstCardRegion={firstCardRegion}
-                surface={state.tab.shows}
+                surface={state.tab.shows} importing={importingReading(state)}
                 onLeave={() => {if (!empty) setEmptyHeld(false);}}/>
             </View>}
           </View>
           : loading ? <LibraryLoading theme={theme} width={theme.isTV ? dimensions.width : contentWidth} height={dimensions.height} tablet={tabletLayout} expanded={expanded} elapsedMs={loadingElapsed}/>
-          : emptyShown ? <LibraryEmpty runtime={runtime} regionId={emptyRegion} upRegionId={ids.libraryTabs(state.library.id)} surface={state.tab.shows}/>
+          : emptyShown ? <LibraryEmpty runtime={runtime} regionId={emptyRegion} upRegionId={ids.libraryTabs(state.library.id)} surface={state.tab.shows} importing={importingReading(state)}/>
           : theme.isTV && state.library.kind === 'music' && state.tab.id === 'discover' ? <TVMusicDiscover
             destination={destination} state={state} runtime={runtime} active={active} anchor={props.mixAnchor} onEntered={onEntered}
             renderEntry={(entry, width, context) => <LibraryCard entry={entry} width={width} runtime={runtime} actions={actions} focusId={context.focusId} disabled={!active.visible} onFocus={context.onFocus} onBlur={context.onBlur}/>}/>
@@ -468,15 +468,21 @@ function LibraryLoading({theme, width, height, tablet, expanded, elapsedMs}: {th
   </View>;
 }
 
+/** The library's name when a Reading library's empty page must read as a first scan (P2-59 `importing`), else undefined. */
+export function importingReading(state: Pick<NativeLibrarySnapshot, 'library' | 'importing' | 'capabilities'>): string | undefined {
+  return isReadingLibraryKind(state.library.kind) && (state.importing || state.capabilities?.importing) ? state.library.name : undefined;
+}
+
 /** tv-focus 46: the composed empty-library page. Header and pivot strip stay
  * above it; the one action enters first and leads Home. */
-function LibraryEmpty({runtime, regionId, upRegionId, firstCardRegion, onLeave, surface}: {runtime: NativeShellRuntime; regionId: string; upRegionId: string; firstCardRegion?: string; onLeave?: () => void; surface?: NativeLibrarySnapshot['tab']['shows']}) {
+export function LibraryEmpty({runtime, regionId, upRegionId, firstCardRegion, onLeave, surface, importing}: {runtime: NativeShellRuntime; regionId: string; upRegionId: string; firstCardRegion?: string; onLeave?: () => void; surface?: NativeLibrarySnapshot['tab']['shows']; importing?: string}) {
+  const first = importing !== undefined && surface !== 'genres' && surface !== 'playlists';
   const ids = nativeDestinationFocusIds(runtime.getSnapshot().authority);
   return <FocusRegion id={regionId} entry="browse-home" order={['browse-home']} edges={{up: upRegionId, left: ids.rail,
     ...(firstCardRegion ? {down: firstCardRegion, right: firstCardRegion} : {})}} style={{flex: 1, justifyContent: 'center'}}>
     <StateView testID="library-empty" variant="centered"
-      title={defaultI18n.t(surface === 'genres' ? 'library.genres.empty' : surface === 'playlists' ? 'next.selection.native.empty.playlist' : 'library.emptyLibrary')}
-      body={defaultI18n.t(surface === 'genres' ? 'library.genres.emptyBody' : surface === 'playlists' ? 'web.saved.playlistEmptyBody' : 'library.emptyLibraryBody')}>
+      title={first ? defaultI18n.t('next.states.firstScan') : defaultI18n.t(surface === 'genres' ? 'library.genres.empty' : surface === 'playlists' ? 'next.selection.native.empty.playlist' : 'library.emptyLibrary')}
+      body={first ? defaultI18n.t('next.states.firstScanBody', {library: importing}) : defaultI18n.t(surface === 'genres' ? 'library.genres.emptyBody' : surface === 'playlists' ? 'web.saved.playlistEmptyBody' : 'library.emptyLibraryBody')}>
       <Button focusId="browse-home" testID="library-empty-browse-home" variant="primary" size="hero" onBlur={onLeave}
         onPress={() => runtime.onDestination({kind: 'home'})}>{defaultI18n.t('saved.browseHome')}</Button>
     </StateView>

@@ -288,3 +288,21 @@ test('TV Library composes one measured grid with toolbar memory, short rows and 
     assert.equal(requested.at(-1), 'served-6', 'removal at the end falls back to the previous genuine card');
   } finally {collection.dispose();}
 });
+
+test('P2-61: a Reading library that is importing shows the first-scan words; otherwise the empty-library words', async () => {
+  const {module} = await libraryScreen(390);
+  const runtime = {getSnapshot: () => ({authority: {}})};
+  const words = (surface: string | undefined, importing: string | undefined) => {
+    const view = elements(module.LibraryEmpty({runtime, regionId: 'r', upRegionId: 'u', surface, importing})).find(node => node.type === 'StateView')!;
+    return [view.props.title, view.props.body];
+  };
+  assert.deepEqual(words('titles', 'Books'), ['next.states.firstScan', 'next.states.firstScanBody']);
+  assert.deepEqual(words('titles', undefined), ['library.emptyLibrary', 'library.emptyLibraryBody']);
+  assert.deepEqual(words('genres', 'Books'), ['library.genres.empty', 'library.genres.emptyBody'], 'genres keep their own empty');
+  assert.deepEqual(words('playlists', 'Books')[0], 'next.selection.native.empty.playlist', 'playlists keep their own empty');
+  const state = (kind: string, extra: object) => ({library: {id: 'l', name: 'Shelf', kind}, ...extra}) as any;
+  assert.equal(module.importingReading(state('book', {importing: true})), 'Shelf');
+  assert.equal(module.importingReading(state('comic', {capabilities: {importing: true}})), 'Shelf');
+  assert.equal(module.importingReading(state('book', {})), undefined);
+  assert.equal(module.importingReading(state('movie', {importing: true})), undefined, 'only Reading libraries use the first-scan words');
+});

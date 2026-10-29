@@ -168,7 +168,10 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
   const retryDiscover = () => {void discovery.retry().catch(runtime.reportError);};
   const retryBooks = () => {void books.retry().catch(runtime.reportError);};
   const retry = <StateView testID="reading-library-error" variant="inline" {...runtime.error(tab === 'discover' ? discoveryState.error : booksState.error, tab === 'discover' ? retryDiscover : retryBooks, 'library')}/>;
-  const empty = <StateView testID="reading-library-empty" variant="inline" title={defaultI18n.t('library.emptyLibrary')} body={defaultI18n.t('library.emptyLibraryBody')}/>;
+  // The bounded list has no page flag of its own; the server's published capabilities carry `importing`.
+  const empty = capability?.data?.importing
+    ? <StateView testID="reading-library-importing" variant="inline" title={defaultI18n.t('next.states.firstScan')} body={defaultI18n.t('next.states.firstScanBody', {library: name})}/>
+    : <StateView testID="reading-library-empty" variant="inline" title={defaultI18n.t('library.emptyLibrary')} body={defaultI18n.t('library.emptyLibraryBody')}/>;
   const columns = tablet ? 4 : 3, gap = 16, width = Math.max(96, ((paneWidth ?? dimensions.width) - theme.gutter * 2 - gap * (columns - 1)) / columns);
   const loading = <ReadingLoading ready={false} style={{flex: 1, minHeight: 480}} skeleton={<ReadingGridSkeleton width={width} columns={columns} gap={gap} gutter={theme.gutter}/>}/>;
   const discover = <ScrollView testID="reading-discover" contentContainerStyle={{paddingBottom: insets.bottom + 40}}>
