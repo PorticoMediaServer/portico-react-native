@@ -48,3 +48,15 @@ test('title navigation uses the actual navigation admission outside Home and sto
   assert.deepEqual(f.navigation.getSnapshot().route, {kind: 'title', entry});
   f.retire(); assert.throws(() => f.service.navigate(entry), {name: 'AbortError'});
 });
+
+// Class 7 (E-tv-43 candidate): error() builds an error row's props during render. After the
+// shell's authority retires, a still-mounted row must render its message without a Try again,
+// never throw from render and take the whole shell down.
+test('an error row rendered after the authority retired shows its message and offers no retry', () => {
+  const f = fixture(); let retried = 0;
+  f.retire();
+  const state = f.service.error({code: 'offline'}, () => retried++, 'detail');
+  assert.ok(state.title || state.body, 'the row still says what happened');
+  assert.equal(state.primaryAction, undefined, 'a retired screen offers no Try again');
+  assert.equal(retried, 0);
+});

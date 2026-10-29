@@ -64,11 +64,12 @@ export class NativeScreenServices {
     this.toast = Object.freeze({id: `native-screen-error-${++this.sequence}`, message: presented.body});
     this.publish();
   };
+  /** Builds an error row's props during render, so it never throws (class 7): a row still mounted
+   * after the authority retired keeps its message and offers no Try again. */
   error = (error: unknown, retry: () => void, context: ErrorContext = 'generic') => {
-    this.lifetime.assert();
     const presented = presentError(error, context, {deviceOnline: deviceOnline()});
     return {title: presented.title, body: presented.body, tone: 'error',
-      ...(presented.action === 'try-again' || presented.action === 'refresh'
+      ...(this.lifetime.current() && (presented.action === 'try-again' || presented.action === 'refresh')
         ? {primaryAction: {id: 'retry', label: presented.actionLabel, onPress: () => {if (this.lifetime.current()) retry();}}} : {})} satisfies ReturnType<NativeShellRuntime['error']>;
   };
 
