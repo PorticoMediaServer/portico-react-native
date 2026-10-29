@@ -564,7 +564,7 @@ function SettingsPageBody({page, ports, controller, runtime, devicePreferences, 
   if (pageSections.some(section => section.advanced)) rowIds.push('settings-advanced');
   const device = Platform.isTV ? Platform.OS === 'ios' ? 'device.noun.appleTV' : String((Platform.constants as {Manufacturer?: string}).Manufacturer ?? '').toLowerCase() === 'amazon' ? 'device.noun.fireTV' : 'device.noun.androidTV'
     : Platform.OS === 'ios' ? (Platform as {isPad?: boolean}).isPad ? 'device.noun.iPad' : 'device.noun.iPhone' : Math.min(Dimensions.get('screen').width, Dimensions.get('screen').height) >= 600 ? 'device.noun.tablet' : 'device.noun.phone';
-  return <><FocusRegion id={region} entry={rowIds[0]} order={rowIds} orientation="vertical" edges={{left: column, ...verticalEdges}}>
+  return <><FocusRegion id={region} entry={rowIds[0]} entryPolicy="entry" order={rowIds} orientation="vertical" edges={{left: column, ...verticalEdges}}>
     {actionError !== undefined && <StateView {...runtime.error(actionError, () => setActionError(undefined))}/>}
     {showSafeMode && <NativeSafeModeRow source={devicePreferences} runtime={runtime} current={controller.lifetime.current}/>}
     {sections.map(section => <React.Fragment key={section.id}><View style={{marginBottom: theme.isTV ? 30 : 24}}>

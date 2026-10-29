@@ -152,3 +152,25 @@ test('initial Home entry uses the same deferred resolver and requests its actual
   f.registry.didFocus(ids.last);
   assert.equal(request(), 'finished'); assert.equal(f.requests(), 1, 'later data/render cannot reclaim the starting row');
 });
+
+test('a hero without buttons makes Up on the first row a stop instead of leaving to the rail (E-tv-08)', () => {
+  const withHero = tvHomeRegionMap(authority, ['a', 'b']), noHero = tvHomeRegionMap(authority, ['a', 'b'], {spotlightFocusable: false});
+  assert.equal(withHero.rows.get('a')!.edges.up, ids.spotlight);
+  assert.equal(noHero.rows.get('a')!.edges.up, undefined);
+  assert.deepEqual(noHero.rows.get('a')!.stops, {up: true});
+  assert.equal(noHero.rows.get('a')!.neighbors.previous, ids.spotlight, 'the focus-restore chain is unchanged');
+  assert.equal(noHero.rows.get('b')!.edges.up, ids.row('a'));
+  assert.equal(noHero.rows.get('b')!.stops, undefined);
+});
+
+test('a hero without actions and only skeleton rows waits instead of starting on Customize Home (E-tv-03)', () => {
+  const skeleton: HomeRow = {...row, id: 'later', entries: [], deferred: true};
+  const f = fixture(document([skeleton]), []);
+  f.attach({regionId: ids.customize, childId: 'customize'});
+  assert.equal(f.model.deferredPending, true);
+  assert.equal(f.resolve().kind, 'waiting');
+  // Once the rows have loaded the start is the first real row, never Customize.
+  const loaded = fixture(document([row]));
+  loaded.attach({regionId: ids.customize, childId: 'customize'});
+  assert.equal(loaded.model.deferredPending, false);
+});

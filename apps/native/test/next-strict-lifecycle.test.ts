@@ -1,4 +1,4 @@
-import {canReturnToPage} from '../src-next/shell/page-focus-return.ts';
+import {canReturnToPage, holdsPageFocus} from '../src-next/shell/page-focus-return.ts';
 import * as homeWindow from '../src-next/screens/home/home-window';
 import * as homeStart from '../src-next/screens/home/home-start';
 import {listeningCoverFixture, stackSlotFixture} from './helpers/screen-harness.mjs';
@@ -290,7 +290,7 @@ function shellRuntime(onMemoryRead?: () => void) {
 async function shellSession(state: ReturnType<typeof lifecycle>, runtime: NativeShellRuntime, registry = createFocusRegistry()) {
   const theme = createTheme({isTV: false, width: 390});
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {...stackSlotFixture, 
-    './page-focus-return': {canReturnToPage},
+    './page-focus-return': {canReturnToPage, holdsPageFocus},
     '../screens/home/home-start': homeStart,
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},
@@ -443,7 +443,7 @@ function driverMount(component: any, initial: any) {
 async function driverShellSession(state: ReturnType<typeof lifecycle>, runtime: NativeShellRuntime, registry = createFocusRegistry()) {
   const theme = createTheme({isTV: false, width: 390});
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {...stackSlotFixture, 
-    './page-focus-return': {canReturnToPage},
+    './page-focus-return': {canReturnToPage, holdsPageFocus},
     '../screens/home/home-start': homeStart,
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},

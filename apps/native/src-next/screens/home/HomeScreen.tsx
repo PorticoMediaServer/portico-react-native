@@ -261,10 +261,15 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const capturedRegion = registry.capture()?.regionId;
   const mountedRows = homeMountedRows(rows.length, visibleRange[0], visibleRange[1], [rows.findIndex(row => row.id === focus?.rowId), rows.findIndex(row => ids.row(row.id) === capturedRegion)]);
   // F04: only rows that are mounted (visible, overscan or focus-pinned) ask the server for their shelf.
-  const rowDemand = JSON.stringify(rows.filter((_row, index) => mountedRows.has(index)).map(row => row.id));
+  // The drawn skeleton rows are demanded too: they are not in `rows` until they load, so leaving them out
+  // parked every deferred row after a restore forever (E-tv-02, E-mobile-08).
+  const rowDemand = JSON.stringify([...rows.filter((_row, index) => mountedRows.has(index)).map(row => row.id), ...pendingRows.map(row => row.id)]);
+  // TV: skeleton rows have no focus target, so Down from the hero and the first native focus would otherwise skip
+  // them to Customize and scroll Home to the bottom. Customize waits until no row is still loading.
+  const holdCustomize = theme.isTV && pendingRows.length > 0;
   const mixes = useSyncExternalStore(runtime.mixes?.subscribe ?? noMixesSubscription, runtime.mixes?.getSnapshot ?? noMixesSnapshot);
   const hasMixes = mixes?.phase === 'ready' && mixes.rows.length > 0;
-  const regionMap = tvHomeRegionMap(authority, [...rows.map(row => row.id), ...(hasMixes ? [mixesFocusRow] : [])]);
+  const regionMap = tvHomeRegionMap(authority, [...rows.map(row => row.id), ...(hasMixes ? [mixesFocusRow] : [])], {spotlightFocusable: homeStartModel(document, authority, {rows: rows.map(row => row.id)}).spotlightActions});
   const mixesRegion = regionMap.rows.get(mixesFocusRow);
   const startModel = homeStartModel(document, authority, {rows: rows.map(row => row.id), readLibraryIds: readLibraries, mixesReady: hasMixes, playbackAvailable: !!runtime.playback});
   const resolveStart = useCallback(() => resolveTVHomeStart(registry, startModel), [registry, startModel]);
@@ -475,7 +480,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     })}
     {pendingRows.map(row => <HomePendingRow key={`pending:${row.id}`} row={row} labels={labels} viewportWidth={viewportWidth}/>)}
     {mixesContent}
-    <HomeRegion focus={theme.isTV ? {...regionMap.customize, order: ['customize']} : undefined}><View style={theme.isTV ? {flexDirection: 'row', alignItems: 'center', gap: 30, paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingVertical: 24} : {marginTop: 34, marginHorizontal: 24, alignItems: 'center', gap: 12}}><Button focusId="customize" variant="glass" icon="i-sliders" style={theme.isTV ? undefined : {height: 48, paddingHorizontal: 22}} onPress={() => guarded(runtime.actions.customize)}>{t('home.customize.action')}</Button>
+    <HomeRegion focus={theme.isTV ? {...regionMap.customize, order: ['customize'], enabled: !holdCustomize} : undefined}><View style={theme.isTV ? {flexDirection: 'row', alignItems: 'center', gap: 30, paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingVertical: 24} : {marginTop: 34, marginHorizontal: 24, alignItems: 'center', gap: 12}}><Button focusId="customize" disabled={holdCustomize} variant="glass" icon="i-sliders" style={theme.isTV ? undefined : {height: 48, paddingHorizontal: 22}} onPress={() => guarded(runtime.actions.customize)}>{t('home.customize.action')}</Button>
       {theme.isTV
         ? <Text style={[nativeType({size: 22, weight: 400, tracking: 0, lineHeight: 30.8}, theme.textScale), {color: theme.colors.textTertiary, flexShrink: 1}]}>{t('next.home.customizeDescriptionTV')}</Text>
         : <Text style={[nativeType({size: 13, weight: 400, tracking: 0, lineHeight: 19.5}, theme.textScale), {color: theme.colors.textTertiary, textAlign: 'center'}]}>{t('next.home.customizeDescription')}</Text>}

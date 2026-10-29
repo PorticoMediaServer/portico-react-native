@@ -52,6 +52,8 @@ export function StateLayout({title, body, icon, tone = 'neutral', primaryAction,
   const androidGlass = glass.nativeBlur && Platform.OS === 'android';
   const emblem = icon ? <Icon name={icon} color={foreground} size={tv ? 40 : player ? 22 : 26} /> : null;
   const headingSize = tv ? player ? 72 : 88 : player ? 26 : 30;
+  // Android draws a line of exactly the font size with its descenders clipped; give TV headings room and take it back from the margin, so the layout does not move.
+  const descenderRoom = tv && Platform.OS === 'android' ? Math.ceil(headingSize * .12) : 0;
   const bodySize = tv ? 28 : player ? 14 : 15;
   const stacked = !tv && !player;
   const shape = backdropShape ?? (tv ? 'side' : 'top');
@@ -79,8 +81,8 @@ export function StateLayout({title, body, icon, tone = 'neutral', primaryAction,
             {emblem}
           </>}
         </View>}
-        <Text ref={titleRef} accessibilityRole="header" textBreakStrategy="balanced" android_hyphenationFrequency="none" style={[{includeFontPadding: false}, nativeType({size: headingSize, lineHeight: tv ? headingSize : headingSize * 1.08, weight: 800, tracking: tv ? -.045 : player ? -.03 : -.035}, theme.textScale),
-          {color: theme.colors.text, textAlign: stacked ? 'center' : 'left', marginBottom: tv ? 24 : player ? 8 : 10}]}>{title}</Text>
+        <Text ref={titleRef} accessibilityRole="header" textBreakStrategy="balanced" android_hyphenationFrequency="none" style={[{includeFontPadding: false}, nativeType({size: headingSize, lineHeight: tv ? headingSize + descenderRoom : headingSize * 1.08, weight: 800, tracking: tv ? -.045 : player ? -.03 : -.035}, theme.textScale),
+          {color: theme.colors.text, textAlign: stacked ? 'center' : 'left', marginBottom: tv ? 24 - descenderRoom : player ? 8 : 10}]}>{title}</Text>
         {body != null && <Text style={[{includeFontPadding: false},nativeType({size: bodySize, lineHeight: bodySize * (tv ? 1.45 : 1.5), weight: 400, tracking: 0}, theme.textScale),
           {maxWidth: tv ? 900 : undefined, color: theme.colors.textSecondary, textAlign: stacked ? 'center' : 'left', marginBottom: tv ? 28 : player ? 14 : 16}]}>{body}</Text>}
         {retry && <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: stacked ? 'center' : 'flex-start', gap: tv ? 16 : 12, marginBottom: tv ? 40 : 22}}>

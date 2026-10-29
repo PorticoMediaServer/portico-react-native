@@ -24,13 +24,18 @@ export function tvFocusIds(authority: ShellAuthority) {
 }
 
 /** Declarative region boundaries only. Native focus engines choose every move inside. */
-export function tvHomeRegionMap(authority: ShellAuthority, rowIds: readonly string[]) {
+/** `spotlightFocusable: false` (a hero with no buttons) makes the first row's top edge a stop: Up has nowhere to go,
+ * tv-focus F-HOME-3 "top of the page; nothing moves", instead of falling to the rail. */
+export function tvHomeRegionMap(authority: ShellAuthority, rowIds: readonly string[], options: Readonly<{spotlightFocusable?: boolean}> = {}) {
   const ids = tvFocusIds(authority), regions = rowIds.map(ids.row);
   const region = (id: string, previous?: string, next?: string) => ({id, neighbors: {previous, next}, screenStart: ids.start,
     edges: {left: ids.rail, up: previous, down: next}});
   return {
     spotlight: {...region(ids.spotlight, undefined, regions[0] ?? ids.customize), entry: 'play'},
-    rows: new Map(rowIds.map((id, index) => [id, region(regions[index], regions[index - 1] ?? ids.spotlight, regions[index + 1] ?? ids.customize)])),
+    rows: new Map(rowIds.map((id, index) => {
+      const row = region(regions[index], regions[index - 1] ?? ids.spotlight, regions[index + 1] ?? ids.customize);
+      return [id, index === 0 && options.spotlightFocusable === false ? {...row, edges: {...row.edges, up: undefined}, stops: {up: true}} : row];
+    })),
     customize: {...region(ids.customize, regions.at(-1) ?? ids.spotlight), entry: 'customize'},
   };
 }

@@ -78,7 +78,8 @@ export function TVRail({libraries, hasLiveTV, destination, profile, unread = fal
       style={({focused}) => ({height: spec.itemSize, width: spec.openItemWidth, paddingHorizontal: 17, flexDirection: 'row', alignItems: 'center', gap: spec.labelGap, borderRadius: spec.itemRadius, backgroundColor: focused ? `${theme.colors.text}0F` : undefined})}>
       {({focused}) => <>{selected && <View pointerEvents="none" style={{position: 'absolute', left: -16, top: 18, bottom: 18, width: 4, borderRadius: 2, backgroundColor: theme.colors.accent}}/>}
         <Icon name={entry.icon} size={30} color={selected || focused ? theme.colors.text : theme.colors.textTertiary}/>
-        <Animated.Text numberOfLines={1} style={[theme.type.bodyStrong, {color: selected || focused ? theme.colors.text : theme.colors.textTertiary, flexShrink: 1}, labels]}>{entry.label}</Animated.Text></>}
+        {/* The mock's 320-wide item fits short names; a long library name shrinks to 80% before it truncates. */}
+        <Animated.Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={.8} style={[theme.type.bodyStrong, {color: selected || focused ? theme.colors.text : theme.colors.textTertiary, flexShrink: 1}, labels]}>{entry.label}</Animated.Text></>}
     </Focusable>;
   };
   return <View pointerEvents="box-none" style={{position: 'absolute', left: 0, top: 0, bottom: 0, width: open ? spec.openWidth : spec.width, zIndex: theme.layers.navigation}}>

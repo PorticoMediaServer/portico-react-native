@@ -20,6 +20,8 @@ export function homeSpotlightFocusActions(entry: Parameters<typeof homeEntryCapa
 }
 export type HomeStartModel = Readonly<{
   ids: ReturnType<typeof tvFocusIds>; resolved: boolean; actionless: boolean; spotlightActions: boolean; fallbacks: readonly string[];
+  /** Deferred rows are still skeletons: "Customize Home" is not a start while real rows may yet arrive. */
+  deferredPending?: boolean;
 }>;
 /** Only a document admitted to this immutable authority proves permanent absence. */
 export function homeStartModel(document: HomeDocument | undefined, authority: ShellAuthority, options: Readonly<{
@@ -31,7 +33,7 @@ export function homeStartModel(document: HomeDocument | undefined, authority: Sh
   const rows = options.rows ?? eligible.filter(homeRowHasContent).map(row => row.id);
   const noContent = !admitted.spotlight.length && !rows.length && !options.mixesReady;
   const deferred = eligible.some(row => row.deferred === true && !homeRowHasContent(row));
-  return {ids, resolved: !noContent || !deferred, actionless: noContent && !deferred,
+  return {ids, resolved: !noContent || !deferred, actionless: noContent && !deferred, deferredPending: deferred,
     spotlightActions: homeSpotlightModels(admitted).some(model => homeSpotlightFocusActions(model.entry, model.primary?.entry, {platform: 'tv', playbackAvailable: options.playbackAvailable === true}).order.length > 0),
     fallbacks: noContent ? [] : [...rows.map(ids.row), ...(options.mixesReady ? [ids.row(homeMixesFocusRow)] : []), ids.customize]};
 }
@@ -68,7 +70,9 @@ export function resolveTVHomeStart(registry: StartRegistry, model: HomeStartMode
   if (model.spotlightActions && !emptyLiveSpotlight) return waiting;
   const fallbacks = renderedFallbacks(registry, model);
   if (!fallbacks) return waiting;
-  for (const regionId of fallbacks) {
+  // Skeleton rows have no focus target, so the first real stop is Customize; landing there scrolls Home to the
+  // bottom (E-tv-02/03). Wait for the rows instead; the page owns the hold on Customize until they arrive.
+  for (const regionId of model.deferredPending ? fallbacks.filter(id => id !== model.ids.customize) : fallbacks) {
     if (registry.config(regionId)?.enabled === false) continue;
     const address = registry.entryAddress(regionId);
     // Do not skip a real virtualized first region to a later mounted control.

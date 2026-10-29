@@ -9,3 +9,11 @@ export function canReturnToPage(captured: string, now: Readonly<{
     && (now.destination.kind !== 'home' || now.homeVisible)
     && !now.homeObscured && !now.mediaExpanded && !now.selectionActive && !listening && !overlay;
 }
+
+/** Whether the page's own focus must be retained for its return: TV listening, the expanded
+ * player, a hidden Home, or a route (title, book, collection) pushed over the page. */
+export function holdsPageFocus(state: Readonly<{
+  destination: ShellDestination; contentVisible?: boolean; homeVisible: boolean; mediaExpanded?: boolean;
+}>, listening: boolean): boolean {
+  return listening || !!state.mediaExpanded || state.contentVisible === false || state.destination.kind === 'home' && !state.homeVisible;
+}

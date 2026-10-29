@@ -26,7 +26,7 @@ import {MediumRail} from './MediumRail';
 import {TVRail} from './TVRail';
 import {TVProfileMenu} from './TVProfileMenu';
 import {NativePlaybackLayer} from './NativePlaybackLayer';
-import {canReturnToPage} from './page-focus-return';
+import {canReturnToPage, holdsPageFocus} from './page-focus-return';
 import {NativeStackSlots, NativeStackSlotsProvider} from '../kit/navigation/stack-slot';
 import {TouchStacks, nativeStackMotionTier, type NativeStackPage} from './TouchStacks';
 
@@ -90,7 +90,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
     return () => {original?.removeEventListener('abort', off);off();};
   }, [ids, registry, runtime, tvListeningPresent]);
   const currentPageFocus = pageFocusDestination.current === JSON.stringify(destination) ? pageFocus.current : undefined;
-  const pageHold = theme.isTV && tvListeningPresent || snapshot.mediaExpanded || destination.kind === 'home' && !snapshot.homeVisible;
+  const pageHold = holdsPageFocus(snapshot, theme.isTV && tvListeningPresent);
   const heldPage = useRef<{opener: FocusSnapshot; destination: string; release: () => void} | undefined>(undefined);
   const listeningPresent = useRef(tvListeningPresent); listeningPresent.current = tvListeningPresent;
   useEffect(() => () => {railRelease.current?.(); heldPage.current?.release();}, []);

@@ -1,10 +1,11 @@
 import React from 'react';
-import {Platform, Text} from 'react-native';
+import {BackHandler, Platform, Text} from 'react-native';
 import {defaultI18n} from '../../../../packages/i18n/src';
 import {presentError} from '../../../../packages/client-core/src/presentation/errors';
 import {StateLayout} from '../kit/states';
 import {useTheme} from '../kit/theme';
 import {copyText} from '../platform/clipboard';
+import {captureTVMenuKey} from '../platform/tv-menu';
 import {homeActionDiagnostics} from '../platform/home-action-diagnostics';
 
 /** The copied summary deliberately contains no exception, stack, URL, viewer or session data. */
@@ -39,6 +40,13 @@ export class AppErrorBoundary extends React.Component<{children: React.ReactNode
 
 function AppFailure({failedAt, onRetry}: {failedAt: number; onRetry: () => void}) {
   const theme = useTheme(), t = defaultI18n.t;
+  // TV: Back (Android) and Menu (tvOS) would leave the app from here, losing the person's place; they act as Try again.
+  React.useEffect(() => {
+    if (!theme.isTV) return;
+    const release = captureTVMenuKey(true);
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {onRetry(); return true;});
+    return () => {subscription.remove(); release();};
+  }, [onRetry, theme.isTV]);
   const [copying, setCopying] = React.useState(false), [copyError, setCopyError] = React.useState<string>();
   const copy = async () => {
     if (copying) return;

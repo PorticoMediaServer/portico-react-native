@@ -1,6 +1,6 @@
 import {headerWordmark} from '../src-next/kit/shell/brand';
 // @fabric-react
-import {canReturnToPage} from '../src-next/shell/page-focus-return.ts';
+import {canReturnToPage, holdsPageFocus} from '../src-next/shell/page-focus-return.ts';
 import * as homeStart from '../src-next/screens/home/home-start';
 import {listeningCoverFixture, stackSlotFixture} from './helpers/screen-harness.mjs';
 import assert from 'node:assert/strict';
@@ -62,7 +62,7 @@ test(`${adapter}: the real TV shell retains its page opener and retires Menu bef
     registerTVRailBack: (fn: () => boolean) => {railBack = fn; return () => {railBack = undefined;};},
     renderRoutes() {}, renderSelection() {}, renderDestination() {}};
   const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {...stackSlotFixture, 
-    './page-focus-return': {canReturnToPage},
+    './page-focus-return': {canReturnToPage, holdsPageFocus},
     '../screens/home/home-start': homeStart,
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
     '../kit/dock/DockClearance': {DockClearanceProvider: 'DockClearanceProvider'},

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {canReturnToPage} from '../src-next/shell/page-focus-return.ts';
+import {canReturnToPage, holdsPageFocus} from '../src-next/shell/page-focus-return.ts';
 
 test('player exit restores every captured shell destination, not just Home', () => {
   for (const destination of [{kind: 'home'}, {kind: 'search'}, {kind: 'saved'}, {kind: 'live'}, {kind: 'library', libraryId: 'movies'}] as const) {
@@ -17,4 +17,12 @@ test('retired page identity and every covering state refuse opener restoration',
   assert.equal(canReturnToPage(captured, current, false, true), false);
   const home = {kind: 'home'} as const;
   assert.equal(canReturnToPage(JSON.stringify(home), {destination: home, homeVisible: false}, false, false), false);
+});
+test('a route pushed over a library holds the page focus so Back restores the opening card (E-tv-10)', () => {
+  const destination = {kind: 'library', libraryId: 'movies'} as const;
+  assert.equal(holdsPageFocus({destination, homeVisible: false, contentVisible: true}, false), false);
+  assert.equal(holdsPageFocus({destination, homeVisible: false, contentVisible: false}, false), true);
+  assert.equal(holdsPageFocus({destination, homeVisible: false, contentVisible: true}, true), true);
+  assert.equal(holdsPageFocus({destination, homeVisible: false, mediaExpanded: true}, false), true);
+  assert.equal(holdsPageFocus({destination: {kind: 'home'}, homeVisible: false}, false), true);
 });
