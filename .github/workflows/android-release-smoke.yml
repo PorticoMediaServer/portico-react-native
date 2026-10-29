@@ -59,6 +59,13 @@ jobs:
         working-directory: portico-react-native/apps/native/android
       - id: apk
         run: echo "path=$(find portico-react-native/apps/native/android/app/build/outputs/apk/google/release -name '*.apk' | head -n1)" >> "$GITHUB_OUTPUT"
+      - name: APK size (spike measurement)
+        run: |
+          apk="$(find portico-react-native/apps/native/android/app/build/outputs/apk/google/release -name '*.apk' | head -n1)"
+          ls -l "$apk"; stat -c 'APK_BYTES=%s' "$apk"
+          unzip -l "$apk" | tail -1
+          unzip -l "$apk" | awk '{print $1, $4}' | sort -rn | head -25
+          mkdir -p "$SMOKE_OUT"; cp "$apk" "$SMOKE_OUT/"
 
       - name: Let the emulator use KVM
         run: |
