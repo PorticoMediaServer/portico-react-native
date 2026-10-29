@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {noteHomeRead} from '../../shell/home-read-log';
+import {liveRereadPlan, type LiveRereadMemory} from './live-expiry';
 import {logBootMilestone} from '../../shell/boot-timing';
 import {AppState, RefreshControl, ScrollView, Text, View, useWindowDimensions, type ViewProps} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -305,13 +306,28 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     const timers = [skeletonTiming.delayMs, skeletonTiming.slowMs].map(at => setTimeout(() => setLoadingElapsed(at), at));
     return () => timers.forEach(clearTimeout);
   }, [snapshot.phase]);
+  // E-mobile-29: one timer per live expiry (live-expiry.ts). Unrelated document updates (row
+  // hydration) keep it; only a re-read that brings back the same or an expired expiry backs off.
+  const liveTimer = useRef<{expiry: string; timer: ReturnType<typeof setTimeout>} | undefined>(undefined);
+  const liveMemory = useRef<LiveRereadMemory>({stalls: 0});
+  const clearLiveTimer = useCallback(() => {if (liveTimer.current) {clearTimeout(liveTimer.current.timer); liveTimer.current = undefined;}}, []);
+  useEffect(() => clearLiveTimer, [clearLiveTimer]);
   useEffect(() => {
-    if (!active || !foreground || !document) return;
-    const expiry = Math.min(...document.rows.flatMap(row => row.live ? [Date.parse(row.live.expiresAt)] : []));
-    if (!Number.isFinite(expiry)) return;
-    const timer = setTimeout(() => {if (current()) {noteHomeRead('live-expiry'); void runtime.home.revalidate().catch(runtime.reportError);}}, Math.max(0, expiry - Date.now()));
-    return () => clearTimeout(timer);
-  }, [active, current, document, foreground, runtime]);
+    if (!active || !foreground || !document) {clearLiveTimer(); return;}
+    // Only live rows on screen or about to be: an off-screen deferred row keeps its old answer
+    // until hydration reads it again, so its stale expiry must not drive Home re-reads.
+    const demanded = new Set(JSON.parse(rowDemand) as string[]);
+    const plan = liveRereadPlan(document.rows.filter(row => demanded.has(row.id)), liveMemory.current);
+    if (!plan) {clearLiveTimer(); liveMemory.current = {stalls: 0}; return;}
+    if (liveTimer.current?.expiry === plan.expiry) return;
+    clearLiveTimer();
+    liveMemory.current = {expiry: plan.expiry, stalls: plan.stalls};
+    const timer = setTimeout(() => {
+      if (liveTimer.current?.timer === timer) liveTimer.current = undefined;
+      if (current()) {noteHomeRead('live-expiry'); void runtime.home.revalidate().catch(runtime.reportError);}
+    }, plan.delayMs);
+    liveTimer.current = {expiry: plan.expiry, timer};
+  }, [active, clearLiveTimer, current, document, foreground, rowDemand, runtime]);
   // Coming back to Home (or to the app) reads again any shelf dropped after its retries; there's no
   // row-level error state in the mock-ups, so a failed shelf leaves rather than lingering as a skeleton.
   useEffect(() => {
