@@ -31,6 +31,23 @@ async function boot(options: {os?: string; platform?: string; isPad?: boolean; r
         return {start: () => {loop.started = true;}, stop: () => {loop.stopped = true;}};
       }}},
     'react-native-svg': {default: 'Svg', Circle: 'Circle'},
+    // The boot exit runs on Reanimated: a shared value records each timing assigned to it.
+    'react-native-reanimated': {default: {View: 'ReanimatedView'}, Easing: {linear: (value: number) => value, bezier: (...values: number[]) => values},
+      useSharedValue: (initial: number) => React.useRef((() => {
+        let current = initial; const box: any = {};
+        Object.defineProperty(box, 'value', {get: () => current, set: (next: any) => {
+          if (next && typeof next === 'object' && 'toValue' in next) {
+            const animation = {value: box, config: {...next.config, toValue: next.toValue}, complete: next.callback ? (result: {finished: boolean}) => next.callback(result.finished) : undefined, stopped: false};
+            animations.push(animation as any); box.running = animation; current = next.toValue;
+          } else current = next;
+        }});
+        return box;
+      })()).current,
+      withTiming: (toValue: number, config: object, callback?: (finished: boolean) => void) => ({toValue, config, callback}),
+      withDelay: (delay: number, animation: any) => ({...animation, config: {...animation.config, delay}}),
+      cancelAnimation: (box: any) => {if (box.running) box.running.stopped = true;},
+      runOnJS: (fn: (...args: unknown[]) => unknown) => fn,
+      useAnimatedStyle: (fn: () => object) => fn()},
     '../../../../packages/i18n/src': {defaultI18n: {t: (key: string, values?: {server: string}) => key === 'accounts.brand' ? 'Portico' : key === 'status.loading' ? 'Loading' : key === 'next.boot.connecting' ? 'Connecting' : key === 'next.boot.stillConnecting' ? 'Still connecting' : `Connecting to ${values!.server}`}},
     '../kit/artwork': {ColourBackdrop: 'ColourBackdrop'},
     '../kit/theme': {useTheme: () => theme, nativeType: (value: unknown) => value}, '../kit/useMotion': {useMotion: () => motion},
@@ -74,11 +91,10 @@ for (const reduce of [false, true])
 test(`${reduce ? 'reduced' : 'ordinary'} handoff keeps content fixed, blocks input until the layer leaves, and focuses only after commit`, async () => {
   const f = await boot({reduce});
   try {
-    const content = f.nodes()[1]!, overlay = f.nodes().find(node => node.props.testID === 'native-startup-boot')!;
-    const overlayOpacity = overlay.props.style[1].opacity;
     await f.update({active: false});
-    const fade = f.animations.find(animation => animation.value === overlayOpacity && animation.config.toValue === 0)!;
-    const enter = f.animations.find(animation => animation.value === content.props.style.opacity)!;
+    // The overlay's fade carries the completion; the content's entrance is the delayed timing.
+    const fade = f.animations.find(animation => animation.config.toValue === 0 && animation.complete)!;
+    const enter = f.animations.find(animation => animation.config.delay !== undefined)!;
     assert.equal(fade.config.duration, reduce ? 160 : 320);
     assert.equal(enter.config.delay, reduce ? 0 : 60); assert.equal(enter.config.duration, reduce ? 160 : 320);
     assert.equal(f.animations.some(animation => animation.config.toValue === 1.05), !reduce);
