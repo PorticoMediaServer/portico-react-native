@@ -10,6 +10,7 @@ import {deviceOnline, onNetworkChange} from '../platform/server-connections';
 import {createNativeShellBindings} from './assembly';
 import {restoreNativeShellRuntime, type RestoredNativeShellRuntime} from './bootstrap';
 import {restoreTrace} from './restore-trace';
+import {logBootMilestone} from './boot-timing';
 import {NativeShell} from './NativeShell';
 import {nativeAccounts} from '../platform/accounts';
 import {readNativeSelectedViewer, subscribeNativeAppSessions} from '../platform/app-session-storage';
@@ -188,11 +189,12 @@ export function RestoredShell() {
       }}),
       discard: runtime => runtime?.dispose(),
       // Step names and offsets only (restore-trace.ts): which await a slow restore was still on.
-      onAttemptTimeout: () => {console.warn(`portico_restore_timeout ${JSON.stringify(restoreTrace())}`);},
+      onAttemptTimeout: () => {try {console.warn(`portico_restore_timeout ${JSON.stringify(restoreTrace())}`);} catch { /* passive */ }},
       retryable: error => !(error instanceof NativeIdentityFailure) && !(error instanceof NativeSignInEnded) && !isSecureRecordsLost(error)
         && ['offline', 'unreachable', 'timeout'].includes(presentError(error, 'home').category),
       onWait: value => {if (rootCurrent()) setWaiting(previous => rootCurrent() ? value : previous);},
       onReady: runtime => {
+        if (runtime) logBootMilestone('restored', {restore: restoreTrace()});
         restored = true; owned = runtime;
         if (runtime) {const previous = ticket.source; ticket.source = undefined; previous?.dispose(); setDownloads(value => rootCurrent() ? undefined : value);}
         publishState({phase: runtime ? 'ready' : 'ended', runtime}); showRecovered(); if (rootCurrent() && !runtime) fallback();
@@ -232,7 +234,7 @@ export function RestoredShell() {
   // is never dropped because the root that drew the entry has since been replaced or retired.
   const complete = () => {
     const live = root.current;
-    console.warn(`portico_home_handoff ${JSON.stringify({rendered: live === renderedRoot, ...live?.describe?.(), restore: restoreTrace()})}`);
+    try {console.warn(`portico_home_handoff ${JSON.stringify({rendered: live === renderedRoot, ...live?.describe?.(), restore: restoreTrace()})}`);} catch { /* passive */ }
     if (live?.current?.()) {live.restart?.(); return;}
     if (live && !live.recoveryCurrent?.()) return;
     live?.retire?.(); setAttempt(value => value + 1);
@@ -241,6 +243,7 @@ export function RestoredShell() {
   const setupComplete = (serverId: string) => {if (renderedCurrent()) setFirstLibrary(previous => renderedCurrent() ? serverId : previous);};
   const chooseAccounts = () => {if (renderedCurrent() && renderedRoot?.canRecover?.()) {renderedRoot.pauseRecovery?.('accounts'); setShowAccounts(previous => renderedCurrent() ? true : previous);}};
   const serverName = serverDisplay?.attempt === attempt ? serverDisplay.name : undefined;
+  const bootHidden = useCallback(() => {logBootMilestone('boot-hidden', {ready: state.phase === 'ready'}); focusRecoveryTitle();}, [focusRecoveryTitle, state.phase]);
   const renderContent = () => {
   // A successful confirmed reset invalidates installation metadata. Only its
   // original closed recovery UI may remain to say restart/reopen; no old shell
@@ -312,7 +315,7 @@ export function RestoredShell() {
   };
   const content = renderContent();
   const boot = content === null && state.phase === 'loading' && waiting.stage === 'boot';
-  return <StartupBoot active={boot} waiting={waiting} serverName={serverName} onHidden={focusRecoveryTitle}>{content}</StartupBoot>;
+  return <StartupBoot active={boot} waiting={waiting} serverName={serverName} onHidden={bootHidden}>{content}</StartupBoot>;
 }
 
 type RecoveryPresented = ReturnType<typeof presentError>;

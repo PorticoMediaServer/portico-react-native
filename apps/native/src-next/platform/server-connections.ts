@@ -333,11 +333,18 @@ function observedRouteStorage(storage: ConnectionEnvironment['storage']): Connec
   };
 }
 /** Capture one server for the whole runtime. A later switch never retargets its refresh writes. */
+// Each environment's probe reports carry its own ordinal: a report that repeats at steady state
+// names the one connection that keeps re-resolving (P2-74 round 4b).
+let environments = 0;
+const probeReports = (kind: 'server' | 'selected') => {
+  const env = ++environments;
+  return {onProbeFailure: (failure: Parameters<typeof homeActionDiagnostics.probeFailure>[0]) => homeActionDiagnostics.probeFailure(failure, {env, kind})};
+};
 export function nativeServerEnvironment(serverId: string, admission?: NewServerConnection): ConnectionEnvironment {
-  return {...nativeEnvironment, fetcher: nativeServerFetch(serverId), storage: observedRouteStorage(nativeAppSessions.connectionStorage(serverId, admission))};
+  return {...nativeEnvironment, ...probeReports('server'), fetcher: nativeServerFetch(serverId), storage: observedRouteStorage(nativeAppSessions.connectionStorage(serverId, admission))};
 }
 export function nativeSelectedConnectionEnvironment(): ConnectionEnvironment {
-  return {...nativeEnvironment, storage: observedRouteStorage(nativeAppSessions.selectedStorage())};
+  return {...nativeEnvironment, ...probeReports('selected'), storage: observedRouteStorage(nativeAppSessions.selectedStorage())};
 }
 
 let activeApi: HttpLocalApi | undefined,

@@ -24,7 +24,7 @@ export async function boundedPick<T>(work: (signal: AbortSignal, trace: PickTrac
     timer = setTimeout(() => {
       const waiting = step;
       // Step names and offsets only: no addresses, identifiers or credentials.
-      sink(`portico_profile_pick_timeout ${JSON.stringify({waiting, ms, marks})}`);
+      try {sink(`portico_profile_pick_timeout ${JSON.stringify({waiting, ms, marks})}`);} catch { /* passive */ }
       controller.abort(); reject(profilePickTimeout(waiting));
     }, ms);
   });

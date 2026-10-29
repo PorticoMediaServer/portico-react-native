@@ -594,6 +594,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const downloads = retainNativeDownloadsDevice(context);
     cleanups.push(downloads.dispose);
     void downloads.open().catch(error => {if (current()) bound.reportError(error);});
+    markRestore('ready');
     return runtime;
   } catch (error) {const ended = nativeSignInEnded(error, signInHint, session?.expiresAt ?? originalExpiresAt); dispose(); throw nativeIdentityFailure(error, identityServer) ?? ended ?? error;}
 }

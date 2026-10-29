@@ -9,6 +9,11 @@ let launchTaken = false;
  * platform recorded it, for the first opening only. Later openings (a retry keeps its own clock;
  * a new account or server starts one) begin when they are asked for.
  */
+/** The platform's launch time without taking the opening's clock (boot timing logs). */
+export function launchStartedAt(): number | undefined {
+  const at = host()?.launchStartedAt;
+  return typeof at === 'number' && Number.isFinite(at) ? at : undefined;
+}
 export function takeLaunchStartedAt(now = Date.now()): number {
   if (launchTaken) return now;
   launchTaken = true;

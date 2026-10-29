@@ -13,7 +13,7 @@ test('E-mobile-01: a finished pick always restarts the live root and logs the ha
   assert.match(complete, /if \(live\?\.current\?\.\(\)\) \{live\.restart\?\.\(\); return;\}/);
   // A root whose installation claim went stale is retired and replaced, never left waiting.
   assert.match(complete, /live\?\.retire\?\.\(\); setAttempt\(value => value \+ 1\);/);
-  assert.match(shell, /onAttemptTimeout: \(\) => \{console\.warn\(`portico_restore_timeout/);
+  assert.match(shell, /onAttemptTimeout: \(\) => \{try \{console\.warn\(`portico_restore_timeout/);
 });
 
 test('every restore step before Home is traced, and queued sign-outs wait until after it', () => {

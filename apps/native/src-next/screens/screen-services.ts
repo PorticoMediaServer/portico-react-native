@@ -60,6 +60,7 @@ export class NativeScreenServices {
     if (!this.lifetime.current()) return;
     const presented = presentError(error, context, {operation: 'action', deviceOnline: deviceOnline()});
     if (presented.silent) return;
+    logErrorToast(error, context, presented.category);
     this.toast = Object.freeze({id: `native-screen-error-${++this.sequence}`, message: presented.body});
     this.publish();
   };
@@ -76,4 +77,16 @@ export class NativeScreenServices {
     this.disposed = true; this.off(); this.lifetime.dispose();
     this.toast = null; this.publish(); this.listeners.clear();
   };
+}
+
+/** Which failure raised an error toast (E-mobile-11/24: toasts from unidentified background reads).
+ * Release builds too; codes and classes only. A message is kept only when it is itself a code. */
+function logErrorToast(error: unknown, context: ErrorContext, category: string) {
+  const value = (error ?? {}) as {name?: unknown; code?: unknown; status?: unknown; message?: unknown};
+  const token = (raw: unknown) => typeof raw === 'string' && /^[A-Za-z0-9_.:-]{1,64}$/.test(raw) ? raw : undefined;
+  // Passive: a diagnostic sink that fails never changes the toast.
+  try {
+    console.warn(`portico_error_toast ${JSON.stringify({context, category, code: token(value.code), status: typeof value.status === 'number' ? value.status : undefined,
+      class: token(value.name) ?? (error instanceof Error ? error.constructor.name : typeof error), message: token(value.message)})}`);
+  } catch { /* passive */ }
 }

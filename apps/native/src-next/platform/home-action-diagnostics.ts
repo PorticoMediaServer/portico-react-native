@@ -317,10 +317,11 @@ export function createHomeActionDiagnostics(
         /* passive */
       }
     },
-    probeFailure(failure: RouteProbeFailure): void {
+    probeFailure(failure: RouteProbeFailure, source?: Readonly<{env: number; kind: 'server' | 'selected'}>): void {
       try {
         const {code, name} = failure;
-        write('route-probe', {operation: 'report-error', code: probeCodes.has(code) ? code : 'other', class: probeNames.has(name) ? name : 'unknown'});
+        write('route-probe', {operation: 'report-error', code: probeCodes.has(code) ? code : 'other', class: probeNames.has(name) ? name : 'unknown',
+          ...(source && Number.isSafeInteger(source.env) && (source.kind === 'server' || source.kind === 'selected') ? {env: source.env, kind: source.kind} : {})});
       } catch { /* A diagnostic observer never changes the original probe outcome. */ }
     },
     error(origin: ErrorOrigin, error: unknown, componentStack?: unknown): void {

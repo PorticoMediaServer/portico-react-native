@@ -18,7 +18,7 @@ function modules(state: {
   failure?: unknown; onFallback?: () => void;
 }) {
   return {
-    './restore-trace': {restoreTrace: () => ({waiting: 'start', elapsedMs: 0, marks: []})},
+    './restore-trace': {restoreTrace: () => ({waiting: 'start', elapsedMs: 0, marks: []})}, './boot-timing': {logBootMilestone: () => {}},
     react: {...React, default: React},
     '../platform/share-links': {nativeShareLinks: {acquire: () => () => {}, subscribe: () => () => {}, getSnapshot: () => undefined, take: () => false}},
     '../screens/share/NativeShareLinks': {NativeShareLinks: () => null},

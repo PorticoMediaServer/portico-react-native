@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {noteHomeRead} from '../../shell/home-read-log';
+import {logBootMilestone} from '../../shell/boot-timing';
 import {AppState, RefreshControl, ScrollView, Text, View, useWindowDimensions, type ViewProps} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Animated, {cancelAnimation, runOnJS, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, withTiming, type LayoutAnimationFunction} from 'react-native-reanimated';
@@ -292,6 +293,8 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const viewportHeight = windowHeight, viewportWidth = windowWidth;
 
   useEffect(() => {if (current()) runtime.home.setRowDemand(JSON.parse(rowDemand) as string[]);}, [current, rowDemand, runtime]);
+  // Cold-launch timing (P2-74 4b): the first commit with Home's document on screen, once per process.
+  useEffect(() => {if (document && current()) logBootMilestone('home-painted', {rows: document.rows.length});}, [document, current]);
   // The restore has already read Home: a mount reads only when nothing has been read yet.
   useEffect(() => {if (current() && !runtime.home.getSnapshot().document) {noteHomeRead('mount'); void runtime.home.load();}}, [current, runtime]);
   useEffect(() => {const sub = AppState.addEventListener('change', state => setForeground(state === 'active')); return () => sub.remove();}, []);

@@ -23,8 +23,10 @@ export function createNativeInstallationHost(host: Readonly<{platform: () => str
       // and never changes the guard or the identity setter.
       if (!valid && !invalidWarned && !disposed && !signal?.aborted) {
         invalidWarned = true;
-        console.warn('portico_installation_invalid', JSON.stringify({disposed, aborted: !!signal?.aborted, owned, latest: generation,
-          sameReference: now === claim, sameId: now?.installationId === claim?.installationId, hasClaim: !!claim, hasNow: !!now}));
+        try {
+          console.warn('portico_installation_invalid', JSON.stringify({disposed, aborted: !!signal?.aborted, owned, latest: generation,
+            sameReference: now === claim, sameId: now?.installationId === claim?.installationId, hasClaim: !!claim, hasNow: !!now}));
+        } catch { /* passive: the guard's answer never depends on its log */ }
       }
       return valid;
     };
