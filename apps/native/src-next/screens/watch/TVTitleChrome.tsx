@@ -20,8 +20,8 @@ export function TVTitleBackdrop({source, foreground, browsing}: {source?: Ambien
     <Animated.View style={[{position: 'absolute', inset: 0}, shade]}>
       <Svg width="100%" height="100%" accessible={false}>
         <Defs><LinearGradient id={gradient} x1="0" y1="0" x2="0" y2="100%">
-          <Stop offset="0" stopColor="#071018" stopOpacity={.28}/><Stop offset=".2" stopColor="#071018" stopOpacity={.7}/>
-          <Stop offset=".4" stopColor="#071018" stopOpacity={.92}/><Stop offset=".62" stopColor="#071018" stopOpacity={.97}/><Stop offset=".86" stopColor="#071018"/>
+          <Stop offset="0" stopColor="#071018" stopOpacity={.28}/><Stop offset="0.2" stopColor="#071018" stopOpacity={.7}/>
+          <Stop offset="0.4" stopColor="#071018" stopOpacity={.92}/><Stop offset="0.62" stopColor="#071018" stopOpacity={.97}/><Stop offset="0.86" stopColor="#071018"/>
         </LinearGradient></Defs><Rect width="100%" height="100%" fill={`url(#${gradient})`}/>
       </Svg>
     </Animated.View>

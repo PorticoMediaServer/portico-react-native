@@ -191,7 +191,7 @@ export function TVSearchGenre({genre, runtime, width, disabled, onPress}: {genre
     accessibilityLabel={genre.name} focusRadius={16} style={{width, height: 200, borderRadius: 16, backgroundColor: theme.colors.raised}}>
     <View style={tvSearchR46.genreClip}>
       <Artwork source={runtime.artwork(genre.backdropPath)} width={width} height={200}/>
-      <Svg pointerEvents="none" width={width} height={200} style={{position: 'absolute', inset: 0}}><Defs><LinearGradient id={gradient} x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.88}/><Stop offset=".55" stopColor={theme.colors.ink} stopOpacity={.5}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={.15}/></LinearGradient></Defs><Rect width={width} height={200} fill={`url(#${gradient})`}/></Svg>
+      <Svg pointerEvents="none" width={width} height={200} style={{position: 'absolute', inset: 0}}><Defs><LinearGradient id={gradient} x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.88}/><Stop offset="0.55" stopColor={theme.colors.ink} stopOpacity={.5}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={.15}/></LinearGradient></Defs><Rect width={width} height={200} fill={`url(#${gradient})`}/></Svg>
     </View>
     <View style={tvSearchR46.genreCopy}><Text style={[browseType(theme, 36, 800, -.025), {color: theme.colors.text}]}>{genre.name}</Text>
       <Text style={[browseType(theme, 20, 400), {color: theme.colors.textSecondary, marginTop: 4}]}>{t('next.selection.titles', {count: genre.count})}</Text></View>

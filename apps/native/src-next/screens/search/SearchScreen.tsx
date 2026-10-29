@@ -179,7 +179,7 @@ function SearchGenre({genre, empty, runtime, width, onPress}: {genre: NativeSear
     palette={{first: tint, second: tint}} onNavigate={onPress}/>;
   return <Focusable testID={`search-genre-${encodeURIComponent(genre.id)}`} accessibilityLabel={genre.name} onPress={onPress} focusRadius={12} style={{width, height: 84, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
     <Artwork source={runtime.artwork(genre.backdropPath)} width={width} height={84}/>
-    <Svg pointerEvents="none" width={width} height={84} style={{position: 'absolute', inset: 0}}><Defs><LinearGradient id={gradient} x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.88}/><Stop offset=".55" stopColor={theme.colors.ink} stopOpacity={.5}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={.15}/></LinearGradient></Defs><Rect width={width} height={84} fill={`url(#${gradient})`}/></Svg>
+    <Svg pointerEvents="none" width={width} height={84} style={{position: 'absolute', inset: 0}}><Defs><LinearGradient id={gradient} x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.88}/><Stop offset="0.55" stopColor={theme.colors.ink} stopOpacity={.5}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={.15}/></LinearGradient></Defs><Rect width={width} height={84} fill={`url(#${gradient})`}/></Svg>
     <View style={{position: 'absolute', left: 14, bottom: 12, right: 10}}><Text numberOfLines={1} style={[browseType(theme, 16, 800, -.025), {color: theme.colors.text}]}>{genre.name}</Text><Text style={[browseType(theme, 12, 400), {color: theme.colors.textSecondary, marginTop: 2}]}>{t('next.selection.titles', {count: genre.count})}</Text></View>
   </Focusable>;
 }
@@ -217,8 +217,8 @@ function SearchTopResult({entry, group, runtime, actions, selection, width}: {en
     <Artwork source={runtime.artwork(media(entry) ? entry.backdropUrl ?? entry.posterUrl : entry.posterUrl)} height={178}/>
     <Svg pointerEvents="none" width={width} height={178} style={{position: 'absolute', inset: 0}}>
       <Defs>
-        <LinearGradient id={`${gradient}-side`} x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.92}/><Stop offset=".45" stopColor={theme.colors.ink} stopOpacity={.55}/><Stop offset=".75" stopColor={theme.colors.ink} stopOpacity={0}/></LinearGradient>
-        <LinearGradient id={`${gradient}-foot`} x1="0" y1="1" x2="0" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.7}/><Stop offset=".5" stopColor={theme.colors.ink} stopOpacity={0}/></LinearGradient>
+        <LinearGradient id={`${gradient}-side`} x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.92}/><Stop offset="0.45" stopColor={theme.colors.ink} stopOpacity={.55}/><Stop offset="0.75" stopColor={theme.colors.ink} stopOpacity={0}/></LinearGradient>
+        <LinearGradient id={`${gradient}-foot`} x1="0" y1="1" x2="0" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.7}/><Stop offset="0.5" stopColor={theme.colors.ink} stopOpacity={0}/></LinearGradient>
       </Defs>
       <Rect width={width} height={178} fill={`url(#${gradient}-side)`}/><Rect width={width} height={178} fill={`url(#${gradient}-foot)`}/>
     </Svg>

@@ -85,12 +85,12 @@ function MusicScrims() {
   return <Svg accessible={false} pointerEvents="none" width="100%" height="100%" viewBox="0 0 1000 1000" preserveAspectRatio="none" style={StyleSheet.absoluteFillObject}>
     <Defs>
       <RadialGradient id="music-radial" gradientUnits="userSpaceOnUse" cx="260" cy="420" rx="600" ry="700">
-        <Stop offset="0" stopColor={colors.ink} stopOpacity={0}/><Stop offset=".62" stopColor={colors.ink} stopOpacity={.55}/><Stop offset="1" stopColor={colors.ink} stopOpacity={.9}/>
+        <Stop offset="0" stopColor={colors.ink} stopOpacity={0}/><Stop offset="0.62" stopColor={colors.ink} stopOpacity={.55}/><Stop offset="1" stopColor={colors.ink} stopOpacity={.9}/>
       </RadialGradient>
       <LinearGradient id="music-bottom" x1="0" y1="100%" x2="0" y2="0">
-        <Stop offset="0" stopColor={colors.ink} stopOpacity={.94}/><Stop offset=".4" stopColor={colors.ink} stopOpacity={.4}/><Stop offset=".62" stopColor={colors.ink} stopOpacity={0}/>
+        <Stop offset="0" stopColor={colors.ink} stopOpacity={.94}/><Stop offset="0.4" stopColor={colors.ink} stopOpacity={.4}/><Stop offset="0.62" stopColor={colors.ink} stopOpacity={0}/>
       </LinearGradient>
-      <LinearGradient id="music-right" x1="0" y1="0" x2="100%" y2="0"><Stop offset=".5" stopColor={colors.ink} stopOpacity={0}/><Stop offset="1" stopColor={colors.ink} stopOpacity={.6}/></LinearGradient>
+      <LinearGradient id="music-right" x1="0" y1="0" x2="100%" y2="0"><Stop offset="0.5" stopColor={colors.ink} stopOpacity={0}/><Stop offset="1" stopColor={colors.ink} stopOpacity={.6}/></LinearGradient>
     </Defs>
     <Rect width="1000" height="1000" fill="url(#music-right)"/><Rect width="1000" height="1000" fill="url(#music-bottom)"/><Rect width="1000" height="1000" fill="url(#music-radial)"/>
   </Svg>;
@@ -100,8 +100,8 @@ function PersonScrim() {
   const {colors} = useTheme();
   return <Svg accessible={false} pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFillObject}>
     <Defs><LinearGradient id="person-shade" x1="0" y1="0" x2="0" y2="100%">
-      <Stop offset="0" stopColor={colors.ink} stopOpacity={.05}/><Stop offset=".44" stopColor={colors.ink} stopOpacity={.6}/>
-      <Stop offset=".7" stopColor={colors.ink} stopOpacity={.94}/><Stop offset=".88" stopColor={colors.ink}/>
+      <Stop offset="0" stopColor={colors.ink} stopOpacity={.05}/><Stop offset="0.44" stopColor={colors.ink} stopOpacity={.6}/>
+      <Stop offset="0.7" stopColor={colors.ink} stopOpacity={.94}/><Stop offset="0.88" stopColor={colors.ink}/>
     </LinearGradient></Defs><Rect width="100%" height="100%" fill="url(#person-shade)"/>
   </Svg>;
 }

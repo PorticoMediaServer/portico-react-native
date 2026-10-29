@@ -76,7 +76,7 @@ test('album wash keeps its ambient treatment and fades continuously to ink', asy
     const tree = f.renderChild(wash), all = nodes(tree);
     assert.equal(tree.props.style.height, platform === 'phone' ? 760 : 700);
     assert.ok(all.some(node => node.type === 'AmbientArt'));
-    assert.deepEqual(all.filter(node => node.type === 'Stop').map(node => [node.props.offset, node.props.stopOpacity]), [['.25', 0], ['1', 1]]);
+    assert.deepEqual(all.filter(node => node.type === 'Stop').map(node => [node.props.offset, node.props.stopOpacity]), [['0.25', 0], ['1', 1]]);
   }
 });
 

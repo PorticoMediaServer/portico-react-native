@@ -59,7 +59,7 @@ export function NativeWatchPostPlay({entry, api, scope, requestId, current, artw
   return <View testID="watch-post-play" style={{position: 'absolute', inset: 0}}>
     <Artwork source={artwork(entry.backdropUrl)} style={{position: 'absolute', inset: 0}}/>
     <Svg pointerEvents="none" width="100%" height="100%" style={{position: 'absolute', inset: 0}}><Defs>
-      <LinearGradient id="post-scrim" x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor="#071018" stopOpacity={.94}/><Stop offset=".55" stopColor="#071018" stopOpacity={.55}/><Stop offset="1" stopColor="#071018" stopOpacity={.2}/></LinearGradient>
+      <LinearGradient id="post-scrim" x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor="#071018" stopOpacity={.94}/><Stop offset="0.55" stopColor="#071018" stopOpacity={.55}/><Stop offset="1" stopColor="#071018" stopOpacity={.2}/></LinearGradient>
       <LinearGradient id="post-foot" x1="0" y1="1" x2="0" y2="0"><Stop offset="0" stopColor="#071018" stopOpacity={.95}/><Stop offset="1" stopColor="#071018" stopOpacity={0}/></LinearGradient>
     </Defs><Rect width="100%" height="100%" fill="url(#post-scrim)"/><Rect width="100%" height="100%" fill="url(#post-foot)"/></Svg>
     <FocusRegion id="watch-post" orientation="vertical" entry="watch-post-replay" edges={related.length ? {down: 'watch-post-related'} : undefined} style={compact

@@ -35,7 +35,7 @@ export function MusicMixCard({row, artwork, width = 186, onPlay, onFocus, onMenu
     accessibilityRole="button" accessibilityLabel={t('music.mix.name', {name: row.name})} onPress={onPlay} style={{width, marginRight: tv ? 28 : phone ? 12 : 16}}>
     <View style={{width, height: width, borderRadius: radius, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
       <Svg width={width} height={width} style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Defs><RadialGradient id={gradient} cx="100%" cy="0%" rx="130%" ry="120%"><Stop offset="0" stopColor={row.tint}/><Stop offset=".72" stopColor={row.tint} stopOpacity={0}/></RadialGradient></Defs>
+        <Defs><RadialGradient id={gradient} cx="100%" cy="0%" rx="130%" ry="120%"><Stop offset="0" stopColor={row.tint}/><Stop offset="0.72" stopColor={row.tint} stopOpacity={0}/></RadialGradient></Defs>
         <Rect width="100%" height="100%" fill={`url(#${gradient})`}/>
       </Svg>
       <View pointerEvents="none" style={{position: 'absolute', right: phone ? 8 : 12, top: phone ? 10 : 14, width: fanWidth, height: fanHeight}}>

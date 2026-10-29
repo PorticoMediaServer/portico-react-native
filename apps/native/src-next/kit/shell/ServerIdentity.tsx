@@ -71,8 +71,8 @@ export function EditorHeader({audience, layout = 'desktop', title, titleId, desc
   return <View testID={testID} style={[{position: 'relative', paddingTop: phone ? 8 : 26, paddingHorizontal: phone ? 20 : 32, paddingBottom: phone ? 12 : 18}, style]}>
     <Svg accessible={false} pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFill}>
       <Defs>
-        <RadialGradient id={`${id}blue`} cx="100%" cy="0%" rx="120%" ry="120%"><Stop offset="0" stopColor={colors.accentDeep} stopOpacity={phone ? .28 : .26} /><Stop offset=".62" stopColor={colors.accentDeep} stopOpacity="0" /></RadialGradient>
-        <RadialGradient id={`${id}green`} cx="0%" cy="100%" rx="100%" ry="100%"><Stop offset="0" stopColor={colors.generatedGreen} stopOpacity=".2" /><Stop offset=".66" stopColor={colors.generatedGreen} stopOpacity="0" /></RadialGradient>
+        <RadialGradient id={`${id}blue`} cx="100%" cy="0%" rx="120%" ry="120%"><Stop offset="0" stopColor={colors.accentDeep} stopOpacity={phone ? .28 : .26} /><Stop offset="0.62" stopColor={colors.accentDeep} stopOpacity="0" /></RadialGradient>
+        <RadialGradient id={`${id}green`} cx="0%" cy="100%" rx="100%" ry="100%"><Stop offset="0" stopColor={colors.generatedGreen} stopOpacity=".2" /><Stop offset="0.66" stopColor={colors.generatedGreen} stopOpacity="0" /></RadialGradient>
       </Defs>
       <Rect width="100%" height="100%" fill={`url(#${id}blue)`} /><Rect width="100%" height="100%" fill={`url(#${id}green)`} />
     </Svg>
@@ -117,10 +117,10 @@ export function ServerBand({viewerRole, audience, height, style, testID}: {viewe
   return <View testID={testID} pointerEvents="none" accessible={false} style={[styles.band, {height: height ?? (isTV ? 520 : 420)}, style]}>
     <Svg width="100%" height="100%" viewBox="0 0 1000 1000" preserveAspectRatio="none" accessible={false}>
       <Defs>
-        <RadialGradient id={`${id}blue`} cx="84%" cy="-12%" rx="50%" ry="120%" gradientUnits="objectBoundingBox"><Stop offset="0" stopColor={colors.accentDeep}/><Stop offset=".62" stopColor={colors.accentDeep} stopOpacity="0"/></RadialGradient>
-        <RadialGradient id={`${id}green`} cx="56%" cy="96%" rx="40%" ry="90%"><Stop offset="0" stopColor={colors.generatedGreen}/><Stop offset=".66" stopColor={colors.generatedGreen} stopOpacity="0"/></RadialGradient>
-        <LinearGradient id={`${id}left`} x1="0" x2="1" y1="0" y2="0"><Stop offset=".14" stopColor={colors.white} stopOpacity="0"/><Stop offset={isTV ? '.56' : '.5'} stopColor={colors.white}/></LinearGradient>
-        <LinearGradient id={`${id}down`} x1="0" x2="0" y1="0" y2="1"><Stop offset=".3" stopColor={colors.ink} stopOpacity="0"/><Stop offset="1" stopColor={colors.ink}/></LinearGradient>
+        <RadialGradient id={`${id}blue`} cx="84%" cy="-12%" rx="50%" ry="120%" gradientUnits="objectBoundingBox"><Stop offset="0" stopColor={colors.accentDeep}/><Stop offset="0.62" stopColor={colors.accentDeep} stopOpacity="0"/></RadialGradient>
+        <RadialGradient id={`${id}green`} cx="56%" cy="96%" rx="40%" ry="90%"><Stop offset="0" stopColor={colors.generatedGreen}/><Stop offset="0.66" stopColor={colors.generatedGreen} stopOpacity="0"/></RadialGradient>
+        <LinearGradient id={`${id}left`} x1="0" x2="1" y1="0" y2="0"><Stop offset="0.14" stopColor={colors.white} stopOpacity="0"/><Stop offset={isTV ? '0.56' : '0.5'} stopColor={colors.white}/></LinearGradient>
+        <LinearGradient id={`${id}down`} x1="0" x2="0" y1="0" y2="1"><Stop offset="0.3" stopColor={colors.ink} stopOpacity="0"/><Stop offset="1" stopColor={colors.ink}/></LinearGradient>
         <Mask id={`${id}mask`} x="0" y="0" width="1000" height="1000"><Rect width="1000" height="1000" fill={`url(#${id}left)`}/></Mask>
       </Defs>
       <Rect width="1000" height="1000" fill={colors.raisedSoft} mask={`url(#${id}mask)`}/>
@@ -149,7 +149,7 @@ export function ServerHeader({serverName, viewerRole, audience, facts = [], vari
   if (!visibility) return null;
   const text = (size: number, weight: 600 | 700 | 800 = 600, tracking = 0) => shellType(size, weight, 'normal', tracking, textScale);
   if (variant !== 'page') return <View testID={testID} style={[styles.groupHeader, {gap: isTV ? 16 : 12, padding: variant === 'phone' ? 14 : 0}, style]}>
-    {variant === 'phone' && <Svg width="100%" height="100%" style={StyleSheet.absoluteFill} accessible={false} pointerEvents="none"><Defs><LinearGradient id="server-phone-header" x1="0%" y1="0%" x2="100%" y2="57.735%"><Stop offset="0" stopColor={colors.accent} stopOpacity=".3"/><Stop offset=".7" stopColor={colors.accent} stopOpacity=".06"/></LinearGradient></Defs><Rect width="100%" height="100%" fill="url(#server-phone-header)"/></Svg>}
+    {variant === 'phone' && <Svg width="100%" height="100%" style={StyleSheet.absoluteFill} accessible={false} pointerEvents="none"><Defs><LinearGradient id="server-phone-header" x1="0%" y1="0%" x2="100%" y2="57.735%"><Stop offset="0" stopColor={colors.accent} stopOpacity=".3"/><Stop offset="0.7" stopColor={colors.accent} stopOpacity=".06"/></LinearGradient></Defs><Rect width="100%" height="100%" fill="url(#server-phone-header)"/></Svg>}
     <ServerMark variant={isTV ? 'tv' : variant === 'phone' ? 'phone' : 'settings'}/>
     <View style={{flex: 1, minWidth: 0}}>
       {variant === 'phone' ? <><Text style={[text(12, 700), {color: colors.accentStrong}]}>{defaultI18n.t('next.shell.server')}</Text><Text numberOfLines={1} style={[text(16.5, 800, -.015), {color: colors.text}]}>{serverName}</Text></> : <><Text style={[text(isTV ? 24 : 15, 800), {color: colors.text}]}>{defaultI18n.t('next.shell.server')}</Text><Text numberOfLines={1} style={[text(isTV ? 18 : 13), {color: colors.textTertiary, marginTop: isTV ? 2 : 1}]}>{serverName}</Text></>}

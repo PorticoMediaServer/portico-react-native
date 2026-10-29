@@ -113,7 +113,7 @@ export function NativeWatchEpisodes({controller, currentId, playing, text, artwo
     };
     return <FocusRegion id="watch-episodes" orientation="free" entry={initialId ? `episodes-${initialId}` : 'watch-episodes-seasons'} enabled={interactive && !seasonsSheet} style={{flex: 1, justifyContent: 'flex-end'}}>
       <Svg pointerEvents="none" width="100%" height={560} style={{position: 'absolute', left: 0, right: 0, bottom: 0}}><Defs><LinearGradient id="watch-episodes-band" x1="0" y1="0" x2="0" y2="1">
-        <Stop offset="0" stopColor={theme.colors.ink} stopOpacity={0}/><Stop offset=".38" stopColor={theme.colors.ink} stopOpacity={.78}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={.94}/></LinearGradient></Defs>
+        <Stop offset="0" stopColor={theme.colors.ink} stopOpacity={0}/><Stop offset="0.38" stopColor={theme.colors.ink} stopOpacity={.78}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={.94}/></LinearGradient></Defs>
         <Rect width="100%" height="100%" fill="url(#watch-episodes-band)"/></Svg>
       <View testID="watch-episodes-panel" style={{paddingBottom: 56}}>
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 24, paddingHorizontal: 96, marginBottom: 8}}>

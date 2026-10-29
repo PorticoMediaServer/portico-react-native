@@ -56,7 +56,7 @@ function Wash({runtime, path}: {runtime: NativeShellRuntime; path: string | unde
     {source ? <AmbientArt source={source} treatment="title" style={{position: 'absolute', inset: 0}}/> : null}
     <View style={{position: 'absolute', inset: 0, backgroundColor: alpha(theme.colors.ink, .45)}}/>
     <Svg width="100%" height="100%" style={{position: 'absolute', inset: 0}} accessible={false}>
-      <Defs><LinearGradient id={gradient} x1="0" y1="0" x2="0" y2="1"><Stop offset=".25" stopColor={theme.colors.ink} stopOpacity={0}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={1}/></LinearGradient></Defs>
+      <Defs><LinearGradient id={gradient} x1="0" y1="0" x2="0" y2="1"><Stop offset="0.25" stopColor={theme.colors.ink} stopOpacity={0}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={1}/></LinearGradient></Defs>
       <Rect width="100%" height="100%" fill={`url(#${gradient})`}/>
     </Svg>
   </View>;

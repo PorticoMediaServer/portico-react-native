@@ -679,14 +679,14 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
     <Animated.View pointerEvents={visible ? 'box-none' : 'none'} accessibilityElementsHidden={!visible} importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'} style={[{position: 'absolute', inset: 0}, fade]}>
       {theme.isTV ? <>
         <Svg pointerEvents="none" width="100%" height={400} style={{position: 'absolute', top: 0, left: 0, right: 0}}><Defs>
-          <LinearGradient id="watch-top" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor="#04090d" stopOpacity={.88}/><Stop offset=".38" stopColor="#04090d" stopOpacity={.6}/><Stop offset=".72" stopColor="#04090d" stopOpacity={.2}/><Stop offset="1" stopColor="#04090d" stopOpacity={0}/></LinearGradient>
+          <LinearGradient id="watch-top" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor="#04090d" stopOpacity={.88}/><Stop offset="0.38" stopColor="#04090d" stopOpacity={.6}/><Stop offset="0.72" stopColor="#04090d" stopOpacity={.2}/><Stop offset="1" stopColor="#04090d" stopOpacity={0}/></LinearGradient>
         </Defs><Rect width="100%" height="100%" fill="url(#watch-top)"/></Svg>
         <Svg pointerEvents="none" width="100%" height={600} style={{position: 'absolute', bottom: 0, left: 0, right: 0}}><Defs>
-          <LinearGradient id="watch-bottom" x1="0" y1="1" x2="0" y2="0"><Stop offset="0" stopColor="#04090d" stopOpacity={.96}/><Stop offset=".3" stopColor="#04090d" stopOpacity={.84}/><Stop offset=".6" stopColor="#04090d" stopOpacity={.46}/><Stop offset="1" stopColor="#04090d" stopOpacity={0}/></LinearGradient>
+          <LinearGradient id="watch-bottom" x1="0" y1="1" x2="0" y2="0"><Stop offset="0" stopColor="#04090d" stopOpacity={.96}/><Stop offset="0.3" stopColor="#04090d" stopOpacity={.84}/><Stop offset="0.6" stopColor="#04090d" stopOpacity={.46}/><Stop offset="1" stopColor="#04090d" stopOpacity={0}/></LinearGradient>
         </Defs><Rect width="100%" height="100%" fill="url(#watch-bottom)"/></Svg>
       </> : <Svg pointerEvents="none" width="100%" height="100%" style={{position: 'absolute', inset: 0}}><Defs>
-        <LinearGradient id="watch-top" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor="#03080c" stopOpacity={.82}/><Stop offset=".36" stopColor="#03080c" stopOpacity={0}/></LinearGradient>
-        <LinearGradient id="watch-bottom" x1="0" y1="1" x2="0" y2="0"><Stop offset="0" stopColor="#03080c" stopOpacity={.92}/><Stop offset=".5" stopColor="#03080c" stopOpacity={0}/></LinearGradient>
+        <LinearGradient id="watch-top" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor="#03080c" stopOpacity={.82}/><Stop offset="0.36" stopColor="#03080c" stopOpacity={0}/></LinearGradient>
+        <LinearGradient id="watch-bottom" x1="0" y1="1" x2="0" y2="0"><Stop offset="0" stopColor="#03080c" stopOpacity={.92}/><Stop offset="0.5" stopColor="#03080c" stopOpacity={0}/></LinearGradient>
       </Defs><Rect width="100%" height="100%" fill="url(#watch-top)"/><Rect width="100%" height="100%" fill="url(#watch-bottom)"/></Svg>}
       <FocusRegion id="watch-controls" orientation={theme.isTV ? "free" : "horizontal"} entry={theme.isTV ? undefined : barEntry} entryRegion={theme.isTV ? "watch-transport" : undefined} style={{position: 'absolute', inset: 0}}>
         <View style={{position: 'absolute', top: compact ? 4 : theme.isTV ? 80 : 12, left: (side ?? (compact ? 6 : theme.isTV ? 96 : 54)) + (props.edgeInsets?.left ?? 0), right: (side ?? (compact ? 6 : theme.isTV ? 96 : 54)) + (props.edgeInsets?.right ?? 0), flexDirection: 'row', alignItems: theme.isTV ? 'flex-start' : 'center'}}>
