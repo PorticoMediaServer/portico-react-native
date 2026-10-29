@@ -62,7 +62,7 @@ import type {NativeExternalPresentationLifetime, NativePictureInPictureState, Na
 /** No credentials: exact admission principal generation for one original start. */
 const startupPrincipal = (session: import('../../../../../packages/client-core/src/index').LocalSession | undefined) => session
   ? JSON.stringify([session.sessionFamilyId, session.tokenGeneration, session.authorizationHorizon, session.deviceId ?? null, session.installationId ?? null]) : undefined;
-const authorityKey = (value: PlaybackAuthority) => JSON.stringify([value.serverId, value.accountId, value.profileId, value.epoch, value.viewerFence]);
+const authorityKey = (value: PlaybackAuthority) => JSON.stringify([value.serverId, value.accountId, value.profileId, value.epoch, value.privacyFence ?? value.viewerFence]);
 /** The retained binding a native view reports, compared field by field. */
 const sameBindingFact = (fact: unknown, binding: NativeBinding): boolean => {
   if (fact === null || typeof fact !== 'object' || Array.isArray(fact)) return false;
@@ -445,7 +445,7 @@ export class NativePlaybackRuntime {
   });
   private selectionCurrent(context: SelectionContext, signal: AbortSignal, current: (context: SelectionContext) => boolean): boolean {
     const scope = context.scope;
-    return !signal.aborted && this.currentAuthority() && scope.serverId === this.scope.serverId && scope.authority === this.scope.authority && scope.accountId === this.scope.accountId && scope.profileId === this.scope.profileId && scope.privacyFence === this.bound.viewerFence && current(context);
+    return !signal.aborted && this.currentAuthority() && scope.serverId === this.scope.serverId && scope.authority === this.scope.authority && scope.accountId === this.scope.accountId && scope.profileId === this.scope.profileId && scope.privacyFence === this.o.authority().viewerFence && current(context);
   }
   private assertSelection(context: SelectionContext, signal: AbortSignal, current: (context: SelectionContext) => boolean): void {
     if (!this.selectionCurrent(context, signal, current)) throw new Error(signal.aborted ? 'cancelled' : 'stale_selection_context');

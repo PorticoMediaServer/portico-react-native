@@ -6,7 +6,10 @@ import {hiddenReadingLibraryOnTV, isReadingLibraryKind} from '../screens/read/pl
 import {tvCanvasFrame} from '../platform/layout/tv-canvas';
 
 export type ShellScope = Readonly<{serverId: string; accountId: string; profileId: string}>;
-export type ShellAuthority = ShellScope & Readonly<{epoch: string; viewerFence: string}>;
+/** `privacyFence` keys the shell (H-11): only who the viewer is or what they may see remounts it.
+ * `viewerFence` also follows the library list and is updated in place for Home-data checks.
+ * Older servers send no privacy fence, so their viewer fence keys the shell as before. */
+export type ShellAuthority = ShellScope & Readonly<{epoch: string; viewerFence: string; privacyFence?: string}>;
 export type ShellDestination = Readonly<
   | {kind: 'home' | 'libraries' | 'live' | 'saved' | 'settings'}
   /** An optional initial query seeds one ordinary Search route; the screen owns later edits. */
@@ -16,7 +19,7 @@ export type ShellDestination = Readonly<
 export type ShellTab = Readonly<{id: 'home' | 'search' | 'libraries' | 'live' | 'saved'; icon: IconName; message: 'web.shell.home' | 'web.shell.search' | 'pins.libraries' | 'search.chip.liveTV' | 'saved.title'}>;
 
 export const scopeKey = (scope: ShellScope): string => JSON.stringify([scope.serverId, scope.accountId, scope.profileId]);
-export const authorityKey = (scope: ShellAuthority): string => JSON.stringify([scope.serverId, scope.accountId, scope.profileId, scope.epoch, scope.viewerFence]);
+export const authorityKey = (scope: ShellAuthority): string => JSON.stringify([scope.serverId, scope.accountId, scope.profileId, scope.epoch, scope.privacyFence ?? scope.viewerFence]);
 export const sameAuthority = (a: ShellAuthority, b: ShellAuthority): boolean => authorityKey(a) === authorityKey(b);
 
 /** The host a signed-in session reached its server at: no scheme, credentials or path, and

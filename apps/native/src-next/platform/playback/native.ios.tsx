@@ -52,8 +52,10 @@ export function createNativeShellPlaybackAdapter(options: NativePlaybackFactoryO
   const viewer = options.session()?.viewer;
   if (!viewer || !['local', 'hosted'].includes(viewer.authority)) throw new Error(serviceText('player.nativeHandoverFailed'));
   const initialAuthority = options.authority();
-  const authority = [initialAuthority.serverId, initialAuthority.accountId, initialAuthority.profileId, initialAuthority.epoch, initialAuthority.viewerFence].join('\n');
-  const capabilityHttp = new PlaybackScopeHttp(localV1Http(options.api), () => [options.authority().serverId, options.authority().accountId, options.authority().profileId, options.authority().epoch, options.authority().viewerFence].join('\n') === authority && options.session()?.viewer.profileId === viewer.profileId);
+  // H-11: the shell authority, not the library list; a library added or removed keeps publishing.
+  const authorityKey = (value: typeof initialAuthority) => [value.serverId, value.accountId, value.profileId, value.epoch, value.privacyFence ?? value.viewerFence].join('\n');
+  const authority = authorityKey(initialAuthority);
+  const capabilityHttp = new PlaybackScopeHttp(localV1Http(options.api), () => authorityKey(options.authority()) === authority && options.session()?.viewer.profileId === viewer.profileId);
   const publisher = new CapabilityPublisher(capabilityHttp);
   let closed = false;
   const readiness = new NativeCapabilityReadiness(publisher, () => closed);
