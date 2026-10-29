@@ -187,7 +187,7 @@ dependencies {
     }
 
     // The bounded control transport (PorticoRuntime).
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.1")
     // The player (PorticoPlaybackModule, PorticoPlayer) and the system media session.
     def media3 = "1.10.1"
     implementation("androidx.media3:media3-exoplayer:$media3")
@@ -211,8 +211,8 @@ dependencies {
     // JVM unit tests of the logic that needs no device (app/src/test): never in the app.
     //   ./gradlew :app:testGoogleDebugUnitTest
     testImplementation("junit:junit:4.13.2")
-    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
-    testImplementation("com.squareup.okhttp3:okhttp-tls:4.12.0")
+    testImplementation("com.squareup.okhttp3:mockwebserver:5.5.1")
+    testImplementation("com.squareup.okhttp3:okhttp-tls:5.5.1")
     // Real Android URI/JSON behavior for the subtitle owner's deterministic HTTP/clock tests.
     testImplementation("org.robolectric:robolectric:4.14.1")
 }
