@@ -2,7 +2,7 @@ import {headerWordmark} from '../src-next/kit/shell/brand';
 // @fabric-react
 import {canReturnToPage} from '../src-next/shell/page-focus-return.ts';
 import * as homeStart from '../src-next/screens/home/home-start';
-import {listeningCoverFixture} from './helpers/screen-harness.mjs';
+import {listeningCoverFixture, stackSlotFixture} from './helpers/screen-harness.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
@@ -61,7 +61,7 @@ test(`${adapter}: the real TV shell retains its page opener and retires Menu bef
     memory: {read: async () => undefined, remember: async () => {}},
     registerTVRailBack: (fn: () => boolean) => {railBack = fn; return () => {railBack = undefined;};},
     renderRoutes() {}, renderSelection() {}, renderDestination() {}};
-  const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
+  const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {...stackSlotFixture, 
     './page-focus-return': {canReturnToPage},
     '../screens/home/home-start': homeStart,
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,

@@ -1,7 +1,7 @@
 // @fabric-react
 import {canReturnToPage} from '../src-next/shell/page-focus-return.ts';
 import * as homeStart from '../src-next/screens/home/home-start';
-import {listeningCoverFixture} from './helpers/screen-harness.mjs';
+import {listeningCoverFixture, stackSlotFixture} from './helpers/screen-harness.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
@@ -22,7 +22,7 @@ test('the real shell mounts one persistent player and a separate box-none watch 
   const runtime = {home: {getSnapshot: () => ({document: undefined})}, getSnapshot: () => snapshot, subscribe: () => () => {}, playback: {}, memory: {read: async () => undefined}, reportError(error: unknown) {throw error;},
     renderWatch: () => React.createElement('WatchChrome'),
     renderRoutes: () => React.createElement('TitleRoutes'), renderSelection: () => React.createElement('MenuOverlays'), renderDestination() {}};
-  const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
+  const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {...stackSlotFixture, 
     './page-focus-return': {canReturnToPage},
     '../screens/home/home-start': homeStart,
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,

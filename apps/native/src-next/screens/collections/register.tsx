@@ -1,3 +1,4 @@
+import {useNativeStackHosted, useNativeStackPlacement} from '../../kit/navigation/stack-slot';
 import React, {useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {View} from 'react-native';
 import {useFocusRegistry, type FocusSnapshot} from '../../kit/focus';
@@ -53,6 +54,7 @@ function RetainedCollections({pages, subscribe, context, runtime}: {pages: Reado
  * the opener's focus is held while covered and restored on return. */
 function RetainedCollection({route, active, context, runtime}: {route: CollectionRoute; active: boolean; context: NativeShellBootstrapContext; runtime: NativeShellRuntime}) {
   const registry = useFocusRegistry(), opener = useRef<FocusSnapshot | undefined>(undefined), release = useRef<(() => void) | undefined>(undefined), shown = useRef(active);
+  const place = useNativeStackPlacement(route), stacked = useNativeStackHosted();
   useEffect(() => {if (!active) return; const remember = () => {const value = registry.capture(); if (value) opener.current = value;};
     remember(); return registry.subscribe(remember);
   }, [active, registry]);
@@ -65,10 +67,10 @@ function RetainedCollection({route, active, context, runtime}: {route: Collectio
     return () => cancelAnimationFrame(frame);
   }, [active, registry]);
   useEffect(() => () => release.current?.(), []);
-  return <View pointerEvents={active ? 'auto' : 'none'} accessibilityElementsHidden={!active} importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
-    style={{position: 'absolute', inset: 0, opacity: active ? 1 : 0}}>
+  return place(<View pointerEvents={active ? 'auto' : 'none'} accessibilityElementsHidden={!active} importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
+    style={{position: 'absolute', inset: 0, opacity: active || stacked ? 1 : 0}}>
     <CollectionHost route={route} active={active} context={context} runtime={runtime}/>
-  </View>;
+  </View>);
 }
 
 function CollectionHost({route, active, context, runtime}: {route: CollectionRoute; active: boolean; context: NativeShellBootstrapContext; runtime: NativeShellRuntime}) {

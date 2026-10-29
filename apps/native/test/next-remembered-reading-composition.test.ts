@@ -6,7 +6,7 @@ import {routeBase64} from '../../../packages/client-core/src/route-identity';
 import {appleReaderEntry, readerAssetEntry, readerNavigationAllowed, readerDelivery} from '../src-next/screens/read/asset-origin';
 import {closeReadingResource, createReadingSessionOwner} from '../src-next/screens/read/reading-session-owner';
 import {rememberedReadingHistoryPaused} from '../src-next/shell/remembered-reading-settings';
-import {screenModule} from './helpers/screen-harness.mjs';
+import {screenModule, stackSlotFixture} from './helpers/screen-harness.mjs';
 import {React as fabricReact} from './helpers/fabric-host.mjs';
 import {sceneHost} from './helpers/scene-host.mjs';
 
@@ -60,7 +60,7 @@ test(`remembered ${format} composition: ${mixed ? 'mixed' : 'publication only'},
     '../../platform/reading-highlights-save': {readingHighlightsSavePort: () => async () => 'cancelled'},
     './asset-origin': {readerNavigationAllowed, readerDelivery}, './startup-diagnostics': {readerStartupDiagnostic: () => undefined, readerStartupProbe: ''},
   });
-  const {NativeReadingGuestHost} = await screenModule(new URL('../src-next/screens/read/NativeReadingGuestHost.tsx', import.meta.url), {
+  const {NativeReadingGuestHost} = await screenModule(new URL('../src-next/screens/read/NativeReadingGuestHost.tsx', import.meta.url), {...stackSlotFixture, 
     react: {...fabricReact, default: fabricReact}, 'react-native': {View: 'View', NativeModules: {PorticoReaderAssets: {bundle: async () => ({url: appleReaderEntry})}}, useWindowDimensions: () => ({width: 390, height: 844})},
     'react-native-webview': {default: 'WebView'}, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 47})},
     '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}}, '../../kit/controls/Button': {Button: 'Button'},

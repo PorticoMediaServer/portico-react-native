@@ -1,7 +1,7 @@
 import * as tvKeyAdapter from '../src-next/platform/tv-key-adapter.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {hooks, screenModule, stackSlotFixture} from './helpers/screen-harness.mjs';
 import * as seeAllModel from '../src-next/screens/home/see-all-model.ts';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
@@ -177,7 +177,7 @@ test('a superseded or dismissed See all Undo callback is revoked before the next
     load = async () => {};
     dispose() {}
   }
-  const {createNativeHomeRows} = await screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {
+  const {createNativeHomeRows} = await screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {...stackSlotFixture, 
     react, 'react-native': {AccessibilityInfo: {}, Platform: {isTV: false}, View: 'View'},
     '../../kit/focus': {useFocusRegistry: () => ({})}, '../../kit/dock/DockClearance': {useDockClearance: () => 84},
     '../../kit/overlays': {ToastHost: 'ToastHost'}, '../../../../../packages/i18n/src': {defaultI18n: {t}},

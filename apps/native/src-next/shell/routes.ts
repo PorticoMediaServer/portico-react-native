@@ -3,7 +3,7 @@ import type {ContentEntry} from '../../../../packages/client-core/src/library-co
 import type {HomeChannel, HomeSeeAll} from '../../../../packages/client-core/src/home';
 import type {SavedRoute} from '../../../../packages/client-core/src/saved';
 import type {ReadingItem} from '../../../../packages/client-core/src/reading';
-import {sameAuthority, type ShellAuthority, type ShellDestination} from './model';
+import {sameAuthority, selectedTab, type ShellAuthority, type ShellDestination} from './model';
 
 /** Descriptors are requests to the registered phase owner, never synthesized screen content. */
 export type NativeContinueWatchingOffer = Readonly<{itemId: string; revision: number}>;
@@ -95,6 +95,17 @@ export type NativeDestinationIntent = 'enter' | 'restore' | 'top';
 export type NativeDestinationActivation = Readonly<{visible: boolean; intent: NativeDestinationIntent; revision: number}>;
 export type NativeDestinationActivationPort = Readonly<{subscribe: (listener: () => void) => () => void; getSnapshot: () => NativeDestinationActivation}>;
 export type NativeRouteAdmission = (route: NativeShellRoute, origin: ShellDestination) => boolean;
+/** One tab's own stack, root first. Only touch navigation keeps more than one. */
+export type NativeTabStack = Readonly<{tab: string; presentations: readonly NativeRoutePresentation[]}>;
+export type NativeTabStacks = Readonly<{active: string; stacks: readonly NativeTabStack[]}>;
+export type NativeShellNavigationOptions = Readonly<{
+  /** motion.html 2.11: each tab keeps its own stack (touch). Off, history is one
+   * linear list, which television's rail ladder relies on. */
+  tabStacks?: boolean;
+}>;
+/** Settings and every page opened from it are a modal over the tab; they never park with it. */
+export const isModalRoot = (route: NativeShellRoute): boolean => route.kind === 'shell' && route.destination.kind === 'settings';
+const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const sameDestination = (a: ShellDestination, b: ShellDestination): boolean => a.kind === b.kind &&
   (a.kind !== 'library' || b.kind === 'library' && a.libraryId === b.libraryId);
 const noPresentations: readonly NativeRoutePresentation[] = Object.freeze([]);
@@ -142,19 +153,28 @@ export class NativeShellNavigation {
   private intent: NativeDestinationIntent = 'enter';
   readonly currentAuthority: () => ShellAuthority;
   private readonly admission?: NativeRouteAdmission;
-  constructor(authority: ShellAuthority, currentAuthority: () => ShellAuthority, admission?: NativeRouteAdmission) {
+  private readonly tabbed: boolean;
+  /** The tab whose stack is `history` + current; every other visited tab is parked whole. */
+  private tab = 'home';
+  private parked = new Map<string, readonly NativeRoutePresentation[]>();
+  private tabOrder: string[] = ['home'];
+  private tabSnapshot: NativeTabStacks;
+  constructor(authority: ShellAuthority, currentAuthority: () => ShellAuthority, admission?: NativeRouteAdmission, options?: NativeShellNavigationOptions) {
     this.currentAuthority = currentAuthority;
     this.admission = admission;
+    this.tabbed = options?.tabStacks === true;
     const destination: ShellDestination = {kind: 'home'};
     const route: NativeShellRoute = {kind: 'shell', destination};
     this.snapshot = Object.freeze({authority: Object.freeze({...authority}), route, destination, revision: 0});
     this.presentations = Object.freeze([Object.freeze({occurrence: this.occurrence, route, destination})]);
+    this.tabSnapshot = Object.freeze({active: this.tab, stacks: Object.freeze([Object.freeze({tab: this.tab, presentations: this.presentations})])});
   }
   getSnapshot = (): NativeRouteSnapshot => this.snapshot;
   /** Exact route descriptors still in this authority's Back stack. */
   retainedRoutes = (): readonly NativeShellRoute[] => this.isCurrent() ? this.retained : [];
-  /** Stable readonly projection of real admitted history. No extra root,
-   * by-item dedupe, renderer or tab-local history is manufactured here. */
+  /** Stable readonly projection of real admitted history: parked tab stacks
+   * first, then the current tab's, so `.at(-1)` is always the page on screen.
+   * No extra root, by-item dedupe or renderer is manufactured here. */
   presentationStack = (): readonly NativeRoutePresentation[] => {
     try {return this.isCurrent() ? this.presentations : noPresentations;} catch {return noPresentations;}
   };
@@ -211,6 +231,8 @@ export class NativeShellNavigation {
     });
   };
 
+  /** Every visited tab's stack in first-visit order (one linear stack when untabbed). */
+  tabStacks = (): NativeTabStacks => this.isCurrent() ? this.tabSnapshot : Object.freeze({active: this.tab, stacks: Object.freeze([])});
   getIntent = (): NativeDestinationIntent => this.intent;
   isCurrent = (): boolean => this.current(this.snapshot.authority);
   allows = (route: NativeShellRoute, origin: ShellDestination = route.kind === 'shell' ? route.destination : this.snapshot.destination): boolean =>
@@ -224,6 +246,25 @@ export class NativeShellNavigation {
     const owns = () => this.alive && this.snapshot === expected && this.presentations.at(-1) === previous;
     if (!previous || !owns() || !this.current(expectedAuthority) || !owns() || !this.allows(route)
       || !owns() || !this.current(expectedAuthority) || !owns()) return false;
+    const tab = this.tabbed && route.kind === 'shell' ? selectedTab(route.destination) : undefined;
+    if (tab && tab !== this.tab) {this.switchTab(tab, route, false); return true;}
+    if (tab && route.kind === 'shell') {
+      // Same tab: a page already lower in this stack is returned to, never stacked twice;
+      // switching library at the tab's root replaces it in place (2.11: no slide).
+      const lower = this.history.findIndex(entry => entry.route.kind === 'shell' && sameJson(entry.route.destination, route.destination));
+      if (lower >= 0) {
+        const entry = this.history[lower]!;
+        this.history = this.history.slice(0, lower);
+        this.publish(entry.route, 'restore', entry.destination, entry.occurrence);
+        return true;
+      }
+      // (Libraries then a library is a push, 2.9; going up from a first-screen library is not.)
+      if (!this.history.length && previous.route.kind === 'shell' && previous.route.destination.kind === 'library'
+        && (route.destination.kind === 'library' || route.destination.kind === 'libraries')) {
+        this.publish(route, 'enter', undefined, this.nextOccurrence());
+        return true;
+      }
+    }
     const occurrence = this.nextOccurrence();
     this.history.push(previous);
     this.publish(route, 'enter', undefined, occurrence);
@@ -231,7 +272,58 @@ export class NativeShellNavigation {
   }
   back(expectedAuthority: ShellAuthority): boolean {
     if (!sameAuthority(expectedAuthority, this.snapshot.authority)) return false;
+    // At another tab's first screen, Back returns to Home as it was left (Android convention).
+    if (this.tabbed && !this.history.length) {
+      if (this.tab === 'home' || !this.current(expectedAuthority)) return false;
+      const home: NativeShellRoute = Object.freeze({kind: 'shell', destination: Object.freeze({kind: 'home'})});
+      if (!this.allows(home)) return false;
+      this.switchTab('home', home, true); return true;
+    }
     return this.commitNativePop(this.snapshot, this.occurrence);
+  }
+  /** A tab bar or rail selection. Another tab comes back exactly as it was left
+   * (`anyRoot`, or the same first screen); the same tab returns to its first screen. */
+  selectTab(destination: ShellDestination, expectedAuthority: ShellAuthority, anyRoot = false): boolean {
+    const route: NativeShellRoute = Object.freeze({kind: 'shell', destination});
+    const tab = this.tabbed ? selectedTab(destination) : undefined;
+    if (!tab) return this.open(route, expectedAuthority);
+    if (!this.alive || !this.current(expectedAuthority) || !this.allows(route)) return false;
+    if (tab !== this.tab) {
+      const parked = this.parked.get(tab)?.[0];
+      this.switchTab(tab, route, !!parked && (anyRoot || sameJson(parked.destination, destination)));
+      return true;
+    }
+    const root = this.history[0] ?? this.presentations.at(-1)!;
+    if (anyRoot || sameJson(root.destination, destination)) return this.popToRoot(expectedAuthority) || true;
+    this.history = [];
+    this.publish(route, 'enter', undefined, this.nextOccurrence());
+    return true;
+  }
+  /** Re-selecting the tab you're on: back to its first screen. False when already there. */
+  popToRoot(expectedAuthority: ShellAuthority): boolean {
+    if (!this.alive || !this.current(expectedAuthority) || !this.history.length) return false;
+    const root = this.history[0]!;
+    if (!this.allows(root.route, root.destination)) return false;
+    this.history = [];
+    this.publish(root.route, 'restore', root.destination, root.occurrence);
+    return true;
+  }
+  private switchTab(tab: string, route: NativeShellRoute, restore: boolean): void {
+    const leaving = [...this.history, this.presentations.at(-1)!];
+    const modal = leaving.findIndex(entry => isModalRoot(entry.route));
+    this.parked.set(this.tab, Object.freeze(modal > 0 ? leaving.slice(0, modal) : leaving));
+    const target = this.parked.get(tab);
+    this.parked.delete(tab);
+    this.tab = tab;
+    if (!this.tabOrder.includes(tab)) this.tabOrder.push(tab);
+    if (restore && target?.length) {
+      const top = target.at(-1)!;
+      this.history = target.slice(0, -1);
+      this.publish(top.route, 'restore', top.destination, top.occurrence);
+    } else {
+      this.history = [];
+      this.publish(route, 'enter', undefined, this.nextOccurrence());
+    }
   }
   /** The native presenter captures both values when Back/gesture begins.
    * Cancellation calls nothing. Rejecting this compare-pop never uses latest. */
@@ -275,14 +367,20 @@ export class NativeShellNavigation {
   private publish(route: NativeShellRoute, intent: NativeDestinationIntent, restoredDestination?: ShellDestination, occurrence = this.occurrence): void {
     this.intent = intent;
     this.occurrence = occurrence;
-    this.retained = Object.freeze(this.history.map(entry => entry.route));
+    const parked = this.tabOrder.flatMap(tab => tab === this.tab ? [] : this.parked.get(tab) ?? []);
+    this.retained = Object.freeze([...parked, ...this.history].map(entry => entry.route));
     this.snapshot = Object.freeze({...this.snapshot, route, destination: restoredDestination ?? (route.kind === 'shell' ? route.destination : this.snapshot.destination), revision: this.snapshot.revision + 1});
-    this.presentations = Object.freeze([...this.history, Object.freeze({occurrence, route, destination: this.snapshot.destination})]);
+    const top = Object.freeze({occurrence, route, destination: this.snapshot.destination}), stack = Object.freeze([...this.history, top]);
+    this.presentations = Object.freeze([...parked, ...stack]);
+    this.tabSnapshot = Object.freeze({active: this.tab, stacks: Object.freeze(this.tabOrder.flatMap(tab => {
+      const presentations = tab === this.tab ? stack : this.parked.get(tab);
+      return presentations ? [Object.freeze({tab, presentations})] : [];
+    }))});
     for (const listener of [...this.listeners]) listener();
   }
   dispose(): void {
     if (!this.alive) return;
-    this.alive = false; this.history = []; this.retained = Object.freeze([]); this.presentations = noPresentations;
+    this.alive = false; this.history = []; this.parked.clear(); this.retained = Object.freeze([]); this.presentations = noPresentations;
     for (const listener of [...this.listeners]) listener();
     this.listeners.clear();
   }

@@ -216,6 +216,14 @@ const loader = registerHooks({
       return {url: svgURL, shortCircuit: true};
     if (specifier === 'react-native-gesture-handler')
       return {url: gestureURL, shortCircuit: true};
+    // P2-73: the touch shell's native stack hosts each page in a plain view here.
+    if (specifier === 'react-native-screens')
+      return {
+        url: data(
+          `export {View as ScreenStack,View as ScreenStackItem,View as Screen,View as ScreenContainer} from ${JSON.stringify(nativeURL)};`,
+        ),
+        shortCircuit: true,
+      };
     if (specifier === '@react-native-community/blur')
       return {
         url: data(

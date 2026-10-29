@@ -2,7 +2,7 @@ import {canReturnToPage} from '../../src-next/shell/page-focus-return.ts';
 import * as homeStart from '../../src-next/screens/home/home-start.ts';
 import {DockVideoExitImages} from '../../src-next/kit/dock/video-exit-paint.ts';
 import {captureListeningOpening, expandedListeningOccupant, localListeningOccupant} from '../../src-next/shell/listening-presentation.ts';
-import {listeningCoverFixture} from './screen-harness.mjs';
+import {listeningCoverFixture, stackSlotFixture} from './screen-harness.mjs';
 import {defaultI18n} from '../../../../packages/i18n/src/index.ts';
 import * as signalPath from '../../src-next/screens/destinations/music/signal-path-model.ts';
 import {nativeEqualizer} from '../../platform/equalizer.ts';
@@ -157,7 +157,7 @@ export async function fabricPlayback(runtime, tv = true, watch, withShell = fals
       memory: {read: async () => undefined}, renderRoutes: () => null, renderSelection: () => null, renderDestination: () => null,
       renderWatch: () => React.createElement(WatchProbe)});
     const registry = createFocusRegistry(), Empty = () => null;
-    ({NativeShell} = await screenModule(new URL('../../src-next/shell/NativeShell.tsx', import.meta.url), {
+    ({NativeShell} = await screenModule(new URL('../../src-next/shell/NativeShell.tsx', import.meta.url), {...stackSlotFixture, 
     './page-focus-return': {canReturnToPage},
     '../screens/home/home-start': homeStart,
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,

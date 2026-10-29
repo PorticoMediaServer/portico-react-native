@@ -19,6 +19,7 @@ import {canYieldTVHomeMenu, homeStartModel, resolveTVHomeStart} from '../screens
 import {authorityKey, canOpenLibrary, librariesDestination, mediumRailMetrics, phoneBarHeight, sameAuthority, selectedTab, shellLayout, type ShellDestination, type ShellTab} from './model';
 import {nativeScreenChromeHidden, subscribeNativeScreenChrome} from './chrome';
 import type {NativeShellRuntime, NativeShellSnapshot} from './runtime';
+import type {NativeShellRoute} from './routes';
 import {PhoneTabBar} from './PhoneTabBar';
 import {PhoneHomeHeader} from './PhoneHomeHeader';
 import {MediumRail} from './MediumRail';
@@ -26,6 +27,16 @@ import {TVRail} from './TVRail';
 import {TVProfileMenu} from './TVProfileMenu';
 import {NativePlaybackLayer} from './NativePlaybackLayer';
 import {canReturnToPage} from './page-focus-return';
+import {NativeStackSlots, NativeStackSlotsProvider} from '../kit/navigation/stack-slot';
+import {TouchStacks, nativeStackMotionTier, type NativeStackPage} from './TouchStacks';
+
+const noStacks = () => () => {};
+const topRoute = (stacks: NativeShellRuntime['stacks']): NativeShellRoute | undefined => {
+  const value = stacks?.getSnapshot();
+  return value?.stacks.find(stack => stack.tab === value.active)?.presentations.at(-1)?.route;
+};
+/** Pages that take the whole screen, without the tab bar. */
+const immersiveRoute = (route: NativeShellRoute | undefined) => route?.kind === 'read' || route?.kind === 'channel';
 
 export function NativeShell({runtime}: {runtime: NativeShellRuntime}) {
   const snapshot = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
@@ -44,6 +55,9 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const landscapePhone = layout.kind === 'phone' && dimensions.width > dimensions.height;
   /** The sidebar's own breakpoint, captured so the hook reads a plain value. */
   const wideSidebar = dimensions.width >= 1024;
+  // Touch hosts each tab's pages in a native stack (motion.html 2.9-2.11); television keeps its own layer.
+  const stacks = theme.isTV ? undefined : runtime.stacks, slots = useMemo(() => new NativeStackSlots(), []);
+  const stackTop = useSyncExternalStore(stacks?.subscribe ?? noStacks, () => topRoute(stacks), () => topRoute(stacks));
   const destination = snapshot.destination, registry = useFocusRegistry(), ids = useMemo(() => tvFocusIds(snapshot.authority), [snapshot.authority]);
   // Compact Settings is a modal over the last committed destination. Keep that
   // native subtree mounted so its scroll position and painted content survive.
@@ -191,10 +205,10 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
       || theme.isTV && retained.kind === 'library' && !canOpenLibrary(snapshot.libraries, retained.libraryId, true)) runtime.onDestination({kind: 'libraries'});
     if (destination.kind === 'live' && !snapshot.hasLiveTV) runtime.onDestination({kind: 'home'});
   }, [destination, runtime, snapshot.destination, snapshot.hasLiveTV, snapshot.libraries, theme.isTV]);
-  const navigate = (next: ShellDestination) => {
+  const navigate = (next: ShellDestination, anyRoot = false) => {
     if (!current()) return;
     setAccountOpen(false); opening.current++;
-    runtime.onDestination(next);
+    if (stacks) stacks.selectTab(next, anyRoot); else runtime.onDestination(next);
     pageOpacity.value = 0;
     pageOpacity.value = withTiming(1, motion.timing('quick'));
   };
@@ -204,11 +218,13 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   };
   const selectTab = async (tab: ShellTab['id']) => {
     if (!current()) return;
-    if (selectedTab(destination) === tab) {runtime.scrollToTop(destination); return;}
+    if (selectedTab(destination) === tab) {if (stacks) stacks.reselectTab(destination); else runtime.scrollToTop(destination); return;}
     if (tab !== 'libraries') {
-      if (tab === 'search') navigate({kind: 'search'}); else navigate({kind: tab});
+      if (tab === 'search') navigate({kind: 'search'}, true); else navigate({kind: tab}, true);
       return;
     }
+    // A visited Libraries tab comes back exactly as it was left.
+    if (stacks?.getSnapshot().stacks.some(stack => stack.tab === 'libraries')) {navigate({kind: 'libraries'}, true); return;}
     const mine = ++opening.current, from = runtime.getSnapshot().destination;
     const id = memoryReady ? remembered : await runtime.memory.read(snapshot.authority).catch(error => {runtime.reportError(error); return undefined;});
     if (!current() || mine !== opening.current || runtime.getSnapshot().contentVisible === false || !sameDestination(from, runtime.getSnapshot().destination)) return;
@@ -264,7 +280,30 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   // Only the covered destination leaves the accessibility tree. The watch
   // host's visible title/episode panes remain siblings in their own outlet.
   const baseHidden = snapshot.contentVisible === false || snapshot.mediaExpanded || theme.isTV && tvListeningPresent;
+  const homePage = (active: boolean, obscured: boolean) => <HomeScreen runtime={runtime} authority={snapshot.authority} active={active} heroObscured={obscured} railExpanded={railExpanded} bottomInset={homeBottom} onScrolledChange={setHomeScrolled} holdRailDim={holdRailDim} releaseRailDim={releaseRailDim}/>;
+  const phoneHomeHeader = <PhoneHomeHeader profile={snapshot.profile} unread={snapshot.unreadNotifications} avatarRef={avatarRef} onProfile={() => navigate({kind: 'settings'})} viewerRole={snapshot.account.viewerRole} serverAction={snapshot.account.serverAction} castControl={runtime.castControl} scrolled={homeScrolled}/>;
+  /** One shell destination inside its stack screen: a tab's first screen, a library opened
+   * from Libraries, or Settings (the modal stack's transparent root over the live page). */
+  const renderShellPage = ({presentation, top, tabActive, modal}: NativeStackPage) => {
+    const page = presentation.route.kind === 'shell' ? presentation.route.destination : presentation.destination;
+    if (modal) return <View style={{flex: 1, paddingLeft: sideNavigation ? sideWidth : 0, paddingBottom: settingsSheet ? 0 : pageBottom, backgroundColor: settingsSheet ? 'transparent' : theme.colors.ink}}>
+      {runtime.renderDestination(page, openLibrary)}
+    </View>;
+    return <View style={{flex: 1, paddingLeft: sideNavigation ? sideWidth : 0}}>
+      {page.kind === 'home' ? <>
+        {homePage(top && !snapshot.mediaExpanded && snapshot.homeVisible, !!snapshot.homeObscured || settingsPage)}
+        {layout.kind === 'phone' && tabActive && !snapshot.selectionActive && !chromeHidden && phoneHomeHeader}
+      </> : <View style={{flex: 1, paddingBottom: pageBottom}}>{runtime.renderDestination(page, openLibrary)}</View>}
+    </View>;
+  };
+  // phone-detail and motion 2.9: the tab bar stays still under pushed pages, which end above it.
+  // The reader and live TV are full-screen.
+  const pushedPage = (route: NativeShellRoute, node: React.ReactNode) => <Animated.View pointerEvents={initialPlayer ? 'none' : 'box-none'} accessibilityElementsHidden={!!initialPlayer}
+    importantForAccessibility={initialPlayer ? 'no-hide-descendants' : 'auto'} style={[{position: 'absolute', top: 0, left: 0, right: 0, bottom: immersiveRoute(route) ? 0 : barHeight}, initialTitleStyle]}>{node}</Animated.View>;
   const content = <>
+    {stacks ? <Animated.View pointerEvents="box-none" accessibilityElementsHidden={!!snapshot.mediaExpanded} importantForAccessibility={snapshot.mediaExpanded ? 'no-hide-descendants' : 'auto'} style={[{position: 'absolute', inset: 0}, pageStyle]}>
+      <TouchStacks port={stacks} slots={slots} tier={nativeStackMotionTier(motion)} background={theme.colors.ink} renderShell={renderShellPage} routeStyle={pushedPage}/>
+    </Animated.View> : <>
     <Animated.View pointerEvents={settingsPage ? 'none' : 'auto'} accessibilityElementsHidden={baseHidden || settingsPage} importantForAccessibility={baseHidden || settingsPage ? 'no-hide-descendants' : 'auto'} style={[{flex: 1}, settingsPage && !settingsSheet ? {display: 'none'} : null, sideNavigation ? {paddingLeft: sideWidth} : null, settingsPage ? undefined : pageStyle]}>
       {paintedDestination.kind === 'home' ? <HomeScreen runtime={runtime} authority={snapshot.authority} active={!settingsPage && !snapshot.mediaExpanded && snapshot.homeVisible} heroObscured={settingsPage || snapshot.homeObscured} railExpanded={railExpanded} bottomInset={homeBottom} onScrolledChange={setHomeScrolled} holdRailDim={holdRailDim} releaseRailDim={releaseRailDim}/>
         : <View style={{flex: 1, paddingBottom: pageBottom}}>
@@ -272,17 +311,22 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
         </View>}
     </Animated.View>
     {settingsPage && <Animated.View style={[{position: 'absolute', inset: 0, paddingLeft: sideNavigation ? sideWidth : 0, paddingBottom: settingsSheet ? 0 : pageBottom}, pageStyle]}>{runtime.renderDestination(destination, openLibrary)}</Animated.View>}
+    </>}
     {theme.isTV && <Animated.View pointerEvents="none" style={[{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink, zIndex: theme.layers.navigation - 1}, dimStyle]}/>}
-    {!snapshot.selectionActive && snapshot.contentVisible !== false && !chromeHidden && (theme.isTV ? <TVRail authority={snapshot.authority} returnTo={currentPageFocus} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={snapshot.railDestination ?? destination} profile={snapshot.profile} unread={snapshot.unreadNotifications} dimmed={destination.kind === 'home' && snapshot.homeVisible && !snapshot.mediaExpanded && !!railDim && !railDim.retired} onNavigate={next => {if (snapshot.contentVisible !== false && sameDestination(next, destination)) {expanded(false); runtime.scrollToTop(destination);} else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
+    {!snapshot.selectionActive && (stacks ? !immersiveRoute(stackTop) : snapshot.contentVisible !== false) && !chromeHidden && (theme.isTV ? <TVRail authority={snapshot.authority} returnTo={currentPageFocus} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={snapshot.railDestination ?? destination} profile={snapshot.profile} unread={snapshot.unreadNotifications} dimmed={destination.kind === 'home' && snapshot.homeVisible && !snapshot.mediaExpanded && !!railDim && !railDim.retired} onNavigate={next => {if (snapshot.contentVisible !== false && sameDestination(next, destination)) {expanded(false); runtime.scrollToTop(destination);} else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
       onProfile={() => setAccountOpen(true)} profileRef={avatarRef} onExpandedChange={expanded}/>
       : <>
-        {sideNavigation && <MediumRail expanded={layout.kind === 'desktop' && sidebarExpanded} onToggle={layout.kind === 'desktop' ? toggleSidebar : undefined} serverName={snapshot.serverName} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={railDestination} profile={snapshot.profile} unread={snapshot.unreadNotifications}
+        {sideNavigation && snapshot.contentVisible !== false && <MediumRail expanded={layout.kind === 'desktop' && sidebarExpanded} onToggle={layout.kind === 'desktop' ? toggleSidebar : undefined} serverName={snapshot.serverName} libraries={snapshot.libraries} hasLiveTV={snapshot.hasLiveTV} destination={railDestination} profile={snapshot.profile} unread={snapshot.unreadNotifications}
           serverAction={snapshot.account.serverAction && {id: snapshot.account.serverAction.id, label: snapshot.account.serverAction.label, onPress: snapshot.account.serverAction.onPress}}
           notificationAction={notifications && {label: notifications.label, onPress: notifications.onPress}}
           profileRef={avatarRef} short={dimensions.height - insets.top - insets.bottom < 800}
-          onNavigate={next => {if (snapshot.contentVisible !== false && sameDestination(next, destination)) runtime.scrollToTop(destination); else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next);}}
+          onNavigate={next => {
+            if (stacks && sameDestination(next, destination)) stacks.reselectTab(destination);
+            else if (!stacks && snapshot.contentVisible !== false && sameDestination(next, destination)) runtime.scrollToTop(destination);
+            else if (next.kind === 'library') openLibrary(next.libraryId); else navigate(next, next.kind !== 'libraries');
+          }}
           onProfile={() => setAccountOpen(true)}/>}
-        {destination.kind === 'home' && layout.kind === 'phone' && <PhoneHomeHeader profile={snapshot.profile} unread={snapshot.unreadNotifications} avatarRef={avatarRef} onProfile={() => navigate({kind: 'settings'})} viewerRole={snapshot.account.viewerRole} serverAction={snapshot.account.serverAction} castControl={runtime.castControl} scrolled={homeScrolled}/>}
+        {!stacks && destination.kind === 'home' && layout.kind === 'phone' && <PhoneHomeHeader profile={snapshot.profile} unread={snapshot.unreadNotifications} avatarRef={avatarRef} onProfile={() => navigate({kind: 'settings'})} viewerRole={snapshot.account.viewerRole} serverAction={snapshot.account.serverAction} castControl={runtime.castControl} scrolled={homeScrolled}/>}
         {layout.tabs && <Animated.View pointerEvents={snapshot.mediaExpanded ? 'none' : 'box-none'} accessibilityElementsHidden={snapshot.mediaExpanded}
           importantForAccessibility={snapshot.mediaExpanded ? 'no-hide-descendants' : 'auto'} onLayout={event => listeningTabBar.measure(event.nativeEvent.layout.height)}
           style={[{position: 'absolute', left: 0, right: 0, bottom: 0, height: barHeight, zIndex: theme.layers.sticky}, listeningTabBar.style]}>
@@ -292,7 +336,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
     {theme.isTV ? <TVProfileMenu snapshot={snapshot} open={accountOpen} onOpenChange={setAccountOpen} returnFocusRef={avatarRef}/>
       : <AccountMenu {...snapshot.account} profile={snapshot.profile} open={accountOpen} onOpenChange={setAccountOpen} anchorRef={avatarRef} returnFocusRef={avatarRef}/>}
   </>;
-  return <View testID="native-shell" style={{flex: 1, backgroundColor: theme.colors.ink, overflow: 'hidden'}}>
+  return <NativeStackSlotsProvider value={stacks ? slots : undefined}><View testID="native-shell" style={{flex: 1, backgroundColor: theme.colors.ink, overflow: 'hidden'}}>
     {theme.isTV ? <View style={{position: 'absolute', left: layout.left, top: layout.top, width: layout.width, height: layout.height, transformOrigin: 'top left', transform: [{scale: layout.scale}]}}>{content}</View> : content}
     {runtime.playback && <NativePlaybackLayer adapter={runtime.playback} runtime={runtime} authority={snapshot.authority} contentInset={sideWidth} onTVListeningPresenceChange={theme.isTV ? setTVListeningPresent : undefined}/>}
     {runtime.renderWatch && <View pointerEvents="box-none" style={{position: 'absolute', inset: 0, zIndex: theme.layers.player + 1}}>{runtime.renderWatch()}</View>}
@@ -301,5 +345,5 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
     {runtime.renderSelection()}
     {runtime.renderDownloads?.()}
     {runtime.renderPendingChanges?.()}
-  </View>;
+  </View></NativeStackSlotsProvider>;
 }

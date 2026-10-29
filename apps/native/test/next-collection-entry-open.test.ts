@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
-import {screenModule} from './helpers/screen-harness.mjs';
+import {screenModule, stackSlotFixture} from './helpers/screen-harness.mjs';
 import {createFabricHookHost} from './helpers/fabric-hooks.mjs';
 import {NativeShellNavigation} from '../src-next/shell/routes.ts';
 import {authorityKey, sameAuthority} from '../src-next/shell/model.ts';
@@ -23,7 +23,7 @@ test('actual collection presenter sends its current member through the fenced pr
     '../native-screen-services': {nativeScreenServices: () => ({navigate() {assert.fail('song cannot route to title');}, reportError: assert.fail})},
     '../watch': {nativeWatchEntryMenu: () => undefined},
   });
-  const {createNativeCollectionRenderer} = await screenModule(new URL('../src-next/screens/collections/register.tsx', import.meta.url), {
+  const {createNativeCollectionRenderer} = await screenModule(new URL('../src-next/screens/collections/register.tsx', import.meta.url), {...stackSlotFixture, 
     react: {...React, default: React}, '../../shell/route-registry': {nativeShellRoutes: {registerRoute() {}}}, '../../shell/model': {authorityKey, sameAuthority},
     'react-native': {View: 'View'}, '../../kit/focus': {useFocusRegistry: () => ({capture: () => undefined, subscribe: () => () => {}, retain: () => () => {}, restore() {}})},
     '../selection/native-selection': {catalogueSelectionSource: (source: unknown) => source, createNativeSelection: () => ({dispose() {}})},

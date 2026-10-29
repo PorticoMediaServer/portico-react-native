@@ -1,3 +1,4 @@
+import {useNativeStackHosted, useNativeStackPlacement} from '../../kit/navigation/stack-slot';
 import React, {useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {Platform, View, useWindowDimensions} from 'react-native';
 import {useFocusRegistry, type FocusSnapshot} from '../../kit/focus';
@@ -163,6 +164,7 @@ function RetainedHomeRow({source, runtime, active, onBack, onPlay, onOpen, onPla
   onNotInterested: (entry: ContentEntry, value: boolean) => Promise<boolean>; kindLabel: (id: string) => string;
 }) {
   const registry = useFocusRegistry(), opener = useRef<FocusSnapshot | undefined>(undefined), release = useRef<(() => void) | undefined>(undefined), shown = useRef(active);
+  const place = useNativeStackPlacement(source.route), stacked = useNativeStackHosted();
   const row = useSyncExternalStore(source.controller.subscribe, source.controller.getSnapshot).row;
   const recommendation = !!row && isRecommendationRow({id: row.id, kind: row.kind});
   const [undo, setUndo] = useState<Readonly<{entry: ContentEntry; id: string}>>();
@@ -183,8 +185,8 @@ function RetainedHomeRow({source, runtime, active, onBack, onPlay, onOpen, onPla
     return () => cancelAnimationFrame(frame);
   }, [active, registry]);
   useEffect(() => () => release.current?.(), []);
-  return <View pointerEvents={active ? 'auto' : 'none'} accessibilityElementsHidden={!active} importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
-    style={{position: 'absolute', inset: 0, opacity: active ? 1 : 0}}>
+  return place(<View pointerEvents={active ? 'auto' : 'none'} accessibilityElementsHidden={!active} importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
+    style={{position: 'absolute', inset: 0, opacity: active || stacked ? 1 : 0}}>
     <HomeSeeAll controller={source.controller} runtime={runtime} active={active && !filters} onBack={onBack} onPlay={onPlay} onOpen={onOpen} onPlayEntry={onPlayEntry}
       onMenu={(entry, anchor) => source.actions.menu(entry, anchor, undefined, recommendation ? [{id: 'not-interested', label: defaultI18n.t('entry.notInterested'), icon: 'i-eyeoff', onSelect: () => {
         const opening = ++toastOpening.current;
@@ -207,5 +209,5 @@ function RetainedHomeRow({source, runtime, active, onBack, onPlay, onOpen, onPla
       if (displayedUndo.current?.id === id) displayedUndo.current = undefined;
       setUndo(value => value?.id === id ? undefined : value);
     }}/>
-  </View>;
+  </View>);
 }

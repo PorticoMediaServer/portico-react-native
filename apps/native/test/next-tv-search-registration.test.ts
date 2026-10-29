@@ -19,7 +19,7 @@ import {presentError} from '../../../packages/client-core/src/presentation/error
 import {mediaSelectionKey} from '../../../packages/client-core/src/media-selection';
 import * as selectionCore from '../../../packages/client-core/src/selection-model';
 import {selectedItemsLabel} from '../src-next/shell/selection-display';
-import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {hooks, screenModule, stackSlotFixture} from './helpers/screen-harness.mjs';
 
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 type Element = {type: any; props: Record<string, any>};
@@ -116,12 +116,12 @@ async function setup() {
   const registry = registryPort;
   // The reader's Search-all-books route is registered too; it is a TV-refused route,
   // so its real factory is registered and never opened here.
-  const readingRegister = await screenModule(new URL('../src-next/screens/search/reading-register.tsx', import.meta.url), {
+  const readingRegister = await screenModule(new URL('../src-next/screens/search/reading-register.tsx', import.meta.url), {...stackSlotFixture, 
     react: hooks().react, 'react-native': {Platform: {isTV: true}, View: 'View'},
     '../destinations/lifetime': {nativeDestinationLifetime},
     './reading-search': {createNativeReadingSearch}, './ReadingSearchScreen': {ReadingSearchScreen: 'ReadingSearchScreen'},
   });
-  await screenModule(new URL('../src-next/screens/search/register.tsx', import.meta.url), {
+  await screenModule(new URL('../src-next/screens/search/register.tsx', import.meta.url), {...stackSlotFixture, 
     react: hooks().react, 'react-native': {AppState, Platform: {isTV: true}, View: 'View'}, '../../shell/route-registry': registry,
     '../../shell/model': {authorityKey},
     '../destinations/lifetime': {nativeDestinationLifetime},

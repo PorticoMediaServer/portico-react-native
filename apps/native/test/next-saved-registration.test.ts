@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {hooks, screenModule, stackSlotFixture} from './helpers/screen-harness.mjs';
 import {defaultI18n} from '../../../packages/i18n/src';
 import * as personalSaved from '../../../packages/client-core/src/personal-saved';
 import {NativeHomeSavedViewSummaries} from '../src-next/screens/home/saved-view-summaries';
@@ -19,7 +19,7 @@ async function load(isTV: boolean) {
     '../native-screen-services': {nativeScreenServices: () => ({reportError: () => {}})},
     '../../platform/abort-signals': {linkNativeAbortSignals},
   });
-  const module = await screenModule(new URL('../src-next/screens/saved/register.tsx', import.meta.url), {
+  const module = await screenModule(new URL('../src-next/screens/saved/register.tsx', import.meta.url), {...stackSlotFixture, 
     react: host.react,
     'react-native': {Platform: {isTV}, View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
     '../../../../../packages/i18n/src': {defaultI18n},

@@ -1,3 +1,4 @@
+import {useNativeStackHosted} from '../../kit/navigation/stack-slot';
 import React, {useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {NativeModules, View, useWindowDimensions} from 'react-native';
 import WebView from 'react-native-webview';
@@ -21,6 +22,7 @@ export function NativeReadingGuestHost({owner, active, preferences, onBack, onSe
   owner: Owner; active: boolean; preferences: Readonly<{getSnapshot: () => PreferenceSnapshot; subscribe: (listener: () => void) => () => void}>;
   onBack: () => void; onSettings: () => void; onSearchAll?: ReadingHostSearchAll; contentsTarget?: ReadingHostContentsTarget; onGuestState?: (mounted: boolean, incarnation: object) => void; activeCurrent?: () => boolean;
 }) {
+  const stacked = useNativeStackHosted();
   const theme = useTheme(), view = useRef<WebView>(null), reader = useRef<Reader | undefined>(undefined);
   const dimensions = useWindowDimensions(), insets = useSafeAreaInsets(), posture = usePlatformPosture();
   const crease = posture.status === 'available' && posture.window?.width === dimensions.width && posture.window.height === dimensions.height
@@ -86,7 +88,7 @@ export function NativeReadingGuestHost({owner, active, preferences, onBack, onSe
   useLayoutEffect(() => {reader.current?.setCrease(crease ? {left: crease.left, right: crease.right} : undefined);}, [crease, state.reader]);
   const failure = () => {if (!state.reader || reader.current !== state.reader) return; setState({failed: true}); disposeGuest.current?.();};
   return <View pointerEvents={active ? 'auto' : 'none'} accessibilityElementsHidden={!active} importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
-    style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink, opacity: active ? 1 : 0}}>
+    style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink, opacity: active || stacked ? 1 : 0}}>
     {state.failed ? <StateView variant="centered" title={defaultI18n.t('next.states.pageFailed')} body={defaultI18n.t('next.states.pageFailedBody')}
       primaryAction={{id: 'retry', label: defaultI18n.t('next.states.tryAgain'), disabled: !active || !owner.current(), onPress: retryOriginal}}/>
       : <LoadingPaint ready={!!state.url} immediate={!!state.url} skeleton={<SkeletonBlock width="100%" style={{flex: 1}}/>}>

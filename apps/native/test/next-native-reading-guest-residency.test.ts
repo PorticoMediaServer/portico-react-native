@@ -11,7 +11,7 @@ import {createReadingSessionOwner} from '../src-next/screens/read/reading-sessio
 import {NativeShellNavigation} from '../src-next/shell/routes';
 import {readRouteBack} from '../src-next/screens/read/read-route-back';
 import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
-import {screenModule} from './helpers/screen-harness.mjs';
+import {screenModule, stackSlotFixture} from './helpers/screen-harness.mjs';
 
 const previousDev = Object.getOwnPropertyDescriptor(globalThis, '__DEV__');
 Object.defineProperty(globalThis, '__DEV__', {configurable: true, value: false});
@@ -36,7 +36,7 @@ test('twenty original sessions can evict and restore real guest components witho
     '../../platform/reading-highlights-save': {readingHighlightsSavePort: () => async () => 'cancelled'},
     './asset-origin': {readerNavigationAllowed, readerDelivery}, './startup-diagnostics': {readerStartupDiagnostic: () => undefined, readerStartupProbe: ''},
   });
-  const {NativeReadingGuestHost} = await screenModule(new URL('../src-next/screens/read/NativeReadingGuestHost.tsx', import.meta.url), {
+  const {NativeReadingGuestHost} = await screenModule(new URL('../src-next/screens/read/NativeReadingGuestHost.tsx', import.meta.url), {...stackSlotFixture, 
     react: {...React, default: React}, 'react-native': {View: 'View', NativeModules: {PorticoReaderAssets: {bundle: async () => ({url: appleReaderEntry})}}, useWindowDimensions: () => ({width: 390, height: 844})},
     'react-native-webview': {default: 'WebView'}, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 47})},
     '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}},

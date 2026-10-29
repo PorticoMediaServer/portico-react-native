@@ -1,3 +1,4 @@
+import {useNativeStackHosted, useNativeStackPlacement} from '../../kit/navigation/stack-slot';
 import React, {useEffect, useSyncExternalStore} from 'react';
 import {AppState, Platform, View} from 'react-native';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
@@ -89,7 +90,7 @@ export function createNativeSearchModule(context: NativeShellBootstrapContext): 
       return <>
         {[...roots.values()].map(entry => <SearchHost key={entry.key} entry={entry} runtime={runtime}/>)}
         {[...genres.values()].map(entry => <GenreBrowseScreen key={entry.key} focusScope={entry.focusScope} name={entry.route.label} value={entry.route.value} destination={entry.controller.source}
-          activation={entry.controller.activation} runtime={runtime} actions={entry.actions} owner={context.session()?.viewer.role === 'owner'} onBack={() => back(entry.route)}/>)}
+          activation={entry.controller.activation} runtime={runtime} actions={entry.actions} owner={context.session()?.viewer.role === 'owner'} onBack={() => back(entry.route)} stackRoute={entry.route}/>)}
         {[...all.values()].map(entry => <AllHost key={entry.key} entry={entry} runtime={runtime} navigation={context.navigation} back={() => back(entry.route)}/>)}
       </>;
     },
@@ -102,23 +103,24 @@ export function createNativeSearchModule(context: NativeShellBootstrapContext): 
 }
 function SearchHost({entry, runtime}: {entry: Root; runtime: NativeShellRuntime}) {
   const active = useSyncExternalStore(entry.search.activation.subscribe, entry.search.activation.getSnapshot);
+  const place = useNativeStackPlacement(entry.route), stacked = useNativeStackHosted();
   useSyncExternalStore(entry.selection.subscribe, entry.selection.getSnapshot);
   // The captured-route query starts the ordinary search only after the screen is actually
   // visible; the controller seeds the draft, never a render-created request.
   useEffect(() => {if (active.visible) entry.search.seed();}, [active.visible, entry]);
-  return <View pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible} importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'}
-    style={{position: 'absolute', inset: 0, display: active.visible ? 'flex' : 'none'}}>
+  return place(<View pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible} importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'}
+    style={{position: 'absolute', inset: 0, display: active.visible || stacked ? 'flex' : 'none'}}>
     <SearchScreen focusScope={entry.focusScope} destination={entry.search.source} activation={entry.search.activation} explore={entry.explore} actions={entry.actions} selection={entry.selection} runtime={runtime}
       tvCopy={{preferToTalk: 'next.search.preferToTalk', voiceHint: 'next.search.remoteMicrophoneHelp'}}/>
-  </View>;
+  </View>);
 }
 function AllHost({entry, runtime, navigation, back}: {entry: All; runtime: NativeShellRuntime; navigation: NativeShellBootstrapContext['navigation']; back: () => void}) {
   useSyncExternalStore(navigation.subscribe, navigation.getSnapshot);
-  const live = entry.current();
-  return <View pointerEvents={live ? 'auto' : 'none'} accessibilityElementsHidden={!live} importantForAccessibility={live ? 'auto' : 'no-hide-descendants'}
-    style={{position: 'absolute', inset: 0, display: live ? 'flex' : 'none'}}>
+  const live = entry.current(), placeAll = useNativeStackPlacement(entry.route), stackedAll = useNativeStackHosted();
+  return placeAll(<View pointerEvents={live ? 'auto' : 'none'} accessibilityElementsHidden={!live} importantForAccessibility={live ? 'auto' : 'no-hide-descendants'}
+    style={{position: 'absolute', inset: 0, display: live || stackedAll ? 'flex' : 'none'}}>
     <AllGenresScreen focusScope={entry.focusScope} explore={entry.explore} runtime={runtime} visible={live} current={entry.current} onBack={back}/>
-  </View>;
+  </View>);
 }
 
 nativeShellRoutes.registerDestination('search', createNativeSearchModule);

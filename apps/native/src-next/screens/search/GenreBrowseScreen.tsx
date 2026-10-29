@@ -1,3 +1,4 @@
+import {useNativeStackHosted, useNativeStackPlacement} from '../../kit/navigation/stack-slot';
 import React, {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -34,15 +35,18 @@ const browseLabels = (t: NativeShellRuntime['text']['t']): BrowseLabels => ({fie
 
 /** A genuine across-video Browse source. The header/filter/grid parts are the
  * current Library composition; no Library('*') or local genre expansion exists. */
-export function GenreBrowseScreen({focusScope, name, value, destination, activation, runtime, actions, owner, onBack}: Readonly<{
+export function GenreBrowseScreen({focusScope, name, value, destination, activation, runtime, actions, owner, onBack, stackRoute}: Readonly<{
   focusScope: string; name: string; value: string; destination: NativeGenreBrowseDestination; activation: NativeDestinationActivationPort;
   runtime: NativeShellRuntime; actions: ReturnType<typeof createNativeEntryActions>; owner: boolean; onBack: () => void;
+  /** The retained route this page belongs to, for the touch shell's native stack. */
+  stackRoute?: object;
 }>) {
   const t = runtime.text.t;
   const labels = useMemo(() => browseLabels(t), [t]);
   const theme = useTheme(), dimensions = useWindowDimensions(), insets = useSafeAreaInsets();
   const state = useSyncExternalStore(destination.subscribe, destination.getSnapshot), active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const [filters, setFilters] = useState<NativeLibraryFilterDraft>(), [elapsed, setElapsed] = useState(0);
+  const place = useNativeStackPlacement(stackRoute), stacked = useNativeStackHosted();
   const fixed = useMemo(() => {const query = searchGenreBrowseRequest(value).query; return query ? [query] : [];}, [value]);
   useEffect(() => {if (active.visible && state.phase === 'idle') void destination.load();}, [active.visible, destination, state.phase]);
   useEffect(() => {if (!active.visible) {filters?.dispose(); setFilters(undefined);}}, [active.visible, filters]);
@@ -52,8 +56,8 @@ export function GenreBrowseScreen({focusScope, name, value, destination, activat
     const start = Date.now(), timer = setTimeout(() => setElapsed(Date.now() - start), 300);
     return () => clearTimeout(timer);
   }, [state.phase]);
-  return <View testID="native-search-genre" pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
-    importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{position: 'absolute', inset: 0, display: active.visible ? 'flex' : 'none', backgroundColor: theme.colors.ink}}>
+  return place(<View testID="native-search-genre" pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
+    importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{position: 'absolute', inset: 0, display: active.visible || stacked ? 'flex' : 'none', backgroundColor: theme.colors.ink}}>
     <View style={{paddingTop: insets.top, backgroundColor: theme.colors.ink}}>
       <View style={{height: 44, paddingHorizontal: 12, justifyContent: 'center'}}><Focusable testID="search-genre-back" accessibilityLabel={t('action.back')} onPress={onBack}
         style={{width: 38, height: 38, justifyContent: 'center', alignItems: 'center'}}><Icon name="i-left" size={22} color={theme.colors.text}/></Focusable></View>
@@ -64,7 +68,7 @@ export function GenreBrowseScreen({focusScope, name, value, destination, activat
       : state.phase === 'error' ? <StateView variant="centered" {...runtime.error(state.error, destination.retry)}/>
       : <GridSkeleton elapsedMs={elapsed} scrollOffset={0} viewportHeight={dimensions.height - 160} width={dimensions.width} totalCount={9} columns={3}/>}
     {filters && state.capabilities && state.sort && <GenreFilters draft={filters} capabilities={state.capabilities} sort={state.sort} fixed={fixed} runtime={runtime} owner={owner} labels={labels} onClose={() => setFilters(undefined)}/>}
-  </View>;
+  </View>);
 }
 
 function GenreGrid({focusScope, destination, runtime, actions, owner, labels, openFilters, filtersOpen}: Readonly<{

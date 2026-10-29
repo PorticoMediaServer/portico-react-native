@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as React from 'react';
-import {screenModule} from './helpers/screen-harness.mjs';
+import {screenModule, stackSlotFixture} from './helpers/screen-harness.mjs';
 import {NativeShellNavigation, titleRoute, nativeEntryRoute, nativeEntryRouteSupported} from '../src-next/shell/routes';
 import {NativeHomeRowController} from '../src-next/screens/home/row-controller';
 import {NativeShellRouteRegistry} from '../src-next/shell/route-registry';
@@ -10,7 +10,7 @@ import {nativeHomeEntryLifetime} from '../src-next/screens/home/entry-lifetime';
 
 const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'home-fence'};
 
-const rowModule = (isTV = false) => screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {
+const rowModule = (isTV = false) => screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {...stackSlotFixture, 
     '../../kit/useScreenReader': {useScreenReader: () => false},
     react: {...React, default: React}, '../../../../../packages/client-core/src/recommendation-feedback': {}, '../../../../../packages/i18n/src': {}, '../../kit/overlays': {}, '../../kit/controls': {}, 'react-native': {Platform: {isTV}, View: 'View'}, '../../kit/focus': {},
     './HomeSeeAll': {}, './HomeRowFilters': {},

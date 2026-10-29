@@ -99,7 +99,8 @@ test('real App Search keeps separate eligible previews and an artless All genres
     assert.equal(genreReads, 3, 'changing slots does not read the directory or request more previews');
     const queryReads = app.requests.filter((request: any) => new URL(request.path, 'https://fixture.invalid').pathname === '/v1/search').length;
     assert.equal(context.navigation.back(context.authority()), true); await app.settle();
-    assert.equal(app.hosts().some((host: any) => host.props.testID === 'native-search-screen'), false);
+    // Back from Search's first screen returns Home; the Search tab keeps its own stack (motion 2.11), parked and inert.
+    assert.deepEqual(context.navigation.getSnapshot().route, {kind: 'shell', destination: {kind: 'home'}});
     await input.props.onSubmitEditing(); await app.settle();
     assert.equal(app.requests.filter((request: any) => new URL(request.path, 'https://fixture.invalid').pathname === '/v1/search').length, queryReads, 'dropped old input cannot submit');
     assert.deepEqual(app.errors, []);

@@ -15,7 +15,7 @@ import * as layoutTypes from '../src-next/kit/layout/types';
 import * as controlModel from '../src-next/kit/controls/control-model';
 import {useTVBusyEntryRevision} from '../src-next/tv/auth/entry-revision';
 import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
-import {screenModule} from './helpers/screen-harness.mjs';
+import {screenModule, stackSlotFixture} from './helpers/screen-harness.mjs';
 import * as selectionUnavailableActions from '../src-next/screens/library/selection-unavailable-actions.ts';
 import * as wholeQueryUnavailable from '../src-next/screens/library/whole-query-unavailable.ts';
 
@@ -525,7 +525,7 @@ test('retained Home recommendation menu delegates the original entry, anchor and
     collection = {getSnapshot: (() => {const snapshot = {refreshing: false}; return () => snapshot;})(), residentItems: () => [{entry}], subscribe: () => () => {}};
     subscribe = () => () => {}; snapshot: any; getSnapshot = () => this.snapshot ??= {phase: 'ready', row: {id: this.rowId, kind: 'recommendation'}}; dispose() {}
   }
-  const mod = await screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {react: b.react,
+  const mod = await screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {...stackSlotFixture, react: b.react,
     'react-native': {...b.native, Platform: {isTV: true}, AccessibilityInfo: {isScreenReaderEnabled: async () => false, addEventListener: () => ({remove() {}})}}, '../../kit/focus': b.focus,
     '../../../../../packages/client-core/src/recommendation-feedback': {isRecommendationRow: () => true}, '../../kit/overlays': {ToastHost: 'ToastHost'}, '../../kit/controls': {},
     '../../../../../packages/i18n/src': {defaultI18n}, './HomeSeeAll': {HomeSeeAll: 'HomeSeeAll'}, './HomeRowFilters': {HomeRowFilters: 'Filters'}, './row-controller': {NativeHomeRowController: Controller},
@@ -566,7 +566,7 @@ test('retained Home Undo uses the shared toast with the original entry command',
     collection = {getSnapshot: (() => {const snapshot = {refreshing: false}; return () => snapshot;})(), residentItems: () => [], subscribe: () => () => {}};
     subscribe = () => () => {}; snapshot: any; getSnapshot = () => this.snapshot ??= {phase: 'ready', row: {id: this.rowId, kind: 'recommendation'}}; dispose() {}
   }
-  const mod = await screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {react: b.react,
+  const mod = await screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {...stackSlotFixture, react: b.react,
     'react-native': {...b.native, Platform: {isTV: true}}, '../../kit/focus': b.focus,
     '../../../../../packages/client-core/src/recommendation-feedback': {isRecommendationRow: () => true, notInterestedTarget: (entry: unknown) => entry, setNotInterested: async () => true},
     '../../kit/overlays': {ToastHost: 'ToastHost'}, '../../kit/controls': {},
@@ -633,7 +633,7 @@ test('actual Search registration keeps equal-value retained genre R1/R2 sort roo
     '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src/presentation/browse-toolbar': direction,
     '../../kit/controls': {Focusable: b.Focusable, Segmented: 'Segmented'}, '../../kit/overlays': o.menu, '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/theme': {useTheme: () => b.theme}, '../../kit/browse/presentation': presentation});
-  const genreModule = await screenModule(new URL('../src-next/screens/search/GenreBrowseScreen.tsx', import.meta.url), {react: b.react, 'react-native': b.native,
+  const genreModule = await screenModule(new URL('../src-next/screens/search/GenreBrowseScreen.tsx', import.meta.url), {...stackSlotFixture, react: b.react, 'react-native': b.native,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0})}, '../../../../../packages/i18n/src': {defaultI18n},
     '../../../../../packages/client-core/src/presentation/browse-toolbar': direction, '../../../../../packages/client-core/src/presentation/kit-model': {browseToolbarModel: () => toolbar},
     '../../../../../packages/client-core/src/search-genres': genres, '../../kit/browse': {FiltersButton: 'Filters'}, '../../kit/controls': {Focusable: b.Focusable},
@@ -643,7 +643,7 @@ test('actual Search registration keeps equal-value retained genre R1/R2 sort roo
   const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: 'epoch', viewerFence: 'viewer'};
   const r1 = {kind: 'search-genre', label: 'Drama', value: 'Drama'}, r2 = {...r1}; let showing = r2;
   const commands: {route: unknown; sort: unknown}[] = [], collection = {subscribe: () => () => {}, subscribePage: () => () => {}, getSnapshot: (() => {const snapshot = {status: 'ready', total: 0}; return () => snapshot;})(), pageOf: () => 0, getPageVersion: () => 0};
-  const register = await screenModule(new URL('../src-next/screens/search/register.tsx', import.meta.url), {react: b.react, 'react-native': b.native,
+  const register = await screenModule(new URL('../src-next/screens/search/register.tsx', import.meta.url), {...stackSlotFixture, react: b.react, 'react-native': b.native,
     '../../shell/route-registry': {nativeShellRoutes: {registerRoute() {}, registerDestination() {}}}, '../destinations/lifetime': {nativeDestinationLifetime: () => ({current: () => true})},
     '../destinations/entry-actions': {createNativeEntryActions: () => ({dispose() {}, menuState: {subscribe: () => () => {}, getSnapshot: () => 0}})},
     './controller': {}, './actions': {}, './explore': {}, './selection': {}, './SearchScreen': {}, './AllGenresScreen': {}, './reading-register': {},

@@ -1,3 +1,4 @@
+import {useNativeStackHosted, useNativeStackPlacement} from '../../kit/navigation/stack-slot';
 import React, {useEffect, useLayoutEffect, useState, useSyncExternalStore} from 'react';
 import {Platform, View} from 'react-native';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
@@ -57,6 +58,7 @@ function ReadingSearchHost({entry, runtime, navigation, onBack}: Readonly<{
   // the commit changes or the surface unmounts.
   const snapshot = useSyncExternalStore(navigation.subscribe, navigation.getSnapshot);
   const visible = snapshot.route === entry.route;
+  const place = useNativeStackPlacement(entry.route), stacked = useNativeStackHosted();
   const [opening, setOpening] = useState<ReadingSearchOpening | undefined>(undefined);
   useEffect(() => {entry.port.attachReporter(runtime.reportError);}, [entry, runtime]);
   useLayoutEffect(() => {
@@ -65,8 +67,8 @@ function ReadingSearchHost({entry, runtime, navigation, onBack}: Readonly<{
     setOpening(admitted);
     return () => {if (admitted) entry.port.retire(admitted);};
   }, [entry, snapshot, visible]);
-  return <View pointerEvents={visible ? 'auto' : 'none'} accessibilityElementsHidden={!visible} importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}
-    style={{position: 'absolute', inset: 0, display: visible ? 'flex' : 'none'}}>
+  return place(<View pointerEvents={visible ? 'auto' : 'none'} accessibilityElementsHidden={!visible} importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}
+    style={{position: 'absolute', inset: 0, display: visible || stacked ? 'flex' : 'none'}}>
     <ReadingSearchScreen port={entry.port} opening={opening} runtime={runtime} query={entry.route.query} onBack={onBack}/>
-  </View>;
+  </View>);
 }

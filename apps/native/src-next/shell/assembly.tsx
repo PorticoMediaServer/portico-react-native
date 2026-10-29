@@ -32,7 +32,7 @@ import {selectedItemsLabel} from './selection-display';
 import {nativeHomeSelectionScope} from './selection-scope';
 import {nativeEntryRoute, nativeEntryRouteSupported, nativeRailDestination, type NativeShellRoute} from './routes';
 import {nativeShellRoutes} from './route-registry';
-import {sameAuthority, nativeServerHost} from './model';
+import {sameAuthority, nativeServerHost, type ShellDestination} from './model';
 import {createNativeMusicDiscoverNavigation} from './music-discover-navigation';
 import {homePlayTarget} from '../screens/home/model';
 import {planHomeWindows} from './home-windows';
@@ -40,7 +40,7 @@ import {isReadingLibraryKind} from '../screens/read/platform';
 import {openNativeReadingBookEntry} from '../screens/read/reading-books-open';
 import {nativeHomeEntryLifetime} from '../screens/home/entry-lifetime';
 import type {NativeShellBindings, NativeShellBootstrapContext} from './bootstrap';
-import type {NativeShellRuntime} from './runtime';
+import type {NativeShellRuntime, NativeTouchStacksPort} from './runtime';
 import {createNativeMusicMixes, type NativeMusicMixesCaller} from '../screens/destinations/music/mixes';
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -317,6 +317,16 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     void work(operation.signal).catch(reportError).finally(() => operations.delete(operation));
   };
   const render = (route: NativeShellRoute) => runtime && context.current() ? routes.render(route, runtime) : null;
+  const scrollToTop = (destination: ShellDestination) => {if (context.current()) {const handler = scroll.get(JSON.stringify(destination)); if (handler) handler(); else {const route = context.navigation.getSnapshot().route; routes.scrollToTop(route);}}};
+  // motion.html 2.9-2.11: touch hosts every tab's stack natively. Television keeps one route layer.
+  const stacks: NativeTouchStacksPort | undefined = Platform.isTV ? undefined : Object.freeze({
+    subscribe: context.navigation.subscribe,
+    getSnapshot: () => context.navigation.tabStacks(),
+    renderRoute: (route: NativeShellRoute) => route.kind === 'shell' ? null : render(route),
+    commitNativePop: (occurrence: string) => alive && context.current() && context.navigation.commitNativePop(context.navigation.getSnapshot(), occurrence),
+    selectTab: (destination: ShellDestination, anyRoot?: boolean) => {if (alive && context.current()) context.navigation.selectTab(destination, context.authority(), anyRoot);},
+    reselectTab: (destination: ShellDestination) => {if (alive && context.current() && !context.navigation.popToRoot(context.authority())) scrollToTop(destination);},
+  });
   const ownerTag = <OwnerTag audience="owner" variant="badge"/>;
   // music-plus 16/18: the Mixes row belongs to the shell session that made it. The principal
   // and lease are captured once; a later authority or route never supplies either.
@@ -452,7 +462,9 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     renderRoutes: () => {
       const route = context.navigation.getSnapshot().route;
       // Instantiate the current module before asking it for retained native views.
-      const active = route.kind === 'shell' ? null : render(route);
+      // A native stack draws each page in its own screen; here it only needs every module to exist.
+      if (stacks) for (const presentation of context.navigation.presentationStack()) routes.prepare(presentation.route);
+      const active = route.kind === 'shell' || stacks ? null : render(route);
       return runtime && context.current() ? <View pointerEvents="box-none" style={{position: 'absolute', top: 0, right: 0, bottom: 0, left: 0}}>
         {Platform.isTV && <NativeTVReceiver context={context} runtime={runtime}/>}
         {(routes.renderRetained(runtime) ?? []).map((node, index) => <React.Fragment key={index}>{node}</React.Fragment>)}
@@ -483,7 +495,8 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
     },
     error: (error, retry, context = 'home') => feedback.error(error, retry, context),
     reportError, onDestination: destination => open({kind: 'shell', destination}),
-    scrollToTop: destination => {if (context.current()) {const handler = scroll.get(JSON.stringify(destination)); if (handler) handler(); else {const route = context.navigation.getSnapshot().route; routes.scrollToTop(route);}}},
+    scrollToTop,
+    stacks,
     registerScrollToTop: (destination, handler) => {const key = JSON.stringify(destination); scroll.set(key, handler);
       if (homeTopPending && destination.kind === 'home' && currentHome()) {homeTopPending = false; handler();}
       return () => {if (scroll.get(key) === handler) scroll.delete(key);};},

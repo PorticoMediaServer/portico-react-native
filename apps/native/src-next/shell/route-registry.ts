@@ -20,6 +20,8 @@ type RendererFactory = (context: NativeShellBootstrapContext) => NativeRouteRend
 type PreparationLifetime = Readonly<{signal: AbortSignal; isCurrent: () => boolean}>;
 export type NativeBoundRoutes = Readonly<{
   render: (route: NativeShellRoute, runtime: NativeShellRuntime) => ReactNode;
+  /** Create the route's module (if admitted) without rendering it, so its retained pages exist. */
+  prepare: (route: NativeShellRoute) => void;
   renderWatch: (runtime: NativeShellRuntime) => ReactNode;
   renderRetained: (runtime: NativeShellRuntime) => readonly ReactNode[] | null;
   renderOverlays: (runtime: NativeShellRuntime) => readonly ReactNode[] | null;
@@ -114,6 +116,7 @@ export class NativeShellRouteRegistry {
     this.preparers.set(context, prepare);
     return Object.freeze({
       render: (route, runtime) => current() && context.navigation.allows(route) ? renderer(route)?.render(route, runtime) : null,
+      prepare: route => {if (current() && context.navigation.allows(route)) renderer(route);},
       // Persistent media has its own current-fence guard; page admission does
       // not hide valid playback or skip its topmost panel's Back handling.
       renderWatch: runtime => current() && this.watch ? instance(this.watch)?.render(runtime) : null,

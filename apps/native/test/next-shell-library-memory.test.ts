@@ -1,7 +1,7 @@
 // @fabric-react
 import {canReturnToPage} from '../src-next/shell/page-focus-return.ts';
 import * as homeStart from '../src-next/screens/home/home-start';
-import {listeningCoverFixture} from './helpers/screen-harness.mjs';
+import {listeningCoverFixture, stackSlotFixture} from './helpers/screen-harness.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -24,7 +24,7 @@ test('a real screen-owned Library destination is remembered and a late initial r
     memory: {read: () => new Promise<string>(resolve => {finish = resolve;}), remember: async (_scope: unknown, id: string) => {writes.push(id);}},
     onDestination: (destination: unknown) => {navigations.push(destination); snapshot = {...snapshot, destination};},
     renderRoutes() {}, renderSelection() {}, renderDestination() {}, scrollToTop() {}};
-  const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
+  const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {...stackSlotFixture, 
     './page-focus-return': {canReturnToPage},
     '../screens/home/home-start': homeStart,
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,

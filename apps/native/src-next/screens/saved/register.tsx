@@ -1,3 +1,4 @@
+import {useNativeStackPlacement} from '../../kit/navigation/stack-slot';
 import React, {useEffect, useLayoutEffect, useMemo, useSyncExternalStore} from 'react';
 import {Platform, View, useWindowDimensions} from 'react-native';
 import {defaultI18n, type MessageId} from '../../../../../packages/i18n/src';
@@ -166,6 +167,7 @@ function SavedRouteHost({entry, runtime, libraries, open, back, changed, showOnH
 }) {
   const active = useSyncExternalStore(entry.view.activation.subscribe, entry.view.activation.getSnapshot);
   const route = useMemo(() => nativeSavedRouteTarget(entry.route), [entry.route]);
+  const place = useNativeStackPlacement(entry.route);
   const commands = useMemo(() => createNativeSavedDirectoryCommands(context, entry.route, entry.view.activation), [context, entry]);
   useLayoutEffect(() => () => commands.dispose(), [commands]);
   const common = {destination: entry.view.source, activation: entry.view.activation, runtime};
@@ -176,8 +178,8 @@ function SavedRouteHost({entry, runtime, libraries, open, back, changed, showOnH
     : route.view === 'watchlist' || route.view === 'favorites' || route.view === 'history'
       ? <SavedListScreen {...common} route={route as NativeSavedListRoute} actions={entry.view.actions} back={back} changed={changed} selection={entry.view.selection}/>
       : <SavedResourceHost context={context} entry={entry} route={route} runtime={runtime} libraries={libraries} back={back} changed={changed} showOnHome={showOnHome} openInLibrary={openInLibrary}/>;
-  return <View pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible} importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'}
-    style={{position: 'absolute', inset: 0, backgroundColor: 'transparent'}}>{body}</View>;
+  return place(<View pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible} importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'}
+    style={{position: 'absolute', inset: 0, backgroundColor: 'transparent'}}>{body}</View>);
 }
 
 // The phone hub is the only destination this family registers; the TV landing

@@ -2,7 +2,7 @@ import {canReturnToPage} from '../src-next/shell/page-focus-return.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as model from '../src-next/shell/model';
-import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {hooks, screenModule, stackSlotFixture} from './helpers/screen-harness.mjs';
 
 const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : node?.props ? [node, ...nodes(node.props.children)] : [];
 
@@ -14,7 +14,7 @@ for (const tv of [false, true]) test(`${tv ? 'TV' : 'touch'} shell hides its cov
   const runtime = {getSnapshot: () => snapshot, subscribe: () => () => {}, home: {getSnapshot: () => ({})},
     renderWatch: () => h.react.createElement('VisibleSplitWatchPanes'), renderRoutes: () => h.react.createElement('Routes'), renderSelection: () => null};
   const registry = {subscribe: () => () => {}, getSnapshot: () => ({}), capture: () => undefined, hasRetainedFocus: () => false};
-  const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
+  const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {...stackSlotFixture, 
     react: {...react, default: react}, 'react-native': {View: 'View', useWindowDimensions: () => ({width: tv ? 1920 : 840, height: tv ? 1080 : 880})},
     'react-native-reanimated': {default: {View: 'AnimatedView'}, useAnimatedStyle: (fn: () => unknown) => fn(), useSharedValue: (value: unknown) => ({value}), withTiming: (value: unknown) => value},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0})},

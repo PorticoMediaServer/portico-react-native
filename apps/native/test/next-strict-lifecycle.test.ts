@@ -1,7 +1,7 @@
 import {canReturnToPage} from '../src-next/shell/page-focus-return.ts';
 import * as homeWindow from '../src-next/screens/home/home-window';
 import * as homeStart from '../src-next/screens/home/home-start';
-import {listeningCoverFixture} from './helpers/screen-harness.mjs';
+import {listeningCoverFixture, stackSlotFixture} from './helpers/screen-harness.mjs';
 import {homeActionDiagnostics} from '../src-next/platform/home-action-diagnostics.ts';
 import {focusTestID, createFocusRegistry} from '../src-next/kit/focus/registry.ts';
 import {tvFocusIds, tvHomeRegionMap, sameDestination} from '../src-next/shell/tv-focus';
@@ -289,7 +289,7 @@ function shellRuntime(onMemoryRead?: () => void) {
 }
 async function shellSession(state: ReturnType<typeof lifecycle>, runtime: NativeShellRuntime, registry = createFocusRegistry()) {
   const theme = createTheme({isTV: false, width: 390});
-  const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
+  const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {...stackSlotFixture, 
     './page-focus-return': {canReturnToPage},
     '../screens/home/home-start': homeStart,
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,
@@ -442,7 +442,7 @@ function driverMount(component: any, initial: any) {
 }
 async function driverShellSession(state: ReturnType<typeof lifecycle>, runtime: NativeShellRuntime, registry = createFocusRegistry()) {
   const theme = createTheme({isTV: false, width: 390});
-  const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {
+  const {NativeShell} = await screenModule(new URL('../src-next/shell/NativeShell.tsx', import.meta.url), {...stackSlotFixture, 
     './page-focus-return': {canReturnToPage},
     '../screens/home/home-start': homeStart,
     '../kit/overlays/SurfacePaintHost': surfacePaintFixture,

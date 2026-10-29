@@ -3,7 +3,7 @@ import test, {after} from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
-import {screenModule} from './helpers/screen-harness.mjs';
+import {screenModule, stackSlotFixture} from './helpers/screen-harness.mjs';
 import {appleReaderEntry, readerAssetEntry, readerNavigationAllowed, readerDelivery} from '../src-next/screens/read/asset-origin';
 import {defaultI18n} from '../../../packages/i18n/src';
 import {NativeShellNavigation, type NativeShellRoute} from '../src-next/shell/routes';
@@ -76,7 +76,7 @@ async function harness(fixture: Fixture) {
     './asset-origin': {readerNavigationAllowed, readerDelivery},
     './startup-diagnostics': {readerStartupDiagnostic: () => undefined, readerStartupProbe: ''},
   });
-  const {NativeReadingGuestHost} = await screenModule(new URL('../src-next/screens/read/NativeReadingGuestHost.tsx', import.meta.url), {
+  const {NativeReadingGuestHost} = await screenModule(new URL('../src-next/screens/read/NativeReadingGuestHost.tsx', import.meta.url), {...stackSlotFixture, 
     react: {...React, default: React}, 'react-native': {View: 'View', NativeModules: {PorticoReaderAssets: {bundle: async () => at === 'assets' ? {} : {url: appleReaderEntry}}}, useWindowDimensions: () => ({width, height: 844})},
     'react-native-webview': {default: 'WebView'}, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 47})},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/states': {LoadingPaint: 'LoadingPaint', StateView: 'StateView', SkeletonBlock: 'SkeletonBlock'},
@@ -84,7 +84,7 @@ async function harness(fixture: Fixture) {
     '../../platform/platformPosture': {usePlatformPosture: () => ({status: 'unavailable'})}, './asset-origin': {readerAssetEntry},
     './ReadingGuestView': {ReadingGuestView: 'ReadingGuestView', createReadingGuestBridge: () => {hostCalls++; return {...reader};}},
   });
-  const {ReadNativeHost} = await screenModule(new URL('../src-next/screens/read/ReadNativeHost.tsx', import.meta.url), {
+  const {ReadNativeHost} = await screenModule(new URL('../src-next/screens/read/ReadNativeHost.tsx', import.meta.url), {...stackSlotFixture, 
     react: {...React, default: React},
     'react-native': {
       AppState: {addEventListener: () => ({remove() {}})}, View: 'View',

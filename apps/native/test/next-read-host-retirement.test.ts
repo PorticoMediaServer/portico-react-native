@@ -8,7 +8,7 @@ import {nativeReadingSettingsSection} from '../src-next/screens/settings/reading
 import {closeReadingResource, createReadingSessionOwner} from '../src-next/screens/read/reading-session-owner';
 import {NativeShellNavigation} from '../src-next/shell/routes';
 import {act, createFabricHookHost} from './helpers/fabric-hooks.mjs';
-import {screenModule} from './helpers/screen-harness.mjs';
+import {screenModule, stackSlotFixture} from './helpers/screen-harness.mjs';
 import * as React from 'react';
 
 // The native bundle supplies this compile-time flag; exercise its production path.
@@ -114,7 +114,7 @@ test(`actual live host with its presentation binding fences original close on ${
   navigation.open(route, authority);
   const presentation = navigation.presentationStack().at(-1)!;
   const binding = navigation.bindPresentation(presentation, {current: context.current, subscribe: context.subscribeAuthority}); assert.ok(binding);
-  const {ReadNativeHost} = await screenModule(new URL('../src-next/screens/read/ReadNativeHost.tsx', import.meta.url), {
+  const {ReadNativeHost} = await screenModule(new URL('../src-next/screens/read/ReadNativeHost.tsx', import.meta.url), {...stackSlotFixture, 
     react: {...React, default: React}, 'react-native': {View: 'View', AppState: {addEventListener: () => ({remove() {}})}, useWindowDimensions: () => ({width: 390, height: 844})},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 47})},
     '../../../../../packages/client-core/src': {preferenceValue: () => undefined, ReadingError: class extends Error {}},

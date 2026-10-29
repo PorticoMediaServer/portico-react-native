@@ -2,7 +2,7 @@ import * as mutationRecovery from '../../../packages/client-core/src/user-mutati
 import {NativePendingChanges} from '../src-next/shell/pending-changes.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {hooks, screenModule} from './helpers/screen-harness.mjs';
+import {hooks, screenModule, stackSlotFixture} from './helpers/screen-harness.mjs';
 import {nativeHomeEntryLifetime} from '../src-next/screens/home/entry-lifetime.ts';
 import {nativeStartSeconds} from '../src-next/platform/playback/start-intent.ts';
 
@@ -39,7 +39,7 @@ test('generic destination Play retains chapter offsets but leaves ordinary cards
 
 test('See all entry Play preserves a chapter seek and retains the original row lifetime', async () => {
   const react = hooks().react;
-  const {createNativeHomeRows} = await screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {'../destinations/entry-actions': {createNativeEntryActions: () => ({menu() {}, dispose() {}})}, '../../kit/dock/DockClearance': {useDockClearance: () => 0}, 
+  const {createNativeHomeRows} = await screenModule(new URL('../src-next/screens/home/SeeAllRoute.tsx', import.meta.url), {...stackSlotFixture, '../destinations/entry-actions': {createNativeEntryActions: () => ({menu() {}, dispose() {}})}, '../../kit/dock/DockClearance': {useDockClearance: () => 0}, 
     react, 'react-native': {Platform: {isTV: false}}, '../../kit/focus': {}, '../../kit/overlays': {}, '../../kit/controls': {},
     '../../../../../packages/client-core/src/recommendation-feedback': {}, '../../../../../packages/i18n/src': {},
     './HomeSeeAll': {}, './HomeRowFilters': {},

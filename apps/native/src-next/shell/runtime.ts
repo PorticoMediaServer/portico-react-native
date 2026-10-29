@@ -61,6 +61,20 @@ export type NativeHomeActions = Readonly<{
 
 /** Bootstrapped by the real session/transport owner, never by mock data or global credentials.
  * A new authority must replace the HomeService, selection and authenticated image bindings. */
+/** Touch only: the native stack host's view of navigation. Television keeps one route layer. */
+export type NativeTouchStacksPort = Readonly<{
+  subscribe: (listener: () => void) => () => void;
+  getSnapshot: () => import('./routes').NativeTabStacks;
+  /** A pushed page's own content; shell destinations are drawn by the shell. */
+  renderRoute: (route: import('./routes').NativeShellRoute) => ReactNode;
+  /** The system already popped `occurrence` (edge swipe). False: the stack must resync. */
+  commitNativePop: (occurrence: string) => boolean;
+  /** Tab bar or rail: another tab returns as it was left (`anyRoot`, or the same first screen). */
+  selectTab: (destination: ShellDestination, anyRoot?: boolean) => void;
+  /** The tab you're on again: its first screen, then its top. */
+  reselectTab: (destination: ShellDestination) => void;
+}>;
+
 export interface NativeShellRuntime {
   /** Original bootstrap owner retirement, aborted before route/focus teardown.
    * Passive observers stop on it; this never grants actions or freshens a snapshot. */
@@ -78,6 +92,7 @@ export interface NativeShellRuntime {
   homeMenuRow?: (windowId: string) => HomeRow | undefined;
   renderSelection: () => ReactNode;
   renderRoutes: () => ReactNode;
+  stacks?: NativeTouchStacksPort;
   /** Persistent watch chrome above the one native picture surface. */
   renderWatch?: () => ReactNode;
   /** The screen supplies Save view and its canSave rule from its own live draft.

@@ -40,6 +40,13 @@ export async function screenModule(file, modules) {
   return compileFunction((/const React\s*=/.test(code) ? '' : 'const React = modules.react.default;\n') + code + '\nreturn {' + exported.join(',') + '};', ['modules'], {filename: file.pathname})(modules);
 }
 
+// P2-73: the touch shell's native stack. Off a stack host, retained pages render in
+// place exactly as before (placement is the identity), so shallow fixtures see their previous tree.
+const stackSlot = {NativeStackSlots: class {}, NativeStackSlotsProvider: ({children}) => children, NativeStackSlotOutlet: () => null,
+  useNativeStackHosted: () => false, useNativeStackPlacement: () => node => node};
+export const stackSlotFixture = {'../../kit/navigation/stack-slot': stackSlot, '../kit/navigation/stack-slot': stackSlot,
+  './TouchStacks': {TouchStacks: () => null, nativeStackMotionTier: () => 'full', nativeStackAnimation: () => 'default'}};
+
 export function hooks() {
   const slots = []; let cursor = 0;
   const ref = value => { const n = cursor++; return slots[n] ??= {current: value}; };
