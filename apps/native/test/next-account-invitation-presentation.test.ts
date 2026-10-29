@@ -37,7 +37,7 @@ test('phone account presenter exposes only its offered password and provider cap
     host = createFabricHookHost(() => {tree = PhoneAccountSignIn({busy: false, providers, passwordEnabled, registration, recovery,
       username: 'account', password: 'password', onUsernameChange: () => {}, onPasswordChange: () => {},
       onContinue: () => calls.push('password'), onProvider: (id: string) => calls.push(id),
-      onForgot: () => calls.push('forgot'), onCreate: () => calls.push('create'), onLocal: () => calls.push('local')});});
+      onForgot: () => calls.push('forgot'), onCreate: () => calls.push('create'), onLocal: () => calls.push('local'), onOpenLink: (url: string) => {links.push(url);}});});
     await act(() => host!.mount());
     const agreement = nodes(tree).find(node => node.type === legal.LegalAgreement);
     const footer = agreement.type(agreement.props);

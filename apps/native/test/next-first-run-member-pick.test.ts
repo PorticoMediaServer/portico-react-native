@@ -60,7 +60,7 @@ test('after a successful select only a proven different identity ends the picked
   const {readFileSync} = await import('node:fs');
   const read = (path: string) => readFileSync(new URL(`../src-next/${path}`, import.meta.url), 'utf8');
   const signIn = read('platform/server-sign-in.ts'), switching = read('platform/profile-selection.ts');
-  assert.match(signIn, /logPickFailure\('sign-in', 'persist', error\);\n\s+if \(provenIdentityMismatch\(error\)\) await this\.retire\(result\.session\);\n\s+else this\.issued\.delete\(result\.session\.sessionFamilyId\);/);
+  assert.match(signIn, /logPickFailure\('sign-in', 'persist', error\);\n\s+if \(provenIdentityMismatch\(error\)\) \{try \{await this\.retire\(result\.session\);\} catch \{ \/\* the original error wins \*\/ \}\}\n\s+else this\.issued\.delete\(result\.session\.sessionFamilyId\);/);
   assert.match(switching, /if \(issued && !published\) \{refused = provenIdentityMismatch\(error\); logPickFailure\('switch', step, error\);\}/);
   assert.match(switching, /if \(issued && !published && refused && api\) \{/);
   assert.match(switching, /profileSessionRole\(account\.account, issued\.viewer\.profileId\) !== issued\.viewer\.role/);
