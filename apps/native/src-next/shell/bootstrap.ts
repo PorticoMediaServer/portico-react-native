@@ -12,6 +12,7 @@ import type {DirectSnapshot} from '../../../../packages/client-core/src/profile-
 import {IdentityClient} from '../../../../packages/client-core/src/identity-client';
 import {currentPreferenceSnapshot, type PreferenceSnapshot} from '../../../../packages/client-core/src/preferences';
 import {parseLibraryList} from '../../../../packages/client-core/src/library-list';
+import {createRoleProbe} from './role-probe';
 import {purgeStaleRoutes} from '../platform/stale-routes';
 import {drainRevocations} from '../platform/session-revocation';
 import {LocalSessionRefresher} from '../../../../packages/client-core/src/session-refresh';
@@ -150,15 +151,10 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
   // committed selection through the ordinary renewal path; nothing privileged survives a demotion.
   const rebuild = () => {if (!alive) return; homeActionDiagnostics.lifetime?.('bootstrap-role-changed', signal.signal, installation); if (options.onSessionRenewed) options.onSessionRenewed(); else end();};
   // A refused privileged read after a demotion is a role change, not a sign-out. Ask the
-  // server who this viewer is now; only a changed role rebuilds, anything else ends.
-  let roleProbe: Promise<void> | undefined;
-  const endUnlessRoleChanged = () => {
-    if (!alive || roleProbe) return;
-    const before = session?.viewer.role;
-    roleProbe = (api ? api.request<RouteResponse<'get_me'>>(routePath('get_me'), 'GET', undefined, signal.signal) : Promise.reject(cancelled()))
-      .then(me => {if (alive && session && before !== undefined && me.viewer.role !== before
-        && (['accountId', 'profileId', 'serverId', 'authority'] as const).every(key => me.viewer[key] === session!.viewer[key])) rebuild(); else end();}, () => end());
-  };
+  // server who this viewer is now; only a changed role rebuilds, a proven refusal ends, and a
+  // transient failure keeps the shell.
+  const endUnlessRoleChanged = createRoleProbe({alive: () => alive, viewer: () => session?.viewer, rebuild, end,
+    probe: () => api ? api.request<RouteResponse<'get_me'>>(routePath('get_me'), 'GET', undefined, signal.signal) : undefined});
   const abort = () => {if (alive) homeActionDiagnostics.lifetime?.('bootstrap-owner-abort', signal.signal, installation);dispose();};
   options.signal?.addEventListener('abort', abort, {once: true});
   cleanups.push(() => options.signal?.removeEventListener('abort', abort));
