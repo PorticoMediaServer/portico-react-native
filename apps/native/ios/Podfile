@@ -12,11 +12,11 @@ require Pod::Executable.execute_command('node', ['-p',
 
 # Expo's autolinking, for the Expo modules (expo-image) on iPhone and iPad. tvOS has its own Podfile
 # and links none of them.
-require Pod::Executable.execute_command('node', ['-p',
+require File.join(File.dirname(Pod::Executable.execute_command('node', ['-p',
   'require.resolve(
-    "expo/scripts/autolinking",
+    "expo/package.json",
     {paths: [process.argv[1]]},
-  )', __dir__]).strip
+  )', __dir__]).strip), 'scripts/autolinking')
 
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
