@@ -32,3 +32,13 @@ export function nativeGuideCellWindow(left: number, width: number, laneWidth: nu
 export function nativeGuideElapsedWidth(left: number, width: number, nowX: number): number {
   return Math.max(0, Math.min(width, nowX - left));
 }
+
+/** The visible guide rows as a half-open range [first, last): the same convention the initial
+ * range ({first: 0, last: 12}), revealTVCell (`index >= last` is off screen) and the guide store
+ * viewport (`lastRow: index + 1`) use. Viewability reports the rows it shows, so the end is the
+ * last shown row plus one (E-tv-38: an inclusive end made the bottom row read as off screen, and
+ * each focus there re-scrolled the guide). */
+export function visibleGuideRows(indices: readonly number[]): Readonly<{first: number; last: number}> | undefined {
+  if (!indices.length) return undefined;
+  return {first: Math.min(...indices), last: Math.max(...indices) + 1};
+}

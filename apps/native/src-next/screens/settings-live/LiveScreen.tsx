@@ -36,7 +36,7 @@ import {useTVPageBack} from '../destinations/useTVPageBack';
 import {useDestinationEntryFocus} from '../destinations/useEntryFocus';
 import {nativeGuideClock, nativeGuideDate, nativeGuideRegion, nativeGuideNext, nativeProgrammeCaption, nativeLibraryChannelEditorRoute, nativeChannelMenuEntries} from './guide-presentation';
 import {useGuideTimePan} from './useGuideTimePan';
-import {nativeGuideCellWindow, nativeGuideElapsedWidth, nativeGuidePanRange, nativeGuidePanTarget} from './guide-pan-model';
+import {nativeGuideCellWindow, nativeGuideElapsedWidth, nativeGuidePanRange, nativeGuidePanTarget, visibleGuideRows} from './guide-pan-model';
 import {NativeLivePhonePicker} from './LivePhonePicker';
 import {NativeLiveOwnerScreen} from './LiveOwnerScreen';
 import type {NativeLiveOwnerController} from './live-owner-controller';
@@ -470,7 +470,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
           timeGrid={theme.isTV ? {initialTime: now, start, end} : undefined} style={{flex: 1}}>
         <VirtualizedList ref={list} refreshControl={pull} key={`${state.revision}:${view}`} data={null} getItem={(_, index) => index} getItemCount={() => data.total ?? 12} keyExtractor={index => String(index)} initialNumToRender={12} maxToRenderPerBatch={12} windowSize={5} removeClippedSubviews={false} getItemLayout={(_, index) => ({index, length: rowHeight + rowGap, offset: index * (rowHeight + rowGap)})}
           onLayout={() => list.current?.scrollToOffset({offset: guideOffset.current, animated: false})} onScroll={event => {guideOffset.current = event.nativeEvent.contentOffset.y;}} scrollEventThrottle={16}
-          onViewableItemsChanged={({viewableItems}) => {const indices = viewableItems.map(value => value.index).filter((value): value is number => value !== null); if (!indices.length) return; visible.current = {first: Math.min(...indices), last: Math.max(...indices)}; controller.setViewport({firstRow: visible.current.first, lastRow: visible.current.last, start, end});}}
+          onViewableItemsChanged={({viewableItems}) => {const rows = visibleGuideRows(viewableItems.map(value => value.index).filter((value): value is number => value !== null)); if (!rows) return; visible.current = rows; controller.setViewport({firstRow: visible.current.first, lastRow: visible.current.last, start, end});}}
           renderItem={({item: index}) => <LiveRow tvRange={tvRange} onTVFocus={revealTVCell} panPosition={panPosition} panActive={panActive} laneWidth={width - channelWidth} clock={clock} entryEnabled={state.revision === 0 && recordingsReturn === 0 && managementReturn === 0} key={`${state.revision}:${index}`} index={index} controller={controller} runtime={runtime} start={start} end={end} now={now} channelWidth={channelWidth} rowHeight={rowHeight} px={px} list={view === 'list'} onOpen={open} onChannelMenu={openChannelMenu} selected={twoPane ? selected : undefined} grid={grid} watch={watch}/>}/>
         </FocusRegion>
         {phone && view === 'guide' && <Animated.View pointerEvents="none" style={[{position: 'absolute', left: channelWidth, top: 30, bottom: 0}, pastShade]}><Svg width="100%" height="100%" accessible={false}><Defs><LinearGradient id={`${shadeId}-past`} x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.38}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={.12}/></LinearGradient></Defs><Rect width="100%" height="100%" fill={`url(#${shadeId}-past)`}/></Svg></Animated.View>}
@@ -539,8 +539,8 @@ function LiveRow({selected, onChannelMenu, tvRange, onTVFocus, panPosition, panA
   const entry = useScreenEntry(theme.isTV && entryEnabled && index === 0 && channel && entryCell ? {regionId: grid, childId: cellFocusId(channel, entryCell)} : undefined, controller.lifetime.current);
   const channelRef = useRef<View>(null), programRefs = useRef(new Map<string, View>());
   if (!channel) return theme.isTV ? <View style={{height: rowHeight, marginBottom: rowGap, flexDirection: 'row', backgroundColor: theme.colors.raised, opacity: .4, borderRadius: 12}}>
-    <FocusItem focusId={`pending-channel:${index}`} cell={{row: index, kind: 'channel'}}><Focusable focusKind="row" accessibilityLabel={t('saved.loading')} onFocus={() => onTVFocus(index)} style={{width: channelWidth, height: rowHeight}}/></FocusItem>
-    <FocusItem focusId={`pending-programme:${index}`} cell={{row: index, kind: 'programme', start, end}}><Focusable focusKind="row" accessibilityLabel={t('saved.loading')} onFocus={() => onTVFocus(index)} style={{flex: 1, height: rowHeight}}/></FocusItem>
+    <FocusItem focusId={`pending-channel:${index}`} cell={{row: index, kind: 'channel'}}><Focusable focusKind="row" accessibilityLabel={t('status.loading')} onFocus={() => onTVFocus(index)} style={{width: channelWidth, height: rowHeight}}/></FocusItem>
+    <FocusItem focusId={`pending-programme:${index}`} cell={{row: index, kind: 'programme', start, end}}><Focusable focusKind="row" accessibilityLabel={t('status.loading')} onFocus={() => onTVFocus(index)} style={{flex: 1, height: rowHeight}}/></FocusItem>
   </View> : <View style={{height: rowHeight, marginBottom: rowGap, backgroundColor: theme.colors.raised, opacity: .4, borderRadius: 12}}/>;
   const logo = runtime.artwork(channel.logoUrl);
   const current = nowNext(programs.programs, now), nextText = nativeGuideNext(current.next, clock, runtime.text);
@@ -561,7 +561,7 @@ function LiveRow({selected, onChannelMenu, tvRange, onTVFocus, panPosition, panA
           const focusId = cellFocusId(channel, cell.program ? {kind: 'programme', id: cell.program.id} : {kind: 'gap', start: cell.start});
           return <FocusItem key={refKey} focusId={focusId} cell={theme.isTV ? {row: index, kind: 'programme', boundary: 'pending' in cell && cell.pending === true, start: cell.start, end: cell.end} : undefined}>
             {theme.isTV && loading
-              ? <Focusable focusId={focusId} focusKind="row" accessibilityLabel={t('saved.loading')} onFocus={() => onTVFocus(index, cell)}
+              ? <Focusable focusId={focusId} focusKind="row" accessibilityLabel={t('status.loading')} onFocus={() => onTVFocus(index, cell)}
                 style={{position: 'absolute', left: cell.x - overscan * px, top: 0, width: cell.width, height: rowHeight}}>{paint}</Focusable>
               : paint}
           </FocusItem>;
