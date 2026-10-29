@@ -324,7 +324,17 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   }, [empty, scope]);
   const emptyShown = empty || emptyHeld;
   const firstCard = state.collection?.itemAt(0), firstCardRegion = firstCard ? theme.isTV ? ids.libraryGrid(state.library.id, state.tab.id) : ids.libraryCard(state.library.id, nativeLibraryEntryKey(firstCard)) : undefined;
-  useDestinationEntryFocus(active, !theme.isTV ? undefined : emptyShown ? {regionId: emptyRegion, childId: 'browse-home'} : pageFailed ? {regionId: errorRegion, childId: 'retry'} : undefined);
+  // E-tv-27: Try again unmounts the error page while the load runs, so focus falls to the header, and the
+  // entry request was spent on the first failure. A failure that follows a Try again press is a fresh entry.
+  const retryPressed = useRef(false), [retryEpoch, setRetryEpoch] = useState(0);
+  useEffect(() => {
+    if (!active.visible) retryPressed.current = false;
+    else if (pageFailed && retryPressed.current) {retryPressed.current = false; setRetryEpoch(value => value + 1);}
+  }, [pageFailed, active.visible]);
+  const retryPage = useCallback(() => {retryPressed.current = true; destination.retry();}, [destination]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- a new epoch is a new request, by design
+  const stateEntry = useMemo(() => createDestinationEntryFocus(registry), [registry, retryEpoch]);
+  useDestinationEntryFocus(active, !theme.isTV ? undefined : emptyShown ? {regionId: emptyRegion, childId: 'browse-home'} : pageFailed ? {regionId: errorRegion, childId: 'retry'} : undefined, undefined, stateEntry);
   const pivots: Readonly<Record<string, string>> = {movie: 'movies', show: 'shows', episode: 'episodes', artist: 'artists', album: 'albums', song: 'songs', book: 'books', author: 'authors', series: 'series', ebook: 'books', comic: 'titles'};
   const choices = libraries.filter(library => !theme.isTV || !hiddenReadingLibraryOnTV(library.kind)).map(library => {
     const summary = summaries.libraries.find(value => value.id === library.id)?.summary;
@@ -411,7 +421,7 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
           message={defaultI18n.t('next.browse.librarySummariesUnavailable')}
           action={theme.isTV ? undefined : {label: defaultI18n.t('next.states.tryAgain'), onPress: () => {void directory.load().catch(runtime.reportError);}}}/></View>}
         {state.phase === 'error' ? <FocusRegion id={errorRegion} entry="retry" order={['retry']} edges={{up: ids.libraryTabs(state.library.id), left: ids.rail}} style={{flex: 1, justifyContent: 'center'}}>
-          <StateView variant="centered" {...runtime.error(state.error, destination.retry, 'library')}/></FocusRegion>
+          <StateView variant="centered" {...runtime.error(state.error, retryPage, 'library')}/></FocusRegion>
           : state.collection ? <View style={{flex: 1}}>
             <LibraryGrid {...props} selection={selection} source={state} paneWidth={gridWidth} tablet={tabletLayout} expanded={expanded} filtersOpen={filterState?.open ?? false} onFilters={openFilters} dockedFilters={docked}
               entryRequest={entryRequest} onEntered={onEntered} entryCovered={emptyShown}/>

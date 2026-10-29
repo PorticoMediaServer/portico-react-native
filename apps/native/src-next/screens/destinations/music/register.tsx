@@ -97,8 +97,8 @@ export function createNativeTVMusicRenderer(context: NativeShellBootstrapContext
       </>;
       return <>
         {page.entry.kind === 'album'
-          ? <TVAlbumScreen selection={page.tvSelection} controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onPlaylist={onPlaylist}/>
-          : <TVArtistScreen selection={page.tvSelection} controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry}/>}
+          ? <TVAlbumScreen key={page.entry.id} selection={page.tvSelection} controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry} onPlaylist={onPlaylist}/>
+          : <TVArtistScreen key={page.entry.id} selection={page.tvSelection} controller={page.controller} entry={page.entry} runtime={runtime} actions={page.actions} openEntry={openEntry}/>}
         {page.picker.render(runtime)}
         {page.tvSelection?.render(path => <Artwork source={runtime.artwork(path)} width={40} height={40}/>)}
       </>;
