@@ -15,6 +15,9 @@ export type NativeLibraryFilterSnapshot = Readonly<{
 type Options = Readonly<{
   api: LibraryContentApi; capabilities: BrowseCapabilities; pivot: string; sort: BrowseSortSelection;
   predicates: readonly BrowseNode[]; fixed: readonly BrowseNode[];
+  /** A Reading library still importing (P2-59) counts nothing: its server may answer counts with 202
+   * for as long as the import runs, so the draft neither asks for a count nor waits for one. */
+  importing?: () => boolean;
   current: () => boolean; /** `keep` names the docked panel that must survive its own apply. */ apply: (predicates: readonly BrowseNode[], keep?: NativeLibraryFilterDraft) => void; onDispose: () => void;
 }>;
 
@@ -66,7 +69,9 @@ export class NativeLibraryFilterDraft {
     for (const id of this.opened) void this.readFacet(id, this.state.facets[id]?.search ?? '');
   };
   private async readCount() {
-    this.countRead?.abort(); const controller = new AbortController(), revision = this.revision; this.countRead = controller;
+    this.countRead?.abort(); this.countRead = undefined;
+    if (this.options.importing?.()) {this.publish({count: {phase: 'idle'}}); return;}
+    const controller = new AbortController(), revision = this.revision; this.countRead = controller;
     this.publish({count: {phase: 'loading'}});
     try {
       const body = browseCountsRequest(this.options.pivot, [{id: 'draft', query: this.query() ?? null}]);
@@ -106,7 +111,9 @@ export class NativeLibraryFilterDraft {
     } catch (error) {if (this.current() && revision === this.revision && !controller.signal.aborted) publish({phase: 'error', search, error, value: previous});}
   }
   apply = (): boolean => {
-    if (!this.current() || this.state.count.phase !== 'ready') return false;
+    if (!this.current()) return false;
+    if (this.options.importing?.()) {try {this.query(this.state.predicates);} catch {return false;}} // The same vocabulary refusal, without a count.
+    else if (this.state.count.phase !== 'ready') return false;
     this.options.apply(this.state.predicates); this.dispose(); return true;
   };
   /** tablet-read#1b: the docked panel is the live editor, so its real query goes

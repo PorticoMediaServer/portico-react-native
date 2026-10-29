@@ -7,6 +7,7 @@ import {LibraryContentService, type ContentEntry, type ContentScope, type Librar
 import {libraryTabs, type LibraryTab, type LibraryTabId} from '../../../../../packages/client-core/src/presentation/library-tabs';
 import {NativeLibraryFilterDraft} from './filters';
 import type {NativeLibraryOpening} from './opening';
+import {isReadingLibraryKind} from '../read/platform';
 
 export const nativeLibraryEntryKey = (entry: ContentEntry): string => JSON.stringify([entry.kind, entry.libraryId, entry.id]);
 const cancelled = () => Object.assign(new Error('native_library_retired'), {name: 'AbortError'});
@@ -240,6 +241,7 @@ export class NativeLibraryDestination {
       predicates: source.predicates, fixed: (source.tab.fixedFilter ?? []) as readonly BrowseNode[],
       current: () => this.current() && this.state.capabilities === source.capabilities
         && (mode.live === true || this.state.predicates === source.predicates) && this.state.sort === source.sort,
+      importing: () => isReadingLibraryKind(this.state.library.kind) && (this.state.importing === true || this.state.capabilities?.importing === true),
       apply: (predicates, keep) => this.setQuery(predicates, this.state.sort, keep), onDispose: () => this.filters.delete(draft)});
     this.filters.add(draft); return draft;
   };

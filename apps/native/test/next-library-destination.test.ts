@@ -356,3 +356,29 @@ test('P2-61: the latest page importing flag is published, kept with rows, and re
     assert.equal(destination.getSnapshot().importing, true, 'rows + importing still publishes the flag; screens only use it when empty');
   } finally {destination.dispose();}
 });
+
+test('P2-59: while a Reading library imports, filter Apply completes without a count (the count may never resolve)', async () => {
+  const calls: string[] = [], applied: unknown[] = [];
+  const genre: BrowseNode = {field: 'genre', operator: 'contains-any', value: ['Drama']};
+  const api: LibraryContentApi = {request: <T>(path: string) => {
+    calls.push(path);
+    // An importing server answers whole-library counts with 202 for as long as the import runs.
+    return (path.includes('/counts') ? new Promise<T>(() => {}) : Promise.resolve({field: 'genre', total: 0, values: []} as T));
+  }};
+  let importing = true;
+  const draft = new NativeLibraryFilterDraft({api, capabilities: filterCapabilities, pivot: 'movies', sort: {field: 'title', direction: 'asc'}, predicates: [], fixed: [], current: () => true,
+    importing: () => importing, apply: value => applied.push(value), onDispose() {}});
+  draft.refresh(); await tick();
+  assert.equal(calls.some(path => path.includes('/counts')), false, 'no count is asked for while importing');
+  draft.setPredicates([genre]);
+  assert.equal(draft.apply(), true, 'Apply never waits for a count that will not come');
+  assert.deepEqual(applied, [[genre]]);
+  assert.equal(draft.getSnapshot().open, false);
+  // Once the import ends, Apply waits for the count again.
+  importing = false;
+  const later = new NativeLibraryFilterDraft({api, capabilities: filterCapabilities, pivot: 'movies', sort: {field: 'title', direction: 'asc'}, predicates: [], fixed: [], current: () => true,
+    importing: () => importing, apply: value => applied.push(value), onDispose() {}});
+  later.refresh(); await tick();
+  assert.equal(later.apply(), false, 'not importing: an unanswered count still holds Apply');
+  later.dispose();
+});

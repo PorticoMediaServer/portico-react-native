@@ -21,4 +21,6 @@ test('P2-59: an importing Reading library counts nothing: toolbar, header, switc
   assert.match(filters, /const results = result && !importing &&/);
   assert.match(filters, /importing \? defaultI18n\.t\('next\.controls\.done'\)/, 'Show reads Done, never a count');
   assert.match(filters, /const showing = live && !importing &&/);
+  assert.match(filters, /disabled=\{!importing && state\.count\.phase !== 'ready'\}/, 'Show is never held by a count while importing');
+  assert.match(source('screens/library/model.ts'), /importing: \(\) => isReadingLibraryKind\(this\.state\.library\.kind\) && \(this\.state\.importing === true \|\| this\.state\.capabilities\?\.importing === true\)/);
 });

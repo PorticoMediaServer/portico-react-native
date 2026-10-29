@@ -51,7 +51,7 @@ export function LibraryFilters({draft, source, runtime, labels, owner, onClose, 
   const footer = <View style={{flexDirection: 'row', gap: theme.isTV ? 16 : 10}}>
     {!theme.isTV && onSave && <Button focusId="save-view" variant="glass" disabled={!nativeLibraryCanSave(source, {predicates: state.predicates, sort: source.sort!})}
       onPress={() => onSave({predicates: state.predicates, sort: source.sort!})}>{defaultI18n.t('next.browse.native.saveView')}</Button>}
-    <Button focusId="apply" testID={`${panelId}-apply`} variant="primary" disabled={state.count.phase !== 'ready'} onPress={() => {if (draft.apply()) onClose();}} style={{flex: 1}}>
+    <Button focusId="apply" testID={`${panelId}-apply`} variant="primary" disabled={!importing && state.count.phase !== 'ready'} onPress={() => {if (draft.apply()) onClose();}} style={{flex: 1}}>
       {results ? defaultI18n.t('next.browse.native.showResults', {results}) : importing ? defaultI18n.t('next.controls.done') : null}
     </Button>
     {theme.isTV && <Button focusId="clear" variant="glass" onPress={draft.clear}>{defaultI18n.t('next.browse.native.clearAll')}</Button>}
