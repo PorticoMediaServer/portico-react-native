@@ -7,6 +7,7 @@ import {fetchGuideSourceSummaries} from '../../../../packages/client-core/src/gu
 import {parseDirectSnapshot, type DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
 import {routePath} from '../../../../packages/contracts/src/routes';
 import {createSharedReads} from './shared-read';
+import {profileSessionRole} from './account-binding';
 import {createHomeReadLog} from './home-read-log';
 import type {HttpLocalApi, LocalSession} from '../../../../packages/client-core/src';
 import type {NativeShellAccountBinding} from './account-binding';
@@ -196,7 +197,8 @@ export class NativeShellBootstrapServices {
     this.assertCurrent();
     if (signal?.aborted) throw cancelled();
     if (account.account.disabled) this.retire();
-    if (account.account.role !== viewer.role) this.retireForRole();
+    // A non-primary profile's session is a member's, whatever the account's own role (E-mobile-01/25).
+    if (profileSessionRole(account.account, viewer.profileId) !== viewer.role) this.retireForRole();
     return account;
   };
   private async readInbox(): Promise<number> {

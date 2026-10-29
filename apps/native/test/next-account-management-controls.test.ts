@@ -20,7 +20,7 @@ async function fixture() {
   const session = {sessionFamilyId: 'family', viewer: {serverId: 'server', accountId: 'account', profileId: 'profile'}};
   const authority = {serverId: 'server', accountId: 'account', profileId: 'profile', epoch: '1', viewerFence: 'fence'};
   const route = {kind: 'profiles'}, nav = {route, authority, revision: 1};
-  const {AccountRoute, ServersRoute} = await screenModule(new URL('../src-next/screens/accounts/AccountRoutes.tsx', import.meta.url), {
+  const {AccountRoute, ServersRoute} = await screenModule(new URL('../src-next/screens/accounts/AccountRoutes.tsx', import.meta.url), {'../../../../../packages/contracts/src/routes': await import('../../../packages/contracts/src/routes.ts'), 
     react: {...React, default: React},
     'react-native': {NativeModules: {}, Platform: {isTV: false, OS: 'ios'}, Dimensions: {get: () => ({width: 390, height: 844})}, BackHandler: {addEventListener: () => ({remove() {}})}, Text: 'Text', View: 'View'},
     '@portico/design': {profileArtColors: {blue: 'blue', violet: 'violet', mint: 'mint', coral: 'coral', gold: 'gold', slate: 'slate', rose: 'rose', sky: 'sky'}},

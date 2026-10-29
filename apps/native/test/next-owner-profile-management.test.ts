@@ -38,6 +38,7 @@ async function fixture(main = true, pinRequired = false) {
     react, 'react-native': {BackHandler: {addEventListener: () => ({remove() {}})}, Dimensions: {get: () => ({width: 390, height: 844})}, NativeModules: {}, Platform: {isTV: false}, Text: 'Text', View: 'View'},
     '../../../../../packages/i18n/src': {defaultI18n: {t: (id: string) => id}},
     '../../../../../packages/client-core/src/presentation/errors': {presentError: () => ({body: 'fixture failure'})},
+    '../../../../../packages/contracts/src/routes': await import('../../../packages/contracts/src/routes.ts'),
     '../../../../../packages/client-core/src/profile-management': {ManagedProfilesClient: class {
       async list() {return profiles;}
       async create(name: string, art: string) {writes.push({kind: 'create', name, art});}

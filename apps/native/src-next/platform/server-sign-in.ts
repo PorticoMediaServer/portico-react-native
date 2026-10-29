@@ -3,6 +3,7 @@ import {accountExpectation, nativeAccountWork} from './account-work';
 import {HttpLocalApi, transportJSON, assertFirstContactIdentity, type HostedServer, type HostedSession, type LocalSession} from '../../../../packages/client-core/src';
 import {ServerSignInProbe, assertSameApiLevel, parseServerSignIn, type ServerSignIn} from '../../../../packages/client-core/src/sign-in';
 import {boundedPick, type PickTrace} from './pick-deadline';
+import {logPickFailure, provenIdentityMismatch} from './pick-failure';
 import {directSignIn, directSignInContinuation, completeDirectSignInChallenge, selectDirectProfile, parseDirectSnapshot, type DirectSignIn, type DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
 import {connectHostedServer, connectPairedServer, connectPairedPorticoServer, inspectDirectServer} from '../../../../packages/client-core/src/server-connections';
 import {knownServerRoutes, type NewServerConnection, type AppServerSession} from '../../../../packages/client-core/src/app-sessions';
@@ -564,7 +565,13 @@ export class NativeServerSignIn {
         const result = await selectDirectProfile(api, {authority: 'local', accountId: snapshot.account.id, serverId: snapshot.serverId},
           profileId, {pin, installationId: this.installation?.installationId}, signal);
         this.issued.set(result.session.sessionFamilyId, result.session);
-        try {await this.persist(result.session, trace);} catch (error) {await this.retire(result.session); throw error;}
+        try {await this.persist(result.session, trace);} catch (error) {
+          // E-mobile-01: only a proven different identity ends the picked session; anything else leaves it unpublished.
+          logPickFailure('sign-in', 'persist', error);
+          if (provenIdentityMismatch(error)) await this.retire(result.session);
+          else this.issued.delete(result.session.sessionFamilyId);
+          throw error;
+        }
       }, this.controller.signal);
     });
   }

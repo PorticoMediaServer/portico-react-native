@@ -6,7 +6,8 @@ import {restoreNativeSession} from '../../../../packages/client-core/src/server-
 import {nativeAppSessions} from './app-session-storage';
 import {nativeAccounts} from './accounts';
 import {nativeNetworkFetch, nativeServerEnvironment} from './server-connections';
-import {createNativeShellAccountBinding} from '../shell/account-binding';
+import {createNativeShellAccountBinding, profileSessionRole} from '../shell/account-binding';
+import {logPickFailure, provenIdentityMismatch} from './pick-failure';
 
 /** One captured server/account/family. The candidate owns independent routes, so retiring
  * the old private shell cannot dispose the route that verifies and publishes the new profile. */
@@ -20,7 +21,7 @@ export function nativeProfileSelection(serverId: string, familyId: string) {
   return {
     async select(profileId: string, pin?: string) {
       check(); if (busy) throw Object.assign(new Error('native_profile_selection_busy'), {code: 'cancelled'}); busy = true;
-      let api: HttpLocalApi | undefined, issued: import('../../../../packages/client-core/src').LocalSession | undefined, published = false;
+      let api: HttpLocalApi | undefined, issued: import('../../../../packages/client-core/src').LocalSession | undefined, published = false, refused = false, step = 'read';
       try {
         const captured = await nativeAppSessions.selected(); check();
         if (!captured || captured.connection.pin.serverId !== serverId || captured.connection.session.sessionFamilyId !== familyId)
@@ -34,19 +35,20 @@ export function nativeProfileSelection(serverId: string, familyId: string) {
         });
         const admission = await nativeAccounts.admission(captured.signIn, record.hosted && {origin: record.hosted.origin, accountId: record.hosted.accountId}); check();
         await accountBinding.assertCurrent(); check();
+        step = 'select';
         const selected = await selectDirectProfile(api, {authority: 'local', serverId, accountId: record.session.viewer.accountId},
           profileId, {pin, installationId: installed?.installationId}, abort.signal);
-        issued = selected.session; check();
+        issued = selected.session; step = 'verify'; check();
         api.setAccessToken(issued.accessToken);
         // Selection returns a session, not an account snapshot. Read the actual
         // account under that fresh grant before allowing it into protected storage.
         const account = parseDirectSnapshot(await api.request(routePath('get_direct_account'), 'GET', undefined, abort.signal),
           {authority: 'local', serverId, accountId: record.session.viewer.accountId}, true);
         check(); accountBinding.assertAccount(account);
-        if (account.account.role !== issued.viewer.role || !account.profiles.some(value => value.id === issued!.viewer.profileId))
+        if (profileSessionRole(account.account, issued.viewer.profileId) !== issued.viewer.role || !account.profiles.some(value => value.id === issued!.viewer.profileId))
           throw Object.assign(new Error('native_profile_selection_changed'), {code: 'identity_mismatch'});
         await accountBinding.assertCurrent(); check();
-        publishing = true;
+        publishing = true; step = 'publish';
         await nativeAccounts.remember(api, issued, admission, record.hosted, current); published = true;
         // The previous family belongs to this server only. A switch to another server never
         // takes this path and never ends that server's family.
@@ -54,8 +56,12 @@ export function nativeProfileSelection(serverId: string, familyId: string) {
           const previous = new HttpLocalApi(api.baseUrl, restored.session.accessToken, nativeNetworkFetch);
           previous.useRoutes(api.getRouteConnection()!); await previous.logout();
         }
+      } catch (error) {
+        // E-mobile-01/25: only a proven different identity ends the picked session on the server.
+        if (issued && !published) {refused = provenIdentityMismatch(error); logPickFailure('switch', step, error);}
+        throw error;
       } finally {
-        if (issued && !published && api) {
+        if (issued && !published && refused && api) {
           const candidate = new HttpLocalApi(api.baseUrl, issued.accessToken, nativeNetworkFetch);
           candidate.useRoutes(api.getRouteConnection()!); await candidate.logout().catch(() => {});
         }

@@ -1,7 +1,14 @@
 import type {LocalSession} from '../../../../packages/client-core/src';
 import type {AppServerSession} from '../../../../packages/client-core/src/app-sessions';
 import type {ServerPin} from '../../../../packages/client-core/src/route-identity';
-import type {DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
+import type {DirectAccount, DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
+
+/** The role a server issues to a profile's session: the account's own role for its primary
+ * profile, "member" for every other profile (server identity/direct_profiles.go). Comparing a
+ * session's role with the account's role alone refuses every non-primary profile (E-mobile-01/25). */
+export function profileSessionRole(account: Pick<DirectAccount, 'role' | 'primaryProfileId'>, profileId: string): string {
+  return profileId === account.primaryProfileId ? account.role : 'member';
+}
 
 const cancelled = () => Object.assign(new Error('native_shell_cancelled'), {name: 'AbortError'});
 const changed = () => Object.assign(new Error('native_shell_account_binding_changed'), {code: 'identity_mismatch'});
@@ -52,7 +59,7 @@ export function createNativeShellAccountBinding(selected: AppServerSession, sess
     assertAccount: (snapshot: DirectSnapshot) => {
       if (!current()) throw cancelled();
       if (snapshot.authority !== 'local' || snapshot.serverId !== viewer.serverId
-        || snapshot.account.id !== viewer.accountId || snapshot.account.disabled || snapshot.account.role !== viewer.role
+        || snapshot.account.id !== viewer.accountId || snapshot.account.disabled || profileSessionRole(snapshot.account, viewer.profileId) !== viewer.role
         || hosted && snapshot.account.hostedAccountId !== hosted.accountId) throw changed();
     },
   });
