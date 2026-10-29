@@ -1,6 +1,6 @@
 import {HttpLocalApi, type LocalSession} from '../../../../packages/client-core/src/index.ts';
 import {type AppSessionStore, knownServerRoutes} from '../../../../packages/client-core/src/app-sessions.ts';
-import {parseClaimStatus} from '../../../../packages/client-core/src/claim-onboarding.ts';
+import {parseClaimStatus, type ClaimStatus} from '../../../../packages/client-core/src/claim-onboarding.ts';
 import {installationIdentity} from '../../../../packages/client-core/src/installation.ts';
 import {prepareSetupClaimHandoff} from '../../../../packages/client-core/src/setup-claim-client.ts';
 import {verifySetupClaimStart} from '../../../../packages/client-core/src/setup-claim-start.ts';
@@ -37,6 +37,8 @@ const same = (a: Pending | undefined, b: Pending) => !!a && JSON.stringify(a) ==
 /** Native setup resumes from the original server's installed status, never a callback URL.
  * Initial setup has no Local owner or authorization family. Its only authority
  * is the original protected setup request/token and Server-supplied revision. */
+const absentClaim = (status: ClaimStatus) => status.state === 'unconfigured' && !status.operation && !status.accountId &&
+  !status.installationAcknowledged && !status.approvalRequired && !status.approvalRequest && status.actions.length === 1 && status.actions[0] === 'prepare';
 export class NativeSetupClaim {
   private ended?: Pending;
   private endedDraft?: SetupDraft;
@@ -52,14 +54,17 @@ export class NativeSetupClaim {
     this.controller?.abort(); const epoch = ++this.epoch, controller = this.controller = new AbortController();
     return {signal: controller.signal, current: () => epoch === this.epoch && !controller.signal.aborted};
   }
-  private async current(record: Pending, operation: ReturnType<NativeSetupClaim['operation']>, journal = true) {
+  private async current(record: Pending, operation: ReturnType<NativeSetupClaim['operation']>, journal = true, expired = false) {
     this.ports.journal.assertAvailable();
     if (journal && !same(await this.ports.journal.read(), record)) throw cancelled();
     const draft = await this.ports.draft(record.pin.serverId).read(), selection = await this.ports.sessions.read();
+    // `expired` keeps every binding check but reads the window at creation: a record a slow
+    // installation outlived is still this app's own, to be renewed or restarted, never used.
     if (!operation.current() || !setupAttemptLive(record, {draft, selectionRevision: selection.revision, origin: this.ports.pageOrigin(),
-      installationId: this.ports.installationId(), now: this.now()})) throw cancelled();
+      installationId: this.ports.installationId(), now: expired ? record.createdAt : this.now()})) throw cancelled();
     return draft;
   }
+  private expired(record: Pending) {return !record.retired && Date.parse(record.expiresAt) <= this.now();}
   /** Explicit cancellation retires only this native attempt, never an installed claim. */
   async cancel() {
     ++this.epoch; this.controller?.abort();
@@ -72,6 +77,8 @@ export class NativeSetupClaim {
     try {
       const record = await this.ports.journal.read();
       if (!record) return undefined;
+      // A lapsed attempt goes to prepare, which renews or restarts it against the claim as it is.
+      if (this.expired(record)) return undefined;
       if (!record.handoff || !record.expected) throw invalid();
       await this.current(record, operation);
       if (!setupHandoffBound(record)) throw invalid();
@@ -99,6 +106,46 @@ export class NativeSetupClaim {
       const resumed = await resumeServerSetup(captured, this.ports.draft(route.pin.serverId), operation.signal);
       if (!('claimRequired' in resumed) || resumed.requestId !== draft.requestId) throw invalid();
       let pending = await this.ports.journal.read();
+      if (pending && (pending.origin !== origin || pending.hostedOrigin !== hostedOrigin || !sameServerPin(pending.pin, route.pin) || pending.setupRequestId !== resumed.requestId || pending.setupRevision !== resumed.revision)) throw invalid();
+      // A slow installation (a certificate issued after several attempts) can outlive the
+      // five-minute attempt. Its own expired record, or none at all, then meets the claim as it
+      // now is: installed for this setup → renew its start with a fresh attempt (no second
+      // approval; owner admission is unchanged); never approved → cancel this record's own
+      // operation and start cleanly; still installing → say so. Anything else is as before.
+      let renewal = false;
+      if (!pending || this.expired(pending)) {
+        if (pending) await this.current(pending, operation, true, true);
+        const raw = await captured.request<unknown>(routePath('get_networking_claim'), 'GET', undefined, operation.signal);
+        if (!operation.current()) throw cancelled();
+        const status = parseClaimStatus(raw, route.pin), now = this.now();
+        const continuation = raw && typeof raw === 'object' && 'setupContinuation' in raw ? (raw as {setupContinuation?: {phase?: unknown; expiresAt?: unknown}}).setupContinuation : undefined;
+        const lapsed = !!continuation && (continuation.phase === 'prepared' || continuation.phase === 'installed') && typeof continuation.expiresAt === 'string' && Date.parse(continuation.expiresAt) <= now;
+        const mine = !pending?.expected || !!status.operation && status.operation.operationId === pending.expected.operationId && status.operation.localGeneration === pending.expected.localGeneration;
+        if (status.state === 'installed' && status.installationAcknowledged && status.operation && lapsed && mine) renewal = true;
+        else if (pending?.expected && status.state === 'prepared' && mine && status.actions.includes('cancel')) {
+          // Never approved: retire only the operation this record itself captured.
+          const result = parseClaimStatus(await captured.request(routePath('post_networking_claim_cancel'), 'POST', {expected: status.operation}, operation.signal), route.pin);
+          if (!operation.current()) throw cancelled();
+          if (!absentClaim(result)) throw invalid();
+        } else if (status.operation && mine && (['approved', 'finalizing', 'retrieving'].includes(status.state) || status.state === 'installed' && !status.installationAcknowledged)) {
+          throw new CodedError('setup_installing', 'Portico is still finishing this server\'s secure connection. Try again in a minute.');
+        } else if (pending && !absentClaim(status)) throw invalid();
+        if (pending || renewal) {
+          const old = pending, fresh: Pending = await createSetupAttempt({origin, hostedOrigin, pin: route.pin, selectionRevision: selection.revision, draft, setupRevision: resumed.revision,
+            installationId: this.ports.installationId(), now: this.now(), crypto: this.ports.crypto});
+          const next: Pending = renewal ? {...fresh, expected: {...status.operation!}} : fresh;
+          await this.ports.journal.change(current => {if (!operation.current() || (old ? !same(current, old) : !!current)) throw cancelled(); return next;});
+          pending = next;
+        }
+      }
+      // A live attempt that already names an installed operation is a renewal being retried
+      // (its Hosted call or bind failed): ask for the same renewal again.
+      if (!renewal && pending?.expected && !this.expired(pending)) {
+        const status = parseClaimStatus(await captured.request(routePath('get_networking_claim'), 'GET', undefined, operation.signal), route.pin);
+        if (!operation.current()) throw cancelled();
+        renewal = status.state === 'installed' && status.installationAcknowledged && status.operation?.operationId === pending.expected.operationId
+          && status.operation.localGeneration === pending.expected.localGeneration && status.operation.revision === pending.expected.revision;
+      }
       if (!pending) {
         pending = await createSetupAttempt({origin, hostedOrigin, pin: route.pin, selectionRevision: selection.revision, draft, setupRevision: resumed.revision,
           installationId: this.ports.installationId(), now: this.now(), crypto: this.ports.crypto});
@@ -131,7 +178,7 @@ export class NativeSetupClaim {
           await this.ports.journal.change(current => {if (!operation.current() || !same(current, old)) throw cancelled(); return updated;});
           pending = updated;
         },
-      }, {signal: operation.signal, now: () => this.now(), crypto: this.ports.crypto});
+      }, {signal: operation.signal, now: () => this.now(), crypto: this.ports.crypto, ...(renewal ? {renewal: true as const} : {})});
       await this.current(pending, operation);
       const beforeURL = pending, withURL = {...pending, approvalURL: url};
       await this.ports.journal.change(old => {if (!operation.current() || !same(old, beforeURL)) throw cancelled(); return withURL;});
