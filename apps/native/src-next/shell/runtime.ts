@@ -37,6 +37,8 @@ export type NativeShellSnapshot = Readonly<{
   homeVisible: boolean;
   mediaExpanded: boolean;
   libraries: readonly Library[];
+  /** The library directory did not answer: unknown, never empty (P2-61 HOME-RESILIENCE). */
+  librariesUnavailable?: boolean;
   hasLiveTV: boolean;
   profile: ProfileOption;
   serverName?: string;
@@ -101,6 +103,8 @@ export interface NativeShellRuntime {
   /** Full browse, search and player screens stay with their later-phase owners. */
   renderDestination: (destination: ShellDestination, openLibrary: (id: string) => void) => ReactNode;
   renderHomeEmpty: () => ReactNode;
+  /** Read the library directory again now (Home's Try again while it is unavailable). */
+  retryLibraries?: () => void;
   /** The drawn Switch server action, when the installed source offers that route. */
   openServers?: (initialPanel?: 'consent-kind') => void;
   /** Sanctioned, already-known connection facts for a recovery panel: the server's display

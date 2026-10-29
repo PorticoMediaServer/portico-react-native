@@ -29,6 +29,7 @@ import {useFocusAnchor} from '../../kit/layout/FocusAnchor';
 import type {ArtworkRenderContext, LayoutItemContext} from '../../kit/layout/types';
 import {itemSelection} from '../../kit/layout/types';
 import {LoadingPaint, StateView, HomeSkeleton, SkeletonBlock, skeletonTiming} from '../../kit/states';
+import {Banner} from '../../kit/overlays';
 import {nativeType, useTheme, type Theme} from '../../kit/theme';
 import {homeActionDiagnostics} from '../../platform/home-action-diagnostics';
 import type {NativeShellRuntime} from '../../shell/runtime';
@@ -139,6 +140,11 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const cardScale = (runtime.appearanceCardSizePercent ?? 100) / 100, showBackdrops = runtime.appearanceShowBackdrops !== false;
   const windowWidth = theme.isTV ? 1920 : dimensions.width, windowHeight = theme.isTV ? 1080 : dimensions.height;
   const snapshot = useSyncExternalStore(runtime.home.subscribe, runtime.home.getSnapshot);
+  // P2-61 HOME-RESILIENCE: a library directory that did not answer is unknown, never "no libraries".
+  const librariesUnavailable = useSyncExternalStore(runtime.subscribe ?? noMixesSubscription, () => {try {return runtime.getSnapshot?.().librariesUnavailable === true;} catch {return false;}});
+  const librariesNotice = librariesUnavailable ? <View testID="home-libraries-unavailable" style={{paddingHorizontal: theme.isTV ? theme.layout.gutter.tv : theme.gutter, paddingTop: theme.isTV ? 24 : 16, paddingBottom: theme.isTV ? 8 : 4}}>
+    <Banner placement="inline" variant="notice" tone="warning" icon="i-alert" message={t('next.home.librariesUnavailable')}
+      action={runtime.retryLibraries ? {label: t('next.states.tryAgain'), onPress: () => runtime.retryLibraries?.()} : undefined}/></View> : null;
   // foldable7: on a real vertical crease the medium hero keeps its words on the left
   // page and its picture on the right, so the title never sits across the fold.
   const posture = usePlatformPosture();
@@ -399,7 +405,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   // A resolved actionless TV page has no action region. Keep the independent
   // mixes reader mounted: it paints nothing until it has a real offered row.
   if (theme.isTV ? startModel.actionless : !document.spotlight.length && !rows.length) return <LoadingPaint ready immediate={cachedAtMount.current} skeleton={null}>
-    {runtime.renderHomeEmpty()}{theme.isTV ? mixesContent : null}</LoadingPaint>;
+    {librariesUnavailable ? <View style={{paddingTop: theme.isTV ? 120 : 100}}>{librariesNotice}</View> : runtime.renderHomeEmpty()}{theme.isTV ? mixesContent : null}</LoadingPaint>;
 
   return <LoadingPaint ready immediate={cachedAtMount.current} skeleton={null}><Animated.ScrollView ref={vertical.scrollRef} testID="native-home" style={vertical.scrollStyle} scrollEventThrottle={16} onScroll={onScroll}
     refreshControl={theme.isTV ? undefined : <RefreshControl refreshing={refreshing} tintColor={theme.colors.text} onRefresh={() => {
@@ -419,6 +425,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
         renderHint={candidate => <HomeRemoteHint resume={!!candidate.target?.progressSeconds} text={runtime.text}/>}
         onPreviewError={(error, candidate) => runtime.onArtworkError(error, candidate.entry)}/></View>}
     </View>
+    {librariesNotice}
     {rowModels.map(({row, presentation, width, height, slotHeight}, rowIndex) => {
       const sourceRow = document.rows.find(value => value.id === row.id);
       if (!sourceRow) return null;

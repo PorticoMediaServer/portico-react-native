@@ -89,6 +89,15 @@ export type NativeShellBindingsFactory = (context: NativeShellBootstrapContext) 
 export type RestoredNativeShellRuntime = NativeShellRuntime & {readonly firstLibraryContext?: NativeShellBootstrapContext; readonly appearanceMotion?: 'follow' | 'reduce'; readonly appearanceTextSize?: 'standard' | 'large'; readonly appearanceCardSizePercent?: 85 | 100 | 125; readonly appearanceShowBackdrops?: boolean; dispose: () => void; refresh: () => Promise<void>};
 
 function cancelled(): Error {return Object.assign(new Error('native_shell_cancelled'), {name: 'AbortError'});}
+/** The one automatic re-read of a library directory that did not answer at sign-in (web: LIBRARY_DIRECTORY_RETRY_MS). */
+export const NATIVE_LIBRARY_DIRECTORY_RETRY_MS = 2000;
+/** P2-61 HOME-RESILIENCE: a slow or failed library directory never stops the shell. It is
+ * unavailable, never empty; only an abort or an authority answer (401/403) still stops. */
+export function tolerateLibraryDirectory(error: unknown, signal: AbortSignal): undefined {
+  const status = (error as {status?: unknown} | null)?.status;
+  if (signal.aborted || status === 401 || status === 403 || nativeShellPermissionDenied(error)) throw error;
+  return undefined;
+}
 // CC-03: the server may change this account's role; client-core reconciles it into the
 // session, so a role change is a rebuild of role-dependent services, not another viewer.
 const sameViewer = (a: LocalSession, b: LocalSession): boolean => a.sessionFamilyId === b.sessionFamilyId && (['serverId', 'accountId', 'profileId', 'authority'] as const).every(key => a.viewer[key] === b.viewer[key]);
@@ -109,7 +118,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
   let session: LocalSession | undefined;
   let services: NativeShellBootstrapServices | undefined;
   let snapshot: NativeShellSnapshot | undefined, preferences: PreferenceSnapshot | undefined, account: DirectSnapshot | undefined;
-  let avatars: Awaited<ReturnType<IdentityClient['avatars']>> = [], libraries: readonly Library[] = [];
+  let avatars: Awaited<ReturnType<IdentityClient['avatars']>> = [], libraries: readonly Library[] = [], librariesUnavailable = false;
   let installationSettings: unknown;
   let originalExpiresAt: string | undefined;
   let signInHint: NativeSignInHint | undefined;
@@ -124,7 +133,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     watch?.dispose(); playback?.dispose(); bindings?.dispose(); navigation?.dispose();
     for (const cleanup of cleanups.splice(0)) cleanup();
     api?.getRouteConnection()?.dispose(); api?.setAccessToken(''); session = undefined;
-    snapshot = undefined; preferences = undefined; account = undefined; avatars = []; libraries = []; installationSettings = undefined;
+    snapshot = undefined; preferences = undefined; account = undefined; avatars = []; libraries = []; librariesUnavailable = false; installationSettings = undefined;
     for (const listener of [...authorityListeners]) listener();
     authorityListeners.clear(); preferenceListeners.clear(); listeners.clear();
   };
@@ -198,7 +207,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const documentService = home;
     const identities = new IdentityClient(readers);
     const [librariesResult, initialAccount, initialAvatars, initialPreferences, server] = await Promise.all([
-      readers.request(routePath('get_libraries'), 'GET', undefined, signal.signal).then(parseLibraryList),
+      readers.request(routePath('get_libraries'), 'GET', undefined, signal.signal).then(parseLibraryList).then(value => value.items, error => tolerateLibraryDirectory(error, signal.signal)),
       readers.readAccount(),
       identities.avatars(signal.signal),
       readers.readPreferences(Platform.isTV ? 'television' : 'mobile', signal.signal),
@@ -243,7 +252,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       return valid;
     };
     const profileOption: ProfileOption = Object.freeze({id: profile.id, name: profile.name, initial: [...profile.name.trim()][0] ?? '', color: profile.art, primary: profile.primary, pinRequired: profile.pinRequired});
-    libraries = Object.freeze(librariesResult.items);
+    libraries = Object.freeze(librariesResult ?? []); librariesUnavailable = librariesResult === undefined;
     let hasLiveTV = false;
     const events = new EventsClient({http: localV1Http(local)});
     navigation = new NativeShellNavigation(authority, () => authority,
@@ -264,7 +273,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
         try {await accountBinding.assertCurrent();}
         catch (error) {if (nativeShellPermissionDenied(error)) endUnlessRoleChanged(); throw error;}
         assertCurrent(); if (requestSignal.aborted) throw cancelled();
-        readOrder.libraries.apply(ticket, () => {libraries = Object.freeze(result.items); publish();}); return libraries;
+        readOrder.libraries.apply(ticket, () => {libraries = Object.freeze(result.items); librariesUnavailable = false; publish();}); return libraries;
       }};
     let playOn: NativePlayOn | undefined;
     playback = createNativeShellPlaybackAdapter({api: local, authority: contextBase.authority, session: contextBase.session, subscribeAuthority: contextBase.subscribeAuthority, events,
@@ -314,7 +323,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       const avatar = avatars.find(value => value.profileId === profile.id), picture = profilePictureSource(local, session!.accessToken, avatar, Platform.isTV ? 80 : 90);
       // Frame 28: "Show a dot for new notifications" turns the dot off without hiding the count.
       const badges = preferences?.effective['notifications.badges'];
-      snapshot = Object.freeze({authority, ...bound.getState(), mediaExpanded: playback!.getSnapshot().dock.local?.expanded === true, libraries, hasLiveTV, serverName: server.name, unreadNotificationCount: unread,
+      snapshot = Object.freeze({authority, ...bound.getState(), mediaExpanded: playback!.getSnapshot().dock.local?.expanded === true, libraries, librariesUnavailable, hasLiveTV, serverName: server.name, unreadNotificationCount: unread,
         profile: {...profileOption, ...(picture && typeof picture === 'object' && 'uri' in picture && picture.uri ? {source: {uri: picture.uri, headers: picture.headers, cacheKey: JSON.stringify([scopeIdentity, avatar?.version, picture.uri])}} : {})}, unreadNotifications: unread > 0 && badges !== false, account: bound.account});
       for (const listener of [...listeners]) listener();
     };
@@ -361,7 +370,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       try {
         const [selection, me, nextLibraries, nextFacts, nextAccount, nextAvatars] = await Promise.all([
           readNativeSelectedViewer(), readers.request<RouteResponse<'get_me'>>(routePath('get_me'), 'GET', undefined, round.signal),
-          readers.request(routePath('get_libraries'), 'GET', undefined, round.signal).then(parseLibraryList), readers.read(round.signal),
+          readers.request(routePath('get_libraries'), 'GET', undefined, round.signal).then(parseLibraryList).then(value => value, error => tolerateLibraryDirectory(error, round.signal)), readers.read(round.signal),
           readers.readAccount(round.signal), identities.avatars(round.signal),
         ]);
         assertCurrent();
@@ -383,7 +392,8 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
         const nextInstallation = await records.change('preferences:v1', raw => ({record: raw, value: raw})); assertCurrent();
         await accountBinding.assertCurrent(); assertCurrent();
         preferences = currentPreferenceSnapshot(preferences, nextFacts.preferences); installationSettings = nextInstallation;
-        readOrder.libraries.apply(tickets.libraries, () => {libraries = Object.freeze(nextLibraries.items);});
+        // A directory that did not answer keeps the libraries already known (or stays unavailable).
+        if (nextLibraries) readOrder.libraries.apply(tickets.libraries, () => {libraries = Object.freeze(nextLibraries.items); librariesUnavailable = false;});
         text.refreshDeviceRegion();
         readOrder.identity.apply(tickets.identity, () => {account = nextAccount; avatars = nextAvatars;});
         readOrder.unread.apply(tickets.unread, () => {unread = nextFacts.unread;});
@@ -451,6 +461,12 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       freshness.setHomeOpen(state.homeVisible && !playback!.getSnapshot().dock.local?.expanded);
     };
     freshness.setActive(AppState.currentState === 'active'); updateHomeFreshness(); freshness.attach(events);
+    // The directory did not answer at sign-in: one automatic try after a short wait; after that the
+    // hub's backoff and Home's Try again take over. Nothing blocks meanwhile.
+    if (librariesUnavailable) {
+      const timer = setTimeout(() => {if (current()) freshness.invalidateLibraries();}, NATIVE_LIBRARY_DIRECTORY_RETRY_MS);
+      cleanups.push(() => clearTimeout(timer));
+    }
     cleanups.push(() => freshness.dispose(), bound.subscribe(updateHomeFreshness), playback.subscribe(updateHomeFreshness));
     const routeChanged = () => {
       if (!alive) return;
@@ -502,6 +518,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       return value / 1000;
     };
     const runtime: RestoredNativeShellRuntime = {...bound, retirementSignal: signal.signal, playback, watch, firstLibraryContext: context, playOn,
+      retryLibraries: () => {if (current()) freshness.invalidateLibraries();},
       reportPlaybackProblem: async consent => {
         const lifetime = new NativeScreenLifetime(context);
         try {await sendNativeDeviceReport({context, lifetime}, consent);} finally {lifetime.dispose();}

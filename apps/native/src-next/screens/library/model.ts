@@ -3,6 +3,7 @@ import type {SavedDefinition} from '../../../../../packages/client-core/src/pers
 import {BrowseTotalsMemory, browseCapabilitiesPath, parseBrowseCapabilities, type BrowseCapabilities, type BrowseNode, type BrowseRememberedTotal, type BrowseSortSelection, type BrowseWholeSelection, type BrowseWholeSelectionUnavailable} from '../../../../../packages/client-core/src/browse';
 import {BrowseSession, browseSessionBuilder, type BrowseSessionQuery} from '../../../../../packages/client-core/src/browse-session';
 import {createWindowedCollection, type WindowedCollection} from '../../../../../packages/client-core/src/collections/windowed';
+import {isStaleAnswer} from '../../../../../packages/client-core/src/freshness-actions';
 import {LibraryContentService, type ContentEntry, type ContentScope, type LibraryContentApi, type LibraryContentSnapshot} from '../../../../../packages/client-core/src/library-content';
 import {libraryTabs, type LibraryTab, type LibraryTabId} from '../../../../../packages/client-core/src/presentation/library-tabs';
 import {NativeLibraryFilterDraft} from './filters';
@@ -55,6 +56,9 @@ export class NativeLibraryDestination {
   private readonly listeners = new Set<() => void>();
   private controller?: AbortController;
   private operation = 0;
+  /** P2-61 HOME-RESILIENCE: one automatic re-read per query when its FIRST page is refused as
+   * stale (a 412 revision_mismatch while a library imports). Reset only by the viewer's own query. */
+  private staleRetried = false;
   private disposed = false;
   private memory: NativeLibraryMemory = {firstVisibleIndex: 0, offset: 0};
   private pending?: Promise<void>;
@@ -127,7 +131,7 @@ export class NativeLibraryDestination {
       ? {predicates: this.state.predicates, sort: this.state.sort} : undefined;
     this.retireFilters(); this.controller?.abort(); this.discover.cancel(); this.state.collection?.dispose();
     this.session?.retire(); this.session = undefined;
-    const controller = new AbortController(), revision = ++this.operation; this.controller = controller;
+    const controller = new AbortController(), revision = ++this.operation; this.controller = controller; this.staleRetried = false;
     this.publish({tab, phase: 'loading', capabilities: undefined, collection: undefined, predicates: [], sort: undefined, defaultSort: undefined, revision: undefined, wholeSelection: undefined, wholeSelectionUnavailable: undefined, unfilteredTotal: undefined, error: undefined,
       memory: {firstVisibleIndex: 0, offset: 0}});
     try {
@@ -185,6 +189,7 @@ export class NativeLibraryDestination {
     this.session?.retire();
     const base = JSON.stringify(tab.fixedFilter ?? []) === JSON.stringify(predicates);
     const totalsKey = JSON.stringify([this.options.scope, this.options.library.id, tab.id, tab.pivot]);
+    let answered = false;
     const session: BrowseSession<ContentEntry> = new BrowseSession<ContentEntry>({query: this.query(capabilities, tab, predicates, sort),
       request: (path, method, body, signal) => this.request(path, method, body, signal),
       ...(this.options.api.requestRaw ? {requestRaw: this.options.api.requestRaw.bind(this.options.api)} : {}),
@@ -199,10 +204,21 @@ export class NativeLibraryDestination {
         if (this.state.wholeSelectionUnavailable !== value) this.publish({wholeSelectionUnavailable: value, ...(value ? {wholeSelection: undefined} : {})});
       },
       onPage: page => {
+        answered = true;
         const total = this.totals.observe(totalsKey, page, base);
         if (this.state.unfilteredTotal !== total) this.publish({unfilteredTotal: total});
       },
-      onStale: error => this.publish({phase: 'error', error, wholeSelection: undefined, wholeSelectionUnavailable: undefined})});
+      onStale: error => {
+        // Nothing is shown yet, so a re-read cannot jump. A second refusal is this library's error,
+        // never a loop; a list that has already answered keeps its explicit refresh.
+        const {capabilities: offered, tab: shown, predicates: applied, sort: sorted, collection} = this.state;
+        if (isStaleAnswer(error) && !answered && !this.staleRetried && this.current() && this.session === session && offered && sorted && collection) {
+          this.staleRetried = true; this.session = undefined;
+          collection.invalidate(this.open(offered, shown, applied, sorted).fetchPage);
+          return;
+        }
+        this.publish({phase: 'error', error, wholeSelection: undefined, wholeSelectionUnavailable: undefined});
+      }});
     this.session = session;
     return session;
   }
@@ -211,6 +227,7 @@ export class NativeLibraryDestination {
     const {capabilities, tab, collection} = this.state;
     this.build(capabilities, tab, predicates, sort, 0, 1);
     this.retireFilters(keep);
+    this.staleRetried = false;
     const next = Object.freeze([...predicates]);
     this.session?.retire(); this.session = undefined;
     this.publish({predicates: next, queryRevision: this.state.queryRevision + 1, revision: undefined, wholeSelection: undefined, wholeSelectionUnavailable: undefined, sort, memory: {firstVisibleIndex: 0, offset: 0}});

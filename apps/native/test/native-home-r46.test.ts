@@ -171,7 +171,7 @@ test('the drawn phone facts badge is 9 px padding, .28 border and a 700 year; TV
 });
 
 async function homeModule(theme: typeof phoneTheme | (() => typeof phoneTheme), rows: readonly any[], react: any = {...React, default: React}, registry = createFocusRegistry(), bindings: Record<string, any> = {}) {
-  return screenModule(new URL('../src-next/screens/home/HomeScreen.tsx', import.meta.url), {
+  return screenModule(new URL('../src-next/screens/home/HomeScreen.tsx', import.meta.url), {'../../kit/overlays': {Banner: 'Banner'}, 
     '../../kit/useMotion': {useMotion: () => ({transforms: true, reduce: false, timing: () => ({})})}, 
     react: {...react, useLayoutEffect: react.useLayoutEffect ?? react.useEffect}, '@portico/design': {heroSpec},
     'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, RefreshControl: 'RefreshControl', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
@@ -402,4 +402,31 @@ test('an actionless Home keeps the original independent mixes reader mounted and
     assert.equal(offered.props.focus.id, tvFocusIds(f.authority).row(homeStart.homeMixesFocusRow));
     assert.equal(descendants(f.tree()).some(node => node.type === 'Button' && node.props.focusId === 'customize'), true, 'real nonempty content retains its existing footer');
   } finally {await f.host.unmount();}
+});
+
+test('libraries that did not load show one quiet banner with Try again, never the empty state (P2-61 HOME-RESILIENCE)', async () => {
+  const h = hooks(), authority = {serverId: 'actual', viewerFence: 'viewer'};
+  const document = {rows: [], spotlight: [], serverId: authority.serverId, viewerFence: authority.viewerFence};
+  const emptyCopy = {type: 'EmptyCopy', props: {}};
+  let retried = 0;
+  const runtime = (librariesUnavailable: boolean) => ({
+    home: {setRowDemand() {}, subscribe() {}, getSnapshot: () => ({document, phase: 'ready'}), more() {}, revalidate: async () => {}, retry: async () => {}},
+    subscribe: () => () => {}, getSnapshot: () => ({authority, libraries: [], librariesUnavailable, selectionActive: false}), selection: () => ({}), text: defaultI18n,
+    registerScrollToTop: () => () => {}, artwork: () => undefined, ambient: () => undefined, setHomeWindow() {}, playback: undefined,
+    actions: {navigate() {}, play() {}, more() {}, seeAll() {}, customize() {}}, reportError() {}, onArtworkError() {},
+    renderHomeEmpty: () => emptyCopy, error: () => ({}), retryLibraries: () => {retried++;},
+  });
+  for (const theme of [tvTheme, phoneTheme]) {
+    const {HomeScreen} = await homeModule(theme, [], h.react);
+    const unknown = h.render(() => HomeScreen({runtime: runtime(true), authority}));
+    assert.equal(descendants(unknown).includes(emptyCopy), false, 'no first-library or member empty state while the libraries are unknown');
+    const banner = descendants(unknown).find(node => node.type === 'Banner');
+    assert.ok(banner, 'one quiet banner');
+    assert.equal(banner.props.message, defaultI18n.t('next.home.librariesUnavailable'));
+    banner.props.action.onPress();
+    const known = h.render(() => HomeScreen({runtime: runtime(false), authority}));
+    assert.ok(descendants(known).includes(emptyCopy), 'a known empty directory keeps its authored empty state');
+    assert.equal(descendants(known).some(node => node.type === 'Banner'), false);
+  }
+  assert.equal(retried, 2, 'Try again reads the directory again');
 });

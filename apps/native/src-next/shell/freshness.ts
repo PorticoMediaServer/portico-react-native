@@ -20,6 +20,7 @@ export class NativeShellFreshness {
   private readonly home: FreshDocument;
   private readonly unread: FreshDocument;
   private readonly guide: FreshDocument;
+  private readonly libraries: FreshDocument;
   constructor(reads: NativeShellFreshnessReads, options: FreshnessHubOptions = {}) {
     this.hub = new FreshnessHub(options);
     const document = (dependencies: readonly string[], revalidate: Read) => {
@@ -27,7 +28,7 @@ export class NativeShellFreshness {
     };
     this.home = this.hub.document({dependencies: [dependsOn.libraries, ...titlesWithPersonalState(), dependsOn.list('recommendations'), dependsOn.list('guide')],
       hasContent: reads.hasHome, revalidate: reads.home});
-    document([dependsOn.libraries], reads.libraries);
+    this.libraries = document([dependsOn.libraries], reads.libraries);
     document([dependsOn.settings('preferences')], reads.preferences);
     this.unread = document([dependsOn.event('notification.changed')], reads.unread);
     this.guide = document([dependsOn.list('guide'), dependsOn.list('liveSources')], reads.guide);
@@ -39,6 +40,8 @@ export class NativeShellFreshness {
   setHomeOpen(open: boolean): void {this.home.setOpen(open);}
   invalidateHome(): void {this.home.invalidate();}
   loadAuxiliary(): void {this.unread.invalidate(); this.guide.invalidate();}
+  /** Read the library directory again now; a failure takes the hub's own backoff. */
+  invalidateLibraries(): void {this.libraries.invalidate();}
   dispose(): void {this.hub.dispose();}
 }
 

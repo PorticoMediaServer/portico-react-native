@@ -334,3 +334,45 @@ test('Discover uses the actual section continuation and retires it with the curr
     assert.equal(destination.getSnapshot().collection?.itemAt(0)?.id, 'actual-0', 'the new Browse page still loads independently');
   } finally {destination.dispose();}
 });
+
+// P2-61 HOME-RESILIENCE: a FIRST page refused as stale (412 while a library imports) is read once
+// more; a second refusal is that library's error, never a loop. An authority answer is never retried.
+async function firstPageRefusals(refusals: number, refusal: {status: number; code?: string} = {status: 412, code: 'revision_mismatch'}) {
+  let browse = 0, left = refusals;
+  const api: LibraryContentApi = {request: async <T>(path: string, _method?: string, body?: unknown) => {
+    if (path.includes('capabilities')) return capabilities as T;
+    browse++;
+    if (left > 0) {left--; throw Object.assign(new Error('Reading projection changed'), refusal);}
+    return page(body as BrowseRequestBody, 3) as T;
+  }};
+  const destination = new NativeLibraryDestination({api, scope, library, current: () => true});
+  await destination.load();
+  for (let i = 0; i < 20; i++) await tick();
+  return {destination, browse: () => browse};
+}
+
+test('a first page refused as stale is read once more and then shows the library', async () => {
+  const {destination, browse} = await firstPageRefusals(1);
+  try {
+    assert.equal(browse(), 2, 'exactly one automatic re-read');
+    assert.equal(destination.getSnapshot().phase, 'ready');
+    assert.equal(destination.getSnapshot().collection?.getSnapshot().status, 'ready');
+  } finally {destination.dispose();}
+});
+
+test('a second stale refusal becomes that library\'s error, never a loop', async () => {
+  const {destination, browse} = await firstPageRefusals(5);
+  try {
+    assert.equal(browse(), 2, 'one re-read, then no more');
+    assert.equal(destination.getSnapshot().phase, 'error');
+  } finally {destination.dispose();}
+});
+
+test('an authority answer on the first page is never re-read', async () => {
+  const {destination, browse} = await firstPageRefusals(5, {status: 401, code: 'unauthorized'});
+  try {
+    assert.equal(browse(), 1, 'a 401 still stops');
+    assert.equal(destination.getSnapshot().phase, 'error');
+  } finally {destination.dispose();}
+});
+
