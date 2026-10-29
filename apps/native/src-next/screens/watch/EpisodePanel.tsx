@@ -13,6 +13,7 @@ import {useTVPanelInteractive} from '../../kit/overlays/TVPanelMotion';
 import {useTheme} from '../../kit/theme';
 import {NativeSeasonsSheet} from './SeasonsSheet';
 import type {NativeTitleController, NativeTitlePageLease} from './title-controller';
+import {Quiet} from '../../kit/states';
 
 /** collections 37/38: the episode list inside the player (sideways) and the season
  * sheet the upright tab shares. Only the workspace's own seasons and episodes are
@@ -87,8 +88,11 @@ export function NativeWatchEpisodes({controller, currentId, playing, text, artwo
           </View>}
           {isNext && <Text style={{fontFamily: 'Manrope-Bold', fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary}}>{t('player.queue')}</Text>}
         </View>
-        <Text numberOfLines={1} style={{marginTop: 2, fontFamily: 'Manrope-SemiBold', fontSize: 12.5, fontWeight: '600', color: theme.colors.textTertiary}}>
-          {[episodeLabel(numbering(entry), 'player', text)?.text, entry.duration ? durationText(entry.duration, text.t) : undefined].filter(Boolean).join(' · ')}</Text>
+        {/* DESIGN: facts are separated by spacing, never a middle dot. */}
+        <View style={{flexDirection: 'row', columnGap: 12, marginTop: 2, minWidth: 0}}>
+          {[episodeLabel(numbering(entry), 'player', text)?.text, entry.duration ? durationText(entry.duration, text.t) : undefined].filter(Boolean).map((part, at) =>
+            <Text key={at} numberOfLines={1} style={{flexShrink: at ? 0 : 1, fontFamily: 'Manrope-SemiBold', fontSize: 12.5, fontWeight: '600', color: theme.colors.textTertiary}}>{part}</Text>)}
+        </View>
         {progress !== undefined && <View style={{height: 3, borderRadius: 2, marginTop: 5, backgroundColor: 'rgba(237,245,250,.18)'}}>
           <View style={{height: 3, borderRadius: 2, width: `${progress * 100}%`, backgroundColor: theme.colors.accentStrong}}/></View>}
       </View>
@@ -142,7 +146,7 @@ export function NativeWatchEpisodes({controller, currentId, playing, text, artwo
     </View>}
     {!pane && <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingBottom: 6}}>
       {count !== undefined && <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: 12.5, fontWeight: '600', color: theme.colors.textTertiary}}>
-        {defaultI18n.number(count, {useGrouping: false})} · {t('title.episodes')}</Text>}
+        {t('pref.unit.episodes', {count})}</Text>}
       <View style={{flex: 1}}/>
       <Text style={[theme.type.bodyStrong, {fontSize: 12.5, color: theme.colors.textSecondary}]}>{t('next.controls.hideWatched')}</Text>
       <Switch testID="watch-episodes-hide-watched" variant={theme.platform === 'phone' ? 'episode' : 'selection'} checked={snapshot.place.hideWatched}
@@ -156,7 +160,7 @@ export function NativeWatchEpisodes({controller, currentId, playing, text, artwo
         const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
         if (contentSize.height - contentOffset.y - layoutMeasurement.height < layoutMeasurement.height) void controller.moreEpisodes().catch(() => {});
       }}>
-      {loading && !episodes.length && <Text style={{padding: 16, color: theme.colors.textTertiary}}>{t('next.states.loading')}</Text>}
+      {loading && !episodes.length && <Quiet><Text style={{padding: 16, color: theme.colors.textTertiary}}>{t('next.states.loading')}</Text></Quiet>}
       {following.map(row)}
     </ScrollView>
     {!pane && <NativeSeasonsSheet open={!!seasonsSheet} returnFocusRef={seasonOpener} onOpenChange={value => {if (value) openSeasons(); else closeSeasons();}} seasons={seasons}

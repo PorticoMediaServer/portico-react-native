@@ -20,7 +20,7 @@ const module = await screenModule(new URL('../src-next/screens/settings-live/Tog
   '../../../../../packages/client-core/src/media-item': {}, '../../../../../packages/contracts/src/routes': {},
   '../../../../../packages/client-core/src/social-playback': {}, '../../kit/controls': {Button: 'Button', Focusable: 'Focusable', Segmented: 'Segmented', TextField: 'TextField'},
   '../../kit/focus': {FocusRegion: 'FocusRegion'}, '../../kit/overlays': {Dialog: 'Dialog', Banner: 'Banner', Menu: 'Menu'},
-  '../../kit/artwork': {AmbientArt: 'AmbientArt', Artwork: 'Artwork', ProfileFace: 'ProfileFace'}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/states': {StateView: 'StateView'},
+  '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', AmbientArt: 'AmbientArt', Artwork: 'Artwork', ProfileFace: 'ProfileFace'}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/states': {StateView: 'StateView'},
   '../../kit/shell/visual': {alpha: () => '', shellType: () => ({})}, '../../kit/theme': {useTheme: () => ({isTV: false, width: 390, colors: {raised: 'a', text: 'b', textSecondary: 'c', textTertiary: 'd', line: 'e', raisedHigh: 'f'}})},
   '../../shell/tv-focus': {tvFocusIds: () => ({surface: (s: string) => s, rail: 'rail'})}, '../destinations': {NativeTVKeyboard: 'Keyboard'},
   './Screen': {Screen: 'Screen', ScreenText: 'ScreenText', useScreenEntry: () => {}}, './together-presentation': {memberNames, nativeTogetherLobbyFaces: () => []},

@@ -17,7 +17,7 @@ async function feedback(screenReader: {enabled: boolean}, spoken: string[], base
   const motion = {reduce: false, timing: () => ({duration: 0}), duration: () => 0, spring: () => ({})};
   const gesture = () => {
     const value: Record<string, any> = {};
-    for (const name of ['enabled', 'minDistance', 'onBegin', 'onUpdate', 'onEnd', 'onFinalize']) value[name] = () => value;
+    for (const name of ['enabled', 'minDistance', 'activeOffsetX', 'activeOffsetY', 'onStart', 'onBegin', 'onUpdate', 'onEnd', 'onFinalize']) value[name] = () => value;
     return value;
   };
   return screenModule(new URL('../src-next/kit/overlays/Feedback.tsx', import.meta.url), {

@@ -50,7 +50,7 @@ async function fixture(hosted = true) {
     '../../watch/Equalizer': {NativeWatchEqualizer: 'Equalizer'}, './MusicSignal': {MusicSignalLine: 'Signal', MusicSignalSheet: 'SignalSheet'},
     '../../../../../../packages/i18n/src': {defaultI18n},
     '../../../../../../packages/client-core/src/presentation/kit-model/text': {clockText},
-    '../../../kit/artwork': {AmbientArt: 'AmbientArt', Artwork: 'Artwork'},
+    '../../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', AmbientArt: 'AmbientArt', Artwork: 'Artwork'},
     '../../../kit/controls': {Button: 'Button'}, '../../../kit/controls/gesture-commit': {GestureCommitScope},
     '../../../kit/Icon': {Icon: 'Icon'}, '../../../kit/theme': {useTheme: () => theme},
     '../../../kit/dock/ListeningCoverBridge': {...listeningCoverFixture,

@@ -44,7 +44,7 @@ export function AddLibraryPage({api, serverName, onCreate, onCancel, busy, error
   const chooseKind = (next: ManagedLibrary['kind']) => {setKind(next); if (!touched) setName(t(ownerLibraryKind(next).label));};
   const valid = name.trim().length > 0 && folders.length > 0;
   return <View style={{flex: 1}}>
-    <ScrollView contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 24}}>
+    <ScrollView contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 24}} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
       <Text style={[shellType(13.5, 400, 19), {color: theme.colors.textSecondary}]}>{t('web.libraries.addLede')}</Text>
 
       <SectionTitle>{t('web.libraries.type')}</SectionTitle>

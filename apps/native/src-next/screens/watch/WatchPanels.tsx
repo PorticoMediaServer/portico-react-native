@@ -24,6 +24,7 @@ import {nativeWatchTracks} from './track-identity';
 import {nativeWatchPanelRows, type NativeWatchPanelNames, type NativeWatchChoiceRow} from './panel-model';
 import type {NativeWatchPanelOptions} from './panel-options';
 import {nativeWatchSubtitleTiming} from './subtitle-timing';
+import {Quiet} from '../../kit/states';
 
 export type NativeWatchPanelsProps = Readonly<{
   context: NativeWatchHostContext;
@@ -362,7 +363,7 @@ export function NativeWatchPanels({context, options, playback, names, copy, repo
     {!theme.isTV && <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{copy.audioContinues}</Text>}
     <Button ref={first} focusId="watch-choices-retry" variant="glass" icon="i-restart" onPress={retry}>{t('action.tryAgain')}</Button>
   </View>;
-  else if ((!ready && !localTracks) || !rows) body = <ActivityIndicator accessibilityLabel={t('player.opt.loadingAudio')}/>;
+  else if ((!ready && !localTracks) || !rows) body = <Quiet><ActivityIndicator accessibilityLabel={t('player.opt.loadingAudio')}/></Quiet>;
   else if (state.panel === 'audio') body = <>{list(rows.audio, track => playback.change(fence, {audioTrackId: track.id}))}{footer(names.audioFooter(source))}</>;
   else if (state.panel === 'subtitles') body = <>
     {list([{id: 'subtitle-off', primary: t('player.opt.off'), selected: selected.subtitlesOff, value: null}, ...rows.subtitles], track => playback.change(fence, {subtitleTrackId: track?.id ?? null}))}

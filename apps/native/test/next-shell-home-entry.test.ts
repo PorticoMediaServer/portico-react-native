@@ -81,7 +81,7 @@ async function fixture() {
     '../../kit/controls': {Button: 'Button'}, '../../kit/cards': {}, '../../kit/focus': {...focus, useFocusRegistry: () => registry},
     '../../shell/tv-focus': tvFocus, '../../shell/home-paging': {NativeHomePaging}, './tv-presentation': {tvHomeRows},
     '../../kit/layout': {Hero: 'Hero'}, '../../kit/layout/FocusAnchor': {useFocusAnchor}, '../../kit/layout/types': {},
-    '../../kit/states': {LoadingPaint: 'LoadingPaint', HomeSkeleton: 'HomeSkeleton'}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../kit/theme': {nativeType, useTheme: () => theme}, '../../shell/model': shellModel,
+    '../../kit/states': {skeletonTiming: {delayMs: 300, slowMs: 8000}, LoadingPaint: 'LoadingPaint', HomeSkeleton: 'HomeSkeleton'}, '../../platform/home-action-diagnostics': {homeActionDiagnostics}, '../../kit/theme': {nativeType, useTheme: () => theme}, '../../shell/model': shellModel,
     './home-window': homeWindow, './home-start': homeStart, '../destinations/music/MusicMixesRow': {MusicMixesRow: 'MusicMixesRow'},
     './TvHomeRecovery': {TvHomeRecovery: 'TvHomeRecovery'}, './useTvHomeRecovery': recovery,
     './HomeHeroFacts': {}, './model': homeModel,

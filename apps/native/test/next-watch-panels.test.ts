@@ -16,7 +16,7 @@ import {nativeWatchSubtitleTiming} from '../src-next/screens/watch/subtitle-timi
 let isTV = false;
 /** The actual panel uses the production React instance owned by Fabric. */
 const panelsModule = (react: any) => {
-  return screenModule(new URL('../src-next/screens/watch/WatchPanels.tsx', import.meta.url), {
+  return screenModule(new URL('../src-next/screens/watch/WatchPanels.tsx', import.meta.url), {'../../kit/states': {Quiet: ({children}: any) => children}, 
   react: {...react, default: react}, 'react-native': {ActivityIndicator: 'Loading', ScrollView: 'Scroll', Text: 'Text', View: 'View'},
   '../../../../../packages/player-core/src': {sameFence}, '../../../../../packages/i18n/src': {defaultI18n},
   '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: String},

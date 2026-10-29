@@ -63,9 +63,9 @@ export function NativeUpNextCard({item, artwork, countdown, countdownTotal, scen
         {(code || minutes) && <Text style={{fontFamily: compact ? 'Manrope-SemiBold' : 'Manrope-Regular', fontSize: compact ? 12.5 : 22, fontWeight: compact ? '600' : '400', marginTop: compact ? 2 : 0, color: compact ? theme.colors.textTertiary : theme.colors.textSecondary}}>{[code, minutes].filter(Boolean).join(' · ')}</Text>}
         {countdown && <View style={{flexDirection: 'row', alignItems: 'baseline', marginTop: compact ? 5 : 10}}>
           {countdown.automatic
-            ? <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: compact ? 13 : 20, fontWeight: '600', color: compact ? theme.colors.textSecondary : theme.colors.textTertiary}}>{t('player.post.playingIn', {seconds: Math.ceil(countdown.seconds)})}</Text>
-            : <><Text style={{fontFamily: 'Manrope-SemiBold', fontSize: compact ? 13 : 20, fontWeight: '600', color: compact ? theme.colors.textSecondary : theme.colors.textTertiary}}>{t('player.post.startsIn', {time: ''})}</Text>
-              <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: compact ? 13 : 20, fontWeight: '600', color: theme.colors.text}}>{clockText(countdown.seconds)}</Text></>}
+            ? <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: compact ? 13 : 20, fontWeight: '600', fontVariant: ['tabular-nums'], color: compact ? theme.colors.textSecondary : theme.colors.textTertiary}}>{t('player.post.playingIn', {seconds: Math.ceil(countdown.seconds)})}</Text>
+            : <><Text style={{fontFamily: 'Manrope-SemiBold', fontSize: compact ? 13 : 20, fontWeight: '600', fontVariant: ['tabular-nums'], color: compact ? theme.colors.textSecondary : theme.colors.textTertiary}}>{t('player.post.startsIn', {time: ''})}</Text>
+              <Text style={{fontFamily: 'Manrope-SemiBold', fontSize: compact ? 13 : 20, fontWeight: '600', fontVariant: ['tabular-nums'], color: theme.colors.text}}>{clockText(countdown.seconds)}</Text></>}
         </View>}
       </View>
     </View>

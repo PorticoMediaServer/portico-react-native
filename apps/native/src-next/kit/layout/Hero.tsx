@@ -72,7 +72,7 @@ function HeroLayer<T extends HeroCandidate>({entry, shown, pending, fade, ready,
     return () => cancelAnimation(opacity);
   }, [departed, fade, motion, opacity, pending, reduced, shown]);
   useEffect(() => {
-    drift.value = reduced || fade !== 'hero' ? 1 : shown ? withTiming(1, {...motion.timing('hero'), duration: heroSpec.rotation.driftMs}) : heroSpec.rotation.driftScaleFrom;
+    drift.value = reduced || motion.effects?.drift === false || fade !== 'hero' ? 1 : shown ? withTiming(1, {...motion.timing('hero'), duration: heroSpec.rotation.driftMs}) : heroSpec.rotation.driftScaleFrom;
     return () => cancelAnimation(drift);
   }, [drift, fade, motion, reduced, shown]);
   const layerStyle = useAnimatedStyle(() => ({opacity: opacity.value}));
@@ -242,7 +242,7 @@ export function Hero<T extends HeroCandidate>({candidates, activeIndex, onIndexC
   const change = useCallback((next: number) => {rotation.clock.reset(); progress.value = 0; if (activeIndex === undefined) setLocalIndex(next); onIndexChange?.(next);}, [activeIndex, rotation, onIndexChange, progress]);
   useEffect(() => {const subscription = AppState.addEventListener('change', next => setAppVisible(next === 'active')); return () => subscription.remove();}, []);
   const [touching, setTouching] = useState(false);
-  const canRotate = candidates.length > 1 && active && visible && appVisible && !motion.reduce && !reducedMotion && !hovered && !touching && (tv ? heroFocused : !controlFocused);
+  const canRotate = candidates.length > 1 && active && visible && appVisible && !motion.reduce && motion.effects?.drift !== false && !reducedMotion && !hovered && !touching && (tv ? heroFocused : !controlFocused);
   useEffect(() => {progress.value = 0;}, [rotation, progress]);
   useEffect(() => {
     if (!canRotate) return;

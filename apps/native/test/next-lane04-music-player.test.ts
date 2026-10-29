@@ -34,7 +34,7 @@ async function fixture(book = false, width = 390) {
     './MusicSignal': {MusicSignalLine: 'Signal', MusicSignalSheet: 'SignalSheet'},
     '../../../../../../packages/i18n/src': {defaultI18n: {t: (key: string, values?: any) => key === 'player.opt.minutes' ? `${values.count} min` : key}},
     '../../../../../../packages/client-core/src/presentation/kit-model/text': {durationText, clockText: (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`},
-    '../../../kit/artwork': {AmbientArt: 'AmbientArt', Artwork: 'Artwork'}, '../../../kit/controls': {Button: 'Button', Focusable: 'Focusable'},
+    '../../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', AmbientArt: 'AmbientArt', Artwork: 'Artwork'}, '../../../kit/controls': {Button: 'Button', Focusable: 'Focusable'},
     '../../../kit/controls/gesture-commit': {GestureCommitScope}, '../../../kit/Icon': {Icon: 'Icon'}, '../../../kit/theme': {useTheme: () => theme},
     '../../../kit/dock/ListeningCoverBridge': listeningCoverFixture, '../../../kit/browse/presentation': {alpha: (color: string, opacity: number) => `${color}:${opacity}`, browseType: (_theme: any, size: number, weight: number) => ({fontSize: size, fontWeight: weight})},
     '../../../kit/dock/model': {commandAllowed: () => true, dockCommand: (_occupant: unknown, type: string) => ({type}),

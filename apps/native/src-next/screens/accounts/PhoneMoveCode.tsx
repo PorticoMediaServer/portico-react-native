@@ -117,8 +117,8 @@ export function PhoneMoveCode<Result>({controller, onBack, isCurrent}: {
         error={invalidCode ? t('accounts.move.codeInvalid') : undefined} fieldStyle={{height: 48, borderRadius: 11}} style={{fontSize: 16 * theme.textScale}}/>}
       <Button disabled={state.busy || (local ? !username || !strength.acceptable || password !== confirmation : !code)} loading={state.busy || undefined}
         onPress={submit} style={{height: 48, borderRadius: 11, alignSelf: 'stretch', marginTop: 20}} textStyle={{fontSize: 16 * theme.textScale}}>{t('accounts.signIn.continue')}</Button>
-      {!local && qrScannerAvailable() && <Button variant="text" disabled={state.busy || scanning} loading={scanning || undefined} onPress={() => {void scan();}}>{t('accounts.move.scanQR')}</Button>}
-      {scanError != null && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger}]}>{presentError(scanError, 'sign-in').body}</Text>}
+      {!local && qrScannerAvailable() && <Button variant="text" disabled={state.busy || scanning} loading={scanning || undefined} style={{marginTop: 10}} onPress={() => {void scan();}}>{t('accounts.move.scanQR')}</Button>}
+      {scanError != null && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.danger, marginTop: 10}]}>{presentError(scanError, 'sign-in').body}</Text>}
     </ScrollView>
     <View style={{position: 'absolute', top: Math.max(50, insets.top), left: 12, height: 48, justifyContent: 'center'}}>
       <Button variant="text" icon="i-left" iconSize={22} disabled={state.busy} onPress={back}>{t('accounts.signIn.back')}</Button>

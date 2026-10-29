@@ -77,7 +77,7 @@ test('DoorTiles original helper enters once, retains Setup host through busy, an
   const b = await bindings(); let busy = false, tree: any, door: any, joined = 0; const isCurrent = () => true;
   const {TVNoServers} = await screenModule(new URL('../src-next/screens/accounts/TVNoServers.tsx', import.meta.url), {react: b.react, 'react-native': b.native,
     'react-native-qrcode-svg': {default: 'QR'}, '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/focus': b.focus,
-    '../search/TVKeyboard': {NativeTVKeyboard: 'Keyboard'}, '../../kit/artwork': {ColourBackdrop: 'Backdrop'},
+    '../search/TVKeyboard': {NativeTVKeyboard: 'Keyboard'}, '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', ColourBackdrop: 'Backdrop'},
     '../../kit/controls': {Focusable: b.Focusable, Button: 'Button', TextField: 'TextField'}, '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/theme': {useTheme: () => b.theme, nativeType}, '../destinations/useEntryFocus': b.entry,
     '../../shell/model': {shellLayout: () => ({left: 0, top: 0, width: 1920, height: 1080, scale: 1})}, '../../tv/auth/entry-revision': {useTVBusyEntryRevision}});
@@ -121,7 +121,7 @@ async function rowComposition(b: Awaited<ReturnType<typeof bindings>>) {
     './MotionItem': {MotionItem: 'MotionItem'}, './types': layoutTypes});
   const shelf = await screenModule(new URL('../src-next/tv/layout/TVShelf.tsx', import.meta.url), {react: b.react, '../../kit/layout/Row': row});
   const people = await screenModule(new URL('../src-next/screens/watch/TitlePeople.tsx', import.meta.url), {'../../kit/states': {SkeletonBlock: 'SkeletonBlock'}, '../../kit/focus': b.focus, '../../../../../packages/i18n/src': {defaultI18n}, react: b.react, 'react-native': b.native,
-    '../../kit/artwork': {Artwork: 'Artwork', PersonCircle: 'PersonCircle'}, '../../tv/layout/TVShelf': shelf, '../../tv/layout/TVArtFocus': {TVArtFocus: 'TVArtFocus'},
+    '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', Artwork: 'Artwork', PersonCircle: 'PersonCircle'}, '../../tv/layout/TVShelf': shelf, '../../tv/layout/TVArtFocus': {TVArtFocus: 'TVArtFocus'},
     '../../kit/controls': {Focusable: b.Focusable}, '../../kit/theme': {useTheme: () => b.theme, nativeType, fontFamilies}});
   return {row, shelf, people};
 }
@@ -314,7 +314,7 @@ test('TV Saved caller passes original grid sort/filter roots through actual Menu
     '../../../../../../packages/client-core/src/saved': saved, '../../../tv/layout/TVFocusGrid': {TVFocusGrid: 'Grid'}, '../../saved/SavedForms': {SavedConfirmSheet: 'Confirm'},
     '../../library/LibraryJumpSheet': {LibraryJumpSheet: 'Jump'}, '../useTVPageBack': {useTVPageBack() {}}, '../useEntryFocus': {useDestinationEntryFocus() {}},
     '../../../shell/model': {sameAuthority: () => true}, '../../../../../../packages/client-core/src/presentation/kit-model/text': {durationText: String},
-    '../../../kit/artwork': {Artwork: 'Artwork'}, '../../../kit/controls': {Button: o.Button, Chip: 'Chip', Focusable: b.Focusable},
+    '../../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', Artwork: 'Artwork'}, '../../../kit/controls': {Button: o.Button, Chip: 'Chip', Focusable: b.Focusable},
     '../../../kit/cards': {PosterCard: 'Poster', SquareCard: 'Square'}, '../../../kit/overlays': {...o.menu, Dialog: 'Dialog'}, '../../../kit/states': {StateView: 'State'},
     '../../../kit/focus': b.focus, '../../../kit/browse/presentation': {browseType: () => ({})}, '../../../kit/theme': {useTheme: () => b.theme},
     '../focus': {nativeDestinationFocusIds: (authority: any) => ({savedTabs: 'tabs', savedGrid: authority.grid, savedToolbar: 'toolbar', rail: 'rail'})},
@@ -345,7 +345,7 @@ test('TV Saved caller passes original grid sort/filter roots through actual Menu
 for (const kind of ['person', 'collection'] as const) test(`${kind} actual entity menu retains its original scoped root and command`, async () => {
   const b = await bindings(), o = await overlayBindings(b), presentation = await import('../src-next/kit/browse/presentation');
   const modules = {react: b.react, 'react-native': b.native, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0})},
-    '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/artwork': {PersonCircle: 'Person', AmbientArt: 'Ambient', Artwork: 'Artwork'},
+    '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', PersonCircle: 'Person', AmbientArt: 'Ambient', Artwork: 'Artwork'},
     '../../kit/cards': {PosterCard: 'Poster'}, '../../kit/cards/primitives': {CardFrame: 'CardFrame'},
     '../../kit/selection': {SelectionCircle: 'SelectionCircle'}, '../saved/presentation': {savedDuration: (value: number) => String(value)}, '../../kit/controls': {Button: o.Button, Chip: 'Chip', Focusable: b.Focusable},
     '../../kit/overlays': o.menu, '../../tv/layout/TVShelf': {TVShelf: 'Shelf'}, '../../kit/Icon': {Icon: 'Icon'},
@@ -379,7 +379,7 @@ test('MusicMixes actual original caller scope names its panel through failed bus
   const b = await bindings(), o = await overlayBindings(b), presentation = await import('../src-next/kit/browse/presentation');
   const {MusicMixesRow} = await screenModule(new URL('../src-next/screens/destinations/music/MusicMixesRow.tsx', import.meta.url), {
     react: b.react, 'react-native': b.native, 'react-native-svg': {default: 'Svg', Defs: 'Defs', RadialGradient: 'Gradient', Rect: 'Rect', Stop: 'Stop'},
-    '../../../../../../packages/i18n/src': {defaultI18n}, '../../../kit/artwork': {Artwork: 'Artwork'}, '../../../kit/controls': {Focusable: b.Focusable},
+    '../../../../../../packages/i18n/src': {defaultI18n}, '../../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', Artwork: 'Artwork'}, '../../../kit/controls': {Focusable: b.Focusable},
     '../../../kit/focus': b.focus, '../../../kit/overlays': {...o.menu, SidePanel: o.surface.SidePanel}, '../../../kit/theme': {useTheme: () => b.theme, nativeType},
     '../../../kit/browse/presentation': presentation});
   const row = {id: 'original-mix', name: 'Mix', tint: '#123456', artists: [], more: false, songCount: 20, covers: []};
@@ -427,7 +427,7 @@ test('TV Now Playing names More and Lyrics from the actual mounted instance and 
   const text = await import('../../../packages/client-core/src/presentation/kit-model/text');
   const {TVNowPlayingScreen} = await screenModule(new URL('../src-next/screens/destinations/music/TVNowPlayingScreen.tsx', import.meta.url), {
     react: b.react, 'react-native': b.native, '../../../../../../packages/i18n/src': {defaultI18n}, '../../../../../../packages/client-core/src/presentation/kit-model/text': text,
-    '../../../../../../packages/player-core/src': {sameFence: (a: any, c: any) => a === c}, '../../../kit/artwork': {AmbientArt: 'Ambient', Artwork: 'Artwork'},
+    '../../../../../../packages/player-core/src': {sameFence: (a: any, c: any) => a === c}, '../../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', AmbientArt: 'Ambient', Artwork: 'Artwork'},
     '../../../kit/controls': {Button: o.Button}, '../../../kit/Icon': {Icon: 'Icon'}, '../../../kit/overlays': {...o.menu, SidePanel: o.surface.SidePanel},
     '../../../kit/theme': {useTheme: () => b.theme, nativeType}, '../../../kit/dock/model': dock,
     '../../../shell/model': {shellLayout: () => ({width: 1920, height: 1080, left: 0, top: 0, scale: 1})},
@@ -480,7 +480,7 @@ test('Home See all actual toolbar binds sort/filter/kind/quick leaves without ch
     '../../../../../packages/client-core/src/presentation/kit-model': {browseToolbarModel: () => toolbar},
     '../../../../../packages/client-core/src/presentation/server-text': {serverTextLabel: () => ''}, '../../../../../packages/client-core/src/home-selection': {},
     '../../kit/controls': {Button: o.Button, Chip, Focusable: b.Focusable}, '../../kit/browse': browse, '../../kit/cards/primitives': {CardFrame: 'Card', Parts: 'Parts'},
-    '../../kit/artwork': {MediaArt: 'Art', AmbientArt: 'Ambient'}, '../../kit/browse/presentation': presentation, '../../kit/cards': {PosterCard: 'Poster'},
+    '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', MediaArt: 'Art', AmbientArt: 'Ambient'}, '../../kit/browse/presentation': presentation, '../../kit/cards': {PosterCard: 'Poster'},
     '../../kit/focus': b.focus, '../../kit/layout': {WindowedGrid: 'Grid'}, '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/states': {LoadingBoundary: 'Boundary', LoadingPaint: 'Paint', SkeletonBlock: 'Skeleton', StateView: 'State'},
     '../../kit/theme': {useTheme: () => b.theme, nativeType}, '../../shell/model': {authorityKey}, './browse-label': {homeBrowseLabel: (value: any) => value.id},
@@ -633,7 +633,7 @@ test('actual Search registration keeps equal-value retained genre R1/R2 sort roo
     '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src/presentation/browse-toolbar': direction,
     '../../kit/controls': {Focusable: b.Focusable, Segmented: 'Segmented'}, '../../kit/overlays': o.menu, '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/theme': {useTheme: () => b.theme}, '../../kit/browse/presentation': presentation});
-  const genreModule = await screenModule(new URL('../src-next/screens/search/GenreBrowseScreen.tsx', import.meta.url), {...stackSlotFixture, react: b.react, 'react-native': b.native,
+  const genreModule = await screenModule(new URL('../src-next/screens/search/GenreBrowseScreen.tsx', import.meta.url), {...stackSlotFixture, '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop'}, react: b.react, 'react-native': b.native,
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0})}, '../../../../../packages/i18n/src': {defaultI18n},
     '../../../../../packages/client-core/src/presentation/browse-toolbar': direction, '../../../../../packages/client-core/src/presentation/kit-model': {browseToolbarModel: () => toolbar},
     '../../../../../packages/client-core/src/search-genres': genres, '../../kit/browse': {FiltersButton: 'Filters'}, '../../kit/controls': {Focusable: b.Focusable},
@@ -698,7 +698,7 @@ test('Join caller binds Find/Sign out to its real field region and preserves com
   const native = {...b.native, BackHandler: {addEventListener: (_: string, fn: () => boolean) => {backs.add(fn); return {remove: () => backs.delete(fn)};}}};
   const {TVNoServers} = await screenModule(new URL('../src-next/screens/accounts/TVNoServers.tsx', import.meta.url), {
     react: b.react, 'react-native': native, 'react-native-qrcode-svg': {default: 'QR'}, '../../../../../packages/i18n/src': {defaultI18n},
-    '../../kit/focus': b.focus, '../search/TVKeyboard': {NativeTVKeyboard: 'Keyboard'}, '../../kit/artwork': {ColourBackdrop: 'Backdrop'},
+    '../../kit/focus': b.focus, '../search/TVKeyboard': {NativeTVKeyboard: 'Keyboard'}, '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', ColourBackdrop: 'Backdrop'},
     '../../kit/controls': {Button: o.Button, Focusable: b.Focusable, TextField: 'TextField'}, '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/theme': {useTheme: () => b.theme, nativeType}, '../destinations/useEntryFocus': b.entry,
     '../../shell/model': {shellLayout: () => ({left: 0, top: 0, width: 1920, height: 1080, scale: 1})}, '../../tv/auth/entry-revision': {useTVBusyEntryRevision}});
@@ -748,7 +748,7 @@ for (const kind of ['trusted', 'identity'] as const) for (const closeBy of ['can
   const forgotten: any[] = [], failure = new Promise<void>((_resolve, refuse) => {reject = refuse;});
   const common = {react: b.react, 'react-native': b.native, '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/controls': {Button: o.Button},
     '../../kit/overlays': {...o.surface, OverlaysProvider: o.host.OverlaysProvider}, '../../kit/theme': {useTheme: () => b.theme, nativeType},
-    '../../kit/artwork': {ColourBackdrop: 'Backdrop'}, '../../kit/Icon': {Icon: 'Icon'},
+    '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', ColourBackdrop: 'Backdrop'}, '../../kit/Icon': {Icon: 'Icon'},
     '../../shell/model': {shellLayout: () => ({left: 0, top: 0, width: 1920, height: 1080, scale: 1})},
     'react-native-svg': {default: 'Svg', Circle: 'Circle', Path: 'Path'}};
   const mod = await screenModule(new URL(kind === 'trusted' ? '../src-next/screens/accounts/TVTrustedCertificates.tsx' : '../src-next/screens/accounts/ServerIdentityFailure.tsx', import.meta.url), {
@@ -823,7 +823,7 @@ for (const kind of ['sort', 'filter'] as const) test(`actual Saved directory sup
     '../../../../../packages/client-core/src/presentation/errors': {presentError: () => ({body: 'Saved failed'})},
     './SavedForms': {SavedNameSheet: 'SavedNameSheet'}, './SavedTVLoading': {SavedTVLoading: 'SavedTVLoading'},
     react, 'react-native': b.native, '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/controls': {Focusable: b.Focusable},
-    '../../kit/artwork': {}, '../../kit/cards/primitives': {}, '../../kit/focus': b.focus, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/states': {StateView: 'State'},
+    '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop'}, '../../kit/cards/primitives': {}, '../../kit/focus': b.focus, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/states': {StateView: 'State'},
     '../../kit/browse/presentation': presentation, '../../kit/theme': {useTheme: () => b.theme}, './PlaylistToolbar': toolbar, './presentation': savedText});
   const snapshot = {phase: 'ready', saved: {projection: {sections: [], query: {sort: 'title', direction: 'asc', category: 'all'},
     sorts: [{id: 'title', directions: ['asc', 'desc']}], filters: [{id: 'ownership', options: [{id: 'all', count: 4}]}, {id: 'visibility', options: [{id: 'all', count: 3}]}]}, pagination: {next: []}}};

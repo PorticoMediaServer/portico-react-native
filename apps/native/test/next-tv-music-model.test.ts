@@ -376,7 +376,7 @@ test('the renderer keeps one page per exact route object and navigation revision
  let pickerRenders=0, pickerDisposals=0;
  const picker={render:(runtime:any)=>{pickerRenders++;return {type:'PickerOutlet',props:{runtime}};},dispose:()=>{pickerDisposals++;},openAlbum:()=>{}};
  await screenModule(new URL('../src-next/screens/destinations/music/register.tsx',import.meta.url),{
-  './selection': {createNativeMusicSelection: () => ({dispose() {}, render() {return null;}})}, '../../../kit/artwork': {Artwork: 'Artwork'},
+  './selection': {createNativeMusicSelection: () => ({dispose() {}, render() {return null;}})}, '../../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', Artwork: 'Artwork'},
   react:{default:React},'react-native':{Platform:{isTV:false}},
   '../../../shell/route-registry':{nativeShellRoutes:{registerRoute:(_kind:string,value:any)=>{factory=value;}}},
   '../lifetime':{nativeDestinationLifetime:()=>({scope:{serverId:'server',viewerId:'viewer'},current:()=>current})},
@@ -443,7 +443,7 @@ test('a non-TV album mounts its own picker outlet once beside the page',async()=
  }
  const picker={render:(runtime:any)=>{pickerRenders++;return {type:'PickerOutlet',props:{runtime}};},dispose:()=>{pickerDisposals++;},openAlbum:()=>{}};
  await screenModule(new URL('../src-next/screens/destinations/music/register.tsx',import.meta.url),{
-  './selection': {createNativeMusicSelection: () => ({dispose() {}, render() {return null;}})}, '../../../kit/artwork': {Artwork: 'Artwork'},
+  './selection': {createNativeMusicSelection: () => ({dispose() {}, render() {return null;}})}, '../../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', Artwork: 'Artwork'},
   react:{default:React},'react-native':{Platform:{isTV:false}},
   '../../../shell/route-registry':{nativeShellRoutes:{registerRoute:(_kind:string,value:any)=>{factory=value;}}},
   '../lifetime':{nativeDestinationLifetime:()=>({scope:{serverId:'server',viewerId:'viewer'},current:()=>true})},

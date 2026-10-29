@@ -136,7 +136,8 @@ export class NativeReadPeriodical {
     if (!this.current()) return;
     const flight = ++this.flight;
     this.yearTickets.clear();
-    this.publish({phase: 'loading', items: [], years: this.state.years, days: [], months: this.state.months});
+    // H14: a reload of the same periodical keeps its painted issues until the new reading lands.
+    this.publish({...this.state, phase: 'loading', error: undefined});
     try {
       const client = this.reading(), signal = this.life!.signal;
       // The unfiltered first page gives the real latest issue, the year buckets

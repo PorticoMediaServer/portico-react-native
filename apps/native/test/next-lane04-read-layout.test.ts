@@ -51,7 +51,7 @@ test('reading shelf keeps a bounded native window, starts ten cards early and dr
 test('phone card long press opens its anchored menu and selection tap does not open the book', async () => {
   const r = renderer(), {PhoneReadingBookCard} = await screenModule(new URL('../src-next/screens/read/PhoneReadingBookCard.tsx', import.meta.url), {'../../kit/cards/model': cardModel, 
     react: r.react, 'react-native': {Text: 'Text', View: 'View'}, '@portico/design': {generatedCoverTint: () => ({})},
-    '../../kit/artwork': {GeneratedCover: 'GeneratedCover', MediaArt: 'MediaArt'}, '../../kit/controls': {Focusable: 'Focusable'},
+    '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', GeneratedCover: 'GeneratedCover', MediaArt: 'MediaArt'}, '../../kit/controls': {Focusable: 'Focusable'},
     '../../kit/selection': {SelectionCircle: 'SelectionCircle'}, '../../kit/browse/presentation': {browseType: typography}, '../../kit/theme': {useTheme: () => theme(false)},
   });
   let opened = 0, selected = 0, anchor: unknown;
@@ -79,7 +79,7 @@ async function periodical(tablet: boolean, magazine: boolean, phase = 'ready') {
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 44, bottom: 0})}, '@portico/design': {generatedCoverTint: () => ({})},
     '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key, number: String}, calendarDate: (_i18n: unknown, value: string) => value,
       calendarMonth: () => ({label: 'October 2026', offset: 4, weekdays: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], dates: Array.from({length: 31}, (_, index) => `2026-10-${String(index + 1).padStart(2, '0')}`)})},
-    '../../kit/artwork': {Artwork: 'Artwork', AmbientArt: 'AmbientArt', GeneratedCover: 'GeneratedCover'}, '../../kit/controls': {Button: 'Button', Focusable: 'Focusable'},
+    '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', Artwork: 'Artwork', AmbientArt: 'AmbientArt', GeneratedCover: 'GeneratedCover'}, '../../kit/controls': {Button: 'Button', Focusable: 'Focusable'},
     '../../kit/Icon': {Icon: 'Icon'}, '../../kit/overlays': {BottomSheet: 'BottomSheet'}, '../../kit/states': {SkeletonBlock: 'SkeletonBlock', StateView: 'StateView'},
     '../../kit/selection': {SelectionCircle: 'SelectionCircle'}, '../../kit/cards/primitives': {Scrim: 'Scrim'},
     '../../kit/browse/presentation': {alpha: (color: string, opacity: number) => `${color}/${opacity}`, browseType: typography}, '../../kit/theme': {useTheme: () => theme(tablet)},

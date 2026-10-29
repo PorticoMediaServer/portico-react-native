@@ -116,7 +116,7 @@ test('Seasons has a stable sheet, selected-season entry, Done/Go identities and 
 
 test('Episodes enters the playing row, and its season sheet returns to the actual opener', async () => {
   const h = watchHooks();
-  const {NativeWatchEpisodes} = await screenModule(new URL('../src-next/screens/watch/EpisodePanel.tsx', import.meta.url), {
+  const {NativeWatchEpisodes} = await screenModule(new URL('../src-next/screens/watch/EpisodePanel.tsx', import.meta.url), {'../../kit/states': {Quiet: ({children}: any) => children}, 
     react: h.react, 'react-native': nativeAtoms, '../../../../../packages/i18n/src': i18n, '../../kit/controls': controlsAtoms, '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/theme': themed,
     '../../kit/focus': {FocusRegion: 'FocusRegion'}, '../../kit/overlays/TVPanelMotion': {useTVPanelInteractive: () => true}, './SeasonsSheet': {NativeSeasonsSheet: 'Seasons'},
     '../../kit/cards': {EpisodeTile: 'EpisodeTile'}, 'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'Gradient', Rect: 'Rect', Stop: 'Stop'},
@@ -140,7 +140,7 @@ test('Episodes enters the playing row, and its season sheet returns to the actua
 
 test('Playback Info missing comparison settles on a named, focused Retry and retries explicitly', async () => {
   const h = watchHooks(); let reads = 0;
-  const {NativePlaybackInfoPanel} = await screenModule(new URL('../src-next/screens/watch/PlaybackInfoPanel.tsx', import.meta.url), {
+  const {NativePlaybackInfoPanel} = await screenModule(new URL('../src-next/screens/watch/PlaybackInfoPanel.tsx', import.meta.url), {'../../kit/states': {Quiet: ({children}: any) => children}, 
     react: h.react, 'react-native': nativeAtoms, '../../../../../packages/i18n/src': i18n, '../../../../../packages/player-core/src': playerCore,
     '../../../../../packages/client-core/src/video-track-labels': {videoTrackWords: () => ({})}, '../../../../../packages/client-core/src/presentation/playback-info': {codecName: String},
     '../../kit/controls': controlsAtoms, '../../kit/theme': themed, './playback-info': {lossSentence: () => undefined},
@@ -157,7 +157,7 @@ test('Playback Info missing comparison settles on a named, focused Retry and ret
 
 test('Playback Info timeout settles on the same focused recovery without a render failure', async context => {
   const h = watchHooks();
-  const {NativePlaybackInfoPanel} = await screenModule(new URL('../src-next/screens/watch/PlaybackInfoPanel.tsx', import.meta.url), {
+  const {NativePlaybackInfoPanel} = await screenModule(new URL('../src-next/screens/watch/PlaybackInfoPanel.tsx', import.meta.url), {'../../kit/states': {Quiet: ({children}: any) => children}, 
     react: h.react, 'react-native': nativeAtoms, '../../../../../packages/i18n/src': i18n, '../../../../../packages/player-core/src': playerCore,
     '../../../../../packages/client-core/src/video-track-labels': {videoTrackWords: () => ({})}, '../../../../../packages/client-core/src/presentation/playback-info': {codecName: String},
     '../../kit/controls': controlsAtoms, '../../kit/theme': themed, './playback-info': {lossSentence: () => undefined},
@@ -218,7 +218,7 @@ test('TV failure keeps Retry as entry, exposes its real secondary actions and re
 test('Episodes is contained by the held watch panel and an absent remembered option falls back to a rendered row', async () => {
   for (const panel of ['episodes', 'options']) {
     const h = watchHooks(), registry = createFocusRegistry();
-    const {NativeWatchPanels} = await screenModule(new URL('../src-next/screens/watch/WatchPanels.tsx', import.meta.url), {
+    const {NativeWatchPanels} = await screenModule(new URL('../src-next/screens/watch/WatchPanels.tsx', import.meta.url), {'../../kit/states': {Quiet: ({children}: any) => children}, 
       react: h.react, 'react-native': nativeAtoms, '../../../../../packages/i18n/src': i18n, '../../../../../packages/player-core/src': playerCore,
       '../../../../../packages/client-core/src/presentation/kit-model/text': {clockText: String, durationText: (seconds: number) => `${Math.round(seconds / 60)} min`}, '../../../../../packages/client-core/src/playback-v1/v1-queue-player': {queueVideoKind: () => undefined},
       '../../../../../packages/client-core/src/subtitles': {subtitleReason: () => ''}, '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/controls': controlsAtoms,

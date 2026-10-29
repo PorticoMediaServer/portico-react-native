@@ -449,7 +449,7 @@ function ProfileLimitsSheet({profile, lease, serverOwner, identityFor, onClose, 
   const [owner, setOwner] = useState<ProfileLimitsOwner>();
   const ownerRef = useRef<ProfileLimitsOwner | undefined>(undefined);
   const [restrictions, setRestrictions] = useState<ProfileRestrictions>(), [systems, setSystems] = useState<readonly RatingSystem[]>();
-  const [draft, setDraft] = useState<ProfileRestrictions>(), [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState<ProfileRestrictions>(), [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false), [attempt, setAttempt] = useState(0);
   const draftRef = useRef<ProfileRestrictions | undefined>(undefined), busyRef = useRef(false);
   const profileId = profile.id, profileRevision = profile.revision;
   const current = (candidate: ProfileLimitsOwner) => candidate === ownerRef.current && !candidate.retired && candidate.profile.id === profileId
@@ -478,7 +478,7 @@ function ProfileLimitsSheet({profile, lease, serverOwner, identityFor, onClose, 
       if (ownerRef.current === next) ownerRef.current = undefined;
       setOwner(value => value === next ? undefined : value);
     };
-  }, [identityFor, lease, profileId, profileRevision]);
+  }, [identityFor, lease, profileId, profileRevision, attempt]);
 
   const updateDraft = (change: Partial<ProfileRestrictions>) => {
     if (!owner || !current(owner) || busyRef.current || !draft || draftRef.current !== draft) return;
@@ -512,7 +512,7 @@ function ProfileLimitsSheet({profile, lease, serverOwner, identityFor, onClose, 
   };
   return <BottomSheet open onOpenChange={open => {if (!open) close();}} title={t('limits.title', {name: profile.name})} description={t('limits.subtitle')}
     testID="profile-limits" footer={<View style={{flexDirection: 'row', gap: 8}}><Button focusId="cancel" variant="glass" disabled={busy} onPress={close}>{t('action.cancel')}</Button><Button focusId="save" loading={busy} disabled={!draft || !owner || !current(owner)} onPress={save}>{t('limits.save')}</Button></View>}>
-    {error ? <StateView title={presentError(error, 'profiles').title} body={presentError(error, 'profiles').body}/> : !draft ? <StateView title={t('status.loading')}/> : <View style={{gap: 14}}>
+    {error ? <StateView title={presentError(error, 'profiles').title} body={presentError(error, 'profiles').body} primaryAction={{id: 'retry', label: t('action.tryAgain'), onPress: () => setAttempt(value => value + 1)}}/> : !draft ? <StateView title={t('status.loading')}/> : <View style={{gap: 14}}>
       <ProfileRestrictionsFields draft={draft} systems={systems ?? []} disabled={busy} recordingLocked={!serverOwner && !restrictions?.allowDvr} current={() => !!owner && current(owner)} onChange={updateDraft}/>
     </View>}
 

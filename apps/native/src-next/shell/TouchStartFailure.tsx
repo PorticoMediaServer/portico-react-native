@@ -146,7 +146,7 @@ export function TouchStartFailure({failure, wait, runtime}: {
     </View>}>
     {waiting && !report && <View style={{flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16}}>
       <CountdownRing size={20} progress={Math.min(1, Math.max(0, 1 - (waiting.retryAt - now) / Math.max(1, waiting.retryAt - began.current)))}/>
-      <Text style={{fontSize: 13.5 * theme.textScale, color: theme.colors.textSecondary}}>{t('next.states.retryIn', {seconds})}</Text>
+      <Text style={{fontSize: 13.5 * theme.textScale, color: theme.colors.textSecondary, fontVariant: ['tabular-nums']}}>{t('next.states.retryIn', {seconds})}</Text>
     </View>}
     {!report && refused?.scope === 'account' && rows.length > 0 && <FlatList data={rows} keyExtractor={row => row.sessionId}
       style={{height: Math.min(rows.length * 64, Math.max(100, height * 0.4)), marginBottom: 14, borderRadius: 12,
@@ -155,8 +155,8 @@ export function TouchStartFailure({failure, wait, runtime}: {
       renderItem={({item: row, index}) => <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 9, paddingLeft: 12, paddingRight: 9,
         borderTopWidth: index ? 1 : 0, borderColor: alpha(theme.colors.text, 0.06)}}>
         <Icon name="i-monitor" size={18} color={theme.colors.textTertiary}/>
-        <View style={{flex: 1, minWidth: 0}}><Text style={{fontSize: 13.5 * theme.textScale, fontFamily: theme.type.bodyStrong.fontFamily, color: theme.colors.text}}>{row.device.name}</Text>
-          <Text style={{fontSize: 12.5 * theme.textScale, marginTop: 1, color: theme.colors.textTertiary}}>{row.item?.title ?? t('remote.hiddenTitle')}</Text></View>
+        <View style={{flex: 1, minWidth: 0}}><Text numberOfLines={1} style={{fontSize: 13.5 * theme.textScale, fontFamily: theme.type.bodyStrong.fontFamily, color: theme.colors.text}}>{row.device.name}</Text>
+          <Text numberOfLines={1} style={{fontSize: 12.5 * theme.textScale, marginTop: 1, color: theme.colors.textTertiary}}>{row.item?.title ?? t('remote.hiddenTitle')}</Text></View>
         <Button testID={`touch-start-stop-${row.sessionId}`} variant="glass" size="small" disabled={!!busy || !row.actions.includes('stop') || row.state === 'ended'}
           loading={busy === row.sessionId} accessibilityLabel={t('remote.stopOn', {device: row.device.name})} onPress={() => stop(row)}>{t('action.stop')}</Button>
       </View>}

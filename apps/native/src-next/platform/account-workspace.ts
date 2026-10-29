@@ -176,7 +176,8 @@ export class NativeAccountWorkspace {
     if (this.mutation || !review || this.state.page !== 'devices' || this.state.phase !== 'ready') return;
     const before = review.service.getSnapshot(), epoch = review.epoch;
     if (direction === 'next' ? !before.nextCursor : !before.hasPrevious) return;
-    this.assertEpoch(epoch); this.publish({page: 'devices', phase: 'loading'});
+    // H14: paging keeps the painted list until the next page lands.
+    this.assertEpoch(epoch); this.publish({...this.state, page: 'devices', phase: 'loading'});
     try {
       this.assertEpoch(epoch);
       if (direction === 'next') await review.service.next(); else await review.service.previous();
@@ -199,7 +200,7 @@ export class NativeAccountWorkspace {
     if (direction === 'next' ? !view.next : view.index === 0) return;
     const epoch = view.epoch, index = view.index + (direction === 'next' ? 1 : -1);
     const cursor = direction === 'next' ? view.next : view.cursors[index];
-    this.assertEpoch(epoch); this.publish({page: 'notifications', phase: 'loading'});
+    this.assertEpoch(epoch); this.publish({...this.state, page: 'notifications', phase: 'loading'});
     try {this.assertEpoch(epoch); await this.readNotifications(view, index, cursor);}
     catch (error) {if (this.current() && epoch === this.epoch) this.publish({page: 'notifications', phase: 'failed', failure: presentError(error, 'portico-account').body}); else if (!this.current()) this.end();}
   }

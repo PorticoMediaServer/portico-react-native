@@ -11,7 +11,7 @@ import {groupTargetPositionUs, type GroupHostAuthority} from '../../../../../pac
 import {Button, Focusable, Segmented, TextField} from '../../kit/controls';
 import {FocusRegion} from '../../kit/focus';
 import {Dialog, Banner, Menu} from '../../kit/overlays';
-import {AmbientArt, Artwork, ProfileFace} from '../../kit/artwork';
+import {AmbientArt, Artwork, ProfileFace, StandardBackdrop} from '../../kit/artwork';
 import {Icon} from '../../kit/Icon';
 import {StateView} from '../../kit/states';
 import {alpha, shellType} from '../../kit/shell/visual';
@@ -156,7 +156,7 @@ function TogetherLobbyRegion({controller, region, rail, children}: {controller: 
 
 function TogetherPage({children, onBack, title, settingsBack = false}: {children: React.ReactNode; onBack?: () => void; title?: string; settingsBack?: boolean}) {
   const theme = useTheme(), insets = useSafeAreaInsets(), phone = !theme.isTV && theme.width < 600;
-  return <View style={{flex: 1, backgroundColor: theme.colors.ink}}>
+  return <View style={{flex: 1}}><StandardBackdrop/>
     {phone && <View style={{paddingTop: insets.top, minHeight: insets.top + 46, paddingHorizontal: 10, justifyContent: 'center'}}>
       <Text accessibilityRole="header" pointerEvents="none" style={[shellType(17, 700), {position: 'absolute', left: 0, right: 0, bottom: 13, textAlign: 'center', color: theme.colors.text}]}>{title}</Text>
       {onBack && <Button variant="text" size="small" icon="i-left" accessibilityLabel={settingsBack ? defaultI18n.t('next.shell.settings') : defaultI18n.t('action.back')} testID="together-page-back" onPress={onBack} style={{alignSelf: 'flex-start', minHeight: 38, paddingHorizontal: 6, marginLeft: -4}} textStyle={[shellType(16, 600), {color: theme.colors.textSecondary}]}>{settingsBack ? defaultI18n.t('next.shell.settings') : undefined}</Button>}
@@ -245,7 +245,7 @@ function TogetherRoom({controller, ports, runtime}: {controller: NativeTogetherC
               {phone && <View pointerEvents="none" style={{position: 'absolute', inset: 0}}><Svg width="100%" height="100%" accessible={false}><Defs><LinearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor={theme.colors.ink} stopOpacity={.1}/><Stop offset="1" stopColor={theme.colors.ink} stopOpacity={.9}/></LinearGradient></Defs><Rect width="100%" height="100%" fill={`url(#${gradientId})`}/></Svg></View>}
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: phone ? 0 : 6}}>{phone && <View style={{width: 7, height: 7, borderRadius: 4, backgroundColor: group.host.presence !== 'connected' ? theme.colors.amber : theme.colors.healthy}}/>}<Text style={[shellType(theme.isTV ? 22 : phone ? 12.5 : 13, phone ? 800 : 700), {color: group.host.presence !== 'connected' ? theme.colors.amber : phone ? theme.colors.healthy : theme.colors.accentStrong}]}>{t(group.host.presence !== 'connected' ? 'web.together.state.hostReconnecting' : playing ? 'web.together.state.playing' : 'web.downloads.state.paused')}</Text></View><Text style={[shellType(theme.isTV ? 40 : phone ? 20 : 25, 800, 'normal', phone ? -.02 : 0), {color: theme.colors.text, marginTop: phone ? 4 : 12, marginBottom: phone ? 2 : 12}]}>{title}</Text>
               {now?.duration ? (() => {const seconds = Number(groupTargetPositionUs(group.timeline, Date.parse(group.timeline.anchorAt), clock) / 1000000n);return <>
-                <Text style={[shellType(phone ? 13 : 15, 400), {color: theme.colors.textSecondary}]}>{t('web.together.positionOf', {position: defaultI18n.clock(seconds), duration: defaultI18n.clock(now.duration)})}</Text>
+                <Text style={[shellType(phone ? 13 : 15, 400), {color: theme.colors.textSecondary, fontVariant: ['tabular-nums']}]}>{t('web.together.positionOf', {position: defaultI18n.clock(seconds), duration: defaultI18n.clock(now.duration)})}</Text>
                 <View style={{height: phone ? 3 : 4, borderRadius: 2, backgroundColor: alpha(theme.colors.text, .16), marginTop: 10, overflow: 'hidden'}}><View style={{height: phone ? 3 : 4, width: `${Math.max(0, Math.min(1, seconds / now.duration)) * 100}%`, backgroundColor: theme.colors.accentStrong}}/></View>
               </>;})() : null}
               <SpacedStatus text={group.readiness.aggregate === 'ready' ? t('web.together.allReady') : t('web.together.waiting', {ready: group.readiness.ready, total: group.readiness.memberCount, count: group.readiness.buffering + group.readiness.lagging + group.readiness.stale})}/>

@@ -41,7 +41,7 @@ export function FacetChips({values, included, excluded, onValueChange, cycleExcl
         {({focused}) => <View style={{flexDirection: 'row', alignItems: 'center', gap: tv ? 8 : 6}}>
           {include && <Icon name="i-check" size={tv ? 22 : 14} color={theme.colors.accentStrong}/>}
           <Text numberOfLines={1} style={[browseType(theme, tv ? 22 : 13.5, tv ? 700 : 600), {color: tv && focused ? theme.colors.text : exclude ? theme.colors.record : include ? theme.colors.text : theme.colors.textSecondary, textDecorationLine: exclude ? 'line-through' : 'none'}]}>{item.label}</Text>
-          {item.count !== undefined && <Text style={[browseType(theme, tv ? 19 : 12, 600), {color: include ? theme.colors.textSecondary : theme.colors.textTertiary, fontVariant: ['tabular-nums'], textDecorationLine: exclude ? 'line-through' : 'none'}]}>{new Intl.NumberFormat('en-US').format(item.count)}{item.countIsLowerBound ? t('next.browse.native.countPlus') : ''}</Text>}
+          {item.count !== undefined && <Text style={[browseType(theme, tv ? 19 : 12, 600), {color: include ? theme.colors.textSecondary : theme.colors.textTertiary, fontVariant: ['tabular-nums'], textDecorationLine: exclude ? 'line-through' : 'none'}]}>{defaultI18n.number(item.count)}{item.countIsLowerBound ? t('next.browse.native.countPlus') : ''}</Text>}
         </View>}
       </Focusable>;
     })}

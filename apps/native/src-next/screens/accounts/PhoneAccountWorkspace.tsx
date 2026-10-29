@@ -11,6 +11,7 @@ import {accountSessionDevice, type AccountSessionRow} from '../../../../../packa
 import type {HostedServer} from '../../../../../packages/client-core/src';
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import {PhoneAccountSecurity} from './PhoneAccountSecurity';
+import {Quiet} from '../../kit/states';
 
 type CommittedOpening = {source?: NativeAccountWorkspace; active: boolean; failed: boolean};
 const waiting: AccountWorkspaceSnapshot = Object.freeze({page: 'menu', phase: 'loading'});
@@ -23,6 +24,7 @@ export function PhoneAccountWorkspace({createSource, username, onDone, onFind, o
 }) {
   const theme = useTheme(), insets = useSafeAreaInsets(), t = defaultI18n.t;
   const opening = useRef<CommittedOpening | undefined>(undefined);
+  const scroll = useRef<ScrollView>(null);
   const [ticket, setTicket] = useState<CommittedOpening>();
   const [confirm, setConfirm] = useState<{kind: 'session'; row: AccountSessionRow} | {kind: 'others'} | {kind: 'server'; row: HostedServer}>();
   const [commandFailure, setCommandFailure] = useState<string>();
@@ -36,6 +38,8 @@ export function PhoneAccountWorkspace({createSource, username, onDone, onFind, o
   }, [createSource]);
   const source = ticket?.source;
   const state = useSyncExternalStore(source?.subscribe ?? noSubscribe, source?.getSnapshot ?? waitingSnapshot);
+  // H14: a new account page opens at its top, not at the menu's scroll offset.
+  useLayoutEffect(() => {scroll.current?.scrollTo({y: 0, animated: false});}, [state.page]);
   const live = () => !!ticket?.active && opening.current === ticket && (!source || source.getSnapshot() === state);
   const current = () => live() && !!source && source.current();
   const go = (action: () => void) => () => {if (!current() || !ticket) return; ticket.active = false; source?.dispose(); action();};
@@ -54,7 +58,7 @@ export function PhoneAccountWorkspace({createSource, username, onDone, onFind, o
   };
   return <View testID="phone-serverless-settings" style={{flex: 1, backgroundColor: theme.colors.ink}}>
     <ColourBackdrop shape="top"/>
-    <ScrollView contentContainerStyle={{paddingTop: insets.top + 20, paddingBottom: Math.max(24, insets.bottom + 16), paddingHorizontal: 24, gap: 18}}>
+    <ScrollView ref={scroll} contentContainerStyle={{paddingTop: insets.top + 20, paddingBottom: Math.max(24, insets.bottom + 16), paddingHorizontal: 24, gap: 18}}>
       <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
         <Text accessibilityRole="header" style={[theme.type.title, {color: theme.colors.text}]}>{heading}</Text>
         <Button variant="text" disabled={!!state.pending} onPress={() => {if (!current()) {if (ticket && live() && (ticket.failed || state.phase === 'ended')) {ticket.active = false; source?.dispose(); onDone();} return;}
@@ -72,7 +76,7 @@ export function PhoneAccountWorkspace({createSource, username, onDone, onFind, o
           <Button variant="glass" onPress={go(onFind)}>{t('connection.discovery.find')}</Button>
           <Button variant="text" onPress={go(onSignOut)}>{t('action.signOut')}</Button>
         </>}
-        {state.phase === 'loading' && label(t('status.loading'))}
+        {state.phase === 'loading' && <Quiet>{label(t('status.loading'))}</Quiet>}
         {state.phase === 'failed' && <>
           <Text accessibilityRole="alert" style={[theme.type.body, {color: theme.colors.danger}]}>{state.failure}</Text>
           <Button onPress={() => {if (current() && state.page !== 'menu') void source?.open(state.page);}}>{t('action.tryAgain')}</Button>

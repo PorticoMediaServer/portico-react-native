@@ -13,7 +13,7 @@ import {NativeWatchEqualizer, type NativeEqualizerCopy} from '../../watch/Equali
 import {MusicSignalLine, MusicSignalSheet, type MusicSignalView} from './MusicSignal';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import {clockText, durationText} from '../../../../../../packages/client-core/src/presentation/kit-model/text';
-import {AmbientArt, Artwork} from '../../../kit/artwork';
+import {AmbientArt, Artwork, StandardBackdrop} from '../../../kit/artwork';
 import {Button, Focusable} from '../../../kit/controls';
 import {GestureCommitScope} from '../../../kit/controls/gesture-commit';
 import {Icon} from '../../../kit/Icon';
@@ -552,7 +552,7 @@ function ListeningSidePanel({width, children}: {width: number; children: React.R
 export function ListeningPageBackground({fence, height, ambient, fallbackVisible = true}: {fallbackVisible?: boolean; fence: PlaybackFence; height: number; ambient: DockOccupant['presentation']['ambient']}) {
   const theme = useTheme(), reportHeight = useListeningPageHeight(), style = useListeningPageStyle(fence, height, fallbackVisible);
   return <Animated.View pointerEvents="none" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" onLayout={event => reportHeight(event.nativeEvent.layout.height)}
-    style={[{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink, zIndex: theme.layers.player + 1}, style]}>
+    style={[{position: 'absolute', inset: 0, zIndex: theme.layers.player + 1}, style]}><StandardBackdrop/>
     {ambient ? <View style={{position: 'absolute', top: 0, left: 0, right: 0, height: Math.min(height, 720), overflow: 'hidden'}}>
       <AmbientArt source={ambient} treatment="title" style={{position: 'absolute', inset: 0}}/>
       <View style={{position: 'absolute', inset: 0, backgroundColor: 'rgba(7,16,24,.5)'}}/>

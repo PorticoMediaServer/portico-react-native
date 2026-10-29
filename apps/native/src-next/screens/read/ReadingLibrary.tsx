@@ -8,7 +8,7 @@ import type {BrowseCapabilities} from '../../../../../packages/client-core/src/b
 import {readLibrarySummaries, type LibrarySummary} from '../../../../../packages/client-core/src/library-summary';
 import {formatDuration} from '../../../../../packages/client-core/src/presentation/content';
 import {libraryTabs, readingTabModel, type LibraryTabId} from '../../../../../packages/client-core/src/presentation/library-tabs';
-import {GeneratedCover} from '../../kit/artwork';
+import {GeneratedCover, StandardBackdrop} from '../../kit/artwork';
 import {ReadResumeCard} from '../../kit/cards';
 import {Focusable} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
@@ -206,12 +206,12 @@ export function NativeReadingLibraryScreen(props: NativeReadingLibraryScreenProp
   const pivots: Readonly<Record<string, string>> = {book: 'books', ebook: 'books', comic: 'titles', magazine: 'titles', newspaper: 'titles'};
   const counts = (summary?.opening === opening ? summary?.value?.counts ?? [] : []).filter(part => pivots[part.kind]).map(part =>
     defaultI18n.t(part.atLeast ? 'lib.countAtLeast' : 'lib.count', {count: part.count, pivot: pivots[part.kind]!}));
-  return <View testID={`native-reading-library-${libraryId}`} style={{flex: 1, backgroundColor: theme.colors.ink}} onLayout={event => {
+  return <View testID={`native-reading-library-${libraryId}`} style={{flex: 1}} onLayout={event => {
     // The authored cover grid fills the pane it is laid out in, not the window:
     // the shell rail is already outside this view.
     const next = Math.round(event.nativeEvent.layout.width);
     if (next > 0 && next !== paneWidth) setPaneWidth(next);
-  }}>
+  }}><StandardBackdrop/>
     {tablet ? <View style={{paddingTop: insets.top + 6, paddingHorizontal: theme.gutter}}>
       <Focusable accessibilityRole="button" focusKind="row" accessibilityLabel={defaultI18n.t('next.browse.native.libraries')} onPress={onBack}
         style={{height: 44, flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start'}}>

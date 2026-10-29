@@ -4,7 +4,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {WindowedCollection} from '../../../../../packages/client-core/src/collections/windowed';
 import type {PersonCredit, PersonPage, PersonRole} from '../../../../../packages/client-core/src/people';
 import {defaultI18n} from '../../../../../packages/i18n/src';
-import {AmbientArt, Artwork, PersonCircle} from '../../kit/artwork';
+import {AmbientArt, Artwork, PersonCircle, StandardBackdrop} from '../../kit/artwork';
 import type {NativeSelection} from '../selection/native-selection';
 import {PosterCard, type PosterCardProps} from '../../kit/cards';
 import {Chip, Focusable} from '../../kit/controls';
@@ -99,7 +99,7 @@ export function PersonScreen({focusScope, page, role, collection, runtime, actio
   </>;
   const rows = useMemo(() => Math.ceil((state.total ?? page.pageInfo.total) / columns), [columns, page.pageInfo.total, state.total]);
   if (theme.isTV) return <TVPerson focusScope={focusScope} page={page} role={role} collection={collection} runtime={runtime} actions={actions} selection={selection} onRole={onRole} onBack={onBack}/>;
-  return <View style={{flex: 1, backgroundColor: theme.colors.ink}} testID="native-person">
+  return <View style={{flex: 1}} testID="native-person"><StandardBackdrop/>
     <VirtualizedList data={collection} getItem={(_data, index) => index} getItemCount={() => rows} keyExtractor={index => String(index)} extraData={`${version()}:${selectionRevision}`}
       initialNumToRender={4} maxToRenderPerBatch={4} windowSize={5} ListHeaderComponent={header} onViewableItemsChanged={visible}
       contentContainerStyle={{paddingBottom: insets.bottom + 24}} renderItem={({item: row}: {item: number}) => <View style={{flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingBottom: 16}}>
@@ -156,7 +156,7 @@ export function TVPerson({focusScope, page, role, collection, runtime, actions, 
   const slots = useMemo(() => Array.from({length: total}, (_, index) => index), [total]);
   const filterItems: MenuEntry[] = ([['all', 'title.creditsAll'], ['cast', 'web.person.cast'], ['crew', 'web.person.crew']] as const).map(([value, label]) =>
     ({id: value, label: t(label), selected: role === value, onSelect: () => onRole(value)}));
-  return <View testID="native-person" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+  return <View testID="native-person" style={{flex: 1}}><StandardBackdrop/>
     <View pointerEvents="none" style={{position: 'absolute', inset: 0, overflow: 'hidden'}}><AmbientArt source={runtime.ambient(known[0]?.backdropUrl || person.portraitUrl || known[0]?.posterUrl)} treatment="person"/></View>
     <ScrollView contentContainerStyle={{paddingLeft: 200, paddingRight: 96, paddingTop: 92, paddingBottom: 80}}>
       <View style={{flexDirection: 'row', alignItems: 'flex-start', gap: 60, minHeight: 284}}>

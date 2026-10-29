@@ -27,7 +27,7 @@ export function PhoneTabBar({destination, hasLiveTV, onSelect, landscape = false
             ? {flex: 1, height: compact.content - compact.paddingTop, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: compact.gap}
             : {flex: 1, height: 44, alignItems: 'center', justifyContent: 'flex-start', gap: recipe.gap}}>
           <Icon name={tab.icon} size={compact?.iconSize ?? 22} color={color}/>
-          <Text numberOfLines={1} style={[type.tabBar, compact ? {flexShrink: 1, fontSize: compact.labelSize * textScale, lineHeight: compact.labelLineHeight * textScale} : null, {color}]}>{defaultI18n.t(tab.message)}</Text>
+          <Text numberOfLines={1} maxFontSizeMultiplier={1.3} style={[type.tabBar, compact ? {flexShrink: 1, fontSize: compact.labelSize * textScale, lineHeight: compact.labelLineHeight * textScale} : null, {color}]}>{defaultI18n.t(tab.message)}</Text>
         </Focusable>;
       })}
     </View>

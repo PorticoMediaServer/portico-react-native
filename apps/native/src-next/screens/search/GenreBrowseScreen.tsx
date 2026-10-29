@@ -25,6 +25,7 @@ import {homeCardText} from '../home/model';
 import {PosterCard} from '../../kit/cards';
 import type {NativeGenreBrowseDestination} from './genre-browse';
 import {GenreFilters} from './GenreFilters';
+import {StandardBackdrop} from '../../kit/artwork';
 
 const label = (value: {id: string; labelKey?: string}, t: NativeShellRuntime['text']['t']) => {
   const key = browseNameId(value.id, value.labelKey, defaultI18n.has);
@@ -53,11 +54,11 @@ export function GenreBrowseScreen({focusScope, name, value, destination, activat
   useEffect(() => () => filters?.dispose(), [filters]);
   useEffect(() => {
     if (state.phase !== 'loading') {setElapsed(0); return;}
-    const start = Date.now(), timer = setTimeout(() => setElapsed(Date.now() - start), 300);
+    const start = Date.now(), timer = setTimeout(() => setElapsed(Math.max(300, Date.now() - start)), 300);
     return () => clearTimeout(timer);
   }, [state.phase]);
   return place(<View testID="native-search-genre" pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
-    importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{position: 'absolute', inset: 0, display: active.visible || stacked ? 'flex' : 'none', backgroundColor: theme.colors.ink}}>
+    importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{position: 'absolute', inset: 0, display: active.visible || stacked ? 'flex' : 'none'}}><StandardBackdrop/>
     <View style={{paddingTop: insets.top, backgroundColor: theme.colors.ink}}>
       <View style={{height: 44, paddingHorizontal: 12, justifyContent: 'center'}}><Focusable testID="search-genre-back" accessibilityLabel={t('action.back')} onPress={onBack}
         style={{width: 38, height: 38, justifyContent: 'center', alignItems: 'center'}}><Icon name="i-left" size={22} color={theme.colors.text}/></Focusable></View>

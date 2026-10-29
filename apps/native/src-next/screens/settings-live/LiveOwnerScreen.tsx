@@ -7,7 +7,7 @@ import {liveRewindRow, liveStabilityPatch, liveStabilityRow, liveStabilityValue}
 import {Button, Focusable, Select, Switch, Tabs, TextField} from '../../kit/controls';
 import {Dialog, Menu} from '../../kit/overlays';
 import {ServerHeader} from '../../kit/shell';
-import {StateView} from '../../kit/states';
+import {Quiet, StateView} from '../../kit/states';
 import {shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
@@ -21,6 +21,7 @@ import {ChannelMapSheet, SourceSettingsSheet} from './LiveOwnerSettingsSheets';
 import {NativeRecordingOwner} from './LiveOwnerRecording';
 import {NativeLibraryChannelsPanel} from './server/LibraryChannelsPanel';
 import {NativeAdvancedSection} from './server/AdvancedSection';
+import {StandardBackdrop} from '../../kit/artwork';
 
 
 /** Settings › Server › Live TV & Channels: the owner's real sources and recordings.
@@ -81,8 +82,8 @@ export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, o
     {id: 'separator', separator: true as const},
     {id: 'remove', icon: 'i-trash' as const, label: t('web.liveTv.removeSource'), destructive: true, onSelect: () => openRemove(menu)},
   ] : [];
-  return <View style={{flex: 1, backgroundColor: theme.colors.ink}}>
-    <ScrollView contentContainerStyle={{paddingBottom: 100}} keyboardShouldPersistTaps="handled">
+  return <View style={{flex: 1}}><StandardBackdrop/>
+    <ScrollView contentContainerStyle={{paddingBottom: 100}} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
       <View style={{paddingHorizontal: 20, paddingTop: 8, gap: 10}}>
         <Button testID="live-owner-back" variant="text" size="small" icon="i-left" onPress={onClose}>{t('next.shell.settings')}</Button>
         <Text accessibilityRole="header" style={[shellType(32, 800, 36.8, -.035), {color: theme.colors.text}]}>{t('settings.server.live')}</Text>
@@ -98,7 +99,7 @@ export function NativeLiveOwnerScreen({controller, recordings, ports, runtime, o
               <Text style={[shellType(13, 700), {color: theme.colors.textTertiary, flex: 1}]}>{t('web.liveTv.sources')}</Text>
               {state.checkedAt !== undefined && <Text style={[shellType(12.5), {color: theme.colors.textTertiary}]}>{t('web.servers.checked', {when: defaultI18n.relativeTime(state.checkedAt)})}</Text>}
             </View>
-            {state.loading && !state.list && <StateView title={t('web.librarySettings.loading')}/>}
+            {state.loading && !state.list && <Quiet><StateView title={t('web.librarySettings.loading')}/></Quiet>}
             {state.error !== undefined && <StateView testID="live-owner-error" {...runtime.error(state.error, () => {void controller.load();})}/>}
             {state.list && !sources.length && <View testID="live-owner-empty" style={{backgroundColor: theme.colors.raised, borderRadius: 16, padding: 24, alignItems: 'center', gap: 10}}>
               <Text style={[shellType(17, 700), {color: theme.colors.text}]}>{t('web.live.empty.noSourcesTitle')}</Text>

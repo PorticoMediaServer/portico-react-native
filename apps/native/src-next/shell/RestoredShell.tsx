@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
-import {StateLayout, StateView} from '../kit/states';
+import {StateLayout} from '../kit/states';
 import {CoverFan} from '../kit/artwork';
 import {Focusable} from '../kit/controls';
 import {TVDesignCanvas} from '../kit/overlays/TVDesignCanvas';
@@ -288,9 +288,10 @@ export function RestoredShell() {
       beforeActions={recoveryWait ? <RecoveryRetry waiting={recoveryWait}/> : undefined}
       primaryAction={{id: 'restore', label: defaultI18n.t('next.states.tryNow'), icon: 'i-retry', onPress: retry, hasTVPreferredFocus: theme.isTV}}
       secondaryAction={{id: 'accounts', label: defaultI18n.t('next.states.switchServer'), icon: 'i-server', onPress: chooseAccounts}}/></TVDesignCanvas></View>);
-    return withDownloads(<StateView variant="centered" title={error.title} body={error.body} tone="error"
+    return withDownloads(<View style={{flex: 1, backgroundColor: theme.colors.ink}}><TVDesignCanvas><StateLayout testID="native-recovery-error" titleRef={recoveryTitle} backdropShape="side" shell={<RecoveryBrand/>}
+      title={error.title} body={error.body} tone="error"
       primaryAction={restore ? {id: 'restore', label: error.actionLabel, onPress: retry, hasTVPreferredFocus: theme.isTV} : undefined}
-      secondaryAction={{id: 'accounts', label: defaultI18n.t('portico.landing.chooseAnother'), onPress: chooseAccounts, hasTVPreferredFocus: theme.isTV && !restore}}/>);
+      secondaryAction={{id: 'accounts', label: defaultI18n.t('portico.landing.chooseAnother'), onPress: chooseAccounts, hasTVPreferredFocus: theme.isTV && !restore}}/></TVDesignCanvas></View>);
   }
   return withDownloads(<AccountEntry downloads={remembered?.entry} onSetupComplete={setupComplete} onComplete={complete}/>);
   };
@@ -323,13 +324,13 @@ function RecoveryDownloads({source}: {source: RememberedDownloadsOpening}) {
   const first = entries[0]!, more = entries.length - 1;
   return <Focusable testID="recovery-downloads" accessibilityRole="button" accessibilityLabel={t('next.states.native.downloadsPlay')} focusRadius={14}
     onPress={() => {if (source.current()) source.entry.open();}}
-    style={{height: 74, width: '100%', marginBottom: 14, paddingHorizontal: 14, justifyContent: 'center', borderRadius: 14,
+    style={{minHeight: 74, width: '100%', marginBottom: 14, paddingHorizontal: 14, justifyContent: 'center', borderRadius: 14,
       backgroundColor: `${theme.colors.raised}D9`, borderWidth: 1, borderColor: `${theme.colors.text}14`}}>
     <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
       <View style={{width: 64, height: 50}}>{covers.length ? <CoverFan covers={covers} shape="poster" width={64} height={50}/> : null}</View>
       <View style={{flex: 1}}>
-        <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('next.states.native.downloadsPlay')}</Text>
-        <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{more > 0
+        <Text numberOfLines={1} style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{t('next.states.native.downloadsPlay')}</Text>
+        <Text numberOfLines={1} style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{more > 0
           ? t('next.states.native.downloadsMore', {title: first.title, count: more}) : first.title}</Text>
       </View>
       <Icon name="i-right" size={20} color={theme.colors.textTertiary}/>
@@ -378,7 +379,7 @@ function RecoveryRetry({waiting}: {waiting: NativeStartupWait}) {
     };
     tick(); return () => {active = false; if (timer !== undefined) clearTimeout(timer);};
   }, [waiting.retryAt]);
-  return <Text style={[theme.type.bodyStrong, {color: theme.colors.textSecondary, textAlign: theme.isTV ? 'left' : 'center', marginBottom: theme.isTV ? 40 : 22}]}>
+  return <Text style={[theme.type.bodyStrong, {color: theme.colors.textSecondary, textAlign: theme.isTV ? 'left' : 'center', marginBottom: theme.isTV ? 40 : 22, fontVariant: ['tabular-nums']}]}>
     {waiting.retryAt === undefined ? defaultI18n.t(waiting.offline && !waiting.pending ? 'error.offlineRetrying' : 'next.states.retrying')
       : defaultI18n.t('next.states.retryIn', {seconds: startupRetrySeconds(waiting.retryAt, now)})}
   </Text>;

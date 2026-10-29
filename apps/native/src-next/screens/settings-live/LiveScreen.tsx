@@ -13,10 +13,12 @@ import type {RecordingDraft} from '../../../../../packages/client-core/src/dvr';
 import {Button, Chip, Focusable, Segmented, Select} from '../../kit/controls';
 import {FocusItem, FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {Dialog, Menu, ToastHost, type ToastMessage} from '../../kit/overlays';
+import {useDockClearance} from '../../kit/dock/DockClearance';
 import {Artwork, ChannelMark} from '../../kit/artwork';
 import {Icon} from '../../kit/Icon';
 import {GuideLoadingMarker} from './GuideLoadingMarker';
 import {StateView} from '../../kit/states';
+import {usePullRefresh} from '../../kit/states/usePullRefresh';
 import {alpha, shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
 import {useScreenReader} from '../../kit/useScreenReader';
@@ -47,6 +49,7 @@ import {tvGroupEdges, tvProgrammeGroups} from './tv-settings-focus';
 
 export function NativeLiveScreen({controller, recordings, owner, ports, runtime}: {controller: NativeLiveController; recordings: NativeRecordingsController; owner: NativeLiveOwnerController; ports: Pick<NativeSettingsLivePorts, 'context' | 'dvrRequestId' | 'requestId'>; runtime: NativeShellRuntime}) {
   const theme = useTheme(), t = runtime.text.t, dimensions = useWindowDimensions(), insets = useSafeAreaInsets(), shadeId = useId().replace(/:/g, '');
+  const dockTop = useDockClearance();
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), guide = controller.guide;
   const data = useSyncExternalStore(guide.subscribe, guide.getSnapshot);
   const ids = useMemo(() => tvFocusIds(controller.lifetime.authority), [controller]);
@@ -69,6 +72,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
   const view = state.view ?? (shellLayout(theme.width, dimensions.height, theme.isTV).kind === 'phone' ? 'list' : 'guide');
   const setView = (value: 'guide' | 'list') => {if (value === 'list') goNow(); controller.chooseView(value);};
   const [selected, setSelected] = useState<Readonly<{channel: GuideChannelRow; program?: GuideProgram}>>();
+  const selectedRef = useRef(selected); selectedRef.current = selected;
   const [channelMenu, setChannelMenu] = useState<Readonly<{channel: GuideChannelRow; scope: string}>>(), [channelMenuBusy, setChannelMenuBusy] = useState(false), [channelMenuError, setChannelMenuError] = useState<unknown>();
   const channelMenuRef = useRef(channelMenu); channelMenuRef.current = channelMenu;
   const channelMenuAnchor = useRef<View | null>(null);
@@ -136,6 +140,8 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
   const opener = useRef<View | null>(null), selectedOpener = useRef<View | null>(null);
   const list = useRef<VirtualizedList<number>>(null), visible = useRef({first: 0, last: 12});
   const guideOffset = useRef(0);
+  // motion.html 2.13: the guide refetches in place (old programmes stay) while the sources re-read.
+  const pull = usePullRefresh(() => {guide.invalidate(); return controller.loadSources();}, runtime.reportError);
   const halfHour = theme.isTV ? 240 : phoneChrome ? 90 : theme.width < 1024 ? 90 : 120;
   const channelWidth = theme.isTV ? 320 : tabletMedium ? 60 : compact ? 60 : landscape ? 180 : 192;
   // tablet-play6/7: 400 pt beside the expanded guide, 340 pt at medium width, and only when
@@ -152,7 +158,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
   useEffect(() => () => features.dispose(), [features]);
   useEffect(() => {
     if (!twoPane || Platform.OS !== 'android') return;
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {setSelected(undefined); return true;});
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {if (!selectedRef.current) return false; setSelected(undefined); return true;});
     return () => subscription.remove();
   }, [twoPane]);
   // A selected programme carries the guide's own later airings and this profile's reminders; both are server reads.
@@ -462,7 +468,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
         {view === 'guide' && <View style={{height: theme.isTV ? 50 : 30, flexDirection: 'row', marginLeft: landscape ? 0 : channelWidth}}>{landscape && <View style={{width: channelWidth, paddingLeft: 4}}>{dayPicker}</View>}<View style={{flex: 1, overflow: 'hidden'}}><Animated.View style={[{flex: 1}, rulerShift]}>{rulerTicks(start - overscan, end + overscan, px, state.options.timezone).map(tick => <View key={tick.atMs} style={{position: 'absolute', left: tick.x - overscan * px, height: theme.isTV ? 28 : 22, borderLeftWidth: 1, borderLeftColor: theme.colors.line}}><Text style={[shellType(theme.isTV ? 20 : 11), {marginLeft: 10, color: theme.colors.textSecondary}]}>{clock(tick.atMs)}</Text></View>)}</Animated.View></View></View>}
         <FocusRegion id={grid} edges={theme.isTV ? {up: filters, left: ids.rail} : undefined} stops={theme.isTV ? {right: true, down: true} : undefined}
           timeGrid={theme.isTV ? {initialTime: now, start, end} : undefined} style={{flex: 1}}>
-        <VirtualizedList ref={list} key={`${state.revision}:${view}`} data={null} getItem={(_, index) => index} getItemCount={() => data.total ?? 12} keyExtractor={index => String(index)} initialNumToRender={12} maxToRenderPerBatch={12} windowSize={5} removeClippedSubviews={false} getItemLayout={(_, index) => ({index, length: rowHeight + rowGap, offset: index * (rowHeight + rowGap)})}
+        <VirtualizedList ref={list} refreshControl={pull} key={`${state.revision}:${view}`} data={null} getItem={(_, index) => index} getItemCount={() => data.total ?? 12} keyExtractor={index => String(index)} initialNumToRender={12} maxToRenderPerBatch={12} windowSize={5} removeClippedSubviews={false} getItemLayout={(_, index) => ({index, length: rowHeight + rowGap, offset: index * (rowHeight + rowGap)})}
           onLayout={() => list.current?.scrollToOffset({offset: guideOffset.current, animated: false})} onScroll={event => {guideOffset.current = event.nativeEvent.contentOffset.y;}} scrollEventThrottle={16}
           onViewableItemsChanged={({viewableItems}) => {const indices = viewableItems.map(value => value.index).filter((value): value is number => value !== null); if (!indices.length) return; visible.current = {first: Math.min(...indices), last: Math.max(...indices)}; controller.setViewport({firstRow: visible.current.first, lastRow: visible.current.last, start, end});}}
           renderItem={({item: index}) => <LiveRow tvRange={tvRange} onTVFocus={revealTVCell} panPosition={panPosition} panActive={panActive} laneWidth={width - channelWidth} clock={clock} entryEnabled={state.revision === 0 && recordingsReturn === 0 && managementReturn === 0} key={`${state.revision}:${index}`} index={index} controller={controller} runtime={runtime} start={start} end={end} now={now} channelWidth={channelWidth} rowHeight={rowHeight} px={px} list={view === 'list'} onOpen={open} onChannelMenu={openChannelMenu} selected={twoPane ? selected : undefined} grid={grid} watch={watch}/>}/>
@@ -495,7 +501,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
     <NativeSeriesRuleSheet controller={recordings} draft={series?.draft} defaults={series?.defaults} runtime={runtime} open={series !== undefined}
       onOpenChange={value => {if (!value) setSeries(undefined);}}
       onCreated={() => {setSelected(undefined); setSeries(undefined); guide.invalidate(); setToast({id: `series-${Date.now()}`, message: t('guide.seriesSet'), icon: 'i-rec'});}}/>
-    <ToastHost toast={toast} onDismiss={() => setToast(null)} bottomOffset={phone ? 96 : 0}/>
+    <ToastHost toast={toast} onDismiss={() => setToast(null)} bottomOffset={phone ? 96 : 0} obstructionTop={dockTop}/>
   </Screen>;
 }
 

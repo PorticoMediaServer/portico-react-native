@@ -65,7 +65,7 @@ async function fixture(main = true, pinRequired = false) {
     '../settings-live/lifetime': {NativeScreenLifetime: class {current = () => true; dispose() {}}},
     '../../shell/model': {sameAuthority: (left: unknown, right: unknown) => left === right},
     '../../shell/route-registry': {nativeShellRoutes: {registerRoute() {}}},
-    '../../kit/states': {StateLayout: 'StateLayout', StateView: 'StateView'}, '../../kit/artwork': {ProfileFace: 'ProfileFace', ProfilePicker: 'ProfilePicker'},
+    '../../kit/states': {StateLayout: 'StateLayout', StateView: 'StateView'}, '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', ProfileFace: 'ProfileFace', ProfilePicker: 'ProfilePicker'},
     '../../kit/controls': {Button: 'Button', Focusable: 'Focusable', Select: 'Select', Switch: 'Switch', TextField: 'TextField'},
     '../../kit/overlays': {BottomSheet: 'BottomSheet', Dialog: 'Dialog'}, '../../kit/Icon': {Icon: 'Icon'},
     '../../../platform/offline-downloads': {}, '../../kit/theme': {useTheme: () => ({colors, type, isTV: false})},

@@ -10,7 +10,7 @@ test('the phone Libraries overview keeps real summary order, count facts, art an
   const {NativeLibraryOverview} = await screenModule(new URL('../src-next/screens/library/LibraryOverview.tsx', import.meta.url), {
     react: host.react, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 44, bottom: 34})}, '../../../../../packages/i18n/src': {defaultI18n},
-    '../../kit/cards': {LibraryCard: 'LibraryCard'}, '../../kit/controls': {Focusable: 'Focusable'}, '../../kit/states': {StateView: 'StateView'},
+    '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop'}, '../../kit/cards': {LibraryCard: 'LibraryCard'}, '../../kit/controls': {Focusable: 'Focusable'}, '../../kit/states': {StateView: 'StateView'},
     '../../kit/browse/presentation': {browseType: () => ({})}, '../../kit/theme': {useTheme: () => theme},
   });
   const libraries = [

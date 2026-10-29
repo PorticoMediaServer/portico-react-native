@@ -64,7 +64,7 @@ test('a directory connect is fenced to its attempt: Choose another and a success
     '../../../../../packages/client-core/src/hosted-security': {MFARequiredError: class extends Error {}},
     '../../../../../packages/client-core/src/presentation/errors': {presentError: () => ({body: 'error', silent: false})},
     '../../kit/states': {StateLayout: 'Layout'}, '../../kit/controls': {Button: 'Button', Focusable: 'Focusable', TextField: 'Field'},
-    '../../kit/Icon': {Icon: 'Icon'}, '../../kit/artwork': {ProfilePicker: 'Picker'}, '../../kit/theme': {useTheme: () => theme},
+    '../../kit/Icon': {Icon: 'Icon'}, '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', ProfilePicker: 'Picker'}, '../../kit/theme': {useTheme: () => theme},
     '../../platform/account-work': accountWork, '../../platform/accounts': {nativeAccounts}, '../../platform/server-sign-in': {NativeServerSignIn: SignIn},
     '../../platform/portico-sign-in': {NativePorticoSignIn: class {dispose() {}}},
     '../../platform/server-connections': {browseNearby: async () => [], nativeNetworkFetch: async () => ({})},

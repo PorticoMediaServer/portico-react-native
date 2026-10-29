@@ -71,12 +71,14 @@ export class NativeSavedDestination {
       collections: this.collections.getSnapshot(), views: this.views.getSnapshot(), ...patch});
     for (const listener of [...this.listeners]) listener();
   }
-  load = (): Promise<void> => {
+  /** `quiet` (pull to refresh) keeps the page's current content until the new reading lands. */
+  load = (options: {quiet?: boolean} = {}): Promise<void> => {
     if (!this.current()) return Promise.resolve();
     if (this.pending) return this.pending;
     this.controller?.abort(); const controller = new AbortController(); this.controller = controller;
     const revision = ++this.revision;
-    this.publish({phase: 'loading', error: undefined, summary: undefined});
+    // H14: a reload keeps the painted summary and pins; only the first load starts empty.
+    if (!options.quiet) this.publish({phase: 'loading', error: undefined});
     const task = Promise.allSettled([
       this.myList.select({view: 'watchlist', shape: 'posters'}), this.myListSquares.select({view: 'watchlist', shape: 'squares'}),
       fetchSavedSummary(this.options.api, this.options.scope, controller.signal),

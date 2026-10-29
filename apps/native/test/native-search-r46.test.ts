@@ -51,7 +51,7 @@ async function mount(snapshot: any, landing: any, text = defaultI18n) {
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 47, bottom: 34, left: 0, right: 0})},
     '../../../../../packages/i18n/src': {defaultI18n},
     '../../../../../packages/client-core/src/presentation/search-model': {orderedSearchGroups, SEARCH_CHIPS, searchGroupLabel, topSearchResult, topResultKindLabel},
-    '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/cards': {GenreTile: 'GenreTile'}, '../../kit/cards/primitives': {CardFrame: 'CardFrame'},
+    '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', Artwork: 'Artwork'}, '../../kit/cards': {GenreTile: 'GenreTile'}, '../../kit/cards/primitives': {CardFrame: 'CardFrame'},
     '../../kit/controls': {Chip: 'Chip', Focusable: 'Focusable', TextField: 'TextField'}, '../../kit/selection': {SelectionCircle: 'SelectionCircle'},
     '../../kit/states': {GridSkeleton: 'GridSkeleton', StateView: 'StateView'}, '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/browse/presentation': {browseType}, '../../kit/theme': {useTheme: () => theme},

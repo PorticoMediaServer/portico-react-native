@@ -4,7 +4,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {generatedCoverTint} from '@portico/design';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {ReadingItem} from '../../../../../packages/client-core/src';
-import {Artwork, AmbientArt, GeneratedCover} from '../../kit/artwork';
+import {Artwork, AmbientArt, GeneratedCover, StandardBackdrop} from '../../kit/artwork';
 import {Button, Focusable} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
 import {WindowedGrid} from '../../kit/layout';
@@ -66,10 +66,10 @@ export function ReadSeriesScreen({controller, route, comic, context, runtime, on
   const window = useMemo(() => new NativeReadingWindow(() => {const value = controller.getSnapshot();
     return {items: value.items, cursor: value.nextCursor, loading: value.phase === 'loading' || !!value.morePending, error: value.moreError};
   }, controller.subscribe, controller.more, item => `${item.id}:${item.sourceId}`), [controller]);
-  return <View testID={`native-read-series-${route.seriesId}`} style={{flex: 1, backgroundColor: theme.colors.ink}} onLayout={event => {
+  return <View testID={`native-read-series-${route.seriesId}`} style={{flex: 1}} onLayout={event => {
     const next = Math.round(event.nativeEvent.layout.width);
     if (next > 0 && next !== paneWidth) setPaneWidth(next);
-  }}>
+  }}><StandardBackdrop/>
     <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 0, right: 0, height: 560, overflow: 'hidden'}}>
       {runtime.ambient(first?.coverUrl) ? <AmbientArt source={runtime.ambient(first?.coverUrl)} treatment="title" style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0}}/> : null}
       <View style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.colors.ink, opacity: .5}}/>
@@ -87,7 +87,7 @@ export function ReadSeriesScreen({controller, route, comic, context, runtime, on
       </View>
     </View>
     {state.phase === 'error' ? <StateView {...runtime.error(state.error, () => {void controller.retry().catch(runtime.reportError);}, 'library')}/>
-      : <LoadingPaint ready={state.phase === 'ready'} immediate={state.phase === 'ready'}
+      : <LoadingPaint ready={state.phase === 'ready' || state.phase === 'loading' && state.items.length > 0} immediate={state.phase === 'ready'}
         skeleton={<SkeletonBlock width="100%" height={360}/>} style={{flex: 1}} testID="native-read-series-paint">
         <WindowedGrid collection={window} getKey={item => `${item.id}:${item.sourceId}`} itemWidth={width} itemHeight={height + 66}
           gap={columnGap} rowGap={rowGap} gutter={20} rightGutter={20} paddingBottom={insets.bottom + 48}

@@ -33,12 +33,17 @@ export function useSurfaceMotion(open: boolean, kind: 'dialog' | 'menu' | 'side'
   const {isTV} = useTheme();
   const exit = motion.reduce ? 160 : kind === 'side' && isTV ? 240 : 120;
   const duration = motion.reduce ? 160 : kind === 'side' ? 320 : 180;
-  const progress = useSharedValue(0);
-  useEffect(() => {progress.value = withTiming(open ? 1 : 0, {...motion.timing(open ? kind === 'side' ? 'slow' : 'standard' : 'quick', open ? 'out' : 'in'), duration: open ? duration : exit});}, [open, motion, progress, duration, exit, kind]);
-  const style = useAnimatedStyle(() => ({
-    opacity: progress.value,
-    transform: motion.reduce ? [] : kind === 'side' ? [{translateX: (1 - progress.value) * (isTV ? width : 24)}] : kind === 'banner' ? [{translateY: (1 - progress.value) * -8}] : kind === 'toast' ? [{translateY: (1 - progress.value) * 24}] : [{translateY: (1 - progress.value) * (kind === 'menu' ? 4 : 0)}, {scale: (kind === 'menu' ? 0.96 : 0.98) + progress.value * (kind === 'menu' ? 0.04 : 0.02)}],
-  }));
+  const progress = useSharedValue(0), opening = useSharedValue(open);
+  // motion.html 3.7–3.9: leaving is a fade with no movement; only TV side sheets slide out (4.7).
+  const exitMoves = kind === 'side' && isTV;
+  useEffect(() => {opening.value = open; progress.value = withTiming(open ? 1 : 0, {...motion.timing(open ? kind === 'side' ? 'slow' : 'standard' : 'quick', open ? 'out' : 'in'), duration: open ? duration : exit});}, [open, motion, progress, opening, duration, exit, kind]);
+  const style = useAnimatedStyle(() => {
+    const p = opening.value || exitMoves ? progress.value : 1;
+    return {
+      opacity: exitMoves && !motion.reduce ? 1 : progress.value,
+      transform: motion.reduce ? [] : kind === 'side' ? [{translateX: (1 - p) * (isTV ? width : 24)}] : kind === 'banner' ? [{translateY: (1 - p) * -8}] : kind === 'toast' ? [{translateY: (1 - p) * 24}] : [{translateY: (1 - p) * (kind === 'menu' ? 4 : 0)}, {scale: (kind === 'menu' ? 0.96 : 0.98) + p * (kind === 'menu' ? 0.04 : 0.02)}],
+    };
+  });
   return {motion, progress, style, present: usePresence(open, exit), enterMs: duration};
 }
 
@@ -131,12 +136,12 @@ export function SidePanel({open, onOpenChange, title, headerContext, description
         {headerContext}
         <SurfaceHeader side title={title} description={description} titleType={titleType} titleTextStyle={titleTextStyle} descriptionTextStyle={descriptionTextStyle} action={showClose ? <Button testID={testID ? `${testID}-close` : undefined} focusId="close" ref={closeRef} variant="text" size="small" onPress={() => dismiss('close-button')}>{defaultI18n.t('action.close')}</Button> : undefined}/>
         <View style={[styles.root, contentStyle]}>{children}</View>
-        {footer != null && <View style={{paddingHorizontal: theme.isTV ? 0 : 20, paddingTop: 16}}>{footer}</View>}
+        {footer != null && <View style={{paddingHorizontal: theme.isTV ? 0 : 20, paddingTop: 16, gap: theme.isTV ? 0 : 10}}>{footer}</View>}
       </FocusBoundary></>;
   return <OverlayPaintDescendants><OverlayPortal rect={rect} onOutsidePress={closeOnOutsidePress ? () => dismiss('outside') : undefined}>
     <TVDesignCanvas>{theme.isTV && <Animated.View testID={testID ? `${testID}-scrim` : undefined} pointerEvents="none" accessible={false}
       style={[StyleSheet.absoluteFill, {backgroundColor: alpha(theme.colors.ink, .62)}, scrimStyle]}/>}
-    <Animated.View pointerEvents={paint.interactive ? 'auto' : 'none'} accessibilityElementsHidden={!paint.interactive} importantForAccessibility={paint.interactive ? 'auto' : 'no-hide-descendants'} testID={testID} accessibilityLabel={accessibilityLabel} onAccessibilityEscape={() => dismiss('escape')} style={[styles.side, {top: topInset, width: actualWidth, maxWidth: '100%', backgroundColor: theme.colors.raised, zIndex: theme.layers.menu}, canvas ? undefined : padding, animation.style, canvas ? undefined : style]}>
+    <Animated.View pointerEvents={paint.interactive ? 'auto' : 'none'} accessibilityElementsHidden={!paint.interactive} importantForAccessibility={paint.interactive ? 'auto' : 'no-hide-descendants'} testID={testID} accessibilityLabel={accessibilityLabel} onAccessibilityEscape={() => dismiss('escape')} style={[styles.side, animation.motion.effects?.shadows === false ? {shadowOpacity: 0} : undefined, {top: topInset, width: actualWidth, maxWidth: '100%', backgroundColor: theme.colors.raised, zIndex: theme.layers.menu}, canvas ? undefined : padding, animation.style, canvas ? undefined : style]}>
       {canvas ? <View style={[padding, style, {position: 'absolute', top: 0, left: 0, width: canvas.width, height: canvas.height}]}>{content}</View> : content}
     </Animated.View></TVDesignCanvas>
   </OverlayPortal></OverlayPaintDescendants>;

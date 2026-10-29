@@ -21,7 +21,7 @@ import {codecName} from '../../../packages/client-core/src/presentation/playback
 import {defaultI18n} from '../../../packages/i18n/src/index.ts';
 
 const {react} = hooks();
-const infoPanel = await screenModule(new URL('../src-next/screens/watch/PlaybackInfoPanel.tsx', import.meta.url), {
+const infoPanel = await screenModule(new URL('../src-next/screens/watch/PlaybackInfoPanel.tsx', import.meta.url), {'../../kit/states': {Quiet: ({children}: any) => children}, 
   react, 'react-native': {ActivityIndicator: 'ActivityIndicator', ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
   '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/player-core/src': {sameFence},
   '../../../../../packages/client-core/src/video-track-labels': {videoTrackWords},

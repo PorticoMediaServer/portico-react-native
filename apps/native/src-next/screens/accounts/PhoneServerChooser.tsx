@@ -8,6 +8,8 @@ import {Icon} from '../../kit/Icon';
 import {Menu} from '../../kit/overlays';
 import {shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
+import {Quiet} from '../../kit/states';
+import {StandardBackdrop} from '../../kit/artwork';
 
 type Snapshot = Awaited<ReturnType<typeof nativeAccounts.snapshot>>;
 export type PhoneServerRow = Snapshot['servers'][number];
@@ -37,15 +39,15 @@ export function PhoneServerChooser({snapshot, busy, error, onBack, onSelect, onS
     <Button testID={`phone-server-menu-${server.id}`} variant="icon" iconOnly size="compact" icon="i-more" disabled={busy}
       accessibilityLabel={t('next.browse.native.moreFor', {title: server.name})} onPress={() => setMenu(server)} style={{minWidth: 42, paddingHorizontal: 8}}/>
   </View>;
-  return <View testID="phone-server-chooser" style={{flex: 1, backgroundColor: theme.colors.ink, paddingTop: insets.top + 12}}>
+  return <View testID="phone-server-chooser" style={{flex: 1, paddingTop: insets.top + 12}}><StandardBackdrop/>
     <View style={{height: 5, width: 38, borderRadius: 3, alignSelf: 'center', backgroundColor: theme.colors.textTertiary, marginBottom: 8}}/>
     <View style={{height: 40, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12}}>
       <View style={{width: 90}}>{onBack && <Button testID="phone-server-back" variant="text" size="compact" icon="i-left" disabled={busy} onPress={onBack}>{t('next.shell.settings')}</Button>}</View>
       <Text accessibilityRole="header" style={[shellType(17, 700), {flex: 1, color: theme.colors.text, textAlign: 'center'}]}>{t('web.servers.switchServer')}</Text><View style={{width: 90}}/>
     </View>
     <ScrollView contentContainerStyle={{paddingHorizontal: 18, paddingTop: 18, paddingBottom: insets.bottom + 24}}>
-      {error}
-      {!snapshot && <Text accessibilityRole="text" style={[shellType(14, 400), {color: theme.colors.textSecondary}]}>{t('status.loading')}</Text>}
+      {error != null && error !== false && <View style={{marginBottom: 18}}>{error}</View>}
+      {!snapshot && <Quiet><Text accessibilityRole="text" style={[shellType(14, 400), {color: theme.colors.textSecondary}]}>{t('status.loading')}</Text></Quiet>}
       {current && <><Text style={[shellType(13.5, 600), {color: theme.colors.textSecondary, marginBottom: 8}]}>{t('web.chooser.current')}</Text>
         <View style={{borderRadius: 16, backgroundColor: theme.colors.raised, overflow: 'hidden', borderWidth: 1, borderColor: theme.colors.lineStrong}}>{row(current, true)}</View></>}
       {groups.filter(group => group.rows.length).map(group => <View key={group.id} style={{marginTop: 20}}>
@@ -57,7 +59,7 @@ export function PhoneServerChooser({snapshot, busy, error, onBack, onSelect, onS
         <Button testID="phone-server-add" variant="glass" size="compact" disabled={busy} onPress={onAdd}>{t('accounts.signIn.local')}</Button>
       </View>
       {certificates && <View style={{marginTop: 20}}>{certificates}</View>}
-      {footer}
+      {footer != null && footer !== false && <View style={{marginTop: 20}}>{footer}</View>}
     </ScrollView>
     <Menu open={Boolean(menu)} onOpenChange={open => {if (!open) setMenu(undefined);}} presentation="sheet" title={menu?.name}
       items={menu ? [{id: 'sign-out', label: t('accounts.signOut.server', {server: menu.name}), onSelect: () => {const server = menu; setMenu(undefined); onSignOut(server);}}] : []}/>

@@ -4,7 +4,8 @@ import Animated, {cancelAnimation, useAnimatedStyle, useSharedValue, withTiming,
 import {useMotion} from '../useMotion';
 
 /** Yoga adopts the final geometry; only the retained visual translation animates. */
-export function MotionItem({mode = 'row', style, ...props}: ViewProps & {mode?: 'row' | 'section'}) {
+/** `enter` fades a genuinely inserted item; cached or windowed mounts appear at once (motion.html 2.14). */
+export function MotionItem({mode = 'row', enter: animateEnter = true, style, ...props}: ViewProps & {mode?: 'row' | 'section'; enter?: boolean}) {
   const motion = useMotion(), x = useSharedValue(0), y = useSharedValue(0);
   const transforms = motion.transforms;
   const shift = useMemo(() => motion.timing(mode === 'row' ? 'slow' : 'standard', 'inOut'), [mode, motion]);
@@ -32,5 +33,5 @@ export function MotionItem({mode = 'row', style, ...props}: ViewProps & {mode?: 
   }, [leave, mode, transforms, x, y]);
   useLayoutEffect(() => {if (!transforms) {cancelAnimation(x); cancelAnimation(y); x.value = 0; y.value = 0;}}, [transforms, x, y]);
   const position = useAnimatedStyle(() => ({transform: [{translateX: x.value}, {translateY: y.value}]}));
-  return <Animated.View {...props} collapsable={false} entering={entering} exiting={exiting} layout={layout} style={[style, position]} />;
+  return <Animated.View {...props} collapsable={false} entering={animateEnter && motion.effects?.enterFades !== false ? entering : undefined} exiting={exiting} layout={layout} style={[style, position]} />;
 }

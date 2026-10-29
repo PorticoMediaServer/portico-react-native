@@ -5,7 +5,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import type {SearchEntry, SearchGroup} from '../../../../../packages/client-core/src/search';
 import {orderedSearchGroups, SEARCH_CHIPS, searchGroupLabel, topSearchResult, topResultKindLabel} from '../../../../../packages/client-core/src/presentation/search-model';
-import {Artwork} from '../../kit/artwork';
+import {Artwork, StandardBackdrop} from '../../kit/artwork';
 import {GenreTile, type CardSelection} from '../../kit/cards';
 import {CardFrame} from '../../kit/cards/primitives';
 import {Chip, Focusable, TextField} from '../../kit/controls';
@@ -70,7 +70,7 @@ export function SearchScreen({focusScope, destination, runtime, explore, actions
   }), [runtime, theme.isTV, theme.reduceMotion]);
   useEffect(() => {
     if (!loading) {setElapsed(0); return;}
-    const start = Date.now(), timer = setTimeout(() => setElapsed(Date.now() - start), 300);
+    const start = Date.now(), timer = setTimeout(() => setElapsed(Math.max(300, Date.now() - start)), 300);
     return () => clearTimeout(timer);
   }, [loading]);
   const problem = state.problem === 'long' ? t('web.search.tooLong') : state.problem === 'words' ? t('web.search.tooManyWords') : state.problem ? t('web.search.tooShort') : undefined;
@@ -119,7 +119,7 @@ export function SearchScreen({focusScope, destination, runtime, explore, actions
   const active = groups.find(group => group.id === state.group), wideSearch = theme.layoutMode === 'desktop' && !theme.isTV;
   if (theme.isTV) return <TVSearchScreen focusScope={focusScope} destination={destination} runtime={runtime} activation={activation} explore={explore} actions={actions} selection={selection} copy={tvCopy}/>;
   return <View testID="native-search-screen" pointerEvents={activeRoute.visible ? 'auto' : 'none'} accessibilityElementsHidden={!activeRoute.visible}
-    importantForAccessibility={activeRoute.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}} onLayout={event => setSurface(event.nativeEvent.layout.width)}>
+    importantForAccessibility={activeRoute.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1}} onLayout={event => setSurface(event.nativeEvent.layout.width)}><StandardBackdrop/>
     {fields}
     {state.group === 'all' || empty || !typed ? <ScrollView ref={scroll} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled" contentContainerStyle={{paddingBottom: 28}}>
       {problem && <StateView variant="search" title={problem} style={{margin: 20}}/>}

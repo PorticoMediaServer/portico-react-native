@@ -9,13 +9,14 @@ import type {SavedEntry, SavedListFilter, SavedRoute, SavedSnapshot} from '../..
 import {presentError} from '../../../../../packages/client-core/src/presentation/errors';
 import {PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
 import {CardFrame, Parts} from '../../kit/cards/primitives';
-import {Artwork} from '../../kit/artwork';
+import {Artwork, StandardBackdrop} from '../../kit/artwork';
 import {Chip, Focusable, Tabs} from '../../kit/controls';
 import {Menu} from '../../kit/overlays';
 import {SelectionCircle} from '../../kit/selection';
 import {StateView} from '../../kit/states';
 import {Icon, type IconName} from '../../kit/Icon';
 import {browseType, alpha} from '../../kit/browse/presentation';
+import {usePullRefresh} from '../../kit/states/usePullRefresh';
 import {useTheme} from '../../kit/theme';
 import {groupOfflineEntries, type NativeOfflineDownloadsDevice} from '../../platform/offline-downloads';
 import type {NativeShellRuntime} from '../../shell/runtime';
@@ -73,6 +74,7 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const report = useCallback((error: unknown) => runtime.reportError(error), [runtime]);
   useEffect(() => {void destination.load().catch(report); void device.open().catch(report);}, [destination, device, report]);
+  const pull = usePullRefresh(() => destination.load({quiet: true}), report);
   useEffect(() => selection?.register(snapshot.myList), [selection, snapshot.myList]);
   useEffect(() => runtime.registerScrollToTop({kind: 'saved'}, () => scroll.current?.scrollTo({y: 0, animated: !theme.reduceMotion})), [runtime, theme.reduceMotion]);
   // tablet11/11b/12: the wider Saved page keeps its real title and seven tabs around
@@ -131,7 +133,7 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
   const pageTotal = (projection: typeof posterProjection) => projection?.sections.reduce((sum, section) => sum + section.totalCount, 0) ?? 0;
   // Each drawn shape keeps its own server total; the grid's count is its poster query,
   // never a local union of the two windows.
-  const myListCount = snapshot.phase === 'ready' && posterProjection ? pageTotal(posterProjection) : undefined;
+  const myListCount = (snapshot.phase === 'ready' || snapshot.phase === 'loading') && posterProjection ? pageTotal(posterProjection) : undefined;
   const filterOptions = posterProjection?.filters.flatMap(filter => filter.options.map(option => ({...option, field: filter.id}))) ?? [];
   const applyMyList = (patch: {sort?: string; direction?: 'asc' | 'desc'; filter?: SavedListFilter}) => {
     if (!visible() || !actions.selectMyList || !posterProjection || !squareProjection) return;
@@ -175,14 +177,14 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
   const track = {paddingHorizontal: theme.gutter, paddingTop: theme.spec.shelf.phonePaddingTop, paddingBottom: theme.spec.shelf.phonePaddingBottom, gap: theme.spec.shelf.gap[theme.platform]};
   const pinKind = (kind: PinnedResource['kind']) => kind === 'view' ? t('title.savedView') : t('title.kind', {kind});
   return <View testID="native-saved-screen" pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
-    importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
+    importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1}}><StandardBackdrop/>
     {tablet && <View style={{paddingTop: Math.max(insets.top, 10)}}>
       <Text accessibilityRole="header" style={[browseType(theme, 32, 800, -.035, 36.8), {color: theme.colors.text, marginHorizontal: theme.gutter}]}>{t('saved.title')}</Text>
       <Tabs items={tabItems} value={savedTab} onValueChange={chooseTab} accessibilityLabel={t('saved.title')} testID="saved-tablet-tabs" style={{marginTop: 8}}/>
     </View>}
     {downloadsOpen ? <View style={{flex: 1}}>{downloads(runtime)}</View>
       : otherTab ? <View style={{flex: 1}}>{tabBody?.(otherTab, runtime)}</View>
-      : <ScrollView ref={scroll} onLayout={event => {viewport.current.height = event.nativeEvent.layout.height; nextPosters();}}
+      : <ScrollView ref={scroll} refreshControl={pull} onLayout={event => {viewport.current.height = event.nativeEvent.layout.height; nextPosters();}}
         onContentSizeChange={(_width, height) => {viewport.current.extent = height; nextPosters();}}
         onScroll={event => {viewport.current.offset = event.nativeEvent.contentOffset.y; nextPosters();}} scrollEventThrottle={64} contentContainerStyle={{paddingTop: tablet ? 8 : Math.max(58, insets.top), paddingBottom: 28}}>
       {!tablet && <View style={{paddingHorizontal: theme.gutter, paddingBottom: 12}}>
@@ -211,7 +213,7 @@ export function SavedScreen({destination, runtime, device, actions, selection, o
           {filterOptions.map(option => <Chip key={`${option.field}:${option.id}`} variant="quick" selected={posterProjection?.query.category === option.id} count={option.count}
             onPress={() => applyMyList({filter: option.id as SavedListFilter})}>{option.label}</Chip>)}
         </ScrollView>}
-        {snapshot.phase !== 'ready' || !posterProjection ? ((snapshot.phase === 'idle' || snapshot.phase === 'loading') ? <SavedLoading columns={myListColumns}/> : null)
+        {!posterProjection || snapshot.phase !== 'ready' && snapshot.phase !== 'loading' ? ((snapshot.phase === 'idle' || snapshot.phase === 'loading') ? <SavedLoading columns={myListColumns}/> : null)
           : !posterEntries.length && !squareEntries.length ? <StateView variant="inline" title={t('web.saved.empty.watchlist')} body={t('web.saved.empty.watchlistBody')}/>
           : listMode ? <View style={{marginTop: 8}}>{posterEntries.map(entry => <SavedMyListRow key={entry.id} entry={entry} runtime={runtime} actions={actions} selection={admitted ? selection?.item(entry) : undefined}/>)}</View>
           : <View onLayout={event => setGridWidth(event.nativeEvent.layout.width)} style={{flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: theme.gutter - 5, marginTop: 8}}>

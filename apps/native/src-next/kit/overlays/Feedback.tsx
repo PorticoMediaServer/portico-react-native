@@ -32,7 +32,7 @@ export function Toast({id, message, accessibilityLabel, icon, leading, action, a
   useEffect(() => {x.value = 0; y.value = 0; opacity.value = 1;}, [id, x, y, opacity]);
   const pause = useCallback((paused: boolean, reason: 'touch' | 'focus' | 'gesture') => onPauseChange?.(paused, reason), [onPauseChange]);
   const dismissed = useCallback(() => onDismiss(id, 'gesture'), [id, onDismiss]);
-  const pan = Gesture.Pan().enabled(!theme.isTV).minDistance(1).onBegin(() => {cancelAnimation(x); cancelAnimation(y); startX.value = x.value; startY.value = y.value; runOnJS(pause)(true, 'gesture');}).onUpdate(event => {
+  const pan = Gesture.Pan().enabled(!theme.isTV).activeOffsetX([-10, 10]).activeOffsetY([-10, 10]).onStart(() => {cancelAnimation(x); cancelAnimation(y); startX.value = x.value; startY.value = y.value; runOnJS(pause)(true, 'gesture');}).onUpdate(event => {
     x.value = startX.value + event.translationX; y.value = Math.max(0, startY.value + event.translationY);
   }).onEnd(event => {
     if (dismissToastGesture(x.value, y.value, event.velocityX, event.velocityY)) {
@@ -51,7 +51,7 @@ export function Toast({id, message, accessibilityLabel, icon, leading, action, a
     onAccessibilityAction={event => {if (event.nativeEvent.actionName === 'activate' && action) {action.onPress(); onDismiss(id, 'action');} else if (event.nativeEvent.actionName === 'dismiss') onDismiss(id, 'accessibility');}}>
     {recipe.nativeBlur && <BlurView pointerEvents="none" style={StyleSheet.absoluteFill} blurType="dark" blurAmount={24} reducedTransparencyFallbackColor={theme.colors.raisedBright}/>}
     {leading}{icon && <Icon name={icon} size={theme.isTV ? 28 : 20} color={theme.colors.accentStrong}/>}
-    <Text accessibilityLabel={accessibilityLabel} numberOfLines={1} style={[theme.isTV ? theme.type.body : nativeType({size: 14.5, lineHeight: 'normal', weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textSecondary, flexShrink: 1}]}>{message}</Text>
+    <Text accessibilityLabel={accessibilityLabel} numberOfLines={theme.isTV ? 1 : 2} style={[theme.isTV ? theme.type.body : nativeType({size: 14.5, lineHeight: 'normal', weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textSecondary, flexShrink: 1}]}>{message}</Text>
     {action && (!theme.isTV || actionOnTV) && <Button variant="glass" size="small" onFocus={() => pause(true, 'focus')} onBlur={() => pause(false, 'focus')} onPress={() => {action.onPress(); onDismiss(id, 'action');}}>{action.label}</Button>}
   </Animated.View></GestureDetector>;
 }

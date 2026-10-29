@@ -195,7 +195,7 @@ export function NativeWatchTimeline({source, playback, controls, compact, enable
   </Focusable>;
   return <GestureDetector gesture={gesture}><View onLayout={event => {width.current = event.nativeEvent.layout.width; travel.value = event.nativeEvent.layout.width;}} style={{height: tv ? 40 : 44, justifyContent: 'flex-start'}}>
     {tv && preview !== undefined && <NativeTrickplayStrip trickplay={source.options?.trickplay} seconds={preview} start={start} end={end}/>}
-    {!tv && preview !== undefined && <View pointerEvents="none" style={{position: 'absolute', bottom: 44, left: `${Math.min(.9, Math.max(.1, progress)) * 100}%`, padding: 8, borderRadius: 6, backgroundColor: theme.colors.ink}}><Text style={[theme.type.caption, {color: theme.colors.text}]}>{clockText(preview)}</Text></View>}
+    {!tv && preview !== undefined && <View pointerEvents="none" style={{position: 'absolute', bottom: 44, left: `${Math.min(.9, Math.max(.1, progress)) * 100}%`, padding: 8, borderRadius: 6, backgroundColor: theme.colors.ink}}><Text style={[theme.type.caption, {color: theme.colors.text, fontVariant: ['tabular-nums']}]}>{clockText(preview)}</Text></View>}
     {tv && <View style={{height: 40, justifyContent: 'center'}}>{seek(40)}</View>}
     {!tv && seek(44)}
   </View></GestureDetector>;

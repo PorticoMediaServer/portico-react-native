@@ -141,3 +141,4 @@ export const findNodeHandle = host => host?.nativeTag ?? null;
 
 // BottomSheet subscribes only for explicitly opted-in native text-entry sheets.
 export const Keyboard = {isVisible: () => false, dismiss() {}, addListener: () => ({remove() {}})};
+export const LayoutAnimation = {configureNext() {}, Types: {keyboard: "keyboard"}};

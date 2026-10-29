@@ -48,7 +48,7 @@ test('phone Portico sign-in offers account help and returns to its form', async 
     './PhoneOwnerReset': {PhoneOwnerReset: 'PhoneOwnerReset'},
     './PhoneSetupApproval': {PhoneSetupApproval: 'PhoneSetupApproval'},
     './directory-chooser': directoryChooser,
-    '../../kit/states': {StateLayout: 'Layout'}, '../../kit/controls': {Button: 'Button', TextField: 'Field'}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/artwork': {ProfilePicker: 'Picker'},
+    '../../kit/states': {StateLayout: 'Layout'}, '../../kit/controls': {Button: 'Button', TextField: 'Field'}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', ProfilePicker: 'Picker'},
     '../../platform/account-work': accountWork, '../../platform/accounts': {nativeAccounts: {accountCredentials: () => account}},
     '../../platform/server-sign-in': {NativeServerSignIn: class {}}, '../../platform/portico-sign-in': {NativePorticoSignIn: Portico},
     '../../platform/server-connections': {browseNearby: async () => [], nativeNetworkFetch: async () => {}},

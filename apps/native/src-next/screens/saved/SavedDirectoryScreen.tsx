@@ -7,7 +7,7 @@ import type {Library} from '../../../../../packages/client-core/src/index';
 import type {PersonalResource} from '../../../../../packages/client-core/src/personal-saved';
 import type {PlaylistCard, PlaylistListFilter, SavedRoute} from '../../../../../packages/client-core/src/saved';
 import {Chip, Focusable} from '../../kit/controls';
-import {Artwork, type ArtworkSource} from '../../kit/artwork';
+import {Artwork, type ArtworkSource, StandardBackdrop} from '../../kit/artwork';
 
 import {Icon, type IconName} from '../../kit/Icon';
 import {Banner, Menu, type MenuEntry} from '../../kit/overlays';
@@ -164,7 +164,7 @@ export function SavedDirectoryScreen({route, destination, activation, runtime, l
   };
   const empty = (id: MessageId, body: MessageId) => <StateView variant="inline" title={t(id)} body={t(body)}/>;
   return <View testID={`native-saved-directory-${route.view}`} pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
-    importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
+    importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1}}><StandardBackdrop/>
     <View style={{paddingTop: inline ? 0 : insets.top, backgroundColor: alpha(theme.colors.ink, .94), borderBottomColor: alpha(theme.colors.text, .07), borderBottomWidth: 1}}>
       <View style={{height: 44, paddingLeft: 12, paddingRight: 10, flexDirection: 'row', alignItems: 'center'}}>
         {!inline && <><Focusable testID="saved-directory-back" accessibilityRole="button" onPress={back} accessibilityLabel={t('saved.title')} style={{height: 38, marginLeft: -4, paddingRight: 6, justifyContent: 'center'}}>

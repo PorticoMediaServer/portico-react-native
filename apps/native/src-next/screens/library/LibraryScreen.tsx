@@ -14,15 +14,16 @@ import {MusicMixesRow} from '../destinations/music/MusicMixesRow';
 import {TVMusicDiscover} from '../destinations/music/TVMusicDiscover';
 import {serverTextLabel} from '../../../../../packages/client-core/src/presentation/server-text';
 import {CircleCard, GenreTile, PlaylistMosaic, PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
-import {AmbientArt, Artwork} from '../../kit/artwork';
+import {AmbientArt, Artwork, StandardBackdrop} from '../../kit/artwork';
 import {Button, Focusable} from '../../kit/controls';
 import {FocusItem, FocusRegion, useFocusRegistry, type FocusRegionProps} from '../../kit/focus';
 import {LibraryHeader, LibraryMenu, LibrarySwitcher, QuickToggle, ViewToggle, type BrowseLabels} from '../../kit/browse';
 import {browseType, alpha} from '../../kit/browse/presentation';
 import {Icon} from '../../kit/Icon';
+import {usePullRefresh} from '../../kit/states/usePullRefresh';
 import {WindowedGrid, AlphabetRail, Row, type LayoutSelection, type WindowedGridHandle} from '../../kit/layout';
 import {discoverCell} from './discover-cells';
-import {GridSkeleton, SkeletonBlock, StateView, showSkeleton} from '../../kit/states';
+import {GridSkeleton, SkeletonBlock, StateView, showSkeleton, skeletonTiming} from '../../kit/states';
 import {useTheme, type Theme} from '../../kit/theme';
 import {useMotion} from '../../kit/useMotion';
 import {BlurView, glassRecipe} from '../../platform/native-blur';
@@ -302,8 +303,9 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   const [loadingElapsed, setLoadingElapsed] = useState(0);
   useEffect(() => {
     if (!loading) {setLoadingElapsed(0); return;}
-    const started = Date.now(), timer = setInterval(() => setLoadingElapsed(Date.now() - started), 120);
-    return () => clearInterval(timer);
+    // Only the 300 ms and slow thresholds matter: two timers, not a 120 ms re-render clock.
+    const timers = [skeletonTiming.delayMs, skeletonTiming.slowMs].map(at => setTimeout(() => setLoadingElapsed(at), at));
+    return () => timers.forEach(clearTimeout);
   }, [loading, state.library.id, state.tab.id]);
   // tv-focus 46: a library with no titles yet draws one action, never an empty grid.
   const empty = state.phase === 'ready' && state.unfilteredTotal?.total === 0;
@@ -394,7 +396,7 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
     onClose={() => filterDraft?.dispose()} onSave={view => actions.saveView(destination, view)}/>;
   return <View testID={`native-library-${encodeURIComponent(state.library.id)}`} pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
     importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} onLayout={event => setAreaWidth(event.nativeEvent.layout.width)}
-    style={{flex: 1, backgroundColor: theme.colors.ink}}>
+    style={{flex: 1}}><StandardBackdrop/>
     {wash}
     <View style={{flex: 1, flexDirection: docked ? 'row' : 'column'}}>
       <View style={{flex: 1}}>
@@ -404,7 +406,7 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
           : state.collection ? <View style={{flex: 1}}>
             <LibraryGrid {...props} selection={selection} source={state} paneWidth={gridWidth} tablet={tabletLayout} expanded={expanded} filtersOpen={filterState?.open ?? false} onFilters={openFilters} dockedFilters={docked}
               entryRequest={entryRequest} onEntered={onEntered} entryCovered={emptyShown}/>
-            {emptyShown && <View testID="library-empty-page" style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}>
+            {emptyShown && <View testID="library-empty-page" style={{position: 'absolute', inset: 0}}><StandardBackdrop/>
               <LibraryEmpty runtime={runtime} regionId={emptyRegion} upRegionId={ids.libraryTabs(state.library.id)} firstCardRegion={firstCardRegion}
                 surface={state.tab.shows}
                 onLeave={() => {if (!empty) setEmptyHeld(false);}}/>
@@ -488,6 +490,7 @@ function LibraryGridRegion(props: FocusRegionProps) {
 export function LibraryGrid({destination, runtime, activation, actions, labels, selection, owner, source, paneWidth, tablet, expanded, filtersOpen, onFilters, dockedFilters, entryRequest, onEntered, entryCovered = false}: NativeLibraryScreenProps & {source: NativeLibrarySnapshot; /** The live width of this route's column, after the rail or sidebar and any docked pane. */ paneWidth: number; /** True on the medium and expanded tablet layouts, where the drawn grid is not the phone's. */ tablet: boolean; /** The one expanded classification the skeleton uses too: 1024 and wider. */ expanded: boolean; /** The route owns the filter draft, so the panel is drawn beside or over this grid. */ filtersOpen: boolean; onFilters: () => void; /** True while that panel is docked beside the grid. */ dockedFilters: boolean; entryRequest: ReturnType<typeof createDestinationEntryFocus>; onEntered: () => void; entryCovered?: boolean}) {
   const theme = useTheme(), registry = useFocusRegistry(), grid = useRef<WindowedGridHandle>(null);
   const collection = source.collection!, state = useSyncExternalStore(collection.subscribe, collection.getSnapshot);
+  const pull = usePullRefresh(() => collection.revalidate(), runtime.reportError);
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const resourceGrid = source.tab.shows === 'genres' || source.tab.shows === 'playlists';
   const memoryKey = JSON.stringify([source.library.id, source.tab.id]);
@@ -613,7 +616,7 @@ export function LibraryGrid({destination, runtime, activation, actions, labels, 
       screenStart={{regionId: ids.libraryToolbar(source.library.id), childId: theme.isTV ? 'sort' : 'filters'}} style={{flex: 1}}>
     <WindowedGrid key={view.generation} ref={grid} testID={list ? "library-list" : "library-grid"} collection={collection} getKey={nativeLibraryEntryKey} itemWidth={width} itemHeight={list ? 70 : itemHeight} captionHeight={list ? 70 : 0}
       gap={gap} rowGap={rowGap} gutter={gutter} rightGutter={rightGutter} selection={selected}
-      onVisibleRange={changedRange} onScrollOffset={changedOffset} onGeometry={theme.isTV ? onGridGeometry : undefined} initialIndex={view.generation ? view.anchor : initialIndex} paddingBottom={28} style={{flex: 1}}
+      onVisibleRange={changedRange} onScrollOffset={changedOffset} refreshControl={pull} onGeometry={theme.isTV ? onGridGeometry : undefined} initialIndex={view.generation ? view.anchor : initialIndex} paddingBottom={28} style={{flex: 1}}
       renderPlaceholder={() => <View style={{width, height: list ? 70 : artHeight, borderRadius: theme.isTV ? 14 : 8, backgroundColor: theme.colors.raised}}/>}
       renderNativeSlot={theme.isTV ? (entry, context) => <FocusItem focusId={context.focusId} entityId={context.entityId} waiting={context.waiting}
         cell={{index: context.index, pending: context.waiting, generation: context.source}}>

@@ -13,7 +13,7 @@ import {Button, Chip, Focusable, Select, Switch} from '../../kit/controls';
 import {FocusRegion, useFocusRegistry} from '../../kit/focus';
 import {Dialog, Menu} from '../../kit/overlays';
 import {Icon} from '../../kit/Icon';
-import {StateView} from '../../kit/states';
+import {Quiet, StateView} from '../../kit/states';
 import {shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
@@ -214,7 +214,7 @@ export function NativeRecordingsScreen({controller, ports, runtime, onGuide, own
     <FocusRegion id={body} entry={first} orientation="free" edges={{left: ids.rail, up: tabs}} onFocusChange={value => {bodyFocused.current = value;}} onLayout={entryRegion === body ? enter : undefined} style={{flex: 1, paddingHorizontal: theme.isTV ? 0 : 20}}>
       {state.error !== undefined ? <StateView testID="recordings-error" {...runtime.error(state.error, () => {void controller.load(); void controller.loadFacts();})}/>
         : query.view === 'storage' ? state.storage && <StorageView storage={state.storage} owner={ports.context.account.account.role === 'owner' && ports.context.account.account.primaryProfileId === controller.lifetime.authority.profileId}/>
-        : state.loading && !state.page && !state.groups ? <StateView title={t('recordings.loading')}/>
+        : state.loading && !state.page && !state.groups ? <Quiet><StateView title={t('recordings.loading')}/></Quiet>
         : unavailable ? <StateView title={t('recordings.unavailableTitle')} body={t('recordings.unavailableBody')}/>
         : isEmpty ? <StateView testID="recordings-empty" title={t(emptyTitle)} body={emptyBody && t(emptyBody)} primaryAction={emptyGuide ? {id: 'guide', testID: 'recordings-open-guide', label: t('web.dvr.openGuide'), onPress: leaveGuide} : undefined}/>
         : query.view === 'recorded' && !query.group ? <View style={{flex: 1}}>{theme.isTV && state.summary && <View style={{flexDirection: 'row', alignItems: 'center', gap: 32, marginBottom: 24}}>

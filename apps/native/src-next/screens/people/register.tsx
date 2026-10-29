@@ -16,6 +16,7 @@ import {createNativePersonController, type NativePersonController, type NativePe
 import {createNativePersonCreditWindow, type NativePersonCreditWindow} from './credit-window';
 import {PersonScreen} from './PersonScreen';
 import {authorityKey} from '../../shell/model';
+import {StandardBackdrop} from '../../kit/artwork';
 
 type PersonRoute = Extract<NativeShellRoute, {kind: 'person'}>;
 type Entry = {
@@ -90,11 +91,11 @@ function PersonHost({entry, runtime, back}: {entry: Entry; runtime: NativeShellR
   useEffect(() => {if (active.visible && state.phase === 'idle') void entry.source.load();}, [active.visible, entry.source, state.phase]);
   useEffect(() => {
     if (state.phase !== 'loading') {setElapsed(0); return;}
-    const start = Date.now(), timer = setTimeout(() => setElapsed(Date.now() - start), 300);
+    const start = Date.now(), timer = setTimeout(() => setElapsed(Math.max(300, Date.now() - start)), 300);
     return () => clearTimeout(timer);
   }, [state.phase]);
   return place(<View pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible} importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'}
-    style={{position: 'absolute', inset: 0, display: active.visible || stacked ? 'flex' : 'none', backgroundColor: theme.colors.ink}}>
+    style={{position: 'absolute', inset: 0, display: active.visible || stacked ? 'flex' : 'none'}}><StandardBackdrop/>
     {state.phase === 'ready' && state.page && entry.window && entry.actions && 'role' in state.group ? <PersonScreen focusScope={entry.focusScope} page={state.page} role={state.group.role} collection={entry.window.collection}
       runtime={runtime} actions={entry.actions} selection={entry.selection} onRole={role => {void entry.source.select({role});}} onBack={back}/>
       : state.phase === 'error' ? <StateView variant="centered" {...runtime.error(state.error, () => {void entry.source.load();})}/>

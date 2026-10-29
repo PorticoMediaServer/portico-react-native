@@ -28,7 +28,7 @@ import {Hero, FocusPreviewHero, Row, type HeroCandidate} from '../../kit/layout'
 import {useFocusAnchor} from '../../kit/layout/FocusAnchor';
 import type {ArtworkRenderContext, LayoutItemContext} from '../../kit/layout/types';
 import {itemSelection} from '../../kit/layout/types';
-import {LoadingPaint, StateView, HomeSkeleton, SkeletonBlock} from '../../kit/states';
+import {LoadingPaint, StateView, HomeSkeleton, SkeletonBlock, skeletonTiming} from '../../kit/states';
 import {nativeType, useTheme, type Theme} from '../../kit/theme';
 import {homeActionDiagnostics} from '../../platform/home-action-diagnostics';
 import type {NativeShellRuntime} from '../../shell/runtime';
@@ -283,9 +283,10 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   useEffect(() => {const sub = AppState.addEventListener('change', state => setForeground(state === 'active')); return () => sub.remove();}, []);
   useEffect(() => {
     if (snapshot.phase !== 'loading' && snapshot.phase !== 'idle') return;
-    const started = Date.now();
-    const timer = setInterval(() => setLoadingElapsed(Date.now() - started), 120);
-    return () => clearInterval(timer);
+    // Only the 300 ms and slow thresholds matter: two timers, not a 120 ms re-render clock.
+    setLoadingElapsed(0);
+    const timers = [skeletonTiming.delayMs, skeletonTiming.slowMs].map(at => setTimeout(() => setLoadingElapsed(at), at));
+    return () => timers.forEach(clearTimeout);
   }, [snapshot.phase]);
   useEffect(() => {
     if (!active || !foreground || !document) return;

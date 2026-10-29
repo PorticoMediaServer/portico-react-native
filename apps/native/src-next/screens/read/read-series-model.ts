@@ -102,7 +102,8 @@ export class NativeReadSeries {
   load = async (): Promise<void> => {
     if (!this.current()) return;
     const flight = ++this.flight;
-    this.publish({phase: 'loading', items: []});
+    // H14: a reload of the same series keeps its painted books until the new reading lands.
+    this.publish({...this.state, phase: 'loading', error: undefined});
     try {
       const client = this.reading(), signal = this.life!.signal;
       const page = await client.series(this.libraryId, this.seriesId, {limit: 60}, signal);

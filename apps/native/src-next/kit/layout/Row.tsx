@@ -123,6 +123,9 @@ function RowContent<T>({title, showHeading = true, headingStyle, subtitle, items
   const last = Math.min(rowIndex.length - 1, Math.max(first, Math.ceil((offset + width - leading) / stride) - 1));
   const recovery = focus ? registry?.recovery(focus.id) ?? [] : focused ? [{childId: focused, order: previous.current?.index.order ?? []}] : [];
   const visible = visibleRowSlots(rowIndex, first, last, focused, remembered, recovery);
+  // Only an item added after this row's first paint fades in; scrolling into the window never does.
+  const seen = useRef<Set<string> | undefined>(undefined);
+  useEffect(() => {const ids = seen.current ?? new Set<string>(); for (const slot of rowIndex.slots) ids.add(slot.focusId); seen.current = ids;}, [rowIndex]);
   useEffect(() => {if (width && last >= first) onVisibleRange?.(first, Math.min(items.length - 1, last));}, [first, items.length, last, onVisibleRange, width]);
   const visibleKeys = useMemo(() => {
     const keys: string[] = [];
@@ -192,7 +195,7 @@ function RowContent<T>({title, showHeading = true, headingStyle, subtitle, items
         {visible.map(slot => {
           const {item, id, focusId, waiting, position} = slot;
           const itemTestID = focus ? focusTestID(focus.id, focusId) : testID ? `${testID}-item-${encodeURIComponent(focusId)}` : undefined;
-          return <MotionItem key={focusId} style={{position: 'absolute', left: leading + position * stride, top, width: itemWidth, height: itemHeight}}>
+          return <MotionItem key={focusId} enter={!!seen.current && !seen.current.has(focusId)} style={{position: 'absolute', left: leading + position * stride, top, width: itemWidth, height: itemHeight}}>
             <FocusItem focusId={focusId} testID={itemTestID} waiting={waiting}>{renderItem(item, {id, focusId, testID: itemTestID, waiting, index: position, selection: itemSelection(selection, id), onFocus: () => {
               setFocused(focusId); if (!waiting) onItemFocus?.(item, position);
             }, onBlur: () => setFocused(current => current === focusId ? undefined : current)})}</FocusItem>

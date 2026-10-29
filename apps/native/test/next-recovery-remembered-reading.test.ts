@@ -33,7 +33,7 @@ test(`compact ${category} recovery admits only original usable downloads: ${cond
   const {RestoredShell} = await screenModule(new URL('../src-next/shell/RestoredShell.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': native,
     '../kit/states': {HomeSkeleton: 'HomeSkeleton', StateView: 'StateView', StateLayout: ({beforeActions}: any) => React.createElement('StateLayout', null, beforeActions)},
-    '../kit/artwork': {CoverFan: 'CoverFan'}, '../kit/controls': {Focusable: 'Focusable'}, '../kit/Icon': {Icon: 'Icon'}, '../kit/theme': {useTheme: () => theme},
+    '../kit/artwork': {StandardBackdrop: 'StandardBackdrop', CoverFan: 'CoverFan'}, '../kit/controls': {Focusable: 'Focusable'}, '../kit/Icon': {Icon: 'Icon'}, '../kit/theme': {useTheme: () => theme},
     '../kit/overlays/TVDesignCanvas': {TVDesignCanvas: ({children}: any) => children},
     '../../../../packages/client-core/src/presentation/errors': {presentError: () => ({category, action: 'try-again', title: 'Unavailable', body: 'Unavailable', actionLabel: 'Retry'})},
     '../platform/server-connections': {deviceOnline: () => category !== 'offline', onNetworkChange: () => () => {}},

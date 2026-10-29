@@ -4,7 +4,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {cardText, episodeLabel, playbackIdentity, titleFactParts, type TextEnvironment} from '../../../../../packages/client-core/src/presentation/kit-model';
 import {defaultI18n} from '../../../../../packages/i18n/src';
-import {AmbientArt, Artwork, type AmbientArtSource, type ArtworkSource} from '../../kit/artwork';
+import {AmbientArt, Artwork, type AmbientArtSource, type ArtworkSource, StandardBackdrop} from '../../kit/artwork';
 import {EpisodeTile, PosterCard, type EpisodeTileProps, type PosterCardProps} from '../../kit/cards';
 import {Button, Focusable, ResumeButton, Switch, Tabs} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
@@ -170,7 +170,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
   useEffect(() => {void controller.open().catch(props.reportError);}, [controller, props.reportError]);
   useEffect(() => {
     if (!loading) {setElapsed(0); return;}
-    const begin = Date.now(), timers = [setTimeout(() => setElapsed(Date.now() - begin), 300), setTimeout(() => setElapsed(Date.now() - begin), 8000)];
+    const begin = Date.now(), timers = [setTimeout(() => setElapsed(Math.max(300, Date.now() - begin)), 300), setTimeout(() => setElapsed(Date.now() - begin), 8000)];
     return () => {for (const timer of timers) clearTimeout(timer);};
   }, [loading]);
   useEffect(() => {
@@ -602,7 +602,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
         </View>)}
       </View>
   );
-  return <View testID="watch-title-screen" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+  return <View testID="watch-title-screen" style={{flex: 1, backgroundColor: theme.isTV ? theme.colors.ink : undefined}}>{!theme.isTV && <StandardBackdrop/>}
     {theme.isTV && <TVTitleBackdrop source={source} foreground={foreground} browsing={tvBrowsing}/>}
     {twoPane ? <View style={{flex: 1, flexDirection: 'row'}}>
       <ScrollView style={{width: leftWidth, alignSelf: 'stretch'}} scrollEventThrottle={32} showsVerticalScrollIndicator={false}>

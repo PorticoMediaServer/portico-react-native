@@ -76,8 +76,8 @@ async function fixture({isTV = true, role = 'owner', primary = 'main', canManage
   const common: any = {react: {...React, default: React}, 'react-native': native,
     'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'LinearGradient', Pattern: 'Pattern', Rect: 'Rect', Stop: 'Stop'},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src/dvr': dvr, '../../../../../packages/client-core/src/presentation/kit-model': kitModel,
-    '../../kit/controls': controls, '../../kit/focus': focus, '../../kit/overlays': {Dialog: 'Dialog', Menu: 'Menu', ToastHost: 'ToastHost'}, '../../kit/artwork': {}, '../../kit/Icon': {Icon: 'Icon'},
-    '../../kit/states': {StateView: (props: any) => jsx('StateView', props)}, '../../kit/shell/visual': {alpha: (value: string) => value, shellType: () => ({})},
+    '../../kit/controls': controls, '../../kit/focus': focus, '../../kit/overlays': {Dialog: 'Dialog', Menu: 'Menu', ToastHost: 'ToastHost'}, '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop'}, '../../kit/Icon': {Icon: 'Icon'},
+    '../../kit/states/usePullRefresh': {usePullRefresh: () => undefined}, '../../kit/dock/DockClearance': {useDockClearance: () => 0}, '../../kit/states': {Quiet: ({children}: any) => children, StateView: (props: any) => jsx('StateView', props)}, '../../kit/shell/visual': {alpha: (value: string) => value, shellType: () => ({})},
     '../../kit/theme': {useTheme: () => theme}, '../../shell/tv-focus': {tvFocusIds}, './Screen': {Screen: 'Screen', ScreenText: 'ScreenText', useScreenBack, useScreenEntry: () => noop}, './recording-rule-presentation': rules};
   const recordingModule = await screenModule(new URL('../src-next/screens/settings-live/RecordingsScreen.tsx', import.meta.url), {...common,
     '../../../../../packages/client-core/src/presentation/title-page': titlePage, '../../../../../packages/client-core/src/media-item': mediaItem, '../../../../../packages/client-core/src/library-content': content, '../../../../../packages/contracts/src/routes': routes,

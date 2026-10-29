@@ -33,7 +33,7 @@ test('expanded Search shelves keep every loaded result and prefetch ten cards be
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0})},
     '../../../../../packages/client-core/src/presentation/search-model': {orderedSearchGroups: (groups: any) => groups, SEARCH_CHIPS: [], searchGroupLabel: (id: string) => id, topSearchResult: () => undefined, topResultKindLabel: t},
     '../../../../../packages/client-core/src/presentation/kit-model': {channelTint: () => '#000'},
-    '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/cards': {GenreTile: 'GenreTile'}, '../../kit/cards/primitives': {CardFrame: 'CardFrame'},
+    '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', Artwork: 'Artwork'}, '../../kit/cards': {GenreTile: 'GenreTile'}, '../../kit/cards/primitives': {CardFrame: 'CardFrame'},
     '../../kit/controls': {Chip: 'Chip', Focusable: 'Focusable', TextField: 'TextField'}, '../../kit/selection': {SelectionCircle: 'SelectionCircle'},
     '../../kit/states': {GridSkeleton: 'GridSkeleton', LoadingPaint: 'LoadingPaint', SkeletonBlock: 'SkeletonBlock', StateView: 'StateView'},
     '../../kit/Icon': {Icon: 'Icon'}, '../../kit/browse/presentation': {browseType: () => ({})}, '../../kit/theme': {useTheme: () => ({...theme, platform: 'tablet', layoutMode: 'desktop'})},
@@ -70,7 +70,7 @@ test('phone See all composes the drawn header, separate controls and three-colum
     '../../../../../packages/client-core/src/presentation/server-text': {serverTextLabel: (_labels: unknown, value: any, fallback: any) => value ?? fallback},
     '../../../../../packages/client-core/src/home-selection': {homeEntryCapabilities: () => ({})},
     '../../kit/controls': {Button: 'Button', Chip: 'Chip', Focusable: 'Focusable'}, '../../kit/browse': {FiltersButton: 'FiltersButton', QuickToggle: 'QuickToggle', SortMenu: 'SortMenu', ViewToggle: 'ViewToggle'},
-    '../../kit/cards/primitives': {CardFrame: 'CardFrame', Parts: 'Parts'}, '../../kit/cards': {PosterCard: 'PosterCard'}, '../../kit/artwork': {MediaArt: 'MediaArt', AmbientArt: 'AmbientArt'},
+    '../../kit/cards/primitives': {CardFrame: 'CardFrame', Parts: 'Parts'}, '../../kit/cards': {PosterCard: 'PosterCard'}, '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', MediaArt: 'MediaArt', AmbientArt: 'AmbientArt'},
     '../../kit/browse/presentation': {browseType: () => ({})}, '../../kit/focus': {FocusItem: 'FocusItem', FocusRegion: 'FocusRegion', useFocusRegistry: () => ({subscribe: () => () => {}, getSnapshot: () => 0})},
     '../../kit/layout': {WindowedGrid: 'WindowedGrid'}, '../../kit/Icon': {Icon: 'Icon'}, '../../kit/states': {GridSkeleton: 'GridSkeleton', LoadingBoundary: 'LoadingBoundary', LoadingPaint: 'LoadingPaint', SkeletonBlock: 'SkeletonBlock', StateView: 'StateView'},
     '../../kit/theme': {nativeType: type, useTheme: () => theme}, '../../shell/model': {authorityKey: () => 'authority'}, './browse-label': {homeBrowseLabel: t}, './see-all-model': seeAllModel,
@@ -101,7 +101,7 @@ test('phone Notifications uses the shared transparent sheet while tablet retains
     react: h.react, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 47, bottom: 34})}, '../../../../../packages/i18n/src': {defaultI18n: {}},
     '../../../../../packages/client-core/src/notifications': {}, '../../kit/controls': {Button: 'Button', Tabs: 'Tabs'}, '../../kit/Icon': {Icon: 'Icon'},
-    '../../kit/overlays': {BottomSheet: 'BottomSheet', Menu: 'Menu'}, '../../kit/shell': {NotificationItem: 'NotificationItem'}, '../../kit/states': {StateView: 'StateView'},
+    '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop'}, '../../kit/overlays': {BottomSheet: 'BottomSheet', Menu: 'Menu'}, '../../kit/shell': {NotificationItem: 'NotificationItem'}, '../../kit/states': {StateView: 'StateView'},
     '../../kit/shell/visual': {shellType: () => ({})}, '../../kit/theme': {useTheme: () => ({...theme, platform: phone ? 'phone' : 'tablet'})},
     '../../shell/account': {}, '../../shell/model': {sameAuthority: (a: any, b: any) => a === b},
     '../../platform/event-resync': {recoverEventState: () => () => {}},
@@ -130,7 +130,7 @@ test('the shared touch entry menu composes offered Play, My List, playlist and r
     react: h.react, 'react-native': {Modal: 'Modal', Platform: {isTV: false}, ScrollView: 'ScrollView', StyleSheet: {}, Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 390, height: 844})},
     '../../../../../packages/i18n/src': {defaultI18n: {t}}, '../../../../../packages/client-core/src/administration': {}, '../../../../../packages/client-core/src/title-identity': {},
     '../../../../../packages/client-core/src/presentation/kit-model/text': {}, '../../shell/model': {}, '../../kit/controls': {Button: 'Button', TextField: 'TextField'},
-    '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/states': {StateView: 'StateView'}, '../../kit/overlays': {BottomSheet: 'BottomSheet', Dialog: 'Dialog', Menu: 'Menu'},
+    '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', Artwork: 'Artwork'}, '../../kit/states': {StateView: 'StateView'}, '../../kit/overlays': {BottomSheet: 'BottomSheet', Dialog: 'Dialog', Menu: 'Menu'},
     '../../kit/overlays/Menu': {TouchMenuHeader: 'TouchMenuHeader'}, '../../kit/overlays/surface': {}, '../../kit/overlays/TVPanelMotion': {useTVPanelPresence: () => ({})},
     '../../kit/overlays/OverlayHost': {}, '../../kit/theme': {nativeType: type, useTheme: () => theme}, './VersionChooser': {}, './DiscTitlesSheet': {}, './FileInfoContent': {},
     '../../kit/overlays/SurfacePaintHost': {overlayPaintKey: () => 'opening', overlayPaintPermit: () => ({}), RetainedOverlay: 'RetainedOverlay'},
@@ -147,7 +147,7 @@ test('the shared touch entry menu composes offered Play, My List, playlist and r
 test('the shared toast preserves an explicitly authored TV Undo without changing other TV notices', async () => {
   const h = host(), calls: string[] = [];
   const pan: any = {};
-  for (const method of ['enabled', 'minDistance', 'onBegin', 'onUpdate', 'onEnd', 'onFinalize']) pan[method] = () => pan;
+  for (const method of ['enabled', 'minDistance', 'activeOffsetX', 'activeOffsetY', 'onStart', 'onBegin', 'onUpdate', 'onEnd', 'onFinalize']) pan[method] = () => pan;
   const {Toast} = await screenModule(new URL('../src-next/kit/overlays/Feedback.tsx', import.meta.url), {'../useScreenReader': {useScreenReader: () => false}, 
     react: h.react, 'react-native': {AccessibilityInfo: {}, AppState: {}, StyleSheet: {}, Text: 'Text', View: 'View'},
     'react-native-gesture-handler': {Gesture: {Pan: () => pan}, GestureDetector: 'GestureDetector'},

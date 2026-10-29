@@ -1,6 +1,6 @@
 import {OverlayPaintDescendants, useOverlayPaintMode} from './OverlayPaintContext';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Keyboard, Modal, ScrollView, StyleSheet, TextInput, View, useWindowDimensions} from 'react-native';
+import {Keyboard, Modal, Platform, ScrollView, StyleSheet, TextInput, View, useWindowDimensions, type KeyboardEvent} from 'react-native';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import Animated, {cancelAnimation, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming} from 'react-native-reanimated';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -27,8 +27,11 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
   const avoidKeyboard = keyboardAvoiding && !side && !page;
   useEffect(() => {
     if (!avoidKeyboard || !open) {setKeyboardTop(undefined); return;}
-    const show = Keyboard.addListener('keyboardDidShow', event => setKeyboardTop(event.endCoordinates.screenY));
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardTop(undefined));
+    // iOS moves the sheet with the keyboard's own curve as it starts; Android only reports Did.
+    const ios = Platform.OS === 'ios';
+    const follow = (event: KeyboardEvent) => {if (ios && event.duration && typeof Keyboard.scheduleLayoutAnimation === 'function') Keyboard.scheduleLayoutAnimation(event);};
+    const show = Keyboard.addListener(ios ? 'keyboardWillShow' : 'keyboardDidShow', event => {follow(event); setKeyboardTop(event.endCoordinates.screenY);});
+    const hide = Keyboard.addListener(ios ? 'keyboardWillHide' : 'keyboardDidHide', event => {follow(event); setKeyboardTop(undefined);});
     return () => {show.remove(); hide.remove();};
   }, [avoidKeyboard, open]);
   const keyboardInset = avoidKeyboard && keyboardTop !== undefined ? Math.max(0, windowHeight - keyboardTop) : 0;
@@ -83,7 +86,8 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
   }, [onOpenChange, dismissOnBack]);
   useOverlayLifecycle(present && !page, true, dismiss, initialFocusRef ?? closeRef, returnFocusRef, motion.reduce ? 160 : theme.isTV ? 320 : 500, testID, restoreFocus && !page);
   useEffect(() => {
-    opacity.value = motion.reduce ? withTiming(open ? 1 : 0, motion.timing()) : open ? withTiming(1, motion.timing('standard')) : 1;
+    // tv-more 4.7: a TV side sheet slides at full opacity; reduced motion keeps the fade.
+    opacity.value = motion.reduce ? withTiming(open ? 1 : 0, motion.timing()) : side && theme.isTV ? 1 : open ? withTiming(1, motion.timing('standard')) : 1;
     const target = open ? heights[index] : 0;
     const spring = motion.spring('settle', !open ? -closeVelocity.current : releaseVelocity.current?.index === index ? -releaseVelocity.current.velocity : 0);
     releaseVelocity.current = undefined;
@@ -91,7 +95,7 @@ export function BottomSheet({open, onOpenChange, title, description, children, f
     sideProgress.value = withTiming(open ? 1 : 0, {...motion.timing(open ? 'slow' : 'quick', open ? 'out' : 'in'), duration: motion.reduce ? 160 : open ? 320 : 240});
     shown.value = motion.reduce ? target : !open && done.current ? withTiming(0, motion.timing('slow', 'in')) : withSpring(target, spring);
     if (open) {setSettled(index); done.current = false;}
-  }, [open, heights, index, motion, shown, opacity, sideProgress]);
+  }, [open, heights, index, motion, shown, opacity, sideProgress, side, theme.isTV]);
   const choose = useCallback((next: number, velocityY = 0) => {
     const targetIndex = Math.max(0, Math.min(heights.length - 1, next));
     releaseVelocity.current = targetIndex === index ? undefined : {index: targetIndex, velocity: velocityY};

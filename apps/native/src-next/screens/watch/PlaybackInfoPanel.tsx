@@ -10,6 +10,7 @@ import {Button, Focusable} from '../../kit/controls';
 import {nativeType, useTheme} from '../../kit/theme';
 import type {NativeWatchHostContext} from './WatchHost';
 import {lossSentence, type NativePlaybackInfo} from './playback-info';
+import {Quiet} from '../../kit/states';
 
 const t = defaultI18n.t;
 const fieldLabels: Record<PlaybackInfoField, MessageId> = {
@@ -159,7 +160,7 @@ export function NativePlaybackInfoPanel({context, read, renderError}: {
     if (theme.isTV && result?.identity === identity && result.runtime === runtime && result.error === undefined && !result.value?.comparison
       && latest.current.state.panel === 'playback-info' && sameFence(latest.current.state.fence, latest.current.fence) && latest.current.panelCurrent()) retryTarget.current?.requestTVFocus?.();
   }, [theme.isTV, result, identity, runtime]);
-  if (!result || result.identity !== identity || result.runtime !== runtime) return <ActivityIndicator accessibilityLabel={t('player.opt.info')}/>;
+  if (!result || result.identity !== identity || result.runtime !== runtime) return <Quiet><ActivityIndicator accessibilityLabel={t('player.opt.info')}/></Quiet>;
   if (result.error !== undefined) return <>{renderError(result.error, () => setRetry(value => value + 1))}</>;
   const comparison = result.value?.comparison;
   if (!comparison) return <View style={{gap: 12}}><Text style={[theme.type.body, {color: theme.colors.textSecondary}]}>{t('next.watch.info.unavailable')}</Text>

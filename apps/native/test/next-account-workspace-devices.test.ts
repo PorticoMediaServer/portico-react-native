@@ -25,7 +25,7 @@ async function mount(state: Record<string, unknown>) {
     revokeSession: async (value: any) => {calls.push('one:' + (typeof value === 'string' ? value : value.id));},
     revokeOtherSessions: async () => {calls.push('others');},
   };
-  const {PhoneAccountWorkspace} = await screenModule(new URL('../src-next/screens/accounts/PhoneAccountWorkspace.tsx', import.meta.url), {
+  const {PhoneAccountWorkspace} = await screenModule(new URL('../src-next/screens/accounts/PhoneAccountWorkspace.tsx', import.meta.url), {'../../kit/states': {Quiet: ({children}: any) => children}, 
     react: {...React, default: React},
     'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0, left: 0, right: 0})},

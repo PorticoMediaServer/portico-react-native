@@ -52,7 +52,7 @@ async function searchFixture(group = 'all') {
   const actions = {open: (...args: any[]) => calls.push(['open', ...args]), play() {}, menu: (...args: any[]) => calls.push(['menu', ...args]),
     isMenuOpen: (item: any, kind: string) => item === entry && kind === 'movies'};
   const {SearchGridCard} = await screenModule(new URL('../src-next/screens/search/SearchGridCard.tsx', import.meta.url), {
-    '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/cards/primitives': {CardFrame: 'CardFrame', ArtFrame: 'ArtFrame'},
+    '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', Artwork: 'Artwork'}, '../../kit/cards/primitives': {CardFrame: 'CardFrame', ArtFrame: 'ArtFrame'},
     '../../kit/browse': {SongRow: 'SongRow'}, '../../kit/selection': {SelectionCircle: 'SelectionCircle'}, '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/browse/presentation': {browseType: () => ({})}, '../../kit/theme': {useTheme: () => ({isTV: false})},
     '../../../../../packages/client-core/src/presentation/kit-model': {cardText: () => ({caption: [], detail: []})},
@@ -66,9 +66,9 @@ async function searchFixture(group = 'all') {
     '../../../../../packages/i18n/src': {defaultI18n: {t: (id: string) => id}},
     './genre-tiles': {nativeSearchGenreTiles}, '../../../../../packages/client-core/src/presentation/kit-model': {channelTint},
     '../../../../../packages/client-core/src/presentation/search-model': {orderedSearchGroups: (groups: unknown) => groups, SEARCH_CHIPS: [], searchGroupLabel: (id: string) => id, topSearchResult: () => undefined},
-    '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/cards': {PosterCard: 'PosterCard', SquareCard: 'SquareCard', CircleCard: 'CircleCard', EpisodeTile: 'EpisodeTile'},
+    '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', Artwork: 'Artwork'}, '../../kit/cards': {PosterCard: 'PosterCard', SquareCard: 'SquareCard', CircleCard: 'CircleCard', EpisodeTile: 'EpisodeTile'},
     '../../kit/cards/primitives': {CardFrame: 'CardFrame'}, '../../kit/controls': {Focusable: 'Focusable'}, '../../kit/selection': {SelectionCircle: 'SelectionCircle'},
-    '../../kit/states': {}, '../../kit/Icon': {}, '../../kit/browse/presentation': {browseType: () => ({})}, '../../kit/theme': {useTheme: () => theme},
+    '../../kit/states/usePullRefresh': {usePullRefresh: () => undefined}, '../../kit/dock/DockClearance': {useDockClearance: () => 0}, '../../kit/states': {}, '../../kit/Icon': {}, '../../kit/browse/presentation': {browseType: () => ({})}, '../../kit/theme': {useTheme: () => theme},
     '../home/model': {homeCardText: () => ({caption: []})}, './model': {nativeSearchEntryKey: (kind: string, item: any) => JSON.stringify([kind, item.kind, item.id])},
     './SearchGridCard': {SearchGridCard}, './TVSearchScreen': {TVSearchScreen: 'TVSearchScreen'},
   });
@@ -126,8 +126,8 @@ test('Saved preview cards preserve inactive selection and the actual native menu
     './paging': {savedNearEnd: () => false},
     react: {...React, default: React}, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View'}, 'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0})},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/cards': {PosterCard: 'PosterCard', SquareCard: 'SquareCard'},
-    '../../kit/cards/primitives': {CardFrame: 'CardFrame', Parts: 'Parts'}, '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/overlays': {Menu: 'Menu'},
-    '../../kit/controls': {Button: 'Button', Chip: 'Chip', Focusable: 'Focusable', Tabs: 'Tabs'}, '../../kit/states': {}, '../../kit/Icon': {}, '../../kit/browse/presentation': {browseType: () => ({}), alpha: () => ''},
+    '../../kit/cards/primitives': {CardFrame: 'CardFrame', Parts: 'Parts'}, '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', Artwork: 'Artwork'}, '../../kit/overlays': {Menu: 'Menu'},
+    '../../kit/controls': {Button: 'Button', Chip: 'Chip', Focusable: 'Focusable', Tabs: 'Tabs'}, '../../kit/states/usePullRefresh': {usePullRefresh: () => undefined}, '../../kit/dock/DockClearance': {useDockClearance: () => 0}, '../../kit/states': {}, '../../kit/Icon': {}, '../../kit/browse/presentation': {browseType: () => ({}), alpha: () => ''},
     '../../kit/theme': {useTheme: () => theme}, '../../platform/offline-downloads': {groupOfflineEntries: () => []}, '../home/model': {homeCardText: () => ({caption: []})},
     './model': {savedProjectionCount: () => undefined, savedDirectoryCount: () => undefined},
     './SavedDownloadCard': {SavedDownloadCard: 'SavedDownloadCard'},

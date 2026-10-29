@@ -1,4 +1,5 @@
 export {StateView, type StateViewProps} from './StateView';
+export {Quiet} from './Quiet';
 export {StateLayout, type StateLayoutProps, type StateRetry} from './StateLayout';
 export {CountdownRing, type CountdownRingProps} from './CountdownRing';
 export {StateSentence, type StateSentenceId, type StateSentenceProps} from './StateSentence';

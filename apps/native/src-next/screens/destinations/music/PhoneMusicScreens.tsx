@@ -5,7 +5,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
 import {cardText} from '../../../../../../packages/client-core/src/presentation/kit-model';
-import {AmbientArt, Artwork, ArtistCircle} from '../../../kit/artwork';
+import {AmbientArt, Artwork, ArtistCircle, StandardBackdrop} from '../../../kit/artwork';
 import {Button, Chip, Focusable} from '../../../kit/controls';
 import {CircleCard, SquareCard} from '../../../kit/cards';
 import {Icon} from '../../../kit/Icon';
@@ -53,7 +53,6 @@ function PhoneHeader({title, onBack, onMore, moreRef}: {title: string; onBack: (
 function Wash({runtime, path}: {runtime: NativeShellRuntime; path: string | undefined}) {
   const theme = useTheme(), source = runtime.ambient(path), gradient = useId();
   return <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 0, right: 0, height: theme.platform === 'phone' ? 760 : 700, overflow: 'hidden'}}>
-    <View style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}/>
     {source ? <AmbientArt source={source} treatment="title" style={{position: 'absolute', inset: 0}}/> : null}
     <View style={{position: 'absolute', inset: 0, backgroundColor: alpha(theme.colors.ink, .45)}}/>
     <Svg width="100%" height="100%" style={{position: 'absolute', inset: 0}} accessible={false}>
@@ -202,7 +201,7 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
       [t('title.releaseDate'), date(entry.releaseDate)], [t('title.label'), entry.label], [t('title.albumType'), entry.albumType],
       [t('title.genres'), entry.genres?.join(', ')], [t('title.added'), date(entry.addedAt ?? undefined)]].filter(([, value]) => !!value) as [string, string][];
     const round = {height: 52, width: 52, borderRadius: phoneMusicGeometry.actionRadius};
-    return <View testID="native-tablet-album" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+    return <View testID="native-tablet-album" style={{flex: 1}}><StandardBackdrop/>
       <Wash runtime={runtime} path={entry.posterUrl ?? entry.backdropUrl}/>
       <MusicScrollView onNearEnd={()=>{void controller.nextSongs(snapshot.songPage);}} contentContainerStyle={{paddingTop: 70, paddingBottom: 100}} showsVerticalScrollIndicator={false}>
         <View style={{flexDirection: 'row', alignItems: 'flex-end', gap: 36, paddingHorizontal: 32}}>
@@ -257,7 +256,7 @@ export function PhoneAlbumScreen({controller, entry, runtime, actions, openEntry
       </View>
     </View>;
   }
-  return <View testID="native-phone-album" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+  return <View testID="native-phone-album" style={{flex: 1}}><StandardBackdrop/>
     <Wash runtime={runtime} path={entry.posterUrl ?? entry.backdropUrl}/>
     <MusicScrollView onNearEnd={()=>{void controller.nextSongs(snapshot.songPage);}} contentContainerStyle={{paddingTop: Math.max(phoneMusicGeometry.albumTop, insets.top + 56), paddingBottom: 40}} showsVerticalScrollIndicator={false}>
       <View style={{alignItems: 'center', paddingHorizontal: 20}}>
@@ -292,7 +291,7 @@ function TabletSongLine({song, index, runtime, controller, actions, playingId, s
     {picked?.active ? <SelectionCircle selected={picked.selected} selecting interactive={false} variant="row" size={24} accessibilityLabel={t('card.select', {title})}/> : null}
     <View style={{width: 36, alignItems: 'center'}}>{playing ? <LevelBars/> : <Text style={[browseType(theme, 14, 600), {color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{song.trackNumber ?? index + 1}</Text>}</View>
     <Text numberOfLines={1} style={[browseType(theme, 16, 600), {flex: 1, color: playing ? theme.colors.accentStrong : theme.colors.text}]}>{title}</Text>
-    {song.plays !== undefined ? <Text style={[browseType(theme, 14, 400), {width: 62, textAlign: 'right', color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{song.plays}</Text> : <View style={{width: 62}}/>}
+    {song.plays !== undefined ? <Text style={[browseType(theme, 14, 400), {width: 62, textAlign: 'right', color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{defaultI18n.number(song.plays)}</Text> : <View style={{width: 62}}/>}
     {duration ? <Text style={[browseType(theme, 14, 400), {width: 70, textAlign: 'right', color: theme.colors.textTertiary, fontVariant: ['tabular-nums']}]}>{duration}</Text> : <View style={{width: 70}}/>}
     <Button variant="text" iconOnly icon={controller.songFavorite(song) ? 'i-heart-f' : 'i-heart'} iconColor={controller.songFavorite(song) ? theme.colors.accentStrong : theme.colors.textTertiary} iconSize={20}
       style={{width: 44, height: 44, flexShrink: 0}} accessibilityLabel={t(controller.songFavorite(song) ? 'entry.removeFromFavorites' : 'entry.addToFavorites')} accessibilityState={{checked: controller.songFavorite(song)}}
@@ -320,7 +319,7 @@ export function PhoneArtistScreen({controller, entry, runtime, actions, openEntr
     const round = {height: phoneMusicGeometry.actionHeight, width: phoneMusicGeometry.actionHeight, borderRadius: phoneMusicGeometry.actionRadius};
     const years = entry.activeBeginYear || entry.activeEndYear ? `${entry.activeBeginYear ?? ''}–${entry.activeEndYear ?? ''}` : undefined;
     const details = [[t('title.genres'), entry.genres?.join(', ')], [t('title.country'), entry.country], [t('title.year'), years]].filter(([, value]) => !!value) as [string, string][];
-    return <View testID="native-tablet-artist" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+    return <View testID="native-tablet-artist" style={{flex: 1}}><StandardBackdrop/>
       <Wash runtime={runtime} path={snapshot.albums[0]?.posterUrl ?? entry.posterUrl ?? entry.backdropUrl}/>
       <MusicScrollView contentContainerStyle={{paddingTop: 56, paddingBottom: 100}} showsVerticalScrollIndicator={false}>
         <View style={{alignItems: 'center', paddingHorizontal: 32}}>
@@ -365,7 +364,7 @@ export function PhoneArtistScreen({controller, entry, runtime, actions, openEntr
       </View>
     </View>;
   }
-  return <View testID="native-phone-artist" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+  return <View testID="native-phone-artist" style={{flex: 1}}><StandardBackdrop/>
     <Wash runtime={runtime} path={snapshot.albums[0]?.posterUrl ?? entry.posterUrl ?? entry.backdropUrl}/>
     <MusicScrollView contentContainerStyle={{paddingTop: Math.max(phoneMusicGeometry.artistTop, insets.top + 56), paddingBottom: 40}} showsVerticalScrollIndicator={false}>
       <View style={{alignItems: 'center', paddingHorizontal: 20}}>

@@ -148,7 +148,7 @@ export function TrackRow({row, variant, columns = defaultColumns[variant], selec
               {row.current && progress !== undefined && <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 8, maxWidth: 360}}><View style={{flex: 1, height: 4, borderRadius: 4, backgroundColor: alpha(theme.colors.text, .22)}}><View style={{height: 4, width: `${progress * 100}%`, borderRadius: 4, backgroundColor: theme.colors.accentStrong}}/></View>{remaining && <Text style={[browseType(theme, 12), {color: theme.colors.textTertiary}]}>{remaining.text}</Text>}</View>}
             </View>
           </View>;
-          const part = column === 'duration' ? duration?.text : column === 'artist' || column === 'album' ? row.text.caption.find(fact => fact.id === column)?.text : column === 'plays' ? row.plays === undefined ? undefined : new Intl.NumberFormat('en-US').format(row.plays) : row.addedAt;
+          const part = column === 'duration' ? duration?.text : column === 'artist' || column === 'album' ? row.text.caption.find(fact => fact.id === column)?.text : column === 'plays' ? row.plays === undefined ? undefined : defaultI18n.number(row.plays) : row.addedAt;
           return <Text key={column} numberOfLines={grow ? undefined : 1} style={[phone ? {maxWidth: 70, marginLeft: 'auto'} : columnStyle(column, variant), browseType(theme, tv ? 20 : phone ? 13.5 : 14), {color: column === 'artist' || column === 'album' ? theme.colors.textSecondary : theme.colors.textTertiary, textAlign: column === 'plays' || column === 'duration' ? 'right' : 'left', fontVariant: ['tabular-nums']}]}>{part}</Text>;
         })}
       </View>

@@ -39,7 +39,7 @@ const shared = (back: Awaited<ReturnType<typeof backOwner>>) => ({
   '../../../../../packages/client-core/src/route-identity': {routeOrigin},
   '../../../../../packages/client-core/src/presentation/errors': {presentError: () => ({body: 'PIN refused'})},
   '../../kit/theme': {useTheme: () => theme}, '../../kit/states': {StateLayout: 'Layout'},
-  '../../kit/controls': {Button: 'Button', Focusable: 'Focusable', TextField: 'Field'}, '../../kit/artwork': {ProfilePicker: 'Picker'},
+  '../../kit/controls': {Button: 'Button', Focusable: 'Focusable', TextField: 'Field'}, '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', ProfilePicker: 'Picker'},
   '../../kit/overlays': {BottomSheet: 'BottomSheet'}, '../../kit/Icon': {Icon: 'Icon'},
   '../../../platform/offline-downloads': {offlineDownloads: {getSnapshot: () => ({entries: []}), remove: async () => {}}, offlineOwnerKey: () => 'owner'},
   './sign-out-downloads': {removeCapturedDownloads: async () => 0},

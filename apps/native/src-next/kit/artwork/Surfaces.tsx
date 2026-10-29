@@ -3,7 +3,7 @@ import {Animated, StyleSheet, View} from 'react-native';
 import Reanimated from 'react-native-reanimated';
 import Svg, {Defs, LinearGradient, RadialGradient, Rect, Stop} from 'react-native-svg';
 import {useTheme} from '../theme';
-import {useReducedMotion} from '../useMotion';
+import {useEffectsPolicy, useReducedMotion} from '../useMotion';
 import {useNativeObservation} from '../dev-observation';
 import {ArtworkAlphaMask} from '../../platform/ArtworkAlphaMask';
 import {Artwork} from './Artwork';
@@ -21,41 +21,36 @@ function GlowLayer({glows, background}: {glows: readonly Glow[]; background?: st
   </Svg>;
 }
 
-/** Colours only: safe before authentication and on restriction/owner state surfaces. */
-export function ColourBackdrop({shape: requestedShape = 'side', fill: requestedFill = false, width: requestedWidth, height: requestedHeight, style, testID}: ColourBackdropProps) {
-  const {colors, isTV} = useTheme();
-  // Justin, 29 Oct: on TV the standard backdrop is identical wherever it appears: the DESIGN
-  // "Boot and loading" TV gradient (`side`) over the whole window, with no per-screen variant.
-  const shape = isTV ? 'side' : requestedShape, fill = isTV || requestedFill;
-  const width = isTV ? undefined : requestedWidth, height = isTV ? undefined : requestedHeight;
-  const backdropStyle = [StyleSheet.absoluteFillObject, {backgroundColor: colors.ink}, width !== undefined ? {width} : undefined,
-    height !== undefined ? {height, bottom: undefined} : shape === 'top' && !fill ? {height: 560, bottom: undefined} : undefined, style];
+/** DESIGN.md "Boot and loading", the standard backdrop (binding): ink under the blue and green
+ * ambient glows. Phone width draws the glows as a 560 pt band at the top; tablet, desktop and
+ * TV draw them over the whole window. Every screen without artwork stands on exactly this, and
+ * artwork screens layer their art over it. Lite (performance) keeps the two main glows. */
+export const StandardBackdrop = React.memo(function StandardBackdrop({style, testID = 'standard-backdrop'}: Pick<ColourBackdropProps, 'style' | 'testID'>) {
+  const {colors, width, layout} = useTheme(), effects = useEffectsPolicy();
+  const band = width < layout.breakpoint.phone;
+  const backdropStyle = [StyleSheet.absoluteFillObject, {backgroundColor: colors.ink}, style];
   const observation = useNativeObservation<View>({kind: 'view', semanticId: 'colour-backdrop',
     flattenedStyle: typeof __DEV__ !== 'undefined' && __DEV__ ? StyleSheet.flatten(backdropStyle) : undefined, declaredStyleComplete: true});
   const blue = colors.accentDeep, green = colors.generatedGreen;
-  const glows: readonly Glow[] = shape === 'side' ? [
-    {x: 0.86, y: 0.04, rx: 0.44, ry: 0.66, colour: blue, stops: [[0, 0.46], [0.46, 0.15], [0.74, 0]]},
-    {x: 0.64, y: 1.04, rx: 0.42, ry: 0.58, colour: green, stops: [[0, 0.6], [0.5, 0.18], [0.76, 0]]},
-    {x: 0.04, y: 0, rx: 0.38, ry: 0.5, colour: colors.ambient, stops: [[0, 0.75], [0.72, 0]]},
-  ] : shape === 'round' ? [
-    {x: 0.1, y: -0.02, rx: 0.44, ry: 0.62, colour: blue, stops: [[0, 0.36], [0.5, 0.11], [0.76, 0]]},
-    {x: 0.92, y: 1.02, rx: 0.44, ry: 0.62, colour: green, stops: [[0, 0.55], [0.5, 0.16], [0.76, 0]]},
-    {x: 0.94, y: 0.04, rx: 0.32, ry: 0.44, colour: colors.accent, stops: [[0, 0.12], [0.72, 0]]},
-  ] : [
+  const glows: readonly Glow[] = band ? [
     {x: 0.96, y: -0.06, rx: 0.9, ry: 0.54, colour: blue, stops: [[0, 0.5], [0.48, 0.15], [0.76, 0]]},
     {x: -0.08, y: 0.3, rx: 0.84, ry: 0.44, colour: green, stops: [[0, 0.5], [0.52, 0.13], [0.78, 0]]},
     {x: 0.3, y: 0, rx: 0.7, ry: 0.4, colour: colors.ambient, stops: [[0, 0.8], [0.72, 0]]},
+  ] : [
+    {x: 0.86, y: 0.04, rx: 0.44, ry: 0.66, colour: blue, stops: [[0, 0.46], [0.46, 0.15], [0.74, 0]]},
+    {x: 0.64, y: 1.04, rx: 0.42, ry: 0.58, colour: green, stops: [[0, 0.6], [0.5, 0.18], [0.76, 0]]},
+    {x: 0.04, y: 0, rx: 0.38, ry: 0.5, colour: colors.ambient, stops: [[0, 0.75], [0.72, 0]]},
   ];
-  return <View ref={observation.ref} pointerEvents="none" accessible={false} testID={testID} style={backdropStyle}>
-    <GlowLayer glows={glows}/>
+  const drawn = effects.backdrop === 'simple' ? glows.slice(0, 2) : glows;
+  return <View ref={observation.ref} pointerEvents="none" accessible={false} importantForAccessibility="no-hide-descendants" testID={testID} style={backdropStyle}>
+    <View style={band ? {position: 'absolute', top: 0, left: 0, right: 0, height: 560} : StyleSheet.absoluteFillObject}><GlowLayer glows={drawn}/></View>
   </View>;
-}
+});
 
-/** The platform's standard backdrop for every screen without artwork: TV and tablet/web the
- * full-window `side` glows, phone the `top` band. One component, so it is identical everywhere. */
-export function StandardBackdrop({testID = 'standard-backdrop'}: {testID?: string}) {
-  const {isTV, platform} = useTheme();
-  return isTV || platform !== 'phone' ? <ColourBackdrop shape="side" fill testID={testID}/> : <ColourBackdrop shape="top" testID={testID}/>;
+/** The standard backdrop under its older name. Shape, fill and size no longer vary per screen
+ * (Justin, 29 Oct): every caller gets the one standard picture for its window. */
+export function ColourBackdrop({style, testID}: ColourBackdropProps) {
+  return <StandardBackdrop style={style} testID={testID}/>;
 }
 
 export function PaletteWash({palette, generated = false}: {palette: ArtworkPalette; generated?: boolean}) {

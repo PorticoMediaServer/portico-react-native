@@ -26,7 +26,7 @@ const {NativeTitleScreen} = await screenModule(new URL('../src-next/screens/watc
   'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', useWindowDimensions: () => ({width, height})},
   '../../../../../packages/player-core/src': {sameFence: () => true}, '../../../../../packages/client-core/src/presentation/kit-model/text': {durationText},
   '../../../../../packages/client-core/src/presentation/kit-model': {cardText, episodeLabel, playbackIdentity, titleFactParts}, '../../../../../packages/i18n/src': {defaultI18n},
-  '../../kit/artwork': {AmbientArt: 'Ambient', Artwork: 'Artwork'}, '../../kit/cards': {EpisodeTile: 'Episode', PosterCard: 'Poster'},
+  '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', AmbientArt: 'Ambient', Artwork: 'Artwork'}, '../../kit/cards': {EpisodeTile: 'Episode', PosterCard: 'Poster'},
   '../../kit/Icon': {Icon: 'Icon'}, '../../kit/controls': {Button: 'Button', ResumeButton: 'Resume', Chip: 'Chip', Tabs: 'Tabs', Focusable: 'Focusable', Switch: 'Switch'},
   '../../kit/layout/Hero': {HeroMetadata: 'Facts'}, '../../kit/states': {TitleSkeleton: 'Skeleton'},
   '../../kit/theme': {nativeType: () => ({}), useTheme: () => theme},

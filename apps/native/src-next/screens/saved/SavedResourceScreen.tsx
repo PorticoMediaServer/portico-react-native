@@ -8,12 +8,13 @@ import type {ContentEntry} from '../../../../../packages/client-core/src/library
 import type {PersonalResource, PersonalSavedSnapshot, PersonalSavedIntent} from '../../../../../packages/client-core/src/personal-saved';
 import {resourceContentManual, resourceContentQuery, type PlaylistOccurrence, type ResourceContentQuery, type ResourceOrderWitness, type SavedRoute, type SavedSnapshot} from '../../../../../packages/client-core/src/saved';
 import {Button, Chip, Focusable, Switch} from '../../kit/controls';
-import {AmbientArt, Artwork, MediaArt} from '../../kit/artwork';
+import {AmbientArt, Artwork, MediaArt, StandardBackdrop} from '../../kit/artwork';
 import {CardFrame, Parts} from '../../kit/cards/primitives';
 import {PosterCard, SquareCard, type CardSelection} from '../../kit/cards';
 import {SelectionCircle} from '../../kit/selection';
 import {FocusRegion} from '../../kit/focus';
 import {Banner, BottomSheet, Menu, ToastHost, type MenuEntry, type ToastMessage} from '../../kit/overlays';
+import {useDockClearance} from '../../kit/dock/DockClearance';
 import {StateView} from '../../kit/states';
 import {Icon} from '../../kit/Icon';
 import {alpha, browseType} from '../../kit/browse/presentation';
@@ -99,6 +100,7 @@ function membershipRows(isPlaylist: boolean, state: Readonly<{saved?: SavedSnaps
  * through its canonical service; commands go back through the same service. */
 export function SavedResourceScreen({route, destination, activation, runtime, actions, selection, libraries, back, changed, showOnHome, openInLibrary, condition}: NativeSavedResourceProps) {
   const theme = useTheme(), insets = useSafeAreaInsets(), dimensions = useWindowDimensions(), instance = React.useId();
+  const dockTop = useDockClearance();
   const active = useSyncExternalStore(activation.subscribe, activation.getSnapshot);
   const snapshot = useSyncExternalStore(destination.subscribe, destination.getSnapshot);
   useSyncExternalStore(selection?.subscribe ?? (() => () => {}), selection?.getSnapshot ?? (() => 0));
@@ -465,7 +467,7 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
   };
   const applyError = (error: unknown) => <StateView variant={theme.isTV ? 'centered' : 'inline'} {...runtime.error(error, () => {void destination.retry().catch(report);})}/>;
   return <View testID={`native-saved-resource-${isPlaylist ? 'playlist' : 'resource'}`} pointerEvents={active.visible ? 'auto' : 'none'} accessibilityElementsHidden={!active.visible}
-    importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
+    importantForAccessibility={active.visible ? 'auto' : 'no-hide-descendants'} style={{flex: 1}}><StandardBackdrop/>
     {theme.isTV ? null : <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 0, right: 0, height: 760, overflow: 'hidden'}}>
       {!!artwork[0] && <AmbientArt source={runtime.ambient(artwork[0])} treatment="library"/>}
     </View>}
@@ -607,7 +609,7 @@ export function SavedResourceScreen({route, destination, activation, runtime, ac
       busy={busy} error={problem || undefined} testID="saved-delete" onClose={() => {if (deleteOpening.current === deleting) {deleteOpening.current = undefined; setDeleting(undefined);}}} onConfirm={confirmDelete}/>
     {theme.isTV ? toast?.action && <View style={{position: 'absolute', left: theme.gutter, right: theme.gutter, bottom: 80}} pointerEvents="box-none">
       <Banner variant="notice" tone="info" placement="overlay" message={toast.message} action={{label: toast.action.label, onPress: toast.action.onPress}} visible/>
-    </View> : <ToastHost toast={toast} onDismiss={() => setToast(null)} bottomOffset={0}/>}
+    </View> : <ToastHost toast={toast} onDismiss={() => setToast(null)} bottomOffset={0} obstructionTop={dockTop}/>}
   </View>;
 }
 

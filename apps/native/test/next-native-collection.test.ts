@@ -17,7 +17,7 @@ const {NativeCollectionScreen, CollectionCard} = await screenModule(new URL('../
   '../saved/presentation': {savedDuration: (value: number) => String(value)},
   'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 1920, height: 1080})},
   '../../../../../packages/i18n/src': {defaultI18n},
-  '../../kit/artwork': {AmbientArt: 'Ambient', Artwork: 'Artwork'}, '../../kit/cards': {PosterCard: 'Poster'},
+  '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', AmbientArt: 'Ambient', Artwork: 'Artwork'}, '../../kit/cards': {PosterCard: 'Poster'},
   '../../kit/controls': {Button: 'Button', Chip: 'Chip', Focusable: 'Focusable'}, '../../kit/Icon': {Icon: 'Icon'},
   '../../kit/overlays': {Menu: 'Menu'}, '../../kit/states': {StateView: 'StateView'}, '../../kit/layout': {WindowedGrid: 'WindowedGrid', WindowedRow: 'WindowedRow'},
   '../../kit/browse/presentation': {browseType: (_theme: unknown, size: number) => ({fontSize: size})}, '../../kit/theme': themed,

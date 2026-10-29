@@ -1,5 +1,6 @@
-import React, {forwardRef} from 'react';
-import {Platform, type View} from 'react-native';
+import React, {forwardRef, useSyncExternalStore} from 'react';
+import {Platform, View} from 'react-native';
+import {getLiteEffects, subscribeLiteEffects} from './motion-policy';
 import {BlurView as NativeBlurView, type BlurViewProps} from '@react-native-community/blur';
 
 /** Root§71 U-MOB-005: the three authored Apple strengths and the public material
@@ -33,6 +34,9 @@ export function appleMaterialFor(amount: number | undefined, style: string | und
  * are never rewritten. */
 const appleMaterialSupport = Platform.OS === 'ios' && Platform.isTV !== true;
 export const BlurView = forwardRef<View, BlurViewProps>(function BlurView(props, ref) {
+  // Lite (performance) draws the authored fallback fill instead of a live blur.
+  const lite = useSyncExternalStore(subscribeLiteEffects, getLiteEffects, getLiteEffects);
+  if (lite) return <View ref={ref} pointerEvents={props.pointerEvents} style={[props.style, {backgroundColor: (props as {reducedTransparencyFallbackColor?: string}).reducedTransparencyFallbackColor}]}>{props.children}</View>;
   const material = appleMaterialSupport ? appleMaterialFor(props.blurAmount, props.blurType) : undefined;
   // The union of the iOS and Android prop types is why the mapped object is cast
   // back to the exported props type: the material names are members of the iOS

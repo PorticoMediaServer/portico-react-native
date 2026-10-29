@@ -65,7 +65,7 @@ async function fixture(isTV = false) {
     '../../kit/focus': {FocusRegion: 'FocusRegion', useFocusRegistry: () => ({capture: () => undefined, focus: () => false, entryAddress: () => undefined, subscribe: () => () => {}, getSnapshot: () => 0})},
     '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/shell': {SettingsSheet: 'SettingsSheet', SettingsRow: 'SettingsRow', SettingsSearchResults: 'SettingsSearchResults', LanguageList: 'LanguageList', ShortcutTiles: 'ShortcutTiles'},
-    '../../kit/artwork': {ProfileFace: 'ProfileFace'},
+    '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', ProfileFace: 'ProfileFace'},
     '../../kit/shell/visual': {alpha,shellType: (fontSize: number, fontWeight: number) => ({fontSize, fontWeight})},
     '../../kit/theme': {useTheme: () => theme},
     '../../kit/states': {StateView: 'StateView'},

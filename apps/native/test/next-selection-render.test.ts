@@ -28,6 +28,7 @@ const native = moduleURL(`export * from ${JSON.stringify(nativeStub)};
   export const Animated={View:'NativeAnimatedView',createAnimatedComponent:c=>c,Value:class{constructor(value){this.value=value}}};
   export const Easing={bezier:()=>v=>v,linear:v=>v,out:v=>v,in:v=>v,inOut:v=>v};
   export const TextInput=Object.assign(()=>null,{State:{currentlyFocusedInput:()=>globalThis.__porticoSelectionFocusedInput}});
+  export const LayoutAnimation={configureNext(){},Types:{keyboard:"keyboard"}};
   export const Keyboard={addListener:(name,callback)=>{const m=globalThis.__porticoSelectionKeyboard;m.set(name,callback);return {remove(){m.delete(name);}};}};
   export const BackHandler={addEventListener:()=>({remove(){}})};
   export const TVEventControl={enableTVMenuKey(){globalThis.__porticoSelectionRenderTest.menuKeyEnabled=true;},disableTVMenuKey(){globalThis.__porticoSelectionRenderTest.menuKeyEnabled=false;}};
@@ -1391,7 +1392,7 @@ for (const role of ['administrator', 'owner'] as const) test(`TV Dashboard ${rol
     '../../kit/controls': {Button, Focusable}, '../../kit/focus': await import('../src-next/kit/focus/index.ts'),
     '../../kit/shell': await import('../src-next/kit/shell/index.ts'), '../../kit/states': {StateView},
     '../../kit/shell/visual': await import('../src-next/kit/shell/visual.ts'), '../../kit/theme': {useTheme: () => state.theme},
-    '../../kit/cards/model': cardModel, '../../kit/artwork': {Artwork: 'Artwork'}, './server/TVServerPageMenu': {TVServerPageMenu: 'TVServerPageMenu'},
+    '../../kit/cards/model': cardModel, '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', Artwork: 'Artwork'}, './server/TVServerPageMenu': {TVServerPageMenu: 'TVServerPageMenu'},
     './server/TVDiskUsage': {TVDiskUsage: 'TVDiskUsage'}, '../../shell/tv-focus': await import('../src-next/shell/tv-focus.ts'),
     './Screen': {...await import('../src-next/screens/settings-live/Screen.tsx'), useScreenEntry: () => () => {}},
     './dashboard-presentation': await import('../src-next/screens/settings-live/dashboard-presentation.ts'),

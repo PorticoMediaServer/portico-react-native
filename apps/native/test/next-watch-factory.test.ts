@@ -35,12 +35,12 @@ const detailStub = {DetailService: class {snapshot: any = {phase: 'idle', data: 
   mutate = async (intent: unknown) => {mutations.push(intent);}; dispose = () => {this.snapshot = {phase: 'idle', data: null};};}};
 const mutations: unknown[] = [];
 const episodeAtoms = {react, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 800, height: 600})},
-  '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/Icon': {Icon: 'Icon'},
+  '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', Artwork: 'Artwork'}, '../../kit/Icon': {Icon: 'Icon'},
   '../../kit/controls': {Button: 'Button', Focusable: 'Focusable', Switch: 'Switch', TextField: 'TextField'},
   '../../kit/focus': {FocusRegion: 'FocusRegion'}, '../../kit/overlays/TVPanelMotion': {useTVPanelInteractive: () => true},
   '../../kit/overlays': {BottomSheet: 'BottomSheet'}, '../../kit/theme': {useTheme: () => ({colors: {}, type: {}})}};
 const seasons = await screenModule(new URL('../src-next/screens/watch/SeasonsSheet.tsx', import.meta.url), episodeAtoms);
-const episodes = await screenModule(new URL('../src-next/screens/watch/EpisodePanel.tsx', import.meta.url), {...episodeAtoms,
+const episodes = await screenModule(new URL('../src-next/screens/watch/EpisodePanel.tsx', import.meta.url), {'../../kit/states': {Quiet: ({children}: any) => children}, ...episodeAtoms,
   '../../../../../packages/client-core/src/presentation/kit-model': {episodeLabel},
   '../../../../../packages/client-core/src/presentation/kit-model/text': {durationText}, './SeasonsSheet': seasons,
   '../../kit/cards': {EpisodeTile: 'EpisodeTile'}, 'react-native-svg': {default: 'Svg', Defs: 'Defs', LinearGradient: 'Gradient', Rect: 'Rect', Stop: 'Stop'}});

@@ -30,7 +30,7 @@ export function AddFolderPage({api, serverName, source, expectedRevision, onSave
   const [choice, setChoice] = useState<LibraryFolderChoice>({folders: source ? [{path: source.path, name: source.name || source.path}] : []});
   const valid = path.trim().length > 0 && expectedRevision !== undefined;
   return <View style={{flex: 1}}>
-    <ScrollView contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 24}}>
+    <ScrollView contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 24}} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
       <SectionTitle>{t('next.ownerLibraries.addFolder.path')}</SectionTitle>
       <LibraryGroup><LibraryRow first icon="i-folder" label={path || t('server.chooseFolder')} help={path ? undefined : t('next.ownerLibraries.addFolder.help')} onPress={() => setExploring(true)}/></LibraryGroup>
 

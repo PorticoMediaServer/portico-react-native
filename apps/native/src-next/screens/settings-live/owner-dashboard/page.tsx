@@ -14,6 +14,7 @@ import {OwnerAlertCard, OwnerCalm, OwnerJobGroup, OwnerJobRow, OwnerSection, Own
 import {OwnerHealthSection} from './health';
 import {OwnerStatisticsSection} from './statistics';
 import {OwnerCompactRows, OwnerNowPlayingHeader, OwnerShowAll, OwnerStreamCards, OwnerStreamTotals, type OwnerStreamEntry} from './streams';
+import {StandardBackdrop} from '../../../kit/artwork';
 
 export type OwnerDashboardPageProps = Readonly<{
   t: Translate;
@@ -88,7 +89,7 @@ export function OwnerDashboardPage(props: OwnerDashboardPageProps) {
     const sticks = y + bar >= headerTop.current;
     setStuck(previous => previous === sticks ? previous : sticks);
   };
-  return <View style={{flex: 1, backgroundColor: theme.colors.ink}}>
+  return <View style={{flex: 1}}><StandardBackdrop/>
     <ServerBand viewerRole={role} audience="administrators" height={400}/>
     <ScrollView scrollEventThrottle={16} onScroll={onScroll} contentContainerStyle={{paddingTop: bar + 8, paddingBottom: 80}}>
       <OwnerHeader {...props}/>

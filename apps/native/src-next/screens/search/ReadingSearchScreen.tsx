@@ -2,7 +2,7 @@ import React, {useEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {FlatList, Text, View, type TextInput} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {ReadingIndexedSearchHit} from '../../../../../packages/client-core/src/reading-indexed-search';
-import {Artwork} from '../../kit/artwork';
+import {Artwork, StandardBackdrop} from '../../kit/artwork';
 import {Focusable, TextField} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
 import {GridSkeleton, StateView} from '../../kit/states';
@@ -24,7 +24,7 @@ export function ReadingSearchScreen({port, opening, runtime, query, onBack}: Rea
   const [text, setText] = useState(query), [viewport, setViewport] = useState({width: 0, height: 0}), [elapsed, setElapsed] = useState(0);
   useEffect(() => {
     if (state.phase !== 'loading') {setElapsed(0); return;}
-    const start = Date.now(), timer = setTimeout(() => setElapsed(Date.now() - start), 300);
+    const start = Date.now(), timer = setTimeout(() => setElapsed(Math.max(300, Date.now() - start)), 300);
     return () => clearTimeout(timer);
   }, [state.phase]);
   // The literal words are never rewritten. This local draft revision only stops a
@@ -37,7 +37,7 @@ export function ReadingSearchScreen({port, opening, runtime, query, onBack}: Rea
     list.current?.scrollToOffset({offset: 0, animated: false});
   };
   const rows = state.phase === 'loading' ? undefined : state.hits;
-  return <View testID="native-reading-search" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+  return <View testID="native-reading-search" style={{flex: 1}}><StandardBackdrop/>
     <View style={{paddingTop: Math.max(56, insets.top), backgroundColor: theme.colors.ink}}>
       <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 12, height: 44}}>
         <Focusable testID="reading-search-back" accessibilityLabel={t('action.back')} onPress={onBack} hitSlop={10}

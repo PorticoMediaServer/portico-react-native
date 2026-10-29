@@ -116,7 +116,7 @@ test('Downloads rows use the shared hold/menu boundary with their actual native 
   const {DownloadsScreen} = await screenModule(new URL('../src-next/screens/downloads/DownloadsScreen.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', useWindowDimensions: () => ({width: 390})},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0})}, '../../../../../packages/i18n/src': {defaultI18n},
-    '../../kit/artwork': {Artwork: 'Artwork'}, '../../kit/controls': {Chip: 'Chip', Focusable: 'Focusable', Switch: 'Switch'},
+    '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', Artwork: 'Artwork'}, '../../kit/controls': {Chip: 'Chip', Focusable: 'Focusable', Switch: 'Switch'},
     '../../kit/cards/primitives': {CardFrame: 'CardFrame'}, '../../kit/overlays': {BottomSheet: 'BottomSheet', Menu: 'Menu'}, '../../kit/states': {StateView: 'StateView'}, '../../kit/Icon': {Icon: 'Icon'},
     '../../kit/browse/presentation': {browseType: () => ({}), alpha: () => ''}, '../../kit/theme': {useTheme: () => theme},
     './inventory': downloadInventory,

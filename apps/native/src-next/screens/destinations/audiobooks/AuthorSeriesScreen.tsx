@@ -3,7 +3,7 @@ import {Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../../packages/i18n/src';
 import type {ContentEntry} from '../../../../../../packages/client-core/src/library-content';
-import {AmbientArt, Artwork, PersonCircle} from '../../../kit/artwork';
+import {AmbientArt, Artwork, PersonCircle, StandardBackdrop} from '../../../kit/artwork';
 import {Button, Focusable} from '../../../kit/controls';
 import {FocusRegion} from '../../../kit/focus';
 import {MusicScrollView, MusicWindow} from '../music/MusicWindow';
@@ -186,9 +186,8 @@ export function AuthorSeriesScreen({controller, entry, runtime, actions, openEnt
       </View> : null}
     </View>
   </>;
-  return <View testID={tv ? 'native-tv-audiobook-collection' : 'native-phone-audiobook-collection'} style={{flex: 1, backgroundColor: theme.colors.ink}}>
+  return <View testID={tv ? 'native-tv-audiobook-collection' : 'native-phone-audiobook-collection'} style={{flex: 1}}><StandardBackdrop/>
     <View pointerEvents="none" style={{position: 'absolute', inset: 0, overflow: 'hidden'}}>
-      <View style={{position: 'absolute', inset: 0, backgroundColor: theme.colors.ink}}/>
       {runtime.ambient(coverPath) ? <AmbientArt source={runtime.ambient(coverPath)} treatment="title" style={{position: 'absolute', inset: 0}}/> : null}
       <View style={{position: 'absolute', inset: 0, backgroundColor: alpha(theme.colors.ink, .45)}}/>
     </View>

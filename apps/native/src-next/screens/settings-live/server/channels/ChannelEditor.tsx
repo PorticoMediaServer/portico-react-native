@@ -1,5 +1,5 @@
 import {previewMatches, previewDuration} from './presentation';
-import {Artwork} from '../../../../kit/artwork';
+import {Artwork, StandardBackdrop} from '../../../../kit/artwork';
 import React,{useEffect,useMemo,useRef,useState,useSyncExternalStore} from 'react';
 import {Animated,Easing,Modal,ScrollView,Text,View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -64,9 +64,9 @@ export function NativeChannelEditor({group,runtime,isCurrent}:{group:NativeChann
   const orderOptions=[...ORDERS.map(value=>({value,label:t(ORDER_WORDS[value]),disabled:false})),...(leastSupported||rule?.query.order==='least-played'?[{value:'least-played',label:t('builder.preset.leastPlayed'),disabled:!leastSupported}]:[])];
   // Reduced motion: no platform slide; the editor fades as a transparent overlay over the page beneath, and
   // presence holds the Modal open until that fade finishes. Default motion keeps the native slide.
-  return <Modal visible={isCurrent()&&(motion.reduce?present:state.phase!=='closed')} animationType={motion.reduce?'none':'slide'} transparent={motion.reduce} presentationStyle={motion.reduce?'overFullScreen':'fullScreen'} onRequestClose={close}><Animated.View style={{flex:1,opacity:motion.reduce?fade:1}}><View style={{flex:1,backgroundColor:theme.colors.ink,paddingTop:insets.top,paddingBottom:insets.bottom}}>
+  return <Modal visible={isCurrent()&&(motion.reduce?present:state.phase!=='closed')} animationType={motion.reduce?'none':'slide'} transparent={motion.reduce} presentationStyle={motion.reduce?'overFullScreen':'fullScreen'} onRequestClose={close}><Animated.View style={{flex:1,opacity:motion.reduce?fade:1}}><View style={{flex:1,paddingTop:insets.top,paddingBottom:insets.bottom}}><StandardBackdrop/>
     <View style={{height:56,paddingHorizontal:14,flexDirection:'row',alignItems:'center',gap:10}}><Button variant="text" size="compact" disabled={state.busy} onPress={close}>{t('builder.cancel')}</Button><Text numberOfLines={1} style={[shellType(17,700),{flex:1,textAlign:'center',color:theme.colors.text}]}>{t(state.templateName?'builder.reviewTemplate':'builder.editTitle',{name:state.templateName??''})}</Text><Button size="compact" disabled={state.busy||!config||!conditionsValid||hoursEditing} loading={state.busy} onPress={save}>{t(state.pending?'action.tryAgain':'builder.save')}</Button></View>
-    <ScrollView contentContainerStyle={{padding:20,gap:14,paddingBottom:40}} keyboardShouldPersistTaps="handled">
+    <ScrollView contentContainerStyle={{padding:20,gap:14,paddingBottom:40}} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
       {state.phase==='loading'&&<Text style={{color:theme.colors.textSecondary}}>{t('next.settings.loading')}</Text>}{state.error&&<Text accessibilityRole="alert" style={{color:theme.colors.record}}>{t(state.pending?'error.unconfirmedChange':'error.unavailable')}</Text>}
       {config&&rule&&<><TextField label={t('builder.name')} value={config.name} maxLength={120} editable={!locked} error={tried&&!config.name.trim()?t('builder.error.name'):undefined} onChangeText={name=>change(old=>({...old,name}))}/><TextField label={t('builder.description')} value={config.description} maxLength={2048} editable={!locked} onChangeText={description=>change(old=>({...old,description}))}/>
       <Text style={[shellType(17,800),{color:theme.colors.text}]}>{t('builder.libraries')}</Text>{!group.libraries.length&&<Text style={{color:theme.colors.textSecondary}}>{t('builder.noVideoLibraries')}</Text>}{group.libraries.map(library=><Switch key={library.id} checked={rule.query.libraryIds.includes(library.id)} disabled={locked} onCheckedChange={checked=>query({libraryIds:checked?[...rule.query.libraryIds.filter(id=>id!==library.id),library.id]:rule.query.libraryIds.filter(id=>id!==library.id)})}>{library.name}</Switch>)}{tried&&!rule.query.libraryIds.length&&<Text style={{color:theme.colors.record}}>{t('builder.error.libraries')}</Text>}
@@ -93,7 +93,7 @@ export function NativeChannelEditor({group,runtime,isCurrent}:{group:NativeChann
       {state.error === 'preview' && <Button size="compact" variant="text" onPress={() => {if (allowed()) void editor.preview();}}>{t('action.tryAgain')}</Button>}
     </View>}
     <Modal visible={open && !!heldPreview} animationType={motion.reduce ? 'fade' : 'slide'} presentationStyle="fullScreen" onRequestClose={closePreview}>
-      <View style={{flex: 1, backgroundColor: theme.colors.ink, paddingTop: insets.top, paddingBottom: insets.bottom}}>
+      <View style={{flex: 1, paddingTop: insets.top, paddingBottom: insets.bottom}}><StandardBackdrop/>
         <View style={{minHeight: 56, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12}}><Button variant="text" size="small" onPress={closePreview}>{t('action.back')}</Button><Text accessibilityRole="header" style={[shellType(17, 700), {color: theme.colors.text}]}>{t('builder.preview')}</Text></View>
         <ScrollView contentContainerStyle={{padding: 20, gap: 18}}>
           {heldPreview && <Text style={[shellType(15, 600), {color: theme.colors.textSecondary}]}>{previewDuration(heldPreview.result)}</Text>}

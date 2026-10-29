@@ -9,7 +9,7 @@ import {Button, Tabs} from '../../kit/controls';
 import {Icon, type IconName} from '../../kit/Icon';
 import {BottomSheet, Menu, type MenuEntry} from '../../kit/overlays';
 import {NotificationItem} from '../../kit/shell';
-import {StateView} from '../../kit/states';
+import {Quiet, StateView} from '../../kit/states';
 import {shellType} from '../../kit/shell/visual';
 import {useTheme} from '../../kit/theme';
 import {nativeMenuRouteAvailable} from '../../shell/account';
@@ -17,6 +17,7 @@ import {sameAuthority, type ShellDestination} from '../../shell/model';
 import type {NativeShellBootstrapContext} from '../../shell/bootstrap';
 import type {NativeShellRoute} from '../../shell/routes';
 import type {NativeShellRuntime} from '../../shell/runtime';
+import {StandardBackdrop} from '../../kit/artwork';
 
 type Retirement = Readonly<{
   subscribe: (listener: () => void) => () => void;
@@ -248,7 +249,7 @@ export function NativeNotificationsScreen({context, route, runtime, profileServi
       contentContainerStyle={{paddingBottom: theme.platform === 'phone' ? 0 : Math.max(24, insets.bottom + 16), paddingTop: 4}}
       ListHeaderComponent={<>
         {error !== undefined && items.length > 0 && <StateView tone="warning" title={error} primaryAction={{id: 'retry', label: t('action.tryAgain'), onPress: reload}} style={{paddingTop: 8, paddingBottom: 8}}/>}
-        {loading && !items.length && <StateView icon="i-bell" title={t('notifications.loading')}/>}
+        {loading && !items.length && <Quiet><StateView icon="i-bell" title={t('notifications.loading')}/></Quiet>}
         {!loading && !items.length && error !== undefined && <StateView icon="i-warn" title={t('notifications.error.load')} body={error} primaryAction={{id: 'retry', label: t('action.tryAgain'), onPress: reload}}/>}
         {ready && !items.length && error === undefined && <StateView icon={view === 'archived' ? 'i-archive' : 'i-bell'} title={emptyTitle} body={t('notifications.emptyBody')}/>}
       </>}
@@ -279,7 +280,7 @@ export function NativeNotificationsScreen({context, route, runtime, profileServi
  * Header gestures, Back, escape and screen-reader containment use the shared host. */
 function NotificationsFrame({children, header, title, testID, onClose}: {children?: React.ReactNode; header?: React.ReactNode; title: string; testID: string; onClose: () => void}) {
   const theme = useTheme(), insets = useSafeAreaInsets(), window = useWindowDimensions();
-  if (theme.platform !== 'phone') return <View testID={testID} style={{flex: 1, backgroundColor: theme.colors.ink, paddingTop: insets.top + 14}}>{header}{children}</View>;
+  if (theme.platform !== 'phone') return <View testID={testID} style={{flex: 1, paddingTop: insets.top + 14}}><StandardBackdrop/>{header}{children}</View>;
   return <BottomSheet testID={testID} title={title} open onOpenChange={open => {if (!open) onClose();}} accessibilityLabel={title}
     detents={[Math.max(1, window.height - 62)]} headerContent={header ?? <View style={{height: 56}}/>} scrollable={false} showClose={false} showGrabber={false}
     style={{backgroundColor: theme.colors.ink, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingTop: 0}}>

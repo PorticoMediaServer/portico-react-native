@@ -39,7 +39,7 @@ async function fixture() {
     '../../../../../packages/client-core/src/presentation/kit-model': {cardText, episodeLabel, playbackIdentity, titleFactParts},
     '../../../../../packages/client-core/src/presentation/kit-model/text': {durationText}, '../../../../../packages/i18n/src': {defaultI18n: {t, list: (names: string[]) => names.join(', ')}},
     '../../../../../packages/client-core/src/presentation/errors': {}, '../../../../../packages/player-core/src': {sameFence: () => true},
-    '../../kit/artwork': {AmbientArt: 'Ambient', Artwork: 'Artwork'}, '../../kit/cards': {EpisodeTile: 'Episode', PosterCard: 'Poster'},
+    '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', AmbientArt: 'Ambient', Artwork: 'Artwork'}, '../../kit/cards': {EpisodeTile: 'Episode', PosterCard: 'Poster'},
     '../../kit/controls': {Button: 'Button', ResumeButton: 'Resume', Chip: 'Chip', Tabs: 'Tabs', Focusable: 'Focusable', Switch: 'Switch'},
     '../../kit/Icon': {Icon: 'Icon'}, '../../kit/layout/Hero': {HeroMetadata: 'Facts'}, '../../kit/states': {TitleSkeleton: 'Skeleton'},
     '../../kit/theme': {nativeType, useTheme: () => theme}, '../../kit/focus': {FocusRegion: 'FocusRegion', useOptionalFocusRegistry: () => undefined},

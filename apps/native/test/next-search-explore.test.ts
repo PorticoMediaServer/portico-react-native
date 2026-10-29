@@ -158,7 +158,7 @@ test('ordinary list keeps its FlatList mounted for paging errors, uses scroll ed
   const explore = {subscribe: () => () => {}, getSnapshot: () => snapshot,
     setVisible: (ids: string[]) => events.push(['visible', ids]), setFocused: (id: string, focused: boolean) => events.push(['focus', id, focused]),
     next: async () => {events.push('next');}, previous: async () => {events.push('previous');}, load: async () => {events.push('retry');}, openGenre: (value: unknown) => events.push(['open', value])};
-  const {AllGenresScreen} = await screenModule(new URL('../src-next/screens/search/AllGenresScreen.tsx', import.meta.url), {
+  const {AllGenresScreen} = await screenModule(new URL('../src-next/screens/search/AllGenresScreen.tsx', import.meta.url), {'../../kit/artwork': {StandardBackdrop: 'StandardBackdrop'}, 
     react: host.react, 'react-native': {FlatList: 'FlatList', Text: 'Text', View: 'View'},
     'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0})},
     '../../kit/controls': {Focusable: 'Focusable'}, '../../kit/overlays': {MenuRow: 'MenuRow'}, '../../kit/Icon': {Icon: 'Icon'},

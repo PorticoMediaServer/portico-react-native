@@ -4,7 +4,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {generatedCoverTint} from '@portico/design';
 import {defaultI18n, calendarDate, calendarMonth} from '../../../../../packages/i18n/src';
 import type {ReadingListMembership, ReadingPeriodicalIssue, ReadingYearChoice} from '../../../../../packages/client-core/src';
-import {Artwork, AmbientArt, GeneratedCover} from '../../kit/artwork';
+import {Artwork, AmbientArt, GeneratedCover, StandardBackdrop} from '../../kit/artwork';
 import {Button, Focusable} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
 import {BottomSheet, Menu} from '../../kit/overlays';
@@ -53,15 +53,15 @@ export function ReadPeriodicalScreen({controller, route, context, runtime, onBac
   };
   const selected = periodicalHeroIssue(state, magazine), paddingTop = Math.max(96, insets.top + 56);
   const hero = <PeriodicalHero state={state} issue={selected} magazine={magazine} tablet={tablet} runtime={runtime} theme={theme} onOpen={open} offer={offer} actions={actions}/>;
-  return <View testID={`native-read-periodical-${route.groupId}`} style={{flex: 1, backgroundColor: theme.colors.ink}}
-    onLayout={event => setPaneWidth(event.nativeEvent.layout.width)}>
+  return <View testID={`native-read-periodical-${route.groupId}`} style={{flex: 1}}
+    onLayout={event => setPaneWidth(event.nativeEvent.layout.width)}><StandardBackdrop/>
     {tablet && runtime.ambient(selected?.item.coverUrl) ? <View pointerEvents="none" style={{position: 'absolute', top: 0, left: 0, right: 0, height: 760, overflow: 'hidden'}}>
       <AmbientArt source={runtime.ambient(selected?.item.coverUrl)} treatment="title" style={{position: 'absolute', inset: 0}}/>
     </View> : null}
     <Button variant="icon" icon="i-left" iconOnly accessibilityLabel={t('action.back')} onPress={onBack}
       style={{position: 'absolute', top: insets.top + 6, left: 10, zIndex: 10, height: 44, width: 44}}/>
     {state.phase === 'error' ? <View style={{paddingTop}}><StateView {...runtime.error(state.error, () => {void controller.retry().catch(runtime.reportError);}, 'library')}/></View>
-      : <ReadingLoading ready={state.phase === 'ready'} style={{flex: 1}}
+      : <ReadingLoading ready={state.phase === 'ready' || state.phase === 'loading' && state.items.length > 0} style={{flex: 1}}
         skeleton={<PeriodicalSkeleton magazine={magazine} tablet={tablet} width={width} top={paddingTop}/> }>
         {magazine ? <MagazineIssues state={state} controller={controller} theme={theme} runtime={runtime} tablet={tablet} width={width} onOpen={open}
           offer={offer} actions={actions} hero={<View style={{paddingTop}}>{hero}</View>} bottom={insets.bottom + 48}/>

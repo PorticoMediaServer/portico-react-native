@@ -29,7 +29,7 @@ function modules(state: {
     '../screens/downloads/RememberedDownloadsScreen': {RememberedDownloadsScreen: 'RememberedDownloadsScreen', RememberedDownloadsShortcut: 'RememberedDownloadsShortcut'},
     '../screens/downloads/presentation': {downloadEntryIdentity},
     '../kit/states': {HomeSkeleton: 'HomeSkeleton', StateView: 'StateView', StateLayout: 'StateLayout'},
-    '../kit/artwork': {CoverFan: 'CoverFan'},
+    '../kit/artwork': {StandardBackdrop: 'StandardBackdrop', CoverFan: 'CoverFan'},
     '../kit/controls': {Focusable: 'Focusable'},
     '../kit/overlays/TVDesignCanvas': {TVDesignCanvas: 'TVDesignCanvas'},
     '../kit/Icon': {Icon: 'Icon'},
@@ -139,7 +139,7 @@ test('an unexpected restore failure is never misread as a lost saved-records key
   await act(() => host.mount());
   try {
     assert.notEqual(tree.type, 'SecureRecordsRecovery', 'an ordinary failure never opens the records recovery');
-    assert.equal(tree.type, 'StateView', 'the ordinary restore recovery is drawn instead');
+    assert.equal(tree.props.children.props.children.type, 'StateLayout', 'the ordinary restore recovery is drawn instead');
     assert.equal(fallbacks, 1, 'the ordinary failure keeps its downloads fallback');
   } finally {await host.unmount();}
 });

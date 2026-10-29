@@ -10,6 +10,7 @@ import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import type {NativeSearchGenreList} from './explore';
 import type {NativeSearchGenre} from './types';
+import {StandardBackdrop} from '../../kit/artwork';
 
 /** The same canonical genre read, including genres without tile artwork. This
  * list follows the returned cursor and never reranks or expands a library. */
@@ -26,10 +27,10 @@ export function AllGenresScreen({focusScope, explore, runtime, visible, current,
   useEffect(() => {if (visible && current()) void explore.load();}, [current, explore, visible]);
   useEffect(() => {
     if (state.phase !== 'loading') {setElapsed(0); return;}
-    const start = Date.now(), timer = setTimeout(() => setElapsed(Date.now() - start), 300);
+    const start = Date.now(), timer = setTimeout(() => setElapsed(Math.max(300, Date.now() - start)), 300);
     return () => clearTimeout(timer);
   }, [state.phase]);
-  return <View testID="native-search-all-genres" style={{flex: 1, backgroundColor: theme.colors.ink}}>
+  return <View testID="native-search-all-genres" style={{flex: 1}}><StandardBackdrop/>
     <View style={{paddingTop: insets.top, marginBottom: 8}}>
       <View style={{height: 44, paddingHorizontal: 12, justifyContent: 'center'}}><Focusable testID="search-all-genres-back" accessibilityLabel={t('action.back')}
         onPress={onBack} style={{width: 38, height: 38, alignItems: 'center', justifyContent: 'center'}}><Icon name="i-left" size={22} color={theme.colors.text}/></Focusable></View>

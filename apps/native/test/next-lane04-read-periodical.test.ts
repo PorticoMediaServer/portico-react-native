@@ -183,7 +183,7 @@ test('periodical hero inspects My List once per item and route lease, not per pu
   const runtime = {reportError: (error: unknown) => errors.push(error)};
   const {PeriodicalActions} = await screenModule(new URL('../src-next/screens/read/ReadPeriodicalScreen.tsx', import.meta.url), {
     react: {...React, default: React}, 'react-native': {View: 'View'}, 'react-native-safe-area-context': {}, '@portico/design': {},
-    '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}}, '../../kit/artwork': {},
+    '../../../../../packages/i18n/src': {defaultI18n: {t: (key: string) => key}}, '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop'},
     '../../kit/controls': {Button: 'Button'}, '../../kit/Icon': {}, '../../kit/overlays': {}, '../../kit/states': {}, '../../kit/selection': {},
     '../../kit/cards/primitives': {}, '../../kit/browse/presentation': {browseType: () => ({})}, '../../kit/theme': {useTheme: () => ({colors: {}})},
     '../downloads/request': {}, '../../../platform/offline-reading': {}, './ReadingLoading': {}, './ReadingShelf': {}, './ReadingActions': {},

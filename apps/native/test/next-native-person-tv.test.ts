@@ -12,7 +12,7 @@ const {TVPerson} = await screenModule(new URL('../src-next/screens/people/Person
   react,
   'react-native': {ScrollView: 'ScrollView', Text: 'Text', View: 'View', VirtualizedList: 'VirtualizedList', useWindowDimensions: () => ({width: 1920, height: 1080})},
   'react-native-safe-area-context': {useSafeAreaInsets: () => ({top: 0, bottom: 0})},
-  '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/artwork': {PersonCircle: 'PersonCircle', AmbientArt: 'AmbientArt', Artwork: 'Artwork'},
+  '../../../../../packages/i18n/src': {defaultI18n}, '../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', PersonCircle: 'PersonCircle', AmbientArt: 'AmbientArt', Artwork: 'Artwork'},
   '../../kit/cards': {PosterCard: 'PosterCard'}, '../../kit/controls': {Chip: 'Chip', Focusable: 'Focusable'},
   '../../kit/Icon': {Icon: 'Icon'}, '../../kit/states': {StateView: 'StateView'},
   '../../kit/browse/presentation': {browseType: (_theme: unknown, size: number, weight: number, tracking = 0) => ({fontSize: size, fontWeight: weight, tracking})},

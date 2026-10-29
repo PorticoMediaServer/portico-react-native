@@ -1,5 +1,5 @@
 import React, {forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode} from 'react';
-import {View, type StyleProp, type ViewStyle} from 'react-native';
+import {View, type RefreshControlProps, type StyleProp, type ViewStyle} from 'react-native';
 import Animated, {runOnJS, useAnimatedScrollHandler, useSharedValue} from 'react-native-reanimated';
 import type {WindowedCollection} from '../../../../../packages/client-core/src/collections/windowed';
 import {useTheme} from '../theme';
@@ -38,13 +38,15 @@ export type WindowedGridProps<T> = {
   /** Actual native contentOffset.y, including a final position within a row. */
   onScrollOffset?: (offset: number) => void;
   onItemFocus?: (item: T, index: number) => void;
+  /** Touch pull-to-refresh; never passed on TV. */
+  refreshControl?: React.ReactElement<RefreshControlProps>;
   /** Existing measured layout, for declarative native focus-cell boundaries. */
   onGeometry?: (columns: number, stride: number) => void;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 };
 
-function Grid<T>({collection, getKey, renderItem, renderPlaceholder, renderNativeSlot, itemWidth, itemHeight: authoredItemHeight, captionHeight = 0, gap, rowGap, gutter, rightGutter, paddingTop: contentPaddingTop = 0, paddingBottom = 0, stickyOffset: contentStickyOffset = 0, header, stickyHeader, overscanRows = 2, initialIndex = 0, selection, onVisibleRange, onScrollOffset, onItemFocus, onGeometry, style, testID}: WindowedGridProps<T>, ref: React.ForwardedRef<WindowedGridHandle>) {
+function Grid<T>({collection, getKey, renderItem, renderPlaceholder, renderNativeSlot, itemWidth, itemHeight: authoredItemHeight, captionHeight = 0, gap, rowGap, gutter, rightGutter, paddingTop: contentPaddingTop = 0, paddingBottom = 0, stickyOffset: contentStickyOffset = 0, header, stickyHeader, overscanRows = 2, initialIndex = 0, selection, onVisibleRange, onScrollOffset, onItemFocus, onGeometry, refreshControl, style, testID}: WindowedGridProps<T>, ref: React.ForwardedRef<WindowedGridHandle>) {
   const theme = useTheme();
   const itemHeight = captionItemHeight(authoredItemHeight, captionHeight, theme.fontScale);
   const committedSlots = useRef<NativeSlotProjection | undefined>(undefined);
@@ -156,7 +158,7 @@ function Grid<T>({collection, getKey, renderItem, renderPlaceholder, renderNativ
   const projectedSlots = nativeRows ? projectNativeSlots(committedSlots.current, collection, nativeSlotOwnerKey(collection), snapshot.generation,
     nativeRows.map(({slot, entityId}) => ({index: slot.index, entityId, waiting: slot.kind !== 'item'})), nativeSlotOwnerKey(pendingOpening.current)) : undefined;
   useLayoutEffect(() => {committedSlots.current = projectedSlots;}, [projectedSlots]);
-  return <Animated.ScrollView ref={anchor.scrollRef} testID={testID} style={[style, anchor.scrollStyle]}
+  return <Animated.ScrollView ref={anchor.scrollRef} testID={testID} style={[style, anchor.scrollStyle]} refreshControl={theme.isTV ? undefined : refreshControl}
     stickyHeaderIndices={stickyHeader ? [header ? 1 : 0] : undefined}
     onLayout={event => {captureBeforeLayout(); setViewport(event.nativeEvent.layout);}} onScroll={onScroll} scrollEventThrottle={16}
     onScrollBeginDrag={anchor.stop} onTouchStart={anchor.stop} scrollAnimationEnabled={false} removeClippedSubviews={false}>

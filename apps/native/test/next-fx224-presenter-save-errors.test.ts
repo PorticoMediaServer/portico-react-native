@@ -30,7 +30,7 @@ const runtimeValues = {
   maxConcurrentSessions: 0, maxHardwareSessions: 0, maxSoftwareSessions: 0, maxBackgroundSessions: 0,
   playHistoryDays: 0, 'home.communityActivityEnabled': false, 'updates.releaseChannel': 'stable', 'updates.feedUrl': '',
   'library.missingTitles': 'after_days', 'library.missingTitlesDays': 30, 'library.segmentDetection': 'standard',
-  remoteSignInPolicy: 'allow', remoteBitrateLimitKbps: 0, lanNetworks: [], accessUrls: [], lanDiscoveryEnabled: true, dlnaEnabled: false,
+  remoteSignInPolicy: 'allow', remoteBitrateLimitKbps: 0, lanNetworks: [], accessUrls: [], lanDiscoveryEnabled: true, dlnaEnabled: false, secureConnections: 'preferred',
   trustedProxies: [], uploadCapacityKbps: 0, pausedSessionTimeoutMinutes: 0, advertisedInterface: '', ownAddressEnabled: false,
   customCertificatePath: '', customCertificateKeyPath: '', customCertificateDomain: '', deviceApprovalRequired: false,
   connectionLimit: 0, advertiseUrl: '', apiRequestsPerMinute: 0, blockMemberAccessTokens: false, logLevel: 'info', logRetention: [],

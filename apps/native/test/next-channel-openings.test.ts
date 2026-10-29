@@ -21,7 +21,7 @@ function layoutHost() {
 }
 const source = (getSnapshot: () => any) => ({subscribe: () => () => {}, getSnapshot});
 const common = {'../../../../../../../packages/i18n/src': {defaultI18n: {t, date: String, dateTime: String, number: String}},
-  '../../../../kit/artwork': {ChannelMark: 'ChannelMark', Artwork: 'Artwork'}, '../../../../kit/controls': {Button: 'Button', Focusable: 'Focusable', Switch: 'Switch', Select: 'Select', TextField: 'TextField'},
+  '../../../../kit/artwork': {StandardBackdrop: 'StandardBackdrop', ChannelMark: 'ChannelMark', Artwork: 'Artwork'}, '../../../../kit/controls': {Button: 'Button', Focusable: 'Focusable', Switch: 'Switch', Select: 'Select', TextField: 'TextField'},
   '../../../../kit/overlays': {BottomSheet: 'BottomSheet', MenuRow: 'MenuRow'}, './presentation': presentation, '../../../../kit/shell/visual': {shellType: () => ({})}, '../../../../kit/theme': {useTheme: () => theme}};
 
 async function channelsFixture() {

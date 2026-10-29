@@ -3,7 +3,7 @@ import {ScrollView, Text, View, useWindowDimensions} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {ContentEntry} from '../../../../../packages/client-core/src/library-content';
 import {defaultI18n} from '../../../../../packages/i18n/src';
-import {AmbientArt, Artwork} from '../../kit/artwork';
+import {AmbientArt, Artwork, StandardBackdrop} from '../../kit/artwork';
 import {PosterCard, type CardSelection} from '../../kit/cards';
 import {CardFrame} from '../../kit/cards/primitives';
 import {SelectionCircle} from '../../kit/selection';
@@ -11,7 +11,7 @@ import {Button, Chip, Focusable} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
 import {WindowedGrid, WindowedRow} from '../../kit/layout';
 import {Menu, type MenuEntry} from '../../kit/overlays';
-import {StateView} from '../../kit/states';
+import {Quiet, StateView} from '../../kit/states';
 import {browseType} from '../../kit/browse/presentation';
 import {useTheme} from '../../kit/theme';
 import type {NativeShellRuntime} from '../../shell/runtime';
@@ -100,14 +100,14 @@ export function NativeCollectionScreen(props: NativeCollectionScreenProps) {
     {state.sorts.length > 1 && <Chip testID="collection-sort" onPress={() => setSortOpen(true)}>{sort ? sortLabel(sort) : defaultI18n.t('web.filters.sortBy')}</Chip>}
     {!compact && <View style={{flex: 1}}/>}
     {!tv && !compact && selection?.start && <Chip icon="i-check" onPress={() => selection.start?.()}>{t('next.selection.select')}</Chip>}
-    {state.phase === 'loading' ? <Text style={[browseType(theme, tv ? 22 : 13, 500), {color: theme.colors.textTertiary}]}>{t('status.loading')}</Text> : null}
+    {state.phase === 'loading' ? <Quiet><Text style={[browseType(theme, tv ? 22 : 13, 500), {color: theme.colors.textTertiary}]}>{t('status.loading')}</Text></Quiet> : null}
   </View>;
   const status: ReactNode = failed ? <StateView variant="inline" {...runtime.error(error, props.onRetry)}/>
-    : empty ? <StateView variant="inline" title={t('next.collection.empty')} body=""/>
+    : empty ? <StateView variant="inline" title={t('next.collection.empty')}/>
     // A failed page further along keeps the members already shown and offers to try again.
     : error ? <StateView variant="inline" {...runtime.error(error, props.onRetry)}/> : null;
   const placeholder = () => <View style={{flex: 1, borderRadius: compact ? 0 : 8, backgroundColor: compact ? 'transparent' : theme.colors.raised}}/>;
-  return <View style={{flex: 1, backgroundColor: theme.colors.ink}} testID="native-collection">
+  return <View style={{flex: 1}} testID="native-collection"><StandardBackdrop/>
     {!tv && <Focusable testID="collection-back" accessibilityLabel={t('action.back')} onPress={props.onBack} focusRadius={20}
       style={{position: 'absolute', left: 10, top: insets.top + 6, width: 40, height: 40, alignItems: 'center', justifyContent: 'center', zIndex: 5}}>
       <Icon name="i-left" size={22} color={theme.colors.text}/></Focusable>}
