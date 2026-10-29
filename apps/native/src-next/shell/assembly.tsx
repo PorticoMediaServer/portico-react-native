@@ -493,7 +493,7 @@ export function createNativeShellBindings(context: NativeShellBootstrapContext):
         if (result.error) throw failure(result.error.code);
       })} : {...common, owner: false as const};
     },
-    error: (error, retry, context = 'home') => feedback.error(error, retry, context),
+    error: (error, retry, context = 'generic') => feedback.error(error, retry, context),
     reportError, onDestination: destination => open({kind: 'shell', destination}),
     scrollToTop,
     stacks,

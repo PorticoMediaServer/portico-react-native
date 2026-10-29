@@ -69,7 +69,7 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
   const menu = await screenModule(new URL('../src-next/platform/tv-menu.ts', import.meta.url), {
     react: shared(back).react, 'react-native': shared(back)['react-native'], './tv-menu-policy': {createTVMenuPolicy},
   });
-  const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
+  const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {'../../shell/StartupBoot': {BootWaitLine: 'BootWaitLine'}, 
     '../../platform/tv-menu': menu,
     './tv-code-opening': tvCodeOpening,
     './tv-approval-credentials': tvApprovalCredentials, './tv-approval-finalization': tvApprovalFinalization,

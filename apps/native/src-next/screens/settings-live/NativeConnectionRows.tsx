@@ -60,7 +60,7 @@ export function NativeTestConnectionRow({context, t, lifetime, runtime}: NativeS
   return <View>
     <SettingsRow first testID="settings-test-connection" label={t('next.settingsSpec.account.device.advanced.groups.4.rows.2.label')} description={result}
       control={<Button testID="settings-test-connection-button" variant="glass" size="small" loading={busy} onPress={() => {void test();}}>{t('next.settingsSpec.account.device.advanced.groups.4.rows.2.control.label')}</Button>}/>
-    {error !== undefined && <StateView variant="inline" {...runtime.error(error, () => setError(undefined))}/>}
+    {error !== undefined && <StateView variant="inline" {...runtime.error(error, () => setError(undefined), 'settings')}/>}
   </View>;
 }
 
@@ -91,6 +91,6 @@ export function NativeInsecureConnectionsRow({context, t, runtime}: NativeSettin
     <Select testID={nativeInsecureConnectionsFocusId} focusId={nativeInsecureConnectionsFocusId} rowLabel={t('next.settingsSpec.account.device.advanced.groups.4.rows.3.label')}
       disabled={busy} value={choices.some(choice => choice === value) ? value : 'local'}
       options={choices.map(choice => ({value: choice, label: t(choiceLabel[choice])}))} onValueChange={next => {void apply(next);}}/>
-    {error !== undefined && <StateView variant="inline" {...runtime.error(error, () => setError(undefined))}/>}
+    {error !== undefined && <StateView variant="inline" {...runtime.error(error, () => setError(undefined), 'settings')}/>}
   </View>;
 }

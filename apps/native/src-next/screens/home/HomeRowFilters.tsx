@@ -52,7 +52,7 @@ export function HomeRowFilters({controller, runtime, onClose}: {controller: Nati
       const facet = facets[field.id];
       fields[field.id] = {...nativeRowFilterValues(field, draft), allowAll: field.operators.includes('contains-all'),
         showMatchMode: true, values: facet?.page ? orderFilterValues(field, facet.page.values) : [], status: facet?.status ?? 'loading', total: facet?.page?.total,
-        search: facet?.search ?? '', active, ...(facet?.error ? {statusLabel: runtime.error(facet.error, () => {void load(field, facet.search);}).body} : {})};
+        search: facet?.search ?? '', active, ...(facet?.error ? {statusLabel: runtime.error(facet.error, () => {void load(field, facet.search);}, 'home').body} : {})};
     } else if (control === 'toggle') fields[field.id] = {kind: 'toggle', value: typeof direct[0]?.value === 'boolean' ? direct[0].value : null, active};
     else if (control === 'choice') fields[field.id] = {kind: 'choice', value: typeof direct[0]?.value === 'string' ? direct[0].value : null,
       options: (field.allowedValues ?? []).map(value => ({value, label: browseValueLabel(value)})), active};

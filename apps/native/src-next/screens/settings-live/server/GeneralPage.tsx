@@ -100,7 +100,7 @@ function General({ports, runtime, compactHeader = false, group}: {ports: NativeS
     setBusy(true); setProblem(undefined);
     void restartServer(api).then(() => setRestarting(false), error => {setBusy(false); setProblem(presentError(error, 'server-console').body);});
   };
-  if (runtimeState.loadError !== undefined && !runtimeState.draft) return <StateView {...runtime.error(runtimeState.loadError, () => {void forms.runtime.load();})}/>;
+  if (runtimeState.loadError !== undefined && !runtimeState.draft) return <StateView {...runtime.error(runtimeState.loadError, () => {void forms.runtime.load();}, 'server-console')}/>;
   const draft = runtimeState.draft;
   return <View style={{flex: 1}}>
     <ScrollView contentContainerStyle={{...settingsPageInset(theme, compactHeader)}}>
@@ -112,7 +112,7 @@ function General({ports, runtime, compactHeader = false, group}: {ports: NativeS
       </View> : null}
       <Text style={[shellType(17, 800), {color: theme.colors.text, marginTop: 22}]}>{t('settings.server.updates')}</Text>
       {renderRow(settingsRowIndex.get('general.updateChecks')!.row)}
-      {configurationError !== undefined && <StateView variant="inline" {...runtime.error(configurationError, loadConfiguration)}/>}
+      {configurationError !== undefined && <StateView variant="inline" {...runtime.error(configurationError, loadConfiguration, 'server-console')}/>}
       {updateError !== undefined && !updates ? <StateView title={presentError(updateError, 'server-console').title} body={presentError(updateError, 'server-console').body} tone="error" primaryAction={{id: 'retry', label: t('action.tryAgain'), onPress: loadUpdates}}/> : null}
       {updates ? <View style={{marginTop: 8, borderRadius: 14, overflow: 'hidden', backgroundColor: theme.colors.raised}}>
         <View style={{paddingHorizontal: 14, paddingVertical: 11}}>
@@ -148,14 +148,14 @@ function General({ports, runtime, compactHeader = false, group}: {ports: NativeS
           if (Array.isArray(rows) && !rows.length) return null;
           return <View key={index} style={{gap: 8}}>{group.title && <Text style={[shellType(16, 700), {color: theme.colors.textSecondary}]}>{t(group.title)}</Text>}<View style={{borderRadius: 14, backgroundColor: theme.colors.raised, padding: 12, gap: 10}}>{rows}</View></View>;
         })}
-        {alertsState.loadError !== undefined && <StateView variant="inline" {...runtime.error(alertsState.loadError, () => {void forms.alerts.load();})}/>}
+        {alertsState.loadError !== undefined && <StateView variant="inline" {...runtime.error(alertsState.loadError, () => {void forms.alerts.load();}, 'server-console')}/>}
       </NativeAdvancedSection>
       {problem ? <Text accessibilityRole="alert" style={[shellType(13, 600), {color: theme.colors.record, marginTop: 10}]}>{problem}</Text> : null}
       {state.dirty ? <View style={{flexDirection: 'row', gap: 8, marginTop: 16}}>
         <Button variant="glass" disabled={state.saving} onPress={() => {set.discard(); setCustomUpdate(false); setCustomHeavyDraft(undefined);}}>{t('action.discard')}</Button>
         <Button loading={state.saving} disabled={Boolean(state.problem)} onPress={() => {void set.save();}}>{t('action.save')}</Button>
       </View> : null}
-      {state.saveError !== undefined && <StateView variant="inline" {...runtime.error(state.saveError, () => {void set.save();})}/>}
+      {state.saveError !== undefined && <StateView variant="inline" {...runtime.error(state.saveError, () => {void set.save();}, 'server-console')}/>}
       {state.problem ? <Text accessibilityRole="alert" style={[shellType(13, 600), {color: theme.colors.record, marginTop: 8}]}>{t(state.problem as MessageId)}</Text> : null}
     </ScrollView>
     <NativeBroadcastSheet ports={ports} runtime={runtime} open={messageOpen} onOpenChange={setMessageOpen}/>

@@ -66,12 +66,12 @@ function Storage({ports, runtime, compactHeader, group, onOpenPage}: {ports: Nat
         }}/>} 
       {maintenanceState.draft && <NativeBackupSchedule group={group} draft={maintenanceState.draft} saving={state.saving} t={t} placement="main" customDraft={customSchedule} onCustomDraftChange={setCustomSchedule} onAdvanced={() => setAdvanced(true)}/>}
     </BackupsTab>
-    {Object.entries(group.forms).map(([id, form]) => form.getSnapshot().loadError !== undefined && <StateView key={id} variant="inline" {...runtime.error(form.getSnapshot().loadError, () => {void form.load();})}/>)}
+    {Object.entries(group.forms).map(([id, form]) => form.getSnapshot().loadError !== undefined && <StateView key={id} variant="inline" {...runtime.error(form.getSnapshot().loadError, () => {void form.load();}, 'server-console')}/>)}
     {state.dirty && <View style={{flexDirection: 'row', gap: 8, marginTop: 16}}>
       <Button variant="glass" disabled={state.saving} onPress={() => {group.set.discard(); setCustomKeep(false); setCustomSchedule(undefined);}}>{t('action.discard')}</Button>
       <Button loading={state.saving} disabled={Boolean(state.problem)} onPress={() => {void group.set.save();}}>{t('action.save')}</Button>
     </View>}
     {state.problem && <Text accessibilityRole="alert" style={{color: theme.colors.record}}>{t(state.problem as MessageId)}</Text>}
-    {state.saveError !== undefined && <StateView variant="inline" {...runtime.error(state.saveError, () => {void group.set.save();})}/>}
+    {state.saveError !== undefined && <StateView variant="inline" {...runtime.error(state.saveError, () => {void group.set.save();}, 'server-console')}/>}
   </ScrollView></View>;
 }

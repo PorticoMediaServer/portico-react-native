@@ -39,7 +39,7 @@ export function Profiles({source, runtime}: {source: NativeMemberProfilesSource;
     </View>)}
     {state.loading && <StateView title={t('status.loading')}/>}
     {state.changed && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('error.changed')}</Text>}
-    {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {void source.load();})}/>}
+    {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {void source.load();}, 'server-console')}/>}
     {state.managing && <MemberProfileEditor key={`${state.managing.id}:${state.managing.revision}:${state.managing.restrictions.revision}`} source={source} profile={state.managing} runtime={runtime}/>}
   </View>;
 }
@@ -84,7 +84,7 @@ export function MemberProfileEditor({source, profile, runtime}: {source: NativeM
       {action?.kind === 'colour' && <ProfileColorPicker testID="people-profile-colours" value={art} disabled={state.busy} onChange={value => {if (current()) setArt(value);}}/>}
       {action?.kind === 'limits' && <ProfileRestrictionsFields draft={draft} systems={state.systems} disabled={state.busy} recordingLocked={source.context.account.account.role !== 'owner' && !profile.restrictions.allowDvr} current={current} onChange={patch => {if (current()) setDraft(value => ({...value, ...patch}));}}/>}
       {state.changed && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.textSecondary}]}>{t('error.changed')}</Text>}
-      {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {void source.load();})}/>}
+      {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {void source.load();}, 'server-console')}/>}
     </BottomSheet>
     <BottomSheet testID="people-profile-pin-confirmation" open={state.pinConfirmation?.profile === profile} title={t('profile.removePinConfirm.title', {name: profile.name})} description={t('profile.removePinConfirm.body', {name: profile.name})} onOpenChange={open => {if (!open) source.cancelRemovePIN();}}
       footer={<View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={state.busy} onPress={source.cancelRemovePIN}>{t('action.cancel')}</Button><Button testID="people-profile-confirm-remove-pin" variant="danger" disabled={state.busy} onPress={() => {void source.removePIN(profile, state.pinConfirmation);}}>{t('profile.removePin')}</Button></View>}><View/></BottomSheet>

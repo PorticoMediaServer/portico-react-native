@@ -18,7 +18,7 @@ async function boot(options: {os?: string; platform?: string; isPad?: boolean; r
   const theme = {platform: options.platform ?? 'phone', isTV: options.platform === 'tv', textScale: 1,
     colors: {ink: '#071018', text: '#edf5fa', textSecondary: '#bfcbd4', accentStrong: '#5cb3e2'}};
   const inert = {visible: true, interactive: false, root: true}, live = {...inert, interactive: true};
-  const {StartupBoot} = await screenModule(new URL('../src-next/shell/StartupBoot.tsx', import.meta.url), {
+  const {StartupBoot} = await screenModule(new URL('../src-next/shell/StartupBoot.tsx', import.meta.url), {'./startup-recovery': {startupWait}, 
     react: {...React, default: React},
     'react-native': {Image: 'Image', Text: 'Text', View: 'View', Platform: {OS: options.os ?? 'ios', isPad: options.isPad},
       StyleSheet: {absoluteFillObject: {position: 'absolute', inset: 0}}, Easing: {linear: (value: number) => value, bezier: (...values: number[]) => values},

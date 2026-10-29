@@ -41,7 +41,7 @@ function Segments({ports, runtime, group}: {ports: NativeSettingsLivePorts; runt
   };
   const section = settingsSpec.find(section => section.scope === 'server' && section.id === 'segments');
   const save = () => {if (current() && !invalid.size) void set.save();};
-  if (settings.loadError !== undefined && !settings.draft) return <StateView {...runtime.error(settings.loadError, () => {void forms.runtime.load();})}/>;
+  if (settings.loadError !== undefined && !settings.draft) return <StateView {...runtime.error(settings.loadError, () => {void forms.runtime.load();}, 'server-console')}/>;
   return <ScrollView style={{flex: 1}} contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 32}}>
     {settings.draft && renderRow(settingsRowIndex.get('segments.mode')!.row)}
     {ports.renderSettingsPanel('server.segments', runtime)}
@@ -56,6 +56,6 @@ function Segments({ports, runtime, group}: {ports: NativeSettingsLivePorts; runt
       <Button loading={state.saving} disabled={Boolean(state.problem) || invalid.size > 0} onPress={save}>{t('action.save')}</Button>
     </View>}
     {state.problem && <StateView title={t(state.problem as MessageId)} tone="error"/>}
-    {settings.saveError !== undefined && <StateView {...runtime.error(settings.saveError, save)}/>}
+    {settings.saveError !== undefined && <StateView {...runtime.error(settings.saveError, save, 'server-console')}/>}
   </ScrollView>;
 }

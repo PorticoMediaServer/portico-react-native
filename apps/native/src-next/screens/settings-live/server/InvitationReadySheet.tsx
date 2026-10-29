@@ -105,8 +105,8 @@ export function InvitationReadySheet({source, opening, runtime, serverName, sign
       {code.phase === 'ready' && <Text style={caption}>{t('web.access.shortCodeShownOnce')}</Text>}
       {code.phase === 'idle' && <Text style={caption}>{t('web.access.shortCodeHelp')}</Text>}
       {code.phase !== 'issuing' && <Button testID="invitation-new-code" variant="glass" icon="i-plus" onPress={() => {if (current()) void issuer.issue(true, run);}}>{t('web.access.newShortCode')}</Button>}
-      {code.phase === 'failed' && <StateView variant="inline" {...runtime.error(code.error, () => {void issuer.retry(run);})}/>}
-      {failure !== undefined && <StateView variant="inline" {...runtime.error(failure, () => {setFailure(undefined);})}/>}
+      {code.phase === 'failed' && <StateView variant="inline" {...runtime.error(code.error, () => {void issuer.retry(run);}, 'server-console')}/>}
+      {failure !== undefined && <StateView variant="inline" {...runtime.error(failure, () => {setFailure(undefined);}, 'server-console')}/>}
     </View>
     {picture && <View pointerEvents="none" style={{position: 'absolute', left: -10000, top: 0}}><InvitationPicture ref={svg} picture={picture}/></View>}
   </BottomSheet>;

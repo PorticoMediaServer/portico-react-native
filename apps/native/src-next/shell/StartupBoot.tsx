@@ -6,7 +6,7 @@ import {ColourBackdrop} from '../kit/artwork';
 import {nativeType, useTheme} from '../kit/theme';
 import {useMotion} from '../kit/useMotion';
 import {OVERLAY_PAINT_INERT, OVERLAY_PAINT_LIVE, OverlayPaintProvider} from '../kit/overlays/OverlayPaintContext';
-import type {NativeStartupWait} from './startup-recovery';
+import {startupWait, type NativeStartupWait} from './startup-recovery';
 
 /** DESIGN's boot picture. The destination mounts in place beneath the departing
  * layer; a ready result is never held for a minimum spinner or wordmark time. */
@@ -76,6 +76,33 @@ export function StartupBoot({active, waiting, serverName, children, onHidden}: {
         </View>
       </Animated.View>
     </Animated.View>}
+  </View>;
+}
+
+/** boot.html §3 for a wait that happens on a screen of its own (the profile pick, E-mobile-01):
+ * the same ring at 1 s, "Connecting to {server}" at 3 s and "still connecting" at 8 s, in place,
+ * under the screen's content. Nothing shows for a pick that answers within a second. */
+export function BootWaitLine({active, serverName, testID}: {active: boolean; serverName?: string; testID?: string}) {
+  const theme = useTheme(), [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!active) {setElapsed(0); return;}
+    const timers = [1_000, 3_000, 8_000].map(at => setTimeout(() => setElapsed(at), at));
+    return () => timers.forEach(clearTimeout);
+  }, [active]);
+  const waiting = startupWait(active ? elapsed : 0);
+  const phone = theme.platform === 'phone', tv = theme.isTV;
+  const diameter = tv ? 64 : phone ? 28 : 32, stroke = tv ? 5 : phone ? 2.5 : 3, messageGap = tv ? 32 : phone ? 18 : 20, size = tv ? 32 : phone ? 15 : 17;
+  const connecting = serverName ? defaultI18n.t('web.chooser.connecting', {server: serverName}) : defaultI18n.t('next.boot.connecting');
+  const stillConnecting = defaultI18n.t('next.boot.stillConnecting');
+  const message = waiting.message === 'still-connecting' ? stillConnecting : waiting.message === 'connecting' ? connecting : '';
+  useEffect(() => {if (active && message && Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(message);}, [active, message]);
+  if (!active) return null;
+  return <View testID={testID} accessible={!!message} accessibilityLiveRegion="polite" accessibilityLabel={message || undefined} style={{alignItems: 'center', marginTop: tv ? 48 : 28}}>
+    <BootSpinner shown={waiting.spinner} size={diameter} stroke={stroke}/>
+    <View style={{alignSelf: 'stretch', marginTop: messageGap, minHeight: size * 1.45 * 2}}>
+      <BootMessage visible={waiting.message === 'connecting'} size={size}>{connecting}</BootMessage>
+      <BootMessage visible={waiting.message === 'still-connecting'} size={size}>{stillConnecting}</BootMessage>
+    </View>
   </View>;
 }
 

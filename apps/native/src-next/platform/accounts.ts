@@ -9,7 +9,8 @@ import {nativeNetworkFetch, nativeServerEnvironment} from './server-connections'
 import {createCredentials} from './credentials';
 import {createNativeAccountClient} from './account-client';
 import {TVConsentApprover, type TVConsentAuthority} from '../../../../packages/client-core/src/tv-consent';
-import {forgetSessionRoute, sessionRoute} from '../../../../packages/client-core/src/route-connection';
+import {forgetSessionRoute, sessionRoute, type RouteConnection} from '../../../../packages/client-core/src/route-connection';
+import {revokeInBackground} from './session-revocation';
 import {forgetStoredNativeServer, type NativeServerBinding} from './forget-server';
 import {hostedUrl} from './account-authority';
 import {routePath as hostedPath} from '../../../../packages/contracts/src/hosted/routes';
@@ -18,6 +19,8 @@ import {readNativeServerDisplays, rememberNativeServerDisplay} from './server-di
 
 /** Headless native account/session owner. No Hosted credential is opened for local-only use.
  * Views receive server ids, verified names and localization keys, never bearer/refresh tokens. */
+/** Every step between an accepted profile pick and Home that talks to the server is bounded. */
+export const POST_PICK_TIMEOUT_MS = 5000;
 export class NativeAccounts {
   readonly probe = new ServerSignInProbe(nativeNetworkFetch);
   private credentials?: ReturnType<typeof createCredentials>;
@@ -56,12 +59,18 @@ export class NativeAccounts {
     const generation = this.generation; this.assertCurrent(generation);
     if (!current()) throw Object.assign(new Error('native_sign_in_cancelled'), {name: 'AbortError'});
     const env = nativeServerEnvironment(session.viewer.serverId, admission);
-    const me = await api.me(); this.assertCurrent(generation);
+    // Bounded: these reads go over the live route that just served the sign-in.
+    const bound = new AbortController(), timer = setTimeout(() => bound.abort(), POST_PICK_TIMEOUT_MS);
+    let me: Awaited<ReturnType<HttpLocalApi['me']>>;
+    try {me = await api.me(bound.signal);} finally {clearTimeout(timer);}
+    this.assertCurrent(generation);
     if (!current()) throw Object.assign(new Error('native_sign_in_cancelled'), {name: 'AbortError'});
     if ((['serverId', 'accountId', 'profileId', 'authority', 'role'] as const).some(key => me.viewer[key] !== session.viewer[key]))
       throw Object.assign(new Error('native_viewer_mismatch'), {code: 'identity_mismatch'});
-    await rememberNativeServerDisplay(api, {serverId: session.viewer.serverId, signIn: admission.signIn,
-      isCurrent: () => !this.disposed && generation === this.generation && current()});
+    const displayBound = new AbortController(), displayTimer = setTimeout(() => displayBound.abort(), POST_PICK_TIMEOUT_MS);
+    // The display name is a convenience: a slow answer never holds the way to Home.
+    await rememberNativeServerDisplay(api, {serverId: session.viewer.serverId, signIn: admission.signIn, signal: displayBound.signal,
+      isCurrent: () => !this.disposed && generation === this.generation && current()}).catch(error => {if (!displayBound.signal.aborted) throw error;}).finally(() => clearTimeout(displayTimer));
     this.assertCurrent(generation);
     const previous = (await nativeAppSessions.read()).servers.find(value => value.connection.pin.serverId === session.viewer.serverId);
     this.assertCurrent(generation);
@@ -74,7 +83,15 @@ export class NativeAccounts {
   }
   /** Called after the candidate has taken durable ownership, so a cleanup failure can never
    * send the caller down its unpublished-candidate rollback path. */
-  retireReplacedServerSession(previous: AppServerSession | undefined) {return previous ? this.revoke([previous]) : Promise.resolve();}
+  /** E-mobile-01: the replaced session has already left the session store. Ending it on the server
+   * is queued and tried in the background over the route that just served the sign-in (`live`),
+   * never its stored routes, so the way to Home never waits on another host. */
+  retireReplacedServerSession(previous: AppServerSession | undefined, live?: RouteConnection) {
+    if (!previous) return Promise.resolve();
+    forgetSessionRoute(previous.connection.session.accessToken);
+    void revokeInBackground(previous.connection, live);
+    return Promise.resolve();
+  }
   async switchServer(serverId: string) {
     this.assertCurrent(); const state = await nativeAppSessions.read(); this.assertCurrent();
     if (!state.servers.some(value => value.connection.pin.serverId === serverId)) throw Object.assign(new Error('native_server_unavailable'), {code: 'cancelled'});

@@ -173,9 +173,9 @@ export function NativeRecordingOwner({controller, recordings, runtime, sources}:
     finally {if (current()) {operationRef.current = undefined; setBusy('');} else if (operationRef.current === flight) operationRef.current = undefined;}
   };
   if (!admission || !admission.live || admission.facts !== facts || dataAdmission !== admission) return null;
-  if (error !== undefined && !tuners && !policy) return <View style={{paddingHorizontal: 20, paddingTop: 20}}><StateView testID="live-owner-recording-error" {...runtime.error(error, () => void reload())}/></View>;
+  if (error !== undefined && !tuners && !policy) return <View style={{paddingHorizontal: 20, paddingTop: 20}}><StateView testID="live-owner-recording-error" {...runtime.error(error, () => void reload(), 'live')}/></View>;
   return <View style={{paddingHorizontal: 20, paddingTop: 18, gap: 26}}>
-    {error !== undefined && <StateView testID="live-owner-recording-error" {...runtime.error(error, () => void reload())}/>}
+    {error !== undefined && <StateView testID="live-owner-recording-error" {...runtime.error(error, () => void reload(), 'live')}/>}
     <Section title={t('web.dvrSettings.tuners')} description={tuners ? t('web.dvrSettings.tunersLede', {hours: tuners.upcomingWindowHours}) : undefined}>
       {tuners?.sources.map(source => <TunerCard key={source.sourceId} source={source} runtime={runtime}/>)}
       {tuners && !tuners.sources.length && <Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{t('web.dvrSettings.noTuners')}</Text>}
@@ -484,7 +484,7 @@ export function NewRuleSheet({controller, runtime, policy, sources, ownerCursor,
   return <Dialog open={open} onOpenChange={value => {if (sheetCurrent()) onOpenChange(value);}} title={t('web.recordingRules.newTitle')} initialFocusRef={cancel} testID="live-owner-new-rule-sheet"
     footer={<View style={{flexDirection: 'row', gap: 10}}><Button ref={cancel} variant="glass" disabled={busy} onPress={() => {if (sheetCurrent()) onOpenChange(false);}}>{t('action.cancel')}</Button><Button variant="primary" loading={busy} disabled={!ready || ownerLoading || ownLoading} onPress={() => void save()}>{t('action.save')}</Button></View>}>
     <View style={{gap: 12}}>
-      {error !== undefined && <StateView testID="live-owner-new-rule-error" {...runtime.error(error, () => setError(undefined))}/>}
+      {error !== undefined && <StateView testID="live-owner-new-rule-error" {...runtime.error(error, () => setError(undefined), 'live')}/>}
       <TextField testID="live-owner-new-rule-name" label={t('web.recordingRules.ruleName')} value={name} maxLength={160} onChangeText={setName}/>
       <Select testID="live-owner-new-rule-owner" label={t('web.recordingRules.recordFor')} pickerContext={(policy ? ownerCursor : ownPolicy?.nextCursor) ? <Button testID="live-owner-picker-more" focusId="live-owner-picker-more" disabled={ownerLoading || ownLoading || busy} onPress={policy ? onMoreOwners : () => void loadOwnOwners()}>{t((policy ? ownerError : ownError) ? 'next.states.tryAgain' : 'next.settings.loadMore')}</Button> : undefined} value={owner} options={[{value: '', label: t('web.recordingRules.chooseProfile')}, ...allowed.map(value => ({value: recordingOwnerKey(value.owner), label: recordingOwnerLabel(value)}))]} onValueChange={setOwner}/>
       {!allowed.length && <Text style={[shellType(13), {color: theme.colors.amber}]}>{t('web.recordingRules.allowFirst')}</Text>}

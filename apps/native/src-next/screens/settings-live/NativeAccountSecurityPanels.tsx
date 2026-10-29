@@ -189,7 +189,7 @@ export function NativeAccountSecurityPanel({kind, context, lifetime, t, runtime,
     footer: <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>{!codes && <Button variant="glass" disabled={busy} onPress={cancel}>{t(device ? 'action.back' : 'action.cancel')}</Button>}{actions}</View>,
   };
   const content = <View style={{gap: 12}}>
-    {error !== undefined && <StateView testID="account-security-error" {...runtime.error(error, () => {if (current(held)) setError(undefined);})}/>}
+    {error !== undefined && <StateView testID="account-security-error" {...runtime.error(error, () => {if (current(held)) setError(undefined);}, 'account')}/>}
     {busy && !factor && !devices && bodyText(t('status.loading'))}
     {!busy && error !== undefined && !factor && !devices && <Button onPress={() => {if (current(held)) load(held);}}>{t('action.tryAgain')}</Button>}
     {body}{copied && bodyText(t('api.credential.copied'))}
@@ -290,7 +290,7 @@ export function NativeAccessTokensPanel({context, lifetime, t, runtime}: NativeS
   const title = receipt ? t('api.tokens.copyTitle') : view === 'create' ? t('api.tokens.createTitle') : view === 'revoke' ? t('web.access.revokeTitle', {name: revoking?.name ?? ''}) : t('api.tokens.title');
   const bodyText = (value: string) => <Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary}]}>{value}</Text>;
   const retry = () => {if (current(held)) {setError(undefined); load(held);}};
-  const failure = error !== undefined ? <StateView testID="access-token-error" {...runtime.error(error, retry)}/> : null;
+  const failure = error !== undefined ? <StateView testID="access-token-error" {...runtime.error(error, retry, 'account')}/> : null;
   const scopeRow = (scope: ApiScope) => <Switch key={scope} testID={`access-token-scope-${scope}`} checked={ticked.has(scope)} disabled={busy} description={t(`api.scope.${scope}.help` as MessageId)} onCheckedChange={() => toggleScope(scope)}>{t(`api.scope.${scope}` as MessageId)}</Switch>;
   const content = view === 'list'
     ? <View style={{gap: 12}}>{failure}

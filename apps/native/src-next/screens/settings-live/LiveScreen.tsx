@@ -425,8 +425,8 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
           })}
           <Text style={[shellType(theme.isTV ? 18 : 12), {color: theme.colors.textTertiary}]}>{t('guide.reminderSet')}</Text>
         </View>}
-        {recordError !== undefined && programmeGroup('record-error', <StateView testID="live-record-error" {...runtime.error(recordError, () => setRecordError(undefined))}/>, undefined, true)}
-        {state.mutationError !== undefined && programmeGroup('preference-error', <StateView testID="live-channel-preference-error" {...runtime.error(state.mutationError, favorite)}/>, undefined, true)}
+        {recordError !== undefined && programmeGroup('record-error', <StateView testID="live-record-error" {...runtime.error(recordError, () => setRecordError(undefined), 'live')}/>, undefined, true)}
+        {state.mutationError !== undefined && programmeGroup('preference-error', <StateView testID="live-channel-preference-error" {...runtime.error(state.mutationError, favorite, 'live')}/>, undefined, true)}
   </View> : null;
   const programmeFocusBody = theme.isTV && programmeBody ? <FocusRegion id={programmeRegion} entryRegion={`${programmeRegion}.${programmeGroups[0]}`} stops={{up: true, down: true, left: true, right: true}}>{programmeBody}</FocusRegion> : programmeBody;
   return <Screen title={!theme.isTV && !phoneChrome ? t('search.chip.liveTV') : undefined} style={theme.isTV ? {paddingTop: 56, paddingRight: 8} : phoneChrome ? {paddingTop: insets.top + (landscape ? 0 : 14)} : undefined}>
@@ -455,7 +455,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
         {filterChips}
       </FocusRegion>}
       {stackedHeader && <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingHorizontal: compact ? 20 : 0}}>{view === 'guide' ? dayPicker : <View style={{flexDirection: 'row', gap: 6, alignItems: 'center'}}><Text style={[shellType(13, 700), {color: theme.colors.text}]}>{t('guide.onNow')}</Text><Text style={[shellType(13), {color: theme.colors.textSecondary}]}>{clock(now)}</Text></View>}{sortPicker}</View>}
-      {state.error !== undefined ? <StateView {...runtime.error(state.error, () => {void controller.loadSources();})}/> : empty ? <StateView testID="live-no-sources" title={t(managesServer ? 'web.live.empty.noSourcesOwnerTitle' : 'web.live.empty.noSourcesTitle')}
+      {state.error !== undefined ? <StateView {...runtime.error(state.error, () => {void controller.loadSources();}, 'live')}/> : empty ? <StateView testID="live-no-sources" title={t(managesServer ? 'web.live.empty.noSourcesOwnerTitle' : 'web.live.empty.noSourcesTitle')}
         body={t(managesServer ? 'next.states.setupLiveBody' : 'web.live.empty.noSourcesMember')}
         primaryAction={managesServer ? {id: 'add-source', label: t('next.states.addTVSource'), icon: 'i-plus', disabled: theme.isTV && !managementUrl, onPress: () => openManagement('add')}
           : {id: 'home', label: t('next.states.goHome'), onPress: () => runtime.onDestination({kind: 'home'})}}
@@ -477,7 +477,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
         {view === 'guide' && (inNowSpan || panActive) && <View pointerEvents="none" style={{position: 'absolute', left: channelWidth, right: 0, top: 0, bottom: theme.isTV ? 60 : 0, overflow: 'hidden'}}><Animated.View style={[{position: 'absolute', left: nowX, top: 0, bottom: 0, width: theme.isTV ? 3 : 2, backgroundColor: `${theme.colors.accentStrong}88`}, nowShift]}><Animated.View style={[{position: 'absolute', top: theme.isTV ? 0 : 4, width: 60, height: theme.isTV ? 30 : 22, alignItems: 'center', justifyContent: 'center', borderRadius: theme.isTV ? 6 : 4, backgroundColor: theme.colors.accentStrong}, nowPillShift]}><Text style={[shellType(theme.isTV ? 20 : 12, 800), {color: theme.colors.ink}]}>{clock(now)}</Text></Animated.View></Animated.View></View>}
         {phone && view === 'guide' && <>{(['earlier', 'later'] as const).map(direction => <Animated.View key={direction} style={[{position: 'absolute', top: 3, ...(direction === 'earlier' ? {left: channelWidth + 3} : {right: 3})}, direction === 'earlier' ? earlierNow : laterNow]}><Focusable testID={`live-docked-now-${direction}`} accessibilityRole="button" accessibilityLabel={t(direction === 'earlier' ? 'guide.nowEarlier' : 'guide.nowLater')} onPress={goNow} style={{height: 24, paddingHorizontal: 9, borderRadius: 12, backgroundColor: theme.colors.accentStrong, flexDirection: 'row', gap: 1, alignItems: 'center'}}>{direction === 'earlier' && <Icon name="i-left" size={14} color={theme.colors.ink}/>}<Text style={[shellType(12, 800), {color: theme.colors.ink}]}>{t('guide.now')}</Text>{direction === 'later' && <Icon name="i-right" size={14} color={theme.colors.ink}/>}</Focusable></Animated.View>)}</>}
         </View></GestureDetector>
-        {data.channelsError && <StateView {...runtime.error(new Error('guide_channels_unavailable'), () => guide.reset())}/>}
+        {data.channelsError && <StateView {...runtime.error(new Error('guide_channels_unavailable'), () => guide.reset(), 'live')}/>}
       </>}
     </View>
     {twoPane && <View testID="live-programme-pane" style={{position: 'absolute', left: paneLeft, right: 0, top: 0, bottom: 0, backgroundColor: theme.colors.ink,
@@ -493,7 +493,7 @@ export function NativeLiveScreen({controller, recordings, owner, ports, runtime}
       {programmeFocusBody}
     </Dialog>
     <Menu testID="live-channel-menu" open={!!channelMenu && channelMenu.scope === scopeKey} onOpenChange={open => {if (!open) setChannelMenu(undefined);}} title={channelMenu?.channel.name} anchorRef={channelMenuAnchor} returnFocusRef={channelMenuAnchor} touchContext
-      footer={channelMenu && channelMenuError !== undefined ? <StateView {...runtime.error(channelMenuError, () => setChannelMenuError(undefined))}/> : undefined}
+      footer={channelMenu && channelMenuError !== undefined ? <StateView {...runtime.error(channelMenuError, () => setChannelMenuError(undefined), 'live')}/> : undefined}
       items={channelMenu ? [
         ...nativeChannelMenuEntries(channelMenu.channel, legacyChannel(channelMenu.channel)?.serverHidden === true, ports.context.account.account.role === 'owner', t, theme.isTV)
           .map(entry => ({...entry, disabled: channelMenuBusy || state.mutating, closeOnSelect: false, onSelect: () => changeChannel(entry.id)})),

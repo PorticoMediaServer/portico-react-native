@@ -11,6 +11,8 @@ import type {DirectSnapshot} from '../../../../packages/client-core/src/profile-
 import {IdentityClient} from '../../../../packages/client-core/src/identity-client';
 import {currentPreferenceSnapshot, type PreferenceSnapshot} from '../../../../packages/client-core/src/preferences';
 import {parseLibraryList} from '../../../../packages/client-core/src/library-list';
+import {purgeStaleRoutes} from '../platform/stale-routes';
+import {drainRevocations} from '../platform/session-revocation';
 import {LocalSessionRefresher} from '../../../../packages/client-core/src/session-refresh';
 import {EventsClient} from '../../../../packages/client-core/src/playback-v1/events';
 import {localV1Http} from '../../../../packages/client-core/src/playback-v1/local-http';
@@ -26,7 +28,7 @@ import {bindNativeDeviceSettings, nativeDeviceSettings} from '../platform/device
 import {bindNativeServerPreferences} from '../platform/server-preferences';
 import {rememberNativeServerDisplay} from '../platform/server-display';
 import {readNativeServerDisplays} from '../platform/server-display';
-import {nativeAppSessions} from '../platform/app-session-storage';
+import {nativeAppSessions, nativeAppSessionStorage} from '../platform/app-session-storage';
 import {nativeAccounts} from '../platform/accounts';
 import {hostedUrl} from '../platform/account-authority';
 import {nativeSignInEnded, rememberNativeSignInHint, type NativeSignInHint, type NativeSignInEnded, readNativeSignInHint} from '../platform/sign-in-ended';
@@ -163,6 +165,9 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     if (!saved.viewer) {dispose(); return undefined;}
     const original = saved.viewer; originalExpiresAt = original.session.expiresAt;
     nativeShellDirectViewer(original.session.viewer);
+    // E-mobile-01: routes to the retired `c-…` direct names can never answer; forget them once.
+    const beforePurge = await nativeAppSessions.read(); assertCurrent();
+    if (purgeStaleRoutes(beforePurge) !== beforePurge) {await nativeAppSessionStorage.change(record => purgeStaleRoutes(record)).catch(() => {}); assertCurrent();}
     const selected = await nativeAppSessions.selected(); assertCurrent();
     if (!selected || !sameViewer(original.session, selected.connection.session) || selected.connection.logicalOrigin !== original.serverUrl) throw cancelled();
     const [display] = await readNativeServerDisplays([selected]); assertCurrent();
@@ -173,6 +178,9 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
     const hostedCredentials = connection?.hosted?.origin === hostedUrl ? () => nativeAccounts.accountCredentials() : undefined;
     const restored = await restoreNativeConnection(connection?.hosted?.origin ?? original.serverUrl, hostedCredentials, original.session, env, signal.signal);
     api = restored?.api; assertCurrent();
+    // Sessions this device replaced are ended over the route that is live now (bounded, background).
+    const liveRoute = api?.getRouteConnection();
+    if (liveRoute) void drainRevocations(liveRoute.pin.serverId, liveRoute).catch(() => {});
     if (!restored || !sameViewer(original.session, restored.session)) throw Object.assign(new Error('native_viewer_changed'), {code: 'identity_mismatch'});
     const reread = await readNativeSelectedViewer(); assertCurrent();
     if (!reread || reread.serverUrl !== original.serverUrl || !sameViewer(reread.session, restored.session)) throw cancelled();

@@ -42,7 +42,7 @@ test('the phone sign-in picker offers the account recovery, keeps its own operat
     profileRecovery(id: string) {calls.push(`recovery:${id}`); return controller();}
     dispose() {calls.push('dispose');}
   }
-  const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
+  const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {'../../shell/StartupBoot': {BootWaitLine: 'BootWaitLine'}, 
     '../../platform/tv-menu': {useTVMenuCapture() {}},
     './tv-code-opening': tvCodeOpening,
     // The real TV approval and invitation modules are loaded, so an unexpected
@@ -166,7 +166,7 @@ test('a wrong profile PIN uses the profile error context and clears the boxes', 
     profileRecovery() {throw new Error('unexpected');}
     dispose() {}
   }
-  const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
+  const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {'../../shell/StartupBoot': {BootWaitLine: 'BootWaitLine'}, 
     '../../platform/tv-menu': {useTVMenuCapture() {}},
     './tv-code-opening': tvCodeOpening,
     // The real TV approval and invitation modules are loaded, so an unexpected

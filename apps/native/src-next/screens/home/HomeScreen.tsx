@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {AppState, RefreshControl, Text, View, useWindowDimensions, type ViewProps} from 'react-native';
+import {AppState, RefreshControl, ScrollView, Text, View, useWindowDimensions, type ViewProps} from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Animated, {cancelAnimation, runOnJS, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, withTiming, type LayoutAnimationFunction} from 'react-native-reanimated';
 import {useMotion} from '../../kit/useMotion';
 import {heroSpec} from '@portico/design';
@@ -34,7 +35,7 @@ import {nativeType, useTheme, type Theme} from '../../kit/theme';
 import {homeActionDiagnostics} from '../../platform/home-action-diagnostics';
 import type {NativeShellRuntime} from '../../shell/runtime';
 import {MusicMixesRow} from '../destinations/music/MusicMixesRow';
-import {sameAuthority, type ShellAuthority} from '../../shell/model';
+import {phoneHeaderGeometry, sameAuthority, type ShellAuthority} from '../../shell/model';
 import {HomeHeroFacts, HomeRemoteHint} from './HomeHeroFacts';
 import {authorizedHome, homeCardText, homePlayTarget, homeRowHasContent, pageAtVisibleEnd, platformRows} from './model';
 import {TvHomeRecovery} from './TvHomeRecovery';
@@ -132,7 +133,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const registry = useFocusRegistry();
   const ids = useMemo(() => tvFocusIds(authority), [authority]);
   const homeCardFocusId = useCallback((item: HomeCardModel) => ids.entry(item.entry), [ids]);
-  const theme = useTheme(), dimensions = useWindowDimensions(), t = runtime.text.t;
+  const theme = useTheme(), dimensions = useWindowDimensions(), t = runtime.text.t, insets = useSafeAreaInsets();
   const labels = useMemo(() => ({t, has: defaultI18n.has}), [t]);
   const desktop = theme.layoutMode === 'desktop', medium = theme.platform === 'tablet' && !theme.isTV;
   const expandedTouch = desktop && !theme.isTV;
@@ -410,7 +411,10 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     focus={theme.isTV && mixesRegion ? {id: mixesRegion.id, up: mixesRegion.edges.up!, down: mixesRegion.edges.down, left: ids.rail} : undefined}/> : null;
   if (!document) return recovery.visible && recovery.session
     ? <TvHomeRecovery session={recovery.session} onRetryNow={recovery.retryNow} onSwitchServer={recovery.switchServer} connectionFacts={runtime.connectionFacts}/>
-    : snapshot.error ? <StateView {...runtime.error(snapshot.error, () => guarded(() => {void runtime.home.retry();}))}/>
+    // E-mobile-03/04: a full page below the status bar and header that scrolls, so large text never clips its actions.
+    : snapshot.error ? theme.isTV ? <StateView {...runtime.error(snapshot.error, () => guarded(() => {void runtime.home.retry();}), 'home')}/>
+      : <ScrollView testID="home-error-page" contentContainerStyle={{flexGrow: 1, justifyContent: 'center', paddingTop: phoneHeaderGeometry(insets.top, false).height, paddingBottom: homeContentBottom(theme, bottomInset)}}>
+        <StateView variant="centered" {...runtime.error(snapshot.error, () => guarded(() => {void runtime.home.retry();}), 'home')}/></ScrollView>
     : <LoadingPaint ready={false} quietMs={0} skeleton={<HomeSkeleton elapsedMs={loadingElapsed} visible={active && foreground}/>}/>;
   // A resolved actionless TV page has no action region. Keep the independent
   // mixes reader mounted: it paints nothing until it has a real offered row.

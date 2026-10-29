@@ -44,7 +44,7 @@ export function NativeServerSignIn({ports, runtime, compactHeader = false, onOpe
   return <ScrollView testID="server-signin" contentContainerStyle={{...settingsPageInset(theme, compactHeader), gap: 14}}>
     <ServerHeader serverName={context.serverName} viewerRole="owner" audience="owner" variant="phone"/>
     {!compactHeader && <Text accessibilityRole="header" style={[settingsPageHeading(theme), {color: theme.colors.text}]}>{t('next.settingsSpec.server.signin.title')}</Text>}
-    {error !== undefined && <StateView variant="inline" {...runtime.error(error, refresh)}/>}
+    {error !== undefined && <StateView variant="inline" {...runtime.error(error, refresh, 'server-console')}/>}
     {!value && error === undefined && <Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary}]}>{t('next.settings.loading')}</Text>}
     {value && <>
       <View style={{backgroundColor: theme.colors.raised, borderRadius: 14, overflow: 'hidden'}}>

@@ -113,7 +113,7 @@ const bootModules: Record<string, Record<string, unknown>> = {
   '../platform/device-settings': {bindNativeDeviceSettings: noop, nativeDeviceSettings: () => ({read: noop})},
   '../platform/server-preferences': {bindNativeServerPreferences: noop},
   '../platform/server-display': {rememberNativeServerDisplay: async () => ({name: 'Server'}), readNativeServerDisplays: async () => [{name: 'Server'}]},
-  '../platform/app-session-storage': {nativeAppSessions: {selected: async () => selected()}},
+  '../platform/app-session-storage': {nativeAppSessions: {selected: async () => selected(), read: async () => undefined}, nativeAppSessionStorage: {change: async () => {}}},
   '../platform/accounts': {nativeAccounts: {}}, '../platform/account-authority': {hostedUrl: 'https://services.invalid'},
   '../platform/sign-in-ended': {nativeSignInEnded: noop, rememberNativeSignInHint: async () => {}, readNativeSignInHint: async () => undefined},
   '../platform/identity-failure': {nativeIdentityFailure: noop, nativeRouteIdentityFailure: noop},

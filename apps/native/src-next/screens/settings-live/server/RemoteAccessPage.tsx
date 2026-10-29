@@ -54,7 +54,7 @@ function RemoteAccessPage({group, ports, runtime, compactHeader}: {group: Storag
   const remote = remoteState.draft, connectivity = connectivityState.draft;
   const certificate = certificateState.status;
   const failed = connectivityState.loadError;
-  if (failed !== undefined && !connectivity) return <StateView {...runtime.error(failed, () => {void forms.remote.load(); void forms.connectivity.load(); void forms.certificate.load();})}/>;
+  if (failed !== undefined && !connectivity) return <StateView {...runtime.error(failed, () => {void forms.remote.load(); void forms.connectivity.load(); void forms.certificate.load();}, 'server-console')}/>;
   if (!connectivity) {
     if (connectivityState.unavailable) return <StateView title={t('settings.server.remote.notSetUp')}/>;
     return <StateView title={t('status.loading')}/>;
@@ -99,8 +99,8 @@ function RemoteAccessPage({group, ports, runtime, compactHeader}: {group: Storag
             {certificateProblem && <Button testID="remote-services-retry" variant="glass" size="compact" disabled={state.saving || state.dirty || !certificateState.draft.enabled} loading={retrying} onPress={() => {void retry();}}>{t('action.tryAgain')}</Button>}
           </View>
         </>}
-        {certificateState.loadError !== undefined && !!context.account.account.hostedAccountId && <StateView variant="inline" {...runtime.error(certificateState.loadError, () => {void forms.certificate.load();})}/>}
-        {retryError !== undefined && <StateView variant="inline" {...runtime.error(retryError, () => {void retry();})}/>}
+        {certificateState.loadError !== undefined && !!context.account.account.hostedAccountId && <StateView variant="inline" {...runtime.error(certificateState.loadError, () => {void forms.certificate.load();}, 'server-console')}/>}
+        {retryError !== undefined && <StateView variant="inline" {...runtime.error(retryError, () => {void retry();}, 'server-console')}/>}
         <Text style={[shellType(13, 700), {color: theme.colors.textTertiary, marginTop: 22, marginBottom: 8}]}>{t('next.settingsSpec.server.remote.groups.1.title')}</Text>
         <View style={{borderRadius: 14, backgroundColor: theme.colors.raised, padding: 14, gap: 14}}>
         <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12}}>
@@ -163,13 +163,13 @@ function RemoteAccessPage({group, ports, runtime, compactHeader}: {group: Storag
           onChangeText={value => forms.connectivity.set(current => ({...current, lanNetworks: parseLines(value)}))}/>
         <TextField testID="remote-access-connection-limit" label={t('web.connectivity.connectionLimit')} description={t('settings.server.connectionLimitHelp')} value={connectivity.connectionLimit ? String(connectivity.connectionLimit) : ''} placeholder={t('settings.server.automatic')} keyboardType="number-pad"
           onChangeText={value => {if (!value.trim()) {forms.connectivity.set(current => ({...current, connectionLimit: 0})); return;} const next = Number(value); if (Number.isInteger(next) && next >= 1 && next <= 65536) forms.connectivity.set(current => ({...current, connectionLimit: next}));}}/>
-          {remoteState.loadError !== undefined && <StateView variant="inline" {...runtime.error(remoteState.loadError, () => {void forms.remote.load();})}/>}
+          {remoteState.loadError !== undefined && <StateView variant="inline" {...runtime.error(remoteState.loadError, () => {void forms.remote.load();}, 'server-console')}/>}
         </NativeAdvancedSection>
         {state.dirty ? <View style={{flexDirection: 'row', gap: 8, marginTop: 16}}>
           <Button variant="glass" disabled={state.saving} onPress={() => set.discard()}>{t('action.discard')}</Button>
           <Button loading={state.saving} disabled={Boolean(state.problem)} onPress={() => {void set.save();}}>{t('action.save')}</Button>
         </View> : null}
-        {state.saveError !== undefined && <StateView variant="inline" {...runtime.error(state.saveError, () => {void set.save();})}/>}
+        {state.saveError !== undefined && <StateView variant="inline" {...runtime.error(state.saveError, () => {void set.save();}, 'server-console')}/>}
         {state.problem ? <Text accessibilityRole="alert" style={[shellType(13, 600), {color: theme.colors.record, marginTop: 8}]}>{t(state.problem as Parameters<typeof t>[0])}</Text> : null}
       </> : <StateView title={t('status.loading')}/>}
     </ScrollView>

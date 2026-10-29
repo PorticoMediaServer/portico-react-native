@@ -91,12 +91,12 @@ function History({group, forms, runtime, compactHeader}: {group: Group; forms: S
       <Select testID="server-history-media" rowLabel={t(filter('media')!.label)} value={state.query.media ?? 'all'} options={filter('media')!.options.map(option => ({value: option.value, label: t(option.label)}))} onValueChange={value => change({media: value === 'all' ? undefined : value})}/>
       <Select testID="server-history-person" rowLabel={t(filter('person')!.label)} value={state.query.accountId ?? ''} options={people} onValueChange={value => change({accountId: value || undefined})}/>
       {state.peopleCursor && <Button variant="glass" size="compact" loading={state.peopleLoading} onPress={() => source.morePeople()}>{t('web.people.morePeople')}</Button>}
-      {state.peopleError !== undefined && <StateView variant="inline" {...runtime.error(state.peopleError, () => source.retryPeople())}/>}
+      {state.peopleError !== undefined && <StateView variant="inline" {...runtime.error(state.peopleError, () => source.retryPeople(), 'server-console')}/>}
       <Select testID="server-history-period" rowLabel={t(filter('range')!.label)} value={state.query.period} options={filter('range')!.options.map(option => ({value: option.value, label: t(option.label)}))} onValueChange={value => {if (value === 'today' || value === '7d' || value === '30d' || value === 'all') change({period: value});}}/>
       <Select testID="server-history-sort" rowLabel={t('web.filters.sortBy')} value={state.query.sort} options={(table.control.columns ?? []).filter(column => column.sort && column.id).map(column => ({value: column.id!, label: t(column.label)}))} onValueChange={sort => change({sort})}/>
       <Select testID="server-history-direction" rowLabel={t('builder.preset.order')} value={state.query.direction} options={[{value: 'desc', label: t('web.filters.direction', {kind: 'other', dir: 'desc'})}, {value: 'asc', label: t('web.filters.direction', {kind: 'other', dir: 'asc'})}]} onValueChange={direction => {if (direction === 'asc' || direction === 'desc') change({direction});}}/>
       {state.total !== undefined && <Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary}]}>{defaultI18n.number(state.total)} {table.control.noun ? t(table.control.noun[state.total === 1 ? 0 : 1]!) : ''}</Text>}
-      {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => source.retry())}/>}
+      {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => source.retry(), 'server-console')}/>}
     </View>}
     ListEmptyComponent={state.phase === 'ready' ? <Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary, marginTop: 20}]}>{t(table.control.empty!)}</Text> : state.phase === 'loading' || state.phase === 'idle' ? <StateView title={t('status.loading')}/> : null}
     ListFooterComponent={<View style={{gap: 14, marginTop: 16}}>
@@ -107,9 +107,9 @@ function History({group, forms, runtime, compactHeader}: {group: Group; forms: S
           const patch = settingsBindingPatch(keepBinding, value, {forms: {runtime: settings.draft}});
           forms.forms.runtime.set((draft: RuntimeSettings) => applySettingsBindingPatch(draft, patch));
         }}/>} 
-        {settings.loadError !== undefined && <StateView variant="inline" {...runtime.error(settings.loadError, () => {void forms.forms.runtime.load();})}/>}
+        {settings.loadError !== undefined && <StateView variant="inline" {...runtime.error(settings.loadError, () => {void forms.forms.runtime.load();}, 'server-console')}/>}
       </NativeAdvancedSection>
       {formState.dirty && <View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={formState.saving} onPress={() => forms.set.discard()}>{t('action.discard')}</Button><Button loading={formState.saving} disabled={Boolean(formState.problem)} onPress={() => {void forms.set.save();}}>{t('action.save')}</Button></View>}
-      {formState.saveError !== undefined && <StateView variant="inline" {...runtime.error(formState.saveError, () => {void forms.set.save();})}/>}
+      {formState.saveError !== undefined && <StateView variant="inline" {...runtime.error(formState.saveError, () => {void forms.set.save();}, 'server-console')}/>}
     </View>}/>;
 }

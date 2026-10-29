@@ -54,7 +54,7 @@ async function fixture(initialStage: 'welcome' | 'address' = 'welcome', options:
     dispose() {events.push('dispose-command');}
   }
   // These adapters forward the screen's dependency lists to the real hooks.
-  const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {
+  const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {'../../shell/StartupBoot': {BootWaitLine: 'BootWaitLine'}, 
     '../../platform/tv-menu': {useTVMenuCapture() {}},
     './tv-code-opening': tvCodeOpening,
     '../../../../../packages/client-core/src/join-link': joinLink,

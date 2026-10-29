@@ -7,6 +7,7 @@ import {connectHostedServer, connectPairedServer, connectPairedPorticoServer, in
 import {knownServerRoutes, type NewServerConnection, type AppServerSession} from '../../../../packages/client-core/src/app-sessions';
 import {porticoSignIn, acceptPorticoInvitation, acceptShortPorticoInvitation} from '../../../../packages/client-core/src/portico-servers';
 import {routePath} from '../../../../packages/contracts/src/routes';
+import {REVOCATION_TIMEOUT_MS, revokeInBackground} from './session-revocation';
 import {createNativeLocalTVSignIn} from './tv-sign-in';
 import type {ServerPin} from '../../../../packages/client-core/src/route-identity';
 import {installationIdentity} from '../../../../packages/client-core/src/installation';
@@ -770,8 +771,16 @@ export class NativeServerSignIn {
         fingerprint: pin.fingerprint, origin: this.api.baseUrl, serverName: this.server.name, username: this.snapshot.account.username, signIn: this.server.signIn}).catch(() => {});
     }
     const temporary = this.account; this.account = undefined;
-    const cleanup = await Promise.allSettled([this.owner.retireReplacedServerSession(previous), temporary ? this.retire(temporary) : Promise.resolve()]);
-    if (cleanup.some(value => value.status === 'rejected')) throw Object.assign(new Error('native_session_revocation_pending'), {code: 'session_revocation_pending'});
+    // E-mobile-01: ending the replaced and temporary sessions is mandatory but never blocks Home.
+    // Both go over the route that just served this sign-in; a slow or failed try is queued.
+    const live = this.api.getRouteConnection();
+    void this.owner.retireReplacedServerSession(previous, live);
+    if (temporary) {
+      let settled = false;
+      const queued = () => {if (settled) return; settled = true; if (live) void revokeInBackground({version: '1', logicalOrigin: live.logicalOrigin, session: temporary, pin: live.pin, routes: {paired: []}}, live);};
+      const timer = setTimeout(queued, REVOCATION_TIMEOUT_MS);
+      void this.retire(temporary).then(() => {clearTimeout(timer); settled = true;}, () => {clearTimeout(timer); queued();});
+    }
     } finally {this.publishing = false;}
   }
   private async retire(session: LocalSession) {

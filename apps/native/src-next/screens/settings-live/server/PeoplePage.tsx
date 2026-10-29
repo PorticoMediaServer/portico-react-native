@@ -86,7 +86,7 @@ function People({ports, runtime, compactHeader, source}: Props & {source: Native
       {source.ownerControls() && <Button testID="people-invite" variant="glass" size="compact" disabled={loading} onPress={() => {if (current()) source.beginInvitation();}}>{t('web.access.inviteSomeone')}</Button>}
       <Button variant="text" size="compact" icon="i-refresh" disabled={loading} onPress={() => {if (current()) void source.load(state.cursor);}}>{t('action.refresh')}</Button>
     </View>
-    {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {if (current()) void source.load(state.cursor);})}/>}
+    {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {if (current()) void source.load(state.cursor);}, 'server-console')}/>}
     {page && <Text style={[shellType(14, 400, 20), {color: theme.colors.textTertiary}]}>{defaultI18n.number(page.matchedCount)} {t(state.tab === 'people' ? 'next.settingsSpec.server.people.groups.0.rows.0.control.noun.1' : 'next.settingsSpec.server.people.groups.1.rows.0.control.noun.1')}</Text>}
     {loading && <Text style={[shellType(14, 400, 20), {color: theme.colors.textTertiary}]}>{t('next.settings.loading')}</Text>}
   </View>;
@@ -112,7 +112,7 @@ function People({ports, runtime, compactHeader, source}: Props & {source: Native
     <BottomSheet scrollable={false} open={!!state.selected} onOpenChange={open => {if (!open && current() && source.getSnapshot().selected === state.selected) source.closePerson();}} title={state.selected?.username} dismissOnBack={!state.busy} dismissOnGesture={!state.busy} dismissOnOutsidePress={!state.busy}>
       {state.opening && <Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary}]}>{t('next.settings.loading')}</Text>}
       {state.person && <PersonDetails key={`${state.person.accountId}:${state.person.revision}:${state.person.limitsRevision}`} source={source} person={state.person} runtime={runtime} ask={ask}/>}
-      {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {if (state.selected && current()) void source.open(state.selected);})}/>}
+      {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {if (state.selected && current()) void source.open(state.selected);}, 'server-console')}/>}
     </BottomSheet>
     {state.invitationOpening?.ready && state.invitationOpening.invitation ? <InvitationReadySheet key={`ready:${state.invitationOpening.invitation.id}:${state.invitationOpening.invitation.revision}`} source={source} opening={state.invitationOpening} runtime={runtime} serverName={ports.context.serverName}
         signIn={ports.context.account.account.hostedAccountId ? 'portico' : 'local'}/>
@@ -167,7 +167,7 @@ function PersonDetails({source, person, runtime, ask}: {source: NativePeopleSour
         </View>}
         ListEmptyComponent={!state.devicesLoading && state.devices && !state.devicesError ? <Text style={[shellType(14, 400, 20), {color: theme.colors.textSecondary}]}>{t('web.devices.none')}</Text> : null}/>
       {state.devicesLoading && <StateView title={t('status.loading')}/>}
-      {state.devicesError !== undefined && <StateView variant="inline" {...runtime.error(state.devicesError, () => {if (current()) void source.loadDevices(person);})}/>}
+      {state.devicesError !== undefined && <StateView variant="inline" {...runtime.error(state.devicesError, () => {if (current()) void source.loadDevices(person);}, 'server-console')}/>}
       {state.devices?.cursor && <Button variant="glass" disabled={state.busy || state.devicesLoading} onPress={() => {if (current()) void source.loadDevices(person, true);}}>{t('action.showMore')}</Button>}
       <Button variant="text" size="compact" disabled={state.busy || state.devicesLoading} onPress={() => {if (current()) void source.loadDevices(person);}}>{t('action.refresh')}</Button>
       {managed && <Button testID="people-devices-signout-all" variant="glass" disabled={state.busy || state.devicesLoading || !state.devices?.items.length} onPress={() => {if (current()) ask({person, action: 'devices'});}}>{t('next.settingsSpec.server.people.panels.person.tabs.3.groups.0.rows.1.control.label')}</Button>}
@@ -190,7 +190,7 @@ function LibraryAccess({source, runtime, all, selected, disabled, onChange}: {so
     {!all && <FlatList style={{flex: 1}} testID="people-library-choices" data={rows} keyExtractor={library => library.id}
       renderItem={({item}) => <SettingsRow label={item.name} control={<Switch accessibilityLabel={item.name} checked={selected.includes(item.id)} disabled={disabled} onCheckedChange={checked => onChange(false, checked ? [...selected, item.id] : selected.filter(id => id !== item.id))}/>}/>}/>}
     {state.librariesLoading && <StateView title={t('status.loading')}/>}
-    {state.librariesError !== undefined && <StateView variant="inline" {...runtime.error(state.librariesError, () => {void source.loadLibraries();})}/>}
+    {state.librariesError !== undefined && <StateView variant="inline" {...runtime.error(state.librariesError, () => {void source.loadLibraries();}, 'server-console')}/>}
   </View>;
 }
 
@@ -208,7 +208,7 @@ function InvitationEditor({source, opening, runtime}: {source: NativePeopleSourc
     <LibraryAccess source={source} runtime={runtime} all={all} selected={libraries} disabled={state.busy} onChange={(next, ids) => {if (current()) {setAll(next); setLibraries(ids);}}}/>
     {!opening.invitation && <Select label={t('next.settingsSpec.server.people.advanced.groups.3.rows.0.label')} value={days} disabled={state.busy} options={(['1', '3', '7', '30'] as const).map((value, index) => ({value, label: t((['next.settingsSpec.server.people.advanced.groups.3.rows.0.control.options.0.label', 'next.settingsSpec.server.people.advanced.groups.3.rows.0.control.options.1.label', 'next.settingsSpec.server.people.advanced.groups.3.rows.0.control.options.2.label', 'next.settingsSpec.server.people.advanced.groups.3.rows.0.control.options.3.label'] as const)[index]!)}))} onValueChange={value => {if (current() && ['1', '3', '7', '30'].includes(value)) setDays(value);}}/>}
     {opening.invitation?.state === 'pending' && <Button testID="people-share-invitation" variant="glass" disabled={state.busy} onPress={() => {if (current()) source.shareInvitation(opening);}}>{t('invite.share')}</Button>}
-    {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {if (current()) source.closeInvitation();})}/>}
+    {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {if (current()) source.closeInvitation();}, 'server-console')}/>}
   </BottomSheet>;
 }
 
@@ -220,7 +220,7 @@ function BoundPeopleAdvanced({group, runtime}: {group: StorageForms; runtime: Na
   const t = runtime.text.t, form = group.forms.runtime, state = useFormState<RuntimeSettings, unknown>(form), save = useStorageSet(group);
   const rows = settingsSpec.find(section => section.scope === 'server' && section.id === 'people')?.advanced?.groups?.flatMap(group => group.rows) ?? [];
   return <NativeAdvancedSection testID="people-advanced" summary={save.dirty ? t('settings.save.unsaved') : t('next.settings.allDefaults')}>
-    {state.loadError !== undefined && <StateView variant="inline" {...runtime.error(state.loadError, () => {void form.load();})}/>}
+    {state.loadError !== undefined && <StateView variant="inline" {...runtime.error(state.loadError, () => {void form.load();}, 'server-console')}/>}
     {state.draft && rows.map(row => {
       const binding = settingsBinding(row.id); if (!binding || binding.form !== 'runtime') return null;
       const value = readSettingsBinding(binding, {forms: {runtime: state.draft}}); if (!value) return null;
@@ -230,6 +230,6 @@ function BoundPeopleAdvanced({group, runtime}: {group: StorageForms; runtime: Na
       return <NativeSettingControl key={row.id} row={row} value={shown} t={t} disabled={save.saving} onChange={next => {const projected = row.id === 'people.inviteRole' && next === 'administrator' ? 'admin' : next; const patch = settingsBindingPatch(binding, projected); form.set(current => applySettingsBindingPatch(current, patch));}}/>;
     })}
     {save.dirty && <View style={{flexDirection: 'row', gap: 8}}><Button variant="glass" disabled={save.saving} onPress={() => group.set.discard()}>{t('action.discard')}</Button><Button loading={save.saving} disabled={!!save.problem} onPress={() => {void group.set.save();}}>{t('action.save')}</Button></View>}
-    {save.saveError !== undefined && <StateView variant="inline" {...runtime.error(save.saveError, () => {void group.set.save();})}/>}
+    {save.saveError !== undefined && <StateView variant="inline" {...runtime.error(save.saveError, () => {void group.set.save();}, 'server-console')}/>}
   </NativeAdvancedSection>;
 }

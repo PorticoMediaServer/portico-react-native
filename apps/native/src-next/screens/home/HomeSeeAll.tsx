@@ -49,7 +49,7 @@ export function HomeSeeAll(props: HomeSeeAllProps) {
     const timer = setTimeout(() => setSlow(true), 8000);
     return () => clearTimeout(timer);
   }, [loading, props.active, state.phase]);
-  if (state.phase === 'error') return <StateView {...runtime.error(state.error, () => {void props.controller.load();})} variant="centered"/>;
+  if (state.phase === 'error') return <StateView {...runtime.error(state.error, () => {void props.controller.load();}, 'home')} variant="centered"/>;
   return <View style={{flex: 1, overflow: 'hidden'}} onLayout={event => setSurface(event.nativeEvent.layout.width)}>
     <LoadingBoundary ready={!loading} immediate={!loading} style={{flex: 1}} skeleton={<HomeSeeAllSkeleton runtime={runtime} surface={surface}/> }>
       {!loading && <HomeSeeAllReady {...props} surface={surface}/>}
@@ -153,7 +153,7 @@ function HomeSeeAllReady({controller, runtime, active, onBack, onPlay, onOpen, o
     {artwork && <View pointerEvents="none" style={{position: 'absolute', inset: 0, opacity: .26}}><AmbientArt source={runtime.ambient(artwork.backdropUrl ?? artwork.posterUrl)} treatment="hero" visible={active}/></View>}
     <FocusRegion id={gridId} entry="play" enabled={active} style={{flex: 1}}>
       {(tv || !!data.error) && <>{header}{toolbar}</>}
-      {data.error ? <StateView {...runtime.error(data.error, () => controller.collection.ensureRange(0, 0))} variant="centered"/> :
+      {data.error ? <StateView {...runtime.error(data.error, () => controller.collection.ensureRange(0, 0), 'home')} variant="centered"/> :
         <WindowedGrid header={tv ? undefined : header} stickyHeader={tv ? undefined : toolbar}
           onScrollOffset={tv ? undefined : offset => setCollapsed(headerHeight > 0 && offset >= headerHeight)} collection={controller.collection} getKey={item => item.membershipId} selection={selection}
           itemWidth={list ? surface - 32 : width} itemHeight={list ? 70 : width * 1.5 + (tv ? 74 : 48)} captionHeight={list ? 70 : tv ? 74 : 48}

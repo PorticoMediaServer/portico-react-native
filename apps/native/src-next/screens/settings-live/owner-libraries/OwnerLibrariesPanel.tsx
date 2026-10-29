@@ -151,7 +151,7 @@ export function NativeOwnerLibrariesPanel({ports, runtime, initialLibraryId, lif
         <Button size="compact" icon="i-plus" onPress={() => setAdding(true)}>{t('web.empty.addLibrary')}</Button>
       </View>
       <MissingTitlesTab ports={ports} runtime={runtime} t={runtime.text.t as Translate}/>
-      {state.directory.phase === 'error' && <StateView {...runtime.error(state.directory.error, () => {void controller.refresh();})}/>}
+      {state.directory.phase === 'error' && <StateView {...runtime.error(state.directory.error, () => {void controller.refresh();}, 'server-console')}/>}
       {libraryListState(state.directory.phase, libraries.length) === 'empty' && <LibraryGroup style={{marginTop: 12}}>
         <LibraryRow first label={t('next.ownerLibraries.empty')} help={t('next.ownerLibraries.emptyHelp')}/>
       </LibraryGroup>}
@@ -233,7 +233,7 @@ function LibraryPage({api, library, document, state, tab, tabChange, t, runtime,
       <Tabs testID="owner-libraries-tabs" style={{marginTop: 12}} value={tab} onValueChange={tabChange} accessibilityLabel={library.name} items={tabs.map(value => ({value: value.id, label: value.label}))}/>
       <View style={{paddingHorizontal: 20, paddingTop: 8}}>
         {state.detail === 'loading' && !document && <Text style={[shellType(13.5, 500), {color: theme.colors.textTertiary}]}>{t('web.libraries.loadingOne')}</Text>}
-        {state.detail === 'error' && <StateView {...runtime.error(state.detailError, () => {void runtime.reportError(state.detailError);})}/>}
+        {state.detail === 'error' && <StateView {...runtime.error(state.detailError, () => {void runtime.reportError(state.detailError);}, 'server-console')}/>}
         {state.error !== undefined && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.record}]}>{presentError(state.error, 'library', {operation: 'save'}).body}</Text>}
         {tab === 'general' && <GeneralTab library={library} document={document} t={t} renameLibrary={renameLibrary} removeLibrary={removeLibrary} busy={state.busy} save={save}/>}
         {tab === 'folders' && <FoldersTab state={state} retry={retryInventory} t={t} addFolder={addFolder} folderMenu={folderMenu}/>}

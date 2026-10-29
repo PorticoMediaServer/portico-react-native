@@ -17,6 +17,7 @@ import {CircleCard, GenreTile, PlaylistMosaic, PosterCard, SquareCard, type Card
 import {AmbientArt, Artwork, StandardBackdrop} from '../../kit/artwork';
 import {Button, Focusable} from '../../kit/controls';
 import {FocusItem, FocusRegion, useFocusRegistry, type FocusRegionProps} from '../../kit/focus';
+import {Banner} from '../../kit/overlays';
 import {LibraryHeader, LibraryMenu, LibrarySwitcher, QuickToggle, ViewToggle, type BrowseLabels} from '../../kit/browse';
 import {browseType, alpha} from '../../kit/browse/presentation';
 import {Icon} from '../../kit/Icon';
@@ -310,6 +311,8 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   // tv-focus 46: a library with no titles yet draws one action, never an empty grid.
   const empty = state.phase === 'ready' && state.unfilteredTotal?.total === 0;
   const emptyRegion = `${ids.libraryTabs(state.library.id)}.empty`;
+  // E-tv-06/14: one error, named for this library, and reachable from the rail and the tabs.
+  const errorRegion = `${ids.libraryTabs(state.library.id)}.error`, pageFailed = state.phase === 'error';
   // tv-focus 46/F-STATE-17: once the empty page holds focus, the first titles
   // arriving behind it never move focus; the page stays until the person goes
   // Down or Right into the new grid (or leaves it towards the tabs/rail).
@@ -320,7 +323,7 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
   }, [empty, scope]);
   const emptyShown = empty || emptyHeld;
   const firstCard = state.collection?.itemAt(0), firstCardRegion = firstCard ? theme.isTV ? ids.libraryGrid(state.library.id, state.tab.id) : ids.libraryCard(state.library.id, nativeLibraryEntryKey(firstCard)) : undefined;
-  useDestinationEntryFocus(active, emptyShown && theme.isTV ? {regionId: emptyRegion, childId: 'browse-home'} : undefined);
+  useDestinationEntryFocus(active, !theme.isTV ? undefined : emptyShown ? {regionId: emptyRegion, childId: 'browse-home'} : pageFailed ? {regionId: errorRegion, childId: 'retry'} : undefined);
   const pivots: Readonly<Record<string, string>> = {movie: 'movies', show: 'shows', episode: 'episodes', artist: 'artists', album: 'albums', song: 'songs', book: 'books', author: 'authors', series: 'series', ebook: 'books', comic: 'titles'};
   const choices = libraries.filter(library => !theme.isTV || !hiddenReadingLibraryOnTV(library.kind)).map(library => {
     const summary = summaries.libraries.find(value => value.id === library.id)?.summary;
@@ -328,7 +331,7 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
       style={[browseType(theme, theme.isTV ? 22 : 14), {color: theme.colors.textTertiary}]}>{defaultI18n.t(part.atLeast ? 'lib.countAtLeast' : 'lib.count', {count: part.count, pivot: pivots[part.kind]})}</Text>)}</View>};
   });
   const tabs = <LibraryTabs items={libraryTabs(state.library.kind)} selected={state.tab.id} enabled={active.visible} phone={theme.platform === 'phone'} gutter={theme.isTV || theme.platform === 'phone' ? undefined : dimensions.width >= 1024 ? 32 : 28}
-    disabled={theme.isTV && active.intent === 'enter' && !entered} regionId={ids.libraryTabs(state.library.id)} leftEdge={ids.rail} downEdge={emptyShown ? emptyRegion : undefined}
+    disabled={theme.isTV && active.intent === 'enter' && !entered} regionId={ids.libraryTabs(state.library.id)} leftEdge={ids.rail} downEdge={emptyShown ? emptyRegion : pageFailed ? errorRegion : undefined}
     onSelect={id => {void destination.load(id).catch(runtime.reportError);}} onFocusTab={id => {void destination.load(id).catch(runtime.reportError);}}/>;
   const switcher = <LibrarySwitcher value={state.library.id} libraries={choices} onValueChange={id => runtime.onDestination({kind: 'library', libraryId: id})} trigger={theme.isTV || expanded ? 'chevron' : 'name'}/>;
   const latestArtwork = summaries.libraries.find(library => library.id === state.library.id)?.summary.latestArtwork;
@@ -401,8 +404,12 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
     <View style={{flex: 1, flexDirection: docked ? 'row' : 'column'}}>
       <View style={{flex: 1}}>
         {header}
-        {summaries.phase === 'error' && <StateView {...runtime.error(summaries.error, () => {void directory.load().catch(runtime.reportError);})}/>}
-        {state.phase === 'error' ? <StateView {...runtime.error(state.error, destination.retry)}/>
+        {/* Counts and covers that did not load are a quiet note, never a second full error. */}
+        {summaries.phase === 'error' && !pageFailed && <View style={{paddingHorizontal: theme.isTV ? 0 : theme.gutter, paddingVertical: 8}}><Banner placement="inline" variant="notice" tone="warning" icon="i-alert"
+          message={defaultI18n.t('next.browse.librarySummariesUnavailable')}
+          action={theme.isTV ? undefined : {label: defaultI18n.t('next.states.tryAgain'), onPress: () => {void directory.load().catch(runtime.reportError);}}}/></View>}
+        {state.phase === 'error' ? <FocusRegion id={errorRegion} entry="retry" order={['retry']} edges={{up: ids.libraryTabs(state.library.id), left: ids.rail}} style={{flex: 1, justifyContent: 'center'}}>
+          <StateView variant="centered" {...runtime.error(state.error, destination.retry, 'library')}/></FocusRegion>
           : state.collection ? <View style={{flex: 1}}>
             <LibraryGrid {...props} selection={selection} source={state} paneWidth={gridWidth} tablet={tabletLayout} expanded={expanded} filtersOpen={filterState?.open ?? false} onFilters={openFilters} dockedFilters={docked}
               entryRequest={entryRequest} onEntered={onEntered} entryCovered={emptyShown}/>
@@ -418,7 +425,7 @@ export function LibraryScreen(props: NativeLibraryScreenProps) {
             destination={destination} state={state} runtime={runtime} active={active} anchor={props.mixAnchor} onEntered={onEntered}
             renderEntry={(entry, width, context) => <LibraryCard entry={entry} width={width} runtime={runtime} actions={actions} focusId={context.focusId} disabled={!active.visible} onFocus={context.onFocus} onBlur={context.onBlur}/>}/>
           : state.tab.shows === 'rows' ? <ScrollView ref={discoverScroll}>
-            {state.discover.error && <StateView {...runtime.error(state.discover.error, destination.retry)}/>}
+            {state.discover.error && <StateView {...runtime.error(state.discover.error, destination.retry, 'library')}/>}
             {state.discover.appended.map((section, index) => {const cardWidth = theme.isTV ? 200 : 112, cell = discoverCell(theme, cardWidth, section.entries);
             return <View key={section.id}>
             <Text accessibilityRole="header" style={[browseType(theme, theme.isTV ? 32 : 19, 700), {color: theme.colors.text, marginHorizontal: screenGutter, marginTop: 28}]}>{serverTextLabel(defaultI18n, section.heading)}</Text>
@@ -610,7 +617,7 @@ export function LibraryGrid({destination, runtime, activation, actions, labels, 
       {count && theme.platform !== 'phone' && (theme.isTV || dockedFilters) && <Text style={[browseType(theme, theme.isTV ? 22 : 13, 600), {color: theme.colors.textTertiary, marginLeft: theme.isTV ? 18 : 'auto'}]}>{count}</Text>}
     </FocusRegion> : count && theme.platform !== 'phone' && (theme.isTV || dockedFilters) && <Text style={[browseType(theme, theme.isTV ? 22 : 13, 600), {color: theme.colors.textTertiary, marginHorizontal: theme.isTV ? theme.gutter : rowGutter, marginTop: theme.isTV ? 24 : 10, marginBottom: theme.isTV ? 40 : 10}]}>{count}</Text>}
     {count && theme.platform === 'phone' && <LibraryResultCount phone controls={<ViewToggle value={view.mode} onValueChange={changeView}/>}>{count}</LibraryResultCount>}
-    {state.status === 'error' && <StateView {...runtime.error(state.error, destination.retry)}/>}
+    {state.status === 'error' && <StateView {...runtime.error(state.error, destination.retry, 'library')}/>}
     <LibraryGridRegion id={gridRegion} enabled={active.visible} entry={firstAddress?.childId ?? firstKey} grid={theme.isTV ? {columns: measuredColumns, count: state.total} : undefined}
       edges={theme.isTV ? {left: ids.rail, up: applied.length ? appliedRegion : ids.libraryToolbar(source.library.id)} : undefined}
       screenStart={{regionId: ids.libraryToolbar(source.library.id), childId: theme.isTV ? 'sort' : 'filters'}} style={{flex: 1}}>

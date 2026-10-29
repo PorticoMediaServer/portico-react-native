@@ -109,12 +109,12 @@ export function SearchScreen({focusScope, destination, runtime, explore, actions
   const genreTiles = landing.phase === 'ready' ? nativeSearchGenreTiles(empty ? landing.backdropGenres ?? [] : landing.genres, empty ? 'phone-empty' : 'phone') : [];
   const genres = !genreTiles.length && landing.phase !== 'error' ? null : <>
     {!!genreTiles.length && <SectionHeading title={t(empty ? landing.emptyHeading : landing.initialHeading)}/>}
-    {landing.phase === 'error' && <StateView {...runtime.error(landing.error, () => run(explore.load()))}/>}
+    {landing.phase === 'error' && <StateView {...runtime.error(landing.error, () => run(explore.load()), 'search')}/>}
     <View style={{paddingHorizontal: 16, paddingTop: 4, flexDirection: 'row', flexWrap: 'wrap', gap: 10}}>
       {genreTiles.map(genre => <SearchGenre key={genre.id} genre={genre} empty={empty} runtime={runtime} width={(surface - 42) / 2} onPress={() => explore.openGenre(genre)}/>)}
     </View>
   </>;
-  const error = state.search.error && <StateView {...runtime.error(state.search.error, () => run(destination.retry()))}/>;
+  const error = state.search.error && <StateView {...runtime.error(state.search.error, () => run(destination.retry()), 'search')}/>;
   const resultRows = groups.flatMap(group => group.items.filter(entry => !top || entry !== top.entry).slice(0, 3).map((entry, index) => ({entry, group: group.id, heading: index === 0})));
   const active = groups.find(group => group.id === state.group), wideSearch = theme.layoutMode === 'desktop' && !theme.isTV;
   if (theme.isTV) return <TVSearchScreen focusScope={focusScope} destination={destination} runtime={runtime} activation={activation} explore={explore} actions={actions} selection={selection} copy={tvCopy}/>;
@@ -146,7 +146,7 @@ export function SearchScreen({focusScope, destination, runtime, explore, actions
           ListFooterComponent={state.paging?.[group.id]?.loading ? <LoadingPaint ready={false} style={{marginLeft: 14}}
             skeleton={<View style={{flexDirection: 'row', gap: 14}}>{[0, 1, 2].map(index => <SkeletonBlock key={index}
               width={Math.floor((surface - 40 - 6 * 14) / 7)} height={Math.floor((surface - 40 - 6 * 14) / 7) * (group.id === 'movies' || group.id === 'shows' ? 1.5 : 1)}/>)}</View>}/>
-            : state.paging?.[group.id]?.error ? <StateView {...runtime.error(state.paging?.[group.id]?.error, () => run(destination.retryGroup(group.id)))} style={{width: 240}}/> : null}/>
+            : state.paging?.[group.id]?.error ? <StateView {...runtime.error(state.paging?.[group.id]?.error, () => run(destination.retryGroup(group.id)), 'search')} style={{width: 240}}/> : null}/>
       </View>) : resultRows.map(({entry, group, heading}) => <React.Fragment key={nativeSearchEntryKey(group, entry)}>
         {heading && <Text accessibilityRole="header" style={[browseType(theme, 16, 700), {color: theme.colors.text, marginHorizontal: 20, marginTop: 18, marginBottom: 6}]}>{t(searchGroupLabel(group))}</Text>}
         <SearchResultRow entry={entry} group={group} runtime={runtime} actions={actions} selection={selection?.item(entry, group)}/>

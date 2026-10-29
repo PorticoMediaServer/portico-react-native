@@ -75,7 +75,7 @@ function MetadataPage({ports, runtime, compactHeader, onLibraries, controller, c
     return <LibraryRow key={id} first={first} label={t(definition.label)} help={definition.help ? t(definition.help) : undefined} value={status}
       trailing={<Button variant="text" size="xs" disabled={disabled} onPress={() => {if (settings && current()) {setEditing({row: definition, original: settings, key}); setText(key === 'openSubtitlesUsername' ? settings.openSubtitlesUsername : '');}}}>{t('web.metadataLookup.change')}</Button>}/>;
   };
-  if (!settings) return state.error !== undefined ? <StateView {...runtime.error(state.error, () => {void controller.load();})}/>
+  if (!settings) return state.error !== undefined ? <StateView {...runtime.error(state.error, () => {void controller.load();}, 'server-console')}/>
     : <StateView title={t('next.ownerLibraries.loading')}/>;
   const subtitles = openSubtitlesSummary(settings.openSubtitles, {...defaultI18n, t});
   const advanced = settings.advanced;
@@ -84,7 +84,7 @@ function MetadataPage({ports, runtime, compactHeader, onLibraries, controller, c
     <ScrollView contentContainerStyle={{...settingsPageInset(theme, compactHeader)}}>
       <ServerHeader serverName={ports.context.serverName} viewerRole="owner" audience="owner" variant="phone" style={{marginBottom: 12}}/>
       {!compactHeader && <Text accessibilityRole="header" style={[settingsPageHeading(theme), {color: theme.colors.text}]}>{t('settings.server.metadata')}</Text>}
-      {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {void controller.load();})}/>}
+      {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {void controller.load();}, 'server-console')}/>}
       <SectionTitle>{groupTitle(0)}</SectionTitle><LibraryGroup>
         {toggle('metadata.online', settings.onlineLookups, onlineLookups => ({onlineLookups}), true)}
         {toggle('metadata.adult', settings.includeAdult, includeAdult => ({includeAdult}), settings.onlineLookups === undefined)}
@@ -142,7 +142,7 @@ function MetadataPage({ports, runtime, compactHeader, onLibraries, controller, c
         autoCapitalize="none" autoCorrect={false} autoComplete="off" placeholder={editing?.row.control.placeholder ? t(editing.row.control.placeholder) : undefined}
         description={editing?.row.help ? t(editing.row.help) : undefined}/>
       <Text style={[theme.type.caption, {color: theme.colors.textSecondary, marginTop: 8}]}>{t('server.metadata.clearValueHelp')}</Text>
-      {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {setEditing(undefined); setText(''); void controller.load();})}/>}
+      {state.error !== undefined && <StateView variant="inline" {...runtime.error(state.error, () => {setEditing(undefined); setText(''); void controller.load();}, 'server-console')}/>}
     </BottomSheet>
     <BottomSheet open={confirmRefresh} onOpenChange={open => {if (!open && !state.busy) setConfirmRefresh(false);}} title={t(row('metadata.refreshAll').label)}
       footer={<View style={{flexDirection: 'row', gap: 10}}><Button variant="glass" disabled={state.busy} onPress={() => setConfirmRefresh(false)}>{t('action.cancel')}</Button>

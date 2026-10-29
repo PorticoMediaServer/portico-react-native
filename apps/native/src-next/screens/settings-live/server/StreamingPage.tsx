@@ -126,12 +126,12 @@ export function NativeServerStreaming({ports, runtime, compactHeader = false}: {
   return <View style={{flex: 1}}><ScrollView contentContainerStyle={{...settingsPageInset(theme, compactHeader), gap: 18}}>
     <ServerHeader serverName={context.serverName} viewerRole="owner" audience="owner" variant="phone"/>
     {!compactHeader && <Text accessibilityRole="header" style={[settingsPageHeading(theme), {color: theme.colors.text}]}>{section ? t(section.title) : t('settings.server.playback')}</Text>}
-    {configurationError !== undefined && <StateView variant="inline" {...runtime.error(configurationError, () => {void owned.api.request(routePath('get_settings_configuration')).then(parseSettingsConfiguration).then(value => {setConfiguration(value); setConfigurationError(undefined);}, setConfigurationError);})}/>}
-    {[runtimeState, connectivityState].map((form, index) => form.loadError !== undefined ? <StateView key={index} variant="inline" {...runtime.error(form.loadError, () => {void Object.values(owned.forms)[index]!.load();})}/> : null)}
-    {state.saveError !== undefined && <StateView variant="inline" {...runtime.error(state.saveError, () => {if (!invalid.size && owned.lifetime.current()) void owned.set.save();})}/>}
+    {configurationError !== undefined && <StateView variant="inline" {...runtime.error(configurationError, () => {void owned.api.request(routePath('get_settings_configuration')).then(parseSettingsConfiguration).then(value => {setConfiguration(value); setConfigurationError(undefined);}, setConfigurationError);}, 'server-console')}/>}
+    {[runtimeState, connectivityState].map((form, index) => form.loadError !== undefined ? <StateView key={index} variant="inline" {...runtime.error(form.loadError, () => {void Object.values(owned.forms)[index]!.load();}, 'server-console')}/> : null)}
+    {state.saveError !== undefined && <StateView variant="inline" {...runtime.error(state.saveError, () => {if (!invalid.size && owned.lifetime.current()) void owned.set.save();}, 'server-console')}/>}
     {state.problem && <Text accessibilityRole="alert" style={[theme.type.caption, {color: theme.colors.record}]}>{t(state.problem as Parameters<typeof t>[0])}</Text>}
     {renderGroups(section?.groups)}
-    {capacityError !== undefined && <StateView variant="inline" {...runtime.error(capacityError, loadCapacity)}/>}
+    {capacityError !== undefined && <StateView variant="inline" {...runtime.error(capacityError, loadCapacity, 'server-console')}/>}
     {capacity && <>
       <View style={{backgroundColor: theme.colors.raised, borderRadius: 14}}><SettingsRow first label={t('next.settingsSpec.server.streaming.groups.2.rows.2.label')} value={capacity.temporaryDirectory.path} description={!capacity.temporaryDirectory.ready ? t('error.unavailable') : capacity.temporaryDirectory.freeBytes === null ? undefined : t('settings.server.health.free', {bytes: defaultI18n.bytes(capacity.temporaryDirectory.freeBytes)})}/></View>
       <NativeStreamingHardware capacity={capacity} testing={testing} disabled={testing || state.saving} onTest={() => {void runHardwareTest();}} t={t}/>
