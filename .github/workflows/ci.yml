@@ -13,9 +13,10 @@ on:
 permissions:
   contents: read
 concurrency:
-  # Finish the active run so its full test inventory produces results. GitHub
-  # coalesces later requests into one pending run for this repository.
-  group: ci-${{ github.repository }}
+  # Finish the active run so its full test inventory produces results. Main stays serialized
+  # in one group; every other ref queues on its own, so one lane's dispatch never replaces
+  # another lane's pending branch run (GitHub keeps one pending run per group).
+  group: ${{ github.ref == 'refs/heads/main' && 'ci-main' || format('ci-{0}-{1}', github.workflow, github.ref) }}
   cancel-in-progress: false
 env:
   CI_FULL_TREE: '1'
