@@ -92,8 +92,9 @@ export function useFocusTarget<T extends FocusHost = View>({focusId, testID, dis
     ? Object.values(registry.destinations({regionId, childId})).flatMap(target => 'regionId' in target ? [target.regionId] : []) : [];
   const dependencyKey = JSON.stringify([...new Set([...Object.values(config?.edges ?? {}).filter((id): id is string => !!id), ...neighbours])]);
   const dependencies = useMemo<readonly string[]>(() => JSON.parse(dependencyKey), [dependencyKey]);
-  const subscribe = useCallback((listener: () => void) => registry?.subscribeTarget(regionId, dependencies, listener) ?? (() => {}), [dependencies, regionId, registry]);
-  const getSnapshot = useCallback(() => registry?.targetSnapshot(regionId, dependencies) ?? 0, [dependencies, regionId, registry]);
+  // Structure, edge hosts and (in grids) this cell's own focus: never another cell's focus move.
+  const subscribe = useCallback((listener: () => void) => registry?.subscribeTarget(regionId, dependencies, listener, childId) ?? (() => {}), [childId, dependencies, regionId, registry]);
+  const getSnapshot = useCallback(() => registry?.targetSnapshot(regionId, dependencies, childId) ?? 0, [childId, dependencies, regionId, registry]);
   useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   useLayoutEffect(() => {
     committed.current = {registry, regionId, childId, disabled, cell, entityId};
