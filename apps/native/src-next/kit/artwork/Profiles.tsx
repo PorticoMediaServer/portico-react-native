@@ -152,7 +152,9 @@ export function ProfilePicker({profiles, onSelect, onAdd, onManage, selectedId, 
   const body = <View style={[{alignItems: phone ? 'stretch' : 'center'}, style]}>
     {showTitle ? <Text accessibilityRole="header" style={{fontFamily: fontFamilies[800], fontSize: (layout === 'tv' ? 72 : phone ? 32 : 64) * theme.textScale, letterSpacing: (layout === 'tv' ? 72 : phone ? 32 : 64) * (phone ? -0.04 : -0.045) * theme.textScale, color: theme.colors.text, marginBottom: description ? 6 : layout === 'tv' ? 80 : phone ? 30 : 56}}>{title ?? defaultI18n.t('auth.whosWatching')}</Text> : null}
     {description ? <Text style={{...theme.type.body, color: theme.colors.textSecondary, marginBottom: 30}}>{description}</Text> : null}
-    {phone ? tiles : <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{padding: 18}}>{tiles}</ScrollView>}
+    {phone ? tiles : <ScrollView horizontal showsHorizontalScrollIndicator={false}
+      // TV: the focused face's glow (blur 70, 30 down) needs about 100 of room; the scroller clips at its padding, so it is widened by the same amount and the faces stay put.
+      style={layout === 'tv' ? {margin: -82} : undefined} contentContainerStyle={{padding: layout === 'tv' ? 100 : 18}}>{tiles}</ScrollView>}
     {onManage ? <Button testID={controlID(testID, 'manage')} variant="glass" size="hero" icon="i-edit" onPress={onManage} style={{alignSelf: phone ? 'flex-start' : 'center', marginTop: 56}}>{defaultI18n.t('next.artwork.native.manageProfiles')}</Button> : null}
   </View>;
   return nativeScope ? <ProfileEntryRegion scope={nativeScope} entry={entry} order={offered.map(profile => profile.id)}>{body}</ProfileEntryRegion> : body;

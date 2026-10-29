@@ -102,8 +102,8 @@ test('TV entry Forgot PIN keeps the same account operation and returns to the sa
     assert.equal(tree.type, 'Code');
     const codeStatus = tree.props.status, statusChildren = React.Children.toArray(codeStatus.props.children);
     assert.equal(statusChildren.some(child => typeof child === 'string'), false, 'the TV code status never hands a bare string to a View');
-    assert.ok(statusChildren.some(child => React.isValidElement<{children?: React.ReactNode}>(child) && child.type === 'Text' && child.props.children === defaultI18n.t('activation.codeRefreshes')),
-      'the activation note is a Text with the existing type');
+    assert.equal(statusChildren.some(child => React.isValidElement<{children?: React.ReactNode}>(child) && child.props.children === defaultI18n.t('activation.codeRefreshes')), false,
+      'the refresh note is drawn once, in the code card (auth.html .codecard .ref), not repeated over the buttons');
     await act(() => tree.props.onTypeCredentials());
     assert.equal(tree.type, 'Credentials');
     await act(() => {tree.props.onUsernameChange('person'); tree.props.onPasswordChange('test password');});

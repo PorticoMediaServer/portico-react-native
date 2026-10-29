@@ -43,9 +43,9 @@ function Chooser({snapshot, busy, error, owner, onSelect, onSignOut, onRefresh, 
   const entryRevision = useTVBusyEntryRevision(busy);
   useDestinationEntryFocus({visible: !busy, intent: 'enter', revision: entryRevision},
     preferred ? {regionId: 'accounts.chooser.rows', childId: `server:${preferred}`} : {regionId: 'accounts.chooser.actions', childId: 'refresh'});
-  const row = (value: PhoneServerRow, connected = false) => <View key={value.id} style={{flexDirection: 'row', alignItems: 'center', gap: 16, padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.lineSoft}}>
+  const row = (value: PhoneServerRow, connected = false) => <View key={value.id} style={{flexDirection: 'row', alignItems: 'center', gap: 40, padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.lineSoft}}>
     <Focusable focusId={`server:${value.id}`} disabled={busy || connected} accessibilityRole="button" hasTVPreferredFocus={!connected && value.id === preferred} accessibilityLabel={value.name} accessibilityState={{selected: connected}}
-      onPress={() => onSelect(value)} focusRadius={12} style={{flex: 1, minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 16}}>
+      onPress={() => onSelect(value)} focusKind="row" focusRadius={12} style={{flex: 1, minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 16}}>
       <Icon name="i-server" size={28} color={theme.colors.accentStrong}/>
       <View style={{flex: 1, gap: 6}}>
         <Text style={[theme.type.bodyStrong, {color: theme.colors.text}]}>{value.name}</Text>
