@@ -40,7 +40,7 @@ export function LibraryToolbar({focusScope, model, labels, filterCount, filtersO
     {!docked && model.quick.map(preset => <FocusItem key={preset.id} focusId={`quick:${preset.id}`}><QuickToggle checked={preset.active} onCheckedChange={enabled => onQuick(preset.id, enabled)}>{preset.label?.text ?? labels.quick(preset)}</QuickToggle></FocusItem>)}
     {theme.isTV && <View style={{marginLeft: 'auto'}}><FocusItem focusId="save"><SaveViewButton canSave={canSave} onSave={onSave}/></FocusItem></View>}
   </>;
-  if (theme.isTV) return <View style={{paddingHorizontal: theme.gutter, paddingTop: 16, flexDirection: 'row', alignItems: 'center', gap: 14}}>{controls}</View>;
+  if (theme.isTV) return <View style={{paddingLeft: theme.gutter, paddingRight: theme.layout.gutter.tvRight, paddingTop: 16, flexDirection: 'row', alignItems: 'center', gap: 14}}>{controls}</View>;
   // tablet4/5: one drawn toolbar row, with the real count and the grid/list
   // control at the right. The phone keeps its scrolling strip.
   if (theme.platform !== 'phone') {

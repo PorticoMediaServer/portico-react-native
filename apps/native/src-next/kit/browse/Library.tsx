@@ -17,7 +17,7 @@ export function LibraryHeader({name, counts, switcher, menu, ambient, children, 
   const theme = useTheme();
   return <View testID={testID}>
     {ambient && <View pointerEvents="none" style={{position: 'absolute', inset: 0}}>{ambient}</View>}
-    <View style={{flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 40 : 14, paddingTop: theme.isTV ? 56 : 36, paddingHorizontal: theme.gutter}}>
+    <View style={{flexDirection: 'row', alignItems: 'center', gap: theme.isTV ? 40 : 14, paddingTop: theme.isTV ? 56 : 36, paddingLeft: theme.gutter, paddingRight: theme.isTV ? theme.layout.gutter.tvRight : theme.gutter}}>
       <View style={{flex: theme.isTV ? undefined : 1, minWidth: 0}}>
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
           <Text accessibilityRole="header" numberOfLines={1} style={[browseType(theme, theme.isTV ? 44 : 56, 800, -.045, theme.isTV ? 'normal' : 56), {color: theme.colors.text, flexShrink: 1}]}>{name}</Text>

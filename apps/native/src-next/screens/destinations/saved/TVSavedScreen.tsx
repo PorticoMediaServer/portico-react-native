@@ -28,7 +28,7 @@ import {sameAuthority, type ShellAuthority} from '../../../shell/model';
 import {SavedTVLoading} from '../../saved/SavedTVLoading';
 import {SavedTVDirectory, type SavedTVDirectoryHandle} from '../../saved/SavedTVDirectory';
 import type {NativeSavedViewDestination} from '../../saved/view-model';
-import type {NativeTVSavedController, NativeTVSavedTab} from './model';
+import type {NativeTVSavedController, NativeTVSavedSnapshot, NativeTVSavedTab} from './model';
 
 const t = defaultI18n.t;
 const itemID = (item: {id: string}) => item.id;
@@ -122,7 +122,13 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
   authority: Parameters<typeof nativeDestinationFocusIds>[0]; initialTab: Tab; selection?: NativeSavedSelectionPort;
   openSaved: (route: SavedRoute) => void; openEntry: (entry: ContentEntry) => void; browseHome: () => void;
 }) {
-  const theme = useTheme(), snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  const theme = useTheme(), live = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  // H14: a new sort, filter or period (or a background reload) never blanks the loaded grid. The
+  // tab's last ready content stays painted until its replacement is ready; only a tab with
+  // nothing loaded yet shows the loading outline.
+  const lastReady = useRef<NativeTVSavedSnapshot | undefined>(undefined);
+  if (live.phase === 'ready') lastReady.current = live;
+  const snapshot = live.phase === 'loading' && lastReady.current?.tab === live.tab ? lastReady.current : live;
   const [tab, setTab] = useState<Tab>(initialTab), [sort, setSort] = useState<Exclude<SavedListSort, 'updated'>>('added');
   const [filter, setFilter] = useState<SavedListFilter>('all'), [period, setPeriod] = useState<HistoryPeriod>('7d');
   const [sortOpen, setSortOpen] = useState(false), [filterOpen, setFilterOpen] = useState(false);
@@ -291,7 +297,7 @@ export function TVSavedScreen({controller, runtime, actions, activation, authori
     onMore={() => actions.menu(entry, undefined, select?.(entry))} moreExpanded={actions.isMenuOpen(entry)} selection={selection?.item(entry)}/>, top);
   /** The menu's Select starts this screen's own canonical Saved selection on that title. */
   const select = selection ? (entry: ContentEntry) => () => {void selection.item(entry)?.onEnter();} : undefined;
-  const heading = (title: string, detail: number) => <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 16, marginTop: 40, marginBottom: 18}}>
+  const heading = (title: string, detail: number) => <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 18, marginTop: 44, marginBottom: 22}}>
     <Text style={[browseType(theme, 32, 700, -.019), {color: theme.colors.text}]}>{title}</Text><Text style={[browseType(theme, 22, 600), {color: theme.colors.textTertiary}]}>{defaultI18n.number(detail)}</Text>
   </View>;
   const directoryView = tab === 'playlists' || tab === 'collections' || tab === 'views' ? tab : undefined;

@@ -87,6 +87,15 @@ test('TV Saved tabs have a mounted content target and return edges for every tab
       assert.equal(nodes(child).find(node => node.type === 'PosterCard').props.testID, grids[0].props.focus.getFocusId(snapshot.posters.sections[0].entries[0]));
     }
     assert.deepEqual(back.start(), entry, 'Back uses the concrete section address, not a nonexistent compound child');
+    if (tab === 'favorites') {
+      // H14: a new sort/filter or a background reload on the same tab keeps the loaded grid painted.
+      const ready = props.controller.getSnapshot;
+      props.controller = {...props.controller, getSnapshot: () => ({phase: 'loading', entries: [], resources: []}) as any};
+      const reloading = render();
+      assert.ok(!reloading.some(node => node.type === 'SavedTVLoading'), 'the loading outline never replaces loaded content');
+      assert.ok(reloading.some(node => node.type === 'TVFocusGrid'), 'the last ready grid stays mounted');
+      props.controller = {...props.controller, getSnapshot: ready};
+    }
     if (tab === 'watchlist') {
       mounted.find(node => node.type === 'Menu' && node.props.title === 'saved.sort').props.items.find((item: any) => item.id === 'title').onSelect();
       let current = render();

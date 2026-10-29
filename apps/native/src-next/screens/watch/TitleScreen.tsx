@@ -433,7 +433,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
             : theme.isTV ? theme.type.lockup : wide ? nativeType({size: 64, weight: 800, tracking: -.045, lineHeight: 64}, theme.textScale)
             : nativeType({size: phoneTitle ? 46 : 40, weight: 800, tracking: phoneTitle ? -.045 : -.04, lineHeight: phoneTitle ? 43.24 : 43}, theme.textScale), {color: theme.colors.text, textAlign: centered || phoneTitle ? 'center' : undefined, marginBottom: props.watch ? 5 : theme.isTV ? 22 : phoneTitle ? 10 : 12}]}>{title}</Text>
           {props.watch && watchIdentity?.subtitle.length ? <Text numberOfLines={1} style={[nativeType({size: 15, weight: 700, tracking: 0, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text, marginBottom: 6}]}>{watchIdentity.subtitle.map(part => part.text).join(' ')}</Text> : null}
-          <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: centered || phoneTitle ? 'center' : undefined, columnGap: theme.isTV ? 26 : phoneTitle ? 12 : 10, rowGap: theme.isTV ? 26 : phoneTitle ? 6 : 10, marginBottom: theme.isTV ? 18 : 0}}>
+          <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: centered || phoneTitle ? 'center' : undefined, columnGap: theme.isTV ? 26 : phoneTitle ? 12 : 10, rowGap: theme.isTV ? 10 : phoneTitle ? 6 : 10, marginBottom: theme.isTV ? 18 : 0}}>
             {phoneTitle ? metadataFacts.map(fact => <Text key={fact.id} style={[nativeType({size: 13, weight: fact.id === 'year' || fact.role === 'identity' ? 700 : 400, tracking: 0, lineHeight: 'normal'}, theme.textScale), {includeFontPadding: false, color: fact.id === 'year' || fact.role === 'identity' ? theme.colors.text : theme.colors.textSecondary}]}>{fact.text}</Text>) : <HeroMetadata facts={metadataFacts}/>}
             {studio ? <Text style={[theme.type.meta, {color: theme.colors.textSecondary}]}>{studio}</Text> : null}
             {seasonFact ? <View style={{borderWidth: 1.5, borderColor: '#edf5fa47', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 3}}>
@@ -548,7 +548,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
           const pages = snapshot.related?.[row.id], entries = pages?.entries ?? row.entries;
           const paging = pages ? {hasMore: pages.hasMore, loading: pages.loading, failed: pages.failed, waitingId: pages.waitingId, fulfilled: pages.fulfilled,
             waitingItem: relatedWaiting(pages.waitingId, row.entries[0]), requestNext: () => controller.moreRelated(row.id, pages)} : undefined;
-          return cell(row.id, <View><Text style={[theme.isTV ? theme.type.rowHeading : theme.type.heading, {color: theme.colors.text, marginBottom: 14}]}>{row.heading}</Text>
+          return cell(row.id, <View><Text style={[theme.isTV ? theme.type.rowHeading : theme.type.heading, {color: theme.colors.text, marginBottom: theme.isTV ? 22 : 14}]}>{row.heading}</Text>
           {theme.isTV ? <TVShelf items={entries} getKey={tvItemKey} getFocusId={tvItemKey} focus={regions.related.get(row.id)} itemWidth={214} itemHeight={420} gap={28} paging={paging}
             renderItem={(entry, slot) => slot.waiting ? <Focusable focusId={slot.focusId} testID="watch-related-pending" focusTreatment="none" accessibilityLabel={defaultI18n.t('next.states.loading')}
               onFocus={() => {slot.onFocus(); paging?.requestNext();}} onBlur={slot.onBlur} style={{width: 214}}><SkeletonBlock width={214} height={321} radius={12} shine={!paging?.failed}/></Focusable>
@@ -590,7 +590,7 @@ export function NativeTitleScreen(props: NativeTitleScreenProps) {
             </View>
             <Icon name="i-right" size={18} color={theme.colors.textTertiary}/>
           </Focusable> : null}
-          {credits.length || creditPaging?.hasMore ? <View style={{gap: 10}}>
+          {credits.length || creditPaging?.hasMore ? <View style={{gap: theme.isTV ? 20 : 10}}>
             <Text style={[theme.isTV ? theme.type.rowHeading : theme.type.heading, {color: theme.colors.text}]}>{t('web.metadata.tabPeople')}</Text>
             <TitlePeople credits={credits} artwork={props.artwork} onPerson={props.person} focus={regions.people} paging={creditPaging}/>
             {creditPage?.error ? <Text style={[theme.type.caption, {color: theme.colors.textTertiary}]}>{presentError(creditPage.error, 'detail').body}</Text> : null}
