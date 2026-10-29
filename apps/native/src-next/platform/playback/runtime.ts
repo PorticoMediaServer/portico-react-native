@@ -132,7 +132,7 @@ export class NativePlaybackRuntime {
   private readonly startLife = new AbortController();
   private startFailure?: NativePlaybackStartFailure;
   // O-159: the drawn start (the pressed card's facts, Stop only), its 5 s drawn check and its 20 s deadline.
-  private startingState?: {key: string; display?: NativeStartDisplay; accepted: boolean; timer: unknown; drawnTimer: unknown; deadlineFrom: 'play' | 'accepted'; stop: () => void; retry: () => Promise<void>; view?: NativePlaybackStarting; fence?: PlaybackFence};
+  private startingState?: {key: string; display?: NativeStartDisplay; accepted: boolean; timer: unknown; drawnTimer: unknown; deadlineFrom: 'play' | 'none'; stop: () => void; retry: () => Promise<void>; view?: NativePlaybackStarting; fence?: PlaybackFence};
   private startTimedOut?: NativePlaybackStartTimedOut;
   private startingKeys = 0;
   private capacityWait?: NativePlaybackCapacityWait;
@@ -545,7 +545,7 @@ export class NativePlaybackRuntime {
   private playChannel(channel: HomeChannel, context: SelectionContext, signal: AbortSignal, current: (context: SelectionContext) => boolean): Promise<void> {
     const name = channel.channel.name, logo = (channel.channel as {logoPath?: string}).logoPath;
     return this.watchedStart(name ? {title: name, ...(logo ? {posterUrl: logo} : {})} : undefined,
-      () => this.playChannel(channel, context, this.startLife.signal, current), () => this.playChannelNow(channel, context, signal, current), 'accepted');
+      () => this.playChannel(channel, context, this.startLife.signal, current), () => this.playChannelNow(channel, context, signal, current), 'none');
   }
   private async playChannelNow(channel: HomeChannel, context: SelectionContext, signal: AbortSignal, current: (context: SelectionContext) => boolean): Promise<void> {
     this.assertSelection(context, signal, current);
@@ -577,7 +577,7 @@ export class NativePlaybackRuntime {
   startChannel = (input: NativePlaybackChannelStart): Promise<void> => {
     const row = input.guide && legacyChannel(input.guide.row);
     return this.watchedStart(row?.name ? {title: row.name, ...(row.logoPath ? {posterUrl: row.logoPath} : {})} : undefined,
-      () => this.startChannel({...input, lifetime: this.retryLifetime(), onAccepted: undefined, expectedFence: undefined}), () => this.startChannelNow(input), 'accepted');
+      () => this.startChannel({...input, lifetime: this.retryLifetime(), onAccepted: undefined, expectedFence: undefined}), () => this.startChannelNow(input), 'none');
   };
   private startChannelNow = async (input: NativePlaybackChannelStart): Promise<void> => {
     const accepted = input.onAccepted;
@@ -850,7 +850,7 @@ export class NativePlaybackRuntime {
 
   /** O-159: an album, artist, playlist or radio start is named by its first entry once known. */
   private playCatalogueSegments(segments: readonly SegmentInput[], options: NonNullable<Parameters<V1QueuePlayer['playSegments']>[1]>): Promise<QueueHeader> {
-    return this.watchedStart(undefined, async () => {await this.playCatalogueSegments(segments, {...options, ...this.retryLifetime()});}, () => this.playCatalogueSegmentsNow(segments, options));
+    return this.watchedStart({icon: 'i-music'}, async () => {await this.playCatalogueSegments(segments, {...options, ...this.retryLifetime()});}, () => this.playCatalogueSegmentsNow(segments, options));
   }
   private async playCatalogueSegmentsNow(segments: readonly SegmentInput[], options: NonNullable<Parameters<V1QueuePlayer['playSegments']>[1]>): Promise<QueueHeader> {
     const {signal, isCurrent} = options;
@@ -916,7 +916,7 @@ export class NativePlaybackRuntime {
    * The caller supplies its genuine route/member lifetime through adoption. */
   /** O-159: a group or shuffle start is named by its first entry once the queue knows it. */
   startGroup = (input: Readonly<{query: WholeGroupQuery; shuffle: boolean; signal: AbortSignal; isCurrent: () => boolean}>): Promise<void> =>
-    this.watchedStart(undefined, () => this.startGroup({...input, ...this.retryLifetime()}), () => this.startGroupNow(input));
+    this.watchedStart({}, () => this.startGroup({...input, ...this.retryLifetime()}), () => this.startGroupNow(input));
   private startGroupNow = async (input: Readonly<{query: WholeGroupQuery; shuffle: boolean; signal: AbortSignal; isCurrent: () => boolean}>): Promise<void> => {
     const admitted = () => !input.signal.aborted && this.currentAuthority() && input.isCurrent();
     if (!admitted()) throw Object.assign(new Error('native_group_retired'), {name: 'AbortError'});
@@ -2181,11 +2181,12 @@ export class NativePlaybackRuntime {
   private retryLifetime(): Readonly<{signal: AbortSignal; isCurrent: () => boolean}> {
     return {signal: this.startLife.signal, isCurrent: () => !this.retired && this.currentAuthority()};
   }
-  /** O-159 for every other start path: drawn at once (when its display is known), bounded by
-   * NATIVE_START_DEADLINE_MS from Play, and cancelled for real by Stop. A Live tune keeps its
-   * channel's own 60 s bound before acceptance, so its deadline counts from acceptance. A start
-   * that ends without a session or fence was not accepted and is never reported as a silent no-op. */
-  private async watchedStart<T>(display: NativeStartDisplay | undefined, retry: () => Promise<void>, run: () => Promise<T>, deadlineFrom: 'play' | 'accepted' = 'play'): Promise<T> {
+  /** O-159 for every other start path: drawn at once (generic until its title is known), bounded
+   * by NATIVE_START_DEADLINE_MS from Play, and cancelled for real by Stop. A Live tune, as on web,
+   * has no start deadline: it is drawn at tune acceptance, and the channel's own 60 s bound
+   * (CHANNEL_STREAM_WAIT_MS) ends a stream that never comes up. A start that ends without a
+   * session or fence was not accepted and is never reported as a silent no-op. */
+  private async watchedStart<T>(display: NativeStartDisplay | undefined, retry: () => Promise<void>, run: () => Promise<T>, deadlineFrom: 'play' | 'none' = 'play'): Promise<T> {
     let stopped = false;
     const starting = this.beginStarting(display, retry, deadlineFrom);
     starting.stopWith(() => {stopped = true; this.beginOperation();});
@@ -2208,7 +2209,7 @@ export class NativePlaybackRuntime {
    * from Play the real dock or player replaces it in place, accepted or not; otherwise the start
    * is stopped, recorded locally and offered again. Slow buffering never trips it, because a drawn
    * real dock ends the watch, and a Stop-only dock never stays forever. */
-  private beginStarting(display: NativeStartDisplay | undefined, retry: () => Promise<void>, deadlineFrom: 'play' | 'accepted' = 'play') {
+  private beginStarting(display: NativeStartDisplay | undefined, retry: () => Promise<void>, deadlineFrom: 'play' | 'none' = 'play') {
     this.endStarting(); this.startTimedOut = undefined;
     const state: NonNullable<NativePlaybackRuntime['startingState']> = {key: String(++this.startingKeys), display, accepted: false, timer: undefined, drawnTimer: undefined, deadlineFrom, stop: () => {}, retry};
     state.drawnTimer = this.setStartTimer(() => this.checkStartDrawn(state), NATIVE_START_DRAWN_MS);
@@ -2217,11 +2218,7 @@ export class NativePlaybackRuntime {
     const mine = () => this.startingState === state;
     return {
       stopWith: (stop: () => void) => {if (mine()) state.stop = stop;},
-      accepted: (fence: PlaybackFence | undefined) => {if (mine()) {
-        state.accepted = true; state.fence = fence;
-        if (state.timer === undefined) state.timer = this.setStartTimer(() => this.expireStarting(state), NATIVE_START_DEADLINE_MS);
-        if (this.snapshot) this.publish();
-      }},
+      accepted: (fence: PlaybackFence | undefined) => {if (mine()) {state.accepted = true; state.fence = fence; if (this.snapshot) this.publish();}},
       end: () => {if (mine()) {this.endStarting(); if (this.snapshot) this.publish();}},
     };
   }
@@ -2238,12 +2235,12 @@ export class NativePlaybackRuntime {
     if (timer === undefined) return;
     if (this.o.timers?.clearTimer) this.o.timers.clearTimer(timer); else clearTimeout(timer as ReturnType<typeof setTimeout>);
   }
-  /** Clock (a): nothing to draw yet (a start with no known title) only says so in the journal;
-   * the deadline still bounds it. */
+  /** Clock (a): every start draws its starting dock at once (a generic one when untitled), so this
+   * only notes in the journal a start that somehow drew nothing; the deadline still bounds it. */
   private checkStartDrawn(state: NonNullable<NativePlaybackRuntime['startingState']>): void {
     if (this.startingState !== state || this.retired) return;
     state.drawnTimer = undefined;
-    if (state.display || this.dock.getSnapshot().local) return;
+    if (state.view || this.dock.getSnapshot().local) return;
     try {console.warn(`portico_playback_not_drawn ${JSON.stringify({code: 'playback_not_drawn_dock', kind: this.entry?.kind ?? this.subject?.kind ?? 'unknown'})}`);} catch { /* passive */ }
   }
   private expireStarting(state: NonNullable<NativePlaybackRuntime['startingState']>): void {
@@ -2263,9 +2260,16 @@ export class NativePlaybackRuntime {
     const local = this.dock.getSnapshot().local;
     if (state?.accepted && local && fence && (!state.fence || sameFence(state.fence, fence)) && sameFence(local.fence, fence)) this.endStarting();
     const live = this.startingState;
-    // A start that came without a card is named by what the runtime now knows it is playing.
-    if (live && !live.display) live.display = this.entry ? entryDisplay(this.entry) : this.subject?.kind === 'channel' && this.subject.channelName ? {title: this.subject.channelName} : undefined;
-    if (live?.display && live.view?.display !== live.display) live.view = Object.freeze({key: live.key, display: live.display, stop: () => {if (this.startingState === live) {this.endStarting(); live.stop(); if (this.snapshot) this.publish();}}});
+    // A start that came without a card is named by what the runtime now knows it is playing;
+    // until then it is drawn as a generic "Starting…" (with its kind's icon, when known).
+    if (live && !live.display?.title) {
+      const known = this.entry ? entryDisplay(this.entry) : this.subject?.kind === 'channel' && this.subject.channelName ? {title: this.subject.channelName} : undefined;
+      if (known) live.display = {...(live.display?.icon ? {icon: live.display.icon} : {}), ...known};
+      else live.display ??= {};
+    }
+    // A Live start the server reports recoverable says so while it keeps trying (never a silent "Starting…").
+    const playback = this.playback.getSnapshot(), reason = playback.channel && playback.linearStalled ? 'channel_source' as const : undefined;
+    if (live?.display && (live.view?.display !== live.display || live.view?.reason !== reason)) live.view = Object.freeze({key: live.key, display: live.display, ...(reason ? {reason} : {}), stop: () => {if (this.startingState === live) {this.endStarting(); live.stop(); if (this.snapshot) this.publish();}}});
     return {...(live?.view ? {starting: live.view} : {}), ...(this.startTimedOut ? {startTimedOut: this.startTimedOut} : {})};
   }
   dispose = (): void => {

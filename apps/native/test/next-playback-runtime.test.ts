@@ -118,6 +118,7 @@ function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFil
   let respond: ((request: FakeRequest) => FakeResponse | undefined | Promise<FakeResponse | undefined>) | undefined;
   const channelSeeks = new Map<string, {id: string; positionMs: number; acknowledged: boolean}>();
   let channelWindow = {startMs: 20000, endMs: 120000};
+  let channelLinearState: string | undefined, channelErrorCode: string | undefined;
   let markers: readonly Marker[] = [{id: 'intro-1', type: 'intro', startMs: 10000, endMs: 70000, confidence: 'manual', automaticSafe: true}];
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input)), path = url.pathname + url.search;
@@ -156,7 +157,7 @@ function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFil
       if (body?.kind !== 'channel' || !body.id || !body.presentation) return body;
       if (seek) channelSeeks.set(body.id, {id: seek.id, positionMs: seek.live ? 120000 : seek.positionMs, acknowledged: false});
       const held = channelSeeks.get(body.id);
-      return {...body, presentation: {...body.presentation, linear: {name: 'channel-1', originMs: 0, windowStartMs: body.presentation.generation === 0 ? 0 : channelWindow.startMs, windowEndMs: body.presentation.generation === 0 ? 0 : channelWindow.endMs, liveEdgeMs: body.presentation.generation === 0 ? 0 : channelWindow.endMs, state: body.presentation.generation === 0 ? 'preparing' : 'ready',
+      return {...body, presentation: {...body.presentation, linear: {name: 'channel-1', originMs: 0, windowStartMs: body.presentation.generation === 0 ? 0 : channelWindow.startMs, windowEndMs: body.presentation.generation === 0 ? 0 : channelWindow.endMs, liveEdgeMs: body.presentation.generation === 0 ? 0 : channelWindow.endMs, state: channelLinearState ?? (body.presentation.generation === 0 ? 'preparing' : 'ready'), ...(channelLinearState && channelErrorCode ? {errorCode: channelErrorCode} : {}),
         ...(held ? {seek: held, confirmedPositionMs: held.positionMs} : {})}}};
     };
     const body = response.body as {kind?: string; id?: string; presentation?: Record<string, unknown>; session?: {kind?: string; id?: string; presentation?: Record<string, unknown>}} | undefined;
@@ -206,6 +207,8 @@ function fixture(groupedVersions = false, subtitleFilePicker?: NativeSubtitleFil
       clock = until;
     },
     channelWindow: (startSeconds: number, endSeconds: number) => { channelWindow = {startMs: startSeconds * 1000, endMs: endSeconds * 1000}; },
+    /** The server's occurrence state for every channel answer (e.g. 'recoverable'), until cleared. */
+    channelState: (state: string | undefined, errorCode?: string) => { channelLinearState = state; channelErrorCode = errorCode; },
     intercept: (fn: typeof before) => { before = fn; },
     respond: (fn: typeof respond) => { respond = fn; },
     authority: (patch: Partial<PlaybackAuthority>, notify = true) => { authority = {...authority, ...patch}; if (notify) for (const listener of [...authorityListeners]) listener(); },
@@ -3102,14 +3105,14 @@ test('O-159 Stop cancels: Stop on the starting dock ends the start, creates no s
 });
 
 // O-159, every accepted Play: the same three behaviours for each start path.
-type StartPath = Readonly<{name: string; title?: string; download?: boolean; grouped?: boolean;
+type StartPath = Readonly<{name: string; title?: string; download?: boolean; grouped?: boolean; live?: boolean;
   prepare?: (d: ReturnType<typeof fixture>) => Promise<void>;
   run: (d: ReturnType<typeof fixture>, local: ReturnType<typeof admittedDownload>) => Promise<unknown>}>;
 const startPaths: readonly StartPath[] = [
   {name: 'card Play', title: 'movie-1', run: d => d.start('movie-1', 0)},
   {name: 'Home selection Play', title: 'movie-e', run: d => d.runtime.selectionPlayback(() => true).play({context: selectionContext(), signal: new AbortController().signal, items: [selected('movie-e')]})},
-  {name: 'Home channel (Live)', title: 'channel-1', run: d => d.runtime.selectionPlayback(() => true).playChannel(homeChannel(), selectionContext(), new AbortController().signal)},
-  {name: 'guide channel (Live)', run: d => d.runtime.startChannel({sourceId: 'source-1', channelId: 'channel-1', timezone: 'UTC', lifetime: versionLifetime()})},
+  {name: 'Home channel (Live)', title: 'channel-1', live: true, run: d => d.runtime.selectionPlayback(() => true).playChannel(homeChannel(), selectionContext(), new AbortController().signal)},
+  {name: 'guide channel (Live)', live: true, run: d => d.runtime.startChannel({sourceId: 'source-1', channelId: 'channel-1', timezone: 'UTC', lifetime: versionLifetime()})},
   {name: 'download', title: 'Movie', download: true, run: (d, local) => d.runtime.startOffline(local.entry, {signal: new AbortController().signal, isCurrent: () => true})},
   {name: 'a different version', title: 'movie-1', grouped: true, prepare: async d => {await d.start('movie-1', 13); await settle();},
     run: d => {const state = d.runtime.getSnapshot(); return d.runtime.startVersion({entry: state.entry!, target: {itemId: 'movie-1', startSeconds: 17}},
@@ -3168,6 +3171,8 @@ for (const path of startPaths) {
       dock.getSnapshot = () => ({...real(), local: null});
       await path.run(d, local); await settle();
       const watch = d.pendingTimers(NATIVE_START_DEADLINE_MS);
+      // Live, as on web, has no start deadline: the channel's own 60 s bound ends a stream that never comes up.
+      if (path.live) {assert.equal(watch.length, 0, 'Live has no start deadline'); return;}
       assert.equal(watch.length, 1, 'accepted and bounded');
       watch[0]!.run(); await flushStart();
       assert.ok(d.runtime.getSnapshot().startTimedOut, '"Couldn\'t start playback" with Try again');
@@ -3238,6 +3243,95 @@ test('O-159 deadline: a start never accepted is stopped and reported at 20 s fro
     assert.equal(await outcome, 'AbortError', 'the held start itself was cancelled');
     assert.equal(d.requests.some(request => request.method === 'POST' && /\/playback\/sessions|start_playback_session/.test(request.path)), false, 'no session was created');
   } finally { d.runtime.dispose(); }
+});
+
+test('O-159 untitled starts: a catalogue or group Play draws a generic "Starting…" (with its kind\'s icon) and Stop at once, named once known', async () => {
+  for (const which of ['catalogue', 'group'] as const) {
+    const d = fixture();
+    let release!: () => void;
+    const held = new Promise<void>(resolve => {release = resolve;});
+    d.intercept(async request => {if (request.method === 'POST' && request.path === routePath('create_queue')) await held;});
+    try {
+      const query = {libraryId: '*', pivot: 'titles', query: {field: 'homeRow', operator: 'equals' as const, value: 'actual-row'}, sort: [{field: 'groupOrder', direction: 'asc' as const}]};
+      const started = which === 'catalogue'
+        ? d.runtime.cataloguePlayback().playSegments([{source: {items: {ids: ['movie-1', 'movie-2']}}}], {signal: new AbortController().signal, isCurrent: () => true})
+        : d.runtime.startGroup({query, shuffle: false, signal: new AbortController().signal, isCurrent: () => true});
+      const outcome = started.then(() => 'resolved', () => 'rejected');
+      await flushStart();
+      const starting = d.runtime.getSnapshot().starting;
+      assert.ok(starting, `${which}: something is drawn before any answer`);
+      assert.equal(starting.display.title, undefined, `${which}: generic "Starting…" until the title is known`);
+      assert.equal(starting.display.icon, which === 'catalogue' ? 'i-music' : undefined, `${which}: its kind's icon when known`);
+      assert.equal(typeof starting.stop, 'function');
+      await d.advance(NATIVE_START_DRAWN_MS);
+      assert.equal(d.runtime.getSnapshot().startTimedOut, undefined, `${which}: the 5 s check is satisfied by the generic dock`);
+      release(); await outcome; await settle();
+      if (which === 'catalogue') {
+        const after = d.runtime.getSnapshot();
+        assert.ok(after.dock.local, 'the real dock, named by its first entry, replaces it in place');
+        assert.equal(after.starting, undefined);
+      }
+    } finally { release(); d.runtime.dispose(); }
+  }
+});
+
+test('O-159 untitled starts: a generic starting dock is named in place once the runtime learns what it plays', () => {
+  const runtime = readFileSync(new URL('../src-next/platform/playback/runtime.ts', import.meta.url), 'utf8');
+  assert.match(runtime, /if \(live && !live\.display\?\.title\) \{/);
+  assert.match(runtime, /if \(known\) live\.display = \{\.\.\.\(live\.display\?\.icon \? \{icon: live\.display\.icon\} : \{\}\), \.\.\.known\};/);
+  assert.match(runtime, /else live\.display \?\?= \{\};/);
+});
+
+test('O-159 Live: no start deadline at all; the channel\'s own 60 s bound ends a stream that never comes up', async () => {
+  const {CHANNEL_STREAM_WAIT_MS} = await import('../../../packages/client-core/src/playback-v1/channel-control.ts');
+  assert.equal(CHANNEL_STREAM_WAIT_MS, 60_000);
+  for (const which of ['Home channel', 'guide'] as const) {
+    const d = fixture();
+    let release!: () => void;
+    const held = new Promise<void>(resolve => {release = resolve;});
+    d.intercept(async request => {if (request.method === 'POST' && request.path === routePath('start_playback_session')) await held;});
+    try {
+      const started = which === 'Home channel' ? d.runtime.selectionPlayback(() => true).playChannel(homeChannel(), selectionContext(), new AbortController().signal)
+        : d.runtime.startChannel({sourceId: 'source-1', channelId: 'channel-1', timezone: 'UTC', lifetime: versionLifetime()});
+      await flushStart();
+      assert.ok(d.runtime.getSnapshot().starting, `${which}: drawn at once`);
+      assert.equal(d.pendingTimers(NATIVE_START_DEADLINE_MS).length, 0, `${which}: no 20 s deadline`);
+      await d.advance(30_000);
+      assert.equal(d.runtime.getSnapshot().startTimedOut, undefined, `${which}: a starved source may take longer than 20 s`);
+      release(); await started; await settle();
+      assert.ok(d.runtime.getSnapshot().dock.local, `${which}: the Live dock at tune acceptance`);
+    } finally { release(); d.runtime.dispose(); }
+  }
+});
+
+test('O-159 Live reason: a channel the server reports recoverable says "The channel\'s source isn\'t responding. Still trying…" while it is still starting', async () => {
+  const {liveWaitingIdentity} = await import('../src-next/kit/dock/model.ts');
+  const {defaultI18n} = await import('../../../packages/i18n/src/index.ts');
+  const reason = defaultI18n.t('next.dock.channelSourceWaiting');
+  assert.equal(reason, 'The channel’s source isn’t responding. Still trying…');
+  const identity = {title: 'Channel 1', subtitle: [{id: 'programme', text: 'News', role: 'context' as const}]};
+  const channel = {sourceId: 'source-1', channelId: 'channel-1'};
+  assert.deepEqual(liveWaitingIdentity(identity, {channel, linearStalled: true, phase: 'starting'}, () => reason).subtitle, [{id: 'channel-source', text: reason, role: 'status'}]);
+  assert.equal(liveWaitingIdentity(identity, {channel, linearStalled: false, phase: 'starting'}, () => reason), identity, 'not stalled: its ordinary line');
+  assert.equal(liveWaitingIdentity(identity, {channel, linearStalled: true, phase: 'ready'}, () => reason), identity, 'the stream is up: its ordinary line');
+  assert.equal(liveWaitingIdentity(identity, {linearStalled: true, phase: 'starting'}, () => reason), identity, 'never on a non-channel');
+  // The runtime carries the server's recoverable state to the starting dock, and the layer draws it on either dock.
+  const d = fixture();
+  try {
+    d.channelState('recoverable', 'source_unavailable');
+    const cold = coldChannel(d);
+    const opening = d.runtime.startChannel({sourceId: 'source-1', channelId: 'channel-1', timezone: 'UTC', lifetime: versionLifetime()});
+    await drainChannelUntil(() => d.runtime.getSnapshot().playback.linearStalled === true, 'recoverable channel state');
+    assert.ok(cold(), 'the start was answered before its stream existed');
+    const state = d.runtime.getSnapshot();
+    assert.equal(state.playback.linearStalled, true);
+    assert.ok(state.starting?.reason === 'channel_source' || state.dock.local, 'the reason reaches whichever dock is drawn');
+    if (state.starting) assert.equal(state.starting.reason, 'channel_source');
+    void opening.catch(() => {});
+  } finally { d.runtime.dispose(); }
+  const layer = readFileSync(new URL('../src-next/shell/NativePlaybackLayer.tsx', import.meta.url), 'utf8');
+  assert.match(layer, /identity: liveWaitingIdentity\(playbackIdentity\(snapshot\.subject, 'dock', runtime\.text\), snapshot\.playback, \(\) => runtime\.text\.t\('next\.dock\.channelSourceWaiting'\)\)/);
+  assert.match(layer, /reason=\{snapshot\.starting\.reason === 'channel_source' \? runtime\.text\.t\('next\.dock\.channelSourceWaiting'\) : undefined\}/);
 });
 
 test('O-159: group, shuffle and catalogue (album, artist, playlist, radio) starts go through the same watch', () => {

@@ -14,7 +14,7 @@ import {useTheme} from '../kit/theme';
 import {focusTestID} from '../kit/focus';
 import {tvFocusIds} from './tv-focus';
 import {DockHost, PlayerMorph, bindNativeDock, usePlayerMorph, type DockPresentation,type CastDockBinding} from '../kit/dock';
-import {commandIsCurrent, dockBarFrame, playbackPosition} from '../kit/dock/model';
+import {commandIsCurrent, dockBarFrame, liveWaitingIdentity, playbackPosition} from '../kit/dock/model';
 import {StartingDock} from '../kit/dock/StartingDock';
 import {StartTimedOut} from './StartTimedOut';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -412,7 +412,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
     const current = adapter.getSnapshot();
     if (alive.current && image && retainedImage.current?.owner === capture && retainedImage.current.image === image && sameAuthority(current.authority, authority) && sameFence(current.fence, image.fence)) setImageState({image, state});
   };
-  const presentation: DockPresentation | undefined = fence && snapshot.subject ? {fence, identity: playbackIdentity(snapshot.subject, 'dock', runtime.text),
+  const presentation: DockPresentation | undefined = fence && snapshot.subject ? {fence, identity: liveWaitingIdentity(playbackIdentity(snapshot.subject, 'dock', runtime.text), snapshot.playback, () => runtime.text.t('next.dock.channelSourceWaiting')),
     artwork: audioArtwork ?? runtime.artwork(snapshot.entry?.posterUrl), ambient: runtime.ambient(snapshot.entry?.posterUrl), durationSeconds: snapshot.playback.duration > 0 ? snapshot.playback.duration : undefined,
     seekWindow: snapshot.seekWindow ? {start: snapshot.seekWindow.startSeconds, end: snapshot.seekWindow.endSeconds} : undefined,
     finished: snapshot.playback.phase === 'ended', skipBackSeconds: runtime.skipBackSeconds, skipForwardSeconds: runtime.skipForwardSeconds, capabilities: snapshot.capabilities} : undefined;
@@ -480,7 +480,9 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
           onAction={command => {void action(command).catch(runtime.reportError);}}/>}
         {/* O-159: an accepted Play is drawn at once; the real dock replaces this in place. */}
         {snapshot.starting && !snapshot.dock.local && !snapshot.retired && sameAuthority(snapshot.authority, authority) && <StartingDock key={snapshot.starting.key}
-          title={snapshot.starting.display.title} artwork={snapshot.starting.display.localArtwork ? {uri: snapshot.starting.display.localArtwork, cacheKey: snapshot.starting.display.localArtwork} : runtime.artwork(snapshot.starting.display.posterUrl)}
+          title={snapshot.starting.display.title} icon={snapshot.starting.display.icon}
+          reason={snapshot.starting.reason === 'channel_source' ? runtime.text.t('next.dock.channelSourceWaiting') : undefined}
+          artwork={snapshot.starting.display.localArtwork ? {uri: snapshot.starting.display.localArtwork, cacheKey: snapshot.starting.display.localArtwork} : snapshot.starting.display.posterUrl ? runtime.artwork(snapshot.starting.display.posterUrl) : undefined}
           onStop={snapshot.starting.stop} frame={dockBarFrame(theme.isTV ? 'tv' : theme.platform, undefined, insets.bottom, contentInset)}/>}
         {!nowPlaying && dockedLocal?.expanded !== true && snapshot.playback.listeningNotice && <NativeListeningNotice key={snapshot.playback.listeningNotice}
           notice={listeningNoticeKey(snapshot.playback.listeningNotice)} bottomOffset={insets.bottom + (theme.platform === 'web' ? 100 : theme.platform === 'tablet' ? 66 : 62) + 10}/>}

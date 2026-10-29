@@ -160,8 +160,11 @@ export type NativePlaybackRuntimeSnapshot = Readonly<{
 }>;
 /** What a start is drawn as before its real dock: the pressed card's title and art (a local file
  * for a download). Absent until known for a start that came without a card (a group or radio). */
-export type NativeStartDisplay = Readonly<{title: string; posterUrl?: string; localArtwork?: string}>;
-export type NativePlaybackStarting = Readonly<{key: string; display: NativeStartDisplay; stop: () => void}>;
+/** What a starting dock draws. A start whose title is not known yet (a catalogue or group start)
+ * draws a generic "Starting…" with its kind's icon when known, and is named once the runtime learns it. */
+export type NativeStartDisplay = Readonly<{title?: string; icon?: 'i-music'; posterUrl?: string; localArtwork?: string}>;
+/** `reason`: a Live start the server reports recoverable (its source isn't responding) while it keeps trying. */
+export type NativePlaybackStarting = Readonly<{key: string; display: NativeStartDisplay; reason?: 'channel_source'; stop: () => void}>;
 export type NativePlaybackStartTimedOut = Readonly<{key: string; retry: () => Promise<void>; close: () => void}>;
 
 /** One authority lifetime. Supply the shell's existing feed; the runtime never opens another. */

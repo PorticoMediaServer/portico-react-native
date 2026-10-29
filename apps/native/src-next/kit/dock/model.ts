@@ -72,6 +72,15 @@ export function seekTo(occupant: DockRenderOccupant, position: number): DockComm
   return bounds && Number.isFinite(position) && commandAllowed(occupant, 'seek') ? dockCommand(occupant, 'seek', Math.min(bounds.end, Math.max(bounds.start, position))) : undefined;
 }
 
+/** O-159: a Live start the server reports recoverable (its source isn't responding) says so in the
+ * dock's second line while it is still starting and the server keeps trying; once the stream is up
+ * (or the start ends) the ordinary identity returns. */
+export function liveWaitingIdentity<T extends Readonly<{subtitle: readonly FactPart[]}>>(identity: T,
+  playback: Readonly<{channel?: unknown; linearStalled?: boolean; phase: string}>, reason: () => string): T {
+  if (!playback.channel || playback.linearStalled !== true || playback.phase === 'ready' || playback.phase === 'ended' || playback.phase === 'error') return identity;
+  return {...identity, subtitle: [{id: 'channel-source', text: reason(), role: 'status' as const}]};
+}
+
 export function remoteSubtitle(occupant: DockRenderOccupant): readonly FactPart[] {
   const remote = occupant.remote;
   if (!remote) return occupant.presentation.identity.subtitle;
