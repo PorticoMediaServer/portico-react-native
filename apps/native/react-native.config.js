@@ -6,8 +6,9 @@ const manifest = require('./package.json');
 // exclude components that tvOS cannot link.
 const tvOS = process.env.PORTICO_APPLE_TARGET === 'tvos' ||
   ['appletvos', 'appletvsimulator'].includes(process.env.PLATFORM_NAME);
-// Touch-only native packages: tvOS links neither (WebView; the touch keyboard controller).
-const tvOSUnlinked = ['react-native-webview', 'react-native-keyboard-controller'].filter(name =>
+// Touch-only native packages: tvOS links none of them (WebView; the touch keyboard controller; the
+// Expo modules runtime, which only phones and tablets use, for expo-image).
+const tvOSUnlinked = ['react-native-webview', 'react-native-keyboard-controller', 'expo'].filter(name =>
   [manifest.dependencies, manifest.devDependencies, manifest.optionalDependencies]
     .some(dependencies => Object.hasOwn(dependencies ?? {}, name)));
 

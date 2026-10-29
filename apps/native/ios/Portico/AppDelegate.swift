@@ -1,14 +1,15 @@
 import UIKit
+import Expo
 import React
 import React_RCTAppDelegate
 import ReactAppDependencyProvider
 import GoogleCast
 
 @main
-class AppDelegate: UIResponder, UIApplicationDelegate {
+class AppDelegate: ExpoAppDelegate {
   /// SEC-22: one allowlist (`PorticoURLRoutes`, shared with tvOS) for every URL handed to
   /// React Native, whether the app was running or not.
-  func application(_ app: UIApplication, open url: URL,
+  override func application(_ app: UIApplication, open url: URL,
                    options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
     guard let route = PorticoURLRoutes.forwarded(url) else { return false }
     return RCTLinkingManager.application(app, open: route, options: options)
@@ -17,16 +18,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
   var window: UIWindow?
 
   var reactNativeDelegate: ReactNativeDelegate?
-  var reactNativeFactory: RCTReactNativeFactory?
+  var reactNativeFactory: ExpoReactNativeFactory?
 
   /// The player's one orientation request, or the app's own set when none is active. The module
   /// and this answer must agree, because `requestGeometryUpdate` is only admitted when they do.
-  func application(_ application: UIApplication,
+  override func application(_ application: UIApplication,
                    supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
     PorticoFullWindowSupportedOrientations()
   }
 
-  func application(
+  override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
@@ -50,12 +51,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     // handleEventsForBackgroundURLSession below). A foreground launch starts it from the scene.
 
     let delegate = ReactNativeDelegate()
-    let factory = RCTReactNativeFactory(delegate: delegate)
+    let factory = ExpoReactNativeFactory(delegate: delegate)
     delegate.dependencyProvider = RCTAppDependencyProvider()
 
     reactNativeDelegate = delegate
     reactNativeFactory = factory
 
+    // Expo's app-delegate subscribers (expo-image has none today, but the runtime expects the call).
+    _ = super.application(application, didFinishLaunchingWithOptions: launchOptions)
     return true
   }
 
@@ -79,7 +82,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
   /// A universal link (web.getportico.tv/account…, /device, /join/…), a title handed off from
   /// another device, or a Spotlight result. Each becomes one allowlisted `portico://` route;
   /// anything else is refused (a universal link then opens in Safari).
-  func application(_ application: UIApplication, continue userActivity: NSUserActivity,
+  override func application(_ application: UIApplication, continue userActivity: NSUserActivity,
                    restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
     guard let route = PorticoURLRoutes.route(activityType: userActivity.activityType,
                                              userInfo: userActivity.userInfo,
@@ -119,7 +122,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
 }
 
-class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
+class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {
   override func sourceURL(for bridge: RCTBridge) -> URL? {
     self.bundleURL()
   }
