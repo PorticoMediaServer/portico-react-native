@@ -48,7 +48,8 @@ test('native staged Save view preserves canonical relative dates and leaves abso
     assert.deepEqual(recent.predicates, [{field: 'dateAdded', operator: 'within-last-days', value: 30}]);
     const selected = libraryFilterChange(dated, date, [], {kind: 'range', value: recent.id}, [], new Date('2026-10-24T12:00:00Z'));
     const captured = destination.captureSavedView({predicates: selected, sort: {field: 'title', direction: 'asc'}});
-    assert.deepEqual(captured.query, recent.predicates[0]);
+    // R-09b: the saved query is the tagged node the server accepts.
+    assert.deepEqual(captured.query, {variant: 'relative', ...recent.predicates[0]});
     assert.equal(Object.isFrozen(captured.query), true);
     const reopened = JSON.parse(JSON.stringify(captured));
     assert.equal(activeRangePreset(rangePresets(date, new Date('2027-01-01T12:00:00Z')), [reopened.query]), 'last-30');

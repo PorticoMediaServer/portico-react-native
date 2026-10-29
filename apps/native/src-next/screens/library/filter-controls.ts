@@ -1,4 +1,4 @@
-import {browseFields, type BrowseCapabilities, type BrowseFieldCapability, type BrowseNode, type BrowseOperator, type BrowseScalar} from '../../../../../packages/client-core/src/browse';
+import {browseFields, completeBrowseNode, type BrowseCapabilities, type BrowseFieldCapability, type BrowseNode, type BrowseOperator, type BrowseScalar} from '../../../../../packages/client-core/src/browse';
 import {activeRangePreset, browseValueLabel, fieldSelectionSummary, filterControlOf, filterValuesField, orderFilterValues, rangePresets} from '../../../../../packages/client-core/src/presentation/browse-toolbar';
 import {defaultI18n} from '../../../../../packages/i18n/src';
 import type {FilterFieldState, FilterFieldValue} from '../../kit/browse';
@@ -63,7 +63,8 @@ export function libraryFilterChange(capabilities: BrowseCapabilities, field: Bro
   } else if (value.kind === 'range') {
     const preset = rangePresets(field, now).find(candidate => candidate.id === value.value);
     if (value.value !== null && !preset) throw new Error('native_library_filter_range_not_offered');
-    add.push(...(preset?.predicates ?? []) as readonly BrowseNode[]);
+    // R-09b: toolbar presets are untagged; the server takes only tagged nodes (a range is relative).
+    add.push(...(preset?.predicates ?? []).map(predicate => completeBrowseNode(predicate) as BrowseNode));
   } else if (value.kind === 'toggle' || value.kind === 'choice') {
     if (value.value !== null) add.push(condition(field.id, 'equals', value.value));
   } else if (value.value) {
