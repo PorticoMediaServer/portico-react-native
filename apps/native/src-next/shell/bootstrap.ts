@@ -21,6 +21,7 @@ import {runEventFeed} from '../../../../packages/client-core/src/event-feed';
 import {ambientArtworkSource} from '../../../../packages/client-core/src/artwork';
 import type {HttpLocalApi, LocalSession, Library} from '../../../../packages/client-core/src';
 import {beginRestoreTrace, markRestore} from './restore-trace';
+import {noteHomeRead} from './home-read-log';
 import {restoreNativeConnection, readNativeSelectedViewer, trackNativeConnection} from '../platform/session';
 import {beginNativeInstallation} from '../platform/installation';
 import {NativeStopResultConsumer} from '../platform/native-stop-consumer';
@@ -236,7 +237,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       readers.readPreferences(Platform.isTV ? 'television' : 'mobile', signal.signal),
       rememberNativeServerDisplay(local, {serverId: session.viewer.serverId,
         signal: signal.signal, isCurrent: () => alive && installation.current()}),
-      documentService.load(),
+      (noteHomeRead('restore'), documentService.load()),
     ]);
     assertCurrent();
     const document = documentService.getSnapshot().document;
@@ -422,7 +423,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
         // retain the entire published body; a changed Home fence retires it in the transport.
         // A sheet over Home still leaves its document on screen; only a hidden Home waits.
         if (AppState.currentState === 'active' && bound.getState().homeVisible && !playback!.getSnapshot().dock.local?.expanded) {
-          await documentService.revalidate({signal: round.signal}); assertCurrent();
+          noteHomeRead('refresh-round'); await documentService.revalidate({signal: round.signal}); assertCurrent();
         } else freshness.invalidateHome();
         const selectedBeforeRefreshPublish = await readNativeSelectedViewer(); assertCurrent();
         if (!selectedBeforeRefreshPublish || selectedBeforeRefreshPublish.serverUrl !== original.serverUrl || !sameViewer(selectedBeforeRefreshPublish.session, session!)) {end(); return;}
@@ -458,7 +459,7 @@ export async function restoreNativeShellRuntime(makeBindings: NativeShellBinding
       home: async context => {
         try {
           await resourceCurrent(context.signal);
-          await documentService.revalidate({...context, settle: async () => {await context.settle(); await resourceCurrent(context.signal);}});
+          noteHomeRead('freshness'); await documentService.revalidate({...context, settle: async () => {await context.settle(); await resourceCurrent(context.signal);}});
         } catch (error) {if (nativeShellPermissionDenied(error)) endUnlessRoleChanged(); throw error;}
       },
       libraries: guarded(async requestSignal => {

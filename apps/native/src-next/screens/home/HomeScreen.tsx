@@ -1,4 +1,5 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import {noteHomeRead} from '../../shell/home-read-log';
 import {AppState, RefreshControl, ScrollView, Text, View, useWindowDimensions, type ViewProps} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Animated, {cancelAnimation, runOnJS, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, withTiming, type LayoutAnimationFunction} from 'react-native-reanimated';
@@ -291,7 +292,8 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
   const viewportHeight = windowHeight, viewportWidth = windowWidth;
 
   useEffect(() => {if (current()) runtime.home.setRowDemand(JSON.parse(rowDemand) as string[]);}, [current, rowDemand, runtime]);
-  useEffect(() => {if (current()) void runtime.home.load();}, [current, runtime]);
+  // The restore has already read Home: a mount reads only when nothing has been read yet.
+  useEffect(() => {if (current() && !runtime.home.getSnapshot().document) {noteHomeRead('mount'); void runtime.home.load();}}, [current, runtime]);
   useEffect(() => {const sub = AppState.addEventListener('change', state => setForeground(state === 'active')); return () => sub.remove();}, []);
   useEffect(() => {
     if (snapshot.phase !== 'loading' && snapshot.phase !== 'idle') return;
@@ -304,13 +306,13 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     if (!active || !foreground || !document) return;
     const expiry = Math.min(...document.rows.flatMap(row => row.live ? [Date.parse(row.live.expiresAt)] : []));
     if (!Number.isFinite(expiry)) return;
-    const timer = setTimeout(() => {if (current()) void runtime.home.revalidate().catch(runtime.reportError);}, Math.max(0, expiry - Date.now()));
+    const timer = setTimeout(() => {if (current()) {noteHomeRead('live-expiry'); void runtime.home.revalidate().catch(runtime.reportError);}}, Math.max(0, expiry - Date.now()));
     return () => clearTimeout(timer);
   }, [active, current, document, foreground, runtime]);
   // Coming back to Home (or to the app) reads again any shelf dropped after its retries; there's no
   // row-level error state in the mock-ups, so a failed shelf leaves rather than lingering as a skeleton.
   useEffect(() => {
-    if (active && foreground && current()) void runtime.home.recoverDroppedRows().catch(runtime.reportError);
+    if (active && foreground && current()) {noteHomeRead('dropped-rows'); void runtime.home.recoverDroppedRows().catch(runtime.reportError);}
   }, [active, foreground, current, runtime]);
   const updateViewport = useCallback((y: number) => {
     if (startModel.actionless) return;
@@ -376,7 +378,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
       {offers.playable && candidate.target?.playback && <Button focusId="play" icon="i-play" variant="primary" size="hero" style={tabletMedium || expandedTouch ? {height: undefined, minHeight: tabletMedium ? 52 : 48, paddingHorizontal: tabletMedium ? 26 : 22, borderRadius: 12} : undefined} textStyle={tabletMedium || expandedTouch ? {fontSize: 16 * theme.textScale} : undefined} onFocus={() => {initialEntry.finish(); setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => activate(candidate.entry, candidate.target)}
         onLongPressAction={theme.isTV ? () => guarded(() => runtime.actions.more(candidate.entry)) : undefined}>{candidate.primaryLabel ?? t('next.home.play')}</Button>}
       {offers.watchlisted !== undefined && <Button focusId="my-list" icon={offers.watchlisted ? 'i-check' : 'i-plus'} variant="glass" size="hero" style={tabletMedium || expandedTouch ? {height: undefined, minHeight: tabletMedium ? 52 : 48, paddingHorizontal: tabletMedium ? 26 : 22, borderRadius: 12} : undefined} textStyle={tabletMedium || expandedTouch ? {fontSize: 16 * theme.textScale} : undefined} onFocus={() => {initialEntry.finish(); setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => {
-        if (current()) void runtime.actions.myList(candidate.entry, !offers.watchlisted).then(() => {if (current()) return runtime.home.revalidate();}).catch(runtime.reportError);
+        if (current()) void runtime.actions.myList(candidate.entry, !offers.watchlisted).then(() => {if (current()) {noteHomeRead('my-list'); return runtime.home.revalidate();}}).catch(runtime.reportError);
       }}>{t('next.home.myList')}</Button>}
       {theme.isTV && offers.details && <Button focusId="details" variant="glass" size="hero" onFocus={() => {initialEntry.finish(); setHeroFocused(true); if (theme.isTV) {moveToTop(0, true); setFocus(undefined);}}} onBlur={() => setHeroFocused(false)} onPress={() => guarded(() => runtime.actions.navigate(candidate.entry))}>{t('action.details')}</Button>}
     </HomeRegion>;
@@ -425,7 +427,7 @@ export function HomeScreen({runtime, authority, active = true, heroObscured = fa
     refreshControl={theme.isTV ? undefined : <RefreshControl refreshing={refreshing} tintColor={theme.colors.text} onRefresh={() => {
       if (!current() || refreshing) return;
       setRefreshing(true);
-      void runtime.home.revalidate().catch(runtime.reportError).finally(() => {if (current()) setRefreshing(false);});
+      noteHomeRead('pull'); void runtime.home.revalidate().catch(runtime.reportError).finally(() => {if (current()) setRefreshing(false);});
     }}/>}
     onContentSizeChange={(_, height) => {contentHeight.current = height;}} onScrollBeginDrag={vertical.stop}
     showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: homeContentBottom(theme, bottomInset)}}>

@@ -7,6 +7,7 @@ import {fetchGuideSourceSummaries} from '../../../../packages/client-core/src/gu
 import {parseDirectSnapshot, type DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
 import {routePath} from '../../../../packages/contracts/src/routes';
 import {createSharedReads} from './shared-read';
+import {createHomeReadLog} from './home-read-log';
 import type {HttpLocalApi, LocalSession} from '../../../../packages/client-core/src';
 import type {NativeShellAccountBinding} from './account-binding';
 
@@ -85,10 +86,10 @@ export class NativeShellBootstrapServices {
     }});
     // Home's document is read once at a time (E-mobile-01 cold launch): a load and the quiet
     // re-reads that arrive while it runs share one request.
-    const homeReads = createSharedReads();
+    const homeReads = createSharedReads(), logHomeRead = createHomeReadLog();
     this.home = new HomeService({request: <T>(path: string, method?: string, body?: unknown, signal?: AbortSignal) =>
       (method ?? 'GET') === 'GET' && body === undefined && path.split('?')[0] === routePath('get_home')
-        ? homeReads<T>(path, signal, shared => this.call<T>('home', path, method, body, shared))
+        ? homeReads<T>(path, signal, shared => {logHomeRead(); return this.call<T>('home', path, method, body, shared);})
         : this.call<T>('home', path, method, body, signal)},
       options.deviceClass === 'television' ? {initialLimit: 20} : {});
     // Core disposal aborts owned reads but retains its last snapshot. A retained runtime

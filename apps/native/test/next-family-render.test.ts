@@ -181,12 +181,14 @@ test('scheduled native Image callbacks reject an old retry and an unmounted sour
     await frame.update({...props, visible: true});
     const scheduled = nodes(frame.tree).find(node => typeof node.type === 'function')!;
     const image = await mount(scheduled.type, scheduled.props);
-    const original = find(image.tree, 'Image');
+    // Artwork draws through the Picture seam (kit/artwork/Picture), which renders React Native's Image.
+    const picture = (tree: Parameters<typeof nodes>[0]) => nodes(tree).find(node => node.type === 'Image' || (node.type as {name?: string})?.name === 'Picture')!;
+    const original = picture(image.tree);
     try {
       assert.deepEqual(calls, []);
       state.slot = {...state.slot, attempt: 1}; await image.host.rerender();
       original.props.onLoad({nativeEvent: {source: {width: 240, height: 360}}}); assert.deepEqual(calls, []);
-      const actual = find(image.tree, 'Image');
+      const actual = picture(image.tree);
       actual.props.onLoad({nativeEvent: {source: {width: 240, height: 360}}}); await image.host.flush();
       assert.deepEqual(calls, ['loaded'], 'decode completes before the actual placed-art arrival turn');
       t.mock.timers.tick(0); await image.host.flush();

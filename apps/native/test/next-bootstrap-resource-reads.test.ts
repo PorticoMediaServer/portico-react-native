@@ -39,7 +39,7 @@ class HomePort {
   dispose() {}
 }
 const {NativeShellBootstrapServices} = await screenModule(new URL('../src-next/shell/bootstrap-services.ts', import.meta.url), {
-  react, './shared-read': await import('../src-next/shell/shared-read.ts'),
+  react, './shared-read': await import('../src-next/shell/shared-read.ts'), './home-read-log': await import('../src-next/shell/home-read-log.ts'),
   '../../../../packages/client-core/src/home-service': {HomeService: HomePort},
   '../../../../packages/client-core/src/inbox': inbox, '../../../../packages/client-core/src/notifications': notifications,
   '../../../../packages/client-core/src/preferences-reader': preferences, '../../../../packages/client-core/src/guide/directory': guide,
