@@ -429,8 +429,11 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       </Focusable>
     </TVControlLabel>;
   };
-  const icon = (id: string, name: IconName, label: string, onPress: () => void, primary = false, disabled = false, size?: number) => <TVControlLabel focused={controlsEnabled && focus?.childId === `watch-${id}`} label={label} primary={primary} align={id === 'options' || id === 'pip' ? 'end' : 'center'}><Button ref={id === 'cast' ? castButton : undefined} focusId={`watch-${id}`} testID={`watch-${id}`} variant={primary ? 'primary' : theme.isTV ? 'icon' : 'text'} iconOnly icon={name} accessibilityLabel={label}
-    focusable={controlsEnabled} disabled={disabled || !controlsEnabled} onPress={() => {if (controlsCurrent()) onPress();}} style={{width: size ?? (primary ? big : small), height: size ?? (primary ? big : small), borderRadius: (size ?? (primary ? big : small)) / 2}}
+  // E-mobile-14b: Minimize is presentation only. It needs this screen current and not retired,
+  // never the playback-control gates (a stopped or failed session still folds away).
+  const minimizeCurrent = () => !source.retired && !playback.getSnapshot().retired;
+  const icon = (id: string, name: IconName, label: string, onPress: () => void, primary = false, disabled = false, size?: number, gate: () => boolean = controlsCurrent) => <TVControlLabel focused={controlsEnabled && focus?.childId === `watch-${id}`} label={label} primary={primary} align={id === 'options' || id === 'pip' ? 'end' : 'center'}><Button ref={id === 'cast' ? castButton : undefined} focusId={`watch-${id}`} testID={`watch-${id}`} variant={primary ? 'primary' : theme.isTV ? 'icon' : 'text'} iconOnly icon={name} accessibilityLabel={label}
+    focusable={controlsEnabled} disabled={disabled || !controlsEnabled} onPress={() => {if (gate()) onPress();}} style={{width: size ?? (primary ? big : small), height: size ?? (primary ? big : small), borderRadius: (size ?? (primary ? big : small)) / 2}}
     iconSize={size ? Math.round(size * .6) : primary ? theme.isTV ? 40 : 28 : theme.isTV ? 26 : 22}/></TVControlLabel>;
   const liveButtons = (size?: number, compact = true) => linear && liveOffer && props.liveActions ? <TVLiveActions enabled={controlsEnabled} size={size} compact={compact}
     record={liveOffer.channel.kind === 'live' && liveOffer.channel.recordAvailable ? {label: recordingLabel(recordState), recording: recordState === 'recording',
@@ -562,7 +565,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       <FocusRegion id="watch-controls" orientation="horizontal" entry="watch-toggle" style={{position: 'absolute', inset: 0}}>
         <View style={{flex: 1}}>
           <View style={{height: 115, paddingTop: 26, paddingHorizontal: 32, flexDirection: 'row', alignItems: 'flex-start', gap: 16}}>
-            {icon('minimize', 'i-down', t('player.minimize'), () => props.onMinimize(fence), false, false, 48)}
+            {icon('minimize', 'i-down', t('player.minimize'), () => props.onMinimize(fence), false, false, 48, minimizeCurrent)}
             {linear && <View testID="watch-live-identity" style={{flexDirection: 'row', alignItems: 'flex-start', gap: 14, flexShrink: 1, minWidth: 0, paddingTop: 2}}>
               <View style={{width: 48, height: 48, borderRadius: 11, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: liveRow?.mark ? channelTint(liveRow.mark.seed) : '#edf5fa14'}}>
                 <Text numberOfLines={1} style={[nativeType({size: 13, weight: 800, tracking: -.01, lineHeight: 'normal'}, theme.textScale), {color: theme.colors.text}]}>{liveRow?.mark?.text ?? channelNumber}</Text>
@@ -635,7 +638,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       <FocusRegion id="watch-controls" orientation="horizontal" entry="watch-toggle" style={{position: 'absolute', inset: 0}}>
         <View style={{flex: 1, flexDirection: 'column', justifyContent: stacked ? 'flex-start' : 'space-between', paddingTop: stacked ? 12 : 0}}>
           <View style={{height: 44, flexDirection: 'row', alignItems: 'center', gap: 6}}>
-            {icon('minimize', 'i-down', t('player.minimize'), () => props.onMinimize(fence), false, false, 44)}
+            {icon('minimize', 'i-down', t('player.minimize'), () => props.onMinimize(fence), false, false, 44, minimizeCurrent)}
             {!linear && identity && <View style={{flexShrink: 1, minWidth: 0, marginLeft: 8}}>
               <Text numberOfLines={1} style={{fontFamily: 'Manrope-ExtraBold', fontSize: 20, fontWeight: '800', letterSpacing: -.025, color: theme.colors.text}}>{identity.title}</Text>
               <Text numberOfLines={1} style={{fontFamily: 'Manrope-SemiBold', fontSize: 13.5, fontWeight: '600', marginTop: 1, color: theme.colors.textSecondary}}>{identity.subtitle.map(part => part.text).join('  ')}</Text>
@@ -690,7 +693,7 @@ export function NativeWatchChrome(props: NativeWatchChromeProps) {
       </Defs><Rect width="100%" height="100%" fill="url(#watch-top)"/><Rect width="100%" height="100%" fill="url(#watch-bottom)"/></Svg>}
       <FocusRegion id="watch-controls" orientation={theme.isTV ? "free" : "horizontal"} entry={theme.isTV ? undefined : barEntry} entryRegion={theme.isTV ? "watch-transport" : undefined} style={{position: 'absolute', inset: 0}}>
         <View style={{position: 'absolute', top: (compact ? 4 : theme.isTV ? 80 : 12) + (props.edgeInsets?.top ?? 0), left: (side ?? (compact ? 6 : theme.isTV ? 96 : 54)) + (props.edgeInsets?.left ?? 0), right: (side ?? (compact ? 6 : theme.isTV ? 96 : 54)) + (props.edgeInsets?.right ?? 0), flexDirection: 'row', alignItems: theme.isTV ? 'flex-start' : 'center'}}>
-          {!theme.isTV && icon('minimize', 'i-down', t('player.minimize'), () => props.onMinimize(fence))}
+          {!theme.isTV && icon('minimize', 'i-down', t('player.minimize'), () => props.onMinimize(fence), false, false, undefined, minimizeCurrent)}
           {theme.isTV && linear && <>{channelMark}<View style={{flexShrink: 1, minWidth: 0}}>
             <Text numberOfLines={1} style={[nativeType({size: 44, weight: 800, tracking: -.03, lineHeight: 52}, theme.textScale), {color: theme.colors.text}]}>{linear.programme?.title ?? linear.name}</Text>
             <View style={{flexDirection: 'row', alignItems: 'center', minWidth: 0}}>

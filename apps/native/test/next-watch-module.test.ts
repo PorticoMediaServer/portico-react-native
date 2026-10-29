@@ -41,7 +41,7 @@ const {createNativeWatchModule, nativeWatchChromeFacts} = await screenModule(new
   '../../../../../packages/client-core/src/presentation/browse-toolbar': {browseValueLabel},
   '../../../../../packages/client-core/src/audiobook-preferences': {audiobookPreferences}, react, 'react-native': {Platform: {isTV: false}}, '../../../../../packages/player-core/src': {sameFence},
   '../../platform/playback/subtitle-style-choices': {nativeSubtitleStyleKeys, nativeSubtitleStyleValue},
-  '../../../../../packages/client-core/src/playback-v1/quality': {qualityOptionSelected}, './track-identity': {nativeWatchTracks},
+  '../../../../../packages/client-core/src/playback-v1/quality': {qualityOptionSelected}, './minimize': {minimizeTarget: (dock: any, pressed: any) => dock.local?.expanded ? dock.local.fence : pressed}, './track-identity': {nativeWatchTracks},
   '../../../../../packages/i18n/src': {defaultI18n}, './panel-names': {createNativeWatchPanelNames},
   './ChannelRoute': {NativeWatchChannelRoute: 'Channel'},
   './PlaybackInfoPanel': {NativePlaybackInfoPanel: 'PlaybackInfo', playbackInfoWords: infoPanel.playbackInfoWords},

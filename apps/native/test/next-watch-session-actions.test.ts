@@ -64,7 +64,7 @@ async function fixture() {
     '../../../../../packages/client-core/src/playback-v1/options': {PlaybackOptionsClient: class {async options(id: string) {reads.push(id); return source.options;}}},
     '../../../../../packages/client-core/src/continue-watching': {}, '../../../../../packages/client-core/src/playback-v1/local-http': {localV1Http: (api: any) => api},
     '../../../../../packages/player-core/src': {sameFence}, '../../../../../packages/i18n/src': {defaultI18n}, '../../platform/layout/full-window': {}, '../../shell/model': {sameAuthority},
-    './title-controller': {}, './title-starts': {NativeTitleStarts}, './TitleScreen': {}, './FileInfoContent': {}, './FileInfoPanel': {}, './file-info': {}, '../../../../../packages/client-core/src/file-info-session': {}, './playback-info': {}, './track-identity': {},
+    './title-controller': {}, './title-starts': {NativeTitleStarts}, './TitleScreen': {}, './FileInfoContent': {}, './FileInfoPanel': {}, './file-info': {}, '../../../../../packages/client-core/src/file-info-session': {}, './playback-info': {}, './minimize': {minimizeTarget: (dock: any, pressed: any) => dock.local?.expanded ? dock.local.fence : pressed}, './track-identity': {},
     './version-options': versionsModel, './version-destination': {NativeVersionChooserController}, './disc-titles-controller': {}, './disc-titles': {},
     './controls': {NativeWatchControls: class {route() {} source() {} dispose() {} back() {return false;}}},
     './WatchChrome': {}, './picture-slot': {}, './WatchHost': {NativeWatchHost: 'WatchHost'}, './EpisodePanel': {},
@@ -82,7 +82,7 @@ async function fixture() {
         versions: (...args: any[]) => {versionCalls.push(args); return screens.versions(...args);}};
     }},
     './PlaybackInfoPanel': {}, './WatchPanels': {NativeWatchPanels: 'Panels'}, './panel-options': {NativeWatchPanelOptions: class {dispose() {}}},
-    './track-identity': {nativeWatchTracks: () => ({})}, './ChannelRoute': {},
+    './minimize': {minimizeTarget: (dock: any, pressed: any) => dock.local?.expanded ? dock.local.fence : pressed}, './track-identity': {nativeWatchTracks: () => ({})}, './ChannelRoute': {},
     './live-guide': {NativeTVLiveGuide: class {constructor(...args: any[]) {liveGuideArguments.push(args); guides.push(this);} guideAction() {return () => {guideCalls++;};} close() {return false;} dispose() {}}},
     './live-actions': {NativeTVLiveActions: class {constructor(...args: any[]) {actions.push(args);} close() {return false;} dispose() {}}},
     './LiveActionPanels': {NativeLiveActionPanels: 'LiveActions'}, './PlaybackFailed': {NativePlaybackFailed: 'TVFailure'},
