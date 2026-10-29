@@ -152,7 +152,7 @@ export class NativeServerSignIn {
       const connected = await connectPairedServer(origin, pin, nativeServerEnvironment(server.id), this.controller.signal);
       this.api = connected.api; this.assertCurrent();
       const checked = await rememberNativeServerDisplay(connected.api, {serverId: server.id, signIn: server.signIn,
-        signal: this.controller.signal, isCurrent: this.current}); this.assertCurrent();
+        signal: this.controller.signal, isCurrent: this.current, setup: true}); this.assertCurrent();
       if (!checked.setupRequired) throw mismatch();
       this.server = checked; return checked;
     });
@@ -231,7 +231,7 @@ export class NativeServerSignIn {
       const claim = this.hostedSetup, api = this.api, server = this.server;
       if (!claim || !api || !server?.setupRequired) throw mismatch();
       await claim.abandonEnded(); this.assertCurrent();
-      const checked = await rememberNativeServerDisplay(api, {serverId: server.id, signIn: server.signIn, signal: this.controller.signal, isCurrent: this.current});
+      const checked = await rememberNativeServerDisplay(api, {serverId: server.id, signIn: server.signIn, signal: this.controller.signal, isCurrent: this.current, setup: true});
       this.assertCurrent(); if (!checked.setupRequired) throw mismatch();
       this.hostedSetup = undefined; this.server = checked;
     });
