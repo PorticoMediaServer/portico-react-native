@@ -1,5 +1,5 @@
 import React from 'react';
-import {Image, Linking, Text, View} from 'react-native';
+import {Image, Text, View} from 'react-native';
 import {FormScrollView} from '../../platform/keyboard';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {defaultI18n} from '../../../../../packages/i18n/src';
@@ -13,11 +13,11 @@ type Provider = IdentityOptions['providers'][number];
 
 /** auth.html frame 4. The direct phone/tablet/fold Portico Account surface. */
 export function PhoneAccountSignIn({busy, error, providers, passwordEnabled, registration, recovery, username, password,
-  onUsernameChange, onPasswordChange, onContinue, onProvider, onForgot, onCreate, onLocal, onRetry}: {
+  onUsernameChange, onPasswordChange, onContinue, onProvider, onForgot, onCreate, onLocal, onRetry, onOpenLink}: {
   busy: boolean; error?: React.ReactNode; providers: readonly Provider[]; passwordEnabled: boolean;
   registration: boolean; recovery: boolean; username: string; password: string;
   onUsernameChange: (value: string) => void; onPasswordChange: (value: string) => void;
-  onContinue: () => void; onProvider: (id: Provider['id']) => void; onForgot: () => void; onCreate: () => void; onLocal: () => void; onRetry?: () => void;
+  onContinue: () => void; onProvider: (id: Provider['id']) => void; onForgot: () => void; onCreate: () => void; onLocal: () => void; onRetry?: () => void; onOpenLink: (url: string) => void;
 }) {
   const theme = useTheme(), insets = useSafeAreaInsets(), t = defaultI18n.t;
   const ordered = [...providers].sort((a, b) => a.id === 'apple' ? -1 : b.id === 'apple' ? 1 : 0);
@@ -67,7 +67,7 @@ export function PhoneAccountSignIn({busy, error, providers, passwordEnabled, reg
         <Button testID="accounts-auth-local" variant="text" size="compact" disabled={busy} style={{marginTop: 10, alignSelf: 'center'}} textStyle={{fontSize: 14 * theme.textScale, fontWeight: '700', color: theme.colors.textSecondary}}
           onPress={onLocal}>{t('auth.signInDirectly')}</Button>
         <LegalAgreement style={[nativeType({size: 12, lineHeight: 18, weight: 400, tracking: 0}, theme.textScale), {color: theme.colors.textTertiary, textAlign: 'center', marginTop: 'auto', paddingTop: 24}]}
-          linkStyle={{color: theme.colors.accentStrong}} onOpenLink={url => {void Linking.openURL(url).catch(() => {});}}/>
+          linkStyle={{color: theme.colors.accentStrong}} onOpenLink={onOpenLink}/>
       </View>
     </FormScrollView>
   </View>;

@@ -51,8 +51,9 @@ async function fixture({hosted = true, matching = true, hasPassword = true, prov
     open(task: string) {this.opened.push(task);}
   }
   const opened: string[] = [];
+  let openFails = false;
   const {NativeHostedSignInPanel} = await screenModule(new URL('../src-next/screens/settings-live/NativeHostedSignInPanel.tsx', import.meta.url), {
-    react: host.react, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}, Text: 'Text', View: 'View', Linking: {openURL: async (url: string) => {opened.push(url);}}},
+    react: host.react, 'react-native': {NativeModules: {PorticoAccountAuth: bridge}, Text: 'Text', View: 'View', Linking: {openURL: async (url: string) => {if (openFails) throw new Error('no_browser'); opened.push(url);}}},
     '../../../../../packages/client-core/src': {HttpLocalApi: class {constructor(readonly origin: string, readonly token: string) {} async request(...args: any[]) {calls.push([this.origin, this.token, ...args]); return reply();}}},
     '../../../../../packages/client-core/src/hosted-security': {parseSecurityState},
     '../../../../../packages/client-core/src/presentation/errors': {presentError: (error: unknown, audience: string) => {presented.push([error, audience]); return {body: 'Security read failed'};}},
@@ -71,7 +72,7 @@ async function fixture({hosted = true, matching = true, hasPassword = true, prov
     sheet: () => nodes(tree).find(node => node.type === 'AccountSecuritySheet'), settle,
     session: (value: any) => {session = value; for (const listener of [...listeners]) listener(); render();},
     route: () => {navigation = {...navigation, revision: navigation.revision + 1}; for (const listener of [...navigationListeners]) listener(); render();},
-    reply: (value: typeof reply) => {reply = value;}, dispose: () => {cleanup?.(); lifetime.dispose();},
+    reply: (value: typeof reply) => {reply = value;}, failOpening: () => {openFails = true;}, dispose: () => {cleanup?.(); lifetime.dispose();},
   };
 }
 
@@ -142,5 +143,14 @@ test('Security read failures use presentError and remain visible', async () => {
     f.reply(async () => {throw failure;}); f.sheet().props.onFinished(); await f.settle();
     assert.deepEqual(f.presented, [[failure, 'portico-account']]);
     assert.ok(nodes(f.tree()).some(node => node.props.accessibilityRole === 'alert' && node.props.children[0] === 'Security read failed'));
+  } finally {f.dispose();}
+});
+
+test('R-21: a Portico Account page that cannot open says so instead of doing nothing', async () => {
+  const f = await fixture({matching: false, kind: 'password'});
+  try {
+    f.failOpening(); f.find('settings-manage-portico-account').props.onPress(); await f.settle();
+    assert.ok(nodes(f.tree()).some(node => node.type === 'Text' && node.props.accessibilityRole === 'alert' && [node.props.children].flat().includes('Security read failed')));
+    assert.equal(f.presented.at(-1)?.[1], 'portico-account');
   } finally {f.dispose();}
 });

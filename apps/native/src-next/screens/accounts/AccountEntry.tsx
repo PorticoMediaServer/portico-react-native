@@ -1383,7 +1383,7 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
     const current = () => !!source && lifetime.current && stageRef.current === 'portico' && account.current === source
       && preparedAuthSource.current === source && invitationSwitch.current === ticket
       && (!ticket || (ticket.active && invitationIntent.current === ticket.entry));
-    return <PhoneAccountSignIn busy={busy} error={status} providers={availableProviders}
+    return <PhoneAccountSignIn busy={busy} error={status} onOpenLink={openLegalLink} providers={availableProviders}
       passwordEnabled={!!authOptions?.password} registration={!!authOptions?.registration} recovery={authOptions?.recovery !== false}
       username={username} password={password} onUsernameChange={value => {if (current()) setUsername(value);}} onPasswordChange={value => {if (current()) setPassword(value);}}
       onProvider={id => {if (!current() || busy || !availableProviders.some(value => value.id === id)) return; void run(async () => {

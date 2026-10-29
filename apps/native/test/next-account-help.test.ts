@@ -19,6 +19,7 @@ const nodes = (node: any): any[] => Array.isArray(node) ? node.flatMap(nodes) : 
 
 test('phone Portico sign-in offers account help and returns to its form', async () => {
   const forgotten: unknown[][] = [];
+  let linkFails = false;
   class Portico {
     async prepare() {return {password: true, registration: true, recovery: true, providers: []};}
     async forgot(...identifier: string[]) {forgotten.push(identifier);}
@@ -35,7 +36,7 @@ test('phone Portico sign-in offers account help and returns to its form', async 
     './LegalAgreement': {LegalAgreement: 'LegalAgreement'}, './PhoneAccountForm': {PhoneAccountForm: 'Layout'}, './PasswordStrengthMeter': {PasswordStrengthMeter: 'PasswordStrengthMeter'}, './PhoneAccountSignIn': {PhoneAccountSignIn: 'PhoneAccountSignIn'},
     './tv-approval-finalization': {}, './tv-approval-credentials': {},
     react: {...React, default: React},
-    'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, BackHandler: {addEventListener: () => ({remove() {}})}, Linking: {openURL: async () => {}}, Platform: {isTV: false},
+    'react-native': {AppState: {currentState: 'active', addEventListener: () => ({remove() {}})}, BackHandler: {addEventListener: () => ({remove() {}})}, Linking: {openURL: async () => {if (linkFails) throw new Error('no_browser');}}, Platform: {isTV: false},
       NativeModules: {PorticoAccountAuth: {canOpenBrowser: false, canSignInApple: false, bundleId: 'com.example', newRequestId: async () => 'request'}},
       View: 'View', Text: 'Text', ScrollView: 'ScrollView'},
     '../../../../../packages/i18n/src': {defaultI18n}, '../../../../../packages/client-core/src': {HttpHostedApi: class {}},
@@ -63,6 +64,10 @@ test('phone Portico sign-in offers account help and returns to its form', async 
   try {
     assert.equal(tree.type, 'PhoneFrontDoor'); await act(() => tree.props.onPortico());
     assert.equal(tree.type, 'PhoneAccountSignIn'); assert.equal(tree.props.passwordEnabled, true); assert.equal(tree.props.recovery, true);
+    // R-21: a link that cannot open is shown through the sign-in error state, never swallowed.
+    assert.equal(tree.props.error, null);
+    linkFails = true; await act(() => tree.props.onOpenLink('https://web.example/terms')); linkFails = false;
+    assert.notEqual(tree.props.error, undefined);
     await act(() => tree.props.onForgot());
     assert.equal(tree.props.title, defaultI18n.t('auth.forgotPasswordTitle'));
     assert.equal(tree.props.body, defaultI18n.t('auth.resetLinkLede'));

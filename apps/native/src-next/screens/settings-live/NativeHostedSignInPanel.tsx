@@ -92,10 +92,13 @@ export function NativeHostedSignInPanel({kind, context, lifetime, t, runtime}: N
   // H09 on native: the app holds no Portico Account session for this server's account (signed out of
   // it here, or another account). Never draw dead rows: say who the server knows and open the Portico
   // Account's own Security page in the browser. One row, under Password; Two-step adds nothing.
-  if (linked && signedInAccount !== linked) return kind !== 'password' ? null : <SettingsRow first testID="settings-panel-portico-account"
-    label={t('settings.row.porticoAccount')} value={context.account.account.username}
-    control={<Button testID="settings-manage-portico-account" variant="glass" size="compact"
-      onPress={() => {if (lifetime.current() && context.current()) void Linking.openURL(`${hostedUrl}/account?tab=security`).catch(() => {});}}>{t('web.signIn.manage')}</Button>}/>;
+  if (linked && signedInAccount !== linked) return kind !== 'password' ? null : <>
+    <SettingsRow first testID="settings-panel-portico-account"
+      label={t('settings.row.porticoAccount')} value={context.account.account.username}
+      control={<Button testID="settings-manage-portico-account" variant="glass" size="compact"
+        onPress={() => {if (lifetime.current() && context.current()) void Linking.openURL(`${hostedUrl}/account?tab=security`).catch(error => {if (lifetime.current()) setFailure(presentError(error, 'portico-account').body);});}}>{t('web.signIn.manage')}</Button>}/>
+    {failure && <View style={{padding: 14}}><Text accessibilityRole="alert" style={[shellType(14, 400, 20), {color: theme.colors.danger}]}>{failure}</Text></View>}
+  </>;
   const ready = opening?.current() ? source : undefined, security = ready?.security;
   const locked = security ? accountSecurityAvailability(security, NativeModules.PorticoAccountAuth).credentialLocked : true;
   const action = (task: NativeAccountSecurityKind, label: string) => ready && <Button testID={`account-security-${task}`} variant="glass" size="compact" disabled={locked}
