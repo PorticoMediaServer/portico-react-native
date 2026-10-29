@@ -17,12 +17,23 @@ type Pending = Readonly<{id: string; record: RememberedServer}>;
 const read = (raw: unknown): Pending[] => Array.isArray(raw) ? raw.filter((value): value is Pending =>
   !!value && typeof value === 'object' && typeof (value as Pending).id === 'string' && !!(value as Pending).record?.session) : [];
 const store = () => new NativeQueueStore();
-const idOf = (record: RememberedServer) => `${record.pin.serverId}:${record.session.sessionFamilyId}`;
+/** One entry per server and profile replacement: a newer replacement supersedes the older one. */
+const idOf = (record: RememberedServer) => `${record.pin.serverId}:${record.session.viewer.accountId}:${record.session.viewer.profileId}`;
+/** The queue never grows past this; the oldest entry is dropped first. */
+export const REVOCATION_QUEUE_CAP = 8;
+/** A credential is worth revoking only while it could still be used: until its family's
+ * authorization horizon when it can renew, otherwise until its access token expires. */
+const expiry = (record: RememberedServer) => Date.parse(record.session.refreshToken ? record.session.authorizationHorizon : record.session.expiresAt);
+const usable = (entry: Pending, now: number) => Number.isFinite(expiry(entry.record)) && expiry(entry.record) > now;
 
+/** The only reader and writer of the queue. Every write drops expired entries and applies the cap. */
 async function change(update: (pending: Pending[]) => Pending[]): Promise<Pending[]> {
-  return store().change(KEY, raw => {const next = update(read(raw)); return {record: next.length ? next : null, value: next};});
+  return store().change(KEY, raw => {
+    const now = Date.now();
+    const next = update(read(raw).filter(entry => usable(entry, now))).filter(entry => usable(entry, now)).slice(-REVOCATION_QUEUE_CAP);
+    return {record: next.length ? next : null, value: next};
+  });
 }
-export async function pendingRevocations(): Promise<readonly Pending[]> {return change(value => value);}
 
 /** Gone: the server ended it (204) or no longer knows it (401/404). Anything else is retried later. */
 const gone = (error: unknown) => {const status = (error as {status?: unknown} | null)?.status; return status === 401 || status === 404;};
@@ -60,7 +71,7 @@ export function revokeInBackground(record: RememberedServer, live: RouteConnecti
 
 /** Retry every queued revocation for `serverId` over its live route. Bounded per entry. */
 export async function drainRevocations(serverId: string, live: RouteConnection): Promise<number> {
-  const queued = (await pendingRevocations()).filter(value => value.record.pin.serverId === serverId);
+  const queued = (await change(value => value)).filter(value => value.record.pin.serverId === serverId);
   let done = 0;
   for (const entry of queued) {
     try {await revokeOverLiveRoute(entry.record, live); await change(pending => pending.filter(value => value.id !== entry.id)); done++;}

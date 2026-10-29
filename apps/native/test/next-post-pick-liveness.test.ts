@@ -54,8 +54,9 @@ async function revocation(answer: (attempt: number, signal?: AbortSignal) => Pro
   }) as typeof import('../src-next/platform/session-revocation.ts');
   return {module, memory, requests};
 }
-const record = (family: string) => ({version: '1', logicalOrigin: fresh, pin: {serverId: 'srv'}, routes: {paired: []},
-  session: {sessionFamilyId: family, accessToken: `old-${family}`, refreshToken: 'r', expiresAt: new Date(Date.now() + 600_000).toISOString()}}) as never;
+const record = (family: string, viewer: {profileId?: string; horizonMs?: number; serverId?: string} = {}) => ({version: '1', logicalOrigin: fresh, pin: {serverId: viewer.serverId ?? 'srv'}, routes: {paired: []},
+  session: {sessionFamilyId: family, accessToken: `old-${family}`, refreshToken: 'r', expiresAt: new Date(Date.now() + 600_000).toISOString(),
+    authorizationHorizon: new Date(Date.now() + (viewer.horizonMs ?? 86_400_000)).toISOString(), viewer: {accountId: 'acct', profileId: viewer.profileId ?? family}}}) as never;
 const live = {pin: {serverId: 'srv'}, logicalOrigin: fresh} as never;
 const failure = (status: number) => Object.assign(new Error('no'), {status});
 const settle = () => new Promise(resolve => setTimeout(resolve, 5));
@@ -82,7 +83,7 @@ test('a server that no longer knows the session counts as done; other servers ar
   const {module, memory} = await revocation(async () => {throw failure(401);});
   await module.revokeInBackground(record('c'), live);
   assert.equal(memory.has('accounts.revocations.v1'), false, '401/404: already gone');
-  await module.revokeInBackground({...(record('d') as object), pin: {serverId: 'other'}} as never, undefined);
+  await module.revokeInBackground(record('d', {serverId: 'other'}), undefined);
   assert.equal(await module.drainRevocations('srv', live), 0, 'only this server is retried over this route');
   assert.equal((memory.get('accounts.revocations.v1') as unknown[]).length, 1);
 });
@@ -98,3 +99,40 @@ test('a dead route never holds anything: each try is bounded', async () => {
   assert.equal((memory.get('accounts.revocations.v1') as unknown[]).length, 1);
   void background;
 });
+
+test('a queued credential is dropped once it can no longer be used, so nothing is retried forever', async () => {
+  const {module, memory} = await revocation(async () => {throw failure(503);});
+  await module.revokeInBackground(record('g', {horizonMs: 30}), live);
+  assert.equal((memory.get('accounts.revocations.v1') as unknown[]).length, 1);
+  await new Promise(resolve => setTimeout(resolve, 60));
+  assert.equal(await module.drainRevocations('srv', live), 0);
+  assert.equal(memory.has('accounts.revocations.v1'), false, 'its own expiry passed: the last copy is deleted');
+});
+
+test('the queue holds one entry per server and profile, and at most eight', async () => {
+  const {module, memory} = await revocation(async () => {throw failure(503);});
+  await module.revokeInBackground(record('h1', {profileId: 'same'}), undefined);
+  await module.revokeInBackground(record('h2', {profileId: 'same'}), undefined);
+  const one = memory.get('accounts.revocations.v1') as {record: {session: {sessionFamilyId: string}}}[];
+  assert.deepEqual(one.map(entry => entry.record.session.sessionFamilyId), ['h2'], 'a newer replacement supersedes the older one');
+  for (let i = 0; i < 10; i++) await module.revokeInBackground(record(`p${i}`), undefined);
+  const capped = memory.get('accounts.revocations.v1') as {record: {session: {sessionFamilyId: string}}}[];
+  assert.equal(capped.length, module.REVOCATION_QUEUE_CAP);
+  assert.equal(capped.at(-1)!.record.session.sessionFamilyId, 'p9', 'the oldest are dropped first');
+});
+
+test('a queued credential can only ever be used to end its own session', async () => {
+  const {module, requests} = await revocation(async () => {});
+  // Nothing exported reads the queue back: only queue, retry and the one revoke call exist.
+  assert.deepEqual(Object.keys(module).sort(), ['REVOCATION_QUEUE_CAP', 'REVOCATION_TIMEOUT_MS', 'drainRevocations', 'revokeInBackground', 'revokeOverLiveRoute']);
+  await module.revokeInBackground(record('i'), live);
+  assert.deepEqual(requests.map(request => request.path), ['/v1/sessions/current'], 'the credential is sent only to the sign-out call');
+  // No other source file reads or writes the queue's storage key.
+  const {readdir, readFile} = await import('node:fs/promises');
+  const root = new URL('../src-next/', import.meta.url);
+  const files = (await readdir(root, {recursive: true})).filter(name => /\.(ts|tsx)$/.test(name));
+  const readers = [];
+  for (const name of files) if ((await readFile(new URL(name, root), 'utf8')).includes('accounts.revocations.v1')) readers.push(name);
+  assert.deepEqual(readers, ['platform/session-revocation.ts']);
+});
+
