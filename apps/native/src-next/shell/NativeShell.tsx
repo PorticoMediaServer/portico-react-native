@@ -143,7 +143,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const sidebarRevision = useRef(0);
   const sidebarLifetime = useRef<object | undefined>(undefined);
   const avatarRef = useRef<View>(null), opening = useRef(0), alive = useRef<{runtime: NativeShellRuntime} | undefined>(undefined);
-  const shift = useSharedValue(0), dim = useSharedValue(0), pageOpacity = useSharedValue(1);
+  const shift = useSharedValue(0), dim = useSharedValue(0);
   const current = useCallback(() => alive.current?.runtime === runtime && !runtime.retirementSignal?.aborted && sameAuthority(snapshot.authority, runtime.getSnapshot().authority), [runtime, snapshot.authority]);
   useLayoutEffect(() => {
     if (!theme.isTV || runtime.retirementSignal?.aborted) return;
@@ -208,9 +208,9 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
   const navigate = (next: ShellDestination, anyRoot = false) => {
     if (!current()) return;
     setAccountOpen(false); opening.current++;
+    // H14: the chrome and the page stay painted; only the route's content changes, and its own
+    // motion owns that (as web's page rule). The page area is never reset to 0, which blanked a frame.
     if (stacks) stacks.selectTab(next, anyRoot); else runtime.onDestination(next);
-    pageOpacity.value = 0;
-    pageOpacity.value = withTiming(1, motion.timing('quick'));
   };
   const openLibrary = (id: string) => {
     if (!current() || !canOpenLibrary(snapshot.libraries, id, theme.isTV)) return;
@@ -267,7 +267,7 @@ function ShellSession({runtime, snapshot}: {runtime: NativeShellRuntime; snapsho
     return () => {original?.removeEventListener('abort', off); off();};
   }, [accountOpen, chromeHidden, current, expanded, ids.rail, registry, runtime, theme.isTV, tvListeningPresent]);
   useEffect(() => {if (!motion.transforms) shift.value = railExpanded ? 270 : 0;}, [motion.transforms, railExpanded, shift]);
-  const pageStyle = useAnimatedStyle(() => ({opacity: pageOpacity.value, transform: [{translateX: shift.value}]}));
+  const pageStyle = useAnimatedStyle(() => ({transform: [{translateX: shift.value}]}));
   const initialTitleStyle = useAnimatedStyle(() => ({opacity: initialTitle?.value ?? 1}));
   const dimStyle = useAnimatedStyle(() => ({opacity: dim.value}));
   const barHeight = layout.tabs && !chromeHidden ? phoneBarHeight(insets.bottom, landscapePhone) : 0;
