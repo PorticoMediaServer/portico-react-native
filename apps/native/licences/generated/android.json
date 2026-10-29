@@ -1077,6 +1077,15 @@
    "text": 39
   },
   {
+   "id": "maven:androidx.core:core-splashscreen:1.0.1",
+   "name": "androidx.core:core-splashscreen",
+   "version": "1.0.1",
+   "licence": "Apache-2.0",
+   "group": "android",
+   "url": "https://developer.android.com/jetpack/androidx/releases/core#1.0.1",
+   "text": 38
+  },
+  {
    "id": "maven:androidx.core:core-viewtree:1.0.0",
    "name": "androidx.core:core-viewtree",
    "version": "1.0.0",
@@ -2691,8 +2700,8 @@
  "inputs": {
   "apps/native/assets/OFL-Manrope.txt": "58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b",
   "apps/native/ios/Podfile.lock": "d8e111a52935ca1eb6abce4fadf00bcdfd4e7a177e42e7ec6098cbd0cb475ac4",
-  "apps/native/licences/android-firetv.txt": "d9f94088392c6c30c8d188028e09448ead2dc3f3706d76b0a17a2e48a8f19e64",
-  "apps/native/licences/android-google.txt": "f604eaa8d0bd8549cf19543b61721cf0e451384326f76d5f5f522a2c781b14ba",
+  "apps/native/licences/android-firetv.txt": "5529e27bc8e323a5bbd33f54c3e430dc436ac9d12500ede5d2e5fb51e98aaea7",
+  "apps/native/licences/android-google.txt": "d64bfd59dff097cf44a1a4216d7c6e8e8e456c4f30e85faca67b9082e089c63a",
   "apps/native/licences/assets.json": "c342339c3d04dcc847df15902fe6e4fc3c8c9c69dab0380191dc9df67cf9a006",
   "apps/native/licences/js-android.txt": "bbddcd98904d1649bd5f964e7058dcd147b2a5e810f916b348f0521189f63170",
   "apps/native/licences/native-npm.json": "32589e75c42e8f92eff1f4b3f23081078d12372572b89824e6ac5d5a95233259",
