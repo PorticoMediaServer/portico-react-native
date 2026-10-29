@@ -25,8 +25,10 @@ function parse(raw: unknown): readonly ServerDisplay[] {
 
 /** Display data only. It neither selects a session nor supplies any authority. A name is
  * learned from the server over its verified route, never synthesized from an address. */
+/** `setup` reads a server nobody has set up yet (first-run setup) and requires exactly that;
+ * every other caller is signing in, and a server still awaiting setup is refused for it. */
 export async function rememberNativeServerDisplay(api: HttpLocalApi, options: {
-  serverId: string; signIn?: SignInKind; signal?: AbortSignal; isCurrent: () => boolean;
+  serverId: string; signIn?: SignInKind; signal?: AbortSignal; isCurrent: () => boolean; setup?: boolean;
 }) {
   const connection = api.getRouteConnection();
   const current = () => options.isCurrent() && !options.signal?.aborted && api.getRouteConnection() === connection;
@@ -40,7 +42,7 @@ export async function rememberNativeServerDisplay(api: HttpLocalApi, options: {
     // Every connection that reads the server's facts negotiates with them (O-159).
     negotiateNativeServer(server);
     if (!current() || abort.signal.aborted) throw cancelled();
-    if (server.id !== connection.pin.serverId || server.setupRequired || options.signIn && server.signIn !== options.signIn) throw invalid();
+    if (server.id !== connection.pin.serverId || server.setupRequired !== (options.setup === true) || options.signIn && server.signIn !== options.signIn) throw invalid();
     await new NativeQueueStore().change(key, raw => {
       if (!current()) throw cancelled();
       const servers = parse(raw).filter(value => value.serverId !== server.id);
