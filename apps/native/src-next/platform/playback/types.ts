@@ -153,7 +153,16 @@ export type NativePlaybackRuntimeSnapshot = Readonly<{
   initialPresentation?: NativeStartPresentation;
   /** Only an admitted renderer firstFrame fact for this exact current binding. */
   firstVideoFrame?: NativeFirstVideoFrame;
+  /** O-159: a Play drawn at once from the pressed card (Stop only) until its real dock exists. */
+  starting?: NativePlaybackStarting;
+  /** O-159: an accepted Play that still drew nothing after NATIVE_START_DRAWN_MS. */
+  startTimedOut?: NativePlaybackStartTimedOut;
 }>;
+/** What a start is drawn as before its real dock: the pressed card's title and art (a local file
+ * for a download). Absent until known for a start that came without a card (a group or radio). */
+export type NativeStartDisplay = Readonly<{title: string; posterUrl?: string; localArtwork?: string}>;
+export type NativePlaybackStarting = Readonly<{key: string; display: NativeStartDisplay; stop: () => void}>;
+export type NativePlaybackStartTimedOut = Readonly<{key: string; retry: () => Promise<void>; close: () => void}>;
 
 /** One authority lifetime. Supply the shell's existing feed; the runtime never opens another. */
 export type NativePlaybackRuntimeOptions = Readonly<{

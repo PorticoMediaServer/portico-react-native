@@ -64,14 +64,10 @@ export class NativeSetupApproval {
       || Date.parse(value.expiresAt) <= now || Date.parse(value.expiresAt) <= Date.parse(value.requestedAt)
       || value.currentOwnerUsername !== undefined || value.previousOwnerRole !== undefined || value.otherPeopleCount !== undefined) throw invalid();
     routeBytes(value.serverId.slice(4), 32);
-    if (value.status === 'denied') {if (value.returnRegistration !== undefined) throw invalid(); this.declined(); throw new NativeSetupEnded('declined');}
+    // Setup has no return registration (O-163); `setupInstalled` is strictly true, only on approval.
+    if (value.returnRegistration !== undefined || value.setupInstalled !== undefined && (value.setupInstalled !== true || value.status !== 'approved')) throw invalid();
+    if (value.status === 'denied') {this.declined(); throw new NativeSetupEnded('declined');}
     if (value.status !== 'pending' && value.status !== 'approved') throw invalid();
-    if (value.returnRegistration) {
-      const registration = value.returnRegistration;
-      if (value.status !== 'approved' || !registration.id.startsWith('ret_') || !registration.origin.startsWith('https:')
-        || routeOrigin(registration.origin) !== registration.origin) throw invalid();
-      routeBytes(registration.id.slice(4), 32);
-    }
     return value;
   }
   async review() {

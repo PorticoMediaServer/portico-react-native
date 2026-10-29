@@ -82,6 +82,7 @@ async function fixture(context: import('node:test').TestContext, initialStage: '
     '../../platform/tv-menu': {useTVMenuCapture() {}},
     './PhoneFrontDoor': {PhoneFrontDoor: 'FrontDoor'}, './PhoneAccountSignIn': {PhoneAccountSignIn: 'AccountSignIn'},
     './LegalAgreement': legal, './PhoneAccountForm': {PhoneAccountForm: 'AccountForm'}, './PasswordStrengthMeter': {PasswordStrengthMeter: 'Strength'},
+    '../../platform/negotiation': {negotiationRefusal: () => undefined}, './ServerNeedsUpdate': {ServerNeedsUpdate: 'ServerNeedsUpdate'},
   };
   const strict = new Proxy(modules, {get: (all, name: string) => all[name] ?? new Proxy({}, {
     get: (_, exported: string) => function unvisited() {throw new Error('Unexpected account-entry boundary ' + name + ':' + exported);},

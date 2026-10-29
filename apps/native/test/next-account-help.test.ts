@@ -26,7 +26,7 @@ test('phone Portico sign-in offers account help and returns to its form', async 
     dispose() {}
   }
   const account = {synchronize: async () => {}, getSnapshot: () => ({session: undefined})};
-  const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {'../../shell/StartupBoot': {BootWaitLine: 'BootWaitLine'}, 
+  const {AccountEntry} = await screenModule(new URL('../src-next/screens/accounts/AccountEntry.tsx', import.meta.url), {'./ServerNeedsUpdate': {ServerNeedsUpdate: 'ServerNeedsUpdate'}, '../../platform/negotiation': {negotiationRefusal: () => undefined}, '../../shell/StartupBoot': {BootWaitLine: 'BootWaitLine'}, 
     '../../platform/tv-menu': {useTVMenuCapture() {}},
     './tv-code-opening': tvCodeOpening,
     '../../../../../packages/client-core/src/join-link': joinLink,

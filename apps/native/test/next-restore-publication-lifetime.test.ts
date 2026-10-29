@@ -18,7 +18,7 @@ function modules(state: {
   failure?: unknown; onFallback?: () => void;
 }) {
   return {
-    './restore-trace': {restoreTrace: () => ({waiting: 'start', elapsedMs: 0, marks: []})}, './boot-timing': {logBootMilestone: () => {}},
+    './restore-trace': {restoreTrace: () => ({waiting: 'start', elapsedMs: 0, marks: []})}, './boot-timing': {logBootMilestone: () => {}}, '../platform/negotiation': {negotiationRefusal: () => undefined}, '../screens/accounts/ServerNeedsUpdate': {ServerNeedsUpdate: 'ServerNeedsUpdate'},
     react: {...React, default: React},
     '../platform/share-links': {nativeShareLinks: {acquire: () => () => {}, subscribe: () => () => {}, getSnapshot: () => undefined, take: () => false}},
     '../screens/share/NativeShareLinks': {NativeShareLinks: () => null},

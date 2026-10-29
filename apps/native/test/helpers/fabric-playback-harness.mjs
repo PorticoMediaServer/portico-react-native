@@ -137,6 +137,7 @@ export async function fabricPlayback(runtime, tv = true, watch, withShell = fals
     '../kit/dock': {DockHost, PlayerMorph, usePlayerMorph, bindNativeDock},
     '../kit/dock/model': model,
     '../kit/dock/model.ts': model,
+    '../kit/dock/StartingDock': {StartingDock: 'StartingDock'}, './StartTimedOut': {StartTimedOut: 'StartTimedOut'},
     '../../../../packages/client-core/src/presentation/kit-model': {playbackIdentity: () => ({id: 'item', kind: 'video', title: 'Film', subtitle: []})},
     './model': shellModel, './playback': {nativeShellBackTransition}, './video-snapshot': {NativeVideoSnapshotCapture: Capture}, './watch-slot-layout': watchSlotLayout,
     './TVStartFailure': {TVStartFailure: 'TVStartFailure'}, './TouchStartFailure': {TouchStartFailure: 'TouchStartFailure'}});

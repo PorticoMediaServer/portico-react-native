@@ -42,6 +42,9 @@ export type NativeShellPlaybackSnapshot = Readonly<{
   playback: PlaybackSnapshot;
   startFailure?: NativePlaybackStartFailure;
   capacityWait?: NativePlaybackCapacityWait;
+  /** O-159: the drawn start and its 5 s watch (platform/playback/runtime.ts). */
+  starting?: NativePlaybackRuntimeSnapshot['starting'];
+  startTimedOut?: NativePlaybackRuntimeSnapshot['startTimedOut'];
   initialPresentation?: NativePlaybackRuntimeSnapshot['initialPresentation'];
   firstVideoFrame?: NativePlaybackRuntimeSnapshot['firstVideoFrame'];
   fence?: PlaybackFence;

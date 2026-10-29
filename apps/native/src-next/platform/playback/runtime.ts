@@ -57,7 +57,7 @@ import {nativeListeningFor, serverPlaybackV1Kinds} from './native-listening-kind
 import {selectionSegments, selectionStartSeconds} from './selection';
 import type {VideoSnapshotCapture, VideoSnapshotSource} from '../video-snapshot';
 import {retainNativeVideoExitImage} from './video-exit-permission';
-import type {NativeExternalPresentationLifetime, NativePictureInPictureState, NativePlaybackReadLifetime, NativeListeningReadPort, NativeOfflinePlaybackLifetime, NativePlaybackStart, NativePlaybackChannelStart, NativePlaybackVersionSelection, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, NativePlaybackVideoSnapshot, PlaybackAuthority} from './types';
+import type {NativeExternalPresentationLifetime, NativePictureInPictureState, NativePlaybackReadLifetime, NativeListeningReadPort, NativeOfflinePlaybackLifetime, NativePlaybackStart, NativePlaybackChannelStart, NativePlaybackVersionSelection, NativePlaybackRuntimeOptions, NativePlaybackRuntimeSnapshot, NativePlaybackVideoSnapshot, NativePlaybackStarting, NativePlaybackStartTimedOut, NativeStartDisplay, PlaybackAuthority} from './types';
 
 /** No credentials: exact admission principal generation for one original start. */
 const startupPrincipal = (session: import('../../../../../packages/client-core/src/index').LocalSession | undefined) => session
@@ -94,6 +94,10 @@ type SourceDetail = {
 
 /** Actual session, queue and native-engine wiring. Construct one per selected authority.
  * The production factory in native.tsx supplies the existing native modules and one view. */
+const entryDisplay = (entry: ContentEntry): NativeStartDisplay => Object.freeze({title: entry.title, ...(entry.posterUrl ?? entry.backdropUrl ? {posterUrl: entry.posterUrl ?? entry.backdropUrl} : {})});
+/** O-159: an accepted Play is drawn (the starting dock, then its real dock) within this time. */
+export const NATIVE_START_DRAWN_MS = 5000;
+
 export class NativePlaybackRuntime {
   readonly playback: PlaybackService;
   readonly path: NativePlayback;
@@ -124,6 +128,10 @@ export class NativePlaybackRuntime {
   private startPrincipal?: string;
   private readonly startLife = new AbortController();
   private startFailure?: NativePlaybackStartFailure;
+  // O-159: the drawn start (the pressed card's facts, Stop only) and its 5 s watch.
+  private startingState?: {key: string; display?: NativeStartDisplay; accepted: boolean; timer: unknown; stop: () => void; retry: () => Promise<void>; view?: NativePlaybackStarting; fence?: PlaybackFence};
+  private startTimedOut?: NativePlaybackStartTimedOut;
+  private startingKeys = 0;
   private capacityWait?: NativePlaybackCapacityWait;
   private versionMenuEpoch = 0;
   private startController?: AbortController;
@@ -464,7 +472,13 @@ export class NativePlaybackRuntime {
     this.remember(old);
     if (this.snapshot.fence && sameFence(old.fence, this.snapshot.fence)) this.playback.pause();
   }
-  private async playSelection(request: HomeSelectionPlaybackRequest, current: (context: SelectionContext) => boolean) {
+  /** O-159: a Home selection's Play is drawn at once from its first pressed entry. */
+  private playSelection(request: HomeSelectionPlaybackRequest, current: (context: SelectionContext) => boolean) {
+    const first = request.items[0], pressed = first && 'entry' in first ? first.entry : undefined;
+    return this.watchedStart(pressed ? entryDisplay(pressed) : undefined, async () => {await this.playSelection({...request, signal: this.startLife.signal}, current);},
+      () => this.playSelectionNow(request, current));
+  }
+  private async playSelectionNow(request: HomeSelectionPlaybackRequest, current: (context: SelectionContext) => boolean) {
     this.assertSelection(request.context, request.signal, current);
     const segments = selectionSegments(request.items, true), epoch = this.beginOperation();
     const valid = () => this.startOperationCurrent(epoch) && this.selectionCurrent(request.context, request.signal, current);
@@ -524,7 +538,13 @@ export class NativePlaybackRuntime {
     } finally { scoped.close(); }
   }
 
-  private async playChannel(channel: HomeChannel, context: SelectionContext, signal: AbortSignal, current: (context: SelectionContext) => boolean): Promise<void> {
+  /** O-159: a Home channel row's Play is drawn at once as that channel. */
+  private playChannel(channel: HomeChannel, context: SelectionContext, signal: AbortSignal, current: (context: SelectionContext) => boolean): Promise<void> {
+    const name = channel.channel.name, logo = (channel.channel as {logoPath?: string}).logoPath;
+    return this.watchedStart(name ? {title: name, ...(logo ? {posterUrl: logo} : {})} : undefined,
+      () => this.playChannel(channel, context, this.startLife.signal, current), () => this.playChannelNow(channel, context, signal, current));
+  }
+  private async playChannelNow(channel: HomeChannel, context: SelectionContext, signal: AbortSignal, current: (context: SelectionContext) => boolean): Promise<void> {
     this.assertSelection(context, signal, current);
     const value = channel.channel, source = channel.source;
     if (!value.tuneAvailable || value.tuneUnavailableReason || value.hidden || value.sourceId !== source.id || value.generation !== source.generation || value.provenance !== source.provenance || !['live-source', 'library-channel'].includes(value.provenance) || !wireId(source.generation) || !wireId(source.id) || !wireId(value.id) || value.provenance === 'library-channel' && source.id !== value.id) throw new Error('invalid_channel_target');
@@ -550,7 +570,13 @@ export class NativePlaybackRuntime {
 
   /** Route/Guide playback uses the same installed channel owner. The source's
    * generation/provenance is re-read; only the real channel POST grants tuning. */
-  startChannel = async (input: NativePlaybackChannelStart): Promise<void> => {
+  /** O-159: drawn at once as the guide row's channel, then its real dock. */
+  startChannel = (input: NativePlaybackChannelStart): Promise<void> => {
+    const row = input.guide && legacyChannel(input.guide.row);
+    return this.watchedStart(row?.name ? {title: row.name, ...(row.logoPath ? {posterUrl: row.logoPath} : {})} : undefined,
+      () => this.startChannel({...input, lifetime: this.retryLifetime(), onAccepted: undefined, expectedFence: undefined}), () => this.startChannelNow(input));
+  };
+  private startChannelNow = async (input: NativePlaybackChannelStart): Promise<void> => {
     const accepted = input.onAccepted;
     // These are this invocation's values even if its caller later reuses a DTO.
     input = Object.freeze({...input, lifetime: Object.freeze({...input.lifetime})});
@@ -673,6 +699,10 @@ export class NativePlaybackRuntime {
     nativeStartSeconds(input);
     const epoch = this.beginOperation();
     const controller = new AbortController(); this.startController = controller;
+    // O-159: drawn at once from the pressed card; Try again belongs to this runtime, not the page.
+    let stopped = false;
+    const starting = this.beginStarting(entryDisplay(input.entry), () => this.start({...input, lifetime: undefined, presentation: undefined}));
+    starting.stopWith(() => {stopped = true; controller.abort();});
     const abort = () => controller.abort();
     caller?.signal.addEventListener('abort', abort, {once: true});
     if (caller?.signal.aborted) abort();
@@ -714,14 +744,18 @@ export class NativePlaybackRuntime {
       const versionId = input.versionId && offered.versions.filter(value => value.id === input.versionId).length === 1 ? input.versionId : undefined;
       await this.startOffered(input, offered, capabilities, epoch, versionId, {signal: scoped.signal, isCurrent: current});
       const accepted = this.fence(), session = this.currentSession();
+      // Accepted: the watch now runs until this fence's real dock is drawn; Stop ends the session.
+      starting.accepted(accepted);
+      starting.stopWith(() => {stopped = true; controller.abort(); if (accepted) void this.stop(accepted).catch(() => {});});
       if (presentation && this.initialPresentation === presentation && current() && !audioKind(offered.kind)
         && accepted?.kind === 'queue' && accepted.itemId === input.target.itemId && session?.id === accepted.sessionId
         && session.role === 'local' && session.presentation.generation === accepted.generation && session.versionId === accepted.sourceId
         && session.queue?.entryId === accepted.entryId) presentation.bind(accepted);
       else if (this.initialPresentation === presentation) {this.initialPresentation = undefined;this.initialPresentationTarget = undefined;presentation?.retire();}
     } catch (error) {
+      starting.end();
       if (this.initialPresentation === presentation) {this.initialPresentation = undefined;this.initialPresentationTarget = undefined;presentation?.retire();}
-      if (!current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});throw error;
+      if (stopped || !current()) throw Object.assign(new Error('Playback start retired'), {name: 'AbortError'});throw error;
     }
     finally {
       caller?.signal.removeEventListener('abort', abort); scoped.close();
@@ -731,7 +765,11 @@ export class NativePlaybackRuntime {
 
   /** Opens the actual verified device file through this same player. No server
    * options, queue creation or source URL is supplied by the screen. */
-  startOffline = async (entry: OfflineEntry, lifetime: NativeOfflinePlaybackLifetime): Promise<void> => {
+  /** O-159: a download is drawn at once from its own title and kept cover. */
+  startOffline = (entry: OfflineEntry, lifetime: NativeOfflinePlaybackLifetime): Promise<void> =>
+    this.watchedStart({title: entry.title, ...(entry.artworkUrl ? {localArtwork: entry.artworkUrl} : {})},
+      () => this.startOffline(entry, this.retryLifetime()), () => this.startOfflineNow(entry, lifetime));
+  private startOfflineNow = async (entry: OfflineEntry, lifetime: NativeOfflinePlaybackLifetime): Promise<void> => {
     const admitted = () => !lifetime.signal.aborted && this.currentAuthority() && lifetime.isCurrent();
     const retired = () => Object.assign(new Error('cancelled'), {name: 'AbortError'});
     if (!admitted()) throw retired();
@@ -807,7 +845,11 @@ export class NativePlaybackRuntime {
    * selection membership, page expansion or independent queue/session store. */
   cataloguePlayback = () => this.cataloguePort;
 
-  private async playCatalogueSegments(segments: readonly SegmentInput[], options: NonNullable<Parameters<V1QueuePlayer['playSegments']>[1]>): Promise<QueueHeader> {
+  /** O-159: an album, artist, playlist or radio start is named by its first entry once known. */
+  private playCatalogueSegments(segments: readonly SegmentInput[], options: NonNullable<Parameters<V1QueuePlayer['playSegments']>[1]>): Promise<QueueHeader> {
+    return this.watchedStart(undefined, async () => {await this.playCatalogueSegments(segments, {...options, ...this.retryLifetime()});}, () => this.playCatalogueSegmentsNow(segments, options));
+  }
+  private async playCatalogueSegmentsNow(segments: readonly SegmentInput[], options: NonNullable<Parameters<V1QueuePlayer['playSegments']>[1]>): Promise<QueueHeader> {
     const {signal, isCurrent} = options;
     if (!signal || !isCurrent) throw new Error('native_catalogue_lifetime_required');
     if (!segments.length || options.startSeconds !== undefined && (!Number.isFinite(options.startSeconds) || options.startSeconds < 0 || options.startSeconds > 1e9)) throw new Error('native_catalogue_selection_invalid');
@@ -869,7 +911,10 @@ export class NativePlaybackRuntime {
 
   /** Play the server-owned whole group, never the screen's loaded preview.
    * The caller supplies its genuine route/member lifetime through adoption. */
-  startGroup = async (input: Readonly<{query: WholeGroupQuery; shuffle: boolean; signal: AbortSignal; isCurrent: () => boolean}>): Promise<void> => {
+  /** O-159: a group or shuffle start is named by its first entry once the queue knows it. */
+  startGroup = (input: Readonly<{query: WholeGroupQuery; shuffle: boolean; signal: AbortSignal; isCurrent: () => boolean}>): Promise<void> =>
+    this.watchedStart(undefined, () => this.startGroup({...input, ...this.retryLifetime()}), () => this.startGroupNow(input));
+  private startGroupNow = async (input: Readonly<{query: WholeGroupQuery; shuffle: boolean; signal: AbortSignal; isCurrent: () => boolean}>): Promise<void> => {
     const admitted = () => !input.signal.aborted && this.currentAuthority() && input.isCurrent();
     if (!admitted()) throw Object.assign(new Error('native_group_retired'), {name: 'AbortError'});
     const epoch = this.beginOperation(), valid = () => this.startOperationCurrent(epoch) && admitted();
@@ -897,7 +942,11 @@ export class NativePlaybackRuntime {
 
   /** A menu cannot start a version from another authority or replace a newer source. Its
    * cached options prove what was drawn; a fresh scoped read proves it is still offered. */
-  startVersion = async (input: NativePlaybackStart, selection: NativePlaybackVersionSelection): Promise<void> => {
+  /** O-159: "Play a different version" is drawn at once from its title. */
+  startVersion = (input: NativePlaybackStart, selection: NativePlaybackVersionSelection): Promise<void> =>
+    this.watchedStart(entryDisplay(input.entry), () => this.startVersion({...input, lifetime: undefined, presentation: undefined}, {...selection, lifetime: this.retryLifetime()}),
+      () => this.startVersionNow(input, selection));
+  private startVersionNow = async (input: NativePlaybackStart, selection: NativePlaybackVersionSelection): Promise<void> => {
     this.connect();
     if (!this.active()) return;
     let epoch = this.startEpoch;
@@ -1439,7 +1488,7 @@ export class NativePlaybackRuntime {
       ...(fence?.kind === 'channel' && this.channelGuide && legacyChannel(this.channelGuide.row)?.id === fence.channelId
         && legacyChannel(this.channelGuide.row)?.sourceId === fence.sourceId && legacyChannel(this.channelGuide.row)?.provenance === fence.channelKind
         && legacyChannel(this.channelGuide.row)?.generation === fence.channelGeneration ? {channelGuide: this.channelGuide} : {}),
-      startFailure: this.startFailure, capacityWait: this.capacityWait, firstVideoFrame,
+      startFailure: this.startFailure, capacityWait: this.capacityWait, firstVideoFrame, ...this.startingFields(fence),
       initialPresentation: this.initialPresentation?.read(fence),
       ...(fence && this.forcedImageAvailable(fence) ? {forcedOnly: Object.freeze({on: this.choices.get('forcedOnly', fence.playback, false)})} : {}),
       options: this.options, subtitles: this.subtitleService?.getSnapshot(), ...(fence?.kind === 'queue' ? {subtitleStyle: this.subtitleStyles.read(fence, this.o.settings().subtitles)} : {}), localTracks, audioTrackSelection: this.audioTrackSelection.getSnapshot(), seekWindow, engine: this.coordinator.getEngine() === 'mpv' ? 'mpv' : 'native', lease: this.coordinator.getSnapshot(), effectiveRate: playback.nativeListening?.effectiveRate ?? this.effectiveRate, supportedRates: playback.nativeListening?.supportedRates ?? this.supportedRates, externalPresentationBinding,
@@ -2125,8 +2174,77 @@ export class NativePlaybackRuntime {
     this.surfaceOwner = owner; this.connect();
     return () => { if (this.surfaceOwner === owner) { this.cancelSnapshot(); this.surfaceTag = undefined; this.surfaceTagOwner = undefined; this.surfaceOwner = undefined; queueMicrotask(() => { if (!this.surfaceOwner) this.dispose(); }); } };
   }
+  /** The runtime's own lifetime: a Try again belongs to it, not to a page that may be gone. */
+  private retryLifetime(): Readonly<{signal: AbortSignal; isCurrent: () => boolean}> {
+    return {signal: this.startLife.signal, isCurrent: () => !this.retired && this.currentAuthority()};
+  }
+  /** O-159 for every other start path: drawn at once (when its display is known), watched for
+   * NATIVE_START_DRAWN_MS once accepted, and cancelled for real by Stop. A start that ends without
+   * a session or fence was not accepted and is never reported as a silent no-op. */
+  private async watchedStart<T>(display: NativeStartDisplay | undefined, retry: () => Promise<void>, run: () => Promise<T>): Promise<T> {
+    let stopped = false;
+    const starting = this.beginStarting(display, retry);
+    starting.stopWith(() => {stopped = true; this.beginOperation();});
+    try {
+      const result = await run();
+      if (stopped) throw Object.assign(new Error('Playback start stopped'), {name: 'AbortError'});
+      const fence = this.fence();
+      if (!fence && !this.currentSession()) {starting.end(); return result;}
+      starting.accepted(fence);
+      starting.stopWith(() => {stopped = true; this.beginOperation(); if (fence) void this.stop(fence).catch(() => {});});
+      return result;
+    } catch (error) {
+      starting.end();
+      if (stopped) throw Object.assign(new Error('Playback start stopped'), {name: 'AbortError'});
+      throw error;
+    }
+  }
+  /** O-159 watchdog. A start is drawn from its first frame from the pressed card's entry (the
+   * starting dock, Stop only), and replaced in place once its own dock exists. An ACCEPTED start
+   * still not drawn at NATIVE_START_DRAWN_MS is stopped, recorded locally and offered again; slow
+   * buffering never trips it, because a drawn dock ends the watch. */
+  private beginStarting(display: NativeStartDisplay | undefined, retry: () => Promise<void>) {
+    this.endStarting(); this.startTimedOut = undefined;
+    const state: NonNullable<NativePlaybackRuntime['startingState']> = {key: String(++this.startingKeys), display, accepted: false, timer: undefined, stop: () => {}, retry};
+    state.timer = this.o.timers?.setTimer ? this.o.timers.setTimer(() => this.expireStarting(state), NATIVE_START_DRAWN_MS) : setTimeout(() => this.expireStarting(state), NATIVE_START_DRAWN_MS);
+    this.startingState = state; if (this.snapshot) this.publish();
+    const mine = () => this.startingState === state;
+    return {
+      stopWith: (stop: () => void) => {if (mine()) state.stop = stop;},
+      accepted: (fence: PlaybackFence | undefined) => {if (mine()) {state.accepted = true; state.fence = fence; if (this.snapshot) this.publish();}},
+      end: () => {if (mine()) {this.endStarting(); if (this.snapshot) this.publish();}},
+    };
+  }
+  private endStarting(): void {
+    const state = this.startingState;
+    if (!state) return;
+    this.startingState = undefined;
+    if (this.o.timers?.clearTimer) this.o.timers.clearTimer(state.timer); else clearTimeout(state.timer as ReturnType<typeof setTimeout>);
+  }
+  private expireStarting(state: NonNullable<NativePlaybackRuntime['startingState']>): void {
+    if (this.startingState !== state || !state.accepted || this.retired) return;
+    const code = !this.currentSession() ? 'playback_not_drawn_session' : !this.options ? 'playback_not_drawn_offers' : 'playback_not_drawn_presentation';
+    this.endStarting(); state.stop();
+    // The local diagnostic (ErrorJournal) names the read that never became current.
+    try {console.warn(`portico_playback_not_drawn ${JSON.stringify({code, kind: this.entry?.kind ?? this.subject?.kind ?? 'unknown'})}`);} catch { /* passive */ }
+    const timedOut: NativePlaybackStartTimedOut = Object.freeze({key: state.key,
+      retry: async () => {if (this.startTimedOut !== timedOut) return; this.startTimedOut = undefined; if (this.snapshot) this.publish(); await state.retry();},
+      close: () => {if (this.startTimedOut === timedOut) {this.startTimedOut = undefined; if (this.snapshot) this.publish();}}});
+    this.startTimedOut = timedOut; if (this.snapshot) this.publish();
+  }
+  /** Snapshot fields; the start's own fence on the real dock ends the watch (drawn). */
+  private startingFields(fence: PlaybackFence | undefined): Partial<Pick<NativePlaybackRuntimeSnapshot, 'starting' | 'startTimedOut'>> {
+    const state = this.startingState;
+    const local = this.dock.getSnapshot().local;
+    if (state?.accepted && local && fence && (!state.fence || sameFence(state.fence, fence)) && sameFence(local.fence, fence)) this.endStarting();
+    const live = this.startingState;
+    // A start that came without a card is named by what the runtime now knows it is playing.
+    if (live && !live.display) live.display = this.entry ? entryDisplay(this.entry) : this.subject?.kind === 'channel' && this.subject.channelName ? {title: this.subject.channelName} : undefined;
+    if (live?.display && live.view?.display !== live.display) live.view = Object.freeze({key: live.key, display: live.display, stop: () => {if (this.startingState === live) {this.endStarting(); live.stop(); if (this.snapshot) this.publish();}}});
+    return {...(live?.view ? {starting: live.view} : {}), ...(this.startTimedOut ? {startTimedOut: this.startTimedOut} : {})};
+  }
   dispose = (): void => {
-    this.startLife.abort();
+    this.startLife.abort(); this.endStarting(); this.startTimedOut = undefined;
     if (this.retired) return;
     const state = this.playback.getSnapshot();
     // An ordinary shell unmount stops its exact server session at the settled position. On an

@@ -1,7 +1,8 @@
 import {linkNativeAbortSignals} from './abort-signals';
 import {accountExpectation, nativeAccountWork} from './account-work';
 import {HttpLocalApi, transportJSON, assertFirstContactIdentity, type HostedServer, type HostedSession, type LocalSession} from '../../../../packages/client-core/src';
-import {ServerSignInProbe, assertSameApiLevel, parseServerSignIn, type ServerSignIn} from '../../../../packages/client-core/src/sign-in';
+import {ServerSignInProbe, parseServerSignIn, type ServerSignIn} from '../../../../packages/client-core/src/sign-in';
+import {negotiateNativeServer} from './negotiation';
 import {boundedPick, type PickTrace} from './pick-deadline';
 import {logPickFailure, provenIdentityMismatch} from './pick-failure';
 import {directSignIn, directSignInContinuation, completeDirectSignInChallenge, selectDirectProfile, parseDirectSnapshot, type DirectSignIn, type DirectSnapshot} from '../../../../packages/client-core/src/profile-management';
@@ -132,6 +133,8 @@ export class NativeServerSignIn {
         this.pendingIdentity = captured; return undefined;
       }
       if (!server) throw this.probe.getSnapshot().error ?? mismatch();
+      // Before any credential: a server this app can't talk to gets its named page (O-159).
+      negotiateNativeServer(server);
       if (this.expectedTarget && (server.id !== this.expectedTarget.serverId || server.signIn !== 'local' || server.setupRequired)) throw mismatch();
       if (this.expectedInvitation && (server.setupRequired || this.expectedInvitation.signIn && server.signIn !== this.expectedInvitation.signIn || this.expectedInvitation.serverId && server.id !== this.expectedInvitation.serverId)) throw mismatch();
       this.server = server; return server;
@@ -597,7 +600,7 @@ export class NativeServerSignIn {
       const server = parseServerSignIn(await api.request(routePath('get_system'), 'GET', undefined, this.controller.signal)); this.assertCurrent();
       if (server.id !== descriptor.id || server.signIn !== descriptor.signIn || server.move !== descriptor.move) throw mismatch();
       // Before release an app opens only a server of its own API level (P2-66 G-2).
-      assertSameApiLevel(server);
+      negotiateNativeServer(server);
       this.server = server;
       const now = await nativeAppSessions.read(); this.assertCurrent();
       if (now.revision !== before.revision) throw cancelled();

@@ -271,14 +271,14 @@ export class NativeSetupClaim {
       await current();
       const continuation = setupContinuation(raw, parseClaimStatus(raw, record.pin), record);
       if (continuation.phase === 'cancelled') {this.ended = record; const draft = await current(); this.endedDraft = draft ? Object.freeze({...draft}) : undefined; throw new NativeSetupEnded('cancelled');}
-      // Not installed yet, or still provisioning its route/return registration:
-      // that grants nothing and retains PKCE.
+      // Not installed yet: that grants nothing and retains PKCE. An installed claim
+      // completes owner admission with no route or return registration (O-163).
       if (continuation.phase === 'pending') return undefined;
       if (continuation.phase === 'invalid') throw invalid();
       await this.ports.journal.change(old => {if (!operation.current() || !same(old, record)) throw cancelled(); return undefined;});
       consumed = true; this.attemptId = undefined;
       grant = parseDirectSignIn(await connected.api.request(routePath('post_auth_portico_return_exchange'), 'POST', {transactionId: handoff.transactionId, state: record.state,
-        verifier: record.verifier, registrationId: continuation.registrationId, installationId: record.installationId, serverChallenge: proof.start.serverChallenge, purpose: 'setup'}, operation.signal));
+        verifier: record.verifier, installationId: record.installationId, serverChallenge: proof.start.serverChallenge, purpose: 'setup'}, operation.signal));
       await current();
       if (!setupOwnerGrantValid(grant, record) || !setupGrantSessionBound(grant, record, this.now())) throw invalid();
       const accountId = grant.snapshot.account.hostedAccountId!;

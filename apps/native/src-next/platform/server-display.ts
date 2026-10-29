@@ -1,6 +1,7 @@
 import type {HttpLocalApi} from '../../../../packages/client-core/src';
 import type {AppServerSession, SignInKind} from '../../../../packages/client-core/src/app-sessions';
 import {parseServerSignIn} from '../../../../packages/client-core/src/sign-in';
+import {negotiateNativeServer} from './negotiation';
 import {routePath} from '../../../../packages/contracts/src/routes';
 import {NativeQueueStore} from './queue-storage';
 
@@ -36,6 +37,8 @@ export async function rememberNativeServerDisplay(api: HttpLocalApi, options: {
   const timer = setTimeout(cancel, 15000);
   try {
     const server = parseServerSignIn(await api.request(routePath('get_system'), 'GET', undefined, abort.signal));
+    // Every connection that reads the server's facts negotiates with them (O-159).
+    negotiateNativeServer(server);
     if (!current() || abort.signal.aborted) throw cancelled();
     if (server.id !== connection.pin.serverId || server.setupRequired || options.signIn && server.signIn !== options.signIn) throw invalid();
     await new NativeQueueStore().change(key, raw => {

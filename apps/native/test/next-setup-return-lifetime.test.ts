@@ -100,6 +100,16 @@ async function nativeApproval(app: Awaited<ReturnType<typeof standardHomeApp>>, 
       assert.equal(calls[0].url, hostedUrl + routePath('server_claim_lookup')); assert.equal(calls[0].method, 'POST');
       assert.deepEqual(calls[0].body, {code: expected.code}); assert.equal(calls[0].headers.authorization, 'Bearer ' + session.accessToken);
       assert.equal(source.signal.aborted, false); assert.equal(opening.signal.aborted, false);
+      // O-163: an approved claim reports `setupInstalled`; setup never names a return registration.
+      const base = {code: expected.code, serverId: expected.serverId, name: expected.name, expiresAt: expected.expiresAt,
+        address: expected.origin, purpose: 'setup', setupTransactionId: expected.transactionId, requestedAt: new Date(Date.now() - 1000).toISOString()};
+      offerLookup({...base, status: 'approved', setupInstalled: true});
+      assert.equal((await approval.review()).approved, true);
+      for (const refused of [{...base, status: 'approved', setupInstalled: true, returnRegistration: {id: 'ret_' + 'a'.repeat(43), origin: 'https://managed.test'}},
+        {...base, status: 'pending', setupInstalled: true}]) {
+        offerLookup(refused as ServerClaimLookupResponse);
+        await assert.rejects(approval.review(), error => (error as {code?: string}).code === 'invalid_return');
+      }
     } finally {
       approval.dispose();
       if (savedLoad) Object.defineProperty(runtime, 'loadCredentials', savedLoad); else delete runtime.loadCredentials;

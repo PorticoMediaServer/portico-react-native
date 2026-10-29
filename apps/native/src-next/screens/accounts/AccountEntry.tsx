@@ -18,6 +18,8 @@ import {Button, Focusable, TextField} from '../../kit/controls';
 import {Icon} from '../../kit/Icon';
 import {ProfilePicker} from '../../kit/artwork';
 import {BootWaitLine} from '../../shell/StartupBoot';
+import {negotiationRefusal} from '../../platform/negotiation';
+import {ServerNeedsUpdate} from './ServerNeedsUpdate';
 import {useTheme} from '../../kit/theme';
 import {nativeAccounts} from '../../platform/accounts';
 import {NativeServerSignIn} from '../../platform/server-sign-in';
@@ -899,6 +901,9 @@ export function AccountEntry({downloads, incomingInvitation, onBack, onComplete,
   const formStep = theme.platform === 'phone' && stage.startsWith('setup-')
     ? <Text style={[theme.type.captionStrong, {fontSize: 13.5 * theme.textScale, color: theme.colors.textSecondary}]}>{t('accounts.setup.title')}</Text> : undefined;
   const layout = (title: string, body?: string, before?: React.ReactNode, primary?: ReturnType<typeof action>, more?: React.ReactNode) => <EntryLayout testID="accounts-entry" title={title} body={body} kicker={formStep} beforeActions={<>{before}{status}</>} primaryAction={primary} secondaryAction={backAction} avoidKeyboard={stage === 'profile-pin'}>{more}</EntryLayout>;
+  // O-159: a server this app can't talk to is refused before any credential, by name.
+  const refusal = negotiationRefusal(error);
+  if (refusal) return <ServerNeedsUpdate refusal={refusal} onBack={() => {setError(undefined); reset();}}/>;
   const openLegalLink = (url: string) => {void run(async () => {await Linking.openURL(url);});};
   const legalFooter = <LegalAgreement style={[theme.type.caption, {fontSize: 12 * theme.textScale, color: theme.colors.textTertiary, textAlign: 'center', marginTop: 'auto', paddingTop: 24}]}
     linkStyle={{color: theme.colors.accentStrong}} onOpenLink={openLegalLink}/>;

@@ -156,7 +156,7 @@ async function fixture(context: import('node:test').TestContext, provider: Provi
     '../../platform/accounts': {nativeAccounts: accounts}, '../../platform/portico-sign-in': auth,
     '../../platform/account-authority': {hostedUrl: origin}, '../../platform/server-connections': {nativeNetworkFetch: fetcher},
     './PhoneFrontDoor': {PhoneFrontDoor: 'PhoneFrontDoor'}, './PhoneAccountSignIn': {PhoneAccountSignIn: 'PhoneAccountSignIn'},
-    './PhoneAccountForm': {PhoneAccountForm: 'Layout'}, './PhoneNoServers': {PhoneNoServers: 'PhoneNoServers'},
+    '../../platform/negotiation': {negotiationRefusal: () => undefined}, './ServerNeedsUpdate': {ServerNeedsUpdate: 'ServerNeedsUpdate'}, './PhoneAccountForm': {PhoneAccountForm: 'Layout'}, './PhoneNoServers': {PhoneNoServers: 'PhoneNoServers'},
     './directory-chooser': directoryChooser,
   }));
   let tree: any;

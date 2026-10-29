@@ -14,7 +14,9 @@ import {useTheme} from '../kit/theme';
 import {focusTestID} from '../kit/focus';
 import {tvFocusIds} from './tv-focus';
 import {DockHost, PlayerMorph, bindNativeDock, usePlayerMorph, type DockPresentation,type CastDockBinding} from '../kit/dock';
-import {commandIsCurrent, playbackPosition} from '../kit/dock/model';
+import {commandIsCurrent, dockBarFrame, playbackPosition} from '../kit/dock/model';
+import {StartingDock} from '../kit/dock/StartingDock';
+import {StartTimedOut} from './StartTimedOut';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {ListeningPageBackground, ListeningPagePreview, NowPlayingScreen, TVListeningRoute, type NowPlayingScreenProps} from '../screens/destinations/music/NowPlayingScreen';
 import {NowPlayingLyrics} from '../screens/destinations/music/NowPlayingLyrics';
@@ -476,6 +478,10 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
           visible={snapshot.pictureInPicture?.active !== true}
           tvExpanded={!!dockedLocal?.expanded} onTVExpandedChange={open => {if (fence) void action({type: open ? 'expand' : 'collapse', fence}).catch(runtime.reportError);}}
           onAction={command => {void action(command).catch(runtime.reportError);}}/>}
+        {/* O-159: an accepted Play is drawn at once; the real dock replaces this in place. */}
+        {snapshot.starting && !snapshot.dock.local && !snapshot.retired && sameAuthority(snapshot.authority, authority) && <StartingDock key={snapshot.starting.key}
+          title={snapshot.starting.display.title} artwork={snapshot.starting.display.localArtwork ? {uri: snapshot.starting.display.localArtwork, cacheKey: snapshot.starting.display.localArtwork} : runtime.artwork(snapshot.starting.display.posterUrl)}
+          onStop={snapshot.starting.stop} frame={dockBarFrame(theme.isTV ? 'tv' : theme.platform, undefined, insets.bottom, contentInset)}/>}
         {!nowPlaying && dockedLocal?.expanded !== true && snapshot.playback.listeningNotice && <NativeListeningNotice key={snapshot.playback.listeningNotice}
           notice={listeningNoticeKey(snapshot.playback.listeningNotice)} bottomOffset={insets.bottom + (theme.platform === 'web' ? 100 : theme.platform === 'tablet' ? 66 : 62) + 10}/>}
         {previewListening && <ListeningPagePreview occupant={previewListening} queue={snapshot.queue?.view ?? undefined} sidePane={!!(snapshot.queue?.view || lyricsOffered)} width={width} height={height} topInset={insets.top} bottomInset={insets.bottom}/>}
@@ -503,6 +509,7 @@ export function NativePlaybackLayer({adapter, runtime, authority, contentInset, 
     {!theme.isTV && !snapshot.retired && sameAuthority(snapshot.authority, authority) && !snapshot.startFailure && !snapshot.capacityWait
       && snapshot.playback.preparation && <TouchPlaybackPreparation message={runtime.text.t(snapshot.playback.preparation.messageId)}/>}
     {preparation && <TVPlaybackPreparation message={runtime.text.t(preparation.messageId)}/>}
+    {snapshot.startTimedOut && !snapshot.retired && sameAuthority(snapshot.authority, authority) && <StartTimedOut key={snapshot.startTimedOut.key} timedOut={snapshot.startTimedOut} runtime={runtime}/>}
     {(snapshot.startFailure || snapshot.capacityWait) && (theme.isTV
       ? <TVStartFailure failure={snapshot.startFailure} wait={snapshot.capacityWait} runtime={runtime}/>
       : <TouchStartFailure failure={snapshot.startFailure} wait={snapshot.capacityWait} runtime={runtime}/>)}

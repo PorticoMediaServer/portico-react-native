@@ -1,4 +1,5 @@
 import {Platform} from 'react-native';
+import {BUILD_ID} from '../../platform/build-id';
 import {sendClientReport} from '../../../../../packages/client-core/src/client-reports';
 import {installationIdentity} from '../../../../../packages/client-core/src/installation';
 import {forgetCrash, journal, lastCrash} from '../../platform/error-capture';
@@ -18,7 +19,8 @@ export async function sendNativeDeviceReport({context, lifetime}: Pick<NativeSet
   assertConsent();
   if (installationIdentity() !== identity) throw new Error('native_device_report_installation_changed');
   const deviceClass = Platform.isTV ? 'television' : 'mobile';
-  const body = reportBody({appVersion: identity.appVersion, platform: identity.platform, deviceClass, deviceName: identity.name,
+  // O-159: the report names the exact build as well as the store version.
+  const body = reportBody({appVersion: `${identity.appVersion} (build ${BUILD_ID})`, platform /* lint-strings-allow: diagnostic report text */: identity.platform, deviceClass, deviceName: identity.name,
     now: Date.now(), fatal: crash, entries: journal.list()});
   await lifetime.request(signal => {
     assertConsent();

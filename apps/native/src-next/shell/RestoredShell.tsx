@@ -11,6 +11,8 @@ import {createNativeShellBindings} from './assembly';
 import {restoreNativeShellRuntime, type RestoredNativeShellRuntime} from './bootstrap';
 import {restoreTrace} from './restore-trace';
 import {logBootMilestone} from './boot-timing';
+import {negotiationRefusal} from '../platform/negotiation';
+import {ServerNeedsUpdate} from '../screens/accounts/ServerNeedsUpdate';
 import {NativeShell} from './NativeShell';
 import {nativeAccounts} from '../platform/accounts';
 import {readNativeSelectedViewer, subscribeNativeAppSessions} from '../platform/app-session-storage';
@@ -289,6 +291,9 @@ export function RestoredShell() {
   if (showAccounts || !restoreError && retained) return withDownloads(<ServersRoute fallbackDownloads={remembered?.entry} onSetupComplete={setupComplete} onComplete={complete} onBack={restoreError ? () => {if (renderedCurrent()) {
     setShowAccounts(previous => renderedCurrent() ? false : previous); renderedRoot?.resumeRecovery?.('accounts');
   }} : undefined}/>, false);
+  // O-159: a saved server that this app can no longer talk to says so by name.
+  const refusal = negotiationRefusal(restoreError);
+  if (refusal) return withDownloads(<ServerNeedsUpdate refusal={refusal} onBack={chooseAccounts} backLabel={defaultI18n.t('next.states.switchServer')} testID="native-recovery-server-update"/>);
   if (restoreError instanceof NativeIdentityFailure) {
     const failure = restoreError;
     return withDownloads(<ServerIdentityFailure failure={failure} onRetry={retry} onChoose={chooseAccounts}
